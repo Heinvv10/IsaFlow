@@ -44,15 +44,16 @@ export const BUREAU_ROLES = ['owner', 'accountant', 'viewer'] as const;
 export type BureauRole = (typeof BUREAU_ROLES)[number];
 
 /**
- * Role values written before #1656 and what each now reads as. The admin portal granted
+ * Role values written before #1656 and what migration 1010 turned each into. The admin portal granted
  * accountant / bookkeeper to give a person working access, but the app let neither write
- * (withWriteAccess admits owner, admin, manager): every write was a 403. Both map to manager,
- * the app role that writes, but WITHOUT approve (Hein, 2026-11-19: no approval power they never
- * had; LEGACY_ROLES_WITHOUT_APPROVE). storeman / technician (the legacy invitation route) and
- * `user` (the old company_users.role column default) were read-only and map to viewer.
- * Migration 1010 rewrites stored rows (backup in role_values_1656_backup) and writes the
- * can_approve=false rows; normalizeCompanyRole and roleDefaultPermission cover a row that
- * arrives after it.
+ * (withWriteAccess admits owner, admin, manager): every write was a 403. 1010 REWRITES the stored value
+ * to manager (the app role that writes; backup in role_values_1656_backup), because many readers see the
+ * literal stored role (RLS, triggers, the approval-request write check, extension and capture auth), and
+ * sets company_users.approve_withheld on those rows so they hold no Approve and no Payroll (Hein, 2026-11-19:
+ * no approval power they never had); unticking the flag restores the manager defaults. storeman / technician
+ * (the legacy invitation route) and `user` (the old company_users.role column default) were read-only and
+ * become viewer. normalizeCompanyRole only covers a legacy value that arrives AFTER the migration (old code
+ * writing during a deploy window): it reads as the mapped role, with the manager defaults.
  */
 export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.freeze({
   accountant: 'manager',
@@ -62,13 +63,7 @@ export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.fre
   user: 'viewer',
 });
 
-/**
- * Legacy values promoted to manager that gain neither approve on any module nor anything on Payroll
- * (Hein, 2026-11-19), with no company_user_permissions row needed.
- */
-export const LEGACY_ROLES_WITHOUT_APPROVE: ReadonlySet<string> = new Set(['accountant', 'bookkeeper']);
-
-/** The module a promoted former accountant / bookkeeper cannot even read (per-employee pay). */
+/** The module a manager whose Approve is withheld (company_users.approve_withheld) cannot even read (per-employee pay). */
 export const LEGACY_DENIED_MODULE = 'payroll';
 
 /** A stored role as the app reads it: a legacy value maps (LEGACY_ROLE_MAP); anything else is returned unchanged. */
@@ -97,9 +92,9 @@ export const MANAGER_APPROVES_BY_DEFAULT = true;
 /**
  * What a role may do on a module when the user has no company_user_permissions row for it:
  * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
- * (never delete); viewer read, export. Pass the STORED role: a legacy accountant/bookkeeper reads
- * as a manager without approve, and with nothing on Payroll (`moduleKey`); so does a manager whose membership
- * carries `approveWithheld` (company_users.approve_withheld, what migration 1010c backfills for them).
+ * (never delete); viewer read, export. A manager whose membership carries `approveWithheld`
+ * (company_users.approve_withheld, backfilled by 1010c for the former accountants / bookkeepers) has no
+ * Approve and nothing on Payroll (`moduleKey`); clearing the flag restores the manager defaults.
  */
 export function roleDefaultPermission(
   role: string, action: PermissionAction, moduleKey?: string, approveWithheld = false,
@@ -109,8 +104,7 @@ export function roleDefaultPermission(
   // Withheld approval (round 3, H1): the membership carries company_users.approve_withheld (migration 1010c) for a former
   // accountant / bookkeeper, so "Reset to defaults", or a permission module added later, cannot bring the manager default back.
   // An owner or admin has set explicit rows to grant it; a row overrides this default (checkPermission).
-  const withheld = approveWithheld || LEGACY_ROLES_WITHOUT_APPROVE.has(role);
-  if (withheld && effective === 'manager' && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
+  if (approveWithheld && effective === 'manager' && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
   if (effective === 'manager') {
     if (action === 'approve') return MANAGER_APPROVES_BY_DEFAULT;
     return action === 'read' || action === 'write' || action === 'export';
@@ -127,22 +121,8 @@ export function mayHoldApprove(role: string): boolean {
   return isWriteRole(role);
 }
 
-/** Owner, admin and manager (a stored legacy accountant / bookkeeper reads as manager): the roles that may write. */
+/** Owner, admin and manager: the roles that may write. */
 export function isWriteRole(role: string): boolean {
   const effective = normalizeCompanyRole(role);
   return isFullAccessRole(effective) || effective === 'manager';
-}
-
-/**
- * Every STORED company_users.role value that reads as a write role (owner, admin, manager, and the legacy accountant / bookkeeper that
- * 1010 leaves stored, round 4 B-M3): what a SQL membership check filters on, since a query sees the stored value, not the normalised one.
- */
-export const STORED_WRITE_ROLE_VALUES: readonly string[] = [...COMPANY_ROLES, ...Object.keys(LEGACY_ROLE_MAP)].filter(mayHoldApprove);
-
-/** "Manager (no approve)" for a manager the manager default is withheld from (a former accountant / bookkeeper), else the role's name. */
-export function companyRoleLabel(storedRole: string, approveWithheld = false): string {
-  const effective = normalizeCompanyRole(storedRole);
-  const name = effective.charAt(0).toUpperCase() + effective.slice(1);
-  const withheld = approveWithheld || LEGACY_ROLES_WITHOUT_APPROVE.has(storedRole);
-  return effective === 'manager' && withheld ? 'Manager (no approve)' : name;
 }

@@ -117,30 +117,35 @@ describe('checkGroupPermission: a write role AND the permission in the SAME memb
   });
 });
 
-describe('round 4 (B-M3): accountant / bookkeeper stay stored; the app reads them as managers without approve', () => {
-  it('a stored legacy role is a write role in SQL membership checks and reads as manager everywhere else', async () => {
-    const { STORED_WRITE_ROLE_VALUES, normalizeCompanyRole, companyRoleLabel } = await import('@/lib/auth/companyRoles');
-    expect([...STORED_WRITE_ROLE_VALUES].sort()).toEqual(['accountant', 'admin', 'bookkeeper', 'manager', 'owner']);
+describe('round 6 (B-M3 reversed): the stored role is rewritten to manager; the flag alone withholds, and clearing it restores the defaults', () => {
+  it('a legacy value that arrives AFTER the migration reads as manager with the manager defaults (no flag, no withholding of its own)', async () => {
+    const { normalizeCompanyRole } = await import('@/lib/auth/companyRoles');
     expect(normalizeCompanyRole('accountant')).toBe('manager');
     expect(normalizeCompanyRole('bookkeeper')).toBe('manager');
-    expect(companyRoleLabel('bookkeeper')).toBe('Manager (no approve)');
-    expect(companyRoleLabel('accountant', false)).toBe('Manager (no approve)');
-    expect(companyRoleLabel('manager', true)).toBe('Manager (no approve)');
-    expect(companyRoleLabel('manager')).toBe('Manager');
-    expect(companyRoleLabel('viewer')).toBe('Viewer');
+    db.members.set(key(), 'bookkeeper');
+    expect(await checkPermission(C, U, 'suppliers', 'approve')).toBe(true);
+    expect(await checkPermission(C, U, 'payroll', 'read')).toBe(true);
   });
 
-  it('checkPermission on a STORED bookkeeper (no flag, no rows) refuses Approve and Payroll but not the manager default otherwise', async () => {
-    db.members.set(key(), 'bookkeeper');
+  it('unticking the withhold flag on a migrated manager restores the manager defaults on every module and Payroll', async () => {
+    db.members.set(key(), 'manager');
+    db.withheld.add(key());
     expect(await checkPermission(C, U, 'suppliers', 'approve')).toBe(false);
-    expect(await checkPermission(C, U, 'payroll', 'read')).toBe(false);
-    expect(await checkPermission(C, U, 'suppliers', 'write')).toBe(true);
+    expect(await checkPermission(C, U, 'payroll', 'write')).toBe(false);
+    db.withheld.clear();
+    expect(await checkPermission(C, U, 'suppliers', 'approve')).toBe(true);
+    expect(await checkPermission(C, U, 'payroll', 'write')).toBe(true);
   });
 
-  it('a stored bookkeeper still counts as a write role in a group (same company as the permission)', async () => {
+  it('roleDefaultPermission ignores the role NAME for withholding: only the flag decides', () => {
+    expect(roleDefaultPermission('bookkeeper', 'approve', 'suppliers', false)).toBe(true);
+    expect(roleDefaultPermission('manager', 'approve', 'suppliers', true)).toBe(false);
+  });
+
+  it('a manager in a group is a write role there, with the permission in the same company', async () => {
     db.groups.set(G, [C]);
-    db.members.set(key(), 'bookkeeper');
-    db.rows.set(`${key()}:group`, { can_read: true, can_write: true, can_approve: true }); // an owner ticked it
+    db.members.set(key(), 'manager');
+    db.rows.set(`${key()}:group`, { can_read: true, can_write: true, can_approve: true });
     expect(await checkGroupPermission(U, G, 'group', 'approve')).toBe(true);
   });
 });

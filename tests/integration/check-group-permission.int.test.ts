@@ -42,7 +42,7 @@ describe('checkGroupPermission (real SQL)', () => {
     await member(A, U.split, 'viewer'); await row(A, U.split, true); // approve in A, but no write role there
     await member(B, U.split, 'manager'); await row(B, U.split, false); // write role in B, but no approve there
     await member(A, U.withheld, 'manager', true);
-    await member(A, U.bookkeeper, 'bookkeeper', true);
+    await member(A, U.bookkeeper, 'manager', true); // a migrated former bookkeeper: manager with approve_withheld (1010 / 1010c)
     await member(LEFT, U.leftCo, 'owner');
     await member(A, U.viewer, 'viewer');
   });
@@ -72,7 +72,7 @@ describe('checkGroupPermission (real SQL)', () => {
     expect(await checkGroupPermission(U.leftCo, GROUP, 'group', 'approve')).toBe(false);
   });
 
-  it('a stored bookkeeper is a write role; an owner\'s explicit row grants it, the flag withholds the default', async () => {
+  it('a migrated former bookkeeper (manager with the flag): the flag withholds the default, an owner\'s explicit row grants it', async () => {
     expect(await checkGroupPermission(U.bookkeeper, GROUP, 'group', 'approve')).toBe(false);
     await row(A, U.bookkeeper, true);
     expect(await checkGroupPermission(U.bookkeeper, GROUP, 'group', 'approve')).toBe(true);

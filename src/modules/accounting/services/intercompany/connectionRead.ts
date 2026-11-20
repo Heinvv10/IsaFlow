@@ -4,7 +4,7 @@
  * Everything runs on the request's transaction, so RLS (1000, 1002) already limits rows to this company's.
  */
 import { sql } from '@/lib/neon';
-import { STORED_WRITE_ROLE_VALUES } from '@/lib/auth/companyRoles';
+import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import { computeChecklist } from './connectionValidation';
 import type {
@@ -105,7 +105,7 @@ export async function listGroupCandidates(userId: string, companyId: string): Pr
       AND EXISTS (
         SELECT 1 FROM company_users cu
         WHERE cu.company_id = other.company_id AND cu.user_id = ${userId}
-          AND cu.role = ANY(${[...STORED_WRITE_ROLE_VALUES]}::TEXT[])
+          AND cu.role = ANY(${[...DEFAULT_WRITE_ROLES]}::TEXT[])
       )
     ORDER BY other.company_id, (CASE WHEN ic.status IS NULL THEN 2 WHEN ic.status = 'revoked' THEN 1 ELSE 0 END), g.name
   `) as Row[];

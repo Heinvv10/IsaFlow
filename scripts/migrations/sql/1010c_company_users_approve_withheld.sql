@@ -7,10 +7,8 @@
 --
 --   company_users.approve_withheld  boolean NOT NULL DEFAULT false
 --
--- Backfill: true for every membership that is (still) stored as accountant / bookkeeper: 1010 does NOT rewrite those roles
--- (round 4, B-M3: old code reads 'manager' as a full approver, so rewriting would unrestrict them on a code rollback); the app
--- reads the stored value as manager and this flag is what withholds the approval. A membership an earlier build already rewrote
--- to manager is caught through role_values_1656_backup. checkPermission and roleDefaultPermission read
+-- Backfill: true for every membership 1010 promoted from accountant / bookkeeper (role_values_1656_backup, source_table
+-- 'company_users', old_role accountant / bookkeeper; the row is a manager now). checkPermission and roleDefaultPermission read
 -- it: a manager with it set has Approve false on every module and Payroll read / write false WHEN NO ROW says otherwise.
 -- An owner or admin who ticks Approve for them writes a row, which overrides the default, as before. Cleared by an owner / admin
 -- in User Access or by the admin portal (company_users RLS: cu_admin_write; platform_admin).
@@ -29,8 +27,9 @@ COMMENT ON COLUMN public.company_users.approve_withheld IS
 
 UPDATE public.company_users cu
 SET approve_withheld = true
-WHERE cu.approve_withheld IS DISTINCT FROM true
-  AND (cu.role IN ('accountant', 'bookkeeper')
-       OR (cu.role = 'manager' AND EXISTS (SELECT 1 FROM public.role_values_1656_backup b
-                                           WHERE b.source_table = 'company_users' AND b.row_id = cu.id::text
-                                             AND b.old_role IN ('accountant', 'bookkeeper'))));
+FROM public.role_values_1656_backup b
+WHERE b.source_table = 'company_users'
+  AND b.row_id = cu.id::text
+  AND b.old_role IN ('accountant', 'bookkeeper')
+  AND cu.role = 'manager'
+  AND cu.approve_withheld IS DISTINCT FROM true;

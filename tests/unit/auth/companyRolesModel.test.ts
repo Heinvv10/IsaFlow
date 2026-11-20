@@ -39,13 +39,12 @@ describe('roleDefaultPermission', () => {
     expect(allowed('viewer')).toEqual(['read', 'export']);
   });
 
-  it('a former accountant / bookkeeper writes like a manager but does not approve, and has nothing on Payroll; storeman/technician/user read', () => {
-    expect(allowed('accountant')).toEqual(['read', 'write', 'export']);
-    expect(allowed('bookkeeper')).toEqual(['read', 'write', 'export']);
-    for (const r of ['accountant', 'bookkeeper']) {
-      expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission(r, a, 'payroll'))).toEqual([]);
-      expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission(r, a, 'suppliers'))).toEqual(['read', 'write', 'export']);
-    }
+  it('a manager whose approve_withheld flag is set writes but does not approve and has nothing on Payroll; clearing it restores the manager defaults; storeman/technician/user read', () => {
+    const withheld = (a: (typeof PERMISSION_ACTIONS)[number], m: string) => roleDefaultPermission('manager', a, m, true);
+    expect(PERMISSION_ACTIONS.filter((a) => withheld(a, 'payroll'))).toEqual([]);
+    expect(PERMISSION_ACTIONS.filter((a) => withheld(a, 'suppliers'))).toEqual(['read', 'write', 'export']);
+    // a legacy NAME arriving after the migration reads as manager with the manager defaults: only the flag withholds
+    for (const r of ['accountant', 'bookkeeper']) expect(allowed(r)).toEqual(['read', 'write', 'export', 'approve']);
     expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission('manager', a, 'payroll'))).toEqual(['read', 'write', 'export', 'approve']);
     for (const r of ['storeman', 'technician', 'user']) expect(allowed(r)).toEqual(['read', 'export']);
     expect(allowed('nonsense')).toEqual([]);
@@ -64,8 +63,9 @@ describe('getEffectivePermissions', () => {
   const view = async (role: string) => (await getEffectivePermissions(C, U, role))
     .map((p) => `${p.moduleKey}:${p.canWrite ? 'w' : '-'}${p.canApprove ? 'a' : '-'}`);
 
-  it("a stored bookkeeper sees write without approve on every module, a manager with approve", async () => {
-    expect(await view('bookkeeper')).toEqual(['suppliers:w-', 'banking:w-']);
+  it("a manager with approve_withheld sees write without approve on every module; without it, with approve", async () => {
+    const withheld = (await getEffectivePermissions(C, U, 'manager', true)).map((p) => `${p.moduleKey}:${p.canWrite ? 'w' : '-'}${p.canApprove ? 'a' : '-'}`);
+    expect(withheld).toEqual(['suppliers:w-', 'banking:w-']);
     expect(await view('manager')).toEqual(['suppliers:wa', 'banking:wa']);
   });
 

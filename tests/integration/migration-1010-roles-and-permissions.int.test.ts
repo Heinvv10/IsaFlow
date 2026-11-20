@@ -3,9 +3,8 @@
  * fixture database (both are applied by the integration build; this re-runs 1010's file on seeded
  * legacy rows, as a re-run on production would see them).
  *
- * 1010: accountant / bookkeeper STAY as stored (round 4, B-M3: old code reads 'manager' as a full approver, so rewriting would
- * unrestrict them on a code rollback); each gets a row per module (can_approve false, nothing on Payroll), recorded in
- * role_values_1656_backup, and 1010c sets approve_withheld on them; storeman / technician / user → viewer; pending legacy
+ * 1010: accountant / bookkeeper → manager WITHOUT approve (a row per module, can_approve false,
+ * recorded in role_values_1656_backup); storeman / technician / user → viewer; pending legacy
  * invitations → viewer; a manager's existing row with can_approve false gets approve once (M1,
  * the marker row), recorded; company_users.role defaults to viewer; a second run changes nothing.
  * 1010b: as app_user, only an owner or admin of the company writes company_user_permissions.
@@ -95,8 +94,8 @@ afterAll(async () => {
 }, 60000);
 
 describe('migration 1010: the legacy mapping', () => {
-  it('bookkeeper STAYS bookkeeper (rollback safety) with a row per module: manager defaults, never approve (its own row loses approve), nothing on Payroll', async () => {
-    expect(await roleOf(ids.book)).toBe('bookkeeper');
+  it('bookkeeper → manager with a row per module: manager defaults, never approve (its own row loses approve), nothing on Payroll', async () => {
+    expect(await roleOf(ids.book)).toBe('manager');
     expect(await permsOf(ids.book)).toEqual([
       { module_key: 'customers', can_read: true, can_write: false, can_delete: false, can_export: false, can_approve: false },
       { module_key: 'payroll', can_read: false, can_write: false, can_delete: false, can_export: false, can_approve: false },
@@ -106,13 +105,6 @@ describe('migration 1010: the legacy mapping', () => {
 
   it("adds the 'budgets' permission module", async () => {
     expect((await pool.query("SELECT module_name FROM permission_modules WHERE module_key = 'budgets'")).rows).toEqual([{ module_name: 'Budgets' }]);
-  });
-
-  it('no accountant / bookkeeper membership is rewritten to manager: old code would read it as a full approver (B-M3)', async () => {
-    const rewritten = await pool.query(
-      `SELECT count(*)::int AS n FROM role_values_1656_backup b JOIN company_users cu ON cu.id::text = b.row_id
-       WHERE b.source_table = 'company_users' AND b.old_role IN ('accountant', 'bookkeeper') AND cu.role = 'manager'`);
-    expect(rewritten.rows[0].n).toBe(0);
   });
 
   it('storeman → viewer; owner untouched; the pending technician invitation → viewer; users.role accountant → manager', async () => {

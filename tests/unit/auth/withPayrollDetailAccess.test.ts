@@ -36,11 +36,14 @@ describe('withPayrollDetailAccess', () => {
     expect(r.status).toBe(403);
     expect(r.handler).not.toHaveBeenCalled();
   });
-  it.each(['bookkeeper', 'accountant'])('a stored %s (reads as manager) has no Payroll: refused', async (stored) => {
-    const r = await run('manager', 'GET', stored);
+  it('a migrated former accountant / bookkeeper (a manager with approve_withheld) has no Payroll: refused; clearing the flag restores it', async () => {
+    db.withheld.add(`${C}:${U}`);
+    const r = await run('manager', 'GET');
     expect(r.status).toBe(403);
     expect(r.handler).not.toHaveBeenCalled();
     expect(db.reads).toEqual([{ companyId: C, userId: U, moduleKey: 'payroll' }]);
+    db.withheld.clear();
+    expect((await run('manager', 'GET')).handler).toHaveBeenCalledOnce();
   });
   it("a manager whose Payroll read is unticked is refused; an owner's unticked row does not count", async () => {
     db.rows.set(`${C}:${U}:payroll`, { can_read: false });
