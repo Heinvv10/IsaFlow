@@ -138,7 +138,7 @@ export default function GoodsReceivedPage() {
                       <td className="px-5 py-3.5">
                         <StatusPill status={g.status || 'received'} />
                         {g.status === 'cancelled' && g.cancel_reason && (
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{g.cancel_reason}</div>
+                          <div className="mt-1 text-xs text-ink-muted">{g.cancel_reason}</div>
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.notes || '—'}</td>

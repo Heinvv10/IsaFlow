@@ -58,6 +58,10 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
       [A, B, USER]);
     await pool.query('INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, $3), ($4, $5, $6)',
       [SUP_A, A, 'R146 Supplier A', SUP_B, B, 'R146 Supplier B']);
+    // A real PO of company A: the auto-link only links a PO of the bill's own company (a bill's purchase_order_id has no FK).
+    await pool.query(
+      `INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, $3, $4, CURRENT_DATE, 'approved')`,
+      [PO_A, A, `R146-PO-${PO_A.slice(0, 8)}`, SUP_A]);
     for (const [id, co, sup, po] of [[SI_A, A, SUP_A, PO_A], [SI_B, B, SUP_B, null]] as const) {
       await pool.query(
         `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date,
@@ -81,7 +85,7 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
     try {
       await pool.query('DELETE FROM document_links WHERE document_id = ANY($1::uuid[])', [[DOC_A, DOC_B]]);
       await pool.query('DELETE FROM procurement_documents WHERE id = ANY($1::uuid[])', [[DOC_A, DOC_B]]);
-      for (const t of ['supplier_invoices', 'suppliers', 'company_users']) {
+      for (const t of ['supplier_invoices', 'purchase_orders', 'suppliers', 'company_users']) {
         await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, [[A, B]]);
       }
       await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B]]);
