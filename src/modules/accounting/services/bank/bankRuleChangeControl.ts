@@ -28,7 +28,11 @@ export type RuleProjection = Record<string, unknown>;
 export interface HeldRuleChange { status: 'pending_approval'; changeId: string }
 export type RuleWrite = { status: 'applied'; row: Record<string, unknown> } | HeldRuleChange;
 /** Runs under the rule lock before any write; `before` is the locked rule (null for a creation). */
-export type RuleWriteGuard = (after: RuleProjection, postsMoney: boolean, before?: RuleProjection | null) => void | Promise<void>;
+export type RuleWriteGuard = (
+  after: RuleProjection, postsMoney: boolean, before?: RuleProjection | null, beforePostsMoney?: boolean,
+) => void | Promise<void>;
+/** Runs under the rows' lock before a delete: each rule as it stands, and whether it posts money (bank_rule_posts_money). */
+export type RuleDeleteGuard = (rows: Array<{ before: RuleProjection; postsMoney: boolean }>) => void | Promise<void>;
 
 /** The columns a new rule's caller sets; the rest take the table's defaults (RULE_DEFAULTS). */
 export interface NewRuleColumns {
@@ -96,7 +100,7 @@ export async function writeNewRule(
 ): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const { after, postsMoney, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
-  await guard?.(after, postsMoney, null);
+  await guard?.(after, postsMoney, null, false);
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -126,7 +130,8 @@ export async function writeRuleChange(
   if (!before) throw new BankRequestRefusal(`Rule ${ruleId} not found`, 404);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   const { after, postsMoney, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
-  await guard?.(after, postsMoney, before);
+  const beforePostsMoney = guard === undefined ? false : await rulePostsMoney(companyId, before);
+  await guard?.(after, postsMoney, before, beforePostsMoney);
   if (held) return hold(companyId, ruleId, toggleOnly ? 'toggle' : 'update', after, userId);
   // `after` is the locked row with the patch over it, so setting the editable
   // columns from it moves exactly the named ones.
@@ -148,7 +153,7 @@ export async function writeRuleChange(
  * order; a missing or foreign id refuses the WHOLE batch (404) before any
  * delete. Repeated ids count once.
  */
-export async function removeRules(companyId: string, ids: readonly string[]): Promise<number> {
+export async function removeRules(companyId: string, ids: readonly string[], guard?: RuleDeleteGuard): Promise<number> {
   const unique = [...new Set(ids.map((id) => id.toLowerCase()))].sort();
   if (unique.length === 0) return 0;
   const locked = (await sql`
@@ -159,6 +164,13 @@ export async function removeRules(companyId: string, ids: readonly string[]): Pr
   if (locked.length !== unique.length) {
     throw new BankControlError('NOT_FOUND', unique.length === 1 ? 'Rule not found.'
       : 'One or more of these rules do not exist in this company. Nothing was deleted.');
+  }
+  if (guard) {
+    const before = (await sql`
+      SELECT id, public.bank_rule_current(${companyId}::UUID, id) AS before FROM bank_categorisation_rules
+      WHERE company_id = ${companyId}::UUID AND id = ANY(${unique}::UUID[])
+    `) as { id: string; before: RuleProjection }[];
+    await guard(await Promise.all(before.map(async (r) => ({ before: r.before, postsMoney: await rulePostsMoney(companyId, r.before) }))));
   }
   const rows = (await sql`
     DELETE FROM bank_categorisation_rules WHERE company_id = ${companyId}::UUID AND id = ANY(${unique}::UUID[]) RETURNING id

@@ -14,7 +14,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/apiJournalDate', () => ({ JOURNAL_DATE_REFUSED: Symbol('r'), withJournalDateRefusal: async (_r: unknown, fn: () => unknown) => fn() }));
 const stmts = vi.hoisted(() => [] as string[]);
-const state = vi.hoisted(() => ({ before: {} as Record<string, unknown> }));
+const state = vi.hoisted(() => ({ before: {} as Record<string, unknown>, autoPostOn: false }));
 vi.mock('@/lib/neon', () => ({
   withSavepoint: (_n: string, fn: () => unknown) => fn(),
   sql: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -24,8 +24,12 @@ vi.mock('@/lib/neon', () => ({
       const json = values.filter((v): v is string => typeof v === 'string' && v.startsWith('{')).map((v) => JSON.parse(v) as Record<string, unknown>);
       const after = json[json.length - 1]!;
       const { is_active: a1, ...b } = state.before; const { is_active: a2, ...c } = after; void a1; void a2;
-      return [{ after, posts_money: false, held: false, toggle_only: JSON.stringify(b) === JSON.stringify(c) }];
+      // bank_rule_posts_money (877): an active rule posts when it auto-creates entries OR company auto-post is on
+      const posts = (after.auto_create_entry === true || state.autoPostOn) && after.is_active === true;
+      return [{ after, posts_money: posts, held: false, toggle_only: JSON.stringify(b) === JSON.stringify(c) }];
     }
+    if (/bank_rule_current/.test(text)) return [{ id: 'r1', before: state.before }];
+    if (/^\s*DELETE FROM bank_categorisation_rules/.test(text)) return [{ id: 'r1' }];
     if (/^\s*UPDATE bank_categorisation_rules/.test(text)) return [{ id: 'r1' }];
     if (/FROM bank_categorisation_rules/.test(text)) return [state.before];
     return [];
@@ -49,8 +53,8 @@ function call(body: unknown) {
   const res = { statusCode: 0, sent: undefined as unknown, setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; }, json(p: unknown) { this.sent = p; return this; } };
   return Promise.resolve(handler(req, res as unknown as NextApiResponse)).then(() => res);
 }
-const wrote = () => stmts.some((t) => /^\s*UPDATE bank_categorisation_rules/.test(t));
-beforeEach(() => { vi.clearAllMocks(); stmts.length = 0; vi.mocked(mayApprove).mockResolvedValue(false); });
+const wrote = () => stmts.some((t) => /^\s*(UPDATE|DELETE FROM) bank_categorisation_rules/.test(t));
+beforeEach(() => { vi.clearAllMocks(); stmts.length = 0; state.autoPostOn = false; vi.mocked(mayApprove).mockResolvedValue(false); });
 
 describe('bank-rules-action update, without Banking Approve', () => {
   it('omitting auto_create_entry on an auto-posting rule and changing its match is refused 403, nothing written', async () => {
@@ -81,16 +85,29 @@ describe('bank-rules-action update, without Banking Approve', () => {
     expect(wrote()).toBe(true);
   });
 
-  it('a priority-only edit of an auto-posting rule moves nothing it posts: allowed', async () => {
+  it('round 6: a priority edit of an auto-posting rule changes which rule wins, so it is refused; a name-only edit is not', async () => {
     state.before = rule({});
-    expect((await call({ action: 'update', id: ID, priority: 50 })).statusCode).toBe(200);
+    expect((await call({ action: 'update', id: ID, priority: 50 })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+    expect((await call({ action: 'update', id: ID, ruleName: 'Fuel 2' })).statusCode).toBe(200);
     expect(wrote()).toBe(true);
   });
 
-  it('turning auto-create OFF (and so stopping it posting) is allowed', async () => {
+  it('round 6: turning auto-create OFF an auto-posting rule changes what posts, so it is refused too; a rule that never posted switches freely', async () => {
     state.before = rule({});
-    expect((await call({ action: 'update', id: ID, autoCreateEntry: false })).statusCode).toBe(200); // after: not auto-posting, so nothing posts
-    expect(wrote()).toBe(true);
+    expect((await call({ action: 'update', id: ID, autoCreateEntry: false })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+    state.before = rule({ auto_create_entry: false });
+    expect((await call({ action: 'update', id: ID, autoCreateEntry: false, matchPattern: 'SHELL' })).statusCode).toBe(200);
+  });
+
+  it('round 6 (B-M1): with company auto-post ON, a suggest-only rule posts too (bank_rule_posts_money): editing it needs Banking Approve; with it off it does not', async () => {
+    state.before = rule({ auto_create_entry: false });
+    state.autoPostOn = true;
+    expect((await call({ action: 'update', id: ID, matchPattern: 'SHELL' })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+    state.autoPostOn = false;
+    expect((await call({ action: 'update', id: ID, matchPattern: 'SHELL' })).statusCode).toBe(200);
   });
 
   it('with Banking Approve the same edit goes through', async () => {
@@ -109,12 +126,37 @@ describe('bank-rules-action toggle, without Banking Approve', () => {
     expect(wrote()).toBe(false);
   });
 
-  it('switching it OFF is allowed (stopping a rule posts nothing), and a rule that does not auto-post toggles freely', async () => {
+  it('round 6: switching an auto-posting rule OFF is refused too (it changes which rule matches); a rule that does not post toggles freely', async () => {
     state.before = rule({});
-    expect((await call({ action: 'toggle', id: ID, isActive: false })).statusCode).toBe(200);
-    stmts.length = 0;
+    expect((await call({ action: 'toggle', id: ID, isActive: false })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
     state.before = rule({ auto_create_entry: false, is_active: false });
     expect((await call({ action: 'toggle', id: ID, isActive: true })).statusCode).toBe(200);
     expect(wrote()).toBe(true);
+  });
+});
+
+describe('bank-rules-action delete, without Banking Approve (round 6)', () => {
+  it('deleting an auto-posting rule is refused 403, one or many; nothing is deleted', async () => {
+    state.before = rule({});
+    expect((await call({ action: 'delete', id: ID })).statusCode).toBe(403);
+    expect((await call({ action: 'deleteMany', ids: [ID] })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+  });
+
+  it('deleting a rule that does not post is allowed, and with company auto-post on the same rule needs Approve', async () => {
+    state.before = rule({ auto_create_entry: false });
+    expect((await call({ action: 'delete', id: ID })).statusCode).toBe(200);
+    expect(wrote()).toBe(true);
+    stmts.length = 0;
+    state.autoPostOn = true;
+    expect((await call({ action: 'delete', id: ID })).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+  });
+
+  it('with Banking Approve deleting an auto-posting rule is allowed', async () => {
+    vi.mocked(mayApprove).mockResolvedValue(true);
+    state.before = rule({});
+    expect((await call({ action: 'delete', id: ID })).statusCode).toBe(200);
   });
 });

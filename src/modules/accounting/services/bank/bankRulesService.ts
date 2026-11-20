@@ -13,7 +13,7 @@ import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
 import {
-  removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite, type RuleWriteGuard,
+  removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite, type RuleWriteGuard, type RuleDeleteGuard,
 } from './bankRuleChangeControl';
 import { assertNotContactControl } from './contactControlGuard';
 import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
@@ -171,13 +171,13 @@ function assertAutoApply(value: AutoApplyMode | undefined): AutoApplyMode | unde
 }
 
 /** Deleting is always applied (a deleted rule posts nothing); recorded by the rules table. 404 when the rule is not here. */
-export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await removeRules(companyId, [id]);
+export async function deleteRule(companyId: string, id: string, guard?: RuleDeleteGuard): Promise<void> {
+  await removeRules(companyId, [id], guard);
 }
 
 /** All or nothing: a missing or foreign id refuses the whole batch (404) before any delete. */
-export async function deleteRules(companyId: string, ids: string[]): Promise<number> {
-  return removeRules(companyId, ids);
+export async function deleteRules(companyId: string, ids: string[], guard?: RuleDeleteGuard): Promise<number> {
+  return removeRules(companyId, ids, guard);
 }
 
 export async function toggleRule(

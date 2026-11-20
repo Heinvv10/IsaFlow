@@ -16,7 +16,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
-import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+import { autoPostApprovalGuard, autoPostDeleteGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -70,11 +70,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     switch (body.action) {
       case 'delete':
-        await deleteRule(companyId, body.id);
+        // #1656 (round 6): deleting a rule that posts (or would, company auto-post being on) changes which journals get posted: Banking Approve.
+        await deleteRule(companyId, body.id, autoPostDeleteGuard(await mayApprove(companyId, userId, 'banking')));
         return apiResponse.success(res, { deleted: true, status: 'applied' });
 
       case 'deleteMany': {
-        const count = await deleteRules(companyId, body.ids);
+        const count = await deleteRules(companyId, body.ids, autoPostDeleteGuard(await mayApprove(companyId, userId, 'banking')));
         return apiResponse.success(res, { deleted: count, status: 'applied' });
       }
 

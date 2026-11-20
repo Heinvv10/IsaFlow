@@ -87,6 +87,7 @@ const CASES: Case[] = [
   ['bank-rules create with autoCreateEntry (round 4)', bankRules, 'POST', { ruleName: 'r', matchField: 'description', matchType: 'contains', matchPattern: 'x', glAccountId: ID, autoCreateEntry: true }, {}, 'banking'],
   ['commentary/[id]/approve (round 4)', commentaryApprove, 'POST', {}, { id: ID }, 'budgets'],
   ['budgets/variance-notes approve (round 4)', varianceNotes, 'POST', { action: 'approve', id: ID, draft: 'a draft' }, {}, 'budgets'],
+  ['bank-auto-post settings PUT (round 6)', bankAutoPost, 'PUT', { enabled: true }, {}, 'banking'],
   ['bank-rules-action apply', bankRulesAction, 'POST', { action: 'apply', bankAccountId: ID }, {}, 'banking'],
 ];
 

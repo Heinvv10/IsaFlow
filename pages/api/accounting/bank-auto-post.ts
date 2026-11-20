@@ -122,6 +122,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (Object.keys(patch).length === 0) {
       return apiResponse.badRequest(res, `At least one of ${PUT_FIELDS.join(' | ')} is required`);
     }
+    // #1656 (round 6): the settings decide whether, how much and how confidently the sweep posts journals unattended (enabled, minConfidence,
+    // amountCap, llm*): Banking Approve, before any write.
+    if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-post settings')) return;
     try {
       const settings = await updateAutoPostSettings(companyId, patch, userId);
       return apiResponse.success(res, { settings });

@@ -35,5 +35,6 @@ export function dryRunNeedsApprove(
   set('gl_account_id', input.glAccountId); set('supplier_id', input.supplierId); set('client_id', input.clientId);
   set('description_template', input.descriptionTemplate); set('vat_code', input.vatCode); set('auto_apply', input.autoApply);
   set('auto_create_entry', input.autoCreateEntry); set('is_active', input.isActive);
-  return autoPostRuleChangeNeedsApprove(before, after);
+  // The dry run cannot ask the database whether company auto-post makes the rule post; a rule that auto-posts itself is the case it can see.
+  return autoPostRuleChangeNeedsApprove(before, after, after.auto_create_entry === true, before?.auto_create_entry === true);
 }

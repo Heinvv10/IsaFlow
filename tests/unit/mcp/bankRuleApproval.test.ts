@@ -92,10 +92,14 @@ describe('disable_bank_rule (enable) and create_bank_rule without Banking Approv
     expect(text(r)).toMatch(/permission to approve auto-posting bank rules/);
   });
 
-  it('switching it OFF is allowed', async () => {
+  it('round 6: switching an auto-posting rule OFF is refused too (it changes which rule matches); a rule that does not post switches freely', async () => {
     const before = rule({});
     vi.mocked(getRules).mockResolvedValue([before]);
     vi.mocked(toggleRule).mockImplementation(runGuard(before, { is_active: false }) as never);
+    expect((await disableBankRuleTool.handler({ rule_id: RULE_ID, enable: false, ...KEY }, ctx())).isError).toBe(true);
+    const quiet = rule({ autoCreateEntry: false });
+    vi.mocked(getRules).mockResolvedValue([quiet]);
+    vi.mocked(toggleRule).mockImplementation(runGuard(quiet, { is_active: false }) as never);
     expect((await disableBankRuleTool.handler({ rule_id: RULE_ID, enable: false, ...KEY }, ctx())).isError).toBeFalsy();
   });
 

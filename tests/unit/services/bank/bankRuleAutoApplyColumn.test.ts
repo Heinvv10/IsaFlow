@@ -112,13 +112,14 @@ describe('updateRule — auto_apply', () => {
       .mockResolvedValueOnce([{
         after: { auto_create_entry: true, rule_name: 'Renamed' }, posts_money: true, held: false, toggle_only: false,
       }] as never);
+    mockSql.mockResolvedValueOnce([{ posts_money: true }] as never); // the rule as it stands: bank_rule_posts_money (round 6)
     const guard = vi.fn(() => { throw new Error('locked refusal'); });
 
     await expect(updateRule(COMPANY, RULE, { ruleName: 'Renamed' }, USER, guard))
       .rejects.toThrow('locked refusal');
 
     // the third argument is the locked rule before the change (round 5: the approval guard compares it with the result)
-    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true, { auto_create_entry: true, rule_name: 'Reload' });
+    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true, { auto_create_entry: true, rule_name: 'Reload' }, true);
     expect(mockSql.mock.calls.some((call) => call[0].join('').includes('UPDATE bank_categorisation_rules'))).toBe(false);
   });
 });
