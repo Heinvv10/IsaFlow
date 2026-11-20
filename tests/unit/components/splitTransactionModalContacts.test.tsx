@@ -122,3 +122,29 @@ it('cents() still rounds a third decimal that reaches it (the field refuses typi
   expect(cents('.')).toBe(0);
   expect(cents('')).toBe(0);
 });
+
+it('an invalid amount elsewhere on the page does not block the split (the guard is scoped to the modal)', async () => {
+  const stray = document.createElement('input');
+  stray.setAttribute('data-amount-input', '');
+  stray.setCustomValidity('Enter an amount like 100 or 100.50.');
+  document.body.appendChild(stray);
+  try {
+    expect(stray.validity.valid).toBe(false);
+    const onSplit = renderModal();
+    fireEvent.change(screen.getByLabelText('Line 1 amount'), { target: { value: '1959.48' } });
+    pick('Select GL Account', /Fuel/);
+    fireEvent.click(screen.getByRole('button', { name: 'Split & Allocate' }));
+    await waitFor(() => expect(onSplit).toHaveBeenCalled());
+  } finally { stray.remove(); }
+});
+
+it('a refused paste INSIDE the modal still blocks the split and posts nothing', async () => {
+  const onSplit = renderModal();
+  fireEvent.change(screen.getByLabelText('Line 1 amount'), { target: { value: '1959.48' } });
+  pick('Select GL Account', /Fuel/);
+  fireEvent.change(screen.getByLabelText('Line 1 amount'), { target: { value: '1959.48 apples' } }); // refused, field keeps 1959.48
+  fireEvent.click(screen.getByRole('button', { name: 'Split & Allocate' }));
+  await new Promise(r => setTimeout(r, 30));
+  expect(posts).toHaveLength(0);
+  expect(onSplit).not.toHaveBeenCalled();
+});

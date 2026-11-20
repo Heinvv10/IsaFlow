@@ -275,10 +275,33 @@ describe('AmountInput (#1654 follow-up 2): echo token and submit guard', () => {
     fireEvent.click(screen.getByText('save-reset'));
     expect(field().value).toBe('');
   });
-  it('blockOnInvalidAmount: false for a clean field, true after a refused paste (and it reports validity)', () => {
-    render(<form><AmountInput aria-label="amt" value="25" onValueChange={() => undefined} /></form>);
-    expect(blockOnInvalidAmount()).toBe(false);
-    fireEvent.change(field(), { target: { value: '25 apples' } });
-    expect(blockOnInvalidAmount()).toBe(true);
+  it('blockOnInvalidAmount is scoped to the root it is given: another form\'s invalid amount does not block this one', () => {
+    render(<><form data-testid="a"><AmountInput aria-label="a-amt" value="25" onValueChange={() => undefined} /></form>
+      <form data-testid="b"><AmountInput aria-label="b-amt" value="25" onValueChange={() => undefined} /></form></>);
+    const a = screen.getByTestId('a'); const b = screen.getByTestId('b');
+    expect(blockOnInvalidAmount(a)).toBe(false);
+    fireEvent.change(screen.getByLabelText('b-amt'), { target: { value: '25 apples' } });
+    expect(blockOnInvalidAmount(b)).toBe(true);
+    expect(blockOnInvalidAmount(a)).toBe(false);
+    expect(blockOnInvalidAmount(null)).toBe(false);
+  });
+});
+
+describe('AmountInput (#1654 follow-up 3): min/max compared in cents', () => {
+  it('max 0.7 - 0.4 (0.29999999999999993) accepts 0.3 but still refuses 0.31', () => {
+    render(<TextHarness initial="" max={0.7 - 0.4} />);
+    fireEvent.change(field(), { target: { value: '0.3' } });
+    expect(field().validity.valid).toBe(true);
+    fireEvent.change(field(), { target: { value: '0.31' } });
+    expect(field().validity.valid).toBe(false);
+  });
+  it('min 0.1 + 0.2 (0.30000000000000004) accepts 0.3; a NaN bound is ignored, not enforced', () => {
+    render(<TextHarness initial="" min={0.1 + 0.2} />);
+    fireEvent.change(field(), { target: { value: '0.3' } });
+    expect(field().validity.valid).toBe(true);
+    cleanup();
+    render(<TextHarness initial="" max={Number.NaN} />);
+    fireEvent.change(field(), { target: { value: '999999' } });
+    expect(field().validity.valid).toBe(true);
   });
 });
