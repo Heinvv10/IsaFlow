@@ -20,7 +20,7 @@
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import type { VatType } from '../../types/gl.types';
 import { identicalLineKey } from '../items/itemEditLines';
-import { vatDocumentTotals, vatLineAmounts, type AmountsAre } from '../shared/vatLineAmounts';
+import { exactCents, vatDocumentTotals, vatLineAmounts, type AmountsAre } from '../shared/vatLineAmounts';
 import { lineVatShape, storedVatType } from './invoiceVatLegs';
 import { RATED_VAT_TYPES } from '../shared/vatTypes';
 import { assertPricedPostable, invoiceVatParties, resolveInvoiceVat } from './invoiceLineVatDefaults';
@@ -81,7 +81,7 @@ function retax(stored: readonly Row[], date: string, amountsAre: AmountsAre): { 
     const type = storedVatType(r.vat_type) as VatType;
     const net = Number(r.amount);
     const v = amountsAre === 'inclusive'
-      ? vatLineAmounts(Math.round((net + Number(r.tax_amount)) * 100) / 100, type, date, 'inclusive')
+      ? vatLineAmounts((exactCents(net) + exactCents(Number(r.tax_amount))) / 100, type, date, 'inclusive')
       : vatLineAmounts(net, type, date);
     return { id: String(r.id), amount: v.net, taxAmount: v.vat, taxRate: v.ratePct };
   });

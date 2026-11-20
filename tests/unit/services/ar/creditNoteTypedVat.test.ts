@@ -22,6 +22,7 @@ vi.mock('@/lib/neon', () => ({
 }));
 
 import { storedCreditNoteRate, typedCreditNoteVat, vatAtRateCents } from '@/modules/accounting/services/ar/creditNoteTypedVat';
+import { exactCents } from '@/modules/accounting/services/shared/vatLineAmounts';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 
@@ -102,9 +103,15 @@ describe('the rate check is exact cents (#1701 round 1)', () => {
 
 describe('storedCreditNoteRate: the tax_rate a note given only a VAT figure is stored at', () => {
   const base = { creditDate: '2026-11-20' };
-  it('the caller\'s rate stands; no figure is the 15% the VAT was computed at', async () => {
+  it('the caller\'s rate stands', async () => {
     expect(await storedCreditNoteRate(CO, { ...base, taxRate: 14 }, 14)).toBe(14);
-    expect(await storedCreditNoteRate(CO, base, 15)).toBe(15);
+  });
+  it('no figure either (one rule, #1701 round 2): the linked document\'s header rate, else the standard rate on the date, never a fixed 15', async () => {
+    h.rate = '0.00';
+    expect(await storedCreditNoteRate(CO, { ...base, customerInvoiceId: INV }, null)).toBe(0);
+    expect(await storedCreditNoteRate(CO, base, null)).toBe(15);
+    expect(await storedCreditNoteRate(CO, { creditDate: '2018-03-31' }, null)).toBe(14);
+    expect(await storedCreditNoteRate(CO, { creditDate: '1991-09-29' }, null)).toBe(0);
   });
   it('a figure of 0 is stored at 0, not 15', async () => {
     expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 0, customerInvoiceId: INV }, 0)).toBe(0);
@@ -113,5 +120,15 @@ describe('storedCreditNoteRate: the tax_rate a note given only a VAT figure is s
     expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 15, customerInvoiceId: INV }, 15)).toBe(15);
     expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 15, supplierInvoiceId: INV }, 15)).toBe(0);
     expect(await storedCreditNoteRate(CO, { creditDate: '2018-03-31', taxAmount: 14 }, 14)).toBe(14);
+  });
+});
+
+describe('exactCents (#1701 round 2): the one exact cents helper, unchanged for two-decimal inputs', () => {
+  it('agrees with Math.round(x * 100) on every two-decimal amount, and is exact where the float product is not', () => {
+    const off = Array.from({ length: 200001 }, (_, i) => i / 100).filter((x) => exactCents(x) !== Math.round(x * 100));
+    expect(off).toEqual([]);
+    expect(exactCents(1.005)).toBe(101); // the float product 100.49999999999999 rounds to 100
+    expect(Math.round(1.005 * 100)).toBe(100);
+    expect(exactCents(-0.125)).toBe(-13);
   });
 });

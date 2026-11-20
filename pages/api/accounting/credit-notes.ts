@@ -24,7 +24,7 @@ import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approva
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
-import { hasWholeCents } from '@/lib/money/wholeCents';
+import { creditNoteMoneyProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -61,25 +61,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!type || !creditDate || subtotal === undefined) {
         return apiResponse.badRequest(res, 'type, creditDate, and subtotal are required');
       }
-      // W1 family (P2.1): a negative subtotal posts inverted GL at approve.
-      if (!(Number(subtotal) > 0)) {
-        return apiResponse.badRequest(res, 'subtotal must be a positive amount');
-      }
-      // Whole cents: 1.234 was stored rounded, and a third decimal let create and approve disagree by a cent (#1701).
-      if (!hasWholeCents(Number(subtotal))) return apiResponse.badRequest(res, 'subtotal must be in whole cents');
-      if (taxRate !== undefined && taxRate !== null && !(Number.isFinite(Number(taxRate)) && Number(taxRate) >= 0 && Number(taxRate) <= 100)) {
-        return apiResponse.badRequest(res, 'taxRate must be a number from 0 to 100');
-      }
-
-      // The note's VAT as a figure (a proportional credit against a typed invoice cannot be a rate in general). Left out:
-      // against a typed invoice, its remaining VAT in proportion (creditNoteTypedVat); otherwise the rate on the subtotal.
-      if (taxAmount !== undefined && taxAmount !== null) {
-        if (!(typeof taxAmount === 'number' && Number.isFinite(taxAmount) && taxAmount >= 0)) {
-          return apiResponse.badRequest(res, 'taxAmount must be a number of zero or more');
-        }
-        if (!hasWholeCents(taxAmount)) return apiResponse.badRequest(res, 'taxAmount must be in whole cents');
-        if (taxAmount > Number(subtotal)) return apiResponse.badRequest(res, 'taxAmount cannot be more than the subtotal');
-      }
+      // The money, before any read or write (creditNoteRequestMoney): JSON numbers, whole cents, a VAT figure within the
+      // subtotal and agreeing with a rate sent beside it. A figure left out: against a typed invoice, its remaining VAT in
+      // proportion (creditNoteTypedVat); otherwise the rate on the subtotal.
+      const moneyProblem = creditNoteMoneyProblem({ subtotal, taxRate, taxAmount });
+      if (moneyProblem) return apiResponse.badRequest(res, moneyProblem);
 
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
@@ -93,7 +79,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         creditDate,
         reason: reason || undefined,
         subtotal: Number(subtotal),
-        taxRate: taxRate !== undefined && taxRate !== null ? Number(taxRate) : undefined,
+        taxRate: taxRate ?? undefined,
         taxAmount: taxAmount ?? undefined,
         projectId: projectId || undefined,
         glAccountId: glAccountId || undefined,

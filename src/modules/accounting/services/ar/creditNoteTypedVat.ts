@@ -14,20 +14,22 @@
  * is refused here too, before any write, in approve's words. An unlinked note, a supplier note and a note against a
  * legacy invoice (any uncoded leg) or one with no journal yet: null, the existing rule. Reads only.
  *
- * `storedCreditNoteRate`: the tax_rate a note given only a VAT FIGURE is stored at (credit_notes.tax_rate is read by
- * the note PDF's VAT label, the API and the delete audit, none of which re-derives the VAT from it): 0 when the figure is
- * 0, else the linked document's header rate, else the standard rate on the note's date. It used to be 15 whatever the
- * figure (VAT 0 at 15%).
+ * `storedCreditNoteRate`: the ONE rule for the tax_rate of a note whose caller named no rate (credit_notes.tax_rate is
+ * read by the note PDF's VAT label, the API and the delete audit, none of which re-derives the VAT from it): 0 when its
+ * VAT figure is 0, else the linked document's header rate, else the standard rate on the note's date (0 before VAT
+ * began). Given no figure either, the note's VAT is that rate on its subtotal. It used to be 15 whatever the figure
+ * (VAT 0 at 15%) and whatever the linked document (#1701 rounds 1-2).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { parseDecimal, roundTo } from '../shared/functionalAmounts';
+import { exactCents } from '../shared/vatLineAmounts';
 import type { CreditNoteCreateInput } from '../../types/ar.types';
 import { CreditNoteVatSplitRefusal, requiredCreditNoteVat } from './creditNoteTypedSplit';
 import { typedInvoiceCreditState } from './invoiceRevenuePosting';
 
-const cents = (n: number): number => Math.round(n * 100);
+const cents = exactCents;
 const money = (c: number): string => (c / 100).toFixed(2);
 const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
 
@@ -72,16 +74,16 @@ export async function typedCreditNoteVat(
 export async function storedCreditNoteRate(
   companyId: string,
   input: Pick<CreditNoteCreateInput, 'customerInvoiceId' | 'supplierInvoiceId' | 'creditDate' | 'taxRate' | 'taxAmount'>,
-  taxAmount: number,
+  /** The note's VAT figure, or null when it is to be computed at the rate this returns. */
+  taxAmount: number | null,
 ): Promise<number> {
   if (input.taxRate != null) return input.taxRate;
-  if (input.taxAmount == null) return 15; // the rate the VAT was computed at (createCreditNote's default)
-  if (cents(taxAmount) === 0) return 0;
+  if (taxAmount !== null && cents(taxAmount) === 0) return 0;
   const linked = input.customerInvoiceId
     ? (await sql`SELECT tax_rate FROM customer_invoices WHERE id = ${input.customerInvoiceId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
     : input.supplierInvoiceId
       ? (await sql`SELECT tax_rate FROM supplier_invoices WHERE id = ${input.supplierInvoiceId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
       : [];
   if (linked[0]?.tax_rate != null) return Number(linked[0].tax_rate);
-  return isRatedDate(input.creditDate) ? standardVatRatePctOn(input.creditDate) : 15;
+  return isRatedDate(input.creditDate) ? standardVatRatePctOn(input.creditDate) : 0;
 }

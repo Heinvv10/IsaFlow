@@ -43,6 +43,8 @@ export interface ExternalRefMatch {
   status: string | null;
   date: string | null;
   totalAmount: number | null;
+  /** A credit note's net (its subtotal): a replay compares it when the total depends on a VAT figure not known yet. */
+  subtotal?: number;
   /** Soft-deleted or cancelled: kept so a caller can see it, never treated as the live copy. */
   live: boolean;
   externalDocumentNumber: string | null;
@@ -80,7 +82,7 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'credit_note':
       return (await sql`
-        SELECT id, credit_note_number AS number, status, credit_date AS date, total_amount, external_document_number,
+        SELECT id, credit_note_number AS number, status, credit_date AS date, total_amount, subtotal, external_document_number,
                type AS credit_note_type, (status IS DISTINCT FROM 'cancelled') AS live
         FROM credit_notes
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
@@ -157,6 +159,7 @@ export async function findByExternalRef(
       live: r.live === true,
       externalDocumentNumber: r.external_document_number == null ? null : String(r.external_document_number),
       ...(r.credit_note_type != null ? { creditNoteType: String(r.credit_note_type) } : {}),
+      ...(r.subtotal != null ? { subtotal: Number(r.subtotal) } : {}),
       ...(r.purchase_order_id != null ? { purchaseOrderId: String(r.purchase_order_id), supplierInvoiceId: String(r.supplier_invoice_id) } : {}),
     }))
     .sort((a, b) => Number(b.live) - Number(a.live));

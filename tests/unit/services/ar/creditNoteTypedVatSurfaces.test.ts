@@ -24,7 +24,10 @@ vi.mock('@/lib/apiResponse', () => ({
   },
 }));
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({ createCreditNote: m.create, getCreditNotes: vi.fn() }));
-vi.mock('@/modules/accounting/services/ar/creditNoteTypedVat', () => ({ typedCreditNoteVat: m.typed }));
+vi.mock('@/modules/accounting/services/ar/creditNoteTypedVat', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteTypedVat')>()),
+  typedCreditNoteVat: m.typed, storedCreditNoteRate: vi.fn(async () => 15),
+}));
 vi.mock('@/modules/accounting/services/ar/creditNoteLinkService', () => ({ validateCreditNoteLinks: m.links, findOpenDuplicateDraft: m.dup }));
 vi.mock('@/lib/mcp/tools/externalRef', async (orig) => ({
   ...(await orig<typeof import('@/lib/mcp/tools/externalRef')>()),
@@ -127,12 +130,12 @@ describe('MCP create_credit_note', () => {
     expect(m.typed).not.toHaveBeenCalled();
     expect(m.create).not.toHaveBeenCalled();
     // A note that may be typed and names no figure is compared by date only: its VAT is the invoice's remaining VAT.
-    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { date: '2026-09-20', totalAmount: null } });
+    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toEqual({ creditNoteType: 'customer', expect: { date: '2026-09-20', subtotal: 150, totalAmount: null } });
   });
 
   it('a replay of a note with a figure still compares the total', async () => {
     await createCreditNoteTool.handler({ ...args, tax_amount: 15, external_system: 'sage', external_ref: 'CRET-2' }, ctx);
-    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { date: '2026-09-20', totalAmount: 165 } });
+    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { date: '2026-09-20', subtotal: 150, totalAmount: 165 } });
   });
 
   it('refuses tax_amount with mirror_bill', async () => {
@@ -143,5 +146,49 @@ describe('MCP create_credit_note', () => {
 
   it('declares tax_amount', () => {
     expect((createCreditNoteTool.inputSchema as { properties: Record<string, unknown> }).properties.tax_amount).toMatchObject({ type: 'number', minimum: 0 });
+  });
+});
+
+describe('#1701 round 2: JSON numbers only, and a figure beside a rate must agree', () => {
+  const rest = { type: 'customer', clientId: CUSTOMER, customerInvoiceId: INV, creditDate: '2026-09-20', subtotal: 150 };
+  it.each([
+    ['subtotal "150"', { subtotal: '150' }, 'subtotal must be a positive amount'],
+    ['subtotal true', { subtotal: true }, 'subtotal must be a positive amount'],
+    ['taxRate ""', { taxRate: '' }, 'taxRate must be a number from 0 to 100'],
+    ['taxRate "15"', { taxRate: '15' }, 'taxRate must be a number from 0 to 100'],
+    ['taxRate []', { taxRate: [] }, 'taxRate must be a number from 0 to 100'],
+    ['taxRate false', { taxRate: false }, 'taxRate must be a number from 0 to 100'],
+    ['taxAmount ""', { taxAmount: '' }, 'taxAmount must be a number of zero or more'],
+    ['taxAmount true', { taxAmount: true }, 'taxAmount must be a number of zero or more'],
+    ['taxRate 15 beside taxAmount 15.00 on 150 (15% is 22.50)', { taxRate: 15, taxAmount: 15 },
+      'taxRate 15 does not give taxAmount 15.00 on 150.00: send one of them, or both agreeing'],
+  ])('REST refuses %s, nothing created', async (_l, over, error) => {
+    expect(await post({ ...rest, ...over })).toMatchObject({ kind: 'badRequest', error });
+    expect(m.create).not.toHaveBeenCalled();
+  });
+  it('REST takes a figure beside the rate that gives it', async () => {
+    expect(await post({ ...rest, taxRate: 15, taxAmount: 22.5 })).toMatchObject({ kind: 'created' });
+    expect(m.create.mock.calls[0]![1]).toMatchObject({ taxRate: 15, taxAmount: 22.5 });
+  });
+
+  const args = { type: 'customer', client_id: CUSTOMER, customer_invoice_id: INV, credit_date: '2026-09-20', subtotal: 150, idempotency_key: 'k' };
+  it.each([
+    ['tax_amount ""', { tax_amount: '' }, 'tax_amount must be a number of zero or more'],
+    ['tax_amount []', { tax_amount: [] }, 'tax_amount must be a number of zero or more'],
+    ['tax_amount false', { tax_amount: false }, 'tax_amount must be a number of zero or more'],
+    ['tax_amount true', { tax_amount: true }, 'tax_amount must be a number of zero or more'],
+    ['tax_amount "15"', { tax_amount: '15' }, 'tax_amount must be a number of zero or more'],
+    ['tax_rate ""', { tax_rate: '' }, 'tax_rate must be between 0 and 100'],
+    ['tax_rate []', { tax_rate: [] }, 'tax_rate must be between 0 and 100'],
+    ['tax_rate false', { tax_rate: false }, 'tax_rate must be between 0 and 100'],
+    ['tax_rate true', { tax_rate: true }, 'tax_rate must be between 0 and 100'],
+    ['subtotal "150"', { subtotal: '150' }, 'subtotal must be a positive number (net of VAT)'],
+    ['subtotal true', { subtotal: true }, 'subtotal must be a positive number (net of VAT)'],
+    ['subtotal []', { subtotal: [] }, 'subtotal must be a positive number (net of VAT)'],
+  ])('MCP refuses %s, nothing read or created', async (_l, over, msg) => {
+    const r = await createCreditNoteTool.handler({ ...args, ...over }, ctx);
+    expect([r.isError, r.content[0]!.text]).toEqual([true, msg]);
+    expect(m.typed).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
   });
 });
