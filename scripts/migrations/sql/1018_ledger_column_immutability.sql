@@ -79,10 +79,11 @@
 --      so another tenant, which cannot see the journal, cannot compute the key blind (round 6 P3). It can still READ a key
 --      another session holds from pg_locks (readable by PUBLIC) and hold it: see BOUNDARY. Same locks, same order.
 --  10. (round 7) A linked document's status is never NULL (status is nullable and the CHECK passes NULL, so a NULL
---      walked around rules 5 and 9): a NULL status on a linked document is refused, a NULL old status counts as the
---      approved side, a NULL-status document links no journal, and rule 1 counts a NULL-status holder as cancelled
---      (out of AR/AP). Plus CHECK (status IS NOT NULL) NOT VALID on the three tables: new writes, no scan of old rows
---      (isaflow_dev holds none; production unscanned), VALIDATE left for after a production census.
+--      walked around rules 5 and 9): a non-superuser cannot set a NULL status on a linked document, a NULL old status
+--      counts as the approved side (shared/documentPopulation reads NULL as issued, in the AR/AP population), and a
+--      NULL-status document links no journal. No NOT NULL CHECK: the codebase keeps NULL as a legal legacy shape
+--      (documentPopulation's convention; 18 integration suites seed it), so only the trigger rule binds; no app path
+--      writes NULL (census: every document INSERT passes a status or takes the 'draft' default; isaflow_dev holds 0).
 --
 -- BOUNDARY (stated, not oversold). The "only from the document triggers" test for document_cancelled_at is
 -- pg_trigger_depth() > 1; app_user has no TEMP (945) to nest one (migration_admin: see WHAT). The advisory keys are
@@ -106,8 +107,6 @@
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
 -- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
--- ADD CONSTRAINT ... CHECK ... NOT VALID (rule 10) takes ACCESS EXCLUSIVE on each document table for an instant and
--- scans no row.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_no_insert ON public.gl_journal_entries;
@@ -137,7 +136,6 @@
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
 --     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
---   ALTER TABLE public.<table> DROP CONSTRAINT IF EXISTS ck_<table>_status_not_null;  (each document table)
 
 SET LOCAL lock_timeout = '5s';
 
@@ -145,20 +143,6 @@ SET LOCAL lock_timeout = '5s';
 -- (tests/helpers/auditSnapshotColumns.ts): the cancel's reversal, which is frozen, is the ledger fact.
 ALTER TABLE public.gl_journal_entries ADD COLUMN IF NOT EXISTS document_cancelled_at timestamptz;
 
--- Rule 10: a document's status is never NULL from here on (NOT VALID: new writes only, no scan of existing rows).
-DO $$
-DECLARE
-  v_table text;
-BEGIN
-  FOREACH v_table IN ARRAY ARRAY['customer_invoices', 'supplier_invoices', 'credit_notes'] LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
-                    WHERE conrelid = ('public.' || v_table)::regclass AND conname = 'ck_' || v_table || '_status_not_null') THEN
-      EXECUTE pg_catalog.format('ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (status IS NOT NULL) NOT VALID',
-                                v_table, 'ck_' || v_table || '_status_not_null');
-    END IF;
-  END LOOP;
-END
-$$;
 
 -- ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -408,11 +392,11 @@ BEGIN
               WHERE (a.dist + v_below) % 2 = 1
                 AND (j.document_cancelled_at IS NOT NULL
                      OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (COALESCE(d.status, 'cancelled') = 'cancelled' OR d.deleted_at IS NOT NULL))
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
                      OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (COALESCE(d.status, 'cancelled') = 'cancelled' OR d.deleted_at IS NOT NULL))
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
                      OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id
-                                 AND COALESCE(d.status, 'cancelled') = 'cancelled'))) THEN
+                                 AND d.status = 'cancelled'))) THEN
     -- (round 5 N2) A soft-deleted invoice or bill counts as cancelled while it stays deleted: the undo clears deleted_at
     -- (restoreRow) BEFORE it re-reverses, so a restored document re-instates and a deleted one does not.
     RAISE EXCEPTION 'gl_journal_entries: this reversal would put the journal of a cancelled document back in force'

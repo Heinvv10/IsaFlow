@@ -117,10 +117,9 @@ const READ_BY_HAND = new Set([
   // 1012 (2026-11-19, intercompany pairing): EXECUTE only as GRANT EXECUTE ON FUNCTION; "journal" is the read-only definer
   // intercompany_pairing_partner_loan_balance's SUM over gl_journal_entries / gl_journal_lines. No DDL on either table, no dynamic SQL.
   '1012_intercompany_pairing.sql',
-  // 1018 (2026-11-20, ledger column immutability): EXECUTE as EXECUTE FUNCTION in its CREATE TRIGGERs (on
-  // gl_journal_entries and the three document tables), plus one dynamic ADD CONSTRAINT ... CHECK (status IS NOT NULL)
-  // NOT VALID on the three DOCUMENT tables only. One column added, document_cancelled_at (NOT_MATERIAL); none renamed
-  // or rebuilt.
+  // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
+  // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
+  // or rebuilt, no dynamic SQL.
   '1018_ledger_column_immutability.sql',
 ]);
 
