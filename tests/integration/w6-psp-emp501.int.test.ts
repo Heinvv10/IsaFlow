@@ -42,7 +42,7 @@ async function employee(rf: ReturnFixture, last: string, psp = false, particular
       tax_status, psp_entity_type, psp_entity_name, psp_registration_number, psp_tax_reference)
     VALUES (${rf.fx.companyId}::UUID, ${last}, 'Test', ${last}, '2020-01-01', '1980-01-01', '8001015009087', '0123456789',
       ${psp ? 'personal_service_provider' : 'employee'}, ${psp ? 'company' : null},
-      ${p ? 'Pspco Consulting (Pty) Ltd' : null}, ${p ? '2015/123456/07' : null}, ${p ? '9012345678' : null})
+      ${p ? 'Pspco Consulting (Pty) Ltd' : null}, ${p ? '2015/123456/07' : null}, ${p ? '9012345675' : null})
     RETURNING id`) as Row[])[0]!.id);
 }
 /** A final March run: Alice on the tables (UIF 354.24), the PSP at 27% of 40 000 (no UIF), SDL 1% each; header = lines. */
@@ -162,7 +162,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     const lines = emp501FileOf({ formType: 'EMP501', figures: v.figures as Record<string, unknown> }).body.split('\r\n');
     const h = lines.slice(lines.indexOf('3020,"H"') - 2, lines.indexOf('4142,400.00') + 1);
     expect(h).toEqual(['3010,"712345678920260800000000000002"', '3015,"IRP5"', '3020,"H"', '3025,2026', '3030,"Pspco Consulting (Pty) Ltd"',
-      '3065,1', '3066,"2015/123456/07"', '3100,9012345678', '3170,20250301', '3180,20250331', '3200,12.0000', '3210,1.0000',
+      '3065,1', '3066,"2015/123456/07"', '3100,9012345675', '3170,20250301', '3180,20250331', '3200,12.0000', '3210,1.0000',
       '3601,40000', '4102,10800.00', '4141,0.00', '4142,400.00']);
     expect(lines).toContain('6010,3');
   });

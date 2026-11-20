@@ -5,6 +5,7 @@
  * 20-26, 30, 31 (p. 24); 3100 ten digits starting with 9 for E, G and H (p. 26-27); no comma or pipe in any value (§3).
  */
 import { describe, expect, it } from 'vitest';
+import { passesIncomeTaxModulus10 } from '@/modules/accounting/services/payroll/easyFileFields';
 import {
   PSP_PARTICULAR_KEYS, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem,
 } from '@/modules/accounting/services/payroll/payrollEmployeePspEntity';
@@ -30,8 +31,8 @@ describe('pspRegistrationProblem', () => {
 
 describe('pspParticularsOfPatch', () => {
   it('a PSP: trimmed, judged; blank clears', () => {
-    expect(pspParticularsOfPatch({ pspEntityName: '  Acme Consulting (Pty) Ltd ', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345678' },
-      PSP, 'company', refuse, 2026)).toEqual({ pspEntityName: 'Acme Consulting (Pty) Ltd', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345678' });
+    expect(pspParticularsOfPatch({ pspEntityName: '  Acme Consulting (Pty) Ltd ', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345675' },
+      PSP, 'company', refuse, 2026)).toEqual({ pspEntityName: 'Acme Consulting (Pty) Ltd', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345675' });
     expect(pspParticularsOfPatch({ pspRegistrationNumber: '' }, PSP, 'company', refuse, 2026)).toEqual({ pspRegistrationNumber: null });
     expect(pspParticularsOfPatch({}, PSP, 'company', refuse, 2026)).toEqual({});
   });
@@ -43,6 +44,16 @@ describe('pspParticularsOfPatch', () => {
     expect(() => pspParticularsOfPatch({ pspRegistrationNumber: 'IT1234/2019' }, PSP, 'company', refuse, 2026)).toThrow(/CCYY\/NNNNNN\/NN/);
     expect(() => pspParticularsOfPatch({ pspEntityName: 7 }, PSP, 'company', refuse, 2026)).toThrow(/text/);
   });
+  it('refuses what could break or forge an e@syFile record: a double quote, CR / LF, any control character, in either text field', () => {
+    for (const bad of ['Acme "X"', 'Acme\r\n3020,"N"', 'Acme\nCo', 'Acme\tCo', 'Acme\u0000', 'Acme\u007f']) {
+      expect(() => pspParticularsOfPatch({ pspEntityName: bad }, PSP, 'company', refuse, 2026), JSON.stringify(bad)).toThrow(/double quote or a control/);
+      expect(() => pspParticularsOfPatch({ pspRegistrationNumber: bad }, PSP, 'trust', refuse, 2026), JSON.stringify(bad)).toThrow(/double quote or a control/);
+    }
+  });
+  it('refuses a tax reference whose check digit fails modulus 10 (BRS Appendix B §8.1)', () => {
+    expect(() => pspParticularsOfPatch({ pspTaxReference: '9012345678' }, PSP, 'company', refuse, 2026)).toThrow(/modulus 10/);
+    expect(pspParticularsOfPatch({ pspTaxReference: '9000000001' }, PSP, 'company', refuse, 2026)).toEqual({ pspTaxReference: '9000000001' });
+  });
   it('anyone else: a particular given is refused; moving off PSP (or no status known as PSP) clears all three', () => {
     expect(() => pspParticularsOfPatch({ pspEntityName: 'Acme' }, 'employee', null, refuse, 2026)).toThrow(/personal service provider/);
     expect(pspParticularsOfPatch({ taxStatus: 'employee' }, 'employee', null, refuse, 2026))
@@ -52,9 +63,20 @@ describe('pspParticularsOfPatch', () => {
 
 describe('pspParticularsFromRow', () => {
   it('maps the three columns, null when absent', () => {
-    expect(pspParticularsFromRow({ psp_entity_name: 'Acme', psp_registration_number: null, psp_tax_reference: '9012345678' }))
-      .toEqual({ pspEntityName: 'Acme', pspRegistrationNumber: null, pspTaxReference: '9012345678' });
+    expect(pspParticularsFromRow({ psp_entity_name: 'Acme', psp_registration_number: null, psp_tax_reference: '9012345675' }))
+      .toEqual({ pspEntityName: 'Acme', pspRegistrationNumber: null, pspTaxReference: '9012345675' });
     expect(pspParticularsFromRow({})).toEqual({ pspEntityName: null, pspRegistrationNumber: null, pspTaxReference: null });
     expect(PSP_PARTICULAR_KEYS).toEqual(['pspEntityName', 'pspRegistrationNumber', 'pspTaxReference']);
+  });
+});
+
+describe('passesIncomeTaxModulus10 (BRS V25.3.0 Appendix B §8.1, pp. 117-118)', () => {
+  it('the BRS examples are valid; any other check digit is not', () => {
+    expect(passesIncomeTaxModulus10('0001339050')).toBe(true); // total 20, check digit 0
+    expect(passesIncomeTaxModulus10('0667056642')).toBe(true); // total 38, check digit 2
+    for (const d of '012345678'.replace('2', '')) expect(passesIncomeTaxModulus10(`066705664${d}`)).toBe(false);
+    expect(passesIncomeTaxModulus10('0001339051')).toBe(false);
+    expect(passesIncomeTaxModulus10('9012345675')).toBe(true);
+    expect(passesIncomeTaxModulus10('901234567')).toBe(false);
   });
 });

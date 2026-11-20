@@ -9,7 +9,7 @@ import { pspFilingWarning } from '@/modules/accounting/services/payroll/pspFilin
 
 const base: PspCertificateInput = {
   employeeId: 'e1', certificateNumber: '712345678920270200000000000003', yearOfAssessment: 2027, entityType: 'company',
-  tradingName: 'Acme Consulting (Pty) Ltd', registrationNumber: '2015/123456/07', taxReference: '9012345678',
+  tradingName: 'Acme Consulting (Pty) Ltd', registrationNumber: '2015/123456/07', taxReference: '9012345675',
   periodStart: '20260301', periodEnd: '20260430', payPeriods: 12, periodsWorked: 2, directiveNumbers: [],
   gross3601: 80_000, paye4102: 21_600, uif4141: 0, sdl4142: 800,
 };
@@ -19,7 +19,7 @@ describe('buildPspCertificateRecord', () => {
   it('a PSP company: H, the trading name, 3065 = 1 with its number, 3100, the period, 3601 / 4102 / nil 4141 / 4142', () => {
     const f = fields(buildPspCertificateRecord(base));
     expect([f.get('3015'), f.get('3020'), f.get('3030'), f.get('3065'), f.get('3066'), f.get('3100')])
-      .toEqual(['"IRP5"', '"H"', '"Acme Consulting (Pty) Ltd"', '1', '"2015/123456/07"', '9012345678']);
+      .toEqual(['"IRP5"', '"H"', '"Acme Consulting (Pty) Ltd"', '1', '"2015/123456/07"', '9012345675']);
     expect([f.get('3170'), f.get('3180'), f.get('3200'), f.get('3210')]).toEqual(['20260301', '20260430', '12.0000', '2.0000']);
     expect([f.get('3601'), f.get('4102'), f.get('4141'), f.get('4142')]).toEqual(['80000', '21600.00', '0.00', '800.00']);
   });
@@ -51,5 +51,11 @@ describe('pspFilingWarning (PSP-H wording)', () => {
     const w = pspFilingWarning({ ...t, certifiedAs: null }, 'IRP5 dataset');
     expect(w).toContain('It is on no certificate');
     expect(w).toContain('Add them on the employee\'s Work card');
+  });
+});
+
+describe('buildPspCertificateRecord: 3100 judged again when the file is built', () => {
+  it('a stored tax reference that fails modulus 10 refuses the file by name', () => {
+    expect(() => buildPspCertificateRecord({ ...base, taxReference: '9012345678' })).toThrow(/Acme Consulting.*modulus 10/);
   });
 });

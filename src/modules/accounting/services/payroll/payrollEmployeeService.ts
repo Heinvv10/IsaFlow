@@ -236,6 +236,11 @@ export async function updatePayrollEmployee(
       for (const m of movedTerms(termsFromRow(locked), termsFromRow(written[0]), carried)) {
         await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
       }
+      // PSP-H: each particular this write moved (set, changed, or cleared by a move off PSP), in the same transaction.
+      for (const col of ['psp_entity_name', 'psp_registration_number', 'psp_tax_reference'] as const) {
+        const [was, now] = [locked[col] ?? null, written[0][col] ?? null].map((v) => (v == null ? null : String(v)));
+        if (was !== now) await recordEmployeeChange({ companyId, employeeId: id, fieldName: col, oldValue: was ?? null, newValue: now ?? null, userId }, db);
+      }
     }
     return written;
   };

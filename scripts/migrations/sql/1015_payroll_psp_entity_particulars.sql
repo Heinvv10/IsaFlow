@@ -29,6 +29,7 @@
 --   ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_particulars_only_psp;
 --   ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_tax_reference_shape;
 --   ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_text_lengths;
+--   ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_text_chars;
 --   ALTER TABLE public.payroll_employees DROP COLUMN IF EXISTS psp_tax_reference;
 --   ALTER TABLE public.payroll_employees DROP COLUMN IF EXISTS psp_registration_number;
 --   ALTER TABLE public.payroll_employees DROP COLUMN IF EXISTS psp_entity_name;
@@ -57,6 +58,15 @@ ALTER TABLE public.payroll_employees ADD CONSTRAINT payroll_employees_psp_text_l
   CHECK ((psp_entity_name IS NULL OR char_length(btrim(psp_entity_name)) BETWEEN 1 AND 120)
      AND (psp_registration_number IS NULL OR char_length(btrim(psp_registration_number)) BETWEEN 1 AND 30)) NOT VALID;
 
+-- e@syFile field injection (security review): no comma or pipe (BRS §3(h) p. 8), double quote (the FT delimiter, §3(l))
+-- or control character (CR / LF end a record) in the quoted fields 3030 and 3066. The modulus 10 test of 3100 is judged by
+-- the app (passesIncomeTaxModulus10) and again when the certificate is built, not here.
+ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_text_chars;
+ALTER TABLE public.payroll_employees ADD CONSTRAINT payroll_employees_psp_text_chars
+  CHECK ((psp_entity_name IS NULL OR psp_entity_name !~ '[\x01-\x1f\x7f",|]')
+     AND (psp_registration_number IS NULL OR psp_registration_number !~ '[\x01-\x1f\x7f",|]')) NOT VALID;
+
 ALTER TABLE public.payroll_employees VALIDATE CONSTRAINT payroll_employees_psp_particulars_only_psp;
 ALTER TABLE public.payroll_employees VALIDATE CONSTRAINT payroll_employees_psp_tax_reference_shape;
 ALTER TABLE public.payroll_employees VALIDATE CONSTRAINT payroll_employees_psp_text_lengths;
+ALTER TABLE public.payroll_employees VALIDATE CONSTRAINT payroll_employees_psp_text_chars;

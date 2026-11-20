@@ -15,23 +15,17 @@
  * and SARS lists no IT3(a) reason for a PSP (UNVERIFIED), so the file is refused naming it; clearing its tax reference leaves it
  * off instead.
  *
- * CODE MAP: the employee-record codes are written through PSP_CERT_CODES. The natural-person record's codes are being
- * corrected in their own PR (wave 6 EZF, which owns the single e@syFile code map); PSP-H moves onto that map when it merges.
+ * CODE MAP: every identity and period field is written through the single e@syFile code map (easyFileCertificateCodes,
+ * wave 6 EZF), with 3065 / 3066 added there. 3100 must pass the BRS modulus 10 test (Appendix B §8.1, pp. 117-118).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { formatField, UsageError } from './easyFileFields';
+import { formatField, passesIncomeTaxModulus10, UsageError } from './easyFileFields';
+import { certificateField } from './easyFileCertificateCodes';
 import { buildCertificateNumber } from './easyFileCertificateNumber';
 import { payRunFinalSql } from './payRunFinalSql';
 import { pspLineFlag } from './payrollOutsideTables';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
-
-/** The BRS V25.3.0 codes of the H record's employee fields (see CODE MAP above). */
-export const PSP_CERT_CODES = {
-  certificateNumber: 3010, certificateType: 3015, natureOfPerson: 3020, yearOfAssessment: 3025, tradingName: 3030,
-  alternateIdType: 3065, alternateIdNumber: 3066, taxReference: 3100, periodStart: 3170, periodEnd: 3180,
-  payPeriods: 3200, periodsWorked: 3210, directiveNumber: 3230,
-} as const;
 
 export interface PspCertificateInput {
   employeeId: string;
@@ -57,25 +51,28 @@ export interface PspCertificateInput {
 
 /** The H record, in BRS code order, validated as the natural-person record is (irp5ValidationEngine). */
 export function buildPspCertificateRecord(c: PspCertificateInput): string[] {
-  const C = PSP_CERT_CODES;
+  if (!/^9\d{9}$/.test(c.taxReference) || !passesIncomeTaxModulus10(c.taxReference)) {
+    throw new UsageError(`${c.tradingName} (certificate ${c.certificateNumber}): the income tax reference (code 3100) must be 10 digits `
+      + 'starting with 9 that pass the SARS modulus 10 test (BRS V25.3.0 pp. 26-27, 117-118). Correct it on the employee\'s Work card.');
+  }
   if (c.paye4102 <= 0) {
     throw new UsageError(`${c.tradingName} (certificate ${c.certificateNumber}): a personal service provider with no PAYE this period cannot be `
       + 'certified (an IRP5 needs PAYE above nil; SARS lists no IT3(a) reason for a PSP). Clear its tax reference to leave it off the file.');
   }
   const lines: (string | null)[] = [
-    formatField(C.certificateNumber, c.certificateNumber, 'AN'),
-    formatField(C.certificateType, 'IRP5', 'AN'),
-    formatField(C.natureOfPerson, 'H', 'A'),
-    formatField(C.yearOfAssessment, c.yearOfAssessment, 'N'),
-    formatField(C.tradingName, c.tradingName, 'FT'),
-    c.registrationNumber ? formatField(C.alternateIdType, c.entityType === 'company' ? 1 : 2, 'N') : null,
-    c.registrationNumber ? formatField(C.alternateIdNumber, c.registrationNumber, 'FT') : null,
-    formatField(C.taxReference, c.taxReference, 'N'),
-    formatField(C.periodStart, c.periodStart, 'N'),
-    formatField(C.periodEnd, c.periodEnd, 'N'),
-    `${C.payPeriods},${c.payPeriods.toFixed(4)}`,
-    `${C.periodsWorked},${c.periodsWorked.toFixed(4)}`,
-    ...c.directiveNumbers.map((n) => formatField(C.directiveNumber, n, 'AN')),
+    certificateField('certificateNumber', c.certificateNumber),
+    certificateField('certificateType', 'IRP5'),
+    certificateField('natureOfPerson', 'H'),
+    certificateField('yearOfAssessment', c.yearOfAssessment),
+    certificateField('surname', c.tradingName), // 3030: for nature H the trading name (p. 20)
+    c.registrationNumber ? certificateField('alternateIdType', c.entityType === 'company' ? 1 : 2) : null,
+    c.registrationNumber ? certificateField('alternateIdNumber', c.registrationNumber) : null,
+    certificateField('incomeTaxReference', c.taxReference),
+    certificateField('taxPeriodStart', c.periodStart),
+    certificateField('taxPeriodEnd', c.periodEnd),
+    certificateField('payPeriodsInYear', c.payPeriods),
+    certificateField('payPeriodsWorked', c.periodsWorked),
+    ...c.directiveNumbers.map((n) => formatField(3230, n, 'AN')), // the directive number (p. 41)
     formatField(3601, c.gross3601 >= 1 ? c.gross3601 : null, 'N'),
     formatField(4102, c.paye4102, 'N_CENTS'),
     formatField(4141, c.uif4141, 'N_CENTS'),

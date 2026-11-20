@@ -36,6 +36,9 @@ export const CERTIFICATE_FIELDS = {
   taxPeriodEnd: { code: 3180, type: 'N', brsPage: 32 },            // N8 CCYYMMDD, mandatory
   payPeriodsInYear: { code: 3200, type: 'N4DP', brsPage: 33 },     // N3.4, mandatory
   payPeriodsWorked: { code: 3210, type: 'N4DP', brsPage: 33 },     // N3.4, mandatory, <= 3200
+  // Nature of person H (wave 6 PSP-H): the company / CC (1) or trust (2) registration number of the PSP.
+  alternateIdType: { code: 3065, type: 'N', brsPage: 23 },         // N1: 1 company/CC, 2 trust, 3 asylum, 4 ID, 5 passport
+  alternateIdNumber: { code: 3066, type: 'FT', brsPage: 24 },      // FT30: type 1 CCYY/NNNNNN/NN
 } as const satisfies Record<string, CertificateFieldSpec>;
 
 export type CertificateFieldName = keyof typeof CERTIFICATE_FIELDS;

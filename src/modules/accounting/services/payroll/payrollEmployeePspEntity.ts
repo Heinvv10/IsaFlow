@@ -4,11 +4,13 @@
  * - 3030 (FT120) the trading name of the company / CC or trust, for nature of person H (p. 20);
  * - 3066 (FT30) its registration number, with 3065 = 1 for a company / CC (format CCYY/NNNNNN/NN, CCYY from 1800 to this
  *   year, the last two digits one of the listed suffixes) or 2 for a trust (no stated format) (pp. 23-24);
- * - 3100 its income tax reference: ten digits starting with 9 for E, G and H (pp. 26-27). The BRS also requires a modulus 10
- *   test, whose algorithm it does not state: UNVERIFIED, not applied here.
- * No value may hold a comma or a pipe (BRS §3, easyFileFields). Only a PSP holds them (the 1015 CHECK); moving off PSP clears them.
+ * - 3100 its income tax reference: ten digits starting with 9 for E, G and H (pp. 26-27) that pass the modulus 10 test of
+ *   Appendix B §8.1 (pp. 117-118, passesIncomeTaxModulus10).
+ * No text value may hold a comma, a pipe (BRS §3(h) p. 8), a double quote (the field delimiter, §3(l)) or a control
+ * character (CR / LF end a record): refused here and by the 1015 CHECK, so nothing can break or forge a file record. Only a PSP holds them (the 1015 CHECK); moving off PSP clears them.
  */
 import type { PspEntityType } from './payrollTypes';
+import { passesIncomeTaxModulus10 } from './easyFileFields';
 
 export const PSP_PARTICULAR_KEYS = ['pspEntityName', 'pspRegistrationNumber', 'pspTaxReference'] as const;
 export type PspParticularKey = typeof PSP_PARTICULAR_KEYS[number];
@@ -19,7 +21,7 @@ const PSP = 'personal_service_provider';
 const COMPANY_SUFFIXES = ['06', '07', '08', '09', '10', '11', '20', '21', '22', '23', '24', '25', '26', '30', '31'];
 
 function forbidden(v: string): string | null {
-  return v.includes(',') || v.includes('|') ? 'must not contain a comma or a pipe (SARS e@syFile)' : null;
+  return /[\x00-\x1f\x7f",|]/.test(v) ? 'must not contain a comma, a pipe, a double quote or a control character (SARS e@syFile)' : null;
 }
 
 /** Why a registration number cannot be filed for this entity (BRS V25.3.0 p. 24), or null. */
@@ -66,6 +68,8 @@ export function pspParticularsOfPatch(
       if (bad) throw refuse(`pspRegistrationNumber ${bad}`);
     } else if (!/^9\d{9}$/.test(v)) {
       throw refuse('pspTaxReference must be the entity\'s income tax reference: 10 digits starting with 9 (3100)');
+    } else if (!passesIncomeTaxModulus10(v)) {
+      throw refuse('pspTaxReference is not a valid income tax reference: its check digit fails the SARS modulus 10 test (3100)');
     }
     out[k] = v;
   }
