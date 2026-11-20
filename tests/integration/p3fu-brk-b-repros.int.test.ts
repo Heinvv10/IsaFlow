@@ -55,7 +55,7 @@ describe('BRK-A round 2', () => {
   it('F3: nil PAYE on R500k salary beside a nil directive is refused, not filed as reason 04', () => {
     const base: EmployeeInput = {
       certificateNumber: '712345678920270200000000000001', yearOfAssessment: 2027, surname: 'Molefe', firstNames: 'Thandi', initials: 'T',
-      idNumber: '9001015009087', taxNumber: '0123456789', employmentStartDate: '20250301', employmentEndDate: null, periodsInYoA: 12,
+      idNumber: '9001015009087', taxNumber: '0123456789', taxPeriodStart: '20260301', taxPeriodEnd: '20270228', payPeriodsInYear: 12, payPeriodsWorked: 12,
       grossSalary3601: 500_000, paye4102: 0, uifEmployee: 0, uifEmployer: 0, sdl4142: 0, taxThreshold: 99_000,
       lumpSums: [{ sourceCode: '3901', directiveNumber: '5550001112', directiveIssuedDate: '20260401', amount: 10_000, paye: 0 }],
     };

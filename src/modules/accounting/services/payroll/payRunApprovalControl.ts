@@ -1,4 +1,5 @@
 /** R-035 clearance for the exact journal plan a person reviewed for a pay run. */
+import { PayrollRunNotFoundError } from './payrollRunLock';
 import { sql } from '@/lib/neon';
 import {
   assertApprovalClearedForDocument,
@@ -58,7 +59,7 @@ async function header(companyId: string, runId: string): Promise<Header | null> 
 export async function preparePayRunApprovalRequest(companyId: string, runId: string): Promise<string> {
   await assertRunKindSupported(companyId, runId, 'approve'); // wave 6 FQa: no request for a run this release cannot approve
   const gate = await judgePayrollApproval(companyId, runId);
-  if (!gate) throw new Error('Payroll run not found');
+  if (!gate) throw new PayrollRunNotFoundError();
   await sql`
     UPDATE payroll_run_headers SET approval_plan_hash = ${gate.planHash}
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
@@ -72,7 +73,7 @@ export async function describePayRunApproval(companyId: string, runId: string): 
   // which must not interleave with another query on that same connection.
   const row = await header(companyId, runId);
   const gate = await judgePayrollApproval(companyId, runId);
-  if (!row || !gate) throw new Error('Payroll run not found');
+  if (!row || !gate) throw new PayrollRunNotFoundError();
   return describeApprovalGateForDocument(companyId, 'pay_run', runId, document(row, gate.planHash));
 }
 

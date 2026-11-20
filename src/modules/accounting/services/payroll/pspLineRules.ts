@@ -30,6 +30,9 @@ export function pspRefusedKind(c: { sarsSourceCode: string; componentType: strin
   if (code === '4030') return 's18A donation';
   // A travel allowance is an employee's (s8(1)(b)); refused so its 80% PAYE inclusion never meets a PSP's base (review L4).
   if (code === '3701') return 'travel allowance';
+  // RI (review of #1580 M1): reimbursive travel within the prescribed rate (3702, 3703) is s8(1)(b)'s too, and would escape
+  // the flat rate; the excess (3722) is refused with it. Whether a PSP may ever take s8(1)(b): UNVERIFIED.
+  if (code === '3702' || code === '3703' || code === '3722') return 'travel allowance';
   if (code === IRP3C_MARKER) return 'IRP3(c) directive';
   if (code === 'LOAN' || code === '3801') return 'loan';
   if (/^38\d\d$/.test(code) || (isNonCash && c.componentType === 'earning')) return 'fringe benefit';
@@ -43,7 +46,9 @@ export function pspRefusalMessage(who: string, items: ReadonlyArray<{ name: stri
     + 'retirement fund member, takes no s18A deduction through payroll (Fourth Schedule para 2(4)), and is not an "employee" '
     + 'for fringe benefits or loans (Seventh Schedule para 1; a trust: unverified). End those components, or change the tax status.'
     + (items.some((i) => i.kind === 'IRP3(c) directive')
-      ? ' SARS issues a PSP an IRP3(b) directive (PAYE-GEN-01-G21 p. 16), not an IRP3(c) fixed amount (UNVERIFIED).' : '');
+      ? ' SARS issues a PSP an IRP3(b) directive (PAYE-GEN-01-G21 p. 16), not an IRP3(c) fixed amount (UNVERIFIED).' : '')
+    + (items.some((i) => i.kind === 'travel allowance')
+      ? ' A travel allowance or reimbursement (codes 3701, 3702, 3703, 3722, or travel km) is an employee\'s under s8(1)(b) (a PSP: UNVERIFIED).' : '');
 }
 
 /** Refused before any write (assignment or calculate): answered 409 PSP_COMPONENT_REFUSED (api-error-handler). */

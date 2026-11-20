@@ -23,19 +23,21 @@
  *     indicator is left out). 3601 excludes them.
  *   - Deduction codes 4001/4003/4006 (retirement funds, easyFileRetirementFields), 4102 (PAYE),
  *     4115 (PAYE on lump sums), 4141 (total UIF: employee + employer), 4142 (SDL)
- *   - Periods-of-employment field derived from employee start/end dates
+ *   - The certificate tax period (3170 / 3180) and pay periods (3200 / 3210), from the employee's start and leaving
+ *     dates within the period (easyFileInput); identity and period codes: easyFileCertificateCodes
  *
  * Deliberately out of scope — will be added in later iterations:
- *   - The IRP5 total fields (gross remuneration 3699 and its 3696-3698 splits,
- *     4149 total tax/UIF/SDL): their exact definitions need the BRS in hand, so
- *     they are not guessed. Do not submit this file without checking e@syFile's
- *     import validation for them.
+ *   - The 4149 total (tax, UIF and SDL). The income totals 3696 / 3699 are written (incomeTotalLines, BRS
+ *     V25.3.0 p. 51-52); 3697 / 3698 are pre-2017 only and never written.
  *   - Reason codes 4150 other than 02, 04 and 08 (08: medical credits, with
  *     4005/4116/4120, easyFileMedicalFields; PAYE 4a follow-ups round 2, R3).
  *   - ETI (codes 3026, 3190, 7002-7009)
- *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
+ *   - Foreign nationals / passport / alternate ID (codes 3061/3065/3066/3070/3075)
+ *   - The mandatory fields IsaFlow holds no data for (addresses, bank details, 3026 / 3195 / 3220 / 3263 / 3136):
+ *     easyFileCertificateCodes.UNWRITTEN_MANDATORY_CODES
  *   - Fixed-rate PAYE directives
- *   - Allowances 3702-3713 (paid as cash, so in 3601; 3701 is certified under its own code, payrollAllowanceFiling); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
+ *   - Allowances 3704-3713 (paid as cash, so in 3601; 3701 and the reimbursive travel 3702 / 3703 / 3722 are certified under their own
+ *     codes, payrollAllowanceFiling, with 3696 beside a 3703); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
@@ -43,10 +45,12 @@
  */
 
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
-import { validateEmployee } from './easyFileEmployeeChecks';
+import { assertIncomeTaxReference, filingDateMessage, validateEmployee } from './easyFileEmployeeChecks';
+import { certificateField } from './easyFileCertificateCodes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { buildPspCertificateRecord } from './easyFilePspCertificate';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
 import { employerFundContributionFields, retiredMemberFundFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
@@ -98,7 +102,8 @@ export function buildEmployerRecord(e: EmployerInput): string[] {
   const lines: (string | null)[] = [
     formatField(2010, e.tradingName, 'FT'),
     formatField(2015, 'LIVE', 'A'),
-    formatField(2020, e.payeReferenceNumber, 'AN'),
+    // N10 (BRS V25.3.0 p. 10): unquoted, every digit kept.
+    formatField(2020, e.payeReferenceNumber, 'ND'),
     formatField(2022, e.sdlReferenceNumber, 'AN'),
     formatField(2024, e.uifReferenceNumber, 'AN'),
     formatField(2025, e.contactFirstName, 'A'),
@@ -132,7 +137,44 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
+/**
+ * The income totals (BRS V25.3.0; V23.0.0 the same), from the record's own income fields (36xx-39xx, as written, whole rand):
+ *   - 3696 (p. 51) "the sum of all income amounts indicated as non-taxable": 3602, 3703, 3714, 3815, 3821, 3822, 3830, 3832,
+ *     3834, 3908; 3922 only up to R300 000 (YoA <= 2026) / R800 000 (from 2027); 3622 + 3835 only while their sum is at most
+ *     R5 000 (YoA <= 2026) / R16 000 (from 2027). Mandatory when any of them is completed.
+ *   - 3699 (p. 52) "the sum of all amounts for all income source codes NOT included in code 3696"; mandatory when 3696 has
+ *     no value; "3696 + 3699 must be equal to the amounts supplied under income"; not completed for 2010-2016.
+ */
+const NON_TAXABLE_3696 = new Set(['3602', '3703', '3714', '3815', '3821', '3822', '3830', '3832', '3834', '3908']);
+export function incomeTotalLines(incomeLines: string[], yearOfAssessment: number): string[] {
+  if (yearOfAssessment < 2017) return [];
+  const fields = incomeLines.map((l) => { const [code, value] = l.split(','); return { code: code!, value: Number(value) }; });
+  const from2027 = yearOfAssessment >= 2027;
+  const longService = fields.filter((f) => f.code === '3622' || f.code === '3835').reduce((t, f) => t + f.value, 0);
+  const nonTaxable = (f: { code: string; value: number }) => NON_TAXABLE_3696.has(f.code)
+    || (f.code === '3922' && f.value <= (from2027 ? 800_000 : 300_000))
+    || ((f.code === '3622' || f.code === '3835') && longService <= (from2027 ? 16_000 : 5_000));
+  const t3696 = fields.filter(nonTaxable).reduce((t, f) => t + f.value, 0);
+  const t3699 = fields.filter((f) => !nonTaxable(f)).reduce((t, f) => t + f.value, 0);
+  return [
+    ...(t3696 > 0 ? [`3696,${t3696}`] : []),
+    ...(t3699 > 0 || t3696 === 0 ? [`3699,${t3699}`] : []),
+  ];
+}
+
+/** Every refusal of a certificate names its employee and certificate number (a file holds many). */
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
+  try {
+    return employeeRecord(emp);
+  } catch (err) {
+    if (err instanceof UsageError && !err.message.includes(emp.certificateNumber)) {
+      throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+function employeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
   const birth3080 = birthDate3080(emp);
   const lumpSums = emp.lumpSums ?? [];
@@ -151,34 +193,44 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
   const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
   const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
-  const lines: (string | null)[] = [
-    formatField(3010, emp.certificateNumber, 'AN'),
-    formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
-    formatField(3020, 'A', 'A'),
-    formatField(3025, emp.yearOfAssessment, 'N'),
-    formatField(3030, emp.surname, 'FT'),
-    formatField(3040, emp.firstNames, 'AN'),
-    formatField(3050, emp.initials, 'A'),
-    formatField(3060, emp.idNumber, 'N'),
-    formatField(3080, birth3080, 'N'),
-    formatField(3150, emp.taxNumber, 'AN'),
-    formatField(3200, emp.employmentStartDate, 'N'),
-    formatField(3210, emp.employmentEndDate, 'N'),
-    // 3215 — N4.4 periods in YoA. Render with 4-decimal precision per BRS.
-    `3215,${emp.periodsInYoA.toFixed(4)}`,
-    ...lumpSums.flatMap(l => [
-      formatField(3230, l.directiveNumber, 'AN'),
-      formatField(3231, l.directiveIssuedDate, 'N'),
-      formatField(3232, l.sourceCode, 'N'),
-      formatField(3233, l.amount, 'N'),
-    ]),
-    ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
+  assertIncomeTaxReference(emp, reason);
+  // BRS V25.3.0 p. 33-34: "If the lump sum is the only income on the certificate", 3200 and 3210 are 1.0000.
+  const lumpSumOnly = lumpSums.some(l => l.amount >= 1) && emp.grossSalary3601 < 1 && (emp.annualPayments3605 ?? 0) < 1
+    && (emp.independentContractor3616 ?? 0) < 1 && ![...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].some(f => f.amount >= 1);
+  // Directive fields before the income codes, so a bad directive is named by its own field (3233) first.
+  const directiveFields = lumpSums.flatMap(l => [
+    formatField(3230, l.directiveNumber, 'AN'),
+    formatField(3231, l.directiveIssuedDate, 'N'),
+    formatField(3232, l.sourceCode, 'N'),
+    formatField(3233, l.amount, 'N'),
+  ]);
+  const income = [
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
     // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
     ...[...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
+  ].filter((l): l is string => l !== null);
+  const lines: (string | null)[] = [
+    certificateField('certificateNumber', emp.certificateNumber),
+    certificateField('certificateType', it3a ? 'IT3(a)' : 'IRP5'),
+    certificateField('natureOfPerson', 'A'),
+    certificateField('yearOfAssessment', emp.yearOfAssessment),
+    certificateField('surname', emp.surname),
+    certificateField('firstTwoNames', emp.firstNames),
+    certificateField('initials', emp.initials),
+    certificateField('identityNumber', emp.idNumber),
+    certificateField('dateOfBirth', birth3080),
+    certificateField('incomeTaxReference', emp.taxNumber),
+    certificateField('taxPeriodStart', emp.taxPeriodStart),
+    certificateField('taxPeriodEnd', emp.taxPeriodEnd),
+    certificateField('payPeriodsInYear', lumpSumOnly ? 1 : emp.payPeriodsInYear),
+    certificateField('payPeriodsWorked', lumpSumOnly ? 1 : emp.payPeriodsWorked),
+    ...directiveFields,
+    ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
+    ...income,
+    ...incomeTotalLines(income, emp.yearOfAssessment),
     ...retirement.beforeMedical,
     ...medical.fees,
     ...retirement.afterMedical,
@@ -216,15 +268,24 @@ export function buildTrailerRecord(recordCount: number): string[] {
 }
 
 export function buildIrp5File(input: BuildInput): string {
-  if (input.employees.length === 0) {
+  const psp = input.pspCertificates ?? [];
+  if (input.employees.length + psp.length === 0) {
     throw new UsageError('Cannot build an IRP5 file with zero employees');
+  }
+  // BRS V25.3.0 p. 32: no 3180 more than 30 days after today. Refused for a file that is filed (EMP501 finalise and its
+  // download); the ad-hoc export (`filingDate: 'warn'`) builds it and says so (easyFileInput's warnings).
+  if (input.filingDate !== 'warn') {
+    const kind = String(input.employer.reconciliationPeriod).endsWith('08') ? 'interim' : 'annual';
+    const early = filingDateMessage([...input.employees, ...psp.map((c) => ({ taxPeriodEnd: c.periodEnd }))], kind, input.employer.transactionYear, input.asOf ?? new Date());
+    if (early) throw new UsageError(early);
   }
   const lines: string[] = [];
   lines.push(...buildEmployerRecord(input.employer));
   for (const emp of input.employees) {
     lines.push(...buildEmployeeRecord(emp));
   }
-  const recordCount = 1 + input.employees.length; // 2010 + each 3010
+  for (const c of psp) lines.push(...buildPspCertificateRecord(c)); // wave 6 PSP-H: nature of person H
+  const recordCount = 1 + input.employees.length + psp.length; // 2010 + each 3010
   lines.push(...buildTrailerRecord(recordCount));
   // BRS §3 file is newline-delimited. Use CRLF — e@syFile Thin Client accepts
   // both but CRLF is what the reference importer samples produce.

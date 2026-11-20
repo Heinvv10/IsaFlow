@@ -1,6 +1,7 @@
 /** What the lifecycle bar shows and offers, as pure functions of the versions, the role and Login-as (wave 5 L2). */
 import { canWrite } from '@/lib/auth/writeRoles';
 import type { ReturnForm, ReturnVersionView } from './returnLifecycleClient';
+import { emp501LayoutNote } from '@/modules/accounting/services/returns/emp501FileLayout';
 
 /**
  * File and amend: owner/admin (the routes' withWriteAccess admits owner/admin/manager, the services owner/admin/super_admin;
@@ -59,7 +60,9 @@ export function availableActions(
   const finalise = live === null && canWrite(role);
   // Wave 6 EFa: filed only once the version's filing file was generated (the server refuses otherwise). A version
   // finalised before 999v's cut-off needs none (filingFileRequired false): a VAT201 of that age cannot generate one.
-  const file = live?.status === 'finalised' && acts && (live.filingFileSha256 !== null || live.filingFileRequired === false);
+  // Wave 6 EZF: never for an EMP501 stamped in an earlier e@syFile layout (markReturnFiled refuses it; emp501LayoutNote says why).
+  const file = live?.status === 'finalised' && acts && (live.filingFileSha256 !== null || live.filingFileRequired === false)
+    && emp501LayoutNote(live) === null;
   const amend = live !== null && acts;
   let note: string | null = null;
   if (live === null && !canWrite(role)) note = 'You have read-only access to this company, so you cannot finalise the return.';

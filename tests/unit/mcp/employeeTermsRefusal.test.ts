@@ -33,4 +33,12 @@ describe('refuseEmployeeTermArgs', () => {
       expect(JSON.stringify(out)).toContain(Object.keys(args)[1]!);
     }
   });
+
+  it('refuses the PSP entity particulars in either spelling (wave 6 PSP-H)', () => {
+    for (const k of ['psp_entity_name', 'pspEntityName', 'psp_registration_number', 'pspRegistrationNumber', 'psp_tax_reference', 'pspTaxReference']) {
+      const out = refuseEmployeeTermArgs({ employee_id: 'e1', [k]: 'x' });
+      expect(out?.isError, k).toBe(true);
+      expect(JSON.stringify(out)).toContain(k);
+    }
+  });
 });

@@ -17,6 +17,7 @@ import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFac
 import { pspComponentResults, pspDirectiveResults, pspPayeBase } from './pspLineRules';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
+import { overtimeThresholdWarnings, PERIODS_A_YEAR, splitTravelRows } from './payrollRunInputUnits';
 import { costLineEti } from './payrollLineEti';
 import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
@@ -54,7 +55,9 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  * estimateAnnualRemuneration adds them to each earlier month's total_gross).
  */
 export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult {
-  const { employee, components, period, taxYear, annualPayrollEstimate } = input;
+  const { employee, period, taxYear, annualPayrollEstimate } = input;
+  // RI: a km row is split into the part within the prescribed rate and the taxed excess (payrollRunInputUnits).
+  const components = splitTravelRows(input.components, taxYear);
 
   const periodDate = new Date(period.year, period.month - 1, 28);
   // SARS grants the age rebates for the whole year of assessment to an
@@ -65,6 +68,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   const acc = accumulateComponents(components);
   const { grossPay, allEarnings, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, earningParts, employeeMedicalFees } = acc;
+  warnings.push(...overtimeThresholdWarnings(input.components, `${period.year}-${String(period.month).padStart(2, '0')}-28`, PERIODS_A_YEAR[employee.payFrequency] ?? 12));
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration

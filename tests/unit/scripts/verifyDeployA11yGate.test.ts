@@ -45,6 +45,7 @@ const DEV_ONLY_SPECS = [
   'z11-kit-select',
   'z12-bank-tx-selects',
   'z13-invoice-preview-unsaved',
+  'z14-weekly-run',
   'z15-density',
   'z16-return-lifecycle',
   'z17-return-drill',

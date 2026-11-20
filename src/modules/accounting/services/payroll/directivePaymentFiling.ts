@@ -103,8 +103,11 @@ export async function listStandaloneDirectivePayments(
 export interface CertificateLumpSums {
   /** Run-paid and stand-alone lump sums by employee id, in issued-date order. */
   byEmployee: Map<string, LumpSumFiling[]>;
-  /** The stand-alone payments' gross and PAYE by employee id: NOT in the run-line totals, so callers add them. */
-  standaloneTotals: Map<string, { gross: number; paye: number }>;
+  /**
+   * The stand-alone payments' gross and PAYE by employee id: NOT in the run-line totals, so callers add them. With the
+   * first and last payment dates (YYYY-MM-DD): a leaver's certificate tax period (easyFileInput).
+   */
+  standaloneTotals: Map<string, { gross: number; paye: number; firstPaid?: string; lastPaid?: string }>;
   /** Stand-alone payments whose directive names no employee here. */
   unlinked: StandaloneDirectivePayment[];
 }
@@ -120,12 +123,16 @@ export async function listCertificateLumpSums(
     listStandaloneDirectivePayments(companyId, bounds, employeeId),
   ]);
   const byEmployee = new Map([...run].map(([k, v]) => [k, [...v]]));
-  const standaloneTotals = new Map<string, { gross: number; paye: number }>();
+  const standaloneTotals: CertificateLumpSums['standaloneTotals'] = new Map();
   for (const p of standalone) {
     if (p.employeeId == null) continue;
     byEmployee.set(p.employeeId, [...(byEmployee.get(p.employeeId) ?? []), p.filing]);
     const t = standaloneTotals.get(p.employeeId) ?? { gross: 0, paye: 0 };
-    standaloneTotals.set(p.employeeId, { gross: round2(t.gross + p.gross), paye: round2(t.paye + p.paye) });
+    standaloneTotals.set(p.employeeId, {
+      gross: round2(t.gross + p.gross), paye: round2(t.paye + p.paye),
+      firstPaid: t.firstPaid && t.firstPaid < p.paymentDate ? t.firstPaid : p.paymentDate,
+      lastPaid: t.lastPaid && t.lastPaid > p.paymentDate ? t.lastPaid : p.paymentDate,
+    });
   }
   for (const list of byEmployee.values()) {
     list.sort((a, b) => a.directiveIssuedDate.localeCompare(b.directiveIssuedDate) || a.directiveId.localeCompare(b.directiveId));

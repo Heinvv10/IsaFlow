@@ -8,6 +8,8 @@ import type { Employee } from '@/components/payroll/EmployeeProfileCard';
 vi.mock('@/components/payroll/EmployeeEmailField', () => ({ EmployeeEmailField: () => null }));
 // Master's employee portal card (merged after PSP) loads on mount: its GET is not this field's save.
 vi.mock('@/components/payroll/EmployeePortalCard', () => ({ EmployeePortalCard: () => null }));
+// FQd's pay-frequency field (merged after PSP) loads the frequency on mount: that GET is not this field's save either.
+vi.mock('@/components/payroll/PayFrequencyField', () => ({ PayFrequencyField: () => null }));
 
 const base: Employee = {
   id: 'e1', employeeNumber: 'E-1', firstName: 'Thandi', lastName: 'Nkosi', employmentType: 'contract', startDate: '2026-01-01',

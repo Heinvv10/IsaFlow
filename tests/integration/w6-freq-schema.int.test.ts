@@ -12,7 +12,6 @@ import { als } from '@/lib/als';
 import { assertRunKindSupported, RunKindUnsupportedError, type RunKindAction } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
-import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import runDetail from '../../pages/api/payroll/runs/[id]';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
@@ -156,22 +155,17 @@ describe('run population and the guard (grill F3)', () => {
     expect(await snapshot(runId)).toBe(before);
   });
 
-  it('a weekly run is refused by calculate, approve and reopen, 409, with no row changed', async () => {
-    const before = await snapshot(runId);
+  it('a weekly run meets no frequency clause since FQd but IRP5 (monthly-only this wave): its monthly line employee is what approve refuses', async () => {
     await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
-    const weekly = await snapshot(runId);
     try {
-      for (const [route, action, body] of [[calculate, 'calculate', undefined], [approve, 'approve', { expectedPlanHash: 'x' }],
-        [reopen, 'reopen', { reason: 'testing the guard' }]] as const) {
-        const r = await call(route as Route, 'POST', `/api/payroll/runs/${runId}/${action}`, runId, { body });
-        expect(r.statusCode, action).toBe(409);
-        expect(JSON.stringify(r.body), action).toContain('weekly run');
-        expect(await snapshot(runId), action).toBe(weekly);
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'bank_file'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('frequency');
       }
+      expect(clauses(await refusal('irp5'))).toContain('frequency');
+      expect(clauses(await refusal('approve'))).toEqual(['employee_frequency']);
     } finally {
       await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'monthly' WHERE id = $1", [runId]);
     }
-    expect(await snapshot(runId)).toBe(before);
   });
 
   it('an off-cycle run is refused by calculate, 409, with no row changed', async () => {
@@ -204,12 +198,12 @@ describe('run population and the guard (grill F3)', () => {
   it("company B cannot read or be refused about company A's run: the route answers 404 and the guard finds nothing", async () => {
     const r = await call(runDetail as Route, 'GET', `/api/payroll/runs/${runId}`, runId, { user: adminB, company: B });
     expect(r.statusCode).toBe(404);
-    await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+    await pool.query("UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1", [runId]);
     try {
       expect(await refusal('calculate', B)).toBeNull();
-      expect(clauses(await refusal('calculate', A))).toEqual(['frequency']);
+      expect(clauses(await refusal('calculate', A))).toEqual(['run_kind']);
     } finally {
-      await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'monthly' WHERE id = $1", [runId]);
+      await pool.query("UPDATE payroll_run_headers SET run_kind = 'regular', off_cycle_reason = NULL WHERE id = $1", [runId]);
     }
   });
 });
@@ -232,25 +226,16 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     });
   });
 
-  it('a km assignment and a rate multiplier are refused for costing, not for payslips', async () => {
+  it('RI lifted the km and rate-multiplier clause (migration 1017): a km row or an overtime multiplier is refused nothing', async () => {
     const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     for (const prepare of [
+      async (c: PoolClient) => { await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`); },
       async (c: PoolClient) => {
-        for (const r of (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'payroll_employee_components'::regclass
-          AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity_unit%'`)).rows) {
-          await c.query(`ALTER TABLE payroll_employee_components DROP CONSTRAINT ${String(r.conname)}`);
-        }
-        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN rate_multiplier numeric');
-        await c.query(`UPDATE payroll_employee_components SET rate_multiplier = 1.5 WHERE id IN (${assignment})`);
+        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'hour', rate_multiplier = 1.5 WHERE id IN (${assignment})`);
       },
     ]) {
       await inRolledBackTx(prepare, async () => {
-        expect(clauses(await refusal('calculate'))).toEqual(['assignment']);
-        expect(clauses(await refusal('approve'))).toEqual(['assignment']);
-        expect(await refusal('payslip')).toBeNull();
+        for (const action of ['calculate', 'approve', 'post', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
       });
     }
   });
@@ -290,9 +275,11 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
         start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
       [A, monthlyEmp, acct]);
       await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+      // The run's employee paid weekly too: FQd costs weekly runs, so the order is the ONLY reason left (rev #1622).
+      await c.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE company_id = $1", [A]);
     }, async () => {
       for (const action of ['calculate', 'approve', 'post'] as const) {
-        expect(clauses(await refusal(action)), action).toContain('garnishee_frequency');
+        expect(clauses(await refusal(action)), action).toEqual(['garnishee_frequency']);
       }
       for (const action of ['reopen', 'payslip'] as const) {
         expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');

@@ -3,6 +3,8 @@
  * reconciliation of the page's tax year, then the shared lifecycle bar (finalise, download the e@syFile file, mark
  * filed with the SARS reference, amend). The server refuses a finalise while IRP5 pre-validation reports an error or a
  * month's EMP201 is not filed, and says which.
+ * The page may hold the choice (`kind`, `onKindChange`; review #1622 L-K): one selector then drives the return and the
+ * reconciliation table below it.
  */
 import { useState } from 'react';
 import { Select } from '@/components/ui/Select';
@@ -15,9 +17,13 @@ const KINDS = [
   { value: 'annual', label: 'Annual (March to February)' },
 ];
 
-export function Emp501ReturnSection({ taxYear }: { taxYear: number }) {
+export function Emp501ReturnSection({ taxYear, kind: held, onKindChange }: {
+  taxYear: number; kind?: Emp501Kind; onKindChange?: (kind: Emp501Kind) => void;
+}) {
   const { companyRole } = useCompany();
-  const [kind, setKind] = useState<Emp501Kind>('interim');
+  const [own, setOwn] = useState<Emp501Kind>('interim');
+  const kind = held ?? own;
+  const setKind = onKindChange ?? setOwn;
   const p = emp501Period(taxYear, kind);
   return (
     <section aria-labelledby="emp501-return-title" className="space-y-3">

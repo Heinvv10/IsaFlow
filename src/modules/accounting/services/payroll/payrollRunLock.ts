@@ -114,6 +114,15 @@ export async function withBoundedLockWait<T>(runId: string | null, take: (tx: Tx
   });
 }
 
+/** The run is not this company's, or no longer exists (a draft deleted while this request waited on its lock; FQd). */
+export class PayrollRunNotFoundError extends Error {
+  readonly code = 'PAYROLL_RUN_NOT_FOUND';
+  constructor() {
+    super('Payroll run not found');
+    this.name = 'PayrollRunNotFoundError';
+  }
+}
+
 /**
  * The run's header row, locked FOR UPDATE until the caller's transaction ends
  * — null when the run is not in this company. Taken by calculatePayrollRun and
