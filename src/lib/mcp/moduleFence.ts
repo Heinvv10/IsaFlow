@@ -6,7 +6,8 @@
  *   - McpTool.approveModule: the module's Approve for a tool that approves or posts (Hein,
  *     2026-11-19: gate everything). A credit note's module is its type; settle_by_contra's is its
  *     subledger; 'per_document' tools ask per document themselves.
- * tests/unit/mcp/moduleFenceCensus.test.ts fails on a posting or payroll tool that declares neither.
+ * tests/unit/auth/approvePostEntryCensus.test.ts and payrollModuleCensus.test.ts fail on a posting or payroll tool
+ * that declares neither.
  */
 import { sql } from '@/lib/neon';
 import { checkPermission } from '@/lib/auth/permissionService';
