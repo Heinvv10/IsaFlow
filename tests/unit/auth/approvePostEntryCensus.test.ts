@@ -48,7 +48,7 @@ const POSTING_SERVICES = [
   'executeRecurring',
 ] as const;
 
-const GATE = /\b(refuseWithoutApprove|mayApprove|assertMayApprove|mayApproveSupplierInvoices|assertMayApproveCreditNote|approveModuleForRequest)\(/;
+const GATE = /\b(refuseWithoutApprove|refuseWithoutGroupApprove|mayApprove|mayApproveInGroup|assertMayApprove|mayApproveSupplierInvoices|assertMayApproveCreditNote|approveModuleForRequest)\(/;
 
 /** Routes that call a posting service without a route-level gate, and why that is right. */
 const EXEMPT_ROUTES: Readonly<Record<string, string>> = {

@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  ApprovePermissionError, approveRefusedMessage, mayApprove, type ApproveModule,
+  ApprovePermissionError, approveRefusedMessage, mayApprove, mayApproveInGroup, type ApproveModule,
 } from '@/modules/accounting/services/core/approvePermission';
 
 export function respondIfApprovePermissionRefused(res: NextApiResponse, err: unknown): boolean {
@@ -23,6 +23,15 @@ export async function refuseWithoutApprove(
   res: NextApiResponse, companyId: string, userId: string, module: ApproveModule, what: string,
 ): Promise<boolean> {
   if (await mayApprove(companyId, userId, module)) return false;
+  apiResponse.forbidden(res, approveRefusedMessage(module, what));
+  return true;
+}
+
+/** As refuseWithoutApprove, for an action on a group: Approve is asked in the group's member companies (mayApproveInGroup). */
+export async function refuseWithoutGroupApprove(
+  res: NextApiResponse, groupId: string, userId: string, module: ApproveModule, what: string,
+): Promise<boolean> {
+  if (await mayApproveInGroup(userId, groupId, module)) return false;
   apiResponse.forbidden(res, approveRefusedMessage(module, what));
   return true;
 }

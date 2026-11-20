@@ -57,6 +57,28 @@ export function mayApprove(companyId: string, userId: string, module: ApproveMod
   return checkPermission(companyId, userId, module, 'approve');
 }
 
+/**
+ * Approve on a GROUP-wide action (consolidated eliminations): asked in the companies of the requested group, never in
+ * the request's session company, which can be any company the user is in. True when the user holds `module` Approve in
+ * at least one company that is a CURRENT member of the group and that they belong to (left_date IS NULL: a company
+ * that left the group no longer carries the user's access; the same any-member rule as userBelongsToGroup and
+ * userCanWriteGroup). A user in no member company has no Approve here.
+ */
+export async function mayApproveInGroup(userId: string, groupId: string, module: ApproveModule): Promise<boolean> {
+  const rows = await sql`
+    SELECT DISTINCT cgm.company_id
+    FROM   company_group_members cgm
+    JOIN   company_users cu ON cu.company_id = cgm.company_id
+    WHERE  cgm.group_id  = ${groupId}::UUID
+      AND  cgm.left_date IS NULL
+      AND  cu.user_id    = ${userId}
+  ` as Array<{ company_id: string }>;
+  for (const r of rows) {
+    if (await mayApprove(r.company_id, userId, module)) return true;
+  }
+  return false;
+}
+
 export async function assertMayApprove(companyId: string, userId: string, module: ApproveModule, what: string): Promise<void> {
   if (!(await mayApprove(companyId, userId, module))) throw new ApprovePermissionError(module, what);
 }

@@ -8,7 +8,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
@@ -26,7 +25,7 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutGroupApprove } from '@/lib/approvePermissionResponse';
 
 /**
  * 400 text for a bad date range, or null — checked before any query, because an unvalidated
@@ -164,7 +163,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'post-elimination') {
-      if (await refuseWithoutApprove(res, (req as CompanyAuthedRequest).companyId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write
+      if (await refuseWithoutGroupApprove(res, gId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write; asked in the group's companies, not the session company
       return answerRefusals(res, async () => {
         await postEliminationAdjustment(body.adjustmentId as string, gId);
         return apiResponse.success(res, { posted: true });
@@ -172,7 +171,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'reverse-elimination') {
-      if (await refuseWithoutApprove(res, (req as CompanyAuthedRequest).companyId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write
+      if (await refuseWithoutGroupApprove(res, gId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write; asked in the group's companies, not the session company
       return answerRefusals(res, async () => {
         await reverseEliminationAdjustment(body.adjustmentId as string, gId);
         return apiResponse.success(res, { reversed: true });
