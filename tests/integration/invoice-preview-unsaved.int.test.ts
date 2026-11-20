@@ -6,8 +6,9 @@
  *   they were (it never calls create, writes no invoice, meters nothing and takes no number);
  * - a preview and then a create of the same body print and store the same subtotal, VAT and total, to the cent;
  * - another company's customer is a 404;
- * - a body naming company B's job, account, item and VAT code prints none of B's names, and says the job was not
- *   recognised; a foreign currency the company has not enabled is a 400;
+ * - a body naming company B's job, account and VAT code prints none of B's names, and says the job was not
+ *   recognised; B's item is refused as create refuses it (400, naming nothing of B's; #1701 round 2); a foreign
+ *   currency the company has not enabled is a 400;
  * - the preview's rate-limit bucket is each member's own (300 in 15 min): one member using theirs up leaves a
  *   colleague's previews and invoice-pdf downloads working.
  */
@@ -142,10 +143,16 @@ describe('invoice preview before the first save', () => {
     const item = (await pool.query(`INSERT INTO items (company_id, code, description, selling_price_excl) VALUES ($1, 'B-IT', 'B-SECRET-ITEM', 777.77) RETURNING id`, [b])).rows[0].id;
     const body = BODY();
     const text = await textOf(await preview({ ...body, projectId: job,
-      items: [{ ...body.items[0], glAccountId: account, projectId: job, itemId: item, vatCode: 'B-SECRET-VAT' }] }));
+      items: [{ ...body.items[0], glAccountId: account, projectId: job, vatCode: 'B-SECRET-VAT' }] }));
     expect(text).not.toMatch(/B-SECRET|777\.77/);
     expect(text).toContain(JOB_NOT_RECOGNISED);
     expect(text).toContain('Preview widgets');
+    // B's item: since #1701 round 2 the preview runs create's item refusal, so it is refused as create refuses it, in the
+    // words create uses for a missing item (an existence oracle for nobody), naming nothing of B's.
+    const refused = await preview({ ...body, items: [{ ...body.items[0], itemId: item }] });
+    expect(refused.state.statusCode).toBe(400);
+    expect(JSON.stringify(refused.state.body)).toContain('items[0].item_id is not an item of your company');
+    expect(JSON.stringify(refused.state.body)).not.toMatch(/B-SECRET|777\.77/);
   });
 
   it('a foreign currency the company has not enabled is a 400', async () => {
