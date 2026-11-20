@@ -36,6 +36,22 @@ describe('fetchAllPages: unknown total', () => {
   });
 });
 
+describe('fetchAllPages: an endpoint that ignores offset', () => {
+  it('stops as soon as a page adds no new ids, truncated, instead of repeating to the cap (unknown total)', async () => {
+    let calls = 0;
+    const out = await fetchAllPages(async () => { calls++; return { rows: mk(0, 3), total: null }; });
+    expect(out.rows).toHaveLength(3);
+    expect(out.truncated).toBe(true);
+    expect(calls).toBe(2); // page 1 is new, page 2 repeats it
+  });
+  it('the same with a known total it can never reach', async () => {
+    let calls = 0;
+    const out = await fetchAllPages(async () => { calls++; return { rows: mk(0, 3), total: 99 }; });
+    expect(out).toMatchObject({ total: 99, truncated: true });
+    expect(calls).toBe(2);
+  });
+});
+
 describe('readPage via fetchAllPayments: a response without total', () => {
   beforeEach(() => vi.mocked(apiFetch).mockReset());
   it('does not stop after page 1, even when the server caps a page below the limit asked for', async () => {

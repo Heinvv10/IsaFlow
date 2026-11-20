@@ -24,6 +24,7 @@ export async function fetchAllPages(getPage: (index: number) => Promise<PageOut>
   for (let i = 0; i < maxPages; i++) {
     const out = await getPage(i);
     known = out.total;
+    const before = seen.size;
     for (const r of out.rows) {
       const id = String(r.id);
       if (!seen.has(id)) { seen.add(id); rows.push(r); }
@@ -35,6 +36,8 @@ export async function fetchAllPages(getPage: (index: number) => Promise<PageOut>
       if (seen.size >= known) return { rows, total, truncated: false };
       if (out.rows.length === 0) return { rows, total, truncated: true }; // the list ended short of its own total: say so, do not pass it off as whole
     }
+    // a page of rows already seen: the endpoint ignores `offset` (or the list is shifting), so more pages will not help
+    if (out.rows.length > 0 && seen.size === before) return { rows, total, truncated: true };
   }
   return { rows, total: known ?? seen.size, truncated: true };
 }
