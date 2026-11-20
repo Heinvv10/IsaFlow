@@ -32,7 +32,7 @@ export function useFocusFirstInvalidOnSubmit(): void {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onSubmit = (e: Event) => {
       const form = e.target;
-      if (!(form instanceof HTMLFormElement) || !window.matchMedia(PHONE).matches) return;
+      if (!(form instanceof HTMLFormElement) || typeof window.matchMedia !== 'function' || !window.matchMedia(PHONE).matches) return;
       clearTimeout(timer);
       const scope: ParentNode = form.closest('[role="dialog"]') ?? form.parentElement ?? form;
       const before = new Map(banners(scope).map((b) => [b, b.textContent]));

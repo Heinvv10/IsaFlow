@@ -29,11 +29,16 @@ function Form({ failOn = ['name', 'email'], async: delayed = false }: { failOn?:
   );
 }
 
-const setViewport = (phone: boolean) => {
-  window.matchMedia = vi.fn().mockImplementation((q: string) => ({ matches: phone && q.includes('max-width'), media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never;
-};
+// Evaluates the real `(max-width: Npx)` query against a pretend viewport width, so a breakpoint typo fails.
+let width = 390; let reducedMotion = false;
+const setViewport = (phone: boolean) => { width = phone ? 390 : 1280; };
+window.matchMedia = ((q: string) => {
+  const max = /max-width:\s*([\d.]+)px/.exec(q);
+  const matches = max ? width <= Number(max[1]) : q.includes('prefers-reduced-motion') ? reducedMotion : false;
+  return { matches, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+}) as never;
 const scroll = vi.fn();
-beforeEach(() => { scroll.mockReset(); Element.prototype.scrollIntoView = scroll; setViewport(true); });
+beforeEach(() => { scroll.mockReset(); Element.prototype.scrollIntoView = scroll; setViewport(true); reducedMotion = false; });
 afterEach(cleanup);
 const submit = () => act(() => { screen.getByText('Save').click(); });
 
@@ -165,5 +170,68 @@ describe('focus the first invalid field after a failed submit (phones)', () => {
       await waitFor(() => expect(scroll).toHaveBeenCalled());
       expect(screen.getByLabelText('old')).not.toHaveFocus();
     } finally { HTMLElement.prototype.checkVisibility = real; }
+  });
+
+  it('uses the real lg breakpoint: 1023px is a phone, 1024px is not', async () => {
+    width = 1023;
+    const { unmount } = render(<BannerForm />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    unmount(); scroll.mockReset(); width = 1024;
+    render(<BannerForm />);
+    submit();
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('scrolls instantly under reduced motion and smoothly otherwise', async () => {
+    reducedMotion = true;
+    render(<BannerForm />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'auto' }));
+    cleanup(); scroll.mockReset(); reducedMotion = false;
+    render(<BannerForm />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' }));
+  });
+
+  it('also scrolls instantly under reduced motion when it lands on an invalid field', async () => {
+    reducedMotion = true;
+    render(<Form />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'auto' }));
+  });
+
+  it('stops watching once it has acted: one scroll per submit', async () => {
+    render(<BannerForm />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('a second quick submit replaces the first watch instead of doubling it', async () => {
+    render(<BannerForm />);
+    submit(); submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up when the app unmounts mid-watch', async () => {
+    const { unmount } = render(<BannerForm slow />);
+    submit();
+    unmount();
+    await new Promise((r) => setTimeout(r, 2800));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('does not throw where matchMedia is missing', async () => {
+    const real = window.matchMedia;
+    (window as unknown as { matchMedia?: unknown }).matchMedia = undefined;
+    try {
+      render(<BannerForm />);
+      expect(() => submit()).not.toThrow();
+    } finally { window.matchMedia = real; }
   });
 });
