@@ -152,6 +152,14 @@ function recomputeUif(fig: FigureExplanation): number {
   const room = Math.max(0, r.amt('uif.ceiling') - (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0));
   const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), room));
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
+  if (r.has('uif.monthLiability')) {
+    // An off-cycle line (review #1679): the month's liability rounded once, less what the earlier lines booked, each side.
+    const toDate = (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0) + r.amt('uif.remuneration');
+    const liability = round2(Math.min(toDate, r.amt('uif.ceiling')) * r.amt('uif.rate'));
+    expect(cents(r.amt('uif.monthLiability'))).toBe(cents(liability));
+    expect(cents(r.amt('uif.employer'))).toBe(cents(Math.max(0, round2(liability - r.amt('uif.bookedEmployer')))));
+    return Math.max(0, round2(liability - r.amt('uif.bookedEmployee')));
+  }
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));
   return each;

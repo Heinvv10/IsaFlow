@@ -24,7 +24,8 @@ export interface LineExplainParts {
   /** A PSP's entity and rate, with the flat rate's base (pspLineRules.pspPayeBase). */
   psp: (PspFacts & { base: number }) | null;
   paye: Omit<PayeExplainInput, 'taxYear'>;
-  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number };
+  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number;
+    month?: { liability: number; booked: { employee: number; employer: number } } };
   sdl: {
     outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';

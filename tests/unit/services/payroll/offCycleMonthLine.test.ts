@@ -153,3 +153,22 @@ describe('an off-cycle bonus for a personal service provider', () => {
     expectRecomputes(line);
   });
 });
+
+// Review #1679 codex 1 and 2: UIF is the month's liability rounded once, less what the earlier lines BOOKED (stored).
+describe('UIF booked across the month (review #1679)', () => {
+  it('an imported regular line with no breakdown that withheld R177.12 leaves the bonus no UIF', () => {
+    const line = bonusLine(10_000, { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 177.12, uifEmployer: 177.12 });
+    expect(line.uif).toMatchObject({ employeeContribution: 0, employerContribution: 0 });
+    expectRecomputes(line);
+  });
+  it('R10 001.50 then a R7 710.50 bonus: the month levies exactly R177.12 each side (R100.02 + R77.10, not R77.11)', () => {
+    const regular = regularLine(10_001.5);
+    expect(regular.uif.employeeContribution).toBe(100.02);
+    const line = bonusLine(7_710.5, { uifRemuneration: 10_001.5, eti: 0, etiComponents: [earning('basic', '3601', 10_001.5)],
+      uifEmployee: 100.02, uifEmployer: 100.02 });
+    expect(line.uif).toMatchObject({ employeeContribution: 77.1, employerContribution: 77.1 });
+    expect(Math.round((100.02 + line.uif.employeeContribution) * 100) / 100).toBe(177.12);
+    expectRecomputes(line);
+  });
+});
+

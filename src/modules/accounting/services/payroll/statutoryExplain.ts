@@ -29,6 +29,8 @@ export function explainUif(input: {
   taxYear: number; uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null;
   /** Wave 6 FQc: UIF remuneration the month's earlier weekly or fortnightly runs paid (uifWithLeviable); absent or 0 = none. */
   monthToDate?: number;
+  /** An off-cycle line (review #1679): the month's UIF liability rounded once, and what the earlier lines booked. */
+  month?: { liability: number; booked: { employee: number; employer: number } };
 }): FigureExplanation {
   const { uif, taxYear, leviable } = input;
   const base = { figure: 'uif' as const, title: 'How UIF was calculated', result: uif.employeeContribution, resultLabel: 'UIF, employee (the employer pays the same)' };
@@ -47,8 +49,16 @@ export function explainUif(input: {
       }] : []),
       leviableStep(leviable, input.uifRemuneration),
       { key: 'uif.rate', label: 'Rate, each of employee and employer', amount: UIF_RATE, unit: 'percent' },
-      { key: 'uif.employee', label: 'Employee contribution', amount: uif.employeeContribution, formula: `${pct(UIF_RATE)} × ${r(leviable)}, rounded to the cent` },
-      { key: 'uif.employer', label: 'Employer contribution', amount: uif.employerContribution },
+      ...(input.month ? [
+        { key: 'uif.monthLiability', label: "The month's UIF, each side: 1% of its remuneration up to the ceiling, rounded once", amount: input.month.liability },
+        { key: 'uif.bookedEmployee', label: 'Employee UIF already booked this month on earlier runs', amount: input.month.booked.employee },
+        { key: 'uif.bookedEmployer', label: 'Employer UIF already booked this month on earlier runs', amount: input.month.booked.employer },
+        { key: 'uif.employee', label: 'Employee contribution', amount: uif.employeeContribution, formula: `${r(input.month.liability)} − ${r(input.month.booked.employee)}, never below nil` },
+        { key: 'uif.employer', label: 'Employer contribution', amount: uif.employerContribution, formula: `${r(input.month.liability)} − ${r(input.month.booked.employer)}, never below nil` },
+      ] : [
+        { key: 'uif.employee', label: 'Employee contribution', amount: uif.employeeContribution, formula: `${pct(UIF_RATE)} × ${r(leviable)}, rounded to the cent` },
+        { key: 'uif.employer', label: 'Employer contribution', amount: uif.employerContribution },
+      ]),
     ],
   };
 }

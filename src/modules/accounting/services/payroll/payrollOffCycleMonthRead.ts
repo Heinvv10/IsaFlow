@@ -5,8 +5,8 @@
  * earnings they paid, rebuilt from the stored breakdown as the line costed them: an item is an earning when its
  * component is one (joined by id within the company) or it is a termination pay-out (synthetic:termination:*). From
  * those earnings: the month's ETI base, hours and wage, and the UIF remuneration (the UIF-applicable ones at their PAYE
- * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). Scoped by company_id
- * throughout.
+ * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). The UIF those lines
+ * booked is their STORED contributions (review #1679 codex 1), not a rebuild. Scoped by company_id throughout.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -41,7 +41,7 @@ export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEa
 export async function loadMonthEarlierLines(companyId: string, runId: string, employeeIds: string[]): Promise<Map<string, MonthEarlierLines>> {
   if (employeeIds.length === 0) return new Map();
   const rows = (await sql`
-    SELECT l.employee_id, l.eti,
+    SELECT l.employee_id, l.eti, l.uif_employee, l.uif_employer,
            COALESCE((
              SELECT jsonb_agg(item || jsonb_build_object('isEarning',
                       pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%'))
@@ -62,9 +62,12 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
   for (const r of rows) {
     const id = String(r.employee_id);
     const items = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>;
-    const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [] };
+    const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 0, uifEmployer: 0 };
     out.set(id, {
       uifRemuneration: round2(had.uifRemuneration + uifRemunerationOf(items)),
+      // What the earlier lines booked, as stored (review #1679 codex 1): an imported line's breakdown may be empty.
+      uifEmployee: round2((had.uifEmployee ?? 0) + n(r.uif_employee)),
+      uifEmployer: round2((had.uifEmployer ?? 0) + n(r.uif_employer)),
       eti: round2(had.eti + n(r.eti)),
       etiComponents: [...had.etiComponents, ...earningsOfBreakdown(items)],
     });
