@@ -29,7 +29,17 @@
  *
  * A merged-away row carries no Sage id of its own unless the merge left one, so one that matched by
  * name alone would match every later Sage party of that name. upsertSupplier therefore stamps the
- * pull's Sage id on that merged-away row (claimMergedAwaySupplier); the survivor is never stamped.
+ * pull's Sage id on that merged-away row (claimMatchedSupplier); the survivor is never stamped. For
+ * the same reason, when the pull carries a Sage id a merged-away row that holds any other external ref
+ * (another system's, say) is not matched by name: it could never be stamped, so it would match every
+ * later party of that name. (A pull without a Sage id still reaches the survivor by that name.)
+ *
+ * Two merged-away rows of one name, unstamped: each distinct Sage party takes the next one (oldest
+ * first) and stamps it, so the first reaches the first row's survivor, the second the second row's, and
+ * a third finds none and gets its own live row. Re-syncs find each by its Sage id.
+ *
+ * The bill import (commitAPInvoice) resolves and stamps through the same claimMatchedSupplier, so the
+ * result does not depend on whether bills or suppliers are imported first.
  */
 
 import { sql } from '@/lib/neon';
@@ -71,7 +81,8 @@ export async function matchSageSupplier(
         AND (
           (external_system = 'sage' AND external_ref = ${ref}::TEXT)
           OR (LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
-              AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL))
+              AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL)
+              AND (${ref}::TEXT IS NULL OR deleted_at IS NULL OR external_ref IS NULL))
         )
     ), chain AS (
       SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen FROM hit h
@@ -147,6 +158,14 @@ export async function claimMergedAwaySupplier(companyId: string, id: string, sag
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL
       AND deleted_at IS NOT NULL AND merged_into_id IS NOT NULL
   `;
+}
+
+/** Stamp what a supplier match calls for: the row itself, or the merged-away row it was reached through. */
+export async function claimMatchedSupplier(
+  companyId: string, match: SageSupplierMatch, sageId: number | string | null | undefined,
+): Promise<void> {
+  if (!match.viaMerge) await claimSageSupplier(companyId, match.id, sageId);
+  else if (!match.byRef && match.mergedAwayId) await claimMergedAwaySupplier(companyId, match.mergedAwayId, sageId);
 }
 
 /** claimSageSupplier for customers. */

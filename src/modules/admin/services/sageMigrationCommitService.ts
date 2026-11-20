@@ -39,7 +39,7 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { claimMergedAwaySupplier, claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, matchSageSupplier, sageRef } from './sagePartyMatch';
+import { claimMatchedSupplier, claimSageCustomer, findSageCustomer, matchSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -65,8 +65,7 @@ export async function upsertSupplier(companyId: string, s: MappedSupplier): Prom
   // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
   // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
   if (existing) {
-    if (!existing.viaMerge) await claimSageSupplier(companyId, existing.id, s.sageId);
-    else if (!existing.byRef && existing.mergedAwayId) await claimMergedAwaySupplier(companyId, existing.mergedAwayId, s.sageId);
+    await claimMatchedSupplier(companyId, existing, s.sageId);
     return existing.id;
   }
   const ref = sageRef(s.sageId);
@@ -201,8 +200,12 @@ export async function commitAPInvoice(
   const open = Number(inv.amountPaid ?? 0) < Number(inv.totalAmount);
   if (open) await assertMayImportOpenBills(companyId, userId);
 
-  const supplierId = await findSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
-  if (!supplierId) throw new Error(`Supplier not found: ${inv.supplierName}`);
+  // Stamped like the supplier sync (upsertSupplier), so whether bills or suppliers are imported first
+  // makes no difference to which row a Sage id ends up on.
+  const matched = await matchSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
+  if (!matched) throw new Error(`Supplier not found: ${inv.supplierName}`);
+  await claimMatchedSupplier(companyId, matched, inv.supplierSageId);
+  const supplierId = matched.id;
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
 
