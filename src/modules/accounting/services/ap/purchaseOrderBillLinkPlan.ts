@@ -14,8 +14,9 @@
  *   - amount: when lines of the bill name this PO (named now, or already), the posted ex-VAT of those lines, and an explicit
  *     amount must be that within a cent (PR #1703 breaker BRK-A: else the lines net one figure and the link holds another) and
  *     lines that post nothing are refused (BRK-C); else explicit; else the bill's subtotal less what it attributes to its
- *     other POs (lines when its lines name that PO, else that PO's link: one rand to one PO, BRK-B). It must be above zero
- *     and take the bill no further than its subtotal (+1 c);
+ *     other POs (lines when its lines name that PO, else that PO's link, else what its header holds there: one rand to one PO,
+ *     BRK-B). It must be above zero and take the bill no further than its subtotal (+1 c); when a header tie's rands are what
+ *     stand in the way, the refusal names that PO: "unlink it from that purchase order first" (breaker R3-4);
  *   - close_when_fully_billed: an approved / partially_received / received PO that the call leaves fully billed
  *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that tie the PO
  *     with no link row, by header or by lines, as `budgets/billAttribution` and get_purchase_order count them, >= subtotal - 1 c)
@@ -43,6 +44,8 @@ export interface PlanInput {
   closeWhenFullyBilled: boolean;
   /** Per PO, the approved / paid / partially_paid bills that tie it with NO link row (by header, or by lines): what each holds. */
   unlinkedBilled?: ReadonlyMap<string, ReadonlyArray<{ billId: string; cents: number }>>;
+  /** Per bill of the call, the POs it ties ONLY by its header (no link row, no lines) and what each holds (breaker R3-4). */
+  heldByHeader?: ReadonlyMap<string, ReadonlyArray<{ poId: string; poNumber: string; cents: number }>>;
 }
 
 const refKey = (r: { system: string; ref: string }) => `${r.system}\u0000${r.ref}`;
@@ -120,7 +123,14 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     const lineWrites = r.lines.filter((l) => bill.lines.find((b) => b.id === l.billLineId)!.poItemId !== l.poItemId);
     for (const l of r.lines) lineClaimed.set(l.billLineId, { index: r.index, poItemId: l.poItemId });
 
-    const others = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
+    // Firm: what the bill's links and lines hold on its other POs. A PO its header names (no link, no lines) holds the residual,
+    // the subtotal less the firm amounts on every other PO (budgets/billAttribution); a link never takes it (breaker R3-4).
+    const firm = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
+    const header = (input.heldByHeader?.get(bill.id) ?? []).find((h) => h.poId !== po.id);
+    const headerHolds = header
+      ? Math.max(0, bill.subtotalCents - [...att(bill.id).entries()].filter(([p]) => p !== po.id && p !== header.poId).reduce((s, [, c]) => s + c, 0))
+      : 0;
+    const others = firm + headerHolds;
     const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
     let amount: number;
     if (linked.length > 0) {
@@ -134,12 +144,23 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
         continue;
       }
       amount = fromLines;
-    } else amount = r.amountCents ?? bill.subtotalCents - others;
+      // Lines name this PO: attribution puts them first, so the header's residual shrinks; only firm amounts can stand in the way.
+      if (firm + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
+        refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(firm)} is already linked; ${fmt(amount)} more would pass it`);
+        continue;
+      }
+    } else {
+      amount = r.amountCents ?? bill.subtotalCents - others;
+      if (header && headerHolds > 0 && (amount <= 0 || others + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS)) {
+        refuse(`the bill's header names purchase order ${header.poNumber}; unlink it from that purchase order first`);
+        continue;
+      }
+    }
     if (amount <= 0) {
       refuse(`the amount to link is ${fmt(amount)}; give an amount above zero (bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT, ${fmt(others)} already linked)`);
       continue;
     }
-    if (others + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
+    if (linked.length === 0 && others + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
       refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(others)} is already linked; ${fmt(amount)} more would pass it`);
       continue;
     }

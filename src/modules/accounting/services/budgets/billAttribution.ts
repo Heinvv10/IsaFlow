@@ -10,6 +10,9 @@
  *   - `header`: else only `purchase_order_id`: the subtotal less what the bill attributes to every OTHER PO it ties, by the same
  *     rule (lines when its lines name that PO, counted only when positive; else that PO's link amount), kept between 0 and the
  *     subtotal.
+ * Named limit (breaker R3-2): a lines tie can hold more than the bill's subtotal when the bill's OTHER lines are negative (an R1200
+ * line naming a PO beside an unnamed R-400 discount line, subtotal R800). That is line netting "wherever it posted": the PO line's
+ * account really posted R1200. The header fallback of the same bill then holds 0, never less.
  * A link or header tie needs the PO's supplier; a lines tie does not (line netting never asked; `assertBillPoLinks` checks it
  * when the line is written). All ex-VAT cents.
  */

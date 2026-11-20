@@ -94,7 +94,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
  */
 export async function committedBillingByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
   const out = await billedLinesByPoItem(companyId, poItemIds, own);
-  for (const [id, postings] of await headerBilledByPoItem(companyId, poItemIds, own, BILLED_STATUSES)) {
+  for (const [id, postings] of await headerBilledByPoItem(companyId, poItemIds, own, BILLED_STATUSES, (ids) => billedLinesByPoItem(companyId, ids, own))) {
     out.set(id, [...(out.get(id) ?? []), ...postings]);
   }
   return out;

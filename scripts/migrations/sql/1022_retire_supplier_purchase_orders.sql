@@ -38,8 +38,9 @@
 --          invoiced and no live bill (not cancelled, not deleted, any status) of its company and supplier names it. "Fully"
 --          is against the larger of the subtotal and the lines' total, and never when that is 0. A NOTICE per closed copy. A
 --          fully billed close records itself on the deciding link (closed_po_from_status, the latest link on a billed bill), as
---          link_bills_to_purchase_order does, so unlinking that bill reopens the copy; an invoiced-with-no-bill close has no
---          link to hold it (named limit: nothing reopens it). No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
+--          link_bills_to_purchase_order does, so unlinking any tie that leaves it under-billed reopens the copy; a fully billed copy
+--          with no link row to hold the record (a bill the backfill skipped) is left open, committing nothing, with a NOTICE; an
+--          invoiced-with-no-bill close has no link to hold it (named limit: nothing reopens it). No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
 --          external_ref, which no copy carries; the PUT / update_purchase_order edit draft / submitted / approved only).
 --        number: a (company, po_number) the canonical table already holds is NOT a failure (a failed production migration
 --          blocks every release): the copy takes order_number || '-SPO', then '-SPO2', ... until free, its notes say
@@ -272,6 +273,7 @@ DECLARE
   v_max INT;
   v_off INT;
   v_billed JSONB;
+  v_holder UUID;
 BEGIN
   SELECT count(*) INTO v_total FROM public.supplier_purchase_orders s
    WHERE NOT EXISTS (SELECT 1 FROM public.purchase_orders p WHERE p.id = s.id AND p.company_id = s.company_id);
@@ -477,15 +479,20 @@ BEGIN
      WHERE p.id = ANY(v_copied) AND p.status IN ('approved', 'partially_received', 'received')
      ORDER BY p.company_id, p.id
   LOOP
-    IF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
+    -- The link that will hold a fully billed close's record (review L5, breaker R3-3): the latest link on a billed bill.
+    v_holder := (SELECT l.id FROM public.purchase_order_bill_links l JOIN public.supplier_invoices si ON si.id = l.supplier_invoice_id
+                  WHERE l.purchase_order_id = h.id AND si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
+                  ORDER BY l.created_at DESC, l.id DESC LIMIT 1);
+    IF h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 AND v_holder IS NULL THEN
+      -- Fully billed by ties the backfill left without a link row (only a bill it skipped): nothing could hold the closing record, so
+      -- an unlink could never reopen it. Left open instead; committed nets those ties, so it commits nothing.
+      RAISE NOTICE '1022: company % purchase order % (%) is fully billed but left %: no link row to record a closing on', h.company_id, h.id, h.po_number, h.status;
+    ELSIF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
       UPDATE public.purchase_orders SET status = 'closed', closed_from_status = h.status WHERE id = h.id;
       IF h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN
-        -- Review L5: the closing is recorded on the deciding link (the latest link on a billed bill), as link_bills_to_purchase_order
-        -- records its own, so unlinking that bill reopens the copy to h.status (purchaseOrderBillUnlink).
-        UPDATE public.purchase_order_bill_links SET closed_po_from_status = h.status
-         WHERE id = (SELECT l.id FROM public.purchase_order_bill_links l JOIN public.supplier_invoices si ON si.id = l.supplier_invoice_id
-                      WHERE l.purchase_order_id = h.id AND si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
-                      ORDER BY l.created_at DESC, l.id DESC LIMIT 1);
+        -- Review L5: the closing is recorded on the deciding link, as link_bills_to_purchase_order records its own, so unlinking any
+        -- tie that leaves it no longer fully billed reopens the copy to h.status (purchaseOrderBillUnlink).
+        UPDATE public.purchase_order_bill_links SET closed_po_from_status = h.status WHERE id = v_holder;
       END IF;
       RAISE NOTICE '1022: company % purchase order % (%) copied as closed from %: %', h.company_id, h.id, h.po_number, h.status,
         CASE WHEN h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)

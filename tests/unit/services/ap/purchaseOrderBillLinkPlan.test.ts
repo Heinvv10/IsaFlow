@@ -119,6 +119,29 @@ describe('billed counts a bill tied with no link row (by its header, or by its l
   });
 });
 
+describe('a link never takes a header tie\'s rands (breaker R3-4)', () => {
+  const heldByHeader = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', cents: 30000 }]]]);
+  it('the default amount is the subtotal less every other tie; nothing left is refused, naming the header\'s PO', () => {
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader }))).toEqual([
+      '0:the bill\'s header names purchase order PO-p2; unlink it from that purchase order first',
+    ]);
+    // The header holds the residual (the subtotal less the firm links / lines on other POs): with a firm R100 link on p3 it holds
+    // R200, and a link to p1 is still refused for it.
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] }))[0])
+      .toContain('header names purchase order PO-p2');
+  });
+  it('a link by lines takes what its lines post: the header\'s residual shrinks, nothing is refused', () => {
+    expect(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader }).plan!.planned[0]!.amountCents).toBe(10000);
+  });
+  it('an explicit amount that would take rands from the header tie is refused the same way', () => {
+    expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 100 })], { heldByHeader }))[0])
+      .toBe('0:the bill\'s header names purchase order PO-p2; unlink it from that purchase order first');
+  });
+  it('linking the header\'s own PO is not taking from it', () => {
+    expect(plan([req(0, 'p2', 'b1')], { heldByHeader }).plan!.planned[0]!.amountCents).toBe(30000);
+  });
+});
+
 describe('a replay compares the STORED amount (review r3 L1)', () => {
   it('a link stored before the lines check (R100 beside R200 of lines) re-sent identically is already_existed', () => {
     const lines = [{ id: 'b1-l1', poItemId: 'i1', poItemPoId: 'p1', postedCents: 20000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 10000 }];

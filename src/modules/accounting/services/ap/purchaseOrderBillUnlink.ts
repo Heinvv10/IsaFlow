@@ -11,14 +11,16 @@
  * link row (if present), `po_item_id` on the bill's lines into this PO, and the header if it names this PO. It refuses "not linked"
  * only when none does. Any bill status (draft, cancelled, soft-deleted too): these are references only, nothing posted reads them
  * (committed / billed read approved / paid / partially_paid bills' lines; clearing such a bill's non-zero line reference RAISES committed
- * spend, so it is gated and warned like any unlink; clearing a header, or a draft / cancelled / deleted / R0 bill's reference, changes no
- * figure and warns nothing; the bill's stored three-way state is re-judged or reset, `purchaseOrderUnlinkClear`). Lock order is unchanged.
+ * spend, so it is gated and warned like any unlink; since PR #1703 so does clearing an approved bill's HEADER when it netted the PO
+ * (`budgets/billAttribution`); a draft / cancelled / deleted / R0 bill's reference changes no figure and warns nothing; the bill's stored
+ * three-way state is re-judged or reset, `purchaseOrderUnlinkClear`). Lock order is unchanged.
  *
  * Then: delete the link, clear `po_item_id` on the bill's lines into this PO, reset the bill's header
  * (`purchaseOrderBillLinkHeader`), and decide the PO's status:
  *   - the PO is closed and a link of it records the status a link call closed it from (`closed_po_from_status`, read
- *     BEFORE the delete: it may be the deleted link's) and the PO is no longer fully billed (links on approved / paid /
- *     partially_paid bills < subtotal - 1 c) -> it reopens to that status, and the record is cleared;
+ *     BEFORE the delete: it may be the deleted link's) and the PO is no longer fully billed (what approved / paid / partially_paid
+ *     bills hold on it by `budgets/billAttribution` < subtotal - 1 c) -> it reopens to that status, and the record is cleared, whatever
+ *     tie the unlink removed: a link, a line or a header reference (PR #1703 breaker R3-3);
  *   - still fully billed, and the deleted link held the record -> the record moves to a remaining link of the PO (so a later
  *     unlink can still reopen it);
  *   - a PO closed by hand, or cancelled, is not touched.
@@ -150,8 +152,10 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const fully = isFullyBilled(billed, toCents(Number(pos[0].subtotal ?? 0)));
   let statusAfter = status;
   let reopenedTo: string | null = null;
-  // Only the removal of a LINK can reopen a PO: clearing a line or header reference changes no billed figure.
-  if (status === 'closed' && closedFrom && !fully && link) {
+  // Removing ANY tie can reopen a PO a link call (or 1022) closed: since PR #1703 a line or header reference counts in billed
+  // (budgets/billAttribution) as a link does, so clearing one can leave the PO no longer fully billed (breaker R3-3). A PO closed by
+  // hand carries no closing record on a link (closedFrom is null) and is not touched.
+  if (status === 'closed' && closedFrom && !fully) {
     const back = (await sql`
       UPDATE purchase_orders SET status = ${closedFrom}, closed_from_status = NULL, updated_at = NOW(), updated_by = ${opts.userId}
        WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status = 'closed' RETURNING id

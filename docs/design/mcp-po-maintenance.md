@@ -53,7 +53,8 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      tie for the (PO, bill) pair in one locked write: the link row if there is one (with the reopen / closing-record / budget-warning
      behaviour of #1627), `po_item_id` on the bill's lines that point into this PO's lines, and the header if it names this PO. It
      succeeds when any of the three exists and is refused "not linked" only when none does. Any bill status (draft, cancelled,
-     soft-deleted too). Only removing a LINK can reopen a closed PO. The audit row says what was cleared (`link_removed`,
+     soft-deleted too). Removing any tie (link, line or header reference) reopens a PO a link call or migration 1022 closed once it
+     is no longer fully billed (PR #1703 breaker R3-3: line and header ties count in billed). The audit row says what was cleared (`link_removed`,
      `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
      (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing a line reference RAISES committed spend
      exactly when `budgets/remainingCommitted.billedLinesByPoItem` counted that line today (the bill is approved / paid / partially_paid,

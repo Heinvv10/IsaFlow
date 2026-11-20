@@ -19,6 +19,7 @@ import { seedRawBill } from './helpers/poBillLinkHarness';
 import { asBeforeRetirement, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { openPoLineCents } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import { billedCentsByPo } from '@/modules/accounting/services/ap/purchaseOrderBilled';
 import { callTool } from './helpers/poImportHarness';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
 
@@ -76,6 +77,16 @@ const committedByOrder = async (): Promise<Record<string, number>> => {
 describe('committed spend after the copy', () => {
   it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
     expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
+  });
+
+  it('every copy is closed exactly when the TS readers call it fully billed, or legacy invoiced with no live bill (breaker r3)', async () => {
+    const pos = (await pool.query(`SELECT p.id::TEXT AS id, p.status, s.status AS legacy,
+        GREATEST(round(p.subtotal * 100), (SELECT COALESCE(round(SUM(x.line_total) * 100), 0) FROM po_items x WHERE x.purchase_order_id = p.id))::INT AS sub
+      FROM purchase_orders p JOIN supplier_purchase_orders s ON s.id = p.id WHERE p.company_id = $1`, [f.co])).rows;
+    const billed = await billedCentsByPo(f.co, pos.map((p) => String(p.id)));
+    const bad = pos.filter((p) => (p.status === 'closed') !== ((billed.get(String(p.id)) ?? 0) >= p.sub - 1 && p.sub > 0)
+      && !(p.legacy === 'invoiced' && p.status === 'closed'));
+    expect(bad).toEqual([]);
   });
 
   it('closes only the fully billed copies, from their open status', async () => {

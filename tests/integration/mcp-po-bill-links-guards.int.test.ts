@@ -204,7 +204,7 @@ describe('the bill header follows the links only where it is theirs to rewrite',
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [unlinkedHeader.id, b.po]);
     const plain = await seedBill(pool, f, { lines: [100] });
     const r = await callTool(pool, f, link, { links: [
-      { po_id: a.po, bill_id: legacy.id }, { po_id: a.po, bill_id: unlinkedHeader.id }, { po_id: a.po, bill_id: plain.id },
+      { po_id: a.po, bill_id: legacy.id }, { po_id: a.po, bill_id: unlinkedHeader.id, lines: [{ po_item_id: a.items[0], bill_line_id: unlinkedHeader.lines[0] }] }, { po_id: a.po, bill_id: plain.id },
     ] });
     expect(r.isError, r.text).toBe(false);
     expect(await billHeader(pool, legacy.id)).toBe(legacyId);

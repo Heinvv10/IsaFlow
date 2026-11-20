@@ -24,6 +24,7 @@ export interface LinkFacts {
   existing: ExistingLink[];
   refOwners: Map<string, ExistingLink>;
   unlinkedBilled: Map<string, Array<{ billId: string; cents: number }>>;
+  heldByHeader: Map<string, Array<{ poId: string; poNumber: string; cents: number }>>;
 }
 
 const low = (v: unknown) => String(v).toLowerCase();
@@ -152,6 +153,18 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
       || !poIds.includes(t.poId)) continue;
     unlinkedBilled.set(t.poId, [...(unlinkedBilled.get(t.poId) ?? []), { billId: t.billId, cents: t.cents }]);
   }
+  // The POs the call's bills tie only by their header, and what each holds there (breaker R3-4).
+  const headerPos = [...new Set(billRows.map((b) => (b.purchase_order_id == null ? null : low(b.purchase_order_id))).filter((v): v is string => !!v))];
+  const heldByHeader = new Map<string, Array<{ poId: string; poNumber: string; cents: number }>>();
+  if (headerPos.length > 0) {
+    const numbers = new Map(((await sql`
+      SELECT id::TEXT AS id, po_number FROM purchase_orders WHERE company_id = ${companyId}::UUID AND id = ANY(${headerPos}::UUID[])
+    `) as DbRow[]).map((r) => [low(r.id), String(r.po_number)]));
+    for (const t of await billTies(companyId, headerPos, { statuses: null })) {
+      if (t.via !== 'header' || !billIds.includes(t.billId)) continue;
+      heldByHeader.set(t.billId, [...(heldByHeader.get(t.billId) ?? []), { poId: t.poId, poNumber: numbers.get(t.poId) ?? t.poId, cents: t.cents }]);
+    }
+  }
   return {
     resolvedPo,
     pos: new Map(poRows.map((r) => [low(r.id), {
@@ -162,5 +175,6 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     existing,
     refOwners,
     unlinkedBilled,
+    heldByHeader,
   };
 }

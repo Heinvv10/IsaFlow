@@ -53,9 +53,25 @@ export function spreadCents(cents: number, lineCents: readonly number[]): number
   return shares;
 }
 
-/** Header billing per PO line (lower-case ids) for the POs these lines belong to, as postings the core sums with line billing. */
+/**
+ * `cents` over the lines' ROOM (what each can still be netted after its line billing; breaker R3-1): by room share, never more
+ * than a line's room, the residual on the last line with room. What is left once every line is full is netted nowhere.
+ */
+export function spreadOverRoom(cents: number, roomCents: readonly number[]): number[] {
+  const room = roomCents.map((c) => Math.max(0, c));
+  const fits = Math.min(Math.max(0, cents), room.reduce((s, c) => s + c, 0));
+  return spreadCents(fits, room).map((c, i) => Math.min(c, room[i]!));
+}
+
+/**
+ * Header billing per PO line (lower-case ids) for the POs these lines belong to, as postings the core sums with line billing.
+ * `lineBilling`: the line billing of PO lines (remainingCommitted.billedLinesByPoItem, passed in: no import cycle). A header tie is
+ * spread over each line's room after that line billing and after the header ties spread before it (bill id order), so a line a bill
+ * already billed by its lines takes none of a header bill's rands (breaker R3-1).
+ */
 export async function headerBilledByPoItem(
   companyId: string, poItemIds: readonly string[], own: readonly string[], billedStatuses: readonly string[],
+  lineBilling: (poItemIds: string[]) => Promise<Map<string, BilledPosting[]>>,
 ): Promise<Map<string, BilledPosting[]>> {
   const out = new Map<string, BilledPosting[]>();
   if (poItemIds.length === 0) return out;
@@ -68,11 +84,21 @@ export async function headerBilledByPoItem(
   const byPo = new Map<string, DbRow[]>();
   for (const l of lines) byPo.set(lower(l.po), [...(byPo.get(lower(l.po)) ?? []), l]);
   const wanted = new Set(poItemIds.map(lower));
-  for (const tie of await headerTies(companyId, [...byPo.keys()], own, billedStatuses)) {
+  const ties = (await headerTies(companyId, [...byPo.keys()], own, billedStatuses)).sort((a, b) => (a.billId < b.billId ? -1 : a.billId > b.billId ? 1 : 0));
+  if (ties.length === 0) return out;
+  const tied = new Set(ties.map((t) => t.poId));
+  const lined = await lineBilling(lines.filter((l) => tied.has(lower(l.po))).map((l) => lower(l.id)));
+  // Room = what the core would still leave open (openPoLineCents: never above the line's own total).
+  const room = new Map(lines.map((l) => {
+    const total = toCents(Number(l.line_total));
+    return [lower(l.id), Math.min(total, total - (lined.get(lower(l.id)) ?? []).reduce((s, p) => s + toCents(p.amount), 0))];
+  }));
+  for (const tie of ties) {
     const poLines = byPo.get(tie.poId) ?? [];
-    const shares = spreadCents(tie.cents, poLines.map((l) => toCents(Number(l.line_total))));
+    const shares = spreadOverRoom(tie.cents, poLines.map((l) => room.get(lower(l.id)) ?? 0));
     poLines.forEach((l, i) => {
       const id = lower(l.id);
+      room.set(id, (room.get(id) ?? 0) - shares[i]!);
       if (!wanted.has(id) || shares[i] === 0) return;
       out.set(id, [...(out.get(id) ?? []), { glAccountId: null, cc1Id: null, cc2Id: null, buId: null, month: tie.month, amount: shares[i]! / 100 }]);
     });
