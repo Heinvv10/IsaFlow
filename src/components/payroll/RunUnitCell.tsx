@@ -60,7 +60,7 @@ export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, mul
   // A stored overtime row whose employee has since lost the hourly rate stays editable, so it can be cleared (empty the cell);
   // a new figure is refused by the server until the rate is set (post-merge review of #1580, L1).
   const helper = amount != null && quantity != null
-    ? (kind === 'overtime' && hourlyRate == null ? `${formatCurrency(amount)} paid; no hourly rate: empty to remove` : `${formatCurrency(amount)} paid`)
+    ? (kind === 'overtime' && hourlyRate == null ? `${formatCurrency(amount)} paid; no hourly rate: empty to remove, or set the rate to change it` : `${formatCurrency(amount)} paid`)
     : kind === 'overtime' ? (hourlyRate == null ? 'No hourly rate: set it on the employee page' : `${formatCurrency(hourlyRate)} an hour x ${multiplier}`)
       : 'Enter km and the rate a km';
   return (

@@ -65,7 +65,7 @@ describe('overtime hours', () => {
     const input = await cell('Thandi Nkosi', 'Overtime hours at 1.5x');
     expect(input.value).toBe('10');
     expect(input.disabled).toBe(false);
-    expect(screen.getByText(/paid; no hourly rate: empty to remove$/)).toBeTruthy();
+    expect(screen.getByText(/paid; no hourly rate: empty to remove, or set the rate to change it$/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /No hourly rate: set it on the employee page, Thandi Nkosi/ })).toBeNull();
     type(input, '');
     fireEvent.blur(input);
