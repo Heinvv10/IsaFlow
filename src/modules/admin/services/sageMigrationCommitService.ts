@@ -39,7 +39,7 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, matchSageSupplier, sageRef } from './sagePartyMatch';
+import { claimMergedAwaySupplier, claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, matchSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -62,9 +62,11 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<string> {
   const existing = await matchSageSupplier(companyId, s);
   // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
-  // Sage party of its own, which must still find it by name.
+  // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
+  // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
   if (existing) {
     if (!existing.viaMerge) await claimSageSupplier(companyId, existing.id, s.sageId);
+    else if (!existing.byRef && existing.mergedAwayId) await claimMergedAwaySupplier(companyId, existing.mergedAwayId, s.sageId);
     return existing.id;
   }
   const ref = sageRef(s.sageId);

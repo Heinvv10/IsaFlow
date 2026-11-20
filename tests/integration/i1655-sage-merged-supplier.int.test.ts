@@ -14,6 +14,8 @@ import { als } from '@/lib/als';
 import { commitAPInvoice } from '@/modules/admin/services/sageMigrationCommitService';
 import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { restoreRow } from '@/modules/accounting/services/core/softDeleteRowOps';
+import { MAX_MERGE_HOPS } from '@/modules/admin/services/sagePartyMatch';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -146,5 +148,73 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [yId, xId]);
     expect((await syncSuppliers([party(911, 'Loop X')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
     expect((await liveNamed('Loop X')).map((r) => r.external_ref)).toEqual(['911']);
+  });
+  it('a chain longer than MAX_MERGE_HOPS does not reach the far survivor: the party is created live', async () => {
+    const ins = async (name: string, ref: string | null) => String((await pool.query(
+      "INSERT INTO suppliers (company_id, name, external_system, external_ref) VALUES ($1, $2, $3, $4) RETURNING id",
+      [companyId, name, ref ? 'sage' : null, ref])).rows[0].id);
+    // MAX_MERGE_HOPS + 1 merged-away rows ending in one live survivor: the survivor is MAX_MERGE_HOPS + 1 hops from the first.
+    const live = await ins('Long Chain Survivor', null);
+    let next = live;
+    const ids: string[] = [];
+    for (let i = MAX_MERGE_HOPS; i >= 0; i--) {
+      const id = await ins(`Long Chain ${i}`, i === 0 ? '921' : null);
+      await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [id, next]);
+      ids.push(id);
+      next = id;
+    }
+    expect((await syncSuppliers([party(921, 'Long Chain 0')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    expect((await liveNamed('Long Chain 0')).map((r) => r.external_ref)).toEqual(['921']);
+    // The same chain one hop shorter does resolve (the cap is MAX_MERGE_HOPS hops, inclusive).
+    const shortLive = await ins('Short Chain Survivor', null);
+    let hop = shortLive;
+    let first = '';
+    for (let i = MAX_MERGE_HOPS; i > 0; i--) {
+      first = await ins(`Short Chain ${i}`, i === 1 ? '922' : null);
+      await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [first, hop]);
+      hop = first;
+    }
+    expect((await syncSuppliers([party(922, 'Short Chain 1')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await liveNamed('Short Chain 1')).toEqual([]);
+  });
+
+  it('a name hit on an unstamped merged-away row stamps it, so a later different Sage party of that name gets its own row', async () => {
+    // Imported by hand (no Sage id), merged into a survivor, as before Sage ever knew it.
+    const ins = async (name: string) => String((await pool.query(
+      'INSERT INTO suppliers (company_id, name) VALUES ($1, $2) RETURNING id', [companyId, name])).rows[0].id);
+    const survivor = await ins('Oak Timber Pty Ltd');
+    const gone = await ins('Oak Timber');
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId));
+    expect((await syncSuppliers([party(931, 'Oak Timber')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    // The merged-away row is stamped; the survivor is not.
+    expect(await byRef('931')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
+    expect(await liveNamed('Oak Timber Pty Ltd')).toEqual([{ id: survivor, external_ref: null }]);
+    // A genuinely different Sage supplier of the same name gets its own live row.
+    expect((await syncSuppliers([party(932, 'Oak Timber')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    expect((await liveNamed('Oak Timber')).map((r) => r.external_ref)).toEqual(['932']);
+    // Re-syncing the first still resolves to the survivor and creates nothing.
+    expect((await syncSuppliers([party(931, 'Oak Timber')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect((await liveNamed('Oak Timber')).map((r) => r.external_ref)).toEqual(['932']);
+    expect(await liveNamed('Oak Timber Pty Ltd')).toEqual([{ id: survivor, external_ref: null }]);
+  });
+
+  it('a pull with no Sage id reaches the survivor and stamps nothing', async () => {
+    const ins = async (name: string) => String((await pool.query(
+      'INSERT INTO suppliers (company_id, name) VALUES ($1, $2) RETURNING id', [companyId, name])).rows[0].id);
+    const survivor = await ins('Elm Supplies Pty Ltd');
+    const gone = await ins('Elm Supplies');
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId));
+    await syncSuppliers([party(undefined, 'Elm Supplies')]);
+    const { rows } = await pool.query('SELECT external_ref FROM suppliers WHERE id = $1', [gone]);
+    expect(rows[0].external_ref).toBeNull();
+  });
+
+  it('restoring a merged-away supplier clears its survivor link', async () => {
+    const { rows: before } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = $1', [a]);
+    expect(before[0].deleted_at).not.toBeNull();
+    expect(before[0].merged_into_id).toBe(b);
+    expect(await inRequestTx(() => restoreRow('supplier', a, companyId))).toBe(true);
+    const { rows } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = $1', [a]);
+    expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
   });
 });

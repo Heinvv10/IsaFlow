@@ -24,7 +24,12 @@
  * survivor, following the chain at most MAX_MERGE_HOPS deep and never revisiting a
  * row, so a re-sync neither re-creates it nor splits its bills from the survivor.
  * A plainly deleted supplier, a merge made before 1020, and every deleted customer
- * are created again, live (customers: Hein's K-061 decision 4).
+ * are created again, live (customers: Hein's K-061 decision 4). That includes a survivor that is
+ * itself plainly deleted: it ends the chain, so a re-sync re-creates the party (accepted, #1655).
+ *
+ * A merged-away row carries no Sage id of its own unless the merge left one, so one that matched by
+ * name alone would match every later Sage party of that name. upsertSupplier therefore stamps the
+ * pull's Sage id on that merged-away row (claimMergedAwaySupplier); the survivor is never stamped.
  */
 
 import { sql } from '@/lib/neon';
@@ -41,13 +46,20 @@ export function sageRef(sageId: number | string | null | undefined): string | nu
 export const MAX_MERGE_HOPS = 10;
 
 /**
+ * `id` is the live supplier. `viaMerge` is true when it was reached through a merged-away row, and
+ * then `mergedAwayId` is that row (the start of the chain) and `byRef` says whether the Sage id (not
+ * just the name) found it.
+ */
+export interface SageSupplierMatch { id: string; viaMerge: boolean; mergedAwayId: string | null; byRef: boolean }
+
+/**
  * The supplier a Sage party is, and whether it was reached through a merge. Candidates are live rows
  * and merged-away rows (deleted with a survivor); each is followed to the live row at the end of its
  * merge chain. A Sage-id hit outranks a name hit, and a live hit outranks a merged one.
  */
 export async function matchSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null },
-): Promise<{ id: string; viaMerge: boolean } | null> {
+): Promise<SageSupplierMatch | null> {
   const ref = sageRef(party.sageId);
   const rows = (await sql`
     WITH RECURSIVE hit AS (
@@ -69,13 +81,18 @@ export async function matchSageSupplier(
       JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
       WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
     )
-    SELECT c.id, h.deleted_at IS NOT NULL AS via_merge
+    SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge
     FROM chain c JOIN hit h ON h.id = c.start_id
     WHERE c.deleted_at IS NULL
     ORDER BY h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
     LIMIT 1
   `) as Row[];
-  return rows.length ? { id: String(rows[0]!.id), viaMerge: rows[0]!.via_merge === true } : null;
+  if (!rows.length) return null;
+  const viaMerge = rows[0]!.via_merge === true;
+  return {
+    id: String(rows[0]!.id), viaMerge, byRef: rows[0]!.by_ref === true,
+    mergedAwayId: viaMerge ? String(rows[0]!.hit_id) : null,
+  };
 }
 
 export async function findSageSupplier(
@@ -112,6 +129,23 @@ export async function claimSageSupplier(companyId: string, id: string, sageId: n
   await sql`
     UPDATE suppliers SET external_system = 'sage', external_ref = ${ref}
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL AND deleted_at IS NULL
+  `;
+}
+
+/**
+ * Stamp the Sage id onto the MERGED-AWAY supplier a party reached its survivor through by name alone
+ * (never the survivor: it may be a Sage party of its own). The next sync of that id then hits the
+ * merged-away row by id, and a later, different Sage party of the same name no longer matches it (a
+ * name match skips rows already carrying a Sage id) and gets its own row. Only a merged-away row with
+ * no external ref is touched. No unique index covers suppliers.external_ref, so the stamp cannot collide.
+ */
+export async function claimMergedAwaySupplier(companyId: string, id: string, sageId: number | string | null | undefined): Promise<void> {
+  const ref = sageRef(sageId);
+  if (!ref) return;
+  await sql`
+    UPDATE suppliers SET external_system = 'sage', external_ref = ${ref}
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL
+      AND deleted_at IS NOT NULL AND merged_into_id IS NOT NULL
   `;
 }
 

@@ -89,7 +89,7 @@ export async function restoreRow(
       break;
     case 'supplier':
       rows = await sql`
-        UPDATE suppliers SET deleted_at = NULL
+        UPDATE suppliers SET deleted_at = NULL, merged_into_id = NULL
         WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
         RETURNING id
       ` as { id: string }[];
