@@ -10,13 +10,14 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { customerOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 const fmt = (n: number) => formatMoney(n);
 
 interface Payment { id: string; paymentNumber: string; clientName: string; clientId: string; date: string; amount: number; allocatedAmount: number; }
-interface Invoice { id: string; invoiceNumber: string; date: string; total: number; outstanding: number; }
+type Invoice = OpenInvoiceRow;
 
 export default function CustomerAllocationsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -60,11 +61,11 @@ export default function CustomerAllocationsPage() {
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setError(''); setLoadingInv(true);
     try {
-      const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/customer-invoices-list?client_id=${p.clientId}&status=approved&status=sent&status=partially_paid&status=overdue&limit=200`, { credentials: 'include' });
       await assertOk(res, 'Could not load invoices for this receipt - try again');
       const json = await res.json();
-      const inv: Invoice[] = json.data?.items || json.data || [];
-      setInvoices(inv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+      const raw: Record<string, unknown>[] = json.data?.invoices || json.data?.items || [];
+      setInvoices(customerOpenRows(raw));
     } catch (err) {
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load invoices for this receipt - try again'));

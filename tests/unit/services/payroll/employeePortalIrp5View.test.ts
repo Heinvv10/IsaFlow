@@ -37,6 +37,15 @@ describe('certificateView', () => {
     expect([v.periodFrom, v.periodTo]).toEqual(['2025-03-01', '2025-10-15']);
   });
 
+  it('a filed pre-fix certificate of a leaver paid after leaving still shows (display never applies file rules; review M1)', () => {
+    const { taxPeriodStart: _s, taxPeriodEnd: _e, payPeriodsInYear: _y, payPeriodsWorked: _w, ...rest } = cert;
+    // Left in January 2025, before the 2026 year (1 March 2025): currentCertificate refuses this; the portal must not.
+    const legacy = { ...rest, employmentStartDate: '20200101', employmentEndDate: '20250131', periodsInYoA: 12 } as unknown as StoredEmployee;
+    const v = certificateView(version, employer, legacy);
+    expect([v.periodFrom, v.periodTo]).toEqual(['2025-03-01', '2025-03-01']);
+    expect(v.income.length).toBeGreaterThan(0);
+  });
+
   it('has no ID line when the certificate carries none', () => {
     expect(certificateView(version, employer, { ...cert, idNumber: '', taxNumber: null }).idNumberLast4).toBeNull();
   });

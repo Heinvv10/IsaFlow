@@ -55,6 +55,9 @@ export function certificateTaxPeriod(p: {
  * `endInclusive` (CCYYMMDD, both inside the period) counts 1, and a month worked in part counts the fraction of its
  * calendar days employed ("pay periods worked which are shorter than a full pay period must be indicated as a decimal
  * fraction of such pay period"), to 4 decimals. Named assumption: calendar days, not working days; the BRS names no basis.
+ * NAMED LIMIT (wave 6 EZF review): for a leaver paid after leaving, 3170 / 3180 are the payment dates
+ * (certificateTaxPeriod), so 3210 is the calendar fraction between them, not periods worked (none were in the year).
+ * UNVERIFIED that e@syFile accepts it; the BRS defines 3210 only for periods worked.
  */
 export function monthlyPayPeriodsWorked(start: string, endInclusive: string): number {
   const ymd = (v: string) => [Number(v.slice(0, 4)), Number(v.slice(4, 6)), Number(v.slice(6, 8))] as const;
