@@ -131,12 +131,18 @@ describe('the cancel\'s locks (finding 5)', () => {
     expect(await poState(pool, po)).toEqual({ status: 'partially_received', received: [3] });
   });
 
-  it('a cancel waits at most the row-lock budget for a note a bill holds, then refuses typed and retryable; nothing written', async () => {
+  it('a cancel waits at most the row-lock budget for a note a bill holds (holding no number lock meanwhile), then refuses typed; nothing written', async () => {
     const { po, grn } = await received();
+    const another = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 10 }] });
     const bill = await openRequest(pool, f, f.owner);
     try {
       await bill.client.query('SELECT public.goods_received_note_hold($1)', [grn]);
-      const out = await Promise.race([cancelling(grn), sleep(15_000).then(() => 'still waiting' as const)]);
+      const pending = cancelling(grn);
+      await blockedOn('goods_received_note_cancel');
+      // The definer waits on the note with the PO rows held, and no 620: a create on another PO goes through meanwhile.
+      const made = await callTool(pool, f, create, grnArgs(another, [[0, 1]]));
+      expect(made.isError, made.text).toBe(false);
+      const out = await Promise.race([pending, sleep(15_000).then(() => 'still waiting' as const)]);
       expect(out === 'still waiting' ? out : out.e?.code).toBe('ROW_LOCK_TIMEOUT');
     } finally { await bill.rollback(); }
     expect(await noteStatus(grn)).toBe('received');
