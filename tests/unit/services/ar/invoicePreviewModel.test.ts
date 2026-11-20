@@ -143,10 +143,10 @@ describe('the body\'s caps and shape', () => {
     expect(() => parsePreviewBody(raw)).toThrow(message);
   });
 
-  it('does not carry a line\'s account, job or dimensions; its VAT type and item only for its VAT type', () => {
+  it('does not carry a line\'s job or dimensions; its VAT type, rate, item and account for create\'s VAT and item refusals', () => {
     const parsed = parsePreviewBody({ clientId: CLIENT, items: [{ description: 'x', unitPrice: 1, glAccountId: JOB, projectId: JOB, itemId: JOB, cc2Id: JOB }] });
     expect(parsed.items).toEqual([{ description: 'x', quantity: undefined, unitPrice: 1, discount: undefined,
-      vatType: undefined, itemId: JOB }]);
+      vatType: undefined, taxRate: undefined, itemId: JOB, glAccountId: JOB }]);
   });
 });
 
@@ -188,5 +188,23 @@ describe('#1701 round 1: the preview prices and refuses as create does', () => {
     ['a header rate of 14', { taxRate: 14, items: [{ description: 'A', quantity: 1, unitPrice: 1 }] }, /neither the VAT rate/],
   ])('refuses %s, as create does', async (_l, over, msg) => {
     await expect(buildInvoicePreviewModel(CO, body(over))).rejects.toThrow(msg);
+  });
+});
+
+describe('#1701 round 2: the preview refuses what create refuses', () => {
+  const body = (items: Record<string, unknown>[]) => parsePreviewBody({ clientId: CLIENT, invoiceDate: '2026-11-20', items });
+  it('a per-line taxRate that is not its type\'s rate', async () => {
+    await expect(buildInvoicePreviewModel(CO, body([{ description: 'A', quantity: 1, unitPrice: 1, vatType: 'exempt', taxRate: 15 }])))
+      .rejects.toThrow('items[0]: taxRate 15 is not the rate of its VAT type exempt (0% on 2026-11-20). Leave taxRate out: the rate comes from the type.');
+  });
+  it('an inactive item, and an item not the company\'s', async () => {
+    const ITEM = '00000000-0000-4000-8000-0000000000d1';
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => (strings.join('?').includes('FROM items')
+      ? [{ id: ITEM, is_active: false, sales_account_id: null, purchases_account_id: null }] : [ROW]));
+    await expect(buildInvoicePreviewModel(CO, body([{ description: 'A', quantity: 1, unitPrice: 1, itemId: ITEM }])))
+      .rejects.toThrow('items[0].item_id is an inactive item');
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => (strings.join('?').includes('FROM items') ? [] : [ROW]));
+    await expect(buildInvoicePreviewModel(CO, body([{ description: 'A', quantity: 1, unitPrice: 1, itemId: ITEM }])))
+      .rejects.toThrow('items[0].item_id is not an item of your company');
   });
 });

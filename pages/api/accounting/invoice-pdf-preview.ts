@@ -21,6 +21,7 @@ import { buildInvoicePreviewModel } from '@/modules/accounting/services/ar/invoi
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -45,8 +46,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof PreviewBodyError || err instanceof InvoiceLineValidationError || err instanceof DocumentCurrencyError) {
       return apiResponse.badRequest(res, err.message);
     }
-    // Create's per-line VAT refusals (invoiceLineVatTypes), with their code as create answers them.
-    if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+    // Create's per-line VAT refusals (invoiceLineVatTypes) and its item refusal, with their code as create answers them.
+    if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal || err instanceof ItemLineRefusal) {
+      return apiResponse.badRequest(res, err.message, { code: err.code });
+    }
     throw err;
   }
 }

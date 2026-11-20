@@ -21,6 +21,7 @@ import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
 import { assertDraftTotalFits, draftAmountsAre, priceDraftLines } from './customerInvoiceCreateService';
 import { assertPricedPostable, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat } from './invoiceLineVatPricing';
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 import { companyOf, printedTerms, settingsCompany, type InvoicePdfHeader, type InvoicePdfModel } from './invoicePdfModel';
 import type { PreviewBody } from './invoicePreviewBody';
 
@@ -57,6 +58,9 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
   if (!r) return null;
 
   const invoiceDate = body.invoiceDate ?? fmtDate(new Date());
+  // Create's item refusal (an inactive, deleted or foreign item, or an item whose sales account is unusable), read only.
+  await applyItemLineDefaults(companyId, body.items.map((l) => ({ itemId: l.itemId as string | null | undefined,
+    glAccountId: typeof l.glAccountId === 'string' ? l.glAccountId : null })), 'sales', (i) => `items[${i}]`);
   const vat = await resolveInvoiceVatFor(companyId, {
     registered: isVatRegistered((r.vat_period ?? null) as string | null, (r.vat_system_type ?? null) as string | null),
     customerVat: r.customer_vat ?? null,

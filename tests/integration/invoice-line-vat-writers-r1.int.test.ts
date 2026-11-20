@@ -10,8 +10,9 @@
  *   400 with its code; an edit that changes the customer gives a NEW line the new customer's default.
  * - item 3: create_credit_note replayed by external_ref after its approval returns it (already_existed, no
  *   payload_differs), for a full and a partial credit.
- * - item 7: an unlinked approved note applied late to a typed invoice is refused (CREDIT_NOTE_VAT_SPLIT_REFUSED);
- *   to a legacy invoice it still applies.
+ * - item 7 (as decided in round 2): an unlinked approved note applied late to a typed invoice is applied but NOT linked,
+ *   so the invoice's remaining net and VAT do not move and a later linked note still approves; a legacy invoice links.
+ * - round 2: the create_credit_note replay compares the subtotal; sibling draft notes on one typed invoice (approve exact).
  * - item 8: bulk_approve_credit_notes' dry run skips the note the live run would refuse, judged in the live order.
  * - item 17/21: the MCP tools through the registry: stored amounts_are and rows; a bulk whose second element is
  *   refused leaves nothing of the first.
@@ -28,6 +29,8 @@ import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/cus
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { approveCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteApplyToInvoice';
+import { cancelDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDraftCancelService';
+import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 import { buildInvoicePreviewModel } from '@/modules/accounting/services/ar/invoicePreviewModel';
 import { parsePreviewBody } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { invoiceVatParties, resolveInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatDefaults';
@@ -118,11 +121,11 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
   });
 
   describe('item 16: the defaults read only the company\'s own rows', () => {
-    it('company B\'s exempt item on company A\'s preview gives no opinion: the line stays standard', async () => {
-      const p = await inTx(f.fx, () => buildInvoicePreviewModel(f.fx.companyId, parsePreviewBody({
+    it('company B\'s item on company A\'s preview is refused, as create refuses it (round 2: the preview runs create\'s item refusal)', async () => {
+      const err = await inTx(f.fx, () => buildInvoicePreviewModel(f.fx.companyId, parsePreviewBody({
         clientId: f.fx.customerId, invoiceDate: '2026-07-10', items: [{ description: 'A', quantity: 1, unitPrice: 100, itemId: itemB }],
-      })));
-      expect(p!.model.items.map((i) => [i.vat_type, i.tax_amount])).toEqual([['standard', 15]]);
+      }))).catch((e: unknown) => e);
+      expect([(err as { code?: string }).code, (err as Error).message]).toEqual(['ITEM_LINE_REFUSED', 'items[0].item_id is not an item of your company']);
     });
 
     it('the reads: B\'s customer default and B\'s item are not A\'s', async () => {
@@ -281,21 +284,77 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
       return cn.id;
     };
 
-    it('is refused, nothing written; a legacy invoice still takes it', async () => {
+    it('round 2: applied but NOT linked; the invoice\'s remaining net and VAT unchanged; a later linked note still approves; a legacy invoice links', async () => {
       const typed = await approvedInvoice('2026-09-10', MIXED());
+      const before = await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id));
+      expect(before).toEqual({ remainingNet: 1500, remainingVat: 150 });
       const noteId = await unlinkedApprovedNote();
-      const err = await inTx(f.fx, () => applyCreditNoteToInvoice(f.fx.companyId, noteId, typed.id, f.fx.userId)).catch((e: unknown) => e);
-      expect((err as { code?: string }).code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');
+      const applied = await inTx(f.fx, () => applyCreditNoteToInvoice(f.fx.companyId, noteId, typed.id, f.fx.userId));
+      expect(applied.customerInvoiceId).toBeUndefined();
       expect(await sql`SELECT customer_invoice_id, applied_amount::FLOAT8 AS applied FROM credit_notes WHERE id = ${noteId}::UUID`)
-        .toEqual([{ customer_invoice_id: null, applied: 0 }]);
+        .toEqual([{ customer_invoice_id: null, applied: 115 }]);
+      expect(await sql`SELECT amount_paid::FLOAT8 AS paid FROM customer_invoices WHERE id = ${typed.id}::UUID`).toEqual([{ paid: 115 }]);
+      expect(await sql`SELECT amount_allocated::FLOAT8 AS amount FROM credit_note_allocations WHERE credit_note_id = ${noteId}::UUID AND invoice_id = ${typed.id}::UUID`)
+        .toEqual([{ amount: 115 }]);
+      expect(await sql`SELECT COUNT(*)::INT AS n FROM credit_note_revenue_allocations WHERE credit_note_id = ${noteId}::UUID`).toEqual([{ n: 0 }]);
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual(before);
+
+      const later = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {
+        type: 'customer', clientId: f.fx.customerId, customerInvoiceId: typed.id, creditDate: '2026-09-21', subtotal: 150,
+      }, f.fx.userId));
+      expect(later.taxAmount).toBe(15);
+      await inTx(f.fx, () => approveCreditNote(f.fx.companyId, later.id, f.fx.userId));
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual({ remainingNet: 1350, remainingVat: 135 });
 
       const legacyId = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
         clientId: f.fx.customerId, invoiceDate: '2026-09-11', taxRate: 15, items: [{ description: 'L', quantity: 1, unitPrice: 1000 }],
       }))).id;
       await untypeLines(legacyId);
       await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, legacyId, f.fx.userId));
-      const applied = await inTx(f.fx, () => applyCreditNoteToInvoice(f.fx.companyId, noteId, legacyId, f.fx.userId));
-      expect(applied.customerInvoiceId).toBe(legacyId);
+      const second = await unlinkedApprovedNote();
+      expect((await inTx(f.fx, () => applyCreditNoteToInvoice(f.fx.companyId, second, legacyId, f.fx.userId))).customerInvoiceId).toBe(legacyId);
+    });
+  });
+
+  describe('round 2 item 2: create_credit_note replay compares the subtotal', () => {
+    it('a legacy-invoice note replayed with another subtotal reports payload_differs', async () => {
+      const legacyId = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+        clientId: f.fx.customerId, invoiceDate: '2026-08-12', taxRate: 15, items: [{ description: 'L', quantity: 1, unitPrice: 1000 }],
+      }))).id;
+      await untypeLines(legacyId);
+      await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, legacyId, f.fx.userId));
+      const args = { type: 'customer', client_id: f.fx.customerId, customer_invoice_id: legacyId, credit_date: '2026-08-22', subtotal: 100,
+        external_system: 'sage', external_ref: `CRET-L-${legacyId.slice(0, 8)}`, idempotency_key: crypto.randomUUID() };
+      const made = J(await inTx(f.fx, () => createCreditNoteTool.handler(args, ctx())));
+      expect([made.subtotal, made.tax_amount]).toEqual([100, 15]);
+      const same = J(await inTx(f.fx, () => createCreditNoteTool.handler({ ...args, idempotency_key: crypto.randomUUID() }, ctx())));
+      expect(same).toMatchObject({ already_existed: true, payload_differs: false, id: made.id });
+      const other = J(await inTx(f.fx, () => createCreditNoteTool.handler({ ...args, subtotal: 500, idempotency_key: crypto.randomUUID() }, ctx())));
+      expect(other).toMatchObject({ already_existed: true, payload_differs: true, id: made.id,
+        differences: [{ field: 'subtotal', existing: 100, requested: 500 }] });
+    });
+  });
+
+  describe('round 2 item 4: sibling DRAFT notes against one typed invoice (approve stays exact)', () => {
+    it('100.00 / 15.00: drafts of 48.10 and 48.13 both carry 7.22; after the first approves the second needs 7.21, refused naming it; recreated, it approves', async () => {
+      const { id } = await approvedInvoice('2026-12-10', [{ description: 'Std', quantity: 1, unitPrice: 100, vatType: 'standard' }]);
+      const draft = (subtotal: number) => inTx(f.fx, () => createCreditNote(f.fx.companyId, {
+        type: 'customer', clientId: f.fx.customerId, customerInvoiceId: id, creditDate: '2026-12-20', subtotal,
+      }, f.fx.userId));
+      const a = await draft(48.1);
+      const b = await draft(48.13);
+      expect([a.taxAmount, b.taxAmount]).toEqual([7.22, 7.22]);
+      await inTx(f.fx, () => approveCreditNote(f.fx.companyId, a.id, f.fx.userId));
+      const err = await inTx(f.fx, () => approveCreditNote(f.fx.companyId, b.id, f.fx.userId)).catch((e: unknown) => e);
+      expect((err as { code?: string }).code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');
+      expect((err as Error).message).toBe(`Credit note ${b.creditNoteNumber} reverses 48.13 of an invoice with 51.90 left, so its VAT must be 7.21, `
+        + 'not 7.22. An invoice with a VAT type per line is credited in proportion across its lines. '
+        + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.');
+      await inTx(f.fx, () => cancelDraftCreditNote(f.fx.companyId, b.id, user, 'stale VAT')); // a users row: the audit row FKs it
+      const again = await draft(48.13);
+      expect(again.taxAmount).toBe(7.21);
+      await inTx(f.fx, () => approveCreditNote(f.fx.companyId, again.id, f.fx.userId));
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, id))).toEqual({ remainingNet: 3.77, remainingVat: 0.57 });
     });
   });
 
