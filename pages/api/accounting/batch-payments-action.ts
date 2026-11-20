@@ -70,6 +70,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // A PROCESSED batch: one contra of the batch journal, every bill
         // un-applied by this batch's allocations, members voided. Same gate as
         // every other action here, and as single-payment void.
+        // census-exempt(reverseBatch): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversal = await withJournalDateRefusal(res, () => reverseBatch(companyId, id, userId));
         if (reversal === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { status: 'reversed', ...reversal });

@@ -111,8 +111,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (documentType === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
       try {
         let payRunPlanHash: string | null = null;
-        // census-exempt(preparePayRunApprovalRequest): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
-        if (documentType === 'pay_run') payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
+        if (documentType === 'pay_run') {
+          // census-exempt(preparePayRunApprovalRequest): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
+          payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
+        }
         const request = await requestApproval(companyId, {
           documentType, documentId, requestedBy: userId,
         });

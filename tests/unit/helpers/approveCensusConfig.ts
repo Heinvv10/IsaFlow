@@ -84,6 +84,10 @@ export const ROUTE_WRAPPERS: Readonly<Record<string, string>> = { withPayrollMod
  */
 export const PAYROLL_DETAIL_SQL: readonly RegExp[] = [
   /\b(?:FROM|JOIN)\s+(?:public\.)?(?:payslips|payroll_payslips|payroll_run_lines|payroll_employees|payroll_employee_components|payroll_irp5\w*|employees)\b/i,
+  // Round 7 (M3c): the rest of the per-employee tables, a person's bank details, loans, garnishees, directives and payments
+  /\b(?:FROM|JOIN)\s+(?:public\.)?(?:payroll_bank_details|payroll_bank_file_items|tax_directive_payments|tax_directives|payroll_loans?\w*|payroll_garnishee_\w+|payroll_external_payslips|payroll_batch_lines|payroll_employee_history|payroll_employee_fringe_benefits|pay_packages|payslip_deliveries)\b/i,
+  // the change history of an employee or of an employee's bank details
+  /\bFROM\s+(?:public\.)?entity_changes\b[^;]*?'?payroll_(?:employee|bank_detail)\b/is,
 ];
 export const PAYROLL_READ_GATES: Readonly<Record<string, GateSpec>> = {
   refuseWithoutPayrollRead: { kind: 'refuse', module: 'payroll' },

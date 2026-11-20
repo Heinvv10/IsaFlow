@@ -149,6 +149,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-post undo')) return; // #1656 (round 3), before any write
     try {
       const runId = body.runId;
+      // census-exempt(undoRun): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
       const result = await withJournalDateRefusal(res, () => undoRun(companyId, runId, userId));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info(

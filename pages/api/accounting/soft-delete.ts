@@ -104,6 +104,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
 
     try {
+      // census-exempt(softDelete): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
       const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
@@ -147,6 +148,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
 
     try {
+      // census-exempt(undoDelete): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
       const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (restored === JOURNAL_DATE_REFUSED) return;
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');

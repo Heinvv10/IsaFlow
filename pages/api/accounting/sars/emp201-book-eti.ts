@@ -28,6 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
   const ym = { year: Number(parsed.data.month.slice(0, 4)), month: Number(parsed.data.month.slice(5, 7)) };
   try {
+    // census-exempt(bookEtiForMonthLocked): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
     const outcome = await bookEtiForMonthLocked(companyId, ym, userId);
     log.info('EMP201 book ETI for month', { companyId, ...outcome }, 'accounting-api');
     return apiResponse.success(res, outcome);

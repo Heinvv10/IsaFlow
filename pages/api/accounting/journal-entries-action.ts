@@ -102,6 +102,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // Step 2 (decision 4) under the same lock: a bank allocation's journal is reversed from its bank line while
         // enforced — refused 409 on the locked set (bankReversalGate.lockJournalCashForGlReversal), before any write.
         const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id);
+        // census-exempt(reverseJournalEntry): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
           reversalDate, cashLinesLocked }));
         if (reversed === JOURNAL_DATE_REFUSED) return;

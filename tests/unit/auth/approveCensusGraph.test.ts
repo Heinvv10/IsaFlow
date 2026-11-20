@@ -158,28 +158,71 @@ export async function readPay(c: string) { return sql\`SELECT gross FROM payslip
 export async function viaReadPay(c: string) { return readPay(c); }
 export async function refuseWithoutPayrollRead(res: unknown, c: string, u: string) { return false; }
 `;
-  const payroll = (route: string) => {
+  const payrollFull = (route: string) => {
     const files = { '/v/svc.ts': SVC, '/v/route.ts': route };
     return analyse({
       virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/v/route.ts'], sinks: {},
       gates: { refuseWithoutPayrollRead: { kind: 'refuse', module: 'payroll' } }, routeWrappers: { withPayrollDetailAccess: 'payroll' },
-      sqlPrimitives: [/FROM\s+payslips/i], flagPrimitiveRoots: true, directPrimitivesOnly: true,
-    }).bad;
+      sqlPrimitives: [/FROM\s+payslips/i], flagPrimitiveRoots: true,
+    });
   };
-  const H = "import { readPay, viaReadPay, refuseWithoutPayrollRead } from './svc';\ndeclare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;\ndeclare function withPayrollDetailAccess<T>(h: T): T;\ndeclare const res: unknown;\n";
+  const payroll = (route: string) => payrollFull(route).bad;
+  const H = "import { readPay, viaReadPay, refuseWithoutPayrollRead } from './svc';\ndeclare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;\ndeclare function withPayrollDetailAccess<T>(h: T): T;\ndeclare const res: unknown;\ndeclare const x: boolean;\n";
+  const READ = "if (await refuseWithoutPayrollRead(res, 'c', 'u')) return;";
 
-  it('a call to a function that reads the payroll table needs Payroll read; one hop only (a caller of that caller is not flagged)', () => {
+  it('a call to a function that reads the payroll table needs Payroll read, through any number of helpers (round 7: multi-hop)', () => {
     expect(payroll(`${H}async function handler() { await readPay('c'); }\nexport default handler;`)).toHaveLength(1);
-    expect(payroll(`${H}async function handler() { if (await refuseWithoutPayrollRead(res, 'c', 'u')) return; await readPay('c'); }\nexport default handler;`)).toEqual([]);
-    expect(payroll(`${H}async function handler() { await viaReadPay('c'); }\nexport default handler;`)).toEqual([]);
+    expect(payroll(`${H}async function handler() { ${READ} await readPay('c'); }\nexport default handler;`)).toEqual([]);
+    expect(payroll(`${H}async function handler() { await viaReadPay('c'); }\nexport default handler;`)).toHaveLength(1);
+    expect(payroll(`${H}async function handler() { ${READ} await viaReadPay('c'); }\nexport default handler;`)).toEqual([]);
     expect(payroll(`${H}async function handler() { await readPay('c'); }\nexport default withPayrollDetailAccess(handler);`)).toEqual([]);
   });
 
-  it('a handler that runs the SQL itself is flagged unless wrapped, gated, or marked census-exempt(sql)', () => {
+  it('a handler that runs the SQL itself is flagged unless wrapped, gated BEFORE it, or marked census-exempt(sql)', () => {
     const sqlRoute = (extra: string, exp = 'export default handler;') => `${H}async function handler() { ${extra} await sql\`SELECT gross FROM payslips\`; }\n${exp}`;
     expect(payroll(sqlRoute(''))).toHaveLength(1);
-    expect(payroll(sqlRoute("if (await refuseWithoutPayrollRead(res, 'c', 'u')) return;"))).toEqual([]);
+    expect(payroll(sqlRoute(READ))).toEqual([]);
     expect(payroll(sqlRoute('', 'export default withPayrollDetailAccess(handler);'))).toEqual([]);
-    expect(payroll(`// census-exempt(sql): a monthly total, no one person's pay\n${sqlRoute('')}`)).toEqual([]);
+    expect(payroll(sqlRoute("\n// census-exempt(sql): a monthly total, no one person's pay\n"))).toEqual([]);
+    // above the function, not the statement: binds to nothing
+    expect(payroll(`// census-exempt(sql): a monthly total, no one person's pay\n${sqlRoute('')}`)).toHaveLength(1);
+  });
+
+  // Breaker mutation 1 (round 7 M3b): the old check passed a handler that called a gate ANYWHERE, so a read the gate did not dominate went through.
+  it('a gate that does not DOMINATE the read does not cover it: one after it, in a sibling if body, or on another branch', () => {
+    const route = (body: string) => `${H}async function handler() { ${body} }\nexport default handler;`;
+    expect(payroll(route(`await sql\`SELECT gross FROM payslips\`; ${READ}`))).toHaveLength(1);
+    expect(payroll(route(`if (x) { ${READ} } await sql\`SELECT gross FROM payslips\`;`))).toHaveLength(1);
+    expect(payroll(route(`${READ} await sql\`SELECT gross FROM payslips\`;`))).toEqual([]);
+    expect(payroll(route(`if (x) { ${READ} await sql\`SELECT gross FROM payslips\`; } else { await sql\`SELECT gross FROM payslips\`; }`))).toHaveLength(1);
+  });
+
+  // Breaker mutation 2 (round 7 M3a): a census-exempt(sql) marker anywhere in the file exempted every primitive SQL statement in it.
+  it('census-exempt(sql) exempts the statement directly below it only; a second read in the file is still flagged', () => {
+    const marker = '// census-exempt(sql): a monthly total, no one person\'s pay';
+    const route = (body: string) => `${H}async function handler() { ${body} }\nexport default handler;`;
+    const one = payrollFull(route(`\n${marker}\nawait sql\`SELECT SUM(gross) FROM payslips\`;\nawait sql\`SELECT gross FROM payslips WHERE id = 1\`;`));
+    expect(one.bad).toHaveLength(1);
+    expect(one.bad[0]!.sites).toHaveLength(1);
+    expect(one.markersUsed).toHaveLength(1);
+    const both = payrollFull(route(`\n${marker}\nawait sql\`SELECT SUM(gross) FROM payslips\`;\n${marker}\nawait sql\`SELECT COUNT(*) FROM payslips\`;`));
+    expect(both.bad).toEqual([]);
+    expect(both.markersUsed).toHaveLength(2);
+    // a marker above something that is not a payroll read is stale
+    expect(payrollFull(route(`\n${marker}\nawait sql\`SELECT 1\`;`)).staleMarkers).toHaveLength(1);
+  });
+
+  it('a gated read does not use a marker above it: the marker is stale', () => {
+    const marked = payrollFull(`${H}async function handler() { ${READ}\n// census-exempt(sql): why\nawait sql\`SELECT gross FROM payslips\`; }\nexport default handler;`);
+    expect(marked.bad).toEqual([]);
+    expect(marked.staleMarkers).toHaveLength(1);
+  });
+});
+
+describe('approve census analyser: a marker binds to the outermost call of its statement', () => {
+  it('census-exempt(<callee>) exempts the outer call, not a same-named call nested inside it', () => {
+    const marker = "\n    // census-exempt(postJournalEntry): approve asks first elsewhere\n";
+    expect(run(h(`${marker}    await postJournalEntry('c', String(await postJournalEntry('c', 'j')));`))).toHaveLength(1);
+    expect(run(h(`${marker}    await postJournalEntry('c', 'i');`))).toEqual([]);
   });
 });

@@ -43,6 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // PDF for the same period printed the ledger's cash flow statement. One
   // read after the other: both run on the request's one connection.
   const companyName = await getCompanyName(companyId);
+  // census-exempt(readReportPackInput): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const { input: data, figures } = await readReportPackInput(companyId, companyName, from, to);
 
   const pack = buildReportPack(packType, data, from, to);

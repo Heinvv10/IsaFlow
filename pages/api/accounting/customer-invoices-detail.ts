@@ -147,6 +147,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // the route passes only what the person may do.
       const allowReversal = await mayApprove(companyId, userId, 'customers');
       try {
+        // census-exempt(cancelCustomerInvoice): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId, { allowReversal }));
         if (posted === JOURNAL_DATE_REFUSED) return;
         const { reversedJournalEntryId } = posted;

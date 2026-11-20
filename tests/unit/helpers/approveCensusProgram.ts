@@ -90,3 +90,10 @@ export const exits = (s: ts.Statement | undefined): boolean => {
 export const templateText = (t: ts.TaggedTemplateExpression): string =>
   ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text
     : `${t.template.head.text}?${t.template.templateSpans.map((s) => s.literal.text).join('?')}`;
+
+/** The calls that enclose `node` inside its own statement (a call nested in another call's arguments). */
+export function callAncestors(node: ts.Node): ts.CallExpression[] {
+  const out: ts.CallExpression[] = [];
+  for (let p = node.parent; p && !ts.isStatement(p); p = p.parent) if (ts.isCallExpression(p)) out.push(p);
+  return out;
+}

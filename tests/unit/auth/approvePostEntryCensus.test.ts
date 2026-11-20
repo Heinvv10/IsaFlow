@@ -64,7 +64,7 @@ const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payrol
 let payrollMemo: ReturnType<typeof analyse> | undefined;
 const payrollCensus = () => (payrollMemo ??= analyse({
   routeFiles: payrollReadRoutes, programFiles, sinks: {}, gates: PAYROLL_READ_GATES, routeWrappers: PAYROLL_READ_WRAPPERS,
-  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, directPrimitivesOnly: true,
+  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true,
 }));
 
 describe('approve / post entry-point census (#1656)', () => {
@@ -82,6 +82,19 @@ describe('approve / post entry-point census (#1656)', () => {
       'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>): reason').toEqual([]);
     expect(payrollCensus().dangerousRoutes.length).toBeGreaterThan(3);
   }, 180_000);
+
+  it('the payroll-read primitives cover every per-employee table (round 7), and entity_changes only when asked for the employee types', () => {
+    const reads = (sql: string) => PAYROLL_DETAIL_SQL.some((re) => re.test(sql));
+    for (const t of ['payslips', 'payroll_employees', 'payroll_bank_details', 'payroll_bank_file_items', 'tax_directive_payments', 'tax_directives',
+      'payroll_loans', 'payroll_loan_payments', 'payroll_garnishee_orders', 'payroll_garnishee_deductions', 'payroll_external_payslips',
+      'payroll_batch_lines', 'payroll_employee_history', 'payroll_employee_fringe_benefits', 'pay_packages', 'payslip_deliveries']) {
+      expect(reads(`SELECT x FROM ${t} WHERE company_id = ?`), t).toBe(true);
+      expect(reads(`SELECT x FROM a JOIN public.${t} b ON b.id = a.id`), `JOIN ${t}`).toBe(true);
+    }
+    expect(reads("SELECT * FROM entity_changes WHERE entity_type = 'payroll_employee'")).toBe(true);
+    expect(reads("SELECT * FROM entity_changes WHERE entity_type = 'supplier'")).toBe(false);
+    expect(reads('SELECT 1 FROM payroll_company_settings')).toBe(false);
+  });
 
   it('every census-exempt marker is still needed by one of the two censuses: its call would otherwise be uncovered (no stale pin)', () => {
     const payrollFiles = new Set(payrollReadRoutes);

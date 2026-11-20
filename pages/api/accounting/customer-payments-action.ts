@@ -43,6 +43,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'cancel': {
         if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer receipts')) return; // #1656: reverses the receipt's journal
+        // census-exempt(cancelCustomerPayment): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const cancelled = await withJournalDateRefusal(res, () => cancelCustomerPayment(companyId, paymentId, userId, reason));
         if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);

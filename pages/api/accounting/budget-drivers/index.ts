@@ -73,6 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const parsed = DriverSchema.safeParse(req.body);
       if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
       const { versionId, expectedUpdatedAt, ...line } = parsed.data;
+      // census-exempt(saveDriver): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
       return apiResponse.success(res, await saveDriver(companyId, userId, { versionId, expectedUpdatedAt }, line));
     }
     const { versionId, id, expectedUpdatedAt } = req.query;
@@ -81,6 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a driver id');
     const token = Token.safeParse(expectedUpdatedAt);
     if (!token.success) return apiResponse.badRequest(res, 'expectedUpdatedAt must be the updatedAt the version was read with');
+    // census-exempt(deleteDriver): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     return apiResponse.success(res, await deleteDriver(companyId, userId, { versionId, expectedUpdatedAt: token.data }, id));
   } catch (err) {
     if (respondBudgetDriverError(res, err)) return;

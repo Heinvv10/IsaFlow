@@ -48,6 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const headCounts = await readHeadCounts(companyId, monthSlots.map((m) => m.to));
   const results: FinancialData[] = [];
   for (const [i, { from, to }] of monthSlots.entries()) {
+    // census-exempt(readExtendedRatioInputs): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     results.push((await readExtendedRatioInputs(companyId, from, to, headCounts[i])).data);
   }
 

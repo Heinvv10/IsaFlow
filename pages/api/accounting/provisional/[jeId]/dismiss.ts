@@ -31,6 +31,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'provisional postings')) return;
 
   try {
+    // census-exempt(dismissProvisionalEntry): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
     const result = await withJournalDateRefusal(res, () => dismissProvisionalEntry(companyId, jeId, userId));
     if (result === JOURNAL_DATE_REFUSED) return;
     // Nothing was reversed when the journal's reversal chain was already out

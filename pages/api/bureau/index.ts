@@ -51,6 +51,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   const companyIds = companyRows.map((r) => r.company_id);
   const meta = new Map<string, CompanyMeta>(companyRows.map((r) => [r.company_id, r]));
 
+  // census-exempt(aggregateBureauWork): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const { items, monthEnd } = await aggregateBureauWork(companyIds, meta, new Date());
 
   const stats = {

@@ -36,6 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   if (form === 'EMP201' && !canWrite(companyRole)) return apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
   if (form === 'EMP201' && await refuseWithoutPayrollRead(res, companyId, user.id)) return; // #1656 (round 6): Payroll read, not just a write role
+  // census-exempt(listVersions): Payroll read is asked above for an EMP201; the other forms' versions (VAT201, EMP501) hold company-level figures only
   return apiResponse.success(res, await listVersions(companyId, form, periodStart, periodEnd));
 }
 

@@ -68,6 +68,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'void': {
         if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments')) return; // #1656: reverses the journal
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
+        // census-exempt(voidSupplierPayment): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const payment = await withJournalDateRefusal(res, () => voidSupplierPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
