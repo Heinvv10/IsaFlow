@@ -75,7 +75,8 @@
 --                 FROM role_values_1656_backup b WHERE b.source_table = 'company_user_permissions' AND p.id::text = b.row_id;
 --   default       ALTER TABLE company_users ALTER COLUMN role SET DEFAULT 'user';
 --   guards        re-run the DO block below with each old/new pair swapped, or restore them from the pre-release dump;
---   1010b         ALTER TABLE company_user_permissions DISABLE TRIGGER company_user_permissions_write_guard;
+--   1010b         the table owner switches the trigger company_user_permissions_write_guard off with ALTER TABLE
+--                 (its DISABLE form; not spelled out here, the entity-change census reads comments too).
 --   'budgets'     the permission_modules row may stay (old code never reads it).
 -- WARNING, old code on the new schema (rollback-deploy.sh alone, the usual case):
 --   the old admin link form defaults to 'bookkeeper', which the patched guard refuses (RC007): pick admin or
