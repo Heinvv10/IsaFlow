@@ -116,6 +116,22 @@ describe('tenancy (6)', () => {
     expect((await callTool(pool, f, listGrn, { po_id: theirs.po.po })).body).toMatchObject({ total: 0 });
     expect(await poState(pool, theirs.po)).toEqual({ status: 'partially_received', received: [1] });
   });
+
+  it('a user of both companies, working in one, never sees or touches the other\'s notes (row security alone admits both)', async () => {
+    const theirs = await received(other, [5], [1]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
+    try {
+      const listed = await callTool(pool, f, listGrn, {});
+      expect((listed.body.goods_received_notes as Json[]).map((n) => n.id)).not.toContain(theirs.grn);
+      expect((await callTool(pool, f, listGrn, { po_id: theirs.po.po })).body).toMatchObject({ total: 0 });
+      expect((await callTool(pool, f, getGrn, { grn_id: theirs.grn })).text).toBe('Not found');
+      expect(refusal((await callTool(pool, f, cancel, { grn_id: theirs.grn, reason: 'x' })).text)).toMatchObject({ code: 'not_found' });
+      expect(refusal((await callTool(pool, f, create, grnArgs(theirs.po, [[0, 1]]))).text)).toMatchObject({ code: 'not_found' });
+      expect(await poState(pool, theirs.po)).toEqual({ status: 'partially_received', received: [1] });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
+    }
+  });
 });
 
 describe('reads', () => {

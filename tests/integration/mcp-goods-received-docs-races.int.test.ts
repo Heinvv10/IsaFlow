@@ -81,6 +81,25 @@ describe('the delivery note (5)', () => {
     }] });
     expect(urls.body).toMatchObject({ urls_issued: 0 });
   });
+
+  it('a user of both companies, working in one, cannot attach to the other\'s note (row security alone admits both)', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 10 }] });
+    const grn = String((await callTool(pool, f, create, grnArgs(po, [[0, 1]]))).body.grn_id);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [f.co, other.owner]);
+    try {
+      const bytes = PDF('two companies');
+      const a = await callTool(pool, other, attach, {
+        entity_type: 'goods_received', entity_id: grn, file_name: 'x.pdf', mime_type: 'application/pdf', content: bytes.toString('base64'),
+      });
+      expect(a).toMatchObject({ isError: true, text: 'Not found' });
+      const urls = await callTool(pool, other, createUrls, { files: [{
+        target: { entity_type: 'goods_received', entity_id: grn }, file_name: 'x.pdf', mime_type: 'application/pdf', size: bytes.length, sha256: sha(bytes),
+      }] });
+      expect(urls.body).toMatchObject({ urls_issued: 0 });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [f.co, other.owner]);
+    }
+  });
 });
 
 describe('races (10)', () => {
