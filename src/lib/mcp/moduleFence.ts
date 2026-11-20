@@ -13,22 +13,38 @@ import { sql } from '@/lib/neon';
 import { checkPermission } from '@/lib/auth/permissionService';
 import { approveRefusedMessage, type ApproveModule } from '@/modules/accounting/services/core/approvePermission';
 import type { McpTool, McpToolContext } from './types';
+import { strArg } from './tools/toolHelpers';
+import { UUID_RE } from '@/lib/validation';
 
-async function creditNoteModule(companyId: string, id: unknown): Promise<ApproveModule | null> {
-  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null; // the tool answers a bad id itself
+/**
+ * The module a credit note's Approve belongs to, read the way the handlers read the id: strArg (trimmed), then UUID_RE
+ * (round 4, H1: the fence used to regex the RAW value, so " <uuid>" skipped it while the handler trimmed it and went on).
+ * A value the fence cannot resolve is a refusal, never a pass; a note this company does not have is null (nothing to
+ * approve: the handler answers Not found before any write).
+ */
+async function creditNoteModule(companyId: string, args: Record<string, unknown>): Promise<ApproveModule | null | { refuse: string }> {
+  const id = strArg(args, 'credit_note_id');
+  if (!id) return { refuse: 'credit_note_id is required' };
+  if (!UUID_RE.test(id)) return { refuse: 'invalid credit_note_id' };
   const rows = await sql`
     SELECT type FROM credit_notes WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   ` as Array<{ type: string }>;
-  const type = rows[0]?.type;
-  return type === 'customer' ? 'customers' : type === 'supplier' ? 'suppliers' : null;
+  if (rows.length === 0) return null;
+  const type = rows[0]!.type;
+  return type === 'customer' ? 'customers' : type === 'supplier' ? 'suppliers' : { refuse: 'the credit note has no type the fence can resolve' };
 }
 
-/** The module whose Approve this call takes, or null when the tool decides per document (or names none). */
-async function approveModuleFor(tool: McpTool, args: Record<string, unknown>, ctx: McpToolContext): Promise<ApproveModule | null> {
+/** The module whose Approve this call takes; null when the tool decides per document (or the document is not there); or a refusal. */
+async function approveModuleFor(
+  tool: McpTool, args: Record<string, unknown>, ctx: McpToolContext,
+): Promise<ApproveModule | null | { refuse: string }> {
   const m = tool.approveModule;
   if (!m || m === 'per_document') return null;
-  if (m === 'credit_note_by_id') return creditNoteModule(ctx.companyId, args.credit_note_id);
-  if (m === 'by_subledger') return args.subledger === 'ap' ? 'suppliers' : args.subledger === 'ar' ? 'customers' : null;
+  if (m === 'credit_note_by_id') return creditNoteModule(ctx.companyId, args);
+  if (m === 'by_subledger') {
+    const subledger = strArg(args, 'subledger'); // the handler's own reading
+    return subledger === 'ap' ? 'suppliers' : subledger === 'ar' ? 'customers' : { refuse: 'subledger must be "ar" (customer invoice) or "ap" (supplier bill)' };
+  }
   return m;
 }
 
@@ -43,6 +59,7 @@ export async function moduleFenceRefusal(
     }
   }
   const module = await approveModuleFor(tool, args, ctx);
+  if (module !== null && typeof module === 'object') return `${tool.name}: ${module.refuse}`; // fail closed: an argument the fence cannot resolve
   if (module && !(await checkPermission(ctx.companyId, ctx.userId, module, 'approve'))) {
     return `${tool.name}: ${approveRefusedMessage(module, 'or post this')}`;
   }

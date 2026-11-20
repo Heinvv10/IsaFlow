@@ -191,6 +191,11 @@ export const cancelCreditNoteTool: McpTool = {
     // Same reasoning as approve: refuse from a read, never from a catch.
     const note = await getCreditNoteById(ctx.companyId, id);
     if (!note) return toolError(NOT_FOUND);
+    // #1656 (round 4, defence in depth beside the module fence): the note's own module Approve, from the note just read.
+    const cancelModule = APPROVE_MODULE_BY_DOCUMENT[creditNoteApprovalType(note.type)]!;
+    if (!(await mayApprove(ctx.companyId, ctx.userId, cancelModule))) {
+      return toolError(approveRefusedMessage(cancelModule, `${note.type} credit notes`));
+    }
     const dryRun = args.dry_run === true;
     const reason = strArg(args, 'reason');
     // A draft has no journal to reverse: its own path (ar/creditNoteDraftCancelService), no VAT-lock preflight.

@@ -126,6 +126,10 @@ export const settleByContraTool: McpTool = {
     if (subledger === 'ap' && !(await mayApprove(ctx.companyId, ctx.userId, 'suppliers'))) {
       return toolError(approveRefusedMessage('suppliers', 'supplier payments'));
     }
+    // Round 4, defence in depth beside the module fence: a receivable settles through a customer receipt this tool confirms.
+    if (subledger === 'ar' && !(await mayApprove(ctx.companyId, ctx.userId, 'customers'))) {
+      return toolError(approveRefusedMessage('customers', 'customer receipts'));
+    }
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has

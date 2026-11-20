@@ -41,6 +41,13 @@ function registryWith(tool: McpTool) {
   return { registry, handler };
 }
 
+/** Arguments the module fence needs to resolve a tool's Approve module (moduleFence.ts). */
+const FENCE_ARGS: Record<string, Record<string, unknown>> = {
+  approve_credit_note: { credit_note_id: '33333333-3333-4333-8333-333333333333' },
+  cancel_credit_note: { credit_note_id: '33333333-3333-4333-8333-333333333333' },
+  settle_by_contra: { subledger: 'ar' },
+};
+
 beforeEach(() => vi.clearAllMocks());
 
 describe('MCP write-tool role fence (S-01)', () => {
@@ -62,7 +69,8 @@ describe('MCP write-tool role fence (S-01)', () => {
   it.each(WRITES.map((t) => [t.name, t] as const))('%s: an owner/admin(/manager)-bound token reaches the handler', async (_n, tool) => {
     for (const role of tool.requiresRole ? ['owner', 'admin'] : ['owner', 'admin', 'manager']) {
       const { registry, handler } = registryWith(tool);
-      const r = await registry.call(tool.name, { idempotency_key: `k-${role}` }, ctxFor(role));
+      // The module fence resolves a data-dependent module from the arguments and refuses what it cannot (round 4): give those tools theirs.
+      const r = await registry.call(tool.name, { ...FENCE_ARGS[tool.name], idempotency_key: `k-${role}` }, ctxFor(role));
       expect(r.isError, r.content[0]?.text).toBeFalsy();
       expect(handler).toHaveBeenCalledTimes(1);
     }

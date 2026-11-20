@@ -104,6 +104,14 @@ describe('approve_credit_note', () => {
 });
 
 describe('cancel_credit_note', () => {
+  it("#1656 round 4 (defence in depth): the tool asks the note's own module Approve from the note it read, whatever the fence did", async () => {
+    vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'approved' } as never);
+    vi.mocked(mayApprove).mockResolvedValueOnce(false);
+    const r = await cancelCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());
+    expect(errText(r)).toMatch(/permission to approve/);
+    expect(cancelCreditNote).not.toHaveBeenCalled();
+  });
+
   it('refuses an already cancelled note from the read (a draft is cancelled: cancelDraftCreditNoteTool.test.ts)', async () => {
     vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'cancelled' } as never);
     const r = await cancelCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());

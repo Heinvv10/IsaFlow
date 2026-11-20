@@ -63,11 +63,32 @@ describe('moduleFenceRefusal (#1656)', () => {
     expect(await moduleFenceRefusal(t, { credit_note_id: NOTE }, ctx)).toBeNull();
   });
 
-  it('credit_note_by_id leaves an unknown or malformed id to the tool (it answers not-found itself)', async () => {
+  it('credit_note_by_id leaves a note this company does not have to the tool (it answers Not found before any write)', async () => {
     const t = tool({ name: 'approve_credit_note', approveModule: 'credit_note_by_id' });
-    expect(await moduleFenceRefusal(t, { credit_note_id: 'nope' }, ctx)).toBeNull();
     db.noteType = null;
     expect(await moduleFenceRefusal(t, { credit_note_id: NOTE }, ctx)).toBeNull();
+  });
+
+  it('round 4 (H1): a whitespace-padded credit_note_id resolves as the handler\'s strArg does, and is asked the same Approve', async () => {
+    const t = tool({ name: 'cancel_credit_note', approveModule: 'credit_note_by_id' });
+    for (const padded of [` ${NOTE}`, `${NOTE} `, `\t${NOTE}\n`]) {
+      expect(await moduleFenceRefusal(t, { credit_note_id: padded }, ctx), JSON.stringify(padded)).toMatch(/cancel_credit_note: .*Approve/);
+    }
+    db.allowed.add('customers:approve');
+    expect(await moduleFenceRefusal(t, { credit_note_id: ` ${NOTE}` }, ctx)).toBeNull();
+  });
+
+  it('round 4: an unresolvable credit_note_id is REFUSED, never passed (missing, empty, non-string, not a uuid)', async () => {
+    const t = tool({ name: 'cancel_credit_note', approveModule: 'credit_note_by_id' });
+    for (const args of [{}, { credit_note_id: '' }, { credit_note_id: '   ' }, { credit_note_id: 7 }, { credit_note_id: [NOTE] }, { credit_note_id: 'nope' }, { credit_note_id: `${NOTE}x` }]) {
+      expect(await moduleFenceRefusal(t, args, ctx), JSON.stringify(args)).toMatch(/cancel_credit_note: (credit_note_id is required|invalid credit_note_id)/);
+    }
+  });
+
+  it('round 4: a credit note whose type the fence cannot resolve is refused', async () => {
+    const t = tool({ name: 'cancel_credit_note', approveModule: 'credit_note_by_id' });
+    db.noteType = 'something_else';
+    expect(await moduleFenceRefusal(t, { credit_note_id: NOTE }, ctx)).toMatch(/no type the fence can resolve/);
   });
 
   it('by_subledger asks Suppliers for ap and Customers for ar', async () => {
@@ -77,9 +98,50 @@ describe('moduleFenceRefusal (#1656)', () => {
     expect(await moduleFenceRefusal(t, { subledger: 'ap' }, ctx)).toMatch(/Suppliers/);
   });
 
+  it('round 4 (H2): a padded subledger is read as the handler reads it (" ar " is ar), and asks the same Approve', async () => {
+    const t = tool({ name: 'settle_by_contra', approveModule: 'by_subledger' });
+    expect(await moduleFenceRefusal(t, { subledger: ' ar ' }, ctx)).toMatch(/settle_by_contra: .*Customers/);
+    expect(await moduleFenceRefusal(t, { subledger: '\tap\n' }, ctx)).toMatch(/Suppliers/);
+    db.allowed.add('customers:approve');
+    expect(await moduleFenceRefusal(t, { subledger: ' ar ' }, ctx)).toBeNull();
+  });
+
+  it('round 4: an unresolvable subledger is refused (missing, empty, non-string, other, wrong case)', async () => {
+    const t = tool({ name: 'settle_by_contra', approveModule: 'by_subledger' });
+    for (const args of [{}, { subledger: '' }, { subledger: 3 }, { subledger: ['ar'] }, { subledger: 'AR' }, { subledger: 'both' }]) {
+      expect(await moduleFenceRefusal(t, args, ctx), JSON.stringify(args)).toMatch(/settle_by_contra: subledger must be/);
+    }
+  });
+
   it('per_document and an undeclared tool are not fenced here', async () => {
     expect(await moduleFenceRefusal(tool({ name: 'bulk_approve_credit_notes', approveModule: 'per_document' }), {}, ctx)).toBeNull();
     expect(await moduleFenceRefusal(tool({ name: 'list_accounts', write: false }), {}, ctx)).toBeNull();
     expect(checkPermission).not.toHaveBeenCalled();
+  });
+});
+
+describe('every MCP tool with a data-dependent module fence fails closed (round 4)', () => {
+  it('the dependent kinds are exactly the ones this file proves; a new kind needs a resolver test here', async () => {
+    const { MCP_TOOLS } = await import('@/lib/mcp/toolIndex');
+    const kinds = new Set(MCP_TOOLS.map((t) => t.approveModule).filter((m) => m === 'credit_note_by_id' || m === 'by_subledger' || m === 'per_document'));
+    expect([...kinds].sort()).toEqual(['by_subledger', 'credit_note_by_id', 'per_document']);
+    const known = new Set(['credit_note_by_id', 'by_subledger', 'per_document', 'suppliers', 'customers', 'accounts', 'payroll', 'budgets', 'banking', 'vat', 'group', 'accountant', 'items']);
+    expect(MCP_TOOLS.map((t) => t.approveModule).filter((m) => m !== undefined && !known.has(m))).toEqual([]);
+  });
+
+  it('each real tool of a dependent kind is refused for padded-but-permitted args only with the Approve it asks, and for unresolvable args always', async () => {
+    const { MCP_TOOLS } = await import('@/lib/mcp/toolIndex');
+    const byId = MCP_TOOLS.filter((t) => t.approveModule === 'credit_note_by_id');
+    const bySub = MCP_TOOLS.filter((t) => t.approveModule === 'by_subledger');
+    expect(byId.map((t) => t.name).sort()).toEqual(['approve_credit_note', 'cancel_credit_note']);
+    expect(bySub.map((t) => t.name)).toEqual(['settle_by_contra']);
+    for (const t of byId) {
+      expect(await moduleFenceRefusal(t, { credit_note_id: ` ${NOTE} ` }, ctx), t.name).toMatch(/Approve/);
+      for (const args of [{}, { credit_note_id: 5 }, { credit_note_id: 'x' }]) expect(await moduleFenceRefusal(t, args, ctx), `${t.name} ${JSON.stringify(args)}`).not.toBeNull();
+    }
+    for (const t of bySub) {
+      expect(await moduleFenceRefusal(t, { subledger: ' ar ' }, ctx)).toMatch(/Approve/);
+      for (const args of [{}, { subledger: 1 }, { subledger: 'x' }]) expect(await moduleFenceRefusal(t, args, ctx)).not.toBeNull();
+    }
   });
 });
