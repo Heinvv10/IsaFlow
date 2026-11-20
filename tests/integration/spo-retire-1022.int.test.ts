@@ -75,6 +75,9 @@ beforeAll(async () => {
     await at('invoicedDraftBill', 'SPO-I4', 'invoiced', [{ qty: 4, price: 50, received: 2 }]);
     await at('sentFullyBilled', 'SPO-E9', 'sent', one());
     await at('sentOverBilled', 'SPO-E10', 'sent', one(2));
+    // Review L1: a header subtotal of 0 is not "fully billed" by any bill: against the larger of it and the lines' total, > 0.
+    await at('sentZeroSubtotal', 'SPO-L1', 'sent', one(), { subtotal: 0 });
+    await at('sentEmpty', 'SPO-L2', 'sent', []);
     await at('sentCancelledBill', 'SPO-E8', 'sent', one());
     await at('sentDraftBill', 'SPO-E1', 'sent', one(2));
     await at('sentInvoicedLine', 'SPO-E2', 'sent', one(0, 1));
@@ -103,6 +106,7 @@ beforeAll(async () => {
   bills.invoicedDeleted = await bill(f, 'invoicedDeletedBill', { status: 'draft' });
   await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bills.invoicedDeleted]);
   bills.full = await bill(f, 'sentFullyBilled');
+  bills.zeroSub = (await seedRawBill(pool, f, { items: [{ total: 50 }], subtotal: 50, total: 57.5, header: S.sentZeroSubtotal!.id })).id;
   bills.over = (await seedRawBill(pool, f, { items: [{ total: 150 }], subtotal: 150, total: 172.5, header: S.sentOverBilled!.id, status: 'paid' })).id;
   bills.draft = await bill(f, 'sentDraftBill', { status: 'draft' });
   bills.deleted = await bill(f, 'sentDeletedBill');
@@ -171,6 +175,8 @@ describe('the status map', () => {
     expect(await status('invoicedPartBill')).toEqual(['received', null]);
     // A live draft bill names it: not closed by the invoiced rule, and a draft nets nothing.
     expect(await status('invoicedDraftBill')).toEqual(['partially_received', null]);
+    expect(await status('sentZeroSubtotal')).toEqual(['approved', null]);
+    expect(await status('sentEmpty')).toEqual(['approved', null]);
   });
 
   it('closes a fully (or over) billed order, and an invoiced one no live bill names, from its open status, with a NOTICE each', async () => {
@@ -225,13 +231,14 @@ describe('the skips and the record', () => {
   });
 
   it('says exactly what it did, and what entered committed spend', async () => {
-    expect(notices).toContain('1022: copied 33 order(s) in all, 3 skipped, 1 renamed, 6 closed, 2 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 35 order(s) in all, 3 skipped, 1 renamed, 6 closed, 2 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 1 supplier of another company, 1 negative line total, 1 line id already in po_items, '
-      + '0 id already a purchase order of another company, 0 refused by the database');
+      + '0 id already a purchase order of another company');
     const committing = ['sent', 'sentClean', 'partRecv', 'received', 'piFull', 'piPart', 'sentDraftBill', 'sentInvoicedLine', 'sentCancelledBill',
-      'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill', 'invoicedPartBill', 'invoicedDraftBill'];
-    // Billing netted: SPO-S1's and SPO-I3's approved R100 bills.
-    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 14 order(s), R ${(cents(committing) / 100).toFixed(2)} ex VAT, less R 200.00 billed`);
+      'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill', 'invoicedPartBill', 'invoicedDraftBill', 'sentEmpty'];
+    // Line totals (SPO-L1's subtotal is 0, its line R100); billing netted: SPO-S1's and SPO-I3's R100 bills, SPO-L1's R50.
+    const lineCents = cents(committing) + 10000;
+    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 16 order(s), R ${(lineCents / 100).toFixed(2)} ex VAT, less R 250.00 billed`);
     expect(notices).toContain(`1022: company ${other.co} committing copies, order month 2026-05: 1 order(s), R 11.00 ex VAT, less R 0.00 billed`);
   });
 });

@@ -34,9 +34,9 @@ const openOf = async (po: SeededPo, opts: { excludeInvoiceId?: string } = {}) =>
   const rows = await readCommitments(f.co, [f.acc.opex], '2026-06-01', '2026-06-30', opts);
   return po.items.map((id) => { const r = rows.find((x) => x.poItemId === id); return r ? openPoLineCents(r.lineTotal, r.billed) : null; });
 };
-const link = (po: string, bill: string, amount: number, co = f.co) => pool.query(
-  `INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, $4, 'mcp')`,
-  [co, po, bill, amount]);
+const link = (po: string, bill: string, amount: number, source = 'mcp') => pool.query(
+  `INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, $4, $5)`,
+  [f.co, po, bill, amount, source]);
 const headerBill = (po: string | null, total: number, o: { status?: string; supplier?: string; items?: Array<{ total: number; poItem?: string }> } = {}) =>
   seedRawBill(pool, f, { items: o.items ?? [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: po, status: o.status, supplier: o.supplier });
 
@@ -106,6 +106,20 @@ describe('the link row settles the amount, and each bill nets each PO once', () 
     await headerBill(b.po, 200, { items: [{ total: 120, poItem: a.items[0] }, { total: 80 }] });
     expect(await openOf(a)).toEqual([38000]);
     expect(await openOf(b)).toEqual([42000]);
+  });
+
+  it('a header-only PO nets what the bill\'s lines and links have not already attributed elsewhere, each rand once', async () => {
+    // Review M2: R1000 bill, R400 of lines on A AND an app link of 400 on A (the same 400), header on B with no link: B nets 600.
+    const a = await seedPo(pool, f, { lines: [1000] });
+    const b = await seedPo(pool, f, { lines: [1000] });
+    const bill = await headerBill(b.po, 1000, { items: [{ total: 400, poItem: a.items[0] }, { total: 600 }] });
+    await link(a.po, bill.id, 400, 'app');
+    expect(await openOf(a)).toEqual([60000]);
+    expect(await openOf(b)).toEqual([40000]);
+    // A larger link on A (an mcp link of 700) is what A holds: B nets the 300 left.
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+    await link(a.po, bill.id, 700);
+    expect(await openOf(b)).toEqual([70000]);
   });
 
   it('a new canonical PO with a header-only bill nets too (one rule for every PO)', async () => {

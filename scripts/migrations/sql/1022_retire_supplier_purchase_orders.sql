@@ -5,15 +5,19 @@
 --   0. The role must bypass row security (rolsuper or rolbypassrls), or the migration refuses before it changes anything: the
 --      legacy tables, purchase_orders and supplier_invoices are FORCE RLS with policies only for app_user / app_service, so a
 --      role that did not bypass would read no rows, "copy 0" and retire the tables with their orders behind them. Production's
---      deploy role `postgres` is NOSUPERUSER BYPASSRLS (the integration runner creates it so: pg-cluster.sh pg_create_roles), and
+--      deploy role `postgres` is NOSUPERUSER BYPASSRLS (the integration runner creates it so, pg-cluster.sh pg_create_roles, and
+--      applies the migrations as that; it makes postgres a superuser only afterwards, for the suites), and
 --      that is how 1005's and 1006's backfills read every company's rows: no policy exemption, the role attribute.
 --   1. supplier_purchase_orders and supplier_purchase_order_items refuse INSERT and UPDATE (BEFORE INSERT OR UPDATE, SECURITY
 --      INVOKER, ENABLE ALWAYS, so session_replication_role = replica does not skip them): "retired: use purchase_orders".
 --      DELETE is allowed: the copies are independent purchase orders the app edits and deletes, so no rule tied to them could
 --      hold, and the Demo reseed's wipe (wipePlan.ts) deletes the legacy rows. TRUNCATE is not trapped. ENABLE ALWAYS needs table
---      ownership; the deploy role owns these tables, as it owned po_items (954: ENABLE ALWAYS TRIGGER trg_po_items_dimensions_check)
---      and purchase_orders (1006: trg_po_bill_links_supplier_guard), tables earlier migrations created. The triggers are created
---      FIRST: their SHARE ROW EXCLUSIVE lock holds the old colour's writes until this commits, and they are refused after, so
+--      ownership; the deploy role owns these tables, as it owns po_items (954: ENABLE ALWAYS TRIGGER trg_po_items_dimensions_check)
+--      and purchase_orders (1006: trg_po_bill_links_supplier_guard), tables earlier migrations created: the schema baseline
+--      (scripts/ci/integration/baseline.sql.gz, dev's schema) has "ALTER TABLE public.supplier_purchase_orders OWNER TO postgres;",
+--      "ALTER TABLE public.supplier_purchase_order_items OWNER TO postgres;", "ALTER TABLE public.purchase_orders OWNER TO
+--      postgres;" and "ALTER TABLE public.po_items OWNER TO postgres;". The triggers are created FIRST: their lock (ACCESS
+--      EXCLUSIVE, from DROP TRIGGER) holds the old colour's writes until this commits, and they are refused after, so
 --      nothing it writes during the copy is lost. The tables are NOT dropped.
 --   2. Each legacy header is copied into purchase_orders WITH THE SAME id, each line into po_items with the same id, so a
 --      bill header (supplier_invoices.purchase_order_id) naming a legacy id now names a canonical PO. A header whose id is
@@ -31,8 +35,11 @@
 --          CLOSED, from the status it would have had, only when (a) it is fully billed: the same billing committed nets (bills
 --          approved / paid / partially_paid of its company and supplier: by lines first, else the link amount, else the
 --          subtotal less what the bill attributes elsewhere) reaches its subtotal less 1 cent; or (b) its legacy status was
---          invoiced and no live bill (not cancelled, not deleted, any status) of its company and supplier names it. A NOTICE
---          per closed copy. No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
+--          invoiced and no live bill (not cancelled, not deleted, any status) of its company and supplier names it. "Fully"
+--          is against the larger of the subtotal and the lines' total, and never when that is 0. A NOTICE per closed copy. A
+--          fully billed close records itself on the deciding link (closed_po_from_status, the latest link on a billed bill), as
+--          link_bills_to_purchase_order does, so unlinking that bill reopens the copy; an invoiced-with-no-bill close has no
+--          link to hold it (named limit: nothing reopens it). No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
 --          external_ref, which no copy carries; the PUT / update_purchase_order edit draft / submitted / approved only).
 --        number: a (company, po_number) the canonical table already holds is NOT a failure (a failed production migration
 --          blocks every release): the copy takes order_number || '-SPO', then '-SPO2', ... until free, its notes say
@@ -50,9 +57,10 @@
 --          (else NULL). sort_order by the legacy created_at.
 --      SKIPPED, with a WARNING and a per-reason NOTICE (no table records them), the row left in the legacy table: a header
 --      whose supplier is another company's, whose id is another company's purchase order, with a negative line total, or with
---      a line id po_items already holds; and, in a sub-transaction per order, any order a constraint or a numeric overflow
---      refuses (check, not null, unique, foreign key, numeric_value_out_of_range), so one unforeseen row is a WARNING, not an
---      aborted release. Then the migration RAISES unless copied + skipped = the legacy headers it set out to copy.
+--      a line id po_items already holds. Any OTHER refusal (each order copies in a sub-transaction: check, not null, unique,
+--      foreign key, numeric_value_out_of_range) is named in a WARNING and then FAILS the migration: nothing is copied and the
+--      legacy tables stay writable, rather than a green release with orders behind it (review M1). Then the migration RAISES
+--      unless copied + skipped = the legacy headers it set out to copy.
 --   3. Per company copied: the purchase_order counter moves past the highest copied number of the counter's own form (prefix +
 --      1-9 digits, as the PO import does; never back). The SPO writer issued "<prefix>-<padded>" (PO-0000005) from this same
 --      counter (document_type 'purchase_order'), so its numbers are already behind the counter and are not of the canonical
@@ -60,8 +68,9 @@
 --      (company) (1006) links the bills that named a legacy id; then the close step above; then a NOTICE per order-date month
 --      gives the committing copies, their ex-VAT line total and the billing that nets it (what entered committed spend).
 --
--- LOCKS. SHARE ROW EXCLUSIVE on both legacy tables (the triggers) and on purchase_orders (LOCK TABLE: no app PO insert
---   can take a number between the free-number check and the copy's insert); ROW EXCLUSIVE on po_items,
+-- LOCKS. ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes it; reads of them wait too), SHARE ROW EXCLUSIVE on
+--   purchase_orders (LOCK TABLE: no app PO insert can take a number between the free-number check and the copy's insert); ROW
+--   EXCLUSIVE on po_items,
 --   company_document_numbers and purchase_order_bill_links. All held to commit; lock_timeout bounds each wait. The legacy
 --   tables are small (dev: 204 headers).
 --
@@ -71,8 +80,14 @@
 --   code. It reads the legacy tables (unchanged); its canonical PO code sees the copies as ordinary purchase orders.
 --
 -- RUNBOOK. A data-only restore (pg_restore --data-only) into a schema that has 1022 is refused by these ENABLE ALWAYS triggers
---   (--disable-triggers needs a superuser): restore the legacy tables' data with the triggers dropped (rollback below), then
---   re-run this file to recreate them.
+--   (--disable-triggers needs a superuser). Drop the two triggers (the first two rollback lines below), restore, then recreate
+--   ONLY the section-1 triggers (never re-run the whole file: its copy would run again over the restored data):
+--     CREATE TRIGGER trg_supplier_purchase_orders_retired BEFORE INSERT OR UPDATE ON public.supplier_purchase_orders
+--       FOR EACH ROW EXECUTE FUNCTION public.supplier_purchase_orders_retired();
+--     ALTER TABLE public.supplier_purchase_orders ENABLE ALWAYS TRIGGER trg_supplier_purchase_orders_retired;
+--     CREATE TRIGGER trg_supplier_purchase_order_items_retired BEFORE INSERT OR UPDATE ON public.supplier_purchase_order_items
+--       FOR EACH ROW EXECUTE FUNCTION public.supplier_purchase_orders_retired();
+--     ALTER TABLE public.supplier_purchase_order_items ENABLE ALWAYS TRIGGER trg_supplier_purchase_order_items_retired;
 --
 -- Rollback (down SQL; roll the code back first). The copies stay: they are ordinary purchase orders now, and bills may link
 -- them. To make the legacy tables writable again:
@@ -259,13 +274,20 @@ BEGIN
       END IF;
       v_copied := v_copied || h.id;
     EXCEPTION WHEN check_violation OR not_null_violation OR unique_violation OR foreign_key_violation OR numeric_value_out_of_range THEN
-      RAISE WARNING '1022: skipped supplier_purchase_orders % (%, company %): refused by the database (%): %',
+      RAISE WARNING '1022: supplier_purchase_orders % (%, company %): refused by the database (%): %',
         h.id, h.order_number, h.company_id, SQLSTATE, left(SQLERRM, 200);
       v_skip_error := v_skip_error + 1;
     END;
   END LOOP;
 
-  v_skipped := v_skip_supplier + v_skip_negative + v_skip_item_id + v_skip_id_taken + v_skip_error;
+  -- Review M1: an order the database refused is not one of the intended skips. Fail the whole migration (nothing copied, the legacy
+  -- tables stay writable) after naming every such order, rather than a green release with orders left behind.
+  IF v_skip_error > 0 THEN
+    RAISE EXCEPTION '1022: % order(s) refused by the database (each named in a WARNING above): nothing was copied and the legacy tables stay writable; fix the data or the constraint, then release again', v_skip_error
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  v_skipped := v_skip_supplier + v_skip_negative + v_skip_item_id + v_skip_id_taken;
   IF cardinality(v_copied) + v_skipped <> v_total THEN
     RAISE EXCEPTION '1022: % legacy order(s) to copy, % copied and % skipped: the rest were not seen (row security?)', v_total, cardinality(v_copied), v_skipped;
   END IF;
@@ -292,7 +314,9 @@ BEGIN
 
   -- The billing committed nets per copied PO (budgets/remainingHeaderBilled + billedLinesByPoItem, in SQL): bills approved / paid /
   -- partially_paid, not soft-deleted, of the PO's company and supplier; a bill with a line naming a line of the PO nets by those
-  -- lines' posted cents, else by its link's amount, else by its subtotal less what its lines and other links attribute elsewhere.
+  -- lines' posted cents, else by its link's amount, else by its subtotal less what it attributes to each OTHER PO (the larger of its
+  -- lines' posted cents and its link amount there: a link written from those lines holds the same rand; review M2). The backfill
+  -- above has linked every header-only bill it could, so that last branch is reached only for a bill it skipped.
   -- (Line netting in the app still counts a soft-deleted approved bill; for a copy only a legacy bill can line-link, never.)
   -- Kept in a variable, not a TEMP table: no DDL beyond the triggers.
   WITH cand AS (
@@ -307,10 +331,13 @@ BEGIN
            (SELECT COALESCE(SUM(p.cents), 0) FROM public.po_bill_posted_cents(cd.bill) p
               JOIN public.supplier_invoice_items x ON x.id = p.item_id JOIN public.po_items pi ON pi.id = x.po_item_id
              WHERE pi.purchase_order_id = cd.po) AS line_c,
-           (SELECT COALESCE(SUM(p.cents), 0) FROM public.po_bill_posted_cents(cd.bill) p
-              JOIN public.supplier_invoice_items x ON x.id = p.item_id WHERE x.po_item_id IS NOT NULL) AS named_c,
-           (SELECT COALESCE(SUM(round(o.amount * 100)), 0) FROM public.purchase_order_bill_links o
-             WHERE o.supplier_invoice_id = cd.bill AND o.purchase_order_id <> cd.po) AS other_c,
+           (SELECT COALESCE(SUM(GREATEST(COALESCE(lc.c, 0), COALESCE(lk.c, 0))), 0)
+              FROM (SELECT pi.purchase_order_id AS p, SUM(pc.cents) AS c FROM public.po_bill_posted_cents(cd.bill) pc
+                      JOIN public.supplier_invoice_items x ON x.id = pc.item_id JOIN public.po_items pi ON pi.id = x.po_item_id
+                     GROUP BY pi.purchase_order_id) lc
+              FULL JOIN (SELECT o.purchase_order_id AS p, round(o.amount * 100) AS c FROM public.purchase_order_bill_links o
+                          WHERE o.supplier_invoice_id = cd.bill) lk ON lk.p = lc.p
+             WHERE COALESCE(lc.p, lk.p) <> cd.po) AS else_c,
            EXISTS (SELECT 1 FROM public.supplier_invoice_items x JOIN public.po_items pi ON pi.id = x.po_item_id
                     WHERE x.supplier_invoice_id = cd.bill AND pi.purchase_order_id = cd.po) AS by_lines
       FROM cand cd
@@ -322,11 +349,14 @@ BEGIN
   SELECT COALESCE(jsonb_object_agg(g.po, g.cents), '{}'::JSONB) INTO v_billed FROM (
     SELECT t.po::TEXT AS po, SUM(CASE WHEN t.by_lines THEN t.line_c
                                       WHEN t.link_amount IS NOT NULL THEN round(t.link_amount * 100)
-                                      ELSE GREATEST(0, round(t.subtotal * 100) - t.named_c - t.other_c) END)::BIGINT AS cents
+                                      ELSE GREATEST(0, round(t.subtotal * 100) - t.else_c) END)::BIGINT AS cents
       FROM tie t GROUP BY t.po) g;
 
   FOR h IN
-    SELECT p.id, p.company_id, p.po_number, p.status, s.status AS legacy, round(COALESCE(p.subtotal, 0) * 100)::BIGINT AS sub_c,
+    SELECT p.id, p.company_id, p.po_number, p.status, s.status AS legacy,
+           -- Review L1: fully billed against the larger of the header subtotal and the lines' total, and only when that is > 0.
+           GREATEST(round(COALESCE(p.subtotal, 0) * 100),
+                    (SELECT COALESCE(round(SUM(x.line_total) * 100), 0) FROM public.po_items x WHERE x.purchase_order_id = p.id))::BIGINT AS sub_c,
            COALESCE((v_billed ->> p.id::TEXT)::BIGINT, 0) AS billed_c,
            EXISTS (SELECT 1 FROM public.supplier_invoices si
                     WHERE si.company_id = p.company_id AND si.supplier_id = p.supplier_id AND si.purchase_order_id = p.id
@@ -336,10 +366,18 @@ BEGIN
      WHERE p.id = ANY(v_copied) AND p.status IN ('approved', 'partially_received', 'received')
      ORDER BY p.company_id, p.id
   LOOP
-    IF h.billed_c >= h.sub_c - 1 OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
+    IF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
       UPDATE public.purchase_orders SET status = 'closed', closed_from_status = h.status WHERE id = h.id;
+      IF h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN
+        -- Review L5: the closing is recorded on the deciding link (the latest link on a billed bill), as link_bills_to_purchase_order
+        -- records its own, so unlinking that bill reopens the copy to h.status (purchaseOrderBillUnlink).
+        UPDATE public.purchase_order_bill_links SET closed_po_from_status = h.status
+         WHERE id = (SELECT l.id FROM public.purchase_order_bill_links l JOIN public.supplier_invoices si ON si.id = l.supplier_invoice_id
+                      WHERE l.purchase_order_id = h.id AND si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
+                      ORDER BY l.created_at DESC, l.id DESC LIMIT 1);
+      END IF;
       RAISE NOTICE '1022: company % purchase order % (%) copied as closed from %: %', h.company_id, h.id, h.po_number, h.status,
-        CASE WHEN h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)
+        CASE WHEN h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)
              ELSE 'legacy invoiced, and no live bill names it' END;
       v_closed := v_closed + 1;
     END IF;
@@ -356,8 +394,8 @@ BEGIN
   END LOOP;
   RAISE NOTICE '1022: copied % order(s) in all, % skipped, % renamed, % closed, % line(s) as 1 unit',
     cardinality(v_copied), v_skipped, v_renamed, v_closed, v_unit_total;
-  RAISE NOTICE '1022: skipped per reason: % supplier of another company, % negative line total, % line id already in po_items, % id already a purchase order of another company, % refused by the database',
-    v_skip_supplier, v_skip_negative, v_skip_item_id, v_skip_id_taken, v_skip_error;
+  RAISE NOTICE '1022: skipped per reason: % supplier of another company, % negative line total, % line id already in po_items, % id already a purchase order of another company',
+    v_skip_supplier, v_skip_negative, v_skip_item_id, v_skip_id_taken;
   RAISE NOTICE '1022: % bill link(s) written for the copied orders (each backfill call above gives its written / skipped)', v_links;
 
   -- What entered committed spend (budgets/remainingCommitted: approved / partially_received / received POs), per company and

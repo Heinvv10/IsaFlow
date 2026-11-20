@@ -270,8 +270,7 @@ describe('budget committed', () => {
     const headerOnly = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     expect(headerOnly.isError, headerOnly.text).toBe(false);
     expect(await committed()).toBe(600);
-    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' });
-    expect(await committed()).toBe(1000);
+    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' }); expect(await committed()).toBe(1000);
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo with lines' });
     const withLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });

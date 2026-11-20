@@ -1,7 +1,8 @@
 /**
  * Migration 1022 (supplier_purchase_orders retired into purchase_orders + po_items): seeds for the legacy tables and a
  * runner for the migration file itself. The integration build has already applied 1022, so the legacy tables refuse writes:
- * a seed runs with their user triggers disabled inside its own transaction (the fixture's postgres is a superuser; suites in a
+ * a seed runs with their user triggers disabled inside its own transaction (postgres OWNS these tables, which is all DISABLE TRIGGER
+ * needs; run.sh applies the migrations as a NOSUPERUSER postgres and only then makes it a superuser for the suites; suites in a
  * shard run one file at a time, so the DDL meets no other suite). Disposable databases only (the suite calls assertDisposable).
  */
 import { readFileSync } from 'node:fs';
@@ -40,7 +41,7 @@ export interface SpoSeed {
   co: string; number: string; supplier: string; status: string | null; lines: SpoLine[];
   notes?: string | null; internalNotes?: string | null; project?: string | null; costCentre?: string | null;
   reference?: string | null; orderDate?: string | null; deliveryDate?: string | null; createdBy?: string | null;
-  createdAt?: string; headerTaxRate?: number | null;
+  createdAt?: string; headerTaxRate?: number | null; subtotal?: number;
 }
 export interface SeededSpo { id: string; items: string[]; subtotal: string; tax: string; total: string }
 
@@ -53,7 +54,7 @@ export async function seedSpo(c: PoolClient, s: SpoSeed): Promise<SeededSpo> {
     const lineTotal = l.lineTotal ?? r2(l.qty * l.price * (1 - (l.discount ?? 0) / 100));
     return { ...l, lineTotal, tax: l.tax === undefined ? r2(lineTotal * (l.taxRate ?? 15) / 100) : l.tax };
   });
-  const subtotal = r2(lines.reduce((a, l) => a + l.lineTotal, 0));
+  const subtotal = s.subtotal ?? r2(lines.reduce((a, l) => a + l.lineTotal, 0));
   const tax = r2(lines.reduce((a, l) => a + (l.tax ?? 0), 0));
   await c.query(
     `INSERT INTO supplier_purchase_orders (id, company_id, order_number, supplier_id, order_date, delivery_date, subtotal, tax_amount,
@@ -77,7 +78,8 @@ export async function seedSpo(c: PoolClient, s: SpoSeed): Promise<SeededSpo> {
   return { id, items, subtotal: subtotal.toFixed(2), tax: tax.toFixed(2), total: r2(subtotal + tax).toFixed(2) };
 }
 
-/** Runs the migration file in one transaction, as the runner does; returns the NOTICE / WARNING texts it raised. */
+/** Runs the migration file in one transaction, as the runner does; returns the NOTICE / WARNING texts it raised (on a failure, as
+ * the thrown error's `notices`). */
 export async function runMigration(pool: Pool, asRole?: string): Promise<string[]> {
   const c = await pool.connect();
   const notices: string[] = [];
@@ -90,6 +92,7 @@ export async function runMigration(pool: Pool, asRole?: string): Promise<string[
     await c.query('COMMIT');
   } catch (err) {
     await c.query('ROLLBACK');
+    (err as { notices?: string[] }).notices = notices;
     throw err;
   } finally {
     c.removeListener('notice', listen);

@@ -19,11 +19,14 @@ import { seedRawBill } from './helpers/poBillLinkHarness';
 import { asBeforeRetirement, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { openPoLineCents } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import { callTool } from './helpers/poImportHarness';
+import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 let f: BillFixture;
 const S: Record<string, SeededSpo> = {};
+const bills: Record<string, string> = {};
 
 beforeAll(async () => {
   f = await seedBillFixture(pool, 'spo-committed');
@@ -43,7 +46,7 @@ beforeAll(async () => {
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
-  await bill('A', 1000, 'approved');
+  bills.A = (await bill('A', 1000, 'approved')).id;
   await bill('B1', 400, 'approved');
   await bill('B3', 1, 'draft');
   await bill('C', 1500, 'paid');
@@ -79,5 +82,21 @@ describe('committed spend after the copy', () => {
     expect(await st('B3')).toEqual({ status: 'received', closed_from_status: null });
     expect(await st('C')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('D')).toEqual({ status: 'approved', closed_from_status: null });
+  });
+});
+
+describe('a copy the migration closed as fully billed', () => {
+  // Review L5: the closing is recorded on the deciding link (closed_po_from_status), as link_bills_to_purchase_order records its own,
+  // so unlinking the bill reopens the copy to the status it was closed from, and it commits again.
+  it('records the closing on its bill\'s link, and an unlink reopens it', async () => {
+    const rec = (await pool.query('SELECT closed_po_from_status FROM purchase_order_bill_links WHERE purchase_order_id = $1 AND supplier_invoice_id = $2',
+      [S.A!.id, bills.A])).rows;
+    expect(rec).toEqual([{ closed_po_from_status: 'received' }]);
+    const r = await callTool(pool, f, unlink, { po_id: S.A!.id, bill_id: bills.A, reason: 'billed in error' });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.body).toMatchObject({ unlinked: true, reopened_to: 'received' });
+    expect((await pool.query('SELECT status, closed_from_status FROM purchase_orders WHERE id = $1', [S.A!.id])).rows[0])
+      .toEqual({ status: 'received', closed_from_status: null });
+    expect((await committedByOrder())['CM-A']).toBe(100000);
   });
 });

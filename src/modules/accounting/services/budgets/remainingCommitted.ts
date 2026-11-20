@@ -21,13 +21,12 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { buildExpenseLines } from '../ap/supplierInvoiceExpenseLines';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
-import type { SupplierInvoiceItem } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 import { headerBilledByPoItem } from './remainingHeaderBilled';
+import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
@@ -46,28 +45,9 @@ export interface CommittedOptions {
 
 const text = (v: unknown): string | null => (v == null ? null : String(v).toLowerCase());
 
-/** The fields buildExpenseLines reads; `description` carries the line id so each posted line maps back to its item. */
-function itemOf(r: DbRow): SupplierInvoiceItem {
-  return {
-    id: String(r.id), supplierInvoiceId: String(r.supplier_invoice_id), description: String(r.id),
-    quantity: Number(r.quantity), unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate), taxAmount: Number(r.tax_amount),
-    lineTotal: Number(r.line_total), glAccountId: r.gl_account_id ? String(r.gl_account_id) : undefined,
-    createdAt: String(r.created_at),
-    ...(r.cc1_id ? { cc1Id: String(r.cc1_id) } : {}), ...(r.cc2_id ? { cc2Id: String(r.cc2_id) } : {}), ...(r.bu_id ? { buId: String(r.bu_id) } : {}),
-  };
-}
-
-const NO_ACCOUNT = 'unused';
-
-/**
- * The expense lines APPROVE posts for one bill (`buildExpenseLines` over its row and its lines in
- * `SUPPLIER_INVOICE_LINE_ORDER_BY` order): `description` is the stored line's id, `debit` its posted ex-VAT amount.
- * A line folded away or dropped as R0 does not appear. One definition for committed, the PO approval and the
- * PO-to-bill links (`ap/purchaseOrderBillLinkPlan`), so a link's amount is the figure the ledger holds.
- */
-export function postedExpenseLines(bill: DbRow, billItems: DbRow[]) {
-  return buildExpenseLines({ ...mapInvoiceRow(bill), items: billItems.map(itemOf) }, NO_ACCOUNT);
-}
+// The posted-lines reading lives in its own module (shared with remainingHeaderBilled, no import cycle); re-exported here for
+// the callers that already import it from this module.
+export { postedExpenseLines } from './postedExpenseLines';
 
 /**
  * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line

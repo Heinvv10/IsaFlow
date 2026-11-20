@@ -94,25 +94,32 @@ describe('re-runs and the per-order guard', () => {
     expect(await canonicalSnapshot(pool, companies())).toBe(before);
   });
 
-  it('skips an order a constraint refuses (WARNING) and still copies the others', async () => {
-    S.forced = await seed(f, 'FORCE-1');
-    S.beside = await seed(f, 'BESIDE-1');
+  // Review M1: only the four intended shapes are skipped. An order the database refuses (an unforeseen constraint, an overflow)
+  // fails the migration, so the legacy tables stay writable and nothing is hidden behind a green release.
+  const refused = async (number: string, lines: SpoLine[], sqlstate: string) => {
+    const row = await seed(f, number, lines);
+    const beside = await seed(f, `${number}-BESIDE`);
+    const before = await canonicalSnapshot(pool, companies());
+    const trig = (await pool.query(`SELECT pg_get_functiondef('supplier_purchase_orders_retired()'::regprocedure) AS d`)).rows[0].d;
+    const err = await runMigration(pool).then(() => null, (e: Error & { notices?: string[] }) => e);
+    expect(err?.message).toMatch(/1022: 1 order\(s\) refused by the database/);
+    expect(err?.notices?.some((n) => n.includes(row.id) && n.includes(`refused by the database (${sqlstate})`))).toBe(true);
+    expect(await poOf(row.id)).toBeUndefined();
+    expect(await poOf(beside.id)).toBeUndefined();
+    expect(await canonicalSnapshot(pool, companies())).toBe(before);
+    expect((await pool.query(`SELECT pg_get_functiondef('supplier_purchase_orders_retired()'::regprocedure) AS d`)).rows[0].d).toBe(trig);
+    await pool.query('DELETE FROM supplier_purchase_orders WHERE id = ANY($1::UUID[])', [[row.id, beside.id]]);
+  };
+
+  it('fails the whole migration (nothing copied) when the database refuses an order: a constraint', async () => {
     await pool.query(`ALTER TABLE purchase_orders ADD CONSTRAINT spo_1022_forced CHECK (po_number <> 'FORCE-1') NOT VALID`);
-    let notices: string[];
-    try { notices = await runMigration(pool); } finally { await pool.query('ALTER TABLE purchase_orders DROP CONSTRAINT spo_1022_forced'); }
-    expect(await poOf(S.forced.id)).toBeUndefined();
-    expect(await poOf(S.beside.id)).toEqual({ company_id: f.co, po_number: 'BESIDE-1' });
-    expect(notices.some((n) => n.includes(S.forced!.id) && n.includes('refused by the database (23514)'))).toBe(true);
-    expect(notices).toContain('1022: copied 1 order(s) in all, 1 skipped, 0 renamed, 0 closed, 0 line(s) as 1 unit');
-    expect(notices).toContain('1022: skipped per reason: 0 supplier of another company, 0 negative line total, 0 line id already in po_items, '
-      + '0 id already a purchase order of another company, 1 refused by the database');
+    try { await refused('FORCE-1', [{ qty: 1, price: 10 }], '23514'); } finally {
+      await pool.query('ALTER TABLE purchase_orders DROP CONSTRAINT spo_1022_forced');
+    }
   });
 
-  it('skips an order whose price overflows po_items (numeric_value_out_of_range), never aborting', async () => {
-    S.overflow = await seed(f, 'OVERFLOW-1', [{ qty: 0.01, price: 0, lineTotal: 1_000_000_000_000 }]);
-    const notices = await runMigration(pool);
-    expect(await poOf(S.overflow.id)).toBeUndefined();
-    expect(notices.some((n) => n.includes(S.overflow!.id) && n.includes('refused by the database (22003)'))).toBe(true);
+  it('fails the whole migration when a price overflows po_items (numeric_value_out_of_range)', async () => {
+    await refused('OVERFLOW-1', [{ qty: 0.01, price: 0, lineTotal: 1_000_000_000_000 }], '22003');
   });
 });
 

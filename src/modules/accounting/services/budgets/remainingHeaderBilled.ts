@@ -9,9 +9,9 @@
  *     never by its header as well;
  *   - else, tied by a link row: it nets the link's `amount` (the bill's ex-VAT share on that PO, migration 1006: a bill split
  *     across POs has one row per PO, each PO nets its own row, never the bill's total);
- *   - else, tied only by `purchase_order_id`: its ex-VAT subtotal less what it already attributes elsewhere (the posted ex-VAT of
- *     its lines that name any PO line, and its link rows to other POs), floored at 0: 1006's amount rule, so one rand never nets
- *     two POs.
+ *   - else, tied only by `purchase_order_id`: its ex-VAT subtotal less what it already attributes to EACH other PO, floored at 0:
+ *     per other PO the larger of the posted ex-VAT of its lines naming that PO and its link row's amount there (a link written
+ *     from those very lines holds the same rand, so the two are never both subtracted; review M2), so one rand never nets two POs.
  * Same bill statuses as line netting (`BILLED_STATUSES`, or a bill in `own`), and the bill must be the PO's company AND supplier
  * and not soft-deleted. (Line netting still counts a soft-deleted approved bill, a pre-existing behaviour flagged to Hein: its
  * journal is reversed out of actuals, so netting committed by it would understate; header netting does not copy that.)
@@ -27,8 +27,7 @@ import { toCents } from './grid/cents';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import type { BilledPosting } from './remainingBudgetCore';
-// A cycle with remainingCommitted (it imports this module): only function declarations cross it, read at call time.
-import { postedExpenseLines } from './remainingCommitted';
+import { postedExpenseLines } from './postedExpenseLines';
 
 /** One header tie that nets: a bill, a PO, the ex-VAT cents it nets there, the bill's month. */
 export interface HeaderTie { billId: string; poId: string; cents: number; month: string }
@@ -51,10 +50,7 @@ export async function headerTies(
       SELECT si.id, si.purchase_order_id FROM supplier_invoices si
        WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ANY(${[...poIds]}::UUID[])
     )
-    SELECT c.bill::TEXT AS bill, c.po::TEXT AS po, l.amount::TEXT AS link_amount,
-           (SELECT COALESCE(SUM(o.amount), 0) FROM purchase_order_bill_links o
-             WHERE o.company_id = ${companyId}::UUID AND o.supplier_invoice_id = c.bill AND o.purchase_order_id <> c.po)::TEXT AS other_links,
-           si.*
+    SELECT c.bill::TEXT AS bill, c.po::TEXT AS po, l.amount::TEXT AS link_amount, si.*
       FROM cand c
       JOIN supplier_invoices si ON si.id = c.bill AND si.company_id = ${companyId}::UUID
       JOIN purchase_orders po ON po.id = c.po AND po.company_id = ${companyId}::UUID AND po.supplier_id = si.supplier_id
@@ -67,35 +63,58 @@ export async function headerTies(
   `) as DbRow[];
   if (rows.length === 0) return [];
   const headerOnly = rows.filter((r) => r.link_amount == null);
-  const attributed = new Map<string, number>();
+  // Per header-only bill: cents it attributes to each OTHER PO (by its lines, and by its link rows; the larger per PO).
+  const elsewhere = new Map<string, Map<string, number>>();
   if (headerOnly.length > 0) {
     const bills = [...new Set(headerOnly.map((r) => String(r.bill)))];
     const items = (await sql`
-      SELECT sii.* FROM supplier_invoice_items sii WHERE sii.supplier_invoice_id = ANY(${bills}::UUID[])
+      SELECT sii.*, pi.purchase_order_id::TEXT AS named_po FROM supplier_invoice_items sii
+        LEFT JOIN po_items pi ON pi.id = sii.po_item_id
+       WHERE sii.supplier_invoice_id = ANY(${bills}::UUID[])
       ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
+    `) as DbRow[];
+    const links = (await sql`
+      SELECT supplier_invoice_id::TEXT AS bill, purchase_order_id::TEXT AS po, amount::TEXT AS amount FROM purchase_order_bill_links
+       WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ANY(${bills}::UUID[])
     `) as DbRow[];
     for (const r of headerOnly) {
       const id = String(r.bill);
-      if (attributed.has(id)) continue;
+      if (elsewhere.has(id)) continue;
       const own_ = items.filter((i) => String(i.supplier_invoice_id) === id);
-      const named = new Set(own_.filter((i) => i.po_item_id != null).map((i) => String(i.id)));
-      attributed.set(id, postedExpenseLines(r, own_).filter((l) => named.has(String(l.description))).reduce((s, l) => s + toCents(l.debit), 0));
+      const poOfLine = new Map(own_.filter((i) => i.named_po != null).map((i) => [String(i.id), lower(i.named_po)]));
+      const lineCents = new Map<string, number>();
+      for (const l of postedExpenseLines(r, own_)) {
+        const po = poOfLine.get(String(l.description));
+        if (po) lineCents.set(po, (lineCents.get(po) ?? 0) + toCents(l.debit));
+      }
+      const per = new Map(lineCents);
+      for (const k of links.filter((x) => String(x.bill) === id)) {
+        const po = lower(k.po);
+        per.set(po, Math.max(per.get(po) ?? 0, toCents(Number(k.amount))));
+      }
+      elsewhere.set(id, per);
     }
   }
   return rows.map((r) => {
-    const cents = r.link_amount != null
-      ? toCents(Number(r.link_amount))
-      : Math.max(0, toCents(Number(r.subtotal ?? 0)) - (attributed.get(String(r.bill)) ?? 0) - toCents(Number(r.other_links)));
-    return { billId: lower(r.bill), poId: lower(r.po), cents, month: fmtDate(mapInvoiceRow(r).invoiceDate).slice(0, 7) };
+    const po = lower(r.po);
+    const others = [...(elsewhere.get(String(r.bill)) ?? new Map<string, number>()).entries()]
+      .filter(([p]) => p !== po).reduce((s, [, c]) => s + c, 0);
+    const cents = r.link_amount != null ? toCents(Number(r.link_amount)) : Math.max(0, toCents(Number(r.subtotal ?? 0)) - others);
+    return { billId: lower(r.bill), poId: po, cents, month: fmtDate(mapInvoiceRow(r).invoiceDate).slice(0, 7) };
   }).filter((t) => t.cents > 0);
 }
 
-/** `cents` over the lines by their share (BigInt: no float error), the residual on the last; lines summing to <= 0 take nothing. */
+/**
+ * `cents` over the lines by their share of the POSITIVE line totals (BigInt: no float error), the residual on the last line with a
+ * positive total; a zero or negative line takes nothing, and nothing is spread when no line is positive.
+ */
 export function spreadCents(cents: number, lineCents: readonly number[]): number[] {
-  const total = lineCents.reduce((s, c) => s + c, 0);
-  if (lineCents.length === 0 || total <= 0) return lineCents.map(() => 0);
-  const shares = lineCents.map((c) => Number((BigInt(cents) * BigInt(Math.max(0, c))) / BigInt(total)));
-  shares[shares.length - 1] = cents - shares.slice(0, -1).reduce((s, c) => s + c, 0);
+  const pos = lineCents.map((c) => Math.max(0, c));
+  const total = pos.reduce((s, c) => s + c, 0);
+  if (total <= 0) return lineCents.map(() => 0);
+  const shares = pos.map((c) => Number((BigInt(cents) * BigInt(c)) / BigInt(total)));
+  const last = pos.reduce((at, c, i) => (c > 0 ? i : at), -1);
+  shares[last] = cents - shares.reduce((s, c, i) => (i === last ? s : s + c), 0);
   return shares;
 }
 
