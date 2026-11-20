@@ -7,6 +7,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertSupplierMergeMovesNoApprovedPo } from './supplierMergeApprovedPo';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
@@ -68,12 +69,6 @@ export async function assertSupplierMergeKeepsDrcFlag(
 export const PO_BILL_LINKS_REFUSAL =
   'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.';
 
-/** Shown when the source has an approved PO: its supplier is approved content, moved only by an owner / admin edit that restamps the approver. */
-export const APPROVED_PO_REFUSAL =
-  'This supplier has approved purchase orders. An owner or admin moves each to the other supplier (update_purchase_order) before merging, so each keeps a valid approval.';
-/** PO statuses that carry an approval; a PO with an approver on record also counts unless cancelled. */
-export const APPROVED_PO_STATUSES: readonly string[] = ['approved', 'partially_received', 'received', 'closed'];
-
 /*
  * supplier_id tables a merge deliberately does NOT move (every supplier_id column in the schema was checked):
  * - supplier_bank_verifications: append-only, a verification of THAT supplier's bank details; it must not vouch for the survivor's.
@@ -126,11 +121,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
      WHERE l.company_id = ${companyId}::UUID AND po.supplier_id = ${duplicateId}::UUID LIMIT 1
   `;
   if (linked.length > 0) throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
-  const approvedPo = await sql`
-    SELECT 1 FROM purchase_orders WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-       AND (status = ANY(${[...APPROVED_PO_STATUSES]}::TEXT[]) OR (approved_by IS NOT NULL AND status <> 'cancelled')) LIMIT 1
-  `;
-  if (approvedPo.length > 0) throw new SupplierMergeRefusal(APPROVED_PO_REFUSAL);
+  await assertSupplierMergeMovesNoApprovedPo(companyId, duplicateId);
 
   let count = 0;
 

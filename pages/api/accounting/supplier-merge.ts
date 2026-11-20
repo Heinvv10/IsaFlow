@@ -16,8 +16,9 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, PO_BILL_LINKS_REFUSAL, APPROVED_PO_REFUSAL, APPROVED_PO_STATUSES, assertSupplierMergeKeepsDrcFlag,
+  SupplierMergeRefusal, PO_BILL_LINKS_REFUSAL, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
+import { assertSupplierMergeMovesNoApprovedPo } from '@/modules/accounting/services/core/supplierMergeApprovedPo';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
 
@@ -68,16 +69,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if ((linked as unknown[]).length > 0) {
         throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
       }
-      // An approved PO's supplier is approved content: only an owner / admin edit (which restamps the approver) moves it.
-      const approvedPo = await tx`
-        SELECT 1 FROM purchase_orders
-         WHERE company_id = ${companyId} AND supplier_id = ${source_id}
-           AND (status = ANY(${[...APPROVED_PO_STATUSES]}::TEXT[]) OR (approved_by IS NOT NULL AND status <> 'cancelled'))
-         LIMIT 1
-      `;
-      if ((approvedPo as unknown[]).length > 0) {
-        throw new SupplierMergeRefusal(APPROVED_PO_REFUSAL);
-      }
+      // Locks and judges the source's POs: an approved one is not moved (supplierMergeApprovedPo).
+      await assertSupplierMergeMovesNoApprovedPo(companyId, source_id);
 
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
