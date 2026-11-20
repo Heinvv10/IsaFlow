@@ -60,7 +60,7 @@ const REVIEWED: Record<string, string> = {
   'payroll_run_lines.tenant_isolation_via_parent_update': 'tenant through the parent run header (1011), plus the employee is the run company\'s: data only, no reach',
   'payroll_run_lines.tenant_isolation_via_parent_delete': 'tenant through the parent run header (1011)',
   'portal_payment_links.tenant_isolation_via_parent': 'tenant through the parent row; the FK requires the parent',
-  'procurement_documents.tenant_isolation_via_parent': 'tenant through the parent row, plus seven entity_type values (1021 added goods_received): a service path could write another entity_type, data only, no reach',
+  'procurement_documents.tenant_isolation_via_parent': 'tenant through the parent row, plus eight entity_type values (1021 added goods_received, and the legacy goods_receipt_note through the same parent): a service path could write another entity_type, data only, no reach',
   'company_invitations.invites_by_token': 'SELECT only; invites_tenant admits the same rows to forged claims',
   'oauth_apps.oauth_apps_dynamic_read': 'SELECT only; oauth_apps_owner (ALL) admits every row to a forged owner id',
   'entity_changes.entity_changes_read': 'SELECT only; the CASE is the caller\'s company role, which forged claims of an owner satisfy',

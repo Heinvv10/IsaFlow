@@ -41,7 +41,9 @@
 --     ADD COLUMN ... REFERENCES was skipped), so no KEY SHARE is taken for it: this hold is the lock.
 --   procurement_documents.tenant_isolation_via_parent gains a goods_received branch (713's policy, every other branch
 --     verbatim): a document filed on a goods received note (entity_type 'goods_received', the entity-store kind
---     attach_entity_document and create_upload_urls / finalize_uploads now accept) is this company's when the note is.
+--     attach_entity_document and create_upload_urls / finalize_uploads now accept) is this company's when the note is. The
+--     legacy entity_type 'goods_receipt_note' gets the same parent check against goods_received_notes (497 left it invisible to
+--     app_user): a bill's listing reads a note's documents of both types, and the documents DELETE deactivates either.
 --   mcp_upload_intents.target_kind gains 'goods_received'. 999q's guard needs no change: a non-bank target is checked
 --     against procurement_documents by entity_type = target_kind.
 --
@@ -432,6 +434,10 @@ ALTER TABLE public.mcp_upload_intents ADD CONSTRAINT mcp_upload_intents_target_k
   'purchase_order', 'goods_received'));
 
 -- ── procurement_documents: 713's policy, verbatim, plus the goods_received branch ─────────────────────────────
+-- The branch admits the legacy entity_type 'goods_receipt_note' too, through the same parent: the bill's listing reads a note's
+-- documents of both types, and WITH CHECK keeps the documents DELETE (UPDATE is_active = false) working on a legacy row. No app path
+-- inserts that type (VALID_ENTITY_TYPES omits it); a row of it naming another company's note, or a note of the old
+-- goods_receipt_notes table, stays invisible.
 
 DROP POLICY IF EXISTS tenant_isolation_via_parent ON public.procurement_documents;
 CREATE POLICY tenant_isolation_via_parent ON public.procurement_documents
@@ -461,7 +467,7 @@ CREATE POLICY tenant_isolation_via_parent ON public.procurement_documents
       SELECT 1 FROM public.purchase_orders p
       WHERE p.id = procurement_documents.entity_id
         AND p.company_id IN (SELECT company_id FROM public.company_users WHERE user_id = auth.uid())))
-    OR (entity_type = 'goods_received' AND EXISTS (
+    OR (entity_type IN ('goods_received', 'goods_receipt_note') AND EXISTS (
       SELECT 1 FROM public.goods_received_notes p
       WHERE p.id = procurement_documents.entity_id
         AND p.company_id IN (SELECT company_id FROM public.company_users WHERE user_id = auth.uid())))
@@ -485,7 +491,7 @@ CREATE POLICY tenant_isolation_via_parent ON public.procurement_documents
     OR (entity_type = 'purchase_order' AND EXISTS (
       SELECT 1 FROM public.purchase_orders p
       WHERE p.id = procurement_documents.entity_id AND p.company_id = app.current_company_id()))
-    OR (entity_type = 'goods_received' AND EXISTS (
+    OR (entity_type IN ('goods_received', 'goods_receipt_note') AND EXISTS (
       SELECT 1 FROM public.goods_received_notes p
       WHERE p.id = procurement_documents.entity_id AND p.company_id = app.current_company_id()))
   );

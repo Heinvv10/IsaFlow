@@ -246,8 +246,9 @@ export async function storeDocumentBytes(input: StoreDocumentBytesInput): Promis
 }
 
 /**
- * Auto-link a newly uploaded supplier_invoice doc to related PO/GRN,
- * and create reverse links so existing PO/GRN docs appear on the invoice.
+ * Auto-link a newly uploaded supplier_invoice doc to its PO(s) and goods received note, so the bill's own document shows on them.
+ * The other direction (the PO's and the note's documents on the bill) is NOT written here: listEntityDocuments resolves it at read
+ * time through the bill's grn_id and POs, so a document filed on the PO or the note before or after the bill reaches it either way.
  */
 export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, companyId: string) {
   try {
@@ -282,41 +283,6 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
          WHERE g.id = ${grnId}::uuid AND g.company_id = ${companyId}::uuid
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
-    }
-
-    for (const poId of poIds) {
-      const poDocs = await sql`
-        SELECT d.id FROM procurement_documents d
-        WHERE d.entity_type = 'purchase_order' AND d.entity_id = ${poId}::uuid AND d.is_active = true
-          AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid)
-      `;
-      for (const doc of poDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (
-            ${(doc as Record<string, unknown>).id as string}::uuid,
-            'supplier_invoice', ${invoiceId}::uuid, 'po_invoice_link'
-          )
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
-    }
-    if (grnId) {
-      const grnDocs = await sql`
-        SELECT d.id FROM procurement_documents d
-        WHERE d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id = ${grnId}::uuid AND d.is_active = true
-          AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = d.entity_id AND g.company_id = ${companyId}::uuid)
-      `;
-      for (const doc of grnDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (
-            ${(doc as Record<string, unknown>).id as string}::uuid,
-            'supplier_invoice', ${invoiceId}::uuid, 'grn_invoice_link'
-          )
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
     }
   } catch (err) {
     log.warn('Auto-link supplier invoice docs failed (non-fatal)', { error: err }, 'accounting-docs');

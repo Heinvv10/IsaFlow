@@ -34,6 +34,13 @@ export type EntityDocumentsResult =
 /**
  * Direct + cross-linked documents for one accounting entity.
  *
+ * A bill's (supplier_invoice) linked documents also include, resolved HERE at read time, the active documents of its goods received
+ * note (`grn_id`; entity types goods_received and the legacy goods_receipt_note, link reason grn_invoice_link) and of its POs (the
+ * header `purchase_order_id` and its purchase_order_bill_links rows; po_invoice_link), so a delivery note filed before or after the
+ * bill shows on it without a link row being written (merge-gate finding 4). Every id read off the bill is fenced to `companyId`: the
+ * bill's PO and note columns carry no foreign key, and row security admits every company the user belongs to. A document also
+ * reached through an older document_links row is listed once (the link row's reason wins).
+ *
  * The cap is per query and the merged result is at most 2×limit — the two
  * stores are paged independently because they have different orderings and a
  * merged keyset over both would need a shared sort key they do not have.
@@ -63,12 +70,33 @@ export async function listEntityDocuments(
   `) as DbRow[];
 
   const linkedRows = (await sql`
-    SELECT pd.*, dl.link_reason
-    FROM document_links dl
-    JOIN procurement_documents pd ON pd.id = dl.document_id
-    WHERE dl.linked_entity_type = ${entityType}
-      AND dl.linked_entity_id = ${entityId}::uuid
-      AND pd.is_active = true
+    WITH bill AS (
+      SELECT si.purchase_order_id, si.grn_id FROM supplier_invoices si
+       WHERE ${entityType}::text = 'supplier_invoice' AND si.id = ${entityId}::uuid AND si.company_id = ${companyId}::uuid
+    ), bill_pos AS (
+      SELECT po.id FROM purchase_orders po
+       WHERE po.company_id = ${companyId}::uuid
+         AND (po.id IN (SELECT b.purchase_order_id FROM bill b)
+           OR po.id IN (SELECT l.purchase_order_id FROM purchase_order_bill_links l, bill
+                         WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid))
+    ), bill_note AS (
+      SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
+    ), reached AS (
+      SELECT dl.document_id, dl.link_reason, 0 AS rank FROM document_links dl
+       WHERE dl.linked_entity_type = ${entityType} AND dl.linked_entity_id = ${entityId}::uuid
+      UNION ALL
+      SELECT d.id, 'po_invoice_link', 1 FROM procurement_documents d
+       WHERE d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos)
+      UNION ALL
+      SELECT d.id, 'grn_invoice_link', 1 FROM procurement_documents d
+       WHERE d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note)
+    ), once AS (
+      SELECT DISTINCT ON (r.document_id) r.document_id, r.link_reason FROM reached r ORDER BY r.document_id, r.rank
+    )
+    SELECT pd.*, once.link_reason
+    FROM once
+    JOIN procurement_documents pd ON pd.id = once.document_id
+    WHERE pd.is_active = true
     ORDER BY pd.uploaded_at DESC, pd.id DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `) as DbRow[];
