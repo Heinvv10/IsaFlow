@@ -13,7 +13,8 @@
  * every later one: a column through `to_jsonb(row) ->> 'name'` (NULL while absent), a table through
  * `to_regclass` with a CASE that never plans the query while the table is absent (query_to_xml runs it only then).
  * Each later PR lifts exactly its own clause, in its own release. Contract for those PRs (the names read here):
- *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI).
+ *   payroll_employee_components.rate_multiplier (RI), quantity_unit 'km' (RI).
+ * Lifted: the db_member_category_factor clause, by DBF (migration 1014; definedBenefitFund.ts values those rows).
  * Lifted: the garnishee clauses (an active order refused costing; a deduction on the run refused every action), by GA
  * (migration 999z), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
  * still has them.
@@ -32,8 +33,11 @@ import type { DbRow, TxSql } from '@/lib/neon';
 
 export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'payslip' | 'emp201' | 'irp5' | 'bank_file';
 
-/** The tax statuses this release costs (migration 967; PSP adds personal_service_provider). */
-export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor'] as const;
+/**
+ * The tax statuses this release costs (migration 967; wave 6 PSP added personal_service_provider, migration 1013). A PSP's
+ * months are decided per line on the filings (pspLineFlag, pspFiling), so no action refuses one.
+ */
+export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor', 'personal_service_provider'] as const;
 
 export type RunKindClause =
   | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_frequency'
@@ -105,8 +109,7 @@ export async function assertRunKindSupported(
          JOIN payroll_employee_components c ON c.employee_id = p.id
         WHERE c.superseded_at IS NULL
           AND c.effective_from <= r.period_end AND (c.effective_to IS NULL OR c.effective_to >= r.period_start)
-          AND (to_jsonb(c) ->> 'db_member_category_factor' IS NOT NULL
-               OR to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
+          AND (to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
                OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments,
       (SELECT array_agg(DISTINCT p.employee_number) FROM people p
          JOIN payroll_garnishee_orders g ON g.employee_id = p.id AND g.company_id = r.company_id
@@ -139,7 +142,7 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
     reasons.push({ clause: 'employee_frequency', detail: `employees ${names(row.other_frequency)} are not paid at the run's frequency` });
   }
   if (COSTING.has(action) && names(row.odd_assignments)) {
-    reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with a defined-benefit factor, an overtime multiplier or travel km` });
+    reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with an overtime multiplier or travel km` });
   }
   if (COSTING.has(action) && names(row.garnishee_off_month)) {
     reasons.push({ clause: 'garnishee_frequency', detail: `employees ${names(row.garnishee_off_month)} have garnishee orders, whose monthly instalments are not yet pro-rated for a ${String(row.pay_frequency)} run` });

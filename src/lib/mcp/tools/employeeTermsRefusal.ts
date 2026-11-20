@@ -6,7 +6,11 @@
 import type { McpToolResult } from '../types';
 import { toolError } from './toolHelpers';
 
-const TERM_ARGS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation', 'eti_id_document'] as const;
+const TERM_ARGS = [
+  'tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation', 'eti_id_document',
+  // wave 6 PSP: the entity (company or trust) a personal service provider is taxed as; refused, never silently dropped.
+  'psp_entity_type',
+] as const;
 /** Either spelling: the REST body's camelCase is refused as well as the tool's snake_case. */
 const camel = (k: string) => k.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
 const SPELLINGS: readonly string[] = TERM_ARGS.flatMap((k) => [k, camel(k)]);

@@ -43,6 +43,12 @@ vi.mock('@/modules/accounting/services/shared/journalChainHead', async (importOr
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// The list's JIT-off wrapper (read jit, set it, restore it) is three more sql calls under the fake request context; the
+// queued results here are one per list query. Its own behaviour: withJitOff.test.ts and bank-list-jit-off.int.
+vi.mock('@/modules/accounting/services/gl/dimensions/boundedStatements', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/modules/accounting/services/gl/dimensions/boundedStatements')>(),
+  withJitOff: <T>(fn: () => Promise<T>) => fn(),
+}));
 
 import { sql, transaction } from '@/lib/neon';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
