@@ -10,12 +10,14 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   getRecurringJournals,
   createRecurringJournal,
+  recurringJournalAutoPosts,
   updateRecurringJournalTemplate,
   RecurringJournalRequestError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
@@ -38,9 +40,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const autoPost: unknown = req.body?.autoPost;
     if (autoPost !== undefined && typeof autoPost !== 'boolean') return apiResponse.badRequest(res, 'autoPost must be true or false');
     // #1656 (round 3): an auto-posting template approves every journal it generates: Chart of Accounts & GL Approve.
+    // The service's own default is what decides (createRecurringJournal: `autoPost !== false`, so OMITTED posts): an explicit
+    // true is refused without Approve; an omitted flag gives such a person a draft-only template (autoPost: false), never the default.
     if (autoPost === true && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'auto-posting recurring journals')) return;
+    const effectiveAutoPost = recurringJournalAutoPosts(autoPost) && !(await mayApprove(companyId, userId, 'accounts')) ? false : autoPost;
     try {
-      const item = await createRecurringJournal(companyId, { ...req.body, autoPost }, userId);
+      // Only `autoPost` (camelCase) is read by the service; the body's other keys are not an alias for it.
+      const item = await createRecurringJournal(companyId, { ...req.body, autoPost: effectiveAutoPost }, userId);
       return apiResponse.success(res, item);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;

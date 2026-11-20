@@ -243,4 +243,18 @@ describe('#1656 round 3: an auto-posting template needs Chart of Accounts & GL A
     expect(refused.isError).toBe(true);
     expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
   });
+
+  it('without Approve, an omitted or aliased auto-post is stored as a template that does not post', async () => {
+    vi.mocked(checkPermission).mockResolvedValue(false);
+    // Omitted, and the camelCase / string aliases the schema does not define: the service gets an explicit false each time.
+    for (const extra of [{}, { autoPost: true }, { auto_post: undefined }]) {
+      vi.mocked(createRecurringJournal).mockClear();
+      const made = await createRecurringJournalTool.handler({ ...ARGS, ...extra }, POST_CTX());
+      expect(made.isError).toBeFalsy();
+      expect(vi.mocked(createRecurringJournal).mock.calls[0]?.[1]).toMatchObject({ autoPost: false });
+    }
+    const asString = await createRecurringJournalTool.handler({ ...ARGS, auto_post: 'true' }, POST_CTX());
+    expect(asString.isError).toBe(true);
+    expect(text(asString)).toBe('auto_post must be true or false');
+  });
 });
