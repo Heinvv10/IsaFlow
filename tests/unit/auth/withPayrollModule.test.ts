@@ -1,5 +1,5 @@
 /**
- * #1656: withPayrollModule asks Payroll READ for GET / HEAD / OPTIONS and Payroll WRITE for every other method, from the
+ * #1656: withPayrollModule asks Payroll READ for GET / HEAD and Payroll WRITE for every other method but OPTIONS (answered 200 at once, round 8), from the
  * user's module permissions in the database, before the wrapped handler runs. A refusal is a 403 and the handler never
  * runs (so nothing is read or written).
  */
@@ -15,7 +15,7 @@ import { checkPermission } from '@/lib/auth/permissionService';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 function res() {
-  const r = { statusCode: 200, body: undefined as unknown, status: vi.fn(), json: vi.fn(), setHeader: vi.fn() };
+  const r = { statusCode: 200, body: undefined as unknown, status: vi.fn(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
   r.status.mockImplementation((c: number) => { r.statusCode = c; return r; });
   r.json.mockImplementation((b: unknown) => { r.body = b; return r; });
   return r;
@@ -29,7 +29,19 @@ beforeEach(() => {
 });
 
 describe('withPayrollModule (#1656)', () => {
-  it.each(['GET', 'HEAD', 'OPTIONS'])('%s needs Payroll read', async (method) => {
+  it('round 8: OPTIONS is answered 200 at once: no handler, no permission read, whatever the handler does with a method it does not know', async () => {
+    const inner = vi.fn();
+    const r = res();
+    await withPayrollModule(inner)(req('OPTIONS'), r as unknown as NextApiResponse);
+    expect(r.statusCode).toBe(200);
+    expect(r.end).toHaveBeenCalled();
+    expect(inner).not.toHaveBeenCalled();
+    expect(checkPermission).not.toHaveBeenCalled();
+    await withPayrollModule(inner)(req('options', null), res() as unknown as NextApiResponse);
+    expect(inner).not.toHaveBeenCalled();
+  });
+
+  it.each(['GET', 'HEAD'])('%s needs Payroll read', async (method) => {
     const inner = vi.fn();
     const r = res();
     await withPayrollModule(inner)(req(method), r as unknown as NextApiResponse);
