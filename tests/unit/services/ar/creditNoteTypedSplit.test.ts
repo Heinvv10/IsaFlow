@@ -95,19 +95,24 @@ describe('the proportional rule, case by case', () => {
   it.each([
     ['mixed: 150 + 22.50 (15% of 150)', MIXED(), 150, 150, 22.5,
       'Credit note CN-9 reverses 150.00 of an invoice with 1500.00 left, so its VAT must be 15.00, not 22.50. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
+      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
     ['ten x 10.10: 50.50 + 7.58 (the rate on 50.50)', TEN_X_10_10(), 15.2, 50.5, 7.58,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.58. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
+      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
     ['ten x 10.03: 50.15 + 7.52', TEN_X_10_03(), 15, 50.15, 7.52,
       'Credit note CN-9 reverses 50.15 of an invoice with 100.30 left, so its VAT must be 7.50, not 7.52. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
+      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
     ['ten x 10.10: 50.50 + 7.59 (one cent under)', TEN_X_10_10(), 15.2, 50.5, 7.59,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.59. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
+      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
     ['ten x 10.10: 101.00 + 15.21 (clearing, one cent over)', TEN_X_10_10(), 15.2, 101, 15.21,
       'Credit note CN-9 reverses 101.00 of an invoice with 101.00 left, so its VAT must be 15.20, not 15.21. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
+      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
     ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
       'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
     ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 must credit a positive amount.'],

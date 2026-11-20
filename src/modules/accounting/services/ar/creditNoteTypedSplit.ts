@@ -87,6 +87,11 @@ export function splitGrossProportionally(gross: number, remainingNet: number, re
 }
 
 const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
+/**
+ * What to do about it (#1701 round 2): a draft whose VAT was right when it was created goes stale when a sibling draft on
+ * the same invoice is approved first (the invoice's remaining VAT moved), and approve stays exact.
+ */
+const RECREATE = 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.';
 
 /** The note's revenue debits and allocation rows against a typed invoice's legs. Throws CreditNoteVatSplitRefusal. */
 export function allocateTypedCreditNote(
@@ -107,7 +112,7 @@ export function allocateTypedCreditNote(
   const required = cents(requiredCreditNoteVat({ remainingNet: r / 100, remainingVat: v / 100, subtotal: s / 100 }));
   if (cents(note.taxAmount) !== required) {
     refuse(`reverses ${money(s)} of an invoice with ${money(r)} left, so its VAT must be ${money(required)}, `
-      + `not ${money(cents(note.taxAmount))}. ${PROPORTIONAL}`);
+      + `not ${money(cents(note.taxAmount))}. ${PROPORTIONAL} ${RECREATE}`);
   }
   // Each leg as allocateCreditNote reads it: `taken` set so that what it carries is exactly what remains.
   const settled = legs.map((l, i) => ({ ...l, taken: (cents(l.net) - carries[i]!) / 100 }));

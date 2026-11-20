@@ -118,7 +118,7 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
 
   it.each([
     ['VAT at the rate on its subtotal (150 + 22.50)', 150, 15,
-      /^Credit note \S+ reverses 150\.00 of an invoice with 1500\.00 left, so its VAT must be 15\.00, not 22\.50\. An invoice with a VAT type per line is credited in proportion across its lines\.$/],
+      /^Credit note \S+ reverses 150\.00 of an invoice with 1500\.00 left, so its VAT must be 15\.00, not 22\.50\. An invoice with a VAT type per line is credited in proportion across its lines\. Delete this draft \(or cancel it\) and create it again with no VAT given: its VAT then defaults to the figure required\.$/],
     ['more than the invoice has left (1600 + 160)', 1600, 10, /credits 1600\.00, but the invoice has 1500\.00 left to credit/],
   ] as const)('refuses, through the real service and a committed 4xx, a note with %s: nothing moves', async (_l, subtotal, rate, message) => {
     const id = await approvedInvoice('2026-11-10', [
