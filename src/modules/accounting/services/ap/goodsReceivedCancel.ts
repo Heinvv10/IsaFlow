@@ -97,7 +97,7 @@ async function disagreeRefusal(companyId: string, grnId: string, poId: string, g
     SELECT m.po_item_id::text AS po_item_id, COALESCE(pi.quantity_received, 0) AS line_received, m.note_received,
            COALESCE((SELECT sum(g2i.quantity_received) FROM grn_items g2i JOIN goods_received_notes g2 ON g2.id = g2i.grn_id
                       WHERE g2i.po_item_id = pi.id AND g2.id <> ${grnId}::uuid AND g2.purchase_order_id = ${poId}::uuid
-                        AND g2.company_id = ${companyId}::uuid AND g2.status <> 'cancelled'), 0) AS other_notes_received
+                        AND g2.company_id = ${companyId}::uuid AND g2.status IS DISTINCT FROM 'cancelled'), 0) AS other_notes_received
       FROM mine m JOIN po_items pi ON pi.id = m.po_item_id AND pi.purchase_order_id = ${poId}::uuid
      WHERE m.note_received > 0
      ORDER BY m.po_item_id

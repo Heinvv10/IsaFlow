@@ -325,7 +325,7 @@ BEGIN
        AND COALESCE(pi.quantity_received, 0) - r.qty < COALESCE((
          SELECT sum(g2i.quantity_received) FROM public.grn_items g2i JOIN public.goods_received_notes g2 ON g2.id = g2i.grn_id
           WHERE g2i.po_item_id = pi.id AND g2.id <> p_grn AND g2.purchase_order_id = v_po AND g2.company_id = v_company
-            AND g2.status <> 'cancelled'), 0)
+            AND g2.status IS DISTINCT FROM 'cancelled'), 0)
   ) THEN
     RETURN QUERY SELECT 'receipts_disagree'::text, v_po_status, NULL::text; RETURN;
   END IF;
