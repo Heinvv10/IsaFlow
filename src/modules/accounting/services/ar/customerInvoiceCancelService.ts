@@ -39,6 +39,9 @@ import { ApprovePermissionError } from '../core/approvePermission';
 
 type Row = DbRow;
 
+/** A customer invoice that was never approved: nothing on the books to take back. */
+const UNAPPROVED_STATUSES = ['draft', 'pending_approval'];
+
 /** Amounts below this (in currency units) are treated as zero to absorb rounding. */
 const ZERO_TOLERANCE = 0.005;
 
@@ -121,9 +124,12 @@ async function cancelCustomerInvoiceInner(
       return { id: invoiceId, reversedJournalEntryId: null };
     }
 
-    // #1656: a journal is what a cancel reverses, so it is an approval act. Decided here, on the locked row, before any
-    // other read or write; the journal link, not the status text, is the predicate (a draft has none).
-    if (inv.gl_journal_entry_id && !allowReversal) throw new ApprovePermissionError('customers', 'customer invoices');
+    // #1656: cancelling an invoice that is APPROVED OR LATER, or carries a journal, is an approval act (a Sage-imported approved
+    // invoice has no journal but is on the books: round 4, B-M1). Decided here, on the locked row, before any other read or
+    // write. Only a draft / pending-approval invoice with no journal cancels without Approve.
+    if (!allowReversal && (inv.gl_journal_entry_id || !UNAPPROVED_STATUSES.includes(String(inv.status)))) {
+      throw new ApprovePermissionError('customers', 'customer invoices');
+    }
 
     // Block cancel when the invoice carries settled payments (mirrors the
     // supplier-invoice "Cannot cancel invoice with payments" rule).

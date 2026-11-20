@@ -78,4 +78,15 @@ describe.skipIf(!process.env.DATABASE_URL)('customer invoice cancel: allowRevers
     expect((await state(id)).status).toBe('cancelled');
     expect(await postedReversalsOf(c, je)).toHaveLength(1);
   }, 60000);
+
+  it('round 4 (B-M1): an approved invoice with NO journal (a Sage import) is refused without Approve, and cancels with it', async () => {
+    const id = await draftInvoice();
+    await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+    const refused = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, id, c.fx.userId, { allowReversal: false })));
+    expect(refused.ok).toBe(false);
+    expect(refused.ok ? '' : refused.error).toMatch(/^ApprovePermissionError/);
+    expect((await state(id)).status).toBe('approved');
+    await inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, id, c.fx.userId, { allowReversal: true }));
+    expect((await state(id)).status).toBe('cancelled');
+  }, 60000);
 });

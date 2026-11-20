@@ -258,12 +258,25 @@ describe('cancelCustomerInvoice allowReversal (decided under the row lock)', () 
     expect(updateInvoiceCalls()).toHaveLength(1);
   });
 
-  it('allowReversal=false does not decide on the status text: an "approved" invoice with no journal link is not refused here', async () => {
+  it('round 4 (B-M1): an approved-or-later invoice with NO journal (a Sage import) is an approval act too: refused without Approve', async () => {
+    for (const status of ['approved', 'sent', 'partially_paid', 'paid', 'overdue']) {
+      vi.clearAllMocks();
+      mockSql.mockResolvedValueOnce([invoiceRow({ status, gl_journal_entry_id: null })]);
+      await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false }), status)
+        .rejects.toMatchObject({ name: 'ApprovePermissionError', module: 'customers' });
+      expect(mockSql).toHaveBeenCalledTimes(1);
+      expect(updateInvoiceCalls()).toHaveLength(0);
+    }
+  });
+
+  it('round 4: the same journal-less approved invoice cancels for a person with Approve (nothing to reverse)', async () => {
     mockSql
       .mockResolvedValueOnce([invoiceRow({ status: 'approved', gl_journal_entry_id: null })])
       .mockResolvedValueOnce([{ allocated: '0' }])
       .mockResolvedValueOnce([]);
-    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false })).resolves.toBeDefined();
+    const r = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
+    expect(r.reversedJournalEntryId).toBeNull();
+    expect(mockReverse).not.toHaveBeenCalled();
   });
 
   it('allowReversal=true reverses the journal as before', async () => {
