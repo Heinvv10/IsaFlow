@@ -20,6 +20,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals } from '@/modules/accounting/services/payroll/pspFiling';
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { conflictsOutsideReturn, monthName, monthsName, rowName } from './emp501LegacyConflicts';
 import { mapVersion } from './returnVersionStore';
@@ -45,6 +47,8 @@ export interface LegacyEmp201 {
   stored: MonthTotals | null;
   /** The certificate totals over its WHOLE span, inside the return or not (set when it stored totals). */
   spanCertificates: MonthTotals | null;
+  /** The PSP lines' totals over that span (on the EMP201, on no certificate; wave 6 PSP). */
+  spanPsp: MonthTotals | null;
   /** Its months are all in this return and none was filed again: its stored totals are its share of the period sum. */
   whole: boolean;
   /** Some of its months are in this return but were filed again through the lifecycle. */
@@ -67,8 +71,10 @@ export interface Emp501Filings {
   filedVersions: ReturnVersion[];
   /** Every legacy row filing a period month that has no current version, once each. */
   legacyRows: LegacyEmp201[];
-  /** Certificate totals per YYYY-MM. */
+  /** Certificate totals per YYYY-MM: PSP lines left out, as the e@syFile leaves them out (wave 6 PSP). */
   certificates: Map<string, MonthTotals>;
+  /** PSP lines' totals per YYYY-MM: declared on the EMP201, on no certificate because the PSP has no particulars (coordinator ruling 2026-11-19; PSP-H). */
+  psp: Map<string, MonthTotals>;
   /**
    * Months of the return (no current version) filed by more than one legacy row: 'March 2025 to April 2025 (reference
    * X) and April 2025 (reference Y) both file April 2025'. Which one SARS holds cannot be told, so this refuses.
@@ -79,25 +85,42 @@ export interface Emp501Filings {
 const ZERO: MonthTotals = { paye: 0, uif: 0, sdl: 0 };
 export const cents = (n: number): number => Math.round(n * 100) / 100;
 const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.paye + b.paye), uif: cents(a.uif + b.uif), sdl: cents(a.sdl + b.sdl) });
-/** YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee. */
-async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<Map<string, MonthTotals>> {
+/**
+ * YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee;
+ * a PSP's line (pspLineFlag) is on its own H certificate when the PSP has its particulars (trading name and tax reference)
+ * and PAYE on its PSP lines in the period (easyFilePspCertificate: wave 6 PSP-H), and so counts in `certs`; without them it is on no certificate, so it is summed
+ * apart (`psp`) and never in `certs` (wave 6 PSP).
+ */
+async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<{ certs: Map<string, MonthTotals>; psp: Map<string, MonthTotals> }> {
+  // Certified = what easyFilePspCertificate files for the same period: listPspFilingTotals' certifiedAs (particulars held and
+  // fileable, PAYE above nil), the one decision the file, the warnings and readiness share (review of #1689 L3).
+  const certified = (await listPspFilingTotals(companyId, p)).filter((t) => t.certifiedAs !== null).map((t) => t.employeeId);
   const rows = (await sql`
     SELECT to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') AS month,
-           COALESCE(SUM(l.paye), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer), 0) AS uif, COALESCE(SUM(l.sdl), 0) AS sdl
+           COALESCE(SUM(l.paye) FILTER (WHERE NOT x.psp), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer) FILTER (WHERE NOT x.psp), 0) AS uif,
+           COALESCE(SUM(l.sdl) FILTER (WHERE NOT x.psp), 0) AS sdl,
+           COALESCE(SUM(l.paye) FILTER (WHERE x.psp), 0) AS psp_paye, COALESCE(SUM(l.uif_employee + l.uif_employer) FILTER (WHERE x.psp), 0) AS psp_uif,
+           COALESCE(SUM(l.sdl) FILTER (WHERE x.psp), 0) AS psp_sdl
     FROM payroll_run_headers h
     LEFT JOIN payroll_run_lines l ON l.run_id = h.id
+    LEFT JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
+                               AND NOT (e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
+                                        AND e.id::text = ANY(${certified}::text[])) AS psp) x
     WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
     GROUP BY 1
   `) as DbRow[];
   const out = new Map<string, MonthTotals>(rows.map((r) => [String(r.month), { paye: Number(r.paye), uif: Number(r.uif), sdl: Number(r.sdl) }]));
+  const psp = new Map<string, MonthTotals>(rows.filter((r) => Number(r.psp_paye) !== 0 || Number(r.psp_uif) !== 0 || Number(r.psp_sdl) !== 0)
+    .map((r) => [String(r.month), { paye: cents(Number(r.psp_paye)), uif: cents(Number(r.psp_uif)), sdl: cents(Number(r.psp_sdl)) }]));
   for (const pay of await listStandaloneDirectivePayments(companyId, { start: p.start, end: p.end })) {
     if (pay.employeeId === null) continue; // no certificate carries it
     const m = pay.paymentDate.slice(0, 7);
     out.set(m, add(out.get(m) ?? ZERO, { paye: pay.paye, uif: 0, sdl: 0 }));
   }
   for (const [m, t] of out) out.set(m, { paye: cents(t.paye), uif: cents(t.uif), sdl: cents(t.sdl) });
-  return out;
+  return { certs: out, psp };
 }
 
 /** YYYY-MM of every month with a live run that is not final (not in the EMP501), in order. */
@@ -116,7 +139,7 @@ const num = (v: unknown): number | null => (v == null || v === '' || !Number.isF
 
 /** The months of the period, their certificate totals and the EMP201 filings of every month of the period. */
 export async function emp501Filings(companyId: string, p: Emp501Period): Promise<Emp501Filings> {
-  const certificates = await monthTotals(companyId, p);
+  const { certs: certificates, psp } = await monthTotals(companyId, p);
   const current = (await sql`
     SELECT DISTINCT ON (period_start) * FROM tax_return_versions
     WHERE company_id = ${companyId}::UUID AND form_type = 'EMP201' AND status <> 'superseded'
@@ -149,7 +172,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
       const span = (Number(pe.slice(0, 4)) - Number(ps.slice(0, 4))) * 12 + Number(pe.slice(5, 7)) - Number(ps.slice(5, 7)) + 1;
       const stored = paye !== null && uif !== null && sdl !== null ? { paye: cents(paye), uif: cents(uif), sdl: cents(sdl) } : null;
       row = {
-        id, reference: r.ref == null ? null : String(r.ref), start: ps, end: pe, months: [], span, stored, spanCertificates: null,
+        id, reference: r.ref == null ? null : String(r.ref), start: ps, end: pe, months: [], span, stored, spanCertificates: null, spanPsp: null,
         whole: false, filedAgain: false, outside: ps < p.start || pe > p.end,
       };
       rows.set(id, row);
@@ -167,7 +190,11 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     row.whole = row.months.length === row.span;
     // Its stored totals are compared with the certificates over its whole span, inside this return or not (round 4):
     // a row reaching outside the return is never ignored.
-    if (row.stored) row.spanCertificates = [...(await monthTotals(companyId, { start: row.start, end: row.end })).values()].reduce(add, ZERO);
+    if (row.stored) {
+      const span = await monthTotals(companyId, { start: row.start, end: row.end });
+      row.spanCertificates = [...span.certs.values()].reduce(add, ZERO);
+      row.spanPsp = [...span.psp.values()].reduce(add, ZERO);
+    }
   }
   const months = [...certificates.keys()].sort().map((month) => {
     const v = versions.get(month);
@@ -182,6 +209,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     filedVersions: [...versions.values()].filter((v) => v.status === 'filed'),
     legacyRows: [...rows.values()],
     certificates,
+    psp,
     conflicts,
   };
 }
@@ -192,10 +220,18 @@ export function versionTotals(v: ReturnVersion): MonthTotals {
   return { paye: cents(Number(x.totalPAYE ?? 0)), uif: cents(Number(x.totalUIF ?? 0)), sdl: cents(Number(x.totalSDL ?? 0)) };
 }
 
-/** The certificate totals of the months a legacy row covers. */
+/** The certificate totals of the months a legacy row covers, with their PSP lines (an EMP201 declares those too). */
 export function certificateTotalsOf(f: Emp501Filings, months: string[]): MonthTotals {
-  return months.reduce((t, m) => add(t, f.certificates.get(m) ?? ZERO), ZERO);
+  return months.reduce((t, m) => add(add(t, f.certificates.get(m) ?? ZERO), f.psp.get(m) ?? ZERO), ZERO);
 }
+
+/** The PSP lines' totals of the whole period (on the EMP201s, on no certificate). */
+export function pspPeriodTotals(f: Emp501Filings): MonthTotals {
+  return [...f.psp.values()].reduce(add, ZERO);
+}
+
+/** Any PSP figure not nil (wave 6 PSP; pspExplainedMonths in emp501Psp.ts names them). */
+export const anyNonZero = (t: MonthTotals | null | undefined): t is MonthTotals => !!t && (t.paye !== 0 || t.uif !== 0 || t.sdl !== 0);
 
 /** 'PAYE 4000.00 filed, 9000.00 on the certificates' for each total that differs (in cents). */
 export function differences(filed: MonthTotals, certs: MonthTotals): string[] {
@@ -212,15 +248,15 @@ export function emp201Mismatches(f: Emp501Filings): string[] {
   const out: string[] = [];
   for (const m of f.months) {
     if (m.emp201.kind !== 'version') continue;
-    const d = differences(versionTotals(m.emp201.version), m.totals);
-    if (d.length > 0) out.push(`${monthName(m.month)}: ${d.join(', ')}`);
+    const d = differences(versionTotals(m.emp201.version), add(m.totals, f.psp.get(m.month) ?? ZERO));
+    if (d.length > 0) out.push(`${monthName(m.month)}: ${d.join(', ')}${anyNonZero(f.psp.get(m.month)) ? ' (certificates plus PSP lines)' : ''}`);
   }
   for (const row of f.legacyRows) {
     if (!row.stored || !row.spanCertificates) continue;
-    const d = differences(row.stored, row.spanCertificates);
+    const d = differences(row.stored, add(row.spanCertificates, row.spanPsp ?? ZERO));
     const name = monthsName([row.start.slice(0, 7), row.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i));
     const label = [row.span > 1 ? 'one EMP201' : null, row.reference ? `reference ${row.reference}` : null].filter(Boolean).join(', ');
-    if (d.length > 0) out.push(`${name}${label ? ` (${label})` : ''}: ${d.join(', ')}`);
+    if (d.length > 0) out.push(`${name}${label ? ` (${label})` : ''}: ${d.join(', ')}${anyNonZero(row.spanPsp) ? ' (certificates plus PSP lines)' : ''}`);
   }
   return out;
 }

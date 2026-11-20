@@ -7,6 +7,7 @@
 import type { StoredEmployee } from '@/modules/accounting/services/returns/emp501Figures';
 import type { EmployerInput } from './easyFileTypes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
+import { displayCertificate } from './easyFileLegacyCertificate';
 
 export interface CertificateLine { code: string; label: string; amount: number }
 
@@ -46,8 +47,11 @@ function sumByCode(items: Array<{ sourceCode: string; amount: number }>, label: 
 
 export function certificateView(
   version: { id: string; filedAt: string | null; taxYear: number; kind: 'interim' | 'annual' },
-  employer: Pick<EmployerInput, 'tradingName' | 'payeReferenceNumber'>, c: StoredEmployee,
+  employer: Pick<EmployerInput, 'tradingName' | 'payeReferenceNumber'>, stored: StoredEmployee,
 ): CertificateView {
+  // The certificate's tax period, 3170 / 3180 (BRS V25.3.0 p. 32), as the printed IRP5 shows it; a certificate stored
+  // before the BRS code fix is read in today's shape for display only, never refused (displayCertificate).
+  const c = displayCertificate(stored, version.taxYear, version.kind);
   const lumps = c.lumpSums ?? [];
   const lumpPaye = (code: '4102' | '4115') => lumps.filter((l) => lumpSumPayeCode(l.sourceCode) === code).reduce((t, l) => t + l.paye, 0);
   const income = [
@@ -79,6 +83,6 @@ export function certificateView(
     versionId: version.id, taxYear: version.taxYear, kind: version.kind, filedAt: version.filedAt,
     certificateNumber: c.certificateNumber, employer: employer.tradingName, payeReference: employer.payeReferenceNumber,
     employee: `${c.firstNames} ${c.surname}`.trim(), idNumberLast4: last4(c.idNumber), taxNumberLast4: last4(c.taxNumber),
-    periodFrom: day(c.employmentStartDate) ?? '', periodTo: day(c.employmentEndDate), income, deductions, tax,
+    periodFrom: day(c.taxPeriodStart) ?? '', periodTo: day(c.taxPeriodEnd), income, deductions, tax,
   };
 }

@@ -65,7 +65,7 @@ describe('splitContractorIncome: decided per line, never from the status today; 
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001', yearOfAssessment: 2027, surname: 'Molefe', firstNames: 'Thandi', initials: 'T',
-  idNumber: '9001015009087', taxNumber: '0123456789', employmentStartDate: '20250301', employmentEndDate: null, periodsInYoA: 12,
+  idNumber: '9001015009087', taxNumber: '0123456789', taxPeriodStart: '20260301', taxPeriodEnd: '20270228', payPeriodsInYear: 12, payPeriodsWorked: 12,
   grossSalary3601: 0, paye4102: 0, uifEmployee: 0, uifEmployer: 0, sdl4142: 0, taxThreshold: 99_000,
 };
 

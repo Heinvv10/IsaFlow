@@ -221,41 +221,39 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  it('an unknown tax status (a PSP) is refused for approve, not for reopen', async () => {
+  // Wave 6 PSP made personal_service_provider known (1013): a status no release writes stands in for an unknown one.
+  it('an unknown tax status is refused for approve, not for reopen', async () => {
     await inRolledBackTx(async (c) => {
       await c.query('ALTER TABLE payroll_employees DROP CONSTRAINT payroll_employees_tax_status_check');
-      await c.query("UPDATE payroll_employees SET tax_status = 'personal_service_provider' WHERE id = $1", [monthlyEmp]);
+      await c.query("UPDATE payroll_employees SET tax_status = 'labour_broker' WHERE id = $1", [monthlyEmp]);
     }, async () => {
       expect(clauses(await refusal('approve'))).toEqual(['tax_status']);
       expect(await refusal('reopen')).toBeNull();
     });
   });
 
-  it('a km assignment, a rate multiplier and a defined-benefit factor are refused for costing, not for payslips', async () => {
+  it('RI lifted the km and rate-multiplier clause (migration 1017): a km row or an overtime multiplier is refused nothing', async () => {
     const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     for (const prepare of [
+      async (c: PoolClient) => { await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`); },
       async (c: PoolClient) => {
-        for (const r of (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'payroll_employee_components'::regclass
-          AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity_unit%'`)).rows) {
-          await c.query(`ALTER TABLE payroll_employee_components DROP CONSTRAINT ${String(r.conname)}`);
-        }
-        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN rate_multiplier numeric');
-        await c.query(`UPDATE payroll_employee_components SET rate_multiplier = 1.5 WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN db_member_category_factor numeric');
-        await c.query(`UPDATE payroll_employee_components SET db_member_category_factor = 1.2 WHERE id IN (${assignment})`);
+        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'hour', rate_multiplier = 1.5 WHERE id IN (${assignment})`);
       },
     ]) {
       await inRolledBackTx(prepare, async () => {
-        expect(clauses(await refusal('calculate'))).toEqual(['assignment']);
-        expect(clauses(await refusal('approve'))).toEqual(['assignment']);
-        expect(await refusal('payslip')).toBeNull();
+        for (const action of ['calculate', 'approve', 'post', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
       });
     }
+  });
+
+  it('a defined-benefit factor is no longer refused: DBF (migration 1014) lifted that clause and values the row', async () => {
+    const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
+    await inRolledBackTx(async (c) => {
+      await c.query(`UPDATE payroll_employee_components SET amount = 0, db_member_category_factor = 0.12 WHERE id IN (${assignment})`);
+    }, async () => {
+      expect(await refusal('calculate')).toBeNull();
+      expect(await refusal('approve')).toBeNull();
+    });
   });
 
   it('GA lifted the garnishee clauses: a run whose employee has an active order, carrying a deduction, is refused nothing', async () => {

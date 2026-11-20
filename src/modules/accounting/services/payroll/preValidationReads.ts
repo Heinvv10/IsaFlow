@@ -10,6 +10,7 @@
  */
 import { sql } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
+import { pspLineFlag } from './payrollOutsideTables';
 import { payeTaxYearBounds, payeTaxYearPeriods } from '@/modules/accounting/utils/payeTaxYear';
 
 export type PreValidationRow = {
@@ -36,6 +37,7 @@ export async function loadFinalLineTotals(
               OR (prh.period_year = ${p.endYear} AND prh.period_month <= ${p.endMonth}))
          AND (${throughMonth}::int IS NULL OR prh.period_year * 100 + prh.period_month <= ${throughMonth}::int)
          AND (${employeeId}::uuid IS NULL OR prl.employee_id = ${employeeId}::uuid)
+         AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's line: on no natural-person certificate (wave 6 PSP)
          AND (${runId}::uuid IS NULL OR prl.employee_id IN (SELECT employee_id FROM payroll_run_lines WHERE run_id = ${runId}::uuid))
     ), items AS (
       SELECT l.employee_id,

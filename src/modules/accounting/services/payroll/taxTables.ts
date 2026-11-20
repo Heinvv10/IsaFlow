@@ -27,6 +27,16 @@ export interface TaxYearConfig {
    * Employment"; the summary table's R394 line). null = not verified for that year: a case that turns on it is undetermined.
    */
   nonStandardDailyThreshold: number | null;
+  /**
+   * The rate per km fixed by the Minister under s8(1)(b)(ii)/(iii): a reimbursive travel allowance within it is not remuneration,
+   * the excess is (code 3722; payrollRunInputUnits). Every registered year carries its gazetted rate.
+   */
+  reimbursiveRatePerKm: number;
+  /**
+   * A personal service provider's flat rate (taxStatusTreatment): SARS PAYE-GEN-01-G01-A06 row 6, "Apply trusts' or
+   * companies' income tax rate": 27% for a company including a close corporation, 45% for a trust.
+   */
+  personalServiceProviderRates: { company: number; trust: number };
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -70,6 +80,13 @@ const TAX_2025: TaxYearConfig = {
   // UNVERIFIED for 2025: the G19 guide (PAYE-GEN-01-G19) could not be fetched, so no daily threshold is stated and a case
   // that turns on it is undetermined (employmentTerms.ts). 2026 is R383 (G20 p. 28).
   nonStandardDailyThreshold: null,
+  // 484 cents per km for years of assessment from 1 March 2024: Notice 4456, Government Gazette 50243 (1 March 2024), Schedule
+  // para 4 (gazette p. 21) and para 5 (effective date).
+  reimbursiveRatePerKm: 4.84,
+  // SARS PAYE-GEN-01-G01-A06-2025 (2025 Other Employment Tax Deduction Tables) row 6, Personal Service Provider: "Deduct
+  // 27% for a company including a close corporation", "Deduct 45% for a Trust"
+  // (https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/2024/PAYE-GEN-01-G01-A06-2025-Other-Employment-Tax-Deduction-Tables-External-Annexure.pdf).
+  personalServiceProviderRates: { company: 0.27, trust: 0.45 },
 };
 
 const TAX_2026: TaxYearConfig = {
@@ -77,6 +94,8 @@ const TAX_2026: TaxYearConfig = {
   year: 2026,
   // R383 a day: SARS PAYE-GEN-01-G20 (2026 tax year) Rev 0 p. 28, "Deemed Standard Employment" and the summary table.
   nonStandardDailyThreshold: 383,
+  // 476 cents per km from 1 March 2025: Notice 5936, Government Gazette 52199 (28 Feb 2025), Schedule para 1.4.
+  reimbursiveRatePerKm: 4.76,
 };
 
 // Tax year 2027 = 1 March 2026 to 28 February 2027 (SARS 2026/27).
@@ -114,6 +133,13 @@ const TAX_2027: TaxYearConfig = {
   retirementDeductionCap: 430_000,
   // R394 a day: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 28, "Deemed Standard Employment" and the summary table.
   nonStandardDailyThreshold: 394,
+  // 495 cents per km from 1 March 2026: SARS Rate per Kilometre Schedule PAYE-GEN-01-G03-A01 Rev 19 (2027 tax year) p. 2
+  // para 1.4; G21 (2027) p. 4 (the oracle's ri-reimbursive-* cases).
+  reimbursiveRatePerKm: 4.95,
+  // UNVERIFIED for 2026 and 2027 as an A06 edition: none newer than PAYE-GEN-01-G01-A06-2025 is published (tables page read
+  // 2026-11-16). The A06 rule is "the trusts' or companies' income tax rate", and both are unchanged: companies 27% for years
+  // of assessment ending on or after 31 March 2023, trusts 45% (SARS rates of tax, companies and trusts).
+  personalServiceProviderRates: TAX_2025.personalServiceProviderRates,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {
