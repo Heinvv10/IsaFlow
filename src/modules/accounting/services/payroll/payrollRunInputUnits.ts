@@ -64,7 +64,10 @@ export const overtimeAmountCents = (hours: number, hourlyRate: number, multiplie
 export function overtimeHourlyRate(
   employee: Pick<PayrollEmployee, 'payBasis' | 'hourlyRate' | 'dailyRate' | 'hoursPerDay' | 'hoursPerWeek'> & { payFrequency?: string }, periodBasic: number,
 ): number | null {
-  const weeksPerPeriod = 52 / (PERIODS_A_YEAR[employee.payFrequency ?? 'monthly'] ?? 12);
+  const periods = PERIODS_A_YEAR[employee.payFrequency ?? 'monthly'];
+  // Fail closed (review of #1580 L1): a frequency this release does not know is never priced as if it were monthly.
+  if (periods == null) throw new Error(`Overtime cannot be priced for pay frequency '${String(employee.payFrequency)}'.`);
+  const weeksPerPeriod = 52 / periods;
   const rate = employee.payBasis === 'hourly' ? employee.hourlyRate
     : employee.payBasis === 'daily' ? (employee.dailyRate != null && employee.hoursPerDay ? employee.dailyRate / employee.hoursPerDay : null)
       : employee.hoursPerWeek && periodBasic > 0 ? periodBasic / (employee.hoursPerWeek * weeksPerPeriod) : null;

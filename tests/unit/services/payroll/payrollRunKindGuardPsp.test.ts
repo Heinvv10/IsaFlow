@@ -9,7 +9,6 @@ import { judgeRunKind, KNOWN_TAX_STATUSES, type RunKindAction } from '@/modules/
 const ALL: RunKindAction[] = ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'irp5', 'bank_file'];
 const OK = {
   pay_frequency: 'monthly', run_kind: 'regular', unknown_status: null, other_frequency: null,
-  garnishee_orders: 0, garnishee_deductions: 0,
 };
 
 describe('the PSP clause', () => {

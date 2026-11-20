@@ -45,7 +45,7 @@ export async function assertPspRunComponents(
 ): Promise<void> {
   if (employeeIds.length === 0) return;
   const rows = (await db`
-    SELECT e.employee_number, c.name, c.sars_source_code, c.component_type
+    SELECT e.employee_number, c.name, c.sars_source_code, c.component_type, ec.quantity_unit
       FROM payroll_employees e
       JOIN payroll_employee_components ec ON ec.employee_id = e.id
       JOIN payroll_components c ON c.id = ec.component_id AND c.company_id = e.company_id
@@ -55,7 +55,7 @@ export async function assertPspRunComponents(
        AND ec.effective_from <= ${period.end}::date AND (ec.effective_to IS NULL OR ec.effective_to >= ${period.start}::date)
     UNION ALL
     -- L3: an approved IRP3(c) fixed-amount directive in force in the period (G21 p. 16 issues a PSP an IRP3(b)). UNVERIFIED.
-    SELECT e.employee_number, 'Directive ' || COALESCE(d.directive_number, d.id::text), ${IRP3C_MARKER}, 'directive'
+    SELECT e.employee_number, 'Directive ' || COALESCE(d.directive_number, d.id::text), ${IRP3C_MARKER}, 'directive', NULL
       FROM payroll_employees e
       JOIN tax_directives d ON d.employee_id = e.id AND d.company_id = e.company_id
      WHERE e.company_id = ${companyId}::uuid AND e.tax_status = ${PSP}
@@ -63,7 +63,7 @@ export async function assertPspRunComponents(
        AND d.status = 'approved' AND d.directive_type = 'fixed_amount'
        AND d.effective_date <= ${period.end}::date AND COALESCE(d.expiry_date, 'infinity'::date) >= ${period.start}::date
     UNION ALL
-    SELECT e.employee_number, 'Loan ' || COALESCE(l.loan_number, l.id::text), 'LOAN', 'deduction'
+    SELECT e.employee_number, 'Loan ' || COALESCE(l.loan_number, l.id::text), 'LOAN', 'deduction', NULL
       FROM payroll_employees e
       JOIN payroll_loans l ON l.employee_id = e.id AND l.company_id = e.company_id AND l.status = 'active'
      WHERE e.company_id = ${companyId}::uuid AND e.tax_status = ${PSP}
@@ -72,7 +72,9 @@ export async function assertPspRunComponents(
   `) as DbRow[];
   const byEmployee = new Map<string, Array<{ name: string; kind: PspRefusedKind }>>();
   for (const r of rows) {
-    const kind = pspRefusedKind({ sarsSourceCode: String(r.sars_source_code ?? ''), componentType: String(r.component_type) });
+    // RI (review of #1580 M1): travel km on any component is reimbursive travel, refused as 3701-3722 are.
+    const kind = pspRefusedKind({ sarsSourceCode: String(r.sars_source_code ?? ''), componentType: String(r.component_type) })
+      ?? (r.quantity_unit === 'km' ? 'travel allowance' : null);
     if (!kind) continue;
     const who = String(r.employee_number);
     byEmployee.set(who, [...(byEmployee.get(who) ?? []), { name: String(r.name), kind }]);

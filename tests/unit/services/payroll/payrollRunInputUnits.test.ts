@@ -42,6 +42,9 @@ describe('overtime pricing', () => {
     expect(overtimeHourlyRate(employee({ payFrequency: 'weekly' }), 4000)).toBe(100);
     expect(overtimeHourlyRate(employee({ payFrequency: 'fortnightly' }), 8000)).toBe(100);
   });
+  it('an unknown pay frequency throws, never falls back to a month (review of #1580 L1)', () => {
+    expect(() => overtimeHourlyRate(employee({ payFrequency: 'unsupported' as never }), 4000)).toThrow(/pay frequency 'unsupported'/);
+  });
 });
 
 describe('travel km split at the prescribed rate', () => {
