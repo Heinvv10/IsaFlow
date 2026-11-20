@@ -5,7 +5,12 @@
  * - PO lines: POs with status approved / partially_received / received, in their order-date month,
  *   with an account among the keys' (a line with no account cannot meet a budget). `line_total`
  *   is qty × unit price, ex-VAT, on both PO writers (census T1.5).
- * - Billed: for every bill line linked by `po_item_id`, on a bill that is approved / paid /
+ * - Billed (`committedBillingByPoItem`): line billing below, plus HEADER billing (`remainingHeaderBilled`, PR #1703): a bill
+ *   tied to the PO only by its header (a `purchase_order_bill_links` row, else `purchase_order_id`), with no line naming a line
+ *   of that PO, nets the link's amount (else its subtotal less what it attributes elsewhere) spread pro rata over the PO's
+ *   lines. One decision per (bill, PO): lines first. Named limit: header billing nets at the PO LINE, not at the bill's own
+ *   slice (account / centre / month), the same "wherever it posted" rule as line billing (decision 8a).
+ * - Line billing: for every bill line linked by `po_item_id`, on a bill that is approved / paid /
  *   partially_paid (or is `excludeInvoiceId`, the bill being checked), the ex-VAT amount APPROVE
  *   POSTS for that line: the bill's lines go through `ap/supplierInvoiceExpenseLines.buildExpenseLines`
  *   in the approve path's line order (`SUPPLIER_INVOICE_LINE_ORDER_BY`). A bill whose lines are
@@ -22,6 +27,7 @@ import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
+import { headerBilledByPoItem } from './remainingHeaderBilled';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
@@ -101,6 +107,19 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   return out;
 }
 
+/**
+ * Everything that nets these PO lines' committed spend (lower-case ids): their line billing (`billedLinesByPoItem`) and the
+ * header billing of their POs (`remainingHeaderBilled`). Committed (`readCommitments`) and the PO approval
+ * (`ap/purchaseOrderBudget`) both use this one figure.
+ */
+export async function committedBillingByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
+  const out = await billedLinesByPoItem(companyId, poItemIds, own);
+  for (const [id, postings] of await headerBilledByPoItem(companyId, poItemIds, own, BILLED_STATUSES)) {
+    out.set(id, [...(out.get(id) ?? []), ...postings]);
+  }
+  return out;
+}
+
 export async function readCommitments(
   companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,
 ): Promise<CommitmentRow[]> {
@@ -117,7 +136,7 @@ export async function readCommitments(
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
-  const billed = await billedLinesByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
+  const billed = await committedBillingByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {
     const id = String(text(r.po_item_id));
     return {

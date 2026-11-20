@@ -6,6 +6,9 @@
  *     deleted_at filter there: a soft-deleted approved bill still nets committed today, a pre-existing behaviour left as it is and
  *     flagged to Hein) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
  *     clearing a header changes none either; the unlink's budget warning is raised only for the first.
+ *   - `headerNetsCommitted`: does this bill net the PO's committed spend through its HEADER (a link row or `purchase_order_id`, no line
+ *     of it naming a line of the PO; `budgets/remainingHeaderBilled.headerTies`, the engine's own reading)? Read before the unlink and
+ *     after it: removing a header tie that netted raises committed, so the unlink's budget warning runs (PR #1703).
  *   - `resetMatchState`: the bill's stored three-way state (`match_status`, each line's `line_match_status` / variances) would be stale
  *     once a reference is gone. A bill that still names a PO is re-judged by the existing recompute (`performThreeWayMatch`, in its own
  *     savepoint so a failure cannot poison the unlink); one that names none, or is deleted, is reset to 'unmatched'.
@@ -17,6 +20,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
+import { headerTies } from '../budgets/remainingHeaderBilled';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { performThreeWayMatch } from './supplierInvoiceWorkflowService';
 
@@ -33,6 +37,10 @@ export async function clearingRaisesCommitted(companyId: string, billId: string,
   const own = new Set(((await sql`SELECT id::TEXT AS id FROM po_items WHERE purchase_order_id = ${poId}::UUID`) as DbRow[]).map((r) => String(r.id).toLowerCase()));
   const named = new Map(items.filter((i) => i.po_item_id != null).map((i) => [String(i.id), String(i.po_item_id).toLowerCase()]));
   return postedExpenseLines(bill, items).some((l) => l.debit !== 0 && own.has(named.get(String(l.description)) ?? ''));
+}
+
+export async function headerNetsCommitted(companyId: string, billId: string, poId: string): Promise<boolean> {
+  return (await headerTies(companyId, [poId], [], BILLED_STATUSES)).some((t) => t.billId === billId.toLowerCase());
 }
 
 export async function resetMatchState(companyId: string, billId: string): Promise<'recomputed' | 'reset'> {

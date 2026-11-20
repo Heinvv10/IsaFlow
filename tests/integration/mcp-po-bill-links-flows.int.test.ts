@@ -6,7 +6,7 @@
  *   - a bill cancelled after the close does NOT reopen the PO; get_purchase_order says closed_under_billed;
  *   - R2: an unlink that makes the PO commit again never blocks, even under the block policy, and returns budget_warning;
  *   - unlink across companies (by po_id and by po_number) and of an unknown PO changes nothing;
- *   - line links on bills that really carry journals write no journal; line links reduce committed, header-only ones do not.
+ *   - line links on bills that really carry journals write no journal; line links and header-only links both reduce committed (PR #1703), each bill once.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -258,7 +258,9 @@ describe('unlink', () => {
 });
 
 describe('budget committed', () => {
-  it('line links reduce a PO line\'s committed amount; a header-only link does not', async () => {
+  // PR #1703 (Hein's ruling): a header-only link now nets committed too (its link amount, pro rata over the PO's lines); a bill
+  // that also line-links the PO nets it once, by its lines.
+  it('line links and header-only links both reduce committed, each bill once', async () => {
     const po = await seedPo(pool, f, { lines: [400, 600], status: 'approved' });
     const bill = await seedBill(pool, f, { lines: [400] });
     const committed = async () => (await asOwner(pool, f, () => readCommitments(f.co, [f.acc.opex], '2026-06-01', '2026-06-30', { excludePoItemIds: [] })))
@@ -267,7 +269,10 @@ describe('budget committed', () => {
     expect(await committed()).toBe(1000);
     const headerOnly = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     expect(headerOnly.isError, headerOnly.text).toBe(false);
+    expect(await committed()).toBe(600);
+    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' });
     expect(await committed()).toBe(1000);
+    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo with lines' });
     const withLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });
     expect(withLines.isError, withLines.text).toBe(false);

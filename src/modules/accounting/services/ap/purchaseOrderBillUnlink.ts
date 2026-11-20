@@ -40,7 +40,7 @@ import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
-import { auditBillCleared, clearingRaisesCommitted, resetMatchState } from './purchaseOrderUnlinkClear';
+import { auditBillCleared, clearingRaisesCommitted, headerNetsCommitted, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
@@ -126,7 +126,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const closedFrom = claim ? String(claim.closed_po_from_status) : null;
 
   // BEFORE the clear: does removing the line references raise committed spend (an approved / paid bill's non-zero posted line netted it)?
-  const raisesCommitted = lineRefs.length > 0 && await clearingRaisesCommitted(companyId, req.billId, poId);
+  // And does the bill net the PO through its header (a link row or purchase_order_id) now? Read again after the clear below.
+  const linesRaise = lineRefs.length > 0 && await clearingRaisesCommitted(companyId, req.billId, poId);
+  const headerNettedBefore = await headerNetsCommitted(companyId, req.billId, poId);
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
       FROM po_items pi
@@ -138,6 +140,8 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   await syncBillHeaderPurchaseOrder(companyId, [req.billId], poId);
   const headerAfter = (await sql`SELECT purchase_order_id::TEXT AS po FROM supplier_invoices WHERE id = ${req.billId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   const headerCleared = namesInHeader && String(headerAfter[0]?.po ?? '').toLowerCase() !== poId;
+  // A header tie that netted and no longer does (its link row deleted, its header cleared) raises committed too.
+  const raisesCommitted = linesRaise || (headerNettedBefore && !(await headerNetsCommitted(companyId, req.billId, poId)));
 
   // The bill's stored three-way state no longer matches what it names: re-judged, or reset when it names no PO.
   const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
