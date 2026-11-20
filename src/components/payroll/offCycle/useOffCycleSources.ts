@@ -1,6 +1,6 @@
 /**
- * What the off-cycle run form chooses from (wave 6 OC): the company's approved regular monthly runs (an off-cycle run
- * supplements one), the employees each kind may pay (bonus: those on the chosen regular run; termination: those whose
+ * What the off-cycle run form chooses from (wave 6 OC): the company's FINAL regular monthly runs (an off-cycle run
+ * supplements one; `final` is the server's payRunIsFinal, approved or paid with an approval time, review #1679 codex 6), the employees each kind may pay (bonus: those on the chosen regular run; termination: those whose
  * end date is in its month), and the company's annual-payment earnings (SARS 3605) a bonus is paid on.
  */
 import { useEffect, useState } from 'react';
@@ -61,12 +61,12 @@ export function useOffCycleSources() {
     let live = true;
     void (async () => {
       try {
-        const all = await data<Array<RegularRunOption & { status: string; runKind?: string; payFrequency?: string }>>('/api/payroll/runs', 'Could not load the payroll runs');
+        const all = await data<Array<RegularRunOption & { status: string; final?: boolean; runKind?: string; payFrequency?: string }>>('/api/payroll/runs', 'Could not load the payroll runs');
         const comps = await data<Array<{ id: string; name: string; sarsSourceCode: string; componentType: string }>>('/api/payroll/components', 'Could not load the pay components');
         const people = await data<Array<{ id: string; employeeNumber: string; firstName: string; lastName: string; endDate?: string | null }>>(
           '/api/payroll/employees?include=terminated', 'Could not load the employees');
         if (!live) return;
-        setRuns(all.filter((r) => r.status === 'approved' && (r.runKind ?? 'regular') === 'regular' && (r.payFrequency ?? 'monthly') === 'monthly'));
+        setRuns(all.filter((r) => r.final === true && (r.runKind ?? 'regular') === 'regular' && (r.payFrequency ?? 'monthly') === 'monthly'));
         setOffCycle(all.filter((r) => r.runKind === 'off_cycle'));
         setComponents(comps.filter((c) => c.componentType === 'earning' && c.sarsSourceCode.trim() === '3605').map((c) => ({ id: c.id, name: c.name })));
         setLeavers(people.filter((p) => p.endDate).map((p) => ({

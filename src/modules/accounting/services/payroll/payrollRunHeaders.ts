@@ -10,6 +10,7 @@ import type { OffCycleReason, PayFrequency, RunKind, UnsupportedValue } from './
 import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
 import { formatMonth } from './payrollPayWeek';
 import { runOrderKeySql } from './payrollRunOrder';
+import { payRunIsFinal } from './payRunFinalSql';
 
 type Row = DbRow;
 
@@ -41,6 +42,8 @@ export interface PayrollRunSummary {
   /** A cancelled off-cycle run (wave 6 OC): when, and who by (getPayrollRun only); null otherwise. */
   cancelledAt?: string | null;
   cancelledByName?: string | null;
+  /** Final (payRunIsFinal: approved or paid, with an approval time), where the row read carries the stamps (the list). */
+  final?: boolean;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -66,6 +69,7 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     runDate: dateColumnOf(r.run_date),
     cancelledAt: r.cancelled_at == null ? null : new Date(String(r.cancelled_at instanceof Date ? r.cancelled_at.toISOString() : r.cancelled_at)).toISOString(),
     ...(r.cancelled_by_name !== undefined ? { cancelledByName: r.cancelled_by_name == null ? null : String(r.cancelled_by_name) } : {}),
+    ...('approved_at' in r ? { final: payRunIsFinal({ status: String(r.status), approvedAt: r.approved_at, approvalGrandfatheredAt: r.approval_grandfathered_at }) } : {}),
   };
 }
 
