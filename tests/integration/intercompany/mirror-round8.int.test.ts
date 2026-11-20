@@ -139,6 +139,10 @@ describe('B-M2: dated events, so months add up to the range line by line', () =>
     expect(await lines('2026-01-01', '2026-03-31')).toEqual({ rev: 1000, exp: -1000 });   // once, not twice
     expect(await moved('2026-01-01', '2026-03-31')).toEqual({ rev: 0, exp: 0, revElim: -1000, expElim: -1000 });
     await additive(2);
+    // J2 (the row's target, not its first match) reversed in April: the reversal hook finds the row by its target and releases it
+    await reverse(co.B, U.b, j2, '2026-04-02');
+    expect(await L.groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null, first_target_journal_entry_id: j1 });
+    expect((await derived('2026-04-01', '2026-04-30')).map((e) => [e.kind, e.receiverJournalId])).toEqual([['reverse', j2]]);
   });
 });
 
