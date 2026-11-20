@@ -1,4 +1,7 @@
 import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
+import {
+  PspRegistrationNotForEntity, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem, type PspParticulars,
+} from './payrollEmployeePspEntity';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -36,6 +39,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
     payFrequency: payFrequencyOf(r.pay_frequency),
     ...termsFromRow(r),
+    ...pspParticularsFromRow(r),
   };
 }
 
@@ -180,7 +184,19 @@ export async function updatePayrollEmployee(
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
     || dobIso !== null || data.idNumber !== undefined
     || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
-  const write = (db: typeof sql, now: Row) => db`
+  // PSP-H (1015): the entity particulars, judged against the row as locked (its status and entity after this patch).
+  const particularsOf = (now: Row) => {
+    const status = has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus;
+    const entity = has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType;
+    const pp = pspParticularsOfPatch(data as Record<string, unknown>, status, entity, (m) => new EmployeeTermsRefused(m));
+    // M1 (review of #1689): the entity moved, the registration number did not: the stored one is judged against the new entity.
+    const reg = pp.pspRegistrationNumber === undefined ? now.psp_registration_number : null;
+    const bad = status === 'personal_service_provider' && entity && entity !== now.psp_entity_type && reg != null
+      ? pspRegistrationProblem(entity, String(reg), new Date().getFullYear()) : null;
+    if (bad && entity) throw new PspRegistrationNotForEntity(entity, bad);
+    return pp;
+  };
+  const write = (db: typeof sql, now: Row, pp: Partial<PspParticulars> = particularsOf(now)) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
       last_name                    = COALESCE(${data.lastName ?? null}, last_name),
@@ -203,6 +219,9 @@ export async function updatePayrollEmployee(
       occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
       eti_id_document              = CASE WHEN ${has('etiIdDocument')} THEN ${data.etiIdDocument ?? null} ELSE eti_id_document END,
       psp_entity_type              = CASE WHEN ${has('pspEntityType')} THEN ${data.pspEntityType ?? null} ELSE psp_entity_type END,
+      psp_entity_name              = CASE WHEN ${pp.pspEntityName !== undefined} THEN ${pp.pspEntityName ?? null} ELSE psp_entity_name END,
+      psp_registration_number      = CASE WHEN ${pp.pspRegistrationNumber !== undefined} THEN ${pp.pspRegistrationNumber ?? null} ELSE psp_registration_number END,
+      psp_tax_reference            = CASE WHEN ${pp.pspTaxReference !== undefined} THEN ${pp.pspTaxReference ?? null} ELSE psp_tax_reference END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
@@ -226,6 +245,11 @@ export async function updatePayrollEmployee(
     if (userId && written[0]) {
       for (const m of movedTerms(termsFromRow(locked), termsFromRow(written[0]), carried)) {
         await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
+      }
+      // PSP-H: each particular this write moved (set, changed, or cleared by a move off PSP), in the same transaction.
+      for (const col of ['psp_entity_name', 'psp_registration_number', 'psp_tax_reference'] as const) {
+        const [was, now] = [locked[col] ?? null, written[0][col] ?? null].map((v) => (v == null ? null : String(v)));
+        if (was !== now) await recordEmployeeChange({ companyId, employeeId: id, fieldName: col, oldValue: was ?? null, newValue: now ?? null, userId }, db);
       }
     }
     return written;

@@ -26,6 +26,8 @@ import {
   EMPLOYEE_TERM_LOG_KEYS, EmployeeTermsRefused, movesPricedTerm,
 } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { PSP_PARTICULAR_KEYS, PspRegistrationNotForEntity } from '@/modules/accounting/services/payroll/payrollEmployeePspEntity';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { EmployeeEndDateDirectiveError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import {
   getPayrollEmployee,
@@ -58,13 +60,17 @@ async function handler(
       const changes = employeeChangesOf(req.body as Record<string, unknown>, current, canSetPayrollNetPay(companyRole));
       // A Login-as session may not move what an employee costs or how they are taxed (tax status, PSP entity, hours, rates):
       // 403 before the write (review of #1566 L-a). Other fields stay editable.
-      if (movesPricedTerm(changes, current)) await assertNotImpersonating();
+      // PSP-H: nor the entity particulars its H certificate is filed under.
+      const movesParticulars = PSP_PARTICULAR_KEYS.some((k) => (changes as Record<string, unknown>)[k] !== undefined
+        && ((changes as Record<string, unknown>)[k] || null) !== (current[k] ?? null));
+      if (movesPricedTerm(changes, current) || movesParticulars) await assertNotImpersonating();
       const updated = await updatePayrollEmployee(id, companyId, changes, user.id);
       if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
       return apiResponse.success(res, updated);
     } catch (err) {
       if (respondIfImpersonationForbidden(res, err)) return;
       if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
+      if (err instanceof PspRegistrationNotForEntity) return apiResponse.error(res, ErrorCode.VALIDATION_ERROR, err.message, { code: err.code });
       if (err instanceof EmployeeOnboardingRefused || err instanceof EmployeeTermsRefused) return apiResponse.badRequest(res, err.message);
       // An end date that would un-explain a directive ended at the leave date before a run it taxed (DR): before the write.
       if (err instanceof EmployeeEndDateDirectiveError) return apiResponse.conflict(res, err.message, { code: err.code });

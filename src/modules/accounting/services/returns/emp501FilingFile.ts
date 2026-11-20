@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import type { PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { localDay } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { currentCertificate, currentEmployer, isLegacyLayout } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
 import { UsageError } from '@/modules/accounting/services/payroll/easyFileFields';
@@ -21,7 +22,7 @@ export const EMP501_FILE_KIND = FILING_FILE_KIND.EMP501; // 999v's filing_file_k
 
 export interface Emp501File { body: string; filename: string; sha256: string }
 
-type StoredFigures = { taxYear: number; kind: Emp501Kind; employer: EmployerInput; employees: StoredEmployee[] };
+type StoredFigures = { taxYear: number; kind: Emp501Kind; employer: EmployerInput; employees: StoredEmployee[]; pspCertificates?: PspCertificateInput[] };
 
 /** The download's file name, from the stored figures alone (a stamped version is served without a rebuild). */
 export function emp501FileName(v: Pick<ReturnVersion, 'figures'>): string {
@@ -40,7 +41,7 @@ export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Em
   try {
     const employees: EmployeeInput[] = f.employees.map((s) => currentCertificate(s, f.taxYear, f.kind)).map(({ dateOfBirth, ...e }) =>
       (dateOfBirth === undefined ? e : { ...e, dateOfBirth: dateOfBirth === null ? null : localDay(dateOfBirth) }));
-    body = buildIrp5File({ employer: currentEmployer(f.employer, legacy), employees });
+    body = buildIrp5File({ employer: currentEmployer(f.employer, legacy), employees, pspCertificates: f.pspCertificates });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     // A version finalised before the fix may break a rule its rebuild now applies (a missing income tax number under

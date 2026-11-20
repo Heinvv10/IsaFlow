@@ -11,4 +11,5 @@ export const PAYROLL_REFUSAL_CODES = [
   'PAY_FREQUENCY_REFUSED', // FQc payrollFrequencyGuard: terms a weekly or fortnightly run cannot cost, its EMP201 month, a mid-year frequency change; names the company's own employee numbers, before any write.
   'PAY_PERIOD_OVERLAP', // FQc payrollFrequencyGuard: a weekly or fortnightly run's dates overlap another regular run of its frequency (review #1575 G6).
   'EMPLOYEE_PORTAL_REFUSED', // SS employeePortalRefusal: a portal invite, revoke or sign-in refused before any write or send.
+  'PSP_REGISTRATION_NOT_FOR_ENTITY', // PSP-H: a PSP's entity moved and the stored registration number (3066) is not for the new one, before any write.
 ] as const;

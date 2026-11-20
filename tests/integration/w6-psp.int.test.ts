@@ -143,7 +143,7 @@ describe('a run with PSPs of two tenants', () => {
     expect(ds.rows.map((r) => r.employeeId)).toEqual([a.employee]);
     expect(ds.excluded.map((e) => [e.id, e.reason, e.amount])).toEqual([[pspA, 'personal_service_provider', PSP_PAY]]);
     const number = String((await pool.query('SELECT employee_number FROM payroll_employees WHERE id = $1', [pspA])).rows[0]!.employee_number);
-    expect(ds.warnings.some((w) => w.includes(number) && w.includes('personal service provider') && w.includes('UNVERIFIED'))).toBe(true);
+    expect(ds.warnings.some((w) => w.includes(number) && w.includes('personal service provider') && w.includes('It is on no certificate') && w.includes('Work card'))).toBe(true);
     // The other tenant's dataset knows nothing of A's PSP.
     expect(JSON.stringify(await getIrp5EmployeeTotals(b.company, 2027).then((d) => d.excluded, () => []))).not.toContain(pspA);
   });
