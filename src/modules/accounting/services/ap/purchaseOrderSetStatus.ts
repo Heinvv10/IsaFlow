@@ -62,7 +62,7 @@ export async function setImportedPurchaseOrderStatus(
       throw refuse(`A purchase order is closed from approved only (this one is ${words(po.status)}): approve it first, so it is not made billable without ever having been approved`);
     }
     if (await poHasReceipts(companyId, poId)) {
-      throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; unlink or cancel the receipt first');
+      throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; cancel its goods received notes first (cancel_goods_received)');
     }
     // A draft's lines are replaced by the PUT and a draft is deleted outright: neither can happen under a cancelled note's kept items.
     if (target === 'draft' && await poHasAnyNote(companyId, poId)) {

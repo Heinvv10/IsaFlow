@@ -1,9 +1,11 @@
 /**
  * MCP write tool: cancel_goods_received — cancel a goods received note with a reason (design: docs/design/mcp-goods-received.md).
  * The note becomes cancelled (kept, never deleted), its quantities come back off the PO lines and the PO status is recomputed.
- * POSTS NOTHING. Refused: already_cancelled, po_not_receivable (the PO is closed or cancelled), grn_on_bill (a bill that is neither
- * deleted nor cancelled carries the note; the bills are named; cancelling or deleting them frees it), not_found. Managers and above (the write fence). dry_run runs the real service in
- * a rolled-back savepoint and leaves the key free. Free (purchaseOrderFlow).
+ * POSTS NOTHING. A note on a CLOSED PO cancels (the PO stays closed; receipt_status says what its receipts now give). Refused:
+ * already_cancelled, po_not_receivable (a cancelled PO, which carries only cancelled notes), grn_on_bill (a bill that is neither
+ * deleted nor cancelled carries the note; the bills are named; cancelling or deleting them frees it), receipts_disagree (a PO line
+ * holds less than the note took), not_found. Managers and above (the write fence). dry_run runs the real service in a rolled-back
+ * savepoint and leaves the key free. Free (purchaseOrderFlow).
  */
 import type { McpTool } from '../types';
 import { CANCEL_REASON_MAX, cancelGoodsReceived } from '@/modules/accounting/services/ap/goodsReceivedCancel';
@@ -20,8 +22,10 @@ export const cancelGoodsReceivedTool: McpTool = {
     'Cancel a goods received note (grn_id) with a reason (required; recorded in the audit trail and on the note). The note is kept with status cancelled; '
     + 'each of its quantity_received comes back off its purchase order line, and the PO status is recomputed (received -> partially_received or approved). '
     + 'Posts NOTHING to the general ledger (a goods received note never posts). Committed spend is unchanged. '
-    + 'Refused (JSON {refused, code, message}): already_cancelled; po_not_receivable when the PO is closed or cancelled (set its status back first); '
-    + 'grn_on_bill when a bill that is neither deleted nor cancelled carries this note (the bills are named: cancel or delete those bills first); not_found. '
+    + 'A note on a CLOSED purchase order can be cancelled: the PO stays closed (receipt_status in the answer is what its receipts now give, and what it reopens to). '
+    + 'Refused (JSON {refused, code, message}): already_cancelled; po_not_receivable when the PO is cancelled (a cancelled PO should hold no live notes; only IsaFlow support can repair one that does); '
+    + 'grn_on_bill when a bill that is neither deleted nor cancelled carries this note (the bills are named: cancel or delete those bills first); '
+    + 'receipts_disagree when a PO line holds less received quantity than the note took (the lines are named; IsaFlow support repairs it); not_found. '
     + 'Billed quantity above received quantity is allowed after a cancel, as when a bill arrives before the goods. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -53,7 +57,7 @@ export const cancelGoodsReceivedTool: McpTool = {
     const r = out.value;
     const body = {
       grn_id: r.grnId, grn_number: r.grnNumber, status: 'cancelled', purchase_order_id: r.poId, po_number: r.poNumber,
-      po_status_before: r.poStatusBefore, po_status: r.poStatusAfter,
+      po_status_before: r.poStatusBefore, po_status: r.poStatusAfter, receipt_status: r.receiptStatus,
       lines: r.items.map((l) => ({ po_item_id: l.poItemId, quantity_received: l.quantityReceived, quantity_rejected: l.quantityRejected })),
       posted_to_ledger: false,
     };

@@ -26,8 +26,10 @@ Both writes are free flows (`purchaseOrderFlow.ts`), like the PO tools. No new s
 - It sets the GRN to `cancelled` (with `cancelled_at`, `cancelled_by` and `cancel_reason`), subtracts each item's `quantity_received` from its `po_items.quantity_received`, and recomputes the PO status (`received` → `partially_received` / `approved`). These three happen in one SECURITY DEFINER function, `goods_received_note_cancel` (see Database rules); the service keeps the guards that name things, the locks and the audit row.
 - It refuses when:
   - the GRN is already cancelled (`already_cancelled`);
-  - the PO is `closed` or `cancelled` (`po_not_receivable`; set the PO status back first);
+  - the PO is `cancelled` (`po_not_receivable`). A cancelled PO carries only cancelled notes (`cancel_purchase_order` and `set_purchase_order_status` refuse a PO with a live one), so a live note there was put by hand, and no tool mends it: the refusal says so and points to IsaFlow support rather than to a status change that does not exist;
+  - a PO line holds less received quantity than the note took (`receipts_disagree`, naming the lines; the PO's totals were changed outside the notes). Nothing is written;
   - a bill that is neither deleted nor cancelled carries this GRN in `supplier_invoices.grn_id` (`grn_on_bill`, naming the bills). The exit is to cancel or delete those bills (a paid bill needs its payment reversed before it can be cancelled), then cancel the note. Nothing edits a bill's `grn_id`.
+- A note on a **closed** PO cancels. The PO stays closed (closing is a decision, and no tool reopens a PO that has receipts), the quantities come back as usual, and the answer carries `receipt_status`: what the receipts now give (`received` / `partially_received` / `approved`). The records of the status the PO was closed from follow it, so a later reopen lands right: `purchase_orders.closed_from_status` (1007, set when closed by hand) and `purchase_order_bill_links.closed_po_from_status` (1006, set when a link closed it; a closing record is moved, not rewritten, so it is cleared and set again).
 - Billed quantity above received quantity is allowed after a cancel, as it already is when a bill arrives before the goods do.
 - Managers and above may cancel. The commitment is unchanged, because `approved`, `partially_received` and `received` all count as committed.
 - A PO whose notes are all cancelled has no receipt: `cancel_purchase_order` and `update_purchase_order` (header) work again (review M2). A cancelled note keeps its items, which reference the PO's lines, so replacing those lines and setting an imported PO back to draft (where the PUT replaces lines and the DELETE removes the PO) stay refused, naming the cancelled note.
@@ -59,6 +61,8 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 - A CHECK keeps the cancel columns consistent: they are set if and only if the status is `cancelled`, and a reason is required.
 - A partial unique index on `(company_id, external_system, external_ref)` covers non-cancelled notes that have an `external_ref`.
 - A trigger refuses moving a note out of `cancelled`, refuses editing a cancelled note's items, and refuses inserting items into a cancelled note.
+- A trigger (`grn_items_same_transaction_guard`) refuses inserting an item onto a note that was not created in the same transaction (the note's `created_at` is not `now()`, the transaction's start; not `xmin`, which a savepoint changes). Create writes a note, its items and the PO lines' `quantity_received` together; an item added later would leave that total disagreeing with the notes.
+- `idx_supplier_invoices_grn` on `supplier_invoices (company_id, grn_id) WHERE grn_id IS NOT NULL`: the cancel's check for a live bill scans bills under the PO and note locks.
 
 ## Database rules (review M3, L1)
 
@@ -68,6 +72,8 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 
 ## Attachments
 
+A bill that carries the note (`supplier_invoices.grn_id`) gets the note's documents linked onto it, and its own documents linked onto the note (`autoLinkSupplierInvoice`, entity type `goods_received`; links are written with `linked_entity_type = 'goods_received'`, and the legacy `goods_receipt_note` document type is still read).
+
 `goods_received` becomes an entity-store kind: it is added to `AccountingEntityType`, to the ownership check, to `ENTITY_TARGET_KINDS` (create_upload_urls / finalize_uploads), and to `attach_entity_document`, with the default document type `delivery_note`. If that type is not in `VALID_DOCUMENT_TYPES`, it is added there. `find_by_external_ref` gains the kind `goods_received`.
 
 ## Acceptance tests (integration, app_user role)
@@ -75,7 +81,7 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 1. On a PO for 10, receiving 6 makes it `partially_received`; receiving 4 more makes it `received`; GRN numbers go up by one.
 2. Receiving 1 more after that is refused with `over_receipt`, and nothing is written.
 3. Cancelling the second GRN restores `quantity_received` to 6 and the status to `partially_received`. Cancelling the first restores 0 and `approved`.
-4. Cancel is refused for a GRN on a bill, for an already-cancelled GRN, and for a GRN on a closed PO. A cancelled or deleted bill frees the note.
+4. Cancel is refused for a GRN on a bill, for an already-cancelled GRN, and for a GRN on a cancelled PO; a GRN on a closed PO cancels and leaves the PO closed (`mcp-goods-received-closed`). A cancelled or deleted bill frees the note.
 5. A GRN PDF attaches through create_upload_urls → finalize_uploads, and get_goods_received lists it.
 6. Another company's PO or GRN is refused as `not_found`. Lists never show another company's notes.
 7. A repeated `external_ref` is refused and names the first GRN. After that GRN is cancelled, the ref can be used again.
@@ -83,5 +89,5 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 9. The GL is unchanged by create and by cancel.
 10. Racing two creates for the same remaining quantity: one succeeds and the other is refused as `over_receipt`.
 11. A bill create refuses a cancelled, foreign, unknown or malformed note; the undo of a deleted bill refuses a note cancelled meanwhile; a bill create and a cancel of its note, interleaved both ways and raced, end in one outcome (`mcp-goods-received-bills`).
-12. As app_user a forged cancel UPDATE, an item edit and DELETEs of notes or items are refused; no item goes onto another company's note (`mcp-goods-received-db`).
+12. As app_user a forged cancel UPDATE, an item edit and DELETEs of notes or items are refused; no item goes onto another company's note, or onto an existing one; receipts that disagree with their PO line are a typed refusal (`mcp-goods-received-db`).
 13. After every note is cancelled, the PO can be cancelled and its header edited (`mcp-goods-received-po-loop`).

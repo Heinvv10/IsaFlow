@@ -5,9 +5,15 @@
  * (migration 1021's trigger).
  *
  * Refused (typed `GoodsReceivedError`, nothing written): another company's or no such note (not_found), a note already cancelled
- * (already_cancelled), a PO that is not approved / partially_received / received, e.g. closed or cancelled (po_not_receivable), and a
- * note a bill that is neither deleted nor cancelled carries in `supplier_invoices.grn_id` (grn_on_bill, naming them; cancelling or
- * deleting those bills frees it). Billed quantity above received quantity after a cancel is allowed, as when a bill arrives first.
+ * (already_cancelled), a PO that is not approved / partially_received / received / closed (po_not_receivable: in practice a
+ * cancelled one, which carries only cancelled notes because every way to cancel a PO refuses a live one, so a live note on it was put
+ * there by hand and has no exit in the tools), a note a bill that is neither deleted nor cancelled carries in
+ * `supplier_invoices.grn_id` (grn_on_bill, naming them; cancelling or deleting those bills frees it), and a PO line holding less
+ * received quantity than the note took (receipts_disagree, naming the lines). Billed quantity above received quantity after a
+ * cancel is allowed, as when a bill arrives first.
+ *
+ * A note on a CLOSED PO cancels: the PO stays closed (closing is a decision, and nothing else reopens it), the quantities come back,
+ * and the records of the status it was closed from follow the receipts (`receiptStatus` is that status), so a later reopen is right.
  *
  * The write is migration 1021's `goods_received_note_cancel` (SECURITY DEFINER: app_user has no UPDATE or DELETE on the notes or their
  * items). It re-decides every refusal under the note lock and answers it instead of writing. This service keeps the guards that
@@ -23,7 +29,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { GoodsReceivedError } from './goodsReceivedValidation';
 
 export const CANCEL_REASON_MAX = 500;
-const CANCELLABLE_PO_STATUSES: readonly string[] = ['approved', 'partially_received', 'received'];
+const CANCELLABLE_PO_STATUSES: readonly string[] = ['approved', 'partially_received', 'received', 'closed'];
 const BILLS_SHOWN = 10;
 
 export interface CancelledGoodsReceived {
@@ -33,6 +39,8 @@ export interface CancelledGoodsReceived {
   poNumber: string;
   poStatusBefore: string;
   poStatusAfter: string;
+  /** What the receipts now give (received / partially_received / approved): the PO's status, or for a closed PO the status it would reopen to. */
+  receiptStatus: string;
   items: Array<{ poItemId: string; quantityReceived: number; quantityRejected: number }>;
 }
 
@@ -74,9 +82,25 @@ async function onBillRefusal(companyId: string, grnId: string, grnNumber: string
     'grn_on_bill', { bills: bills.map((b) => ({ id: String(b.id), invoiceNumber: String(b.invoice_number) })), billsTotal: total });
 }
 
+/** The PO is not one that takes notes (a cancelled PO, in practice): nothing in the tools can mend it, so no exit is promised. */
 const notReceivable = (poStatus: string) => new GoodsReceivedError(
-  `The purchase order is ${poStatus.replace(/_/g, ' ')}, so its receipts cannot be cancelled; set the purchase order status back first`,
+  `The purchase order is ${poStatus.replace(/_/g, ' ')}, so this goods received note cannot be cancelled here: a ${poStatus.replace(/_/g, ' ')} purchase order should hold no live notes, and this one was changed outside the tools; ask IsaFlow support to repair it`,
   'po_not_receivable', { poStatus });
+
+async function disagreeRefusal(grnId: string, poId: string, grnNumber: string): Promise<GoodsReceivedError> {
+  const lines = (await sql`
+    SELECT gi.po_item_id::text AS po_item_id, COALESCE(pi.quantity_received, 0) AS line_received, sum(gi.quantity_received) AS note_received
+      FROM grn_items gi JOIN po_items pi ON pi.id = gi.po_item_id AND pi.purchase_order_id = ${poId}::uuid
+     WHERE gi.grn_id = ${grnId}::uuid
+     GROUP BY gi.po_item_id, pi.quantity_received
+    HAVING COALESCE(pi.quantity_received, 0) < sum(gi.quantity_received)
+     ORDER BY gi.po_item_id
+  `) as DbRow[];
+  return new GoodsReceivedError(
+    `${grnNumber} cannot be cancelled: ${lines.length === 1 ? 'a purchase order line holds' : `${lines.length} purchase order lines hold`} less received quantity than this note took, so the quantities no longer follow the notes; ask IsaFlow support to repair them. Nothing was written`,
+    'receipts_disagree',
+    { disagreeing: lines.map((l) => ({ poItemId: String(l.po_item_id), lineReceived: Number(l.line_received), noteReceived: Number(l.note_received) })) });
+}
 
 export async function cancelGoodsReceived(
   companyId: string, grnId: string, reason: string, opts: { userId: string; via: string },
@@ -95,13 +119,15 @@ export async function cancelGoodsReceived(
        WHERE gi.grn_id = ${grnId}::uuid ORDER BY gi.po_item_id, gi.id
     `) as DbRow[];
 
-    const done = ((await sql`SELECT outcome, po_status FROM public.goods_received_note_cancel(${grnId}::uuid, ${why})`) as DbRow[])[0];
+    const done = ((await sql`SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel(${grnId}::uuid, ${why})`) as DbRow[])[0];
     const outcome = String(done?.outcome ?? 'not_found');
     if (outcome === 'grn_on_bill') throw await onBillRefusal(companyId, grnId, grnNumber);
     if (outcome === 'already_cancelled') throw new GoodsReceivedError(`${grnNumber} is already cancelled`, 'already_cancelled');
     if (outcome === 'po_not_receivable') throw notReceivable(String(done!.po_status));
+    if (outcome === 'receipts_disagree') throw await disagreeRefusal(grnId, poId, grnNumber);
     if (outcome !== 'cancelled') throw new GoodsReceivedError('Goods received note not found', 'not_found');
     const after = String(done!.po_status);
+    const receiptStatus = String(done!.receipt_status);
 
     await logAuditOrThrow({
       companyId, userId: opts.userId, action: 'update', entityType: 'goods_received_note', entityId: grnId, entityRef: grnNumber,
@@ -109,12 +135,12 @@ export async function cancelGoodsReceived(
         fields: [{ field: 'status', old: note.status, new: 'cancelled', label: 'Status' }],
         metadata: {
           cancelled: 'true', reason: why, source: opts.via, purchase_order_id: poId, po_number: note.poNumber.slice(0, 100),
-          po_status_before: note.poStatus, po_status_after: after, lines: String(items.length),
+          po_status_before: note.poStatus, po_status_after: after, receipt_status: receiptStatus, lines: String(items.length),
         },
       },
     });
     return {
-      grnId, grnNumber, poId, poNumber: note.poNumber, poStatusBefore: note.poStatus, poStatusAfter: after,
+      grnId, grnNumber, poId, poNumber: note.poNumber, poStatusBefore: note.poStatus, poStatusAfter: after, receiptStatus,
       items: items.map((i) => ({ poItemId: String(i.po_item_id), quantityReceived: Number(i.quantity_received), quantityRejected: Number(i.quantity_rejected) })),
     };
   });

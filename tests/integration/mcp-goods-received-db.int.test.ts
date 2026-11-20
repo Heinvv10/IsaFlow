@@ -111,6 +111,42 @@ describe('as app_user, only the cancel changes a note (M3)', () => {
   });
 });
 
+describe('items only with their note (breaker round 2 L1, L3)', () => {
+  it('an item added to an existing note is refused, even by a superuser; the note still cancels normally', async () => {
+    const { po, grn } = await received(f, 5, 2);
+    const add = 'INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 3)';
+    const late = await asApp(f, add, [grn, po.items[0]]);
+    expect(late.code).toBe('23514');
+    expect(late.message).toContain('in the transaction that created its note');
+    await expect(pool.query(add, [grn, po.items[0]])).rejects.toMatchObject({ code: '23514' });
+    expect(await grnItemCount(pool, f)).toBeGreaterThan(0);
+    expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
+    expect(await poState(pool, po)).toEqual({ status: 'approved', received: [0] });
+  });
+
+  it('receipts that disagree with their PO line are a typed refusal with nothing written, not a 500', async () => {
+    const { po, grn } = await received(f, 5, 4);
+    await pool.query('UPDATE po_items SET quantity_received = 1 WHERE id = $1', [po.items[0]]);
+    const r = await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' });
+    expect(r.isError).toBe(true);
+    expect(JSON.parse(r.text)).toMatchObject({ code: 'receipts_disagree', written: false, lines: [{ po_item_id: po.items[0], line_received: 1, note_received: 4 }] });
+    expect((await grnRows(pool, f)).find((n) => n.id === grn)).toMatchObject({ status: 'received' });
+    expect(await poState(pool, po)).toEqual({ status: 'partially_received', received: [1] });
+    expect((await asApp(f, 'SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [grn, 'x'])).rows).toEqual([{ outcome: 'receipts_disagree' }]);
+  });
+
+  it('the cancel\'s bill check is an index lookup on (company_id, grn_id)', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL enable_seqscan = off');
+      const plan = (await c.query(`EXPLAIN SELECT 1 FROM supplier_invoices si WHERE si.company_id = $1 AND si.grn_id = $2
+                                    AND si.deleted_at IS NULL AND si.status <> 'cancelled'`, [f.co, crypto.randomUUID()])).rows.map((r) => String(r['QUERY PLAN'])).join('\n');
+      expect(plan).toContain('idx_supplier_invoices_grn');
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+});
+
 describe('grn_items row security (L1) and the cancel lookup (L5)', () => {
   it('no item onto another company\'s note, none of its items read, even for a user of both companies', async () => {
     const theirs = await received(other);
@@ -121,12 +157,23 @@ describe('grn_items row security (L1) and the cancel lookup (L5)', () => {
     expect((await asApp(f, 'SELECT count(*)::int AS n FROM grn_items WHERE grn_id = $1', [theirs.grn])).rows).toEqual([{ n: 0 }]);
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
     try {
-      // The note's policy admits both companies to this user; the session company is f, so the item is still refused.
-      expect((await asApp(f, insert, [theirs.grn, theirs.po.items[0]])).code).toBe('42501');
+      // The note's policy admits both companies to this user, so the note is visible; an old note is refused by the same-transaction
+      // guard (23514), and a note created in this very transaction (so the guard passes) by the policy's WITH CHECK: the session
+      // company is f, so the item is still refused.
+      expect((await asApp(f, insert, [theirs.grn, theirs.po.items[0]])).code).toBe('23514');
       const req = await openRequest(pool, f, f.owner);
       try {
-        expect(await req.run(() => lockNoteForCancel(f.co, theirs.grn))).toBeNull();
+        await req.client.query('RESET ROLE');
+        const fresh = crypto.randomUUID();
+        await req.client.query(`INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-X', $3, 'x')`,
+          [fresh, other.co, theirs.po.po]);
+        await req.client.query('SET LOCAL ROLE app_user');
+        await expect(req.client.query(insert, [fresh, theirs.po.items[0]])).rejects.toMatchObject({ code: '42501' });
       } finally { await req.rollback(); }
+      const lookup = await openRequest(pool, f, f.owner);
+      try {
+        expect(await lookup.run(() => lockNoteForCancel(f.co, theirs.grn))).toBeNull();
+      } finally { await lookup.rollback(); }
     } finally {
       await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
     }

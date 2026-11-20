@@ -18,7 +18,10 @@ vi.mock('@/services/vfStorageAdapter', () => ({
 }));
 
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
+import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
+import { seedBill } from './helpers/poBillLinkHarness';
+import { autoLinkSupplierInvoice } from '@/modules/accounting/services/core/documentStorageService';
+import { listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import { PDF, put, sha } from './helpers/mcpUploadHarness';
 import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, poState, refusal, seedQtyPo, type Json } from './helpers/grnHarness';
 import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGoodsReceived';
@@ -99,6 +102,32 @@ describe('the delivery note (5)', () => {
     } finally {
       await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [f.co, other.owner]);
     }
+  });
+});
+
+describe('a bill carrying the note (breaker round 2 L2)', () => {
+  it('the note\'s delivery note reaches the bill that carries it, and the bill\'s document reaches the note', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 2, price: 10 }] });
+    const grn = String((await callTool(pool, f, create, grnArgs(po, [[0, 2]]))).body.grn_id);
+    const bytes = PDF(`delivery for the bill ${grn}`);
+    const a = await callTool(pool, f, attach, {
+      entity_type: 'goods_received', entity_id: grn, file_name: 'DN-77.pdf', mime_type: 'application/pdf', content: bytes.toString('base64'),
+    });
+    expect(a.isError, a.text).toBe(false);
+    const bill = await seedBill(pool, f, { status: 'draft', lines: [20] });
+    await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, grn]);
+    const doc = String((await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, is_active)
+      VALUES ('supplier_invoice', $1, 'supplier_invoice', 'bill.pdf', true) RETURNING id`, [bill.id])).rows[0].id);
+    const req = await openRequest(pool, f, f.owner);
+    try {
+      await req.run(() => autoLinkSupplierInvoice(doc, bill.id, f.co));
+      const onBill = await req.run(() => listEntityDocuments(f.co, 'supplier_invoice', bill.id, 50, 0));
+      const onNote = await req.run(() => listEntityDocuments(f.co, 'goods_received', grn, 50, 0));
+      const names = (r: typeof onBill) => (r.ok ? r.documents.map((d) => `${d.source}:${d.documentName}:${d.linkReason ?? ''}`) : []);
+      expect(names(onBill)).toEqual(expect.arrayContaining(['direct:bill.pdf:', expect.stringMatching(/^linked:DN-77.*:grn_invoice_link$/)]));
+      expect(names(onNote)).toEqual(expect.arrayContaining([expect.stringMatching(/^direct:DN-77/), 'linked:bill.pdf:grn_invoice_link']));
+    } finally { await req.rollback(); }
+    await pool.query('DELETE FROM procurement_documents WHERE id = $1', [doc]);
   });
 });
 

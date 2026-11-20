@@ -48,7 +48,7 @@ export const billTieRefusal = tieRefusalText;
 
 /** The refusal text for a PO whose lines / status must not move while a receipt or bill link stands, or null. */
 export async function receiptOrLinkRefusal(companyId: string, poId: string, what: string): Promise<string | null> {
-  if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; unlink or cancel the receipt first`;
+  if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; cancel its goods received notes first (cancel_goods_received)`;
   return billTieRefusal(companyId, poId, what);
 }
 

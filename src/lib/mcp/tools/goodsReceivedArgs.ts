@@ -84,6 +84,9 @@ export function grnRefusal(err: GoodsReceivedError, dryRun: boolean): McpToolRes
         ...(l.code === 'over_receipt' ? { outstanding: l.outstanding, asked: l.asked } : {}),
       })),
     } : {}),
+    ...(d.disagreeing ? {
+      lines: d.disagreeing.map((l) => ({ po_item_id: l.poItemId, line_received: l.lineReceived, note_received: l.noteReceived })),
+    } : {}),
     ...(d.poStatus ? { po_status: d.poStatus } : {}),
     ...(d.existing ? { existing_goods_received: { id: d.existing.id, grn_number: d.existing.grnNumber } } : {}),
     ...(d.bills ? { bills: d.bills.map((b) => ({ id: b.id, invoice_number: b.invoiceNumber })), bills_total: d.billsTotal } : {}),

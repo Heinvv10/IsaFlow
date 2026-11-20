@@ -116,7 +116,7 @@ describe('create_goods_received', () => {
 });
 
 describe('cancel_goods_received', () => {
-  const cancelled = { grnId: GRN, grnNumber: 'GRN-00007', poId: PO, poNumber: 'PO1', poStatusBefore: 'received', poStatusAfter: 'partially_received', items: [] };
+  const cancelled = { grnId: GRN, grnNumber: 'GRN-00007', poId: PO, poNumber: 'PO1', poStatusBefore: 'received', poStatusAfter: 'partially_received', receiptStatus: 'partially_received', items: [] };
   it.each([
     [{ grn_id: 'x' }, 'grn_id is required'],
     [{ reason: '  ' }, 'reason is required'],
@@ -130,7 +130,7 @@ describe('cancel_goods_received', () => {
 
   it('live, dry run, and a refusal naming the bills', async () => {
     cancelMock.mockResolvedValue(cancelled);
-    expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: ' wrong PO ' }, ctx))).toMatchObject({ cancelled: true, status: 'cancelled', po_status: 'partially_received' });
+    expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: ' wrong PO ' }, ctx))).toMatchObject({ cancelled: true, status: 'cancelled', po_status: 'partially_received', receipt_status: 'partially_received' });
     expect(cancelMock).toHaveBeenCalledWith('c1', GRN, ' wrong PO ', { userId: 'u1', via: 'mcp:cancel_goods_received' });
     const dry = await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: 'x', dry_run: true }, ctx);
     expect(dry).toMatchObject({ wroteNothing: true, billable: false });
@@ -138,6 +138,10 @@ describe('cancel_goods_received', () => {
     cancelMock.mockRejectedValue(new GoodsReceivedError('on a bill', 'grn_on_bill', { bills: [{ id: PO, invoiceNumber: 'INV-1' }], billsTotal: 1 }));
     expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: 'x' }, ctx))).toMatchObject({
       code: 'grn_on_bill', bills: [{ id: PO, invoice_number: 'INV-1' }], bills_total: 1, written: false,
+    });
+    cancelMock.mockRejectedValue(new GoodsReceivedError('disagree', 'receipts_disagree', { disagreeing: [{ poItemId: PO, lineReceived: 1, noteReceived: 4 }] }));
+    expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: 'x' }, ctx))).toMatchObject({
+      code: 'receipts_disagree', written: false, lines: [{ po_item_id: PO, line_received: 1, note_received: 4 }],
     });
   });
 });

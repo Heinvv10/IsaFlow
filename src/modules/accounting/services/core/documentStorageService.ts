@@ -275,7 +275,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     if (grnId) {
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'goods_receipt_note', ${grnId}::uuid, 'grn_invoice_link')
+        VALUES (${docId}::uuid, 'goods_received', ${grnId}::uuid, 'grn_invoice_link')
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
     }
@@ -299,7 +299,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     if (grnId) {
       const grnDocs = await sql`
         SELECT id FROM procurement_documents
-        WHERE entity_type = 'goods_receipt_note' AND entity_id = ${grnId}::uuid AND is_active = true
+        WHERE entity_type IN ('goods_received', 'goods_receipt_note') AND entity_id = ${grnId}::uuid AND is_active = true
       `;
       for (const doc of grnDocs) {
         await sql`

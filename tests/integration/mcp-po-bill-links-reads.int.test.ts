@@ -20,6 +20,7 @@ import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder'
 import { getSupplierInvoiceTool as getBill, listSupplierInvoicesTool as listBills } from '@/lib/mcp/tools/supplierInvoices';
 import { getSupplierInvoices, performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { generateSupplierInvoicePdf } from '@/modules/accounting/services/ap/supplierInvoicePdfBuilder';
+import { inOneTransaction } from './helpers/poMaintHarness';
 import { autoLinkSupplierInvoice } from '@/modules/accounting/services/core/documentStorageService';
 
 assertDisposable();
@@ -107,8 +108,10 @@ describe('get_purchase_order', () => {
     await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [cancelled.id]);
     await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [gone.id]);
     const grn = crypto.randomUUID();
-    await pool.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-1', $3, 'x')", [grn, f.co, po.po]);
-    await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]]);
+    await inOneTransaction(pool, async (c) => {
+      await c.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-1', $3, 'x')", [grn, f.co, po.po]);
+      await c.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]]);
+    });
     await pool.query('UPDATE po_items SET quantity_received = 1 WHERE id = $1', [po.items[0]]);
     await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, is_active) VALUES ('purchase_order', $1, 'purchase_order', 'po.pdf', true)`, [po.po]);
 
@@ -126,10 +129,11 @@ describe('get_purchase_order', () => {
 
     // Per-note truncation: a receipt of more lines than the cap says so for that note.
     const big = crypto.randomUUID();
-    await pool.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-2', $3, 'x')", [big, f.co, po.po]);
     const more = await seedPo(pool, f, { lines: [1, 2, 3, 4, 5, 6, 7], status: 'approved' });
-    await pool.query('UPDATE goods_received_notes SET purchase_order_id = $2 WHERE id = $1', [big, more.po]);
-    for (const item of more.items) await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [big, item]);
+    await inOneTransaction(pool, async (c) => {
+      await c.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-2', $3, 'x')", [big, f.co, more.po]);
+      for (const item of more.items) await c.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [big, item]);
+    });
     const wide = await callTool(pool, f, getPo, { po_id: more.po });
     expect((wide.body.goods_received_notes as Json[])[0]).toMatchObject({ items_total: 7, items_truncated: true });
     expect(((wide.body.goods_received_notes as Json[])[0]!.items as Json[])).toHaveLength(5);

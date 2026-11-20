@@ -76,28 +76,27 @@ describe('cancel refusals (4)', () => {
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
   });
 
-  it('a note already cancelled, and a note on a closed or cancelled PO, are refused with nothing written', async () => {
+  it('a note already cancelled, and a note on a cancelled PO, are refused with nothing written (a closed PO: mcp-goods-received-closed)', async () => {
     const { po, grn } = await received(f, [4], [2]);
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'first' })).isError).toBe(false);
     const again = await callTool(pool, f, cancel, { grn_id: grn, reason: 'second' });
     expect(refusal(again.text)).toMatchObject({ code: 'already_cancelled' });
     expect((await grnRows(pool, f)).find((r) => r.id === grn)).toMatchObject({ cancel_reason: 'first' });
 
-    for (const status of ['closed', 'cancelled']) {
-      const x = await received(f, [4], [3]);
-      await pool.query('UPDATE purchase_orders SET status = $2 WHERE id = $1', [x.po.po, status]);
-      const r = await callTool(pool, f, cancel, { grn_id: x.grn, reason: 'x' });
-      expect(refusal(r.text), status).toMatchObject({ code: 'po_not_receivable', po_status: status });
-      expect(await poState(pool, x.po)).toEqual({ status, received: [3] });
-      expect((await grnRows(pool, f)).find((r) => r.id === x.grn)).toMatchObject({ status: 'received' });
-    }
+    // A cancelled PO carries only cancelled notes (purchaseOrderCancel refuses a live one), so this takes a hand edit.
+    const x = await received(f, [4], [3]);
+    await pool.query("UPDATE purchase_orders SET status = 'cancelled' WHERE id = $1", [x.po.po]);
+    const r = await callTool(pool, f, cancel, { grn_id: x.grn, reason: 'x' });
+    expect(refusal(r.text)).toMatchObject({ code: 'po_not_receivable', po_status: 'cancelled' });
+    expect(await poState(pool, x.po)).toEqual({ status: 'cancelled', received: [3] });
+    expect((await grnRows(pool, f)).find((n) => n.id === x.grn)).toMatchObject({ status: 'received' });
     expect(await poState(pool, po)).toEqual({ status: 'approved', received: [0] });
   });
 
   it('a reason is required, and a dry run of a refused cancel answers the same refusal', async () => {
     const { grn } = await received(f, [2], [1]);
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: ' ' })).text).toContain('reason is required');
-    await pool.query("UPDATE purchase_orders SET status = 'closed' WHERE id = (SELECT purchase_order_id FROM goods_received_notes WHERE id = $1)", [grn]);
+    await pool.query("UPDATE purchase_orders SET status = 'cancelled' WHERE id = (SELECT purchase_order_id FROM goods_received_notes WHERE id = $1)", [grn]);
     expect(refusal((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x', dry_run: true })).text)).toMatchObject({ code: 'po_not_receivable', dry_run: true });
   });
 });

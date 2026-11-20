@@ -69,6 +69,6 @@ export async function assertBillRestorableGrn(companyId: string, billId: string)
   `) as DbRow[], () => new RowLockTimeoutError(`Supplier invoice ${billId}`)))[0];
   if (!bill || bill.grn_id == null) return;
   if (await noteStatus(sql, companyId, String(bill.grn_id), true) === 'cancelled') {
-    throw new SoftDeleteRefusalError('This bill names a goods received note that has since been cancelled, so it cannot be restored');
+    throw new SoftDeleteRefusalError('This bill names a goods received note that has since been cancelled, so it cannot be restored; enter the bill again as a new one (naming a live note, or none)');
   }
 }
