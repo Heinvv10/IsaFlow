@@ -6,6 +6,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { FilingFileActions } from '@/components/accounting/sars/returns/FilingFileActions';
+import { availableActions } from '@/components/accounting/sars/returns/returnLifecycleModel';
 import type { ReturnVersionView } from '@/components/accounting/sars/returns/returnLifecycleClient';
 import { V1 } from './helpers/returnLifecycleHarness';
 
@@ -31,4 +32,9 @@ it('a current stamp, or a VAT201, says nothing', () => {
   cleanup();
   show({ ...V1 } as unknown as ReturnVersionView, 'VAT201');
   expect(note()).toBeNull();
+});
+
+it('Mark filed is not offered for an EMP501 stamped @1 (the server refuses it); it is for one stamped @2', () => {
+  expect(availableActions(emp501({ filingFileKind: 'emp501_easyfile@1' }), 'owner', false)).toMatchObject({ file: false, amend: true });
+  expect(availableActions(emp501({ filingFileKind: 'emp501_easyfile@2' }), 'owner', false).file).toBe(true);
 });
