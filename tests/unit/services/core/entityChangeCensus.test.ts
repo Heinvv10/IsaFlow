@@ -41,14 +41,14 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/supplier-merge.ts', 'scripts/import-sage-britech.ts', 'scripts/qa-seed/parties.ts',
     'scripts/qa-seed/reset.ts', 'scripts/seed-prd05-qa-data.ts', `${S}ap/supplierPaymentAuthors.ts`,
     `${S}capture/supplierGraphService.ts`, `${S}core/duplicateMergeService.ts`, `${S}core/migrationContactService.ts`,
-    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
+    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeletePurge.ts`,
     `${S}core/supplierWriteService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
   ],
   customers: [
     'pages/api/accounting/customers-bulk.ts', 'scripts/import-sage-britech.ts', 'scripts/qa-seed/parties.ts',
     'scripts/qa-seed/reset.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/simulate-fy2026-workflows.ts',
     `${S}ar/customerMergeService.ts`, `${S}core/customerWriteService.ts`, `${S}core/migrationContactService.ts`,
-    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
+    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeletePurge.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
   ],
   gl_accounts: [
