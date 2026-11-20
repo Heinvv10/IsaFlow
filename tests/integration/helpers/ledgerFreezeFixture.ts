@@ -130,3 +130,20 @@ export async function document(z: Freeze, kind: 'customer_invoices' | 'supplier_
     VALUES (${fx.companyId}::UUID, 'customer', ${`LCI-${tag}`}, ${fx.customerId}::UUID, '2026-06-10'::DATE, 100, 100,
       ${o.status ?? 'approved'}, ${fx.userId}::UUID, ${link}::UUID) RETURNING id`) as Row[])[0]!.id);
 }
+
+/** A transaction left open as app_user (the caller commits or rolls back and releases): for two-session races. */
+export async function openApp(z: Freeze): Promise<PoolClient> {
+  const c = await z.pool.connect();
+  await c.query('BEGIN');
+  await c.query('SET LOCAL ROLE app_user');
+  await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: z.f.fx.userId, role: 'authenticated' })]);
+  await c.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.fx.companyId]);
+  return c;
+}
+
+/** A posted contra of `original` with `legs` negated, linked as the superuser (the ledger's own reversal). Returns its id. */
+export async function reverseAsSuperuser(z: Freeze, original: string, legs: Leg[]): Promise<string> {
+  const contra = await journal(z, negate(legs));
+  await sql`UPDATE gl_journal_entries SET reversal_of_id = ${original}::UUID, reversed_at = now() WHERE id = ${contra}::UUID`;
+  return contra;
+}
