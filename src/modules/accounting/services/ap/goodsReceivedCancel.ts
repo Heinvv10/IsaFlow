@@ -10,8 +10,9 @@
  * there by hand and has no exit in the tools), a note a bill that is neither deleted nor cancelled carries in
  * `supplier_invoices.grn_id` (grn_on_bill, naming them; cancelling or deleting those bills frees it), and a PO line that would keep
  * less than the PO's other live notes still account for once this note is off, which includes falling below zero (receipts_disagree,
- * naming the lines). Billed quantity above received quantity after a
- * cancel is allowed, as when a bill arrives first.
+ * naming the lines), and a note with an item of a line that is not on the note's PO (items_not_on_po, naming the lines: a legacy row
+ * written before 1021's item guard, which the reversal would skip while reporting success). Billed quantity above received quantity
+ * after a cancel is allowed, as when a bill arrives first.
  *
  * A note on a CLOSED PO cancels: the PO stays closed (closing is a decision, and nothing else reopens it), the quantities come back,
  * and the records of the status it was closed from follow the receipts (`receiptStatus` is that status), so a later reopen is right.
@@ -20,13 +21,19 @@
  * items). It re-decides every refusal under the note lock and answers it instead of writing. This service keeps the guards that
  * name things, the locks and the audit row.
  *
- * Locks, the create's order: number lock 620 -> the PO row FOR UPDATE -> its po_items FOR UPDATE -> (in the function) the note FOR
- * UPDATE. A bill naming the note (create, restore) holds it FOR SHARE (`goods_received_note_hold`) until it commits, after any PO
- * lock it takes: the note lock waits for that bill and the bill check after it sees the bill, or the bill waits and reads `cancelled`.
+ * Locks: the PO row FOR UPDATE -> its po_items FOR UPDATE -> (in the function) the note FOR UPDATE, every wait under ONE row-lock
+ * budget (5 s, `withRowLockBudget`: PURCHASE_ORDER_LOCK_TIMEOUT for the PO rows, ROW_LOCK_TIMEOUT for the note; typed, retryable,
+ * nothing written). NO number lock 620 (merge-gate finding 5): the cancel assigns no number, and it only ever frees an external
+ * reference (live -> cancelled), so a create's check under 620 reads a note it cannot be wrong about, with the partial unique index
+ * behind it; holding 620 while blocked on a PO row stalled every create of the company. A bill naming the note (create, restore)
+ * holds it FOR SHARE (`goods_received_note_hold`) until it commits, after any PO lock it takes: the note lock waits for that bill and
+ * the bill check after it sees the bill, or the bill waits and reads `cancelled`.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { ROW_LOCK_BUDGET_MS, RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { GoodsReceivedError } from './goodsReceivedValidation';
 
 export const CANCEL_REASON_MAX = 500;
@@ -48,20 +55,22 @@ export interface CancelledGoodsReceived {
 export interface NoteForCancel { poId: string; poNumber: string; poStatus: string; grnNumber: string; status: string }
 
 /**
- * Number lock 620, then the note's PO row FOR UPDATE (reached through the note, ONE company filter: the PO's, the note tied to the
- * PO's company by the join) and its lines. Null when the note is not this company's. The note's status read here is stable: only the
- * cancel changes it, and the cancel holds this PO lock first.
+ * The note's PO row FOR UPDATE (reached through the note, ONE company filter: the PO's, the note tied to the PO's company by the
+ * join) and its lines, both waits bounded by `deadline` (PurchaseOrderLockTimeoutError). Null when the note is not this company's.
+ * The note's status read here is stable: only the cancel changes it, and the cancel holds this PO lock first. No number lock.
  */
-export async function lockNoteForCancel(companyId: string, grnId: string): Promise<NoteForCancel | null> {
-  await sql`SELECT public.take_number_lock(${companyId}::text, 620)`;
-  const row = ((await sql`
-    SELECT po.id::text AS po_id, po.po_number, po.status AS po_status, g.grn_number, g.status
-      FROM goods_received_notes g JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
-     WHERE g.id = ${grnId}::uuid AND po.company_id = ${companyId}::uuid
-       FOR UPDATE OF po
-  `) as DbRow[])[0];
+export async function lockNoteForCancel(companyId: string, grnId: string, deadline = Date.now() + ROW_LOCK_BUDGET_MS): Promise<NoteForCancel | null> {
+  const row = await withRowLockBudget(async () => {
+    const found = ((await sql`
+      SELECT po.id::text AS po_id, po.po_number, po.status AS po_status, g.grn_number, g.status
+        FROM goods_received_notes g JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
+       WHERE g.id = ${grnId}::uuid AND po.company_id = ${companyId}::uuid
+         FOR UPDATE OF po
+    `) as DbRow[])[0];
+    if (found) await sql`SELECT pi.id FROM po_items pi WHERE pi.purchase_order_id = ${String(found.po_id)}::uuid ORDER BY pi.id FOR UPDATE OF pi`;
+    return found;
+  }, () => new PurchaseOrderLockTimeoutError(), { deadline });
   if (!row) return null;
-  await sql`SELECT pi.id FROM po_items pi WHERE pi.purchase_order_id = ${String(row.po_id)}::uuid ORDER BY pi.id FOR UPDATE OF pi`;
   // Re-read after the lock (a fresh statement): the join above could return the note as it was before a cancel that held the PO.
   const note = ((await sql`SELECT status FROM goods_received_notes WHERE id = ${grnId}::uuid AND purchase_order_id = ${String(row.po_id)}::uuid`) as DbRow[])[0];
   return {
@@ -87,6 +96,21 @@ async function onBillRefusal(companyId: string, grnId: string, grnNumber: string
 const notReceivable = (poStatus: string) => new GoodsReceivedError(
   `The purchase order is ${poStatus.replace(/_/g, ' ')}, so this goods received note cannot be cancelled here: a ${poStatus.replace(/_/g, ' ')} purchase order should hold no live notes, and this one was changed outside the tools; ask IsaFlow support to repair it`,
   'po_not_receivable', { poStatus });
+
+/** The note's items that name a line not on its PO (ordered), read before the definer is called: it refuses the same, under the lock. */
+async function itemsNotOnPo(grnId: string, poId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT DISTINCT gi.po_item_id::text AS po_item_id FROM grn_items gi
+     WHERE gi.grn_id = ${grnId}::uuid
+       AND NOT EXISTS (SELECT 1 FROM po_items pi WHERE pi.id = gi.po_item_id AND pi.purchase_order_id = ${poId}::uuid)
+     ORDER BY 1
+  `) as DbRow[];
+  return rows.map((r) => String(r.po_item_id));
+}
+
+const notOnPoRefusal = (grnNumber: string, notOnPo: string[]) => new GoodsReceivedError(
+  `${grnNumber} cannot be cancelled: ${notOnPo.length === 1 ? 'an item names a line' : `${notOnPo.length} items name lines`} that ${notOnPo.length === 1 ? 'is' : 'are'} not on its purchase order, so its quantities cannot all come back; ask IsaFlow support to repair it. Nothing was written`,
+  'items_not_on_po', { notOnPo });
 
 async function disagreeRefusal(companyId: string, grnId: string, poId: string, grnNumber: string): Promise<GoodsReceivedError> {
   // The function's own predicate: the line less this note's quantity would fall below what the PO's other live notes account for.
@@ -117,7 +141,9 @@ export async function cancelGoodsReceived(
   const why = reason.trim();
   if (why === '' || why.length > CANCEL_REASON_MAX) throw new GoodsReceivedError(`Give a reason of at most ${CANCEL_REASON_MAX} characters to cancel a goods received note`);
   return withSavepoint('cancel_goods_received', async () => {
-    const note = await lockNoteForCancel(companyId, grnId);
+    // ONE budget for every row-lock wait of the cancel: the PO rows here, the note in the function.
+    const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
+    const note = await lockNoteForCancel(companyId, grnId, deadline);
     if (!note) throw new GoodsReceivedError('Goods received note not found', 'not_found');
     const { poId, grnNumber } = note;
     if (note.status === 'cancelled') throw new GoodsReceivedError(`${grnNumber} is already cancelled`, 'already_cancelled');
@@ -127,13 +153,20 @@ export async function cancelGoodsReceived(
         FROM grn_items gi JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::uuid
        WHERE gi.grn_id = ${grnId}::uuid ORDER BY gi.po_item_id, gi.id
     `) as DbRow[];
+    // Decided on this read, before the function waits on the note lock (items never change: no UPDATE privilege, and an item goes in
+    // only with its note); the function re-decides it for a direct caller.
+    const notOnPo = await itemsNotOnPo(grnId, poId);
+    if (notOnPo.length > 0) throw notOnPoRefusal(grnNumber, notOnPo);
 
-    const done = ((await sql`SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel(${grnId}::uuid, ${why})`) as DbRow[])[0];
+    const done = (await withRowLockBudget(
+      async () => (await sql`SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel(${grnId}::uuid, ${why})`) as DbRow[],
+      () => new RowLockTimeoutError(`Goods received note ${grnNumber}`), { deadline }))[0];
     const outcome = String(done?.outcome ?? 'not_found');
     if (outcome === 'grn_on_bill') throw await onBillRefusal(companyId, grnId, grnNumber);
     if (outcome === 'already_cancelled') throw new GoodsReceivedError(`${grnNumber} is already cancelled`, 'already_cancelled');
     if (outcome === 'po_not_receivable') throw notReceivable(String(done!.po_status));
     if (outcome === 'receipts_disagree') throw await disagreeRefusal(companyId, grnId, poId, grnNumber);
+    if (outcome === 'items_not_on_po') throw notOnPoRefusal(grnNumber, await itemsNotOnPo(grnId, poId));
     if (outcome !== 'cancelled') throw new GoodsReceivedError('Goods received note not found', 'not_found');
     const after = String(done!.po_status);
     const receiptStatus = String(done!.receipt_status);

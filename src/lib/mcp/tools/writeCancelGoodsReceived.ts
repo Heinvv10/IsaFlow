@@ -4,7 +4,8 @@
  * POSTS NOTHING. A note on a CLOSED PO cancels (the PO stays closed; receipt_status says what its receipts now give). Refused:
  * already_cancelled, po_not_receivable (a cancelled PO, which carries only cancelled notes), grn_on_bill (a bill that is neither
  * deleted nor cancelled carries the note; the bills are named; cancelling or deleting them frees it), receipts_disagree (a PO line
- * would keep less than the PO's other live notes account for), not_found. Managers and above (the write fence). dry_run runs the real service in a rolled-back
+ * would keep less than the PO's other live notes account for), items_not_on_po (an item names a line of another PO: a legacy row),
+ * not_found. Row-lock waits are bounded (5 s, a typed retryable lock timeout); no number lock. Managers and above (the write fence). dry_run runs the real service in a rolled-back
  * savepoint and leaves the key free. Free (purchaseOrderFlow).
  */
 import type { McpTool } from '../types';
@@ -25,7 +26,8 @@ export const cancelGoodsReceivedTool: McpTool = {
     + 'A note on a CLOSED purchase order can be cancelled: the PO stays closed (receipt_status in the answer is what its receipts now give, and what it reopens to). '
     + 'Refused (JSON {refused, code, message}): already_cancelled; po_not_receivable when the PO is cancelled (a cancelled PO should hold no live notes; only IsaFlow support can repair one that does); '
     + 'grn_on_bill when a bill that is neither deleted nor cancelled carries this note (the bills are named: cancel or delete those bills first); '
-    + 'receipts_disagree when taking this note off would leave a PO line with less than the PO\'s other live notes still account for (the lines are named; IsaFlow support repairs it); not_found. '
+    + 'receipts_disagree when taking this note off would leave a PO line with less than the PO\'s other live notes still account for (the lines are named; IsaFlow support repairs it); '
+    + 'items_not_on_po when an item of the note names a line of another purchase order (an old record; the lines are named; IsaFlow support repairs it); not_found. '
     + 'Billed quantity above received quantity is allowed after a cancel, as when a bill arrives before the goods. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,

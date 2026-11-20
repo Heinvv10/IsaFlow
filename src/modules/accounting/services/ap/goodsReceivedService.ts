@@ -2,7 +2,7 @@
  * Goods receipts: the app's POST /api/accounting/goods-received and MCP create_goods_received run the same `receiveGoods`.
  * Posts nothing: a receipt records quantities (grn_items, po_items.quantity_received) and moves the PO status; the ledger moves
  * when the bill is approved. Locks, first first: number lock 620 (the GRN-NNNNN sequence, scope the company), the PO row
- * `FOR UPDATE`, its po_items `FOR UPDATE`. Nothing takes 620 after a PO row (cancel takes the same order). Every refusal is a
+ * `FOR UPDATE`, its po_items `FOR UPDATE`. Nothing takes 620 after a PO row (the cancel takes no 620 at all: PO -> po_items -> note). Every refusal is a
  * typed `GoodsReceivedError` raised before the first write, every refused line listed: all or nothing. Audited.
  */
 import { sql, withTransaction } from '@/lib/neon';
@@ -59,7 +59,11 @@ export async function recomputePoReceiptStatus(companyId: string, poId: string):
   return String(rows[0]!.status);
 }
 
-/** The live (not cancelled) note of this company holding (system, ref), or null. Read under lock 620, which every receipt writer holds. */
+/**
+ * The live (not cancelled) note of this company holding (system, ref), or null. Read under lock 620, which every create holds, so two
+ * creates never both pass; the cancel takes no 620, but it only ever frees a reference (live -> cancelled), so a create that reads a
+ * note as live while its cancel is uncommitted refuses (retry once it commits), and goods_received_notes_external_ref_uq is behind it.
+ */
 export async function liveNoteWithRef(companyId: string, system: string, ref: string): Promise<{ id: string; grnNumber: string } | null> {
   const row = ((await sql`
     SELECT id::text AS id, grn_number FROM goods_received_notes
