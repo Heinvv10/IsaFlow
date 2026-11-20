@@ -275,9 +275,11 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
         start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
       [A, monthlyEmp, acct]);
       await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+      // The run's employee paid weekly too: FQd costs weekly runs, so the order is the ONLY reason left (rev #1622).
+      await c.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE company_id = $1", [A]);
     }, async () => {
       for (const action of ['calculate', 'approve', 'post'] as const) {
-        expect(clauses(await refusal(action)), action).toContain('garnishee_frequency');
+        expect(clauses(await refusal(action)), action).toEqual(['garnishee_frequency']);
       }
       for (const action of ['reopen', 'payslip'] as const) {
         expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');
