@@ -204,6 +204,15 @@ describe('getCustomerPayments', () => {
       expect(strings.join('').replace(/\s+/g, ' ')).toContain('ORDER BY cp.payment_date DESC, cp.id DESC LIMIT');
     });
 
+  it('is an object with a payments array and a numeric total, never a bare array (the allocation pages need `total` to know the list is whole)', async () => {
+    mockSql.mockResolvedValueOnce([samplePaymentRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    const out = await getCustomerPayments(COMPANY_ID, { limit: 200, offset: 0 });
+    expect(Array.isArray(out)).toBe(false);
+    expect(Array.isArray(out.payments)).toBe(true);
+    expect(typeof out.total).toBe('number');
+    expect(out.total).toBe(1);
+  });
+
   it('propagates sql errors to the caller', async () => {
     mockSql.mockRejectedValueOnce(new Error('DB connection failed'));
     await expect(getCustomerPayments(COMPANY_ID)).rejects.toThrow('DB connection failed');

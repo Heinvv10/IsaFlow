@@ -48,7 +48,11 @@ async function readPage(url: string, message: string, keys: readonly string[]): 
   const json = await res.json();
   const d = json.data;
   const rows: Raw[] = Array.isArray(d) ? d : keys.map(k => d?.[k]).find(Array.isArray) ?? [];
-  // a bare array has no paging envelope, so it is the whole list; an object without `total` is unknown
+  // A bare array has no paging envelope, so it is read as the whole list. The four list endpoints this file pages
+  // (supplier-payments, supplier-invoices, customer-payments, customer-invoices-list) never answer one: they return
+  // `{ <rows>, total }`, pinned by their service/handler tests (supplierPaymentService, supplierInvoiceQueryService,
+  // customerPaymentService, customerInvoicesList). The branch is for legacy or mocked shapes only; an object without
+  // `total` is unknown.
   const raw = Array.isArray(d) ? rows.length : d?.total;
   const total = raw === undefined || raw === null || !Number.isFinite(Number(raw)) ? null : Number(raw);
   return { rows, total };
