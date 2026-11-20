@@ -1,7 +1,46 @@
 import type { GRNInput } from './procurementService';
-export class GoodsReceivedError extends Error {
-  constructor(message: string, readonly notFound = false) { super(message); }
+
+/** What a goods receipt (create or cancel) was refused for. The MCP tools answer with it; the app route with the message. */
+export type GoodsReceivedRefusalCode =
+  | 'invalid' | 'not_found' | 'po_not_receivable' | 'over_receipt' | 'line_not_on_po' | 'duplicate_line'
+  | 'duplicate_external_ref' | 'already_cancelled' | 'grn_on_bill';
+
+/** One refused receipt line: its position in the request, its PO line, and (over_receipt) the quantities. */
+export interface GoodsReceivedLineRefusal {
+  index: number;
+  poItemId: string;
+  code: 'over_receipt' | 'line_not_on_po' | 'duplicate_line';
+  /** over_receipt: ordered less already received on that PO line. */
+  outstanding?: number;
+  /** over_receipt: the quantity_received asked for. */
+  asked?: number;
 }
+
+export interface GoodsReceivedRefusalDetails {
+  lines?: GoodsReceivedLineRefusal[];
+  /** po_not_receivable: the PO's status. */
+  poStatus?: string;
+  /** duplicate_external_ref: the note that holds the reference. */
+  existing?: { id: string; grnNumber: string };
+  /** grn_on_bill: the bills that carry the note (ten at most) and how many there are. */
+  bills?: Array<{ id: string; invoiceNumber: string }>;
+  billsTotal?: number;
+}
+
+/**
+ * A refused goods receipt, raised before anything is written. `refusal` is the typed reason; the message is fixed wording that
+ * names at most the caller's own documents and quantities. Its code is on the MCP REFUSAL_CODES.
+ */
+export class GoodsReceivedError extends Error {
+  readonly code = 'GOODS_RECEIVED_REFUSED';
+  constructor(message: string, readonly refusal: GoodsReceivedRefusalCode = 'invalid', readonly details: GoodsReceivedRefusalDetails = {}) {
+    super(message);
+    this.name = 'GoodsReceivedError';
+  }
+  /** The app route answers 404 for this one. */
+  get notFound(): boolean { return this.refusal === 'not_found'; }
+}
+
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GoodsReceivedError('Invalid receipt');
@@ -38,6 +77,12 @@ export function parseGoodsReceived(input: unknown, userId: string): GRNInput {
     if (result.quantityReceived === 0 && result.quantityRejected === 0) throw new GoodsReceivedError('Each line must record received or rejected goods');
     return result;
   });
-  if (new Set(items.map(item => item.poItemId)).size !== items.length) throw new GoodsReceivedError('A purchase order line may appear only once per receipt');
+  const seen = new Set<string>();
+  const repeats: GoodsReceivedLineRefusal[] = [];
+  items.forEach((item, index) => {
+    if (seen.has(item.poItemId)) repeats.push({ index, poItemId: item.poItemId, code: 'duplicate_line' });
+    seen.add(item.poItemId);
+  });
+  if (repeats.length > 0) throw new GoodsReceivedError('A purchase order line may appear only once per receipt', 'duplicate_line', { lines: repeats });
   return { purchaseOrderId: id(body.purchaseOrderId), receivedDate: date, receivedBy: text(body.receivedBy) ?? userId, notes: text(body.notes), items };
 }

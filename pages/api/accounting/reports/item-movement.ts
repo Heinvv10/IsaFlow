@@ -34,6 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
           AND gi.product_id = ${itemId}
+          AND g.status <> 'cancelled'
           AND g.received_date >= ${from} AND g.received_date <= ${to}
       `;
     } else {
@@ -46,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
           AND g.received_date IS NOT NULL
+          AND g.status <> 'cancelled'
           AND g.received_date >= ${from} AND g.received_date <= ${to}
       `;
     }
