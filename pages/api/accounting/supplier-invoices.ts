@@ -82,8 +82,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // P5-3 security review: each line's PO line must be this company's (and of purchaseOrderId when named), ahead
     // of the reservation too; the service checks again.
     await assertBillPoLinks(companyId, purchaseOrderId, String(supplierId), safeItems);
-    // The bill's goods received note (this company's, not cancelled), ahead of the reservation too; the service checks again under a lock.
-    await assertBillGrn(companyId, grnId);
+    // The bill's goods received note (this company's, not cancelled, on a PO of this supplier the bill names), ahead of the reservation
+    // too; the service checks again under a lock.
+    await assertBillGrn(companyId, grnId, { supplierId: String(supplierId), purchaseOrderId, items: safeItems });
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

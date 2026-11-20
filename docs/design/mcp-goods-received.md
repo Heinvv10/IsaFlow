@@ -45,7 +45,8 @@ A GRN does not post to the general ledger. It records quantities only: there is 
 `supplier_invoices.grn_id` has NO foreign key (migration 201 created it without one; 246b's `ADD COLUMN ... REFERENCES` was skipped because the column existed), so the database ties nothing. The one writer is `createSupplierInvoice` (the REST create; MCP, bulk, import, recurring and capture creates never set it; no update writes it), plus the undo of a soft-deleted bill, which makes a bill live again. Both go through `ap/billGoodsReceivedLink.ts`:
 
 - the create refuses a malformed id, a note that is not this company's (or does not exist) and a cancelled note (`SUPPLIER_INVOICE_GRN_REFUSED`, 400; the REST route checks ahead of its number reservation too);
-- the undo refuses a bill whose note (of this company) was cancelled while the bill was deleted;
+- the note must agree with the bill (merge-gate finding 1, decided for Hein): its PO is a PO of the bill's supplier, and when the bill names POs (its header `purchase_order_id`, the POs its lines' `po_item_id`s belong to) the note's PO is one of them. A bill for supplier B naming a live note on supplier A's PO in the same company is refused, on the create, the REST pre-check and the undo alike (same refusal);
+- the undo refuses a bill whose note (of this company) was cancelled while the bill was deleted, or does not agree with it as above (the POs it names include its link rows);
 - both hold the note `FOR SHARE` (`goods_received_note_hold`) and judge it under that lock. The cancel takes the note `FOR UPDATE` and then looks for live bills, so exactly one wins: never a cancelled note with a live bill.
 
 Decided: a typed check under a row lock, not a foreign key. Adding the FK means validating whatever production holds (dangling ids are possible after 201) and still would not see the note's status.
@@ -91,6 +92,6 @@ A bill that carries the note (`supplier_invoices.grn_id`) gets the note's docume
 8. dry_run writes nothing, and a live call with the same key then succeeds.
 9. The GL is unchanged by create and by cancel.
 10. Racing two creates for the same remaining quantity: one succeeds and the other is refused as `over_receipt`.
-11. A bill create refuses a cancelled, foreign, unknown or malformed note; the undo of a deleted bill refuses a note cancelled meanwhile; a bill create and a cancel of its note, interleaved both ways and raced, end in one outcome (`mcp-goods-received-bills`).
+11. A bill create refuses a cancelled, foreign, unknown or malformed note, a note on another supplier's PO and a note on a PO other than the ones the bill names (header or lines), and the undo refuses the same (`mcp-goods-received-bill-supplier`); the undo of a deleted bill refuses a note cancelled meanwhile; a bill create and a cancel of its note, interleaved both ways and raced, end in one outcome (`mcp-goods-received-bills`).
 12. As app_user a forged cancel UPDATE, an item edit and DELETEs of notes or items are refused; no item goes onto another company's note, or onto an existing one; receipts that disagree with their PO line are a typed refusal (`mcp-goods-received-db`).
 13. After every note is cancelled, the PO can be cancelled and its header edited (`mcp-goods-received-po-loop`).
