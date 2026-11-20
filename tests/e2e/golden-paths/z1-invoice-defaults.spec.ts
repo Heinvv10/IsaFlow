@@ -93,7 +93,7 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: true });
 };
 
-interface StoredInvoice { status: string; due_date: string; tax_rate: string | number; subtotal: string | number; total_amount: string | number; amounts_are?: string | null; items: { unit_price: string | number; amount: string | number }[] }
+interface StoredInvoice { status: string; due_date: string; tax_rate: string | number; subtotal: string | number; total_amount: string | number; amounts_are?: string | null; items: { unit_price: string | number; amount: string | number; vat_type?: string | null; tax_amount?: string | number | null }[] }
 
 test('a customer with terms and a discount fills the form; 115 incl stores unit_price 115, inclusive', async ({ page, context, baseURL }) => {
   const api = await sandbox(context, baseURL!);
@@ -122,6 +122,7 @@ test('a customer with terms and a discount fills the form; 115 incl stores unit_
     expect(inv.status).toBe('draft');
     expect(Number(inv.items[0]!.unit_price)).toBe(115);
     expect(Number(inv.items[0]!.amount)).toBe(100);
+    expect([inv.items[0]!.vat_type, Number(inv.items[0]!.tax_amount)]).toEqual(['standard', 15]); // typed per line, end to end
     expect(inv.amounts_are).toBe('inclusive');
     expect(Number(inv.tax_rate)).toBe(15);
     expect(Number(inv.total_amount)).toBe(115);
@@ -174,6 +175,7 @@ test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back; saved
     const inv = await api.get<StoredInvoice>(`/api/accounting/customer-invoices-detail?id=${id}`);
     expect(inv.items.map((i) => Number(i.unit_price)).sort((a, b) => b - a)).toEqual(prices);
     expect(inv.items.map((i) => Number(i.amount)).sort((a, b) => b - a)).toEqual([1000, 500]);
+    expect(inv.items.map((i) => i.vat_type)).toEqual(['standard', 'standard']);
     expect([Number(inv.subtotal), Number(inv.tax_rate), Number(inv.total_amount)]).toEqual([1500, 15, 1725]);
   };
   const edit = async () => {
@@ -230,6 +232,7 @@ test('a zero-rated customer selects No VAT and stores tax_rate 0', async ({ page
     expect(Number(inv.tax_rate)).toBe(0);
     expect(Number(inv.total_amount)).toBe(115);
     expect(Number(inv.items[0]!.unit_price)).toBe(115);
+    expect([inv.items[0]!.vat_type, Number(inv.items[0]!.tax_amount)]).toEqual(['zero_rated', 0]); // a zero-rated customer's line
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }

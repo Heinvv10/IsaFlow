@@ -51,7 +51,11 @@ async function textOf(res: { state: { statusCode: number; body: unknown } }): Pr
 /** A rand figure as the PDF prints it (fmtZAR), read back with its no-break space as a space. */
 const zar = (n: number | string) => `R ${Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
-/** The new page's body for 3 × R10 including VAT: R8.70 a unit, R26.10 + R3.92 = R30.02 (a float price says R30.00). */
+/**
+ * An API body pricing 3 x R10 incl. the way the new page did before the per-line VAT writers: the price pre-converted
+ * to ex-VAT (exclusive), R8.70 a unit, R26.10 + R3.92 = R30.02 (a float price says R30.00). The page now sends 10 with
+ * amountsAre inclusive, which totals exactly R30.00 (invoice-line-vat-writers, invoiceEditRoundTrip).
+ */
 const BODY = () => ({
   clientId: customer, invoiceDate: '2026-11-06', dueDate: '', billingPeriodStart: '2026-11-06', billingPeriodEnd: '2026-11-06',
   taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '',

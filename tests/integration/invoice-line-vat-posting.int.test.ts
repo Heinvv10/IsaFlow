@@ -79,7 +79,7 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
   });
 
   it('a wholly exempt typed invoice posts no VAT leg; its drill-down label and standard-rated base say so', async () => {
-    // The header keeps the 15% the create service wrote: a legacy read would call it standard-rated.
+    // The header keeps the 15% create wrote for the standard line typeLines re-types exempt: a legacy read would call it standard-rated.
     const id = await draft('2026-09-15', [{ description: 'Rent', unitPrice: 1000 }]);
     await typeLines(id, { Rent: ['exempt', 0] }, { tax: 0 });
     const { glJournalEntryId } = await approve(id);
