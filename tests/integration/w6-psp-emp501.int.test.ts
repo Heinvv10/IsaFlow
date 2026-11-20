@@ -13,6 +13,8 @@ import returns from '../../pages/api/payroll/emp501/returns/index';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import file from '../../pages/api/accounting/sars/returns/[form]/file';
 import filingFile from '../../pages/api/accounting/sars/returns/[form]/filing-file';
+import { assembleEasyFileInput } from '../../src/modules/accounting/services/payroll/easyFileInput';
+import { buildIrp5File } from '../../src/modules/accounting/services/payroll/easyFileExportService';
 import { emp501FileOf } from '../../src/modules/accounting/services/returns/emp501FilingFile';
 
 type Row = Record<string, unknown>;
@@ -198,6 +200,11 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     const r = await finaliseEmp501(rf);
     expect(r.status).toBe(409);
     expect(JSON.stringify(r.body)).toContain('modulus 10');
+    // The ad-hoc e@syFile export agrees: the PSP is off the file, named, and the file builds.
+    const input = await assembleEasyFileInput(rf.fx.companyId, 2026, 'interim');
+    expect(input.pspCertificates).toEqual([]);
+    expect(input.warnings.some((w) => w.includes('Pspco') && w.includes('cannot be filed'))).toBe(true);
+    expect(buildIrp5File({ employer: input.employer, employees: input.employees, pspCertificates: input.pspCertificates, filingDate: 'warn' })).toContain('6010,2');
   });
 
   it('C (review L4): a legacy EMP201 that left the PSP out refuses, and the message says the figure is certificates plus PSP', async () => {
