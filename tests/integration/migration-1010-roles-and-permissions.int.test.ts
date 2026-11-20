@@ -21,7 +21,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const MIGRATION = readFileSync('scripts/migrations/sql/1010_unify_company_roles.sql', 'utf8');
 const company = crypto.randomUUID();
 const ids = { owner: crypto.randomUUID(), book: crypto.randomUUID(), store: crypto.randomUUID(), mgr: crypto.randomUUID(), acct: crypto.randomUUID() };
-const MODULES = [['suppliers', 'Suppliers & AP', 30], ['customers', 'Customers & AR', 20]] as const;
+const MODULES = [['suppliers', 'Suppliers & AP', 30], ['customers', 'Customers & AR', 20], ['payroll', 'Payroll', 130]] as const;
 const seededModules: string[] = [];
 let inviteId = '';
 
@@ -92,12 +92,17 @@ afterAll(async () => {
 }, 60000);
 
 describe('migration 1010: the legacy mapping', () => {
-  it('bookkeeper → manager with a row per module: manager defaults, never approve (its own row loses approve)', async () => {
+  it('bookkeeper → manager with a row per module: manager defaults, never approve (its own row loses approve), nothing on Payroll', async () => {
     expect(await roleOf(ids.book)).toBe('manager');
     expect(await permsOf(ids.book)).toEqual([
       { module_key: 'customers', can_read: true, can_write: false, can_delete: false, can_export: false, can_approve: false },
+      { module_key: 'payroll', can_read: false, can_write: false, can_delete: false, can_export: false, can_approve: false },
       { module_key: 'suppliers', can_read: true, can_write: true, can_delete: false, can_export: true, can_approve: false },
     ]);
+  });
+
+  it("adds the 'budgets' permission module", async () => {
+    expect((await pool.query("SELECT module_name FROM permission_modules WHERE module_key = 'budgets'")).rows).toEqual([{ module_name: 'Budgets' }]);
   });
 
   it('storeman → viewer; owner untouched; the pending technician invitation → viewer; users.role accountant → manager', async () => {
@@ -117,7 +122,10 @@ describe('migration 1010: the legacy mapping', () => {
   it('records every change: the memberships, the legacy permission rows (old value or none), the invitation and the users row', async () => {
     const recorded = await backup();
     const legacy = recorded.filter((r) => r.source_table === 'company_user_permissions_legacy');
-    expect(legacy.map((r) => r.old_role).sort()).toEqual(['can_approve=true', 'no row']);
+    // The old row as JSON (restorable, the 1010 header's rollback), or 'no row' (the rollback deletes it).
+    expect(legacy.map((r) => r.old_role).sort()).toEqual([
+      '{"can_read" : true, "can_write" : false, "can_delete" : false, "can_export" : false, "can_approve" : true}', 'no row', 'no row']);
+    expect(legacy.map((r) => r.new_role).sort()).toEqual(['can_approve=false', 'can_approve=false', 'no access']);
     expect(recorded.filter((r) => r.source_table === 'company_invitations')).toEqual(
       [{ source_table: 'company_invitations', old_role: 'technician', new_role: 'viewer' }]);
     expect(recorded.filter((r) => r.source_table === 'users')).toEqual(

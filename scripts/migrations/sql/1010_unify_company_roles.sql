@@ -20,6 +20,10 @@
 -- "Without approve": for each promoted membership, one company_user_permissions
 -- row per module with the manager defaults (read, write, export) and
 -- can_approve = false; a row it already had keeps its flags but loses approve.
+-- Payroll gets nothing at all (read, write, export, approve false: Hein,
+-- 2026-11-19, "gate everything"), so withPayrollDetailAccess refuses them.
+--
+-- A 'budgets' permission module is added (budget-version approve asks it).
 --
 -- Managers' saved rows (review of #1670, M1): before #1656 the User Access grid
 -- showed a manager every module all-off and approve was enforced nowhere, so a
@@ -49,6 +53,36 @@
 -- Both guards are patched in place, as 916 did, so rules added since stay;
 -- a body that holds neither the old nor the new text stops the migration.
 -- No DROP, no DELETE; users_role_check is left as it is.
+--
+-- ROLLBACK (review of #1670, N2). Code first: scripts/rollback-deploy.sh. Then,
+-- only if the old values must come back, from role_values_1656_backup (b):
+--   memberships   UPDATE company_users cu SET role = b.old_role FROM role_values_1656_backup b
+--                 WHERE b.source_table = 'company_users' AND cu.id::text = b.row_id AND b.old_role <> b.new_role;
+--   invitations   UPDATE company_invitations ci SET role = b.old_role FROM role_values_1656_backup b
+--                 WHERE b.source_table = 'company_invitations' AND ci.id::text = b.row_id;
+--   users.role    UPDATE users u SET role = b.old_role FROM role_values_1656_backup b
+--                 WHERE b.source_table = 'users' AND u.id = b.row_id;
+--   legacy rows   rows 1010 inserted (old_role 'no row'): DELETE FROM company_user_permissions p USING role_values_1656_backup b
+--                 WHERE b.source_table = 'company_user_permissions_legacy' AND b.old_role = 'no row'
+--                   AND p.company_id::text || ':' || p.user_id || ':' || p.module_key = b.row_id;
+--                 rows 1010 changed (old_role is the old row as JSON): UPDATE company_user_permissions p SET
+--                   can_read = (b.old_role::json->>'can_read')::boolean, can_write = (b.old_role::json->>'can_write')::boolean,
+--                   can_delete = (b.old_role::json->>'can_delete')::boolean, can_export = (b.old_role::json->>'can_export')::boolean,
+--                   can_approve = (b.old_role::json->>'can_approve')::boolean
+--                 FROM role_values_1656_backup b WHERE b.source_table = 'company_user_permissions_legacy' AND b.old_role <> 'no row'
+--                   AND p.company_id::text || ':' || p.user_id || ':' || p.module_key = b.row_id;
+--   M1 rows       UPDATE company_user_permissions p SET can_approve = CASE b.old_role WHEN 'can_approve=null' THEN NULL ELSE false END
+--                 FROM role_values_1656_backup b WHERE b.source_table = 'company_user_permissions' AND p.id::text = b.row_id;
+--   default       ALTER TABLE company_users ALTER COLUMN role SET DEFAULT 'user';
+--   guards        re-run the DO block below with each old/new pair swapped, or restore them from the pre-release dump;
+--   1010b         ALTER TABLE company_user_permissions DISABLE TRIGGER company_user_permissions_write_guard;
+--   'budgets'     the permission_modules row may stay (old code never reads it).
+-- WARNING, old code on the new schema (rollback-deploy.sh alone, the usual case):
+--   the old admin link form defaults to 'bookkeeper', which the patched guard refuses (RC007): pick admin or
+--   viewer; the old legacy invite route still accepts storeman / technician (it writes as migration_admin, which
+--   the guards do not bind); old code enforces no permission row, so former accountants / bookkeepers write AND
+--   approve as managers until new code is back; the 1010b trigger keeps refusing permission writes by anyone but
+--   an owner or admin (old code's route already required that).
 
 CREATE TABLE IF NOT EXISTS public.role_values_1656_backup (
   source_table text NOT NULL,
@@ -58,6 +92,10 @@ CREATE TABLE IF NOT EXISTS public.role_values_1656_backup (
   backed_up_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (source_table, row_id)
 );
+INSERT INTO public.permission_modules (module_key, module_name, display_order)
+VALUES ('budgets', 'Budgets', 125)
+ON CONFLICT (module_key) DO NOTHING;
+
 -- Not for the app pools: RLS on with no policy, so only BYPASSRLS roles
 -- (migration_admin, platform_admin) and the owner read it.
 ALTER TABLE public.role_values_1656_backup ENABLE ROW LEVEL SECURITY;
@@ -83,6 +121,9 @@ FROM public.users u
 WHERE u.role IN ('accountant', 'bookkeeper')
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
+-- Before any row is rewritten (review of #1670, N3): a membership inserted without a role from here on is a viewer.
+ALTER TABLE public.company_users ALTER COLUMN role SET DEFAULT 'viewer';
+
 -- M1: managers' existing rows get approve, once (see the header).
 DO $$
 BEGIN
@@ -106,7 +147,9 @@ END $$;
 -- Accountant / bookkeeper memberships: manager without approve, written before the role changes.
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
 SELECT 'company_user_permissions_legacy', cu.company_id::text || ':' || cu.user_id || ':' || pm.module_key,
-       COALESCE('can_approve=' || p.can_approve::text, 'no row'), 'can_approve=false'
+       COALESCE(json_build_object('can_read', p.can_read, 'can_write', p.can_write, 'can_delete', p.can_delete,
+                                  'can_export', p.can_export, 'can_approve', p.can_approve)::text, 'no row'),
+       CASE WHEN pm.module_key = 'payroll' THEN 'no access' ELSE 'can_approve=false' END
 FROM public.company_users cu
 CROSS JOIN public.permission_modules pm
 LEFT JOIN public.company_user_permissions p
@@ -116,11 +159,18 @@ ON CONFLICT (source_table, row_id) DO NOTHING;
 
 INSERT INTO public.company_user_permissions
   (company_id, user_id, module_key, can_read, can_write, can_delete, can_export, can_approve)
-SELECT cu.company_id, cu.user_id, pm.module_key, true, true, false, true, false
+SELECT cu.company_id, cu.user_id, pm.module_key,
+       pm.module_key <> 'payroll', pm.module_key <> 'payroll', false, pm.module_key <> 'payroll', false
 FROM public.company_users cu
 CROSS JOIN public.permission_modules pm
 WHERE cu.role IN ('accountant', 'bookkeeper')
-ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET can_approve = false, updated_at = now();
+ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
+  can_approve = false,
+  can_read   = CASE WHEN EXCLUDED.module_key = 'payroll' THEN false ELSE company_user_permissions.can_read END,
+  can_write  = CASE WHEN EXCLUDED.module_key = 'payroll' THEN false ELSE company_user_permissions.can_write END,
+  can_delete = CASE WHEN EXCLUDED.module_key = 'payroll' THEN false ELSE company_user_permissions.can_delete END,
+  can_export = CASE WHEN EXCLUDED.module_key = 'payroll' THEN false ELSE company_user_permissions.can_export END,
+  updated_at = now();
 
 UPDATE public.company_users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
 WHERE role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
@@ -129,8 +179,6 @@ UPDATE public.company_invitations SET role = 'viewer'
 WHERE accepted_at IS NULL AND role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
 
 UPDATE public.users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END WHERE role IN ('accountant', 'bookkeeper');
-
-ALTER TABLE public.company_users ALTER COLUMN role SET DEFAULT 'viewer';
 
 -- 2 and 3: patch each guard's role list and its message in place.
 DO $$

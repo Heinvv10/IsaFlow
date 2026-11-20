@@ -39,6 +39,8 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION public.company_user_permissions_write_guard() FROM PUBLIC;
+-- Review of #1670 (N4): owned by migration_admin, as 1000 / 1002 / 1006 / 1012 own theirs.
+ALTER FUNCTION public.company_user_permissions_write_guard() OWNER TO migration_admin;
 
 CREATE OR REPLACE TRIGGER company_user_permissions_write_guard
   BEFORE INSERT OR UPDATE OR DELETE ON public.company_user_permissions
