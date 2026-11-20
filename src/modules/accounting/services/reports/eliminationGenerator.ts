@@ -42,8 +42,12 @@ async function createUnlessStanding(created: ConsolidationAdjustment[], groupId:
   }
 }
 
+/** A manual row the generator did not eliminate because it is the same sale as a mirrored document (whose elimination is derived). */
+export interface SkippedEliminationRow { transactionId: string; reason: string }
+
+/** `skipped`, when given, receives the manual rows left out as duplicates of a mirrored document, with why. */
 export async function autoGenerateEliminations(
-  groupId: string, periodStart: string, periodEnd: string
+  groupId: string, periodStart: string, periodEnd: string, skipped: SkippedEliminationRow[] = [],
 ): Promise<ConsolidationAdjustment[]> {
   try {
     // Two runs for one group are serialised (the request transaction holds this to commit), so the per-row skip below sees the other run's rows
@@ -57,7 +61,8 @@ export async function autoGenerateEliminations(
     if (held.length === 0) throw new Error('autoGenerateEliminations must run inside a transaction (its per-group advisory lock is transaction-scoped)');
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description
+             ict.transaction_type, ict.amount, ict.description,
+             public.intercompany_mirrored_duplicate(ict.id) AS mirrored_duplicate
       FROM intercompany_transactions ict
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND NOT public.intercompany_is_mirrored_row(ict.id) -- a mirrored document's elimination is derived from the ledgers (mirrorEliminations.ts), never stored
@@ -67,6 +72,13 @@ export async function autoGenerateEliminations(
     const created: ConsolidationAdjustment[] = [];
 
     for (const tx of icTxRows) {
+      // A manual (P1) row for a sale that is also mirrored: the mirrored document's elimination is derived from the ledgers, so storing one for
+      // this row would eliminate the sale twice once posted. Left out, and said why.
+      if (tx.mirrored_duplicate) {
+        skipped.push({ transactionId: String(tx.id), reason: String(tx.mirrored_duplicate) });
+        log.warn('Manual intercompany row not eliminated: it is the same sale as a mirrored document', { groupId, transactionId: String(tx.id), reason: String(tx.mirrored_duplicate) }, 'accounting');
+        continue;
+      }
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are serialised by
       // the lock above; where 1019 could build the partial unique index on consolidation_adjustments(source_intercompany_id), a duplicate insert
       // is also refused there (23505, mapped to EliminationAlreadyStandsError) and skipped.
@@ -103,7 +115,7 @@ export async function autoGenerateEliminations(
       }
     }
 
-    log.info('Auto-generated elimination adjustments', { groupId, count: created.length }, 'accounting');
+    log.info('Auto-generated elimination adjustments', { groupId, count: created.length, skipped: skipped.length }, 'accounting');
     return created;
   } catch (err) {
     log.error('Failed to auto-generate eliminations', { groupId, error: err }, 'accounting');

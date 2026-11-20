@@ -260,7 +260,7 @@ export async function getConsolidatedBalanceSheet(
       }
     }
 
-    for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate)) {
+    for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate, { balanceSheetOnly: true })) {   // (only balance-sheet lines are read below)
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;
       entry.eliminationAmount += balanceByAccountType(entry.category, elim.debit - elim.credit);

@@ -8,7 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { getMirroredEliminations } from './mirrorEliminations';
+import { getMirroredEliminations, mirroredLinesReachBalanceSheet } from './mirrorEliminations';
 
 type Row = DbRow;
 
@@ -156,24 +156,32 @@ const asLines = (m: Awaited<ReturnType<typeof getMirroredEliminations>>): Elimin
   groupAccountType: l.groupAccountType, groupAccountSubtype: l.groupAccountSubtype, debit: l.debit, credit: l.credit,
 })));
 
-/** Posted manual adjustments plus the derived (mirrored) eliminations, both for the period. */
+/**
+ * Posted manual adjustments plus the derived (mirrored) eliminations, both for the period. `balanceSheetOnly`: the caller uses balance-sheet
+ * group accounts only (the balance sheet), so the derived ones are read only when one can land there (mirroredLinesReachBalanceSheet).
+ */
 export async function getPostedEliminations(
-  groupId: string, periodStart: string, periodEnd: string
+  groupId: string, periodStart: string, periodEnd: string, opts: { balanceSheetOnly?: boolean } = {},
 ): Promise<EliminationLineWithAccount[]> {
-  return [...await storedEliminations(groupId, periodStart, periodEnd), ...asLines(await getMirroredEliminations(groupId, periodStart, periodEnd))];
+  const derive = !opts.balanceSheetOnly || await mirroredLinesReachBalanceSheet(groupId);
+  return [...await storedEliminations(groupId, periodStart, periodEnd), ...(derive ? asLines(await getMirroredEliminations(groupId, periodStart, periodEnd)) : [])];
 }
 
 /**
- * The cumulative (inception to the end) and the in-period eliminations a statement needs. The derived ones are dated events (an elimination,
+ * The cumulative (inception to the end; balance-sheet group accounts are all its caller reads, so its derived lines are read only when one
+ * can land on such an account) and the in-period eliminations a statement needs. The derived ones are dated events (an elimination,
  * a counter-elimination), so each window is its own call: the cumulative window nets to what stands at the end, the in-period one is the
  * events dated in the period (an event's netting depends on the window, so neither is a filter of the other).
  */
 export async function getPostedEliminationsSplit(
   groupId: string, periodStart: string, periodEnd: string, inception: string,
 ): Promise<{ cumulative: EliminationLineWithAccount[]; inRange: EliminationLineWithAccount[] }> {
+  // the cumulative window is read for balance-sheet group accounts only: derived lines reach one only through an odd mapping, so the
+  // inception-to-end derivation (the group's whole mirrored history) runs only then
+  const reachBalanceSheet = await mirroredLinesReachBalanceSheet(groupId);
   const [storedAll, storedRange, mirroredAll, mirroredRange] = await Promise.all([
     storedEliminations(groupId, inception, periodEnd), storedEliminations(groupId, periodStart, periodEnd),
-    getMirroredEliminations(groupId, inception, periodEnd), getMirroredEliminations(groupId, periodStart, periodEnd),
+    reachBalanceSheet ? getMirroredEliminations(groupId, inception, periodEnd) : Promise.resolve([]), getMirroredEliminations(groupId, periodStart, periodEnd),
   ]);
   return {
     cumulative: [...storedAll, ...asLines(mirroredAll)],

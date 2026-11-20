@@ -94,3 +94,22 @@ export async function getMirroredEliminations(groupId: string, periodStart: stri
   }
   return out;
 }
+
+/**
+ * Whether a derived line can land on a BALANCE-SHEET line: only when some company revenue / expense account (the accounts the derived lines
+ * are read from) is mapped to a balance-sheet group account, or to a group account a company balance-sheet account is also mapped to. The cumulative (inception) windows of the trial balance and the balance sheet use balance-sheet
+ * accounts only, so when this is false they need not derive at all: the same answer without walking the group's whole mirrored history.
+ */
+export async function mirroredLinesReachBalanceSheet(groupId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM group_coa_mappings gcm
+      JOIN group_accounts ga ON ga.id = gcm.group_account_id
+      JOIN gl_accounts a ON a.id = gcm.company_account_id AND a.company_id = gcm.company_id
+     WHERE gcm.group_id = ${groupId}::UUID AND a.account_type IN ('revenue', 'expense')
+       AND (ga.account_type IN ('asset', 'liability', 'equity')
+            OR EXISTS (SELECT 1 FROM group_coa_mappings g2 JOIN gl_accounts b ON b.id = g2.company_account_id AND b.company_id = g2.company_id
+                        WHERE g2.group_id = gcm.group_id AND g2.group_account_id = gcm.group_account_id AND b.account_type IN ('asset', 'liability', 'equity')))
+     LIMIT 1
+  `) as Row[];
+  return rows.length > 0;
+}
