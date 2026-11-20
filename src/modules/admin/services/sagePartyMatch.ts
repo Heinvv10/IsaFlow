@@ -34,12 +34,16 @@
  * (another system's, say) is not matched by name: it could never be stamped, so it would match every
  * later party of that name. (A pull without a Sage id still reaches the survivor by that name.)
  *
- * Two merged-away rows of one name, unstamped: each distinct Sage party takes the next one (oldest
- * first) and stamps it, so the first reaches the first row's survivor, the second the second row's, and
- * a third finds none and gets its own live row. Re-syncs find each by its Sage id.
+ * A name-only match through merged-away rows must name ONE survivor: when unstamped merged-away rows of
+ * that name lead to different survivors, nothing says which one the party is, so it matches none and
+ * the sync creates its own live row (the bill import reports the supplier as not found). Rows that all
+ * lead to the same survivor are no ambiguity.
  *
- * The bill import (commitAPInvoice) resolves and stamps through the same claimMatchedSupplier, so the
- * result does not depend on whether bills or suppliers are imported first.
+ * Every caller resolves through resolveSageSupplier / resolveSageCustomer: match, then stamp (claim), and
+ * when a concurrent import of another Sage party stamped the row first (the claim updates nothing and the
+ * row no longer matches), match again, so two Sage parties never share one row. The bill import
+ * (commitAPInvoice) resolves like the supplier sync, so the result does not depend on whether bills or
+ * suppliers are imported first.
  */
 
 import { sql } from '@/lib/neon';
@@ -96,14 +100,41 @@ export async function matchSageSupplier(
     FROM chain c JOIN hit h ON h.id = c.start_id
     WHERE c.deleted_at IS NULL
     ORDER BY h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
-    LIMIT 1
   `) as Row[];
-  if (!rows.length) return null;
-  const viaMerge = rows[0]!.via_merge === true;
-  return {
-    id: String(rows[0]!.id), viaMerge, byRef: rows[0]!.by_ref === true,
-    mergedAwayId: viaMerge ? String(rows[0]!.hit_id) : null,
-  };
+  const first = rows[0];
+  if (!first) return null;
+  const viaMerge = first.via_merge === true;
+  const byRef = first.by_ref === true;
+  // Ranked first, a name-only merged hit means no Sage-id hit and no live hit exist: every row is a
+  // name-only merged hit. They must all lead to one survivor, or the party matches none of them.
+  if (viaMerge && !byRef && new Set(rows.map((r) => String(r.id))).size > 1) return null;
+  return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
+}
+
+/** How many times a resolve re-matches after a concurrent import stamped the row it matched. */
+const MAX_CLAIM_ATTEMPTS = 5;
+
+const sameMatch = (a: SageSupplierMatch, b: SageSupplierMatch) =>
+  a.id === b.id && a.viaMerge === b.viaMerge && a.byRef === b.byRef && a.mergedAwayId === b.mergedAwayId;
+
+/**
+ * The supplier a Sage party is, stamped with its Sage id (claimMatchedSupplier). A claim that updates
+ * nothing either lost to a concurrent import (the row now carries another Sage id, so a fresh match no
+ * longer returns it) or hit a row that cannot be stamped (another system's ref: the fresh match is the
+ * same, and stands). Null: no supplier matches.
+ */
+export async function resolveSageSupplier(
+  companyId: string, party: { name: string; sageId?: number | string | null },
+): Promise<SageSupplierMatch | null> {
+  let match = await matchSageSupplier(companyId, party);
+  for (let attempt = 0; match && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    if (await claimMatchedSupplier(companyId, match, party.sageId)) return match;
+    const again = await matchSageSupplier(companyId, party);
+    if (!again || sameMatch(again, match)) return again;
+    match = again;
+  }
+  if (match) throw new Error(`Sage supplier ${party.name}: concurrent imports kept claiming its match; retry`);
+  return null;
 }
 
 export async function findSageSupplier(
@@ -130,17 +161,35 @@ export async function findSageCustomer(
   return rows.length ? String(rows[0]!.id) : null;
 }
 
+/** resolveSageSupplier for customers: match, claim, and match again after a claim lost to a concurrent import. */
+export async function resolveSageCustomer(
+  companyId: string, party: { name: string; sageId?: number | string | null },
+): Promise<string | null> {
+  let id = await findSageCustomer(companyId, party);
+  for (let attempt = 0; id && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    if (await claimSageCustomer(companyId, id, party.sageId)) return id;
+    const again = await findSageCustomer(companyId, party);
+    if (!again || again === id) return again;
+    id = again;
+  }
+  if (id) throw new Error(`Sage customer ${party.name}: concurrent imports kept claiming its match; retry`);
+  return null;
+}
+
 /**
  * Stamp the Sage id onto a supplier matched by name that carries no external ref yet, so the
  * next lookup finds it by id. A row already carrying a ref (Sage or another system) is left alone.
+ * True when the row was stamped or there was nothing to stamp (no Sage id).
  */
-export async function claimSageSupplier(companyId: string, id: string, sageId: number | string | null | undefined): Promise<void> {
+export async function claimSageSupplier(companyId: string, id: string, sageId: number | string | null | undefined): Promise<boolean> {
   const ref = sageRef(sageId);
-  if (!ref) return;
-  await sql`
+  if (!ref) return true;
+  const rows = (await sql`
     UPDATE suppliers SET external_system = 'sage', external_ref = ${ref}
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL AND deleted_at IS NULL
-  `;
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
 }
 
 /**
@@ -150,30 +199,39 @@ export async function claimSageSupplier(companyId: string, id: string, sageId: n
  * name match skips rows already carrying a Sage id) and gets its own row. Only a merged-away row with
  * no external ref is touched. No unique index covers suppliers.external_ref, so the stamp cannot collide.
  */
-export async function claimMergedAwaySupplier(companyId: string, id: string, sageId: number | string | null | undefined): Promise<void> {
+export async function claimMergedAwaySupplier(companyId: string, id: string, sageId: number | string | null | undefined): Promise<boolean> {
   const ref = sageRef(sageId);
-  if (!ref) return;
-  await sql`
+  if (!ref) return true;
+  const rows = (await sql`
     UPDATE suppliers SET external_system = 'sage', external_ref = ${ref}
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL
       AND deleted_at IS NOT NULL AND merged_into_id IS NOT NULL
-  `;
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
 }
 
-/** Stamp what a supplier match calls for: the row itself, or the merged-away row it was reached through. */
+/**
+ * Stamp what a supplier match calls for: the row itself, or the merged-away row it was reached through.
+ * True when the match holds (a Sage-id hit, nothing to stamp, or the stamp landed); false when the
+ * stamp updated nothing, so the caller matches again (resolveSageSupplier).
+ */
 export async function claimMatchedSupplier(
   companyId: string, match: SageSupplierMatch, sageId: number | string | null | undefined,
-): Promise<void> {
-  if (!match.viaMerge) await claimSageSupplier(companyId, match.id, sageId);
-  else if (!match.byRef && match.mergedAwayId) await claimMergedAwaySupplier(companyId, match.mergedAwayId, sageId);
+): Promise<boolean> {
+  if (match.byRef) return true;
+  if (!match.viaMerge) return claimSageSupplier(companyId, match.id, sageId);
+  return match.mergedAwayId ? claimMergedAwaySupplier(companyId, match.mergedAwayId, sageId) : true;
 }
 
 /** claimSageSupplier for customers. */
-export async function claimSageCustomer(companyId: string, id: string, sageId: number | string | null | undefined): Promise<void> {
+export async function claimSageCustomer(companyId: string, id: string, sageId: number | string | null | undefined): Promise<boolean> {
   const ref = sageRef(sageId);
-  if (!ref) return;
-  await sql`
+  if (!ref) return true;
+  const rows = (await sql`
     UPDATE customers SET external_system = 'sage', external_ref = ${ref}
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL AND deleted_at IS NULL
-  `;
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
 }

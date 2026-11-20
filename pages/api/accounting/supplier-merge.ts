@@ -110,11 +110,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Note: unified credit_notes table covers both customer and supplier
       // credit notes; no separate supplier_credit_notes table exists.
 
-      // 6. Soft-delete the source supplier
+      // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
+      // the Sage import follows a merged-away supplier to it, so a re-sync's bills land on the
+      // survivor, not back on the source (#1655).
       await tx`
         UPDATE suppliers
         SET is_active = false,
-            name = name || ' [MERGED]'
+            name = name || ' [MERGED]',
+            deleted_at = NOW(),
+            merged_into_id = ${target_id}
         WHERE id = ${source_id}
           AND company_id = ${companyId}
       `;

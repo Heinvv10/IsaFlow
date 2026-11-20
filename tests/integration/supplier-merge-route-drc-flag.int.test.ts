@@ -17,6 +17,7 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (handler: unknown)
 
 import { sql } from '@/lib/neon';
 import supplierMerge from '../../pages/api/accounting/supplier-merge';
+import { matchSageSupplier } from '@/modules/admin/services/sagePartyMatch';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
@@ -93,5 +94,17 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     }
     expect(r!.status).toBe(400);
     expect(await billSupplier(bill)).toBe(source);
+  });
+
+  it('a merge soft-deletes the source and records its survivor, so a Sage re-sync reaches the survivor (#1655)', async () => {
+    const source = await seedSupplier(fx, 'R Sage Source');
+    const target = await seedSupplier(fx, 'R Sage Target');
+    await sql`UPDATE suppliers SET external_system = 'sage', external_ref = 'SMR-S1' WHERE id = ${source}::UUID`;
+    expect((await merge(source, target)).status).toBe(200);
+    const rows = (await sql`
+      SELECT deleted_at IS NOT NULL AS deleted, merged_into_id FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
+    expect(rows[0]).toEqual({ deleted: true, merged_into_id: target });
+    const match = await matchSageSupplier(fx.companyId, { name: 'R Sage Source', sageId: 'SMR-S1' });
+    expect(match).toMatchObject({ id: target, viaMerge: true, byRef: true, mergedAwayId: source });
   });
 });

@@ -15,7 +15,7 @@ import { commitAPInvoice } from '@/modules/admin/services/sageMigrationCommitSer
 import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { restoreRow } from '@/modules/accounting/services/core/softDeleteRowOps';
-import { MAX_MERGE_HOPS } from '@/modules/admin/services/sagePartyMatch';
+import { MAX_MERGE_HOPS, resolveSageSupplier } from '@/modules/admin/services/sagePartyMatch';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -219,19 +219,58 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
   const billSupplier = async (number: string) => String((await pool.query(
     'SELECT supplier_id FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [companyId, `${number}-${tag}`])).rows[0].supplier_id);
 
-  it('two merged-away rows of one name: each distinct Sage party takes the next unstamped one, the third gets its own row', async () => {
+  it('merged-away rows of one name leading to different survivors are ambiguous: each Sage party gets its own row', async () => {
     const [s1, s2] = [await insPlain('Pine Co Survivor One'), await insPlain('Pine Co Survivor Two')];
     const [g1, g2] = [await insPlain('Pine Co'), await insPlain('Pine Co')];
     await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [g1, s1]);
     await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [g2, s2]);
-    expect((await syncSuppliers([party(941, 'Pine Co'), party(942, 'Pine Co'), party(943, 'Pine Co')])).suppliers)
-      .toEqual({ created: 1, skipped: 2, failed: [] });
-    const [r941, r942] = [(await byRef('941'))[0], (await byRef('942'))[0]];
-    expect([r941.id, r942.id].sort()).toEqual([g1, g2].sort());
-    expect(await byRef('943')).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
-    // Re-syncing all three finds each by its own id and creates nothing.
-    expect((await syncSuppliers([party(941, 'Pine Co'), party(942, 'Pine Co'), party(943, 'Pine Co')])).suppliers)
-      .toEqual({ created: 0, skipped: 3, failed: [] });
+    // Creation order does not pick a survivor: neither merged-away row is matched or stamped.
+    await expect(bill('AP-PINE-1', 'Pine Co', 941)).rejects.toThrow('Supplier not found: Pine Co');
+    expect((await syncSuppliers([party(941, 'Pine Co'), party(942, 'Pine Co')])).suppliers)
+      .toEqual({ created: 2, skipped: 0, failed: [] });
+    for (const ref of ['941', '942']) {
+      expect(await byRef(ref)).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
+    }
+    const { rows } = await pool.query('SELECT external_ref FROM suppliers WHERE id = ANY($1)', [[g1, g2]]);
+    expect(rows).toEqual([{ external_ref: null }, { external_ref: null }]);
+    // Re-syncing finds each by its own id and creates nothing.
+    expect((await syncSuppliers([party(941, 'Pine Co'), party(942, 'Pine Co')])).suppliers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
+  });
+
+  it('merged-away rows of one name leading to the SAME survivor are no ambiguity', async () => {
+    const survivor = await insPlain('Larch Co Survivor');
+    const [g1, g2] = [await insPlain('Larch Co'), await insPlain('Larch Co')];
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = ANY($1)', [[g1, g2], survivor]);
+    expect((await bill('AP-LARCH-1', 'Larch Co', 945)).created).toBe(true);
+    expect(await billSupplier('AP-LARCH-1')).toBe(survivor);
+  });
+
+  it('a claim lost to a concurrent import matches again: two Sage parties never share one row', async () => {
+    const live = await insPlain('Birch Co');
+    // Import 1 claims the unstamped live row for Sage id 991 and holds its transaction open.
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      const first = await als.run({ client: holder, userId, companyId, claims: {} } as never,
+        () => resolveSageSupplier(companyId, { name: 'Birch Co', sageId: 991 }));
+      expect(first?.id).toBe(live);
+      // Import 2 (Sage id 992, same name) matched the same row; its claim waits on import 1's lock.
+      const second = syncSuppliers([party(992, 'Birch Co')]);
+      // Wait until import 2 is blocked on that row lock, so the claim it makes is the one that loses.
+      for (let i = 0; i < 100; i++) {
+        const { rows } = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%UPDATE suppliers SET external_system%'");
+        if (rows.length) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await holder.query('COMMIT');
+      expect((await second).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    } finally { holder.release(); }
+    expect((await byRef('991')).map((r) => r.id)).toEqual([live]);
+    const own = await byRef('992');
+    expect(own).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
+    expect(own[0].id).not.toBe(live);
   });
 
   it('a merged-away row carrying another system\'s ref is not matched by name, so a Sage party of that name is created', async () => {

@@ -39,13 +39,13 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { claimMatchedSupplier, claimSageCustomer, findSageCustomer, matchSageSupplier, sageRef } from './sagePartyMatch';
+import { findSageCustomer, resolveSageCustomer, resolveSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<string> {
-  const existing = await findSageCustomer(companyId, c);
-  if (existing) { await claimSageCustomer(companyId, existing, c.sageId); return existing; }
+  const existing = await resolveSageCustomer(companyId, c);
+  if (existing) return existing;
   const ref = sageRef(c.sageId);
   const inserted = (await sql`
     INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type, external_system, external_ref)
@@ -61,14 +61,11 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
 
 /** The supplier row a Sage party is, and whether this call created it (false: it matched an existing one). */
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<{ id: string; created: boolean }> {
-  const existing = await matchSageSupplier(companyId, s);
   // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
   // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
   // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
-  if (existing) {
-    await claimMatchedSupplier(companyId, existing, s.sageId);
-    return { id: existing.id, created: false };
-  }
+  const existing = await resolveSageSupplier(companyId, s);
+  if (existing) return { id: existing.id, created: false };
   const ref = sageRef(s.sageId);
   const inserted = (await sql`
     INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type, external_system, external_ref)
@@ -203,9 +200,8 @@ export async function commitAPInvoice(
 
   // Stamped like the supplier sync (upsertSupplier), so whether bills or suppliers are imported first
   // makes no difference to which row a Sage id ends up on.
-  const matched = await matchSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
+  const matched = await resolveSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
   if (!matched) throw new Error(`Supplier not found: ${inv.supplierName}`);
-  await claimMatchedSupplier(companyId, matched, inv.supplierSageId);
   const supplierId = matched.id;
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
