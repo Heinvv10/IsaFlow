@@ -14,7 +14,10 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
 - `supplier_invoices.purchase_order_id` - ONE PO per bill, no FK (an older row naming a `supplier_purchase_orders` id names its canonical copy since migration 1022).
 - `supplier_invoice_items.po_item_id` - a bill line's PO line. Budget committed (`budgets/remainingCommitted`) nets a
   PO line by the posted ex-VAT of every linked bill line on an approved / paid / partially_paid bill; the three-way
-  match (`ap/threeWayMatchState`) judges each line against its PO line and GRN line.
+  match (`ap/threeWayMatchState`) judges each line against its PO line and GRN line. Since PR #1703 committed also nets
+  HEADER billing (`budgets/remainingHeaderBilled`): a bill tied to a PO only by a link row (its `amount`) or only by
+  `purchase_order_id` (its subtotal less what it attributes elsewhere), with no line naming a line of that PO, same statuses,
+  same company and supplier, not deleted, spread pro rata over the PO's lines; lines first, so a bill nets a PO once.
 - Before this work only the REST create wrote either column (`ap/supplierInvoicePoLinks.assertBillPoLinks`).
 
 ## Decisions
@@ -145,7 +148,7 @@ raised before anything is written. Orders, first lock first:
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
 | `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows it names `FOR KEY SHARE` (id order; ALWAYS taken when the bill names a PO, whether or not a link is then written; also what the link FK takes) -> link inserts / deletes. |
-| supplier merge | batches -> payments -> purchase_orders -> bills (migration 1022: the canonical POs move, before the bills, the link tool's PO -> bill order); refuses first when linked |
+| supplier merge | batches -> payments -> purchase_orders -> bills (migration 1022: the canonical POs move, before the bills, the link tool's PO -> bill order); refuses first when linked. Known limit: a link made between that check and the PO update is refused by the 1006 supplier guard, so the merge fails with a 500 and moves nothing (data stays correct) |
 | bill create (`createSupplierInvoice`) | the named POs `FOR KEY SHARE` (id order) with the PO lines re-checked under it, before the bill or its lines are written (PO maintenance review M1); the bill row is new |
 | `update_purchase_order` (PO maintenance, `mcp-po-maintenance.md`) | account rows `FOR SHARE` (prepare) -> budget gate (an APPROVED PO, block only) -> PO row `FOR UPDATE`; reads links / bill lines, no bill row |
 | `cancel_purchase_order` / `close_purchase_order` | PO row `FOR UPDATE` (no gate: releasing a commitment); reads links, no bill row |
@@ -188,8 +191,6 @@ the typed timeout with nothing written.
   billed total and `fully_billed`) as it was.
 - **A multi-PO bill cannot be `fully_matched` across its POs:** the three-way read takes goods received only from the bill's
   own `grn_id` (one GRN), so a line of the second PO reads no goods received and tops out at `po_matched`.
-- **A header-only link (no line links) does not reduce budget committed for a still-open PO;** only line links and closing the
-  PO do. Section 5 (`committed_spend`) decides whether committed should net header links too.
 - No splitting one bill line across PO lines.
 - A bill cancelled after a close leaves the PO closed (`closed_under_billed`); a stale closing record on a link of a PO that a
   person later reopened by hand stays until that link is unlinked.
