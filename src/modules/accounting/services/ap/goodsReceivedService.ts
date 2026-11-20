@@ -86,7 +86,8 @@ export async function receiveGoods(companyId: string, userId: string, input: unk
     if (!locked) throw new GoodsReceivedError('Purchase order not found', 'not_found');
     const { po, items } = locked;
     const status = String(po.status);
-    if (!RECEIVING_PO_STATUSES.includes(status)) {
+    // A received PO has nothing outstanding: a line asking for more is answered as the over-receipt it is (the lines below).
+    if (!RECEIVING_PO_STATUSES.includes(status) && status !== 'received') {
       throw new GoodsReceivedError('Only approved or partially received orders accept receipts', 'po_not_receivable', { poStatus: status });
     }
     const refused: GoodsReceivedLineRefusal[] = [];
@@ -102,6 +103,9 @@ export async function receiveGoods(companyId: string, userId: string, input: unk
       const first = refused[0]!;
       throw new GoodsReceivedError(first.code === 'line_not_on_po' ? 'Every receipt line must belong to this purchase order'
         : 'Received quantity exceeds the outstanding order quantity', first.code, { lines: refused });
+    }
+    if (status === 'received') {
+      throw new GoodsReceivedError('Only approved or partially received orders accept receipts', 'po_not_receivable', { poStatus: status });
     }
     const sequence = (await sql`
       SELECT (COALESCE(MAX(substring(grn_number from 5)::numeric), 0) + 1)::text AS next
