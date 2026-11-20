@@ -7,7 +7,8 @@
  *   - travel: the company's one reimbursive travel (3703, else 3702) earning, `quantity` km, `quantity_unit` 'km',
  *     amount = km x the rate a km the employer reimburses. The calculation splits it at the prescribed rate (splitTravelRows).
  * The grid's amount cells and the HD hours ignore these rows (isRunInputUnitRow). Everything that can refuse does so under the
- * locks and before the first write (a 4xx commits); the write is writeRunRow's savepoint, as for any amount of the grid.
+ * locks and before the first write (a 4xx commits); the write is writeRunRow's savepoint, as for any amount of the grid,
+ * whose refuseAssignmentWrite refuses travel km for a personal service provider (pspRefusedKind: 3702 / 3703; review of #1580 M1).
  */
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
@@ -18,7 +19,6 @@ import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { hoursAmountCents } from './payrollRunHours';
 import { OVERTIME_MULTIPLIERS, overtimeAmountCents, overtimeHourlyRate } from './payrollRunInputUnits';
 import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
-import { PspComponentRefused, pspRefusalMessage } from './pspLineRules';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { assertRunEditable, CHANGED, CONFLICTING_ROWS, getRunInputs, type RunInputsState } from './payrollRunPeriodInputs';
 import { writeRunRow } from './payrollRunRowWrite';
@@ -53,10 +53,6 @@ export async function setRunUnits(companyId: string, runId: string, employeeId: 
   await assertRunEditable(companyId, runId, run, period);
   const employee = (await listPayrollRunEmployees(companyId, period, payFrequencyOf(run.pay_frequency))).find((e) => e.id === employeeId);
   if (!employee) throw refuse('This employee is not on this run.');
-  // Review of #1580 M1: a personal service provider takes no reimbursive travel (pspLineRules), refused as at assignment.
-  if (travel && employee.taxStatus === 'personal_service_provider') {
-    throw new PspComponentRefused(pspRefusalMessage(`Employee ${employee.employeeNumber}`, [{ name: 'Travel km', kind: 'travel allowance' }]));
-  }
   const componentId = (await unitComponents(companyId))[kind];
   if (!componentId) {
     throw refuse(travel ? 'Add one active reimbursive travel earning (code 3703, or 3702) to record km on.' : 'Add one active overtime earning (code 3607) to record overtime hours on.');
