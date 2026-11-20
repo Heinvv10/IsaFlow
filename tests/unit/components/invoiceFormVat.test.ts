@@ -41,3 +41,40 @@ describe('vatModeFor', () => {
     expect(vatModeFor(true, 'inclusive')).toBe('inclusive');
   });
 });
+
+describe('an exempt customer at no VAT (#1701 round 1: the pages type its lines as the server does)', () => {
+  const form = { clientId: 'c-1', invoiceDate: '2026-11-20', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15,
+    notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' };
+  const pageLine = (description: string) => ({ key: description, description, quantity: 1, unitPrice: 100, discount: 0,
+    glAccountId: '', projectId: '', cc2Id: '', buId: '', incomeType: 'other' });
+
+  it('new page: an exempt customer sends vatType exempt per line and no header rate; a zero-rated one the legacy header 0', async () => {
+    const { createBody } = await import('@/components/accounting/customer-invoices/newInvoiceBody');
+    const exempt = createBody(form, [pageLine('A')], 'none', 0, {}, 'exempt');
+    if (!('body' in exempt)) throw new Error(exempt.problem);
+    expect('taxRate' in exempt.body).toBe(false);
+    expect(exempt.body.items.map((i) => i.vatType)).toEqual(['exempt']);
+    const zero = createBody(form, [pageLine('A')], 'none', 0, {}, 'zero');
+    if (!('body' in zero)) throw new Error(zero.problem);
+    expect(zero.body.taxRate).toBe(0);
+    expect('vatType' in zero.body.items[0]!).toBe(false);
+    const standard = createBody(form, [pageLine('A')], 'exclusive', 15, {}, 'exempt'); // the user chose VAT: their rate stands
+    if (!('body' in standard)) throw new Error(standard.problem);
+    expect(standard.body.taxRate).toBe(15);
+  });
+
+  it('edit page: an exempt customer at no VAT sends exempt lines; a zero-rated one zero_rated', async () => {
+    const { invoicePutBody } = await import('@/components/accounting/customer-invoices/invoicePutBody');
+    expect(invoicePutBody('i', { form, lines: [pageLine('A')], taxMode: 'none', customerVat: 'Exempt' }).items.map((i) => i.vatType)).toEqual(['exempt']);
+    expect(invoicePutBody('i', { form, lines: [pageLine('A')], taxMode: 'none', customerVat: 'zero' }).items.map((i) => i.vatType)).toEqual(['zero_rated']);
+  });
+
+  it('a rate that gives no type holds Create and Save, saying why', async () => {
+    const { createBody } = await import('@/components/accounting/customer-invoices/newInvoiceBody');
+    const { saveProblem } = await import('@/components/accounting/customer-invoices/invoicePutBody');
+    const msg = 'Check the VAT rate: it is the standard rate on the invoice date, or 0';
+    expect(createBody({ ...form, taxRate: 14 }, [pageLine('A')], 'exclusive', 14, {})).toEqual({ problem: msg });
+    expect(saveProblem({ form: { ...form, taxRate: 14 }, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBe(msg);
+    expect(saveProblem({ form, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBeNull();
+  });
+});

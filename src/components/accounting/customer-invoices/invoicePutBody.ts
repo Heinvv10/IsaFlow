@@ -14,7 +14,7 @@
 import { invoiceDateProblem, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import { effectiveTaxRate, pricesToNothing, pricesToNothingMessage, type TaxMode } from './taxMode';
-import { amountsAreFor, formLineTypes } from './formVat';
+import { amountsAreFor, formLineTypes, NO_VAT_TYPE_PROBLEM } from './formVat';
 import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 /**
@@ -34,7 +34,8 @@ export interface InvoicePutBody {
   taxRate?: number; amountsAre: AmountsAre; notes?: string; currencyCode: string; exchangeRate: number; projectId: string | null; items: InvoicePutItem[];
 }
 
-interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode }
+/** `customerVat`: the customer's default VAT type as read (an exempt customer's lines go exempt at rate 0, formVat). */
+interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode; customerVat?: string | null }
 
 /**
  * Every line with something in it. A line that cannot be stored (droppedLineProblem) stays in the body, so the body
@@ -52,10 +53,10 @@ const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEnt
  * with the date untouched, or autosave sees no change and never says why it holds); that body is never sent, since
  * clearedDateProblem refuses it first.
  */
-export function invoicePutBody(id: string, { form, lines, taxMode }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
+export function invoicePutBody(id: string, { form, lines, taxMode, customerVat }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
   const sent = savedLines(lines);
-  const types = formLineTypes(sent, taxRate, form.invoiceDate);
+  const types = formLineTypes(sent, taxRate, form.invoiceDate, customerVat);
   const typed = types.every((t) => t !== null);
   return {
     id,
@@ -117,7 +118,7 @@ function clearedDateProblem(form: InvoiceHeaderForm, stored: StoredDates): strin
 }
 
 /** Why the Save button (and Approve & email) refuses this draft, or null. Shown on screen. */
-export function saveProblem({ form, lines }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
+export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   if (!form.clientId) return 'Select a client';
   if (lines.some((l) => l.timeEntryId && !l.description && !l.unitPrice)) return 'A time-entry line is blank: describe and price it, or remove it';
   const tooSmall = lines.find((l) => l.description && pricesToNothing(l.unitPrice));
@@ -125,7 +126,11 @@ export function saveProblem({ form, lines }: Draft, refused: Refused, stored: St
   const dropped = droppedLineProblem(lines, true);
   if (dropped) return dropped;
   if (!lines.some((l) => l.description)) return 'Add at least one line item';
-  return invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
+  const dateOrCleared = invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
+  if (dateOrCleared) return dateOrCleared;
+  // A rate that gives a line no VAT type: the server refuses it (the rate comes from the type), so Save holds and says why.
+  const rate = effectiveTaxRate(taxMode, form.taxRate);
+  return finite(rate) && formLineTypes(savedLines(lines), rate, form.invoiceDate, customerVat).some((t) => t === null) ? NO_VAT_TYPE_PROBLEM : null;
 }
 
 /**
@@ -138,9 +143,5 @@ export function autosaveProblem(draft: Draft, refused: Refused, stored: StoredDa
   const { form, lines } = draft;
   if (!lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
   if (!finite(form.taxRate, form.exchangeRate) || form.taxRate < 0 || form.taxRate > 100 || form.exchangeRate <= 0) return 'Check the VAT and exchange rates';
-  // A rate that gives no VAT type (mid-typing, or neither the standard rate nor 0): the server refuses it, so autosave holds.
-  if (formLineTypes(savedLines(lines), effectiveTaxRate(draft.taxMode, form.taxRate), form.invoiceDate).some((t) => t === null)) {
-    return 'Check the VAT rate: it is the standard rate on the invoice date, or 0';
-  }
   return null;
 }

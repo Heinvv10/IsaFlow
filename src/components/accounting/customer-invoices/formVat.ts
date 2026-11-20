@@ -4,7 +4,8 @@
  *   - on the edit page, the type the line LOADED with, while the form's rate is still the one it loaded at (a mixed
  *     invoice made through the API round-trips: its exempt line is not re-typed by the header's 15%);
  *   - otherwise the one the form's rate gives, as the server's legacy header contract does (invoiceLineVatTypes): the
- *     standard rate on the invoice date -> standard, 0 -> zero_rated.
+ *     standard rate on the invoice date -> standard, 0 -> zero_rated, or exempt when the customer's default VAT type is
+ *     exempt (as the server's default chain types such a customer's lines; review round 1 of #1701).
  * Prices are sent AS ENTERED with the mode (inclusive: VAT-inclusive), and the totals are the shared per-line pricing
  * (invoiceLineVatPricing), so the summary shows the figure create and the draft edit store. A rate that gives no type
  * (neither the standard rate nor 0: the server refuses it, saying why) is shown as VAT on the subtotal at that rate. A
@@ -31,15 +32,20 @@ export const vatModeFor = (registered: boolean, picked: TaxMode): TaxMode => (re
 /** What the server stores the prices as, for the form's mode. */
 export const amountsAreFor = (mode: TaxMode): AmountsAre => (mode === 'inclusive' ? 'inclusive' : 'exclusive');
 
+const isExemptCustomer = (customerVat: string | null | undefined): boolean => (customerVat ?? '').trim().toLowerCase() === 'exempt';
+
 /** The one type the form's rate gives a line on `date`, or null for a rate that is neither the standard rate nor 0. */
-export function formLineType(rate: number, date: string): DocumentLineVatType | null {
-  if (rate === 0) return 'zero_rated';
+export function formLineType(rate: number, date: string, customerVat?: string | null): DocumentLineVatType | null {
+  if (rate === 0) return isExemptCustomer(customerVat) ? 'exempt' : 'zero_rated';
   return isRatedDate(date) && rate === standardVatRatePctOn(date) ? 'standard' : null;
 }
 
+/** The refusal a save of the form shows when its rate gives a line no type (the server would refuse it, as autosave holds). */
+export const NO_VAT_TYPE_PROBLEM = 'Check the VAT rate: it is the standard rate on the invoice date, or 0';
+
 /** Each line's type (see the header), or null where the form's rate gives none. */
-export function formLineTypes(lines: readonly FormVatLine[], rate: number, date: string): (DocumentLineVatType | null)[] {
-  const fromRate = formLineType(rate, date);
+export function formLineTypes(lines: readonly FormVatLine[], rate: number, date: string, customerVat?: string | null): (DocumentLineVatType | null)[] {
+  const fromRate = formLineType(rate, date, customerVat);
   return lines.map((l) => {
     const loaded = (DOCUMENT_LINE_VAT_TYPES as readonly string[]).includes(l.vatType ?? '') ? l.vatType as DocumentLineVatType : null;
     return loaded && l.vatRateAtLoad === rate ? loaded : fromRate;

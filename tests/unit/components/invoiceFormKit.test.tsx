@@ -63,7 +63,8 @@ async function fillNew() {
   render(<NewPage />);
   await pickOption('Client', 'Acme');
   await pickOption('Currency', /USD/);
-  fireEvent.change(field('VAT rate %'), { target: { value: '14' } });
+  // 15, the standard rate on the dates below: a rate that gives no VAT type (14 here) now holds Create (formVat).
+  fireEvent.change(field('VAT rate %'), { target: { value: '15' } });
   fireEvent.change(field('Exchange rate (USD → ZAR)'), { target: { value: '18.5' } });
   typeDate(field('Invoice date'), '1 Oct 2026');
   typeDate(field('Due date'), '31 Oct 2026');
@@ -82,7 +83,7 @@ describe('request body is unchanged by the kit', () => {
     await waitFor(() => expect(push).toHaveBeenCalled());
     expect(sentBody('POST')).toEqual({
       clientId: 'c-1', invoiceDate: '2026-10-01', dueDate: '2026-10-31', billingPeriodStart: '2026-09-01', billingPeriodEnd: '2026-09-30',
-      taxRate: 14, amountsAre: 'exclusive', notes: 'Thanks', currencyCode: 'USD', exchangeRate: 18.5, projectId: '',
+      taxRate: 15, amountsAre: 'exclusive', notes: 'Thanks', currencyCode: 'USD', exchangeRate: 18.5, projectId: '',
       items: [{ key: '1', description: 'Work', quantity: 1, unitPrice: 50, incomeType: 'other', discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }],
     });
   });

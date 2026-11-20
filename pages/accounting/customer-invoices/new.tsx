@@ -84,7 +84,7 @@ export default function NewCustomerInvoicePage() {
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
   // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
-  const built = createBody(form, lines, vatMode, taxRate, dates.refused);
+  const built = createBody(form, lines, vatMode, taxRate, dates.refused, contact.vatType);
 
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.

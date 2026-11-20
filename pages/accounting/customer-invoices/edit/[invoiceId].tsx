@@ -155,7 +155,7 @@ export default function EditCustomerInvoicePage() {
 
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
   const id = String(invoiceId ?? '');
-  const draft = { form, lines, taxMode: vatMode };
+  const draft = { form, lines, taxMode: vatMode, customerVat: customer.defaults?.vatType };
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved

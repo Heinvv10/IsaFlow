@@ -166,17 +166,20 @@ describe('new page', () => {
     };
     const modeShown = () => screen.getByRole('combobox', { name: 'Amounts are' }).textContent;
 
-    it('a rate and no lines: the typed gross stays gross, at the scanned rate', async () => {
+    const createRefused = async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+      await screen.findAllByText('Check the VAT rate: it is the standard rate on the invoice date, or 0');
+      expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+    };
+
+    it('a rate and no lines: the typed gross stays gross, at the scanned rate; a rate that gives no VAT type holds Create', async () => {
       await scanNow({ vatRate: 14, lineItems: [] });
       await screen.findByText(/Auto-filled/);
       expect(modeShown()).toMatch(/Including VAT/);
       expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('14');
       expect(prices()).toEqual(['115']);
-      await submitAndWait(push);
-      // As shown, with its mode; the server refuses 14% on this date (not the standard rate), saying the rate comes from the type.
-      expect(sentPrices('POST')).toEqual([115]);
-      expect(sentBody('POST').amountsAre).toBe('inclusive');
-      expect(sentBody('POST').taxRate).toBe(14);
+      // 14% is not the standard rate on 1 Oct 2026: the server would refuse it, so the page does not send it (#1701).
+      await createRefused();
     });
 
     it('lines and no rate: back to exclusive, and the scanned prices are stored as read', async () => {
@@ -187,12 +190,22 @@ describe('new page', () => {
       expect(sentPrices('POST')).toEqual([200]);
     });
 
-    it('lines and a rate: back to exclusive at the scanned rate', async () => {
+    it('lines and a rate: back to exclusive at the scanned rate (14: Create holds)', async () => {
       await scanNow({ vatRate: 14, lineItems: [{ description: 'Scanned', quantity: 1, unitPrice: 200 }] });
+      await waitFor(() => expect(prices()).toEqual(['200']));
+      expect(modeShown()).toMatch(/Excluding VAT/);
+      expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('14');
+      await createRefused();
+    });
+
+    it('lines and the standard rate: back to exclusive, the scanned prices and rate sent as read', async () => {
+      await scanNow({ vatRate: 15, lineItems: [{ description: 'Scanned', quantity: 1, unitPrice: 200 }] });
       await waitFor(() => expect(prices()).toEqual(['200']));
       expect(modeShown()).toMatch(/Excluding VAT/);
       await submitAndWait(push);
       expect(sentPrices('POST')).toEqual([200]);
+      expect(sentBody('POST').taxRate).toBe(15);
+      expect(sentBody('POST').amountsAre).toBe('exclusive');
     });
 
     it('nothing on the scan to change: inclusive stays', async () => {
