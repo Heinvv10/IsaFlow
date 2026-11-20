@@ -282,7 +282,8 @@ BEGIN
              (SELECT it.id FROM public.items it WHERE it.id = l.item_id AND it.company_id = h.company_id),
              v_cc1, v_cc2, (row_number() OVER (ORDER BY l.created_at, l.id) - 1)::INT, l.created_at
         FROM (SELECT i.*, round(i.quantity, 2) AS q2,
-                     round(i.quantity, 2) <= 0 OR round(round(i.quantity, 2) * round(i.line_total / round(i.quantity, 2), 6), 2) <> i.line_total AS as_unit
+                     CASE WHEN round(i.quantity, 2) <= 0 THEN TRUE  -- CASE, not OR: the division below must never see a 0
+                          ELSE round(round(i.quantity, 2) * round(i.line_total / round(i.quantity, 2), 6), 2) <> i.line_total END AS as_unit
                 FROM public.supplier_purchase_order_items i WHERE i.purchase_order_id = h.id) l;
 
       SELECT count(*) INTO v_unit_lines FROM public.supplier_purchase_order_items i JOIN public.po_items x ON x.id = i.id
