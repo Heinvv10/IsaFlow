@@ -35,7 +35,9 @@ WHERE b.source_table = 'company_users'
   AND cu.approve_withheld IS DISTINCT FROM true;
 
 -- A legacy value that shows up AFTER this migration (old code writing during a deploy window, the old admin link form, a direct
--- INSERT, a pending legacy invitation accepted) is normalised on its way in, fail closed: accountant / bookkeeper become a manager
+-- INSERT, a pending legacy invitation accepted) is normalised on its way in, for EVERY role that writes (platform_admin and migration_admin
+-- included, by design: the result is a manager WITH approve_withheld, never a manager with Approve, so no writer can mint a full manager
+-- from a legacy name; the admin portal's own role list refuses the legacy names before it gets here), fail closed: accountant / bookkeeper become a manager
 -- WITH approve_withheld, storeman / technician / user a viewer. BEFORE INSERT OR UPDATE OF role; named so it fires ahead of
 -- company_users_role_guard, which then judges the normalised value. The app also withholds approval from a stored legacy name
 -- (roleDefaultPermission, LEGACY_ROLES_WITHOUT_APPROVE) in case one is ever read.

@@ -260,4 +260,23 @@ describe('migration 1010c: approve_withheld on the membership', () => {
       await pool.query('DELETE FROM users WHERE id = ANY($1)', [fresh]);
     }
   });
+
+  it('round 7 (LOW): the normalising trigger is role-blind: platform_admin and migration_admin writing a legacy value get a withheld manager, never a full one', async () => {
+    for (const role of ['platform_admin', 'migration_admin']) {
+      const u = crypto.randomUUID();
+      await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [u, `${u}@test.local`]);
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query(`SET LOCAL ROLE ${role}`);
+        await c.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'accountant')`, [company, u]);
+        expect((await c.query(`SELECT role, approve_withheld FROM company_users WHERE company_id = $1 AND user_id = $2`, [company, u])).rows[0], role)
+          .toEqual({ role: 'manager', approve_withheld: true });
+      } finally {
+        await c.query('ROLLBACK');
+        c.release();
+        await pool.query('DELETE FROM users WHERE id = $1', [u]);
+      }
+    }
+  });
 });
