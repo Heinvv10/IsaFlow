@@ -39,7 +39,7 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, sageRef } from './sagePartyMatch';
+import { claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, matchSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -60,8 +60,13 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
 }
 
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<string> {
-  const existing = await findSageSupplier(companyId, s);
-  if (existing) { await claimSageSupplier(companyId, existing, s.sageId); return existing; }
+  const existing = await matchSageSupplier(companyId, s);
+  // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
+  // Sage party of its own, which must still find it by name.
+  if (existing) {
+    if (!existing.viaMerge) await claimSageSupplier(companyId, existing.id, s.sageId);
+    return existing.id;
+  }
   const ref = sageRef(s.sageId);
   const inserted = (await sql`
     INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type, external_system, external_ref)

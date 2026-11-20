@@ -17,8 +17,14 @@
  * case-folded name is the same and which is not already another Sage party's.
  * The commit stamps the Sage id on every row it creates, and on an unstamped row
  * it matched by name (claimSageSupplier / claimSageCustomer), so a re-sync finds
- * it by id and a second Sage party of the same name gets its own row. A soft-deleted (or merged-away) row is never matched: the party is created
- * again, live, as the K-061 decision already does for merged customers.
+ * it by id and a second Sage party of the same name gets its own row.
+ *
+ * A soft-deleted row is not matched, with one exception: a supplier MERGED away
+ * (`merged_into_id`, migration 1020, set by mergeSuppliers) resolves to its live
+ * survivor, following the chain at most MAX_MERGE_HOPS deep and never revisiting a
+ * row, so a re-sync neither re-creates it nor splits its bills from the survivor.
+ * A plainly deleted supplier, a merge made before 1020, and every deleted customer
+ * are created again, live (customers: Hein's K-061 decision 4).
  */
 
 import { sql } from '@/lib/neon';
@@ -31,22 +37,51 @@ export function sageRef(sageId: number | string | null | undefined): string | nu
   return ref === '' ? null : ref;
 }
 
+/** How deep a chain of supplier merges (A into B, B into C, ...) is followed. */
+export const MAX_MERGE_HOPS = 10;
+
+/**
+ * The supplier a Sage party is, and whether it was reached through a merge. Candidates are live rows
+ * and merged-away rows (deleted with a survivor); each is followed to the live row at the end of its
+ * merge chain. A Sage-id hit outranks a name hit, and a live hit outranks a merged one.
+ */
+export async function matchSageSupplier(
+  companyId: string, party: { name: string; sageId?: number | string | null },
+): Promise<{ id: string; viaMerge: boolean } | null> {
+  const ref = sageRef(party.sageId);
+  const rows = (await sql`
+    WITH RECURSIVE hit AS (
+      SELECT id, deleted_at, merged_into_id, created_at,
+             (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE AS by_ref
+      FROM suppliers
+      WHERE company_id = ${companyId}::UUID
+        AND (deleted_at IS NULL OR merged_into_id IS NOT NULL)
+        AND (
+          (external_system = 'sage' AND external_ref = ${ref}::TEXT)
+          OR (LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
+              AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL))
+        )
+    ), chain AS (
+      SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen FROM hit h
+      UNION ALL
+      SELECT c.start_id, s.id, s.deleted_at, s.merged_into_id, c.hops + 1, c.seen || s.id
+      FROM chain c
+      JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
+      WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
+    )
+    SELECT c.id, h.deleted_at IS NOT NULL AS via_merge
+    FROM chain c JOIN hit h ON h.id = c.start_id
+    WHERE c.deleted_at IS NULL
+    ORDER BY h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
+    LIMIT 1
+  `) as Row[];
+  return rows.length ? { id: String(rows[0]!.id), viaMerge: rows[0]!.via_merge === true } : null;
+}
+
 export async function findSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null },
 ): Promise<string | null> {
-  const ref = sageRef(party.sageId);
-  const rows = (await sql`
-    SELECT id FROM suppliers
-    WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
-      AND (
-        (external_system = 'sage' AND external_ref = ${ref}::TEXT)
-        OR (LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
-            AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL))
-      )
-    ORDER BY (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE DESC, created_at, id
-    LIMIT 1
-  `) as Row[];
-  return rows.length ? String(rows[0]!.id) : null;
+  return (await matchSageSupplier(companyId, party))?.id ?? null;
 }
 
 export async function findSageCustomer(
