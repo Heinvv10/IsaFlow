@@ -16,7 +16,7 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
+  SupplierMergeRefusal, PO_BILL_LINKS_REFUSAL, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -66,9 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
          WHERE l.company_id = ${companyId} AND po.supplier_id = ${source_id} LIMIT 1
       `;
       if ((linked as unknown[]).length > 0) {
-        throw new SupplierMergeRefusal(
-          'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.',
-        );
+        throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
       }
 
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
@@ -107,8 +105,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
 
-      // Note: unified credit_notes table covers both customer and supplier
-      // credit notes; no separate supplier_credit_notes table exists.
+      // 5. Re-parent purchase_orders (the canonical PO table, mig 246b) and supplier credit notes (credit_notes,
+      // mig 202: one table for both customer and supplier notes). supplier_id is approval content on a credit
+      // note, as on a bill. The supplier_id tables that stay behind, and why: the comment below PO_BILL_LINKS_REFUSAL in duplicateMergeService.
+      await tx`
+        UPDATE purchase_orders
+        SET supplier_id = ${target_id}
+        WHERE supplier_id = ${source_id}
+          AND company_id = ${companyId}
+      `;
+      await tx`
+        UPDATE credit_notes
+        SET supplier_id = ${target_id},
+            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
+        WHERE supplier_id = ${source_id}
+          AND company_id = ${companyId}
+      `;
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
       // the Sage import follows a merged-away supplier to it, so a re-sync's bills land on the

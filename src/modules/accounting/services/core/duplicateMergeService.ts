@@ -64,6 +64,21 @@ export async function assertSupplierMergeKeepsDrcFlag(
   }
 }
 
+/** Shown when a supplier merge is refused because the source has purchase-order <-> bill links (mig 1006). */
+export const PO_BILL_LINKS_REFUSAL =
+  'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.';
+
+/*
+ * supplier_id tables a merge deliberately does NOT move (every supplier_id column in the schema was checked):
+ * - supplier_bank_verifications: append-only, a verification of THAT supplier's bank details; it must not vouch for the survivor's.
+ * - fraud_alerts, capture_events.resolved_supplier_id: history of what was seen against the row at the time.
+ * - bank_transactions.predicted_supplier_id / suggested_supplier_id: transient suggestions, recomputed.
+ * - supplier_contacts, supplier_activities, supplier_coding_rules / _history, supplier_expectations,
+ *   expected_invoice_alerts, supplier_statement_reconciliations, bank_categorisation_rules: the merged-away
+ *   supplier's own master data and rules; the survivor keeps its own, and folding two sets together
+ *   (duplicate contacts, clashing coding rules) is a product decision nobody has made. They stay readable on the row.
+ * Documents (payments, bills, both PO tables, credit notes) always move: nothing else shows them.
+ */
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function mergeEntities(
@@ -97,6 +112,15 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
 
+  // Migration 1006: a purchase order <-> bill link joins one supplier's documents, and the database refuses
+  // a supplier change on a PO or bill that has one. Refuse here, with the reason, before anything moves.
+  const linked = await sql`
+    SELECT 1 FROM purchase_order_bill_links l
+      JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+     WHERE l.company_id = ${companyId}::UUID AND po.supplier_id = ${duplicateId}::UUID LIMIT 1
+  `;
+  if (linked.length > 0) throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
+
   let count = 0;
 
   // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
@@ -129,6 +153,24 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
     RETURNING id
   `;
   count += r3.length;
+
+  // purchase_orders is the canonical PO table (mig 246b; supplier_purchase_orders above is the older one) and
+  // supplier credit notes live in credit_notes (mig 202). supplier_id is approval content on a credit note, as on a bill.
+  // Other supplier_id tables stay on the merged-away row on purpose (list and reasons below PO_BILL_LINKS_REFUSAL).
+  const r4 = await sql`
+    UPDATE purchase_orders SET supplier_id = ${primaryId}::UUID
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
+    RETURNING id
+  `;
+  count += r4.length;
+
+  const r5 = await sql`
+    UPDATE credit_notes SET supplier_id = ${primaryId}::UUID,
+      content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
+    RETURNING id
+  `;
+  count += r5.length;
 
   // merged_into_id (migration 1020): the Sage import follows a merged-away supplier to its survivor, so a
   // re-sync does not re-create it as a live supplier and split its new bills from the survivor (#1655).

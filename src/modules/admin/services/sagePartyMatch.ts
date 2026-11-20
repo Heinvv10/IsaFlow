@@ -1,64 +1,32 @@
 /**
  * sagePartyMatch.ts
  *
- * Which existing IsaFlow supplier / customer a pulled Sage party is (#1655).
- * The Sage commit used to match on `LOWER(name) = LOWER(<sage name>)` alone, over
- * every row, deleted or not. Three ways that lost a Sage party:
+ * Which existing IsaFlow supplier / customer a pulled Sage party is (#1655). The rules:
  *
- * - a SOFT-DELETED row of the same name matched, so the party was counted as
- *   "skipped" and stayed invisible in IsaFlow;
- * - two distinct Sage parties whose names differ only in case or surrounding
- *   spaces collapsed into the first one;
- * - the insert stored the trimmed name but the match compared the untrimmed one,
- *   so a name with a trailing space was re-created on every re-sync.
+ * 1. A row carrying the party's Sage id (`external_system = 'sage'`, `external_ref`) wins. Failing that, a
+ *    live row of the same trimmed, case-folded name that is not already another Sage party's.
+ * 2. The commit stamps the Sage id on every row it creates and on an unstamped row it matches by name
+ *    (resolveSageSupplier / resolveSageCustomer: match, claim, and match again after a claim lost to a
+ *    concurrent import), so a re-sync finds it by id and a second Sage party of that name gets its own row.
+ * 3. A soft-deleted row is never matched, except a SUPPLIER merged away (`merged_into_id`, migration 1020):
+ *    it resolves to its live survivor, at most MAX_MERGE_HOPS deep, never revisiting a row. A plainly deleted
+ *    supplier (survivor included), a merge made before 1020, and every deleted customer are created again,
+ *    live (customers: Hein's K-061 decision 4).
  *
- * Now: a live row carrying the same Sage id (`external_system = 'sage'`,
- * `external_ref = <Sage ID>`) wins; failing that, a live row whose trimmed,
- * case-folded name is the same and which is not already another Sage party's.
- * The commit stamps the Sage id on every row it creates, and on an unstamped row
- * it matched by name (claimSageSupplier / claimSageCustomer), so a re-sync finds
- * it by id and a second Sage party of the same name gets its own row.
+ * Merged-away rows, by name only (a Sage-id hit always follows its merge):
+ * - A merged-away row also matches by its name without the `[MERGED]` suffix the supplier-merge route adds.
+ * - The Sage id is stamped on the merged-away row, never on the survivor (claimMatchedSupplier), so the
+ *   survivor still matches its own Sage party and a later party of that name finds the row taken.
+ * - When the pull carries a Sage id, a merged-away row holding any other external ref is not matched: it
+ *   could never be stamped, so it would match every later party of that name.
+ * - Unstamped same-name rows must lead to ONE survivor, else the party matches none and gets its own live row.
+ *   Several rows to the same survivor are no ambiguity; each distinct Sage party takes the next unstamped one.
+ * - The hit is dropped when another alias of that name reaching the same survivor carries a different Sage id.
+ * - The hit is dropped when its chain passes a row (the survivor included) carrying a Sage id other than the
+ *   pull's: that row belongs to another Sage party.
+ * - A pull without a Sage id still reaches the survivor by name and stamps nothing.
  *
- * A soft-deleted row is not matched, with one exception: a supplier MERGED away
- * (`merged_into_id`, migration 1020, set by mergeSuppliers) resolves to its live
- * survivor, following the chain at most MAX_MERGE_HOPS deep and never revisiting a
- * row, so a re-sync neither re-creates it nor splits its bills from the survivor.
- * A plainly deleted supplier, a merge made before 1020, and every deleted customer
- * are created again, live (customers: Hein's K-061 decision 4). That includes a survivor that is
- * itself plainly deleted: it ends the chain, so a re-sync re-creates the party (accepted, #1655).
- *
- * The supplier-merge route renames the merged-away row to `<name> [MERGED]`, so a merged-away row also
- * matches by its name without that suffix; otherwise a hand-keyed supplier merged into a differently
- * named survivor would be re-created by the next sync.
- *
- * A merged-away row carries no Sage id of its own unless the merge left one, so one that matched by
- * name alone would match every later Sage party of that name. upsertSupplier therefore stamps the
- * pull's Sage id on that merged-away row (claimMatchedSupplier); the survivor is never stamped. For
- * the same reason, when the pull carries a Sage id a merged-away row that holds any other external ref
- * (another system's, say) is not matched by name: it could never be stamped, so it would match every
- * later party of that name. (A pull without a Sage id still reaches the survivor by that name.)
- *
- * Likewise, a name-only match through an unstamped merged-away row is refused when another merged-away
- * row of that name, reaching the same survivor, already carries a different Sage id: that alias was
- * claimed by another Sage party, so the survivor is not this party's by name.
- *
- * A name-only match through merged-away rows must name ONE survivor: when unstamped merged-away rows of
- * that name lead to different survivors, nothing says which one the party is, so it matches none and
- * the sync creates its own live row (the bill import reports the supplier as not found). Rows that all
- * lead to the same survivor are no ambiguity.
- *
- * A name-only match through a merge is not followed past another Sage party: when any row the chain
- * passes after the matched one, the survivor included, carries a Sage id other than the pull's, the hit
- * is dropped and the sync creates the party's own live row. (Two hand-keyed 'Acme' merged, Sage 101
- * stamps the survivor; Sage 102 would otherwise reach it through the unstamped merged-away twin.) A
- * Sage-id hit is always followed, whatever the chain carries: that is the merge a user made of two
- * Sage parties, and the bills of the merged-away one belong on its survivor.
- *
- * Every caller resolves through resolveSageSupplier / resolveSageCustomer: match, then stamp (claim), and
- * when a concurrent import of another Sage party stamped the row first (the claim updates nothing and the
- * row no longer matches), match again, so two Sage parties never share one row. The bill import
- * (commitAPInvoice) resolves like the supplier sync, so the result does not depend on whether bills or
- * suppliers are imported first.
+ * Known: a bill imported before its supplier sync throws "Supplier not found" where the name is ambiguous.
  */
 
 import { sql } from '@/lib/neon';
