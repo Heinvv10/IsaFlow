@@ -15,6 +15,7 @@ import {
   applyStandalone, approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, directivePayments,
   seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -114,15 +115,17 @@ describe('G1 edges', () => {
        VALUES ($1, $2, '2026-04-10', 2000, 200, 1800, $3)`, [f.company, orphan, je]);
     const out = await exportFile(f);
     expect(out.status, JSON.stringify(out.body)).toBe(200);
-    // Capped by encoded size: the header stays within 2 000 bytes, and the rest is counted.
-    const raw = encodeURIComponent(JSON.stringify(out.warnings));
+    // The file-wide notices (wave 6 EZF: too early to file, BRS p. 32; the fields IsaFlow does not hold) come last, outside
+    // the cap. The per-employee warnings are capped by encoded size: within 2 000 bytes, and the rest is counted.
+    const notice = (w: string) => w === UNWRITTEN_FIELDS_WARNING || w.startsWith('e@syFile will refuse this file until');
+    expect(out.warnings.at(-1)).toBe(UNWRITTEN_FIELDS_WARNING);
+    const own = out.warnings.filter((w) => !notice(w));
+    const raw = encodeURIComponent(JSON.stringify(own));
     expect(raw.length).toBeLessThanOrEqual(2_000);
-    // 13 warnings: the orphan payment and twelve 3231 fallbacks, plus the unwritten-fields notice every file carries
-    // (wave 6 EZF, UNWRITTEN_FIELDS_WARNING): 14.
-    expect(out.warnings.length).toBeLessThan(14);
+    expect(own.length).toBeLessThan(13);
     // The payment on no certificate comes first, so the cap never hides it.
-    expect(out.warnings[0]).toMatch(/9990001112.*linked to no employee/);
-    expect(out.warnings.at(-1)).toMatch(new RegExp(`and ${14 - (out.warnings.length - 1)} more`));
+    expect(own[0]).toMatch(/9990001112.*linked to no employee/);
+    expect(own.at(-1)).toMatch(new RegExp(`and ${13 - (own.length - 1)} more`));
   });
 });
 

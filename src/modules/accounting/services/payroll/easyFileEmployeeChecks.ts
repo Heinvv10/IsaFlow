@@ -18,7 +18,7 @@ const NUMERIC_DIRECTIVE_CODES = new Set([
   '3905', '3955', '3909', '3915', '3920', '3921', '3922', '3923', '3924', '3926',
 ]);
 
-export function validateEmployee(emp: EmployeeInput, asOf: Date = new Date()): void {
+export function validateEmployee(emp: EmployeeInput): void {
   if (emp.certificateNumber.length !== 30) {
     throw new UsageError(`Certificate number (code 3010) must be exactly 30 characters: "${emp.certificateNumber}" (${emp.certificateNumber.length})`);
   }
@@ -46,11 +46,6 @@ export function validateEmployee(emp: EmployeeInput, asOf: Date = new Date()): v
   }
   if (emp.taxPeriodStart < `${emp.yearOfAssessment - 1}0101`) {
     throw new UsageError(`${fieldLabel('taxPeriodStart', 'Certificate tax period start date')} ${emp.taxPeriodStart} is before 1 January ${emp.yearOfAssessment - 1}`);
-  }
-  const latest = latestTaxPeriodEnd(asOf);
-  if (emp.taxPeriodEnd > latest) {
-    throw new UsageError(`${fieldLabel('taxPeriodEnd', 'Certificate tax period end date')} ${emp.taxPeriodEnd} is more than 30 days after today `
-      + `(BRS V25.3.0 p. 32): this certificate can be filed from ${earliestFilingDay(emp.taxPeriodEnd)}`);
   }
   // BRS p. 33: N3.4 (at most 999.9999); 3210 cannot be greater than 3200.
   if (emp.payPeriodsInYear > 999.9999) {
@@ -108,4 +103,26 @@ export function latestTaxPeriodEnd(asOf: Date): string {
 export function earliestFilingDay(end: string): string {
   const e = fromCCYYMMDD(end);
   return displayDay(new Date(e.getFullYear(), e.getMonth(), e.getDate() - 30));
+}
+
+/**
+ * BRS V25.3.0 p. 32 (3180, annual and interim alike): e@syFile refuses a file while a certificate's tax period ends
+ * more than 30 days after today. The message naming the first day the file can be built; null when it can be now.
+ */
+export function filingDateMessage(employees: ReadonlyArray<Pick<EmployeeInput, 'taxPeriodEnd'>>, kind: 'annual' | 'interim',
+  transactionYear: number, asOf: Date): string | null {
+  const lastEnd = latestTaxPeriodEndOf(employees);
+  if (!lastEnd || lastEnd <= latestTaxPeriodEnd(asOf)) return null;
+  return `The ${kind} e@syFile file for tax year ${transactionYear} can be filed from ${earliestFilingDay(lastEnd)}: SARS refuses a `
+    + `certificate tax period (code 3180) ending more than 30 days after today (BRS V25.3.0 p. 32), and this period ends on ${lastEnd}.`;
+}
+
+const latestTaxPeriodEndOf = (employees: ReadonlyArray<Pick<EmployeeInput, 'taxPeriodEnd'>>): string | undefined =>
+  employees.map(e => e.taxPeriodEnd).sort().at(-1);
+
+/** The ad-hoc export's short warning (it travels in a size-capped header): null when the file can be filed now. */
+export function filingDateWarning(employees: ReadonlyArray<Pick<EmployeeInput, 'taxPeriodEnd'>>, asOf: Date): string | null {
+  const lastEnd = latestTaxPeriodEndOf(employees);
+  if (!lastEnd || lastEnd <= latestTaxPeriodEnd(asOf)) return null;
+  return `e@syFile will refuse this file until ${earliestFilingDay(lastEnd)}: its tax period (code 3180) ends more than 30 days from today (BRS V25.3.0 p. 32).`;
 }

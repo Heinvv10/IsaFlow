@@ -60,6 +60,9 @@ async function routeDirective(fx: SeveranceFixture, body: Record<string, unknown
   return id;
 }
 
+/** Without the date-dependent "too early to file" notice (BRS p. 32; present until the 2027 year's last 30 days, wave 6 EZF). */
+const notTooEarly = (ws: string[]): string[] => ws.filter((w) => !w.startsWith('e@syFile will refuse this file until'));
+
 async function exportFile(fx: SeveranceFixture): Promise<{ status: number; file: string; warnings: string[]; body: unknown }> {
   const req = request({ 'sb-access-token': fx.token, active_company_id: fx.company }, 'GET') as unknown as {
     url: string; query: Record<string, unknown>;
@@ -190,7 +193,7 @@ describe('G1: directive PAYE paid outside payroll reaches EMP201, the IRP5 data 
     expect(fields.filter(l => l.startsWith('3230,'))).toHaveLength(2);
     expect(fields.some(l => l.startsWith('4150,'))).toBe(false);
     // Plus the unwritten-fields notice every file carries (wave 6 EZF).
-    expect(out.warnings).toEqual([expect.stringContaining('AB12345'), UNWRITTEN_FIELDS_WARNING]);
+    expect(notTooEarly(out.warnings)).toEqual([expect.stringContaining('AB12345'), UNWRITTEN_FIELDS_WARNING]);
     expect(validateCertificateTaxFields(fields)).toEqual([]);
   });
 
@@ -250,6 +253,6 @@ describe('G3: the directive issued date', () => {
     expect(bad.statusCode).toBe(400);
     const out = await exportFile(f);
     expect(employeeRecord(out.file)).toContain('3231,20260509');
-    expect(out.warnings).toEqual([UNWRITTEN_FIELDS_WARNING]); // no 3231 fallback; the notice every file carries (wave 6 EZF)
+    expect(notTooEarly(out.warnings)).toEqual([UNWRITTEN_FIELDS_WARNING]); // no 3231 fallback; the notice every file carries (wave 6 EZF)
   });
 });

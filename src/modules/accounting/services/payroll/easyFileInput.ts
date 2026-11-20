@@ -36,6 +36,7 @@ import { assertRunKindSupported } from '@/modules/accounting/services/payroll/pa
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -74,11 +75,9 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 
-  // Lump sums paid under a directive, in a run or outside payroll (own code,
-  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
-  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
-  // follow-ups G1). The stand-alone payments are in no run line, so their
-  // gross and PAYE are added to the run totals.
+  // Lump sums paid under a directive, in a run or outside payroll (own code, PAYE under 4115 or 4102 by code), and annual payments
+  // (3605): reported apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a follow-ups G1). The stand-alone payments
+  // are in no run line, so their gross and PAYE are added to the run totals.
   const bounds = { start: period.start, end: period.end };
   const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee, regularDirectives] = await Promise.all([
     sql`
@@ -280,19 +279,20 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     physicalPostalCode: String(company.physical_postal_code),
   };
 
-  // A directive with no issued date files its effective date as 3231, and a
-  // payment under a directive linked to no employee is on no certificate
-  // (applyTaxDirective now refuses those): both said, naming the directive,
-  // and shown by the IRP5 page.
+  // A directive with no issued date files its effective date as 3231, and a payment under a directive linked to no employee is
+  // on no certificate (applyTaxDirective now refuses those): both said, naming the directive, and shown by the IRP5 page.
   // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
   warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
   warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
     + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
-  warnings.push(UNWRITTEN_FIELDS_WARNING); // BRS mandatory fields with no data in IsaFlow (easyFileCertificateCodes)
   // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
   if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
-  const warningsTotal = warnings.length;
-  warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
+  // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
+  // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
+  const early = filingDateWarning(employees, new Date());
+  const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
+  const warningsTotal = warnings.length + notices.length;
+  warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 
   return {
     employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,

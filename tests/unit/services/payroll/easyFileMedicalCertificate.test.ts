@@ -13,18 +13,12 @@
  * - p. 108: 08 = "No Tax to be withheld due to Medical Scheme Fees Tax Credit
  *   allowed ... and/or Additional Medical Expenses Tax Credit if employee ≥65".
  */
-import { describe, expect, it, afterAll, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
-
-// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
-// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
-// built while the suite is collected).
-vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
-afterAll(() => { vi.useRealTimers(); });
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001',

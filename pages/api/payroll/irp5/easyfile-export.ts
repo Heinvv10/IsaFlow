@@ -51,7 +51,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const { employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds } = input;
 
   try {
-    const fileBody = buildIrp5File({ employer, employees });
+    // Built even before it can be filed (BRS p. 32): the warnings say from when (wave 6 EZF, ruling L3 b).
+    const fileBody = buildIrp5File({ employer, employees, filingDate: 'warn' });
     const filename = `IRP5_${taxYear - 1}_${taxYear}_${payeRef}${periodRaw === 'interim' ? '_08' : ''}.irp5`;
 
     log.info('e@syFile IRP5 export generated', {

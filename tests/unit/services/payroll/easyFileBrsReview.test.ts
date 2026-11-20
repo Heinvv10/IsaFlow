@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { certificateTaxPeriod } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
+import { filingDateMessage } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 import { currentCertificate, currentEmployer, isLegacyLayout } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
 import { emp501FileOf } from '@/modules/accounting/services/returns/emp501FilingFile';
 import { EMP501_EASYFILE_KIND, emp501LayoutNote } from '@/modules/accounting/services/returns/emp501FileLayout';
@@ -59,12 +60,12 @@ describe('H1: the certificate tax period of a leaver paid after leaving (BRS p. 
 
 describe('every certificate refusal names the employee', () => {
   it('a validation error (3170 after 3180) carries the surname and certificate number', () => {
-    expect(() => buildEmployeeRecord({ ...employee, taxPeriodStart: '20260101', taxPeriodEnd: '20251231' }, AFTER_YEAR))
+    expect(() => buildEmployeeRecord({ ...employee, taxPeriodStart: '20260101', taxPeriodEnd: '20251231' }))
       .toThrow(/^Molefe \(certificate 712345678920260200000000000001\): .*code 3170/);
   });
 
   it('a field-format error (a control character) carries them too', () => {
-    expect(() => buildEmployeeRecord({ ...employee, firstNames: 'Thandi\n' }, AFTER_YEAR)).toThrow(/^Molefe \(certificate 7123/);
+    expect(() => buildEmployeeRecord({ ...employee, firstNames: 'Thandi\n' })).toThrow(/^Molefe \(certificate 7123/);
   });
 });
 
@@ -125,21 +126,29 @@ describe('M4: the EMP501 file kind names the layout', () => {
 
 describe('L1 / L3', () => {
   it('3100 made only of zeros is refused (p. 27)', () => {
-    expect(() => buildEmployeeRecord({ ...employee, taxNumber: '0000000000' }, AFTER_YEAR)).toThrow(/code 3100.*only zeros/);
+    expect(() => buildEmployeeRecord({ ...employee, taxNumber: '0000000000' })).toThrow(/code 3100.*only zeros/);
   });
 
   it('N3.4 is at most 999.9999 (p. 33)', () => {
-    expect(() => buildEmployeeRecord({ ...employee, payPeriodsInYear: 1000, payPeriodsWorked: 12 }, AFTER_YEAR)).toThrow(/code 3200.*999\.9999/);
+    expect(() => buildEmployeeRecord({ ...employee, payPeriodsInYear: 1000, payPeriodsWorked: 12 })).toThrow(/code 3200.*999\.9999/);
   });
 
-  it('3180 more than 30 days after today is refused (p. 32), naming the first day it can be filed', () => {
-    expect(() => buildEmployeeRecord(employee, new Date(2026, 0, 28))).toThrow(/code 3180.*filed from 2026-01-29/);
-    expect(buildEmployeeRecord(employee, new Date(2026, 0, 29))).toContain('3180,20260228');
+  it('a filed file (the default) is refused while 3180 is more than 30 days after today (p. 32), naming the first day', () => {
+    expect(() => buildIrp5File({ employer, employees: [employee], asOf: new Date(2026, 0, 28) }))
+      .toThrow(/^The annual e@syFile file for tax year 2026 can be filed from 2026-01-29: .*code 3180.*BRS V25\.3\.0 p\. 32/);
+    expect(buildIrp5File({ employer, employees: [employee], asOf: new Date(2026, 0, 29) })).toContain('3180,20260228');
   });
 
-  it('an annual file built before the year\'s last 30 days is refused once, for the file', () => {
-    expect(() => buildIrp5File({ employer, employees: [employee], asOf: new Date(2025, 10, 20) }))
-      .toThrow(/^The annual e@syFile file for tax year 2026 can be built from 2026-01-29/);
-    expect(buildIrp5File({ employer, employees: [employee], asOf: AFTER_YEAR })).toContain('3180,20260228');
+  it('the interim alike: 31 August plus 30 days', () => {
+    const interim = { employer: { ...employer, reconciliationPeriod: 202508 },
+      employees: [{ ...employee, certificateNumber: '712345678920260800000000000001', taxPeriodEnd: '20250831', payPeriodsWorked: 6 }] };
+    expect(() => buildIrp5File({ ...interim, asOf: new Date(2025, 6, 31) })).toThrow(/^The interim e@syFile file for tax year 2026 can be filed from 2025-08-01/);
+    expect(buildIrp5File({ ...interim, asOf: new Date(2025, 7, 1) })).toContain('3180,20250831');
+  });
+
+  it('the ad-hoc export (filingDate: warn) builds the file anyway; the message is for its warnings', () => {
+    expect(buildIrp5File({ employer, employees: [employee], asOf: new Date(2025, 10, 20), filingDate: 'warn' })).toContain('3180,20260228');
+    expect(filingDateMessage([employee], 'annual', 2026, new Date(2025, 10, 20))).toMatch(/can be filed from 2026-01-29/);
+    expect(filingDateMessage([employee], 'annual', 2026, AFTER_YEAR)).toBeNull();
   });
 });

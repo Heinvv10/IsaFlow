@@ -70,7 +70,5 @@ export const UNWRITTEN_MANDATORY_CODES = [
  * Said on every e@syFile file (Hein 2026-11-20: capturing these is wave 7; warn, never refuse): the fields e@syFile will
  * ask for because this file cannot carry them (UNWRITTEN_MANDATORY_CODES).
  */
-export const UNWRITTEN_FIELDS_WARNING = 'e@syFile will ask for fields IsaFlow does not hold yet, on every certificate: the employee\'s '
-  + 'residential, postal and work addresses, bank account details, business telephone and industry (SIC7) code, and the ETI, '
-  + 'over-deduction and fixed-rate indicators (codes 3026, 3136, 3147-3151, 3195, 3214-3217, 3220, 3240-3246, 3263, 3279-3294). '
-  + 'Capture them in e@syFile before you submit.';
+export const UNWRITTEN_FIELDS_WARNING = 'e@syFile will ask for fields IsaFlow does not hold yet (employee addresses, bank details, '
+  + 'business phone, SIC7, and the 3026 / 3195 / 3220 indicators): capture them in e@syFile before you submit.';

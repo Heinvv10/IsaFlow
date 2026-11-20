@@ -8,15 +8,9 @@
  * codes, (i) a zero field is left out, (p) at least one income code above zero; file layout:
  * "Income received" 3601 to 3835 are N15 income codes.
  */
-import { describe, it, expect, afterAll, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { buildEmp501Csv } from '@/../pages/api/payroll/emp501/export';
-
-// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
-// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
-// built while the suite is collected).
-vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
-afterAll(() => { vi.useRealTimers(); });
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001',

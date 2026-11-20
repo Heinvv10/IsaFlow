@@ -19,6 +19,8 @@ import { emp501Period } from '../../src/modules/accounting/services/payroll/emp5
 import { UNWRITTEN_FIELDS_WARNING } from '../../src/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { buildEmp501Figures, emp501Drift } from '../../src/modules/accounting/services/returns/emp501Figures';
 import returns from '../../pages/api/payroll/emp501/returns/index';
+import easyfileExport from '../../pages/api/payroll/irp5/easyfile-export';
+import { request, response } from './mfa-impersonation-postgres.helpers';
 import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -154,5 +156,51 @@ describeIfDb('EZF: EMP501 versions from before the BRS code fix, and the employe
     const filed = await callRoute(filingFile, c(), rf.admin.token, 'POST', {}, { versionId });
     expect(filed.status).toBe(200);
     expect(String(filed.body)).toBe(oldBody);
+  });
+
+  describe('L3 (b): a tax period ending more than 30 days after today (BRS V25.3.0 p. 32)', () => {
+    // The annual return of the tax year after the current one: its 3180 (end of February) is always months away.
+    const now = new Date();
+    const Y = (now.getMonth() >= 2 ? now.getFullYear() + 1 : now.getFullYear()) + 1;
+    let seededY = false;
+    const ANNUAL = { periodStart: `${Y - 1}-03-01`, periodEnd: `${Y}-02-${new Date(Y, 2, 0).getDate()}` };
+
+    beforeAll(async () => {
+      const run = String(((await sql`
+        INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_gross, approved_at)
+        VALUES (${c()}::UUID, ${Y - 1}, 3, 'approved', 0, now()) RETURNING id`) as Row[])[0]!.id);
+      await sql`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown)
+        VALUES (${run}::UUID, ${employees[0]!}::UUID, 30000, 30000, 4000, 177.12, 177.12, 300, ${JSON.stringify([{ sarsSourceCode: '3601', amount: 30000 }])}::JSONB)`;
+      await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submission_reference, submitted_at)
+        VALUES (${c()}::UUID, 'EMP201', ${`${Y - 1}-03-01`}::DATE, ${`${Y - 1}-03-31`}::DATE, 'submitted', 'LEGACY-EMP201-L3', now())`;
+      seededY = ((await sql`INSERT INTO sars_source_codes (code, effective_year, category, description, status)
+        VALUES ('3601', ${Y}, 'income', 'Income', 'active') ON CONFLICT DO NOTHING RETURNING code`) as Row[]).length === 1;
+      refreshCache();
+    });
+    afterAll(async () => {
+      if (seededY) await sql`DELETE FROM sars_source_codes WHERE code = '3601' AND effective_year = ${Y}`;
+      refreshCache();
+    });
+
+    it('the EMP501 finalise of that period is refused, and no version is made', async () => {
+      // finaliseEmp501Return already refuses a period that has not ended (400), which is stricter than BRS p. 32: a 3180
+      // is never after the period's end, so once it has ended 3180 is always before today. buildIrp5File's own refusal
+      // (the default, 'refuse') is the backstop for any caller that builds a filed file; easyFileBrsReview proves it.
+      const r = await callRoute(returns, c(), rf.admin.token, 'POST', {}, { action: 'finalise', ...ANNUAL });
+      expect(r.status, JSON.stringify(r.body)).toBe(400);
+      expect(JSON.stringify(r.body)).toContain('once its period has ended');
+      expect(((await sql`SELECT count(*)::int AS n FROM tax_return_versions WHERE company_id = ${c()}::UUID
+        AND period_start = ${ANNUAL.periodStart}::DATE`) as Row[])[0]!.n).toBe(0);
+    });
+
+    it('the ad-hoc e@syFile export builds the file (200) and warns, naming the date and BRS p. 32', async () => {
+      const req = request({ 'sb-access-token': rf.admin.token, active_company_id: c() }, 'GET') as never as { query: Record<string, string> };
+      req.query = { taxYear: String(Y), period: 'annual' };
+      const out = response();
+      await easyfileExport(req as never, out.res as never);
+      expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
+      const warnings = JSON.parse(decodeURIComponent(String(out.state.getHeader('X-IsaFlow-Warnings')))) as string[];
+      expect(warnings.some((w) => /^e@syFile will refuse this file until \d{4}-\d{2}-\d{2}: .*code 3180.*BRS V25\.3\.0 p\. 32/.test(w))).toBe(true);
+    });
   });
 });

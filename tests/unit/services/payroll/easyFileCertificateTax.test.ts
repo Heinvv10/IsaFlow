@@ -15,15 +15,9 @@
  * SARS PAYE-GEN-01-G21 (2027) Rev 1, p. 21: the tax on a 3907 lump sum is
  * reflected under 4102.
  */
-import { describe, it, expect, afterAll, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildEmployeeRecord, splitCertificateIncome, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
-
-// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
-// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
-// built while the suite is collected).
-vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
-afterAll(() => { vi.useRealTimers(); });
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001',
