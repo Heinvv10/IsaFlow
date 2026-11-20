@@ -94,27 +94,27 @@ describe('S9: intercompany_journal_claimed is no cross-tenant oracle', () => {
 });
 
 describe('M2: the exclusivity lookups use their indexes', () => {
-  it('intercompany_journal_bound_elsewhere reads the first-match and target indexes, never a sequential scan of the table', async () => {
+  // The plan of the function's OWN statement (read from pg_proc, its parameters bound), on a table that looks like production's: 5000
+  // unrelated rows of another group, analysed. (Index counters were not deterministic: on a database whose statistics say the tables are
+  // empty, the planner may take either of two one-page index scans; the plan below is what a sized table gets.)
+  it('intercompany_journal_bound_elsewhere: an index scan on the first-match index and one on the target index, no sequential scan, no OR of the two', async () => {
+    await pool.query(`INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, transaction_date, description)
+                      SELECT $1, $2, $2, 'management_fee', 1, 'ZAR', '2026-01-01', 'm2 filler' FROM generate_series(1, 5000)`, [co.H, co.C]);
     const c = await pool.connect();
     try {
-      await c.query('SET enable_seqscan = off');   // (the fixture table is tiny: ask whether an index CAN serve each lookup)
-      const stats = async () => {
-        await c.query('SELECT pg_stat_force_next_flush()');
-        await c.query('SELECT pg_stat_clear_snapshot()');
-        const r = (await c.query(`SELECT (SELECT seq_scan FROM pg_stat_user_tables WHERE relname = 'intercompany_transactions') AS seq,
-                                         (SELECT idx_scan FROM pg_stat_user_indexes WHERE indexrelname = 'uq_ic_transactions_first_journal') AS first,
-                                         (SELECT idx_scan FROM pg_stat_user_indexes WHERE indexrelname = 'idx_ic_transactions_target_journal') AS target`)).rows[0];
-        return { seq: Number(r.seq), first: Number(r.first), target: Number(r.target) };
-      };
-      const a = await stats();
-      for (let i = 0; i < 5; i++) await c.query('SELECT public.intercompany_journal_bound_elsewhere($1, $2)', [crypto.randomUUID(), crypto.randomUUID()]);
-      const b = await stats();
-      expect(b.first - a.first).toBeGreaterThanOrEqual(5);
-      expect(b.target - a.target).toBeGreaterThanOrEqual(5);
-      expect(b.seq - a.seq).toBe(0);
+      await c.query('ANALYZE intercompany_transactions');
+      const body = (await c.query("SELECT prosrc FROM pg_proc WHERE proname = 'intercompany_journal_bound_elsewhere'")).rows[0].prosrc as string;
+      await c.query(`PREPARE m2_bound(uuid, uuid) AS ${body.replace(/\bp_je\b/g, '$1').replace(/\bp_row\b/g, '$2')}`);
+      const plan = (await c.query(`EXPLAIN EXECUTE m2_bound('${crypto.randomUUID()}', '${crypto.randomUUID()}')`)).rows.map((r) => r['QUERY PLAN'] as string).join('\n');
+      expect(plan).toMatch(/Index (Only )?Scan using uq_ic_transactions_first_journal on intercompany_transactions/);
+      expect(plan).toMatch(/Index (Only )?Scan using idx_ic_transactions_target_journal on intercompany_transactions/);
+      expect(plan).not.toMatch(/Seq Scan on intercompany_transactions/);
+      expect(plan).not.toMatch(/BitmapOr/);
+      await c.query('DEALLOCATE m2_bound');
     } finally {
-      await c.query('RESET enable_seqscan');
       c.release();
+      await pool.query("DELETE FROM intercompany_transactions WHERE description = 'm2 filler'");
+      await pool.query('ANALYZE intercompany_transactions');
     }
   });
 });

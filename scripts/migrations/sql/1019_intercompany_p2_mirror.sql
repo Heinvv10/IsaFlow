@@ -502,8 +502,9 @@ GRANT EXECUTE ON FUNCTION public.intercompany_sender_journal_value_problem(text,
 
 -- Whether a row other than p_row holds p_je as the DATABASE bound it: as its first match (written by the definer, unique), or as the target of a
 -- MIRRORED row (written by the definer only). A writer's own row naming the journal as its target is a writer's column and holds nothing here
--- (else any group writer could remove another pair's elimination with one INSERT). Two EXISTS, each on its own index. SECURITY INVOKER,
--- migration_admin only.
+-- (else any group writer could remove another pair's elimination with one INSERT). Two EXISTS, each driven by its own index on
+-- intercompany_transactions (the mirrored test is a per-row check of the few rows on that journal, never a join the planner could drive
+-- from the messages side). SECURITY INVOKER, migration_admin only.
 CREATE OR REPLACE FUNCTION public.intercompany_journal_bound_elsewhere(p_je uuid, p_row uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -512,8 +513,8 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (SELECT 1 FROM public.intercompany_transactions o WHERE o.first_target_journal_entry_id = p_je AND o.id <> p_row)
-      OR EXISTS (SELECT 1 FROM public.intercompany_transactions o JOIN public.intercompany_messages x ON x.group_transaction_id = o.id
-                  WHERE o.target_journal_entry_id = p_je AND o.id <> p_row)
+      OR EXISTS (SELECT 1 FROM public.intercompany_transactions o
+                  WHERE o.target_journal_entry_id = p_je AND o.id <> p_row AND public.intercompany_is_mirrored_row(o.id))
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_journal_bound_elsewhere(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_bound_elsewhere(uuid, uuid) TO migration_admin;
