@@ -52,7 +52,7 @@ afterAll(async()=>{
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[]) AND user_id=ANY($2::text[])',[companies,[userA,userB]]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',[[userA,userB]]);
-  }finally{try{await pool.query(migration);if(reachDef)await pool.query(reachDef);}finally{await pool.end();}}
+  }finally{try{if(reachDef)await pool.query(reachDef);}finally{try{await pool.query(migration);}finally{await pool.end();}}}
 });
 async function configure(company:string,address:string){
   const req=request({'sb-access-token':tokens.get(company)!,active_company_id:company},'POST');
