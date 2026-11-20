@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageCheck, Plus, Search, Loader2 } from 'lucide-react';
-import { PageHeader } from '@/components/ui';
+import { PageHeader, StatusPill } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -18,6 +18,8 @@ interface GRN {
   received_date: string;
   received_by: string | null;
   notes: string | null;
+  status: string | null;
+  cancel_reason: string | null;
 }
 
 function dateStr(d: unknown): string {
@@ -120,7 +122,7 @@ export default function GoodsReceivedPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    {['GRN #', 'PO Reference', 'Supplier', 'Received Date', 'Received By', 'Notes'].map((h, i) => (
+                    {['GRN #', 'PO Reference', 'Supplier', 'Received Date', 'Received By', 'Status', 'Notes'].map((h, i) => (
                       <th key={i} className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -133,6 +135,12 @@ export default function GoodsReceivedPage() {
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{g.supplier_name || '—'}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{dateStr(g.received_date)}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.received_by || '—'}</td>
+                      <td className="px-5 py-3.5">
+                        <StatusPill status={g.status || 'received'} />
+                        {g.status === 'cancelled' && g.cancel_reason && (
+                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{g.cancel_reason}</div>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.notes || '—'}</td>
                     </tr>
                   ))}

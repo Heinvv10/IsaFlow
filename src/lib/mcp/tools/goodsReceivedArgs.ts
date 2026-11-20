@@ -85,7 +85,7 @@ export function grnRefusal(err: GoodsReceivedError, dryRun: boolean): McpToolRes
       })),
     } : {}),
     ...(d.disagreeing ? {
-      lines: d.disagreeing.map((l) => ({ po_item_id: l.poItemId, line_received: l.lineReceived, note_received: l.noteReceived })),
+      lines: d.disagreeing.map((l) => ({ po_item_id: l.poItemId, line_received: l.lineReceived, note_received: l.noteReceived, other_notes_received: l.otherNotesReceived })),
     } : {}),
     ...(d.poStatus ? { po_status: d.poStatus } : {}),
     ...(d.existing ? { existing_goods_received: { id: d.existing.id, grn_number: d.existing.grnNumber } } : {}),

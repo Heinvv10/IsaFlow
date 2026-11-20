@@ -266,24 +266,29 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     const poIds = [...new Set([invoice.purchase_order_id as string | null, ...linkedPos.map((l) => l.id)].filter((v): v is string => !!v))];
 
     for (const poId of poIds) {
+      // Every id read from the bill is fenced to the bill's company here (the bill's PO and note ids carry no foreign key, and row
+      // security admits every company the user belongs to).
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'purchase_order', ${poId}::uuid, 'po_invoice_link')
+        SELECT ${docId}::uuid, 'purchase_order', po.id, 'po_invoice_link' FROM purchase_orders po
+         WHERE po.id = ${poId}::uuid AND po.company_id = ${companyId}::uuid
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
     }
     if (grnId) {
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'goods_received', ${grnId}::uuid, 'grn_invoice_link')
+        SELECT ${docId}::uuid, 'goods_received', g.id, 'grn_invoice_link' FROM goods_received_notes g
+         WHERE g.id = ${grnId}::uuid AND g.company_id = ${companyId}::uuid
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
     }
 
     for (const poId of poIds) {
       const poDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type = 'purchase_order' AND entity_id = ${poId}::uuid AND is_active = true
+        SELECT d.id FROM procurement_documents d
+        WHERE d.entity_type = 'purchase_order' AND d.entity_id = ${poId}::uuid AND d.is_active = true
+          AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid)
       `;
       for (const doc of poDocs) {
         await sql`
@@ -298,8 +303,9 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     }
     if (grnId) {
       const grnDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type IN ('goods_received', 'goods_receipt_note') AND entity_id = ${grnId}::uuid AND is_active = true
+        SELECT d.id FROM procurement_documents d
+        WHERE d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id = ${grnId}::uuid AND d.is_active = true
+          AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = d.entity_id AND g.company_id = ${companyId}::uuid)
       `;
       for (const doc of grnDocs) {
         await sql`

@@ -25,8 +25,8 @@ export interface GoodsReceivedRefusalDetails {
   /** grn_on_bill: the bills that carry the note (ten at most) and how many there are. */
   bills?: Array<{ id: string; invoiceNumber: string }>;
   billsTotal?: number;
-  /** receipts_disagree: the PO lines holding less received quantity than the note's items took off them. */
-  disagreeing?: Array<{ poItemId: string; lineReceived: number; noteReceived: number }>;
+  /** receipts_disagree: the PO lines that would keep less than the PO's other live notes account for once this note's quantity is off. */
+  disagreeing?: Array<{ poItemId: string; lineReceived: number; noteReceived: number; otherNotesReceived: number }>;
 }
 
 /**

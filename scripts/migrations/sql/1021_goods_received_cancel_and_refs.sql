@@ -22,6 +22,10 @@
 --     (the note's created_at is now(), the transaction's start). A note's items are written with it by createGoodsReceived, which
 --     also adds them to po_items.quantity_received; an item added to a note that already exists would leave that total disagreeing
 --     with the notes, and a later cancel could not put it right. app_user cannot UPDATE a note, so created_at is fixed.
+--   goods_received_notes_po_guard (BEFORE INSERT, or UPDATE OF purchase_order_id / company_id; SECURITY INVOKER): a note names a
+--     purchase order of its own company. grn_items_po_line_guard (BEFORE INSERT, or UPDATE OF grn_id / po_item_id): an item names a
+--     line of its note's purchase order. Neither was a rule of the tables (no company on the PO foreign key, no PO on the item's),
+--     and the cancel takes quantities off the PO's lines on the strength of them.
 --   grn_items gets row security (FORCE, like its note): grn_items has no company_id, so a row is visible when its note is
 --     (the note's own policy), and is written only onto a note of the session company (WITH CHECK).
 --   goods_received_note_cancel(note, reason) (SECURITY DEFINER): the cancel's state change, the quantities back off the PO
@@ -60,6 +64,9 @@
 --
 -- Rollback (down SQL; roll the code back first, and only while no row uses what is dropped):
 --   DROP INDEX IF EXISTS public.idx_supplier_invoices_grn;
+--   DROP TRIGGER IF EXISTS trg_goods_received_notes_po_guard ON public.goods_received_notes;
+--   DROP TRIGGER IF EXISTS trg_grn_items_po_line_guard ON public.grn_items;
+--   DROP FUNCTION IF EXISTS public.goods_received_notes_po_guard(), public.grn_items_po_line_guard();
 --   DROP TRIGGER IF EXISTS trg_grn_items_same_transaction_guard ON public.grn_items;
 --   DROP FUNCTION IF EXISTS public.grn_items_same_transaction_guard();
 --   DROP FUNCTION IF EXISTS public.goods_received_note_cancel(uuid, text), public.goods_received_note_hold(uuid);
@@ -158,6 +165,46 @@ CREATE TRIGGER trg_grn_items_cancelled_guard BEFORE INSERT OR UPDATE ON public.g
   FOR EACH ROW EXECUTE FUNCTION public.grn_items_cancelled_guard();
 ALTER TABLE public.grn_items ENABLE ALWAYS TRIGGER trg_grn_items_cancelled_guard;
 
+-- A note names a purchase order of its own company, and an item a line of its note's PO. Both read the parents under the caller's row
+-- security, as the other guards do: a row the caller cannot see is not one it may name (a foreign key does not look at the company).
+CREATE OR REPLACE FUNCTION public.goods_received_notes_po_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = NEW.purchase_order_id AND po.company_id = NEW.company_id) THEN
+    RAISE EXCEPTION 'a goods received note names a purchase order of its own company' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_goods_received_notes_po_guard ON public.goods_received_notes;
+CREATE TRIGGER trg_goods_received_notes_po_guard BEFORE INSERT OR UPDATE OF purchase_order_id, company_id ON public.goods_received_notes
+  FOR EACH ROW EXECUTE FUNCTION public.goods_received_notes_po_guard();
+ALTER TABLE public.goods_received_notes ENABLE ALWAYS TRIGGER trg_goods_received_notes_po_guard;
+
+CREATE OR REPLACE FUNCTION public.grn_items_po_line_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = NEW.grn_id)
+     AND NOT EXISTS (SELECT 1 FROM goods_received_notes g JOIN po_items pi ON pi.purchase_order_id = g.purchase_order_id
+                      WHERE g.id = NEW.grn_id AND pi.id = NEW.po_item_id) THEN
+    RAISE EXCEPTION 'an item of a goods received note names a line of its purchase order' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_grn_items_po_line_guard ON public.grn_items;
+CREATE TRIGGER trg_grn_items_po_line_guard BEFORE INSERT OR UPDATE OF grn_id, po_item_id ON public.grn_items
+  FOR EACH ROW EXECUTE FUNCTION public.grn_items_po_line_guard();
+ALTER TABLE public.grn_items ENABLE ALWAYS TRIGGER trg_grn_items_po_line_guard;
+
 -- An item goes in only in the transaction that created its note: createGoodsReceived writes the note, its items and the PO lines'
 -- quantity_received together, so an item added to an existing note would leave quantity_received disagreeing with the notes. The note
 -- is read under the caller's row security (the cancelled guard's way). A note that is not visible, or does not exist, is left to the
@@ -184,6 +231,8 @@ ALTER TABLE public.grn_items ENABLE ALWAYS TRIGGER trg_grn_items_same_transactio
 REVOKE ALL ON FUNCTION public.goods_received_notes_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.grn_items_cancelled_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.grn_items_same_transaction_guard() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.goods_received_notes_po_guard() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.grn_items_po_line_guard() FROM PUBLIC;
 
 -- The cancel's live-bill check (below), under the PO and note locks: bills by (company_id, grn_id).
 CREATE INDEX IF NOT EXISTS idx_supplier_invoices_grn ON public.supplier_invoices (company_id, grn_id) WHERE grn_id IS NOT NULL;
@@ -211,8 +260,9 @@ CREATE POLICY tenant_isolation_via_parent ON public.grn_items FOR ALL TO app_use
 -- The refusals are re-decided under the note lock and answered, not raised, so nothing is written: 'already_cancelled',
 -- 'po_not_receivable' (the PO is not approved / partially_received / received / closed), 'grn_on_bill' (a bill of the company that is
 -- not deleted and not cancelled carries the note in supplier_invoices.grn_id; a bill naming the note holds goods_received_note_hold's
--- FOR SHARE until it commits, so this lock waits for it and the check after the lock sees it), 'receipts_disagree' (a PO line holds
--- less received quantity than this note's items took: the totals were changed outside the notes; nothing is kept).
+-- FOR SHARE until it commits, so this lock waits for it and the check after the lock sees it), 'receipts_disagree' (after this
+-- note's quantity comes off, a PO line would hold less than the other live notes' items still account for: the totals were not written
+-- with the notes; nothing is kept).
 -- 'cancelled' with po_status (the PO's status now) and receipt_status (what the receipts now give: received / partially_received /
 -- approved) otherwise.
 -- A CLOSED PO (closed by hand or by a bill link) stays closed: its status does not come from its receipts, a closed PO is a decision.
@@ -260,15 +310,22 @@ BEGIN
     RETURN QUERY SELECT 'po_not_receivable'::text, v_po_status, NULL::text; RETURN;
   END IF;
   IF EXISTS (SELECT 1 FROM public.supplier_invoices si
-              WHERE si.company_id = v_company AND si.grn_id = p_grn AND si.deleted_at IS NULL AND si.status <> 'cancelled') THEN
+              WHERE si.company_id = v_company AND si.grn_id = p_grn AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled') THEN
     RETURN QUERY SELECT 'grn_on_bill'::text, v_po_status, NULL::text; RETURN;
   END IF;
-  -- A line that would fall below zero: the PO's totals no longer follow the notes. Refused before anything is written.
+  -- The cancel takes this note's quantity off each line it names. A line must keep what the OTHER live notes of the PO still account for
+  -- (and so not fall below zero): where it would not, the line's total was not written with the notes (an item added with a note but
+  -- without the line's quantity, or the total edited), and taking the quantity off would let more be received than was ordered.
+  -- Refused before anything is written.
   IF EXISTS (
     SELECT 1 FROM public.po_items pi
       JOIN (SELECT gi.po_item_id, sum(gi.quantity_received) AS qty FROM public.grn_items gi WHERE gi.grn_id = p_grn GROUP BY gi.po_item_id) r
         ON r.po_item_id = pi.id
-     WHERE pi.purchase_order_id = v_po AND r.qty > 0 AND COALESCE(pi.quantity_received, 0) < r.qty
+     WHERE pi.purchase_order_id = v_po AND r.qty > 0
+       AND COALESCE(pi.quantity_received, 0) - r.qty < COALESCE((
+         SELECT sum(g2i.quantity_received) FROM public.grn_items g2i JOIN public.goods_received_notes g2 ON g2.id = g2i.grn_id
+          WHERE g2i.po_item_id = pi.id AND g2.id <> p_grn AND g2.purchase_order_id = v_po AND g2.company_id = v_company
+            AND g2.status <> 'cancelled'), 0)
   ) THEN
     RETURN QUERY SELECT 'receipts_disagree'::text, v_po_status, NULL::text; RETURN;
   END IF;
@@ -361,7 +418,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('goods_received_note_cancel(uuid,text)', 'public.goods_received_note_cancel(uuid, text)',
-     'goods_received_notes (status cancelled, cancelled_at / cancelled_by = auth.uid() / cancel_reason of one note of the session company), po_items.quantity_received of that note''s PO (less the note''s items), purchase_orders.status / updated_at of that PO (recomputed; a closed PO keeps its status and has closed_from_status recomputed), purchase_order_bill_links.closed_po_from_status of that PO''s links (a closed PO''s closing record, recomputed); only for a member of the session company, and only when the note is not cancelled, its PO is approved / partially_received / received / closed, no live bill carries it and its PO lines hold at least its quantities; reads company_users, grn_items, supplier_invoices'),
+     'goods_received_notes (status cancelled, cancelled_at / cancelled_by = auth.uid() / cancel_reason of one note of the session company), po_items.quantity_received of that note''s PO (less the note''s items), purchase_orders.status / updated_at of that PO (recomputed; a closed PO keeps its status and has closed_from_status recomputed), purchase_order_bill_links.closed_po_from_status of that PO''s links (a closed PO''s closing record, recomputed); only for a member of the session company, and only when the note is not cancelled, its PO is approved / partially_received / received / closed, no live bill carries it and its PO lines keep at least what the PO''s other live notes account for; reads company_users, grn_items, supplier_invoices'),
     ('goods_received_note_hold(uuid)', 'public.goods_received_note_hold(uuid)',
      'nothing (a FOR SHARE row lock on one goods_received_notes row of the session company, for a member of it; returns its status)')
   ) AS v(signature, fn, writes)

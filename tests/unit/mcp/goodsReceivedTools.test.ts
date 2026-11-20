@@ -139,9 +139,9 @@ describe('cancel_goods_received', () => {
     expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: 'x' }, ctx))).toMatchObject({
       code: 'grn_on_bill', bills: [{ id: PO, invoice_number: 'INV-1' }], bills_total: 1, written: false,
     });
-    cancelMock.mockRejectedValue(new GoodsReceivedError('disagree', 'receipts_disagree', { disagreeing: [{ poItemId: PO, lineReceived: 1, noteReceived: 4 }] }));
+    cancelMock.mockRejectedValue(new GoodsReceivedError('disagree', 'receipts_disagree', { disagreeing: [{ poItemId: PO, lineReceived: 1, noteReceived: 4, otherNotesReceived: 0 }] }));
     expect(json(await cancel.handler({ idempotency_key: 'k', grn_id: GRN, reason: 'x' }, ctx))).toMatchObject({
-      code: 'receipts_disagree', written: false, lines: [{ po_item_id: PO, line_received: 1, note_received: 4 }],
+      code: 'receipts_disagree', written: false, lines: [{ po_item_id: PO, line_received: 1, note_received: 4, other_notes_received: 0 }],
     });
   });
 });
