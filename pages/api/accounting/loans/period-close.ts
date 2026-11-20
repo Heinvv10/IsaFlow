@@ -16,7 +16,7 @@ import {
   isPeriodLocked,
 } from '@/modules/accounting/services/loans/loanPeriodCloseService';
 import { postPeriodJournals } from '@/modules/accounting/services/loans/loanGlPostingService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 interface PostBody {
   loanIds: string[];

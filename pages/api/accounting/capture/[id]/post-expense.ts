@@ -50,7 +50,7 @@ import {
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 interface PostExpenseBody {
   employeeId?: string;

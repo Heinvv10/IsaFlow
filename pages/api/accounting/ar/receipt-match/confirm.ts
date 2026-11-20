@@ -56,7 +56,7 @@ import {
   isReceiptRefusal,
   isRetryableReceiptRefusal,
 } from '@/modules/accounting/services/ar/receiptRefusal';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))

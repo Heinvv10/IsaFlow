@@ -30,7 +30,7 @@ import { previewBulkAccept, isBulkAcceptRefusal } from '@/modules/accounting/ser
 import { confirmBulkAccept, undoBulkAcceptBatch } from '@/modules/accounting/services/bank/bankBulkAcceptService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { ErrorCode } from '@/lib/apiResponse.types';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;

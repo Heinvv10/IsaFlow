@@ -8,6 +8,7 @@ import { BAD_IDS, UUID_A, callRoute } from '../helpers/apiRouteCall';
 
 const touched = vi.fn();
 const service = () => touched();
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / routeApproveGates
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(async () => { touched(); return [{ cnt: 0 }]; }, { unsafe: (s: string) => s }), withSavepoint: async (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));

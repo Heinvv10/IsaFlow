@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
@@ -39,6 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!balances || !Array.isArray(balances) || balances.length === 0) {
     return apiResponse.validationError(res, { balances: 'Non-empty balances array is required' });
   }
+
+  // #1656 (round 3): the import posts the take-on journal (and reverses a prior one): Chart of Accounts & GL Approve, as opening-balances.ts.
+  if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'opening balances')) return;
 
   let result: Awaited<ReturnType<typeof importOpeningBalances>> | typeof JOURNAL_DATE_REFUSED;
   try {

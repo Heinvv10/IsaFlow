@@ -27,7 +27,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

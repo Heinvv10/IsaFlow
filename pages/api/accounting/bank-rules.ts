@@ -14,6 +14,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -94,7 +95,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // count reflects this rule's matches and not the entire ruleset.
     let applied = 0;
     let skips: Record<string, number> = {};
-    if (input.bankAccountId) {
+    // #1656 (round 3): the auto-apply allocates (posts) the lines the rule matches: only a person with Banking Approve gets it; the rule itself is saved either way.
+    if (input.bankAccountId && await mayApprove(companyId, userId, 'banking')) {
       const result = await applyRules(companyId, input.bankAccountId, userId, [rule.id]);
       applied = result.applied;
       // The run's autoPost* skip counts too, which the create toast reads (applyToast.reportCreated): a rule

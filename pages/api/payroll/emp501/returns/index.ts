@@ -34,7 +34,7 @@ import { emp501Readiness } from '@/modules/accounting/services/returns/emp501Rea
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { ReturnRefusal, type ReturnVersion } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Query = z.object({ periodStart: ISO_DATE, periodEnd: ISO_DATE });

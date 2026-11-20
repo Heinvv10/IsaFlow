@@ -9,7 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

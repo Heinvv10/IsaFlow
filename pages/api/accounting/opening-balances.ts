@@ -15,7 +15,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

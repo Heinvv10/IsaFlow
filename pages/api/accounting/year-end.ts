@@ -21,7 +21,7 @@ import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/a
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { yearEndCloseRefusal, type YearEndCloseRefusal } from '@/lib/yearEndCloseRefusal';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready

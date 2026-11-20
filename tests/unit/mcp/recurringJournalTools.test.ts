@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: granted; the refusal is the test at the end
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([]), withTransaction: vi.fn(), withSavepoint: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', () => ({
@@ -34,6 +35,7 @@ import { HeaderAccountRefusal, assertNoHeaderAccountLines } from '@/modules/acco
 import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { checkJournalLines } from '@/lib/mcp/tools/journalLineArgs';
+import { checkPermission } from '@/lib/auth/permissionService';
 import { createRecurringJournalTool, deactivateRecurringJournalTool } from '@/lib/mcp/tools/writeRecurringJournals';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -216,6 +218,29 @@ describe('deactivate_recurring_journal', () => {
     const r = await deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, dry_run: true, idempotency_key: 'k' }, ctx());
     expect(body(r)).toMatchObject({ dry_run: true, status: 'paused' });
     expect(r.wroteNothing).toBe(true);
+    expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('#1656 round 3: an auto-posting template needs Chart of Accounts & GL Approve', () => {
+  const POST_CTX = () => ctx(['write:journals', 'write:post']);
+
+  it('create_recurring_journal auto_post:true without Approve is refused, nothing stored; drafts are not gated', async () => {
+    vi.mocked(checkPermission).mockResolvedValue(false);
+    const refused = await createRecurringJournalTool.handler({ ...ARGS, auto_post: true }, POST_CTX());
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/permission to approve auto-posting recurring journals/);
+    expect(checkPermission).toHaveBeenCalledWith('cccccccc-0000-4000-8000-cccccccccccc', 'u-1', 'accounts', 'approve');
+    expect(createRecurringJournal).not.toHaveBeenCalled();
+    const draft = await createRecurringJournalTool.handler({ ...ARGS, auto_post: false }, ctx());
+    expect(draft.isError).toBeFalsy();
+  });
+
+  it('resuming an auto-posting template without Approve is refused, nothing changed', async () => {
+    vi.mocked(checkPermission).mockResolvedValue(false);
+    vi.mocked(getRecurringJournalById).mockResolvedValue({ id: RJ, templateName: 't', status: 'paused', autoPost: true } as never);
+    const refused = await deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, enable: true, idempotency_key: 'k' }, POST_CTX());
+    expect(refused.isError).toBe(true);
     expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
   });
 });

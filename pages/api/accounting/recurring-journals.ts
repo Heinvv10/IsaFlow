@@ -9,6 +9,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -36,6 +37,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const userId = req.user.id;
     const autoPost: unknown = req.body?.autoPost;
     if (autoPost !== undefined && typeof autoPost !== 'boolean') return apiResponse.badRequest(res, 'autoPost must be true or false');
+    // #1656 (round 3): an auto-posting template approves every journal it generates: Chart of Accounts & GL Approve.
+    if (autoPost === true && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'auto-posting recurring journals')) return;
     try {
       const item = await createRecurringJournal(companyId, { ...req.body, autoPost }, userId);
       return apiResponse.success(res, item);

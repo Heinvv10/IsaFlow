@@ -16,7 +16,7 @@ import {
   updateRecurringStatus,
   runRecurringInvoice,
 } from '@/modules/accounting/services/ar/recurringInvoiceService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;

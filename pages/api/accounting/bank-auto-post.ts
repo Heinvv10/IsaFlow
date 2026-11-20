@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -64,6 +65,8 @@ async function handDecision(req: CompanyAuthedRequest, res: NextApiResponse, bod
   if (!isUuidParam(runId) || !isUuidParam(transactionId) || !isUuidParam(offsetJournalId)) {
     return apiResponse.badRequest(res, `${action} requires runId, transactionId and offsetJournalId`);
   }
+  // #1656 (round 3): undoing a run reverses its journals; the hand-correction decisions decide whether one stands: Banking Approve.
+  if (await refuseWithoutApprove(res, req.companyId, req.user.id, 'banking', 'auto-post undo')) return;
   try {
     const decide = action === 'undoAnyway' ? undoAnyway : markCorrectedByHand;
     const result = await decide(req.companyId, runId, transactionId, offsetJournalId, req.user.id);
@@ -140,6 +143,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, "POST requires { action: 'undo', runId }");
     }
     if (!isUuidParam(body.runId)) return apiResponse.badRequest(res, 'runId must be a valid UUID');
+    if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-post undo')) return; // #1656 (round 3), before any write
     try {
       const runId = body.runId;
       const result = await withJournalDateRefusal(res, () => undoRun(companyId, runId, userId));

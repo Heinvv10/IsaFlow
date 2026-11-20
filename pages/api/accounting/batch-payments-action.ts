@@ -28,7 +28,7 @@ import {
   isSupplierPaymentRefusal,
 } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

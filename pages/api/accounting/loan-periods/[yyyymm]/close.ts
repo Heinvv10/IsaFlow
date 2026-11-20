@@ -15,7 +15,7 @@ import {
   closeLoanPeriod,
   isPeriodLocked,
 } from '@/modules/accounting/services/loans/loanPeriodCloseService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;

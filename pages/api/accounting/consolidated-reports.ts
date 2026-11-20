@@ -25,7 +25,7 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
-import { refuseWithoutGroupApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutGroupApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /**
  * 400 text for a bad date range, or null — checked before any query, because an unvalidated

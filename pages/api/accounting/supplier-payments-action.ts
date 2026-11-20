@@ -28,7 +28,7 @@ import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/ser
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

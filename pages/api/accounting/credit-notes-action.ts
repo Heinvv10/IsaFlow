@@ -30,7 +30,7 @@ import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/cred
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
-import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { assertMayApproveCreditNote } from '@/modules/accounting/services/core/approvePermission';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [

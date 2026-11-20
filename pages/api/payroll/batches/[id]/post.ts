@@ -25,7 +25,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollBatchService';
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {

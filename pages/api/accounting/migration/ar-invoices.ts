@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -33,6 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const { sessionId, invoices } = parsed.data;
+  // #1656 (round 3): the import posts each invoice's journal: Customers & AR Approve, before any write.
+  if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'imported customer invoices')) return;
 
   // Per row, not per file: a single malformed line used to 400 the whole
   // upload with no row number. The failures travel with the rest of the run's

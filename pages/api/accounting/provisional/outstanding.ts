@@ -18,7 +18,7 @@ import { isLineSkipRefusal } from '@/modules/accounting/services/bank/bankAlloca
 import { InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 type Row = DbRow;
 

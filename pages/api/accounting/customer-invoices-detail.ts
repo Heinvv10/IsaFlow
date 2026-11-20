@@ -43,7 +43,7 @@ import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoi
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
-import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 type Row = Record<string, unknown>;
 

@@ -40,7 +40,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
 } from '@/modules/accounting/services/core/contactDirectoryService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),

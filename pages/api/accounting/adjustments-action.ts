@@ -15,7 +15,7 @@ import {
   approveAdjustment,
   cancelAdjustment,
 } from '@/modules/accounting/services/items/adjustmentService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

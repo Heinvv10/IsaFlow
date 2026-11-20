@@ -15,7 +15,7 @@ import {
   getLoanGlPostings,
   postPeriodJournals,
 } from '@/modules/accounting/services/loans/loanGlPostingService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;

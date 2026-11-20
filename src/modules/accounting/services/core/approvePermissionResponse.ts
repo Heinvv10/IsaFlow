@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  ApprovePermissionError, approveRefusedMessage, mayApprove, mayApproveInGroup, type ApproveModule,
+  ApprovePermissionError, approveModuleForRequest, approveRefusedMessage, mayApprove, mayApproveInGroup, type ApproveModule,
 } from '@/modules/accounting/services/core/approvePermission';
 
 export function respondIfApprovePermissionRefused(res: NextApiResponse, err: unknown): boolean {
@@ -34,4 +34,20 @@ export async function refuseWithoutGroupApprove(
   if (await mayApproveInGroup(userId, groupId, module)) return false;
   apiResponse.forbidden(res, approveRefusedMessage(module, what));
   return true;
+}
+
+/**
+ * Approving an approval request approves its document, so it takes that document's module Approve (APPROVE_MODULE_BY_DOCUMENT,
+ * a legacy credit note by its own type). Fails closed: a type with no module is refused. Answers 403 and returns true when refused.
+ */
+export async function refuseApprovalRequestWithoutApprove(
+  res: NextApiResponse, companyId: string, userId: string, request: { document_type: string; document_id: unknown },
+): Promise<boolean> {
+  const module = await approveModuleForRequest(companyId, request.document_type, String(request.document_id));
+  if (module === null) {
+    apiResponse.forbidden(res, `An approval request for a ${request.document_type} cannot be approved here.`);
+    return true;
+  }
+  if (module === 'missing') return false;
+  return refuseWithoutApprove(res, companyId, userId, module, `${request.document_type.replace(/_/g, ' ')}s`);
 }

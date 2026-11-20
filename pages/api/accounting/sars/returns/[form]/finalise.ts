@@ -22,7 +22,7 @@ import {
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Body = z.object({

@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -26,6 +27,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const userId = req.user.id;
   const jeId = req.query.jeId as string;
   if (!jeId) return apiResponse.badRequest(res, 'jeId is required');
+  // #1656 (round 3): dismissing a provisional reverses its journal: Banking Approve (as provisional/outstanding), before any write.
+  if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'provisional postings')) return;
 
   try {
     const result = await withJournalDateRefusal(res, () => dismissProvisionalEntry(companyId, jeId, userId));

@@ -41,7 +41,7 @@ import {
 import { runBulkPeriodAction, type BulkPeriodAction } from '@/modules/accounting/services/gl/fiscalPeriodBulk';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { closeRefusalDetails, isCloseRefusal } from '@/modules/accounting/services/gl/periodCloseErrors';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const CONFIRM_REQUIRED = new Set(['close', 'lock', 'bulk_close', 'bulk_lock', 'close_year']);
 const BULK = new Set<string>(['bulk_close', 'bulk_lock', 'bulk_reopen']);

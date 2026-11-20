@@ -14,7 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { isVersionAction, transitionVersion } from '@/modules/accounting/services/budgets/budgetVersionStatus';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})$/;
 

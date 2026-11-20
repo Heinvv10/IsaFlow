@@ -22,6 +22,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -70,6 +71,11 @@ function isUserFixable(err: unknown): err is Error {
   );
 }
 
+/** The module whose Approve an invoice delete / undo asks (the invoice's own journal is reversed / re-instated); null for the rest. */
+function invoiceApproveModule(entityType: string): 'customers' | 'suppliers' | null {
+  return entityType === 'customer_invoice' ? 'customers' : entityType === 'supplier_invoice' ? 'suppliers' : null;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
@@ -89,6 +95,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `entityType must be one of: customer, supplier, item, bank_rule, customer_invoice, supplier_invoice`,
       );
     }
+
+    // #1656 (round 3): deleting an approved invoice reverses its journal, so an invoice delete asks its module's Approve (decided from the
+    // entity type, not from a status read taken before the lock).
+    const deleteModule = invoiceApproveModule(entityType);
+    if (deleteModule && await refuseWithoutApprove(res, companyId, user.id, deleteModule, 'invoice deletions')) return;
 
     try {
       const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id));
@@ -128,6 +139,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `entityType must be one of: customer, supplier, item, bank_rule, customer_invoice, supplier_invoice`,
       );
     }
+
+    // #1656 (round 3): the undo re-instates (re-posts) the invoice's journal: the same Approve as the delete.
+    const undoModule = invoiceApproveModule(entityType);
+    if (undoModule && await refuseWithoutApprove(res, companyId, user.id, undoModule, 'invoice deletions')) return;
 
     try {
       const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id));

@@ -9,7 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { approveClaim, rejectClaim } from '@/modules/accounting/services/expense/expenseClaimService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

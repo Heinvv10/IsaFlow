@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -91,6 +92,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       case 'apply': {
+        // #1656 (round 3): applying rules allocates (posts) the lines they match: Banking Approve, before any write.
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank rules')) return;
         const result = await withJournalDateRefusal(res, () => applyRules(companyId, body.bankAccountId, userId));
         if (result === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, result);

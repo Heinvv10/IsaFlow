@@ -32,7 +32,7 @@ import {
 // whose route maps the refusal. reversePayrollRunJournal, the only payroll caller of reverseJournalEntry, has no caller.
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { log } from '@/lib/logger';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

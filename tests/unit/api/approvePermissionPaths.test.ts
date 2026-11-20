@@ -35,7 +35,7 @@ vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({ .
 import { sql } from '@/lib/neon';
 import { approveCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
-import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { approvePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderApprove';
 import { approveBatch } from '@/modules/accounting/services/ap/batchPaymentApproval';
 import { decideRequest } from '@/modules/accounting/services/gl/approvalService';

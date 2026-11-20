@@ -15,7 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeMigration } from '@/modules/accounting/services/core/migrationExecuteService';
 import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const VALID_SOURCES: MigrationSource[] = ['xero', 'quickbooks', 'pastel'];
 

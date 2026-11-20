@@ -28,7 +28,7 @@ import { sql } from '@/lib/neon';
 import { assertTxUsable } from '@/lib/als';
 import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import type { DbRow } from '@/lib/neon';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 interface RunResult {
   generated: number;

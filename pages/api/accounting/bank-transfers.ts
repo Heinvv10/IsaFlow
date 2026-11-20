@@ -30,7 +30,7 @@ import {
 } from '@/modules/accounting/services/bank/bankTransferService';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { log } from '@/lib/logger';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /** gl_journal_lines.debit / credit are numeric(15,2). */
 const MAX_AMOUNT = 9_999_999_999_999.99;

@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { approvePracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

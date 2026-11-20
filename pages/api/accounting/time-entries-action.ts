@@ -15,7 +15,7 @@ import {
   markAsInvoiced,
 } from '@/modules/accounting/services/core/timeTrackingService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

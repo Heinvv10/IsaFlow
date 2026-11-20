@@ -15,7 +15,7 @@ import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type Compa
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { bookEtiForMonthLocked } from '@/modules/accounting/services/payroll/etiRebook';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const BodySchema = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM') });
 

@@ -30,7 +30,7 @@ import { isUuidParam } from '@/lib/validation';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { sql } from '@/lib/neon';
 import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
-import { approveModuleForRequest, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { refuseApprovalRequestWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
@@ -160,15 +160,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const requestRow = requestRows[0];
         // #1656: approving a request approves its document, so it takes that document's module Approve, before
         // any write. Fails closed: a type with no module, not resolvable and not listed as ungated, is refused.
-        if (decision === 'approved' && requestRow) {
-          const approveModule = await approveModuleForRequest(companyId, requestRow.document_type, String(requestRow.document_id));
-          if (approveModule === null) {
-            return apiResponse.forbidden(res, `An approval request for a ${requestRow.document_type} cannot be approved here.`);
-          }
-          if (approveModule !== 'missing' && !(await mayApprove(companyId, userId, approveModule))) {
-            return apiResponse.forbidden(res, approveRefusedMessage(approveModule, `${requestRow.document_type.replace(/_/g, ' ')}s`));
-          }
-        }
+        if (decision === 'approved' && requestRow && await refuseApprovalRequestWithoutApprove(res, companyId, userId, requestRow)) return;
         if (requestRow?.document_type === 'pay_run') {
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }

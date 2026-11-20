@@ -24,7 +24,7 @@ import {
   missingAssetAccountMessage,
   resolveAssetAccountId,
 } from '@/modules/accounting/services/gl/glCrossModuleHooks';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 type Row = Record<string, unknown>;
 

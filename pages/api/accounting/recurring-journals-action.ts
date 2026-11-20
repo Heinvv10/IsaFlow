@@ -19,7 +19,7 @@ import {
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /** The page's status actions: the status each moves to, and how a refused move is worded. */
 const STATUS_ACTIONS = {

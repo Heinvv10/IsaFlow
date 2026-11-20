@@ -17,7 +17,7 @@ import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { respondIfBackstopRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

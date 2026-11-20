@@ -44,7 +44,7 @@ import {
   type AllocationType,
   type SplitLine,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('match'), bankTransactionId: UUID, journalLineId: UUID, reconciliationId: UUID.optional() }),

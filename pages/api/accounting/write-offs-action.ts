@@ -20,7 +20,7 @@ import {
   WriteOffNotApprovableError,
 } from '@/modules/accounting/services/ar/writeOffService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const WriteOffActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), id: UUID }),

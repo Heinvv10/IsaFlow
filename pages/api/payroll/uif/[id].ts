@@ -18,7 +18,7 @@ import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBa
 import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

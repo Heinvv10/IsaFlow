@@ -39,7 +39,7 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({

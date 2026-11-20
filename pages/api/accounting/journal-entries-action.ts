@@ -28,7 +28,7 @@ import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/s
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -94,6 +94,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         break;
       }
       case 'reverse':
+        // #1656 (round 3): reversing a posted journal asks Chart of Accounts & GL Approve, as 'post' does, before anything is locked.
+        if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal entries')) return;
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).

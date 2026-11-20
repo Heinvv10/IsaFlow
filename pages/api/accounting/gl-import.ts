@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -34,6 +35,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const userId = req.user.id;
+
+  // #1656 (round 3): importing and POSTING asks Chart of Accounts & GL Approve; importing without posting leaves drafts and stays ungated.
+  if (postImmediately === true && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal imports')) return;
 
   try {
     const result = await importJournalEntries(

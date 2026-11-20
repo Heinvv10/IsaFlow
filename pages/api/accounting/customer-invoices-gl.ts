@@ -13,7 +13,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
-import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;

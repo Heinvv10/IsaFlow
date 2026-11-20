@@ -42,7 +42,7 @@ import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/cre
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
-import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { approveRefusedMessage, assertMayApprove, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -231,6 +231,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
 
       if (action === 'reverse') {
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656 (round 3): cancelling reverses the note's journal, as 'post' approves it (403)
         const reversed = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, id, userId));
         if (reversed === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, reversed);

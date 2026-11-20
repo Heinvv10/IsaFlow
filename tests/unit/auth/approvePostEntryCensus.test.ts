@@ -2,56 +2,33 @@
  * #1656, Hein 2026-11-19 ("gate everything"): every PERSON or TOKEN entry point that approves, posts or reverses asks
  * the module's Approve (User Access) before it writes. Two censuses pin it:
  *
- *  1. HTTP: every git-tracked pages/api file that calls one of POSTING_SERVICES carries an Approve gate
- *     (refuseWithoutApprove / mayApprove / assertMayApprove / mayApproveSupplierInvoices / assertMayApproveCreditNote /
- *     approveModuleForRequest), or is in EXEMPT_ROUTES with the reason. A new route calling a posting service without
- *     a gate fails here; so does an exemption whose file no longer calls the service (a stale pin).
+ *  1. HTTP, TRANSITIVE (round 3: the old census matched direct calls by file, so a route that reached postJournalEntry
+ *     through a helper, or gated one action of several, passed). tests/unit/helpers/approveCensusGraph.ts builds the
+ *     call graph of the real program (type-checker resolved) from pages/api and src: a function that reaches a
+ *     primitive (SINKS: postJournalEntry, reverseJournalEntry, the approve/cancel/void services ...) with a call no gate
+ *     dominates is itself dangerous, and a route whose handler is dangerous fails. A gate (GATES) must sit on every
+ *     path to the call inside the function (a preceding statement, an enclosing condition), or the route's default export
+ *     is wrapped by withPayrollModule. A route is exempt only in EXEMPT_ROUTES, with the reason; a stale exemption fails.
  *  2. MCP: every tool that requires write:post, or whose name says it approves / posts / reverses, declares
  *     `approveModule` (the registry's module fence asks it before the handler), or is in EXEMPT_TOOLS with the reason.
  *
  * Out of scope, by ruling: system / cron runners (pages/api/cron/**, scheduled jobs, webhooks). They act for no
  * person, so there is no person's Approve to ask; their own gates (approval rules, unattended holds) still apply.
- * Known limit: the census is by file, not by call site — a gate on one action of a route covers the file. Each gate's
- * placement before the write is pinned by the per-path tests (approveGateEverything, breaker1670*, the integration
- * suite migration-1010-roles-and-permissions).
+ * Each gate's placement is also pinned by the per-path tests (approveGateEverything, breaker1670*, the 403 tests per
+ * route in routeApproveGates.test.ts, the integration suite migration-1010-roles-and-permissions).
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { analyse } from '../helpers/approveCensusGraph';
+import { GATES, POSTING_SERVICES, ROUTE_WRAPPERS } from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
-
-/** Services that approve, post, reverse or finalise a ledger document when a route calls them. */
-const POSTING_SERVICES = [
-  // GL / accounts
-  'postJournalEntry', 'reverseJournalEntry', 'postOpeningBalances', 'executeMigration', 'runDepreciation',
-  'closeFiscalYear', 'closePeriod', 'closeYear', 'lockPeriod', 'reopenPeriod', 'runBulkPeriodAction',
-  'runRecurringJournal', 'postAssetDisposalToGL', 'postCapitalizationExpenseToGL', 'closeLoanPeriod',
-  'postPeriodJournals', 'postEliminationAdjustment', 'reverseEliminationAdjustment',
-  // AP
-  'approveSupplierInvoice', 'cancelSupplierInvoice', 'postSupplierInvoiceToGL', 'approveSupplierPayment',
-  'processSupplierPayment', 'voidSupplierPayment', 'approveBatch', 'processBatch', 'reverseBatch',
-  'approveCreditNote', 'cancelCreditNote', 'approveClaim', 'postClaimToGl', 'postReceiptAsPettyCashJournal',
-  'runCapturePostFollowUps', 'attachEvidenceAndSettleApproved',
-  // AR
-  'approveCustomerInvoice', 'cancelCustomerInvoice', 'postCustomerInvoiceToGL', 'confirmCustomerPayment',
-  'cancelCustomerPayment', 'runRecurringInvoice', 'approveWriteOff',
-  // banking
-  'allocateTransaction', 'splitAllocateTransaction', 'bulkAcceptTransactions', 'reverseReconciledTransaction',
-  'confirmBulkAccept', 'undoBulkAcceptBatch', 'confirmReceiptMatch', 'confirmCustomerInvoiceMatch',
-  'confirmSupplierInvoiceMatch', 'confirmPurchaseOrderMatch', 'postBankTransfer', 'postProvisional',
-  // VAT, items, practice, budgets, approvals
-  'approveVATAdjustment', 'finaliseReturn', 'approveAdjustment', 'approveEntries', 'approvePracticeEntries',
-  'transitionVersion', 'decideRequest', 'approvePurchaseOrder',
-  // payroll
-  'approvePayrollRun', 'reopenPayrollRun', 'postBatch', 'bookEtiForMonthLocked', 'markUifDeclarationPaid',
-  // recurring templates (the run decides per template type)
-  'executeRecurring',
-] as const;
-
-const GATE = /\b(refuseWithoutApprove|refuseWithoutGroupApprove|mayApprove|mayApproveInGroup|assertMayApprove|mayApproveSupplierInvoices|assertMayApproveCreditNote|approveModuleForRequest)\(/;
 
 /** Routes that call a posting service without a route-level gate, and why that is right. */
 const EXEMPT_ROUTES: Readonly<Record<string, string>> = {
+  'pages/api/admin/migration/sage-commit.ts':
+    'the admin portal (withAdmin, a platform super_admin acting on a company they are not a member of): no company User Access applies; audited by logAdminAction',
+  'pages/api/portal/payments/paystack/verify.ts':
+    'the customer portal: a payer settling an invoice through Paystack, no company member acts; the receipt is idempotent on the gateway reference',
   'pages/api/accounting/recurring-transactions-execute.ts':
     'executeRecurring asks the runner\'s Approve per template type in the service (journal: Accounts, invoice: Customers, bill: Suppliers) and leaves the document a draft without it',
 };
@@ -83,40 +60,28 @@ const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf
   .split('\n')
   .filter((f) => /\.ts$/.test(f) && !f.startsWith('pages/api/cron/') && !f.startsWith('pages/api/webhooks/'));
 
-const CALL = new RegExp(`\\b(${POSTING_SERVICES.join('|')})\\s*\\(`);
-
-/** The file's code, comments removed (a comment naming a service is not a call, nor one naming a gate a gate). */
-function code(f: string): string {
-  return readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
-}
-
-function callers(): string[] {
-  return apiFiles.filter((f) => CALL.test(code(f)));
-}
+let memo: ReturnType<typeof analyse> | undefined;
+const census = () => (memo ??= analyse({
+  routeFiles: apiFiles, programFiles: execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
+    .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts')),
+  sinks: POSTING_SERVICES, gates: GATES, routeWrappers: ROUTE_WRAPPERS,
+}));
 
 describe('approve / post entry-point census (#1656)', () => {
-  it('the detector finds a call and a gate in the shapes routes use', () => {
-    expect(CALL.test('const je = await postJournalEntry(companyId, id, userId);')).toBe(true);
-    expect(CALL.test("import { postJournalEntry } from '...';")).toBe(false);
-    expect(GATE.test("if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'x')) return;")).toBe(true);
-    expect(GATE.test("import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';")).toBe(false);
-    expect(CALL.test(code('pages/api/accounting/eft-generate.ts'))).toBe(false); // names processBatch only in a comment
-  });
-
   it('finds the posting routes (the census is not empty)', () => {
-    expect(callers().length).toBeGreaterThan(50);
-  });
+    expect(census().dangerousRoutes.length).toBeGreaterThan(50);
+  }, 180_000);
 
-  it('every route that calls a posting service asks the module Approve', () => {
-    const ungated = callers().filter((f) => !EXEMPT_ROUTES[f] && !GATE.test(code(f)));
-    expect(ungated, `Gate these with refuseWithoutApprove before any write, or exempt them with a reason: ${ungated.join(', ')}`)
-      .toEqual([]);
-  });
+  it('every route that reaches a posting primitive asks the module Approve before it, on every action', () => {
+    const ungated = census().bad.filter((b) => !EXEMPT_ROUTES[b.file]);
+    expect(ungated.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
+      'Gate these with refuseWithoutApprove before the call (on every action branch), or exempt them with a reason').toEqual([]);
+  }, 180_000);
 
-  it('every exempt route still calls a posting service (no stale pin)', () => {
-    const stale = Object.keys(EXEMPT_ROUTES).filter((f) => !callers().includes(f));
-    expect(stale).toEqual([]);
-  });
+  it('every exempt route is still flagged without its exemption (no stale pin)', () => {
+    const flagged = new Set(census().bad.map((b) => b.file));
+    expect(Object.keys(EXEMPT_ROUTES).filter((f) => !flagged.has(f))).toEqual([]);
+  }, 180_000);
 
   it('every MCP tool that posts declares its approve module', () => {
     const posting = MCP_TOOLS.filter((t) => t.requiresPost || POSTING_NAME.test(t.name));
