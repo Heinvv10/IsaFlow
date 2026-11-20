@@ -90,6 +90,8 @@ export async function createWriteOff(companyId: string,
     WHERE id = ${input.invoiceId}::UUID AND company_id = ${companyId}
   `) as Row[];
   if (!invRows[0]) throw new Error('Invoice not found');
+  // FX PR0: approval refuses a foreign-currency invoice, so do not save a draft that can never be approved.
+  await assertStoredDocumentSettleable(companyId, 'customer_invoice', input.invoiceId);
   // The invoice must be this client's: company scope alone let a write-off name client A against client B's invoice.
   if (String(invRows[0].owner_id ?? '').toLowerCase() !== String(input.clientId).toLowerCase()) {
     throw new WriteOffInvoiceRefusedError('Invoice does not belong to this client');

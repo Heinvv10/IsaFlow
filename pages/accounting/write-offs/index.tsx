@@ -17,13 +17,19 @@ interface WriteOff {
   writeOffDate: string; status: string;
 }
 interface Client { id: string; name: string }
-interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number }
+/** `balanceCents` is total - paid in whole cents: decimal subtraction gave R100.10 - R100 = 0.0999…, below the R0.10 shown. */
+interface Invoice { id: string; invoice_number: string; balanceCents: number; currencyCode: string }
 
 const fmt = (n: number) => formatMoney(n);
 /** One /customer-invoices-list row (snake_case, string amounts) as the picker's invoice. */
 const toInvoice = (r: Record<string, unknown>): Invoice => ({
-  id: String(r.id), invoice_number: String(r.invoice_number ?? r.id), total_amount: Number(r.total_amount), amount_paid: Number(r.amount_paid),
+  id: String(r.id), invoice_number: String(r.invoice_number ?? r.id),
+  balanceCents: Math.round(Number(r.total_amount) * 100) - Math.round(Number(r.amount_paid) * 100),
+  currencyCode: String(r.currency_code ?? '').trim().toUpperCase(),
 });
+/** Write-offs post in Rand and approval refuses a foreign-currency invoice, so only Rand (or unset) invoices are offered. */
+const writeOffable = (inv: Invoice) => inv.balanceCents > 0 && (inv.currencyCode === '' || inv.currencyCode === 'ZAR');
+const balanceStr = (inv: Invoice) => (inv.balanceCents / 100).toFixed(2);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
@@ -72,14 +78,14 @@ export default function WriteOffsPage() {
     fetchCustomerOpenInvoices(form.clientId)
       .then(all => {
         if (stale) return;
-        setInvoices(all.rows.map(toInvoice).filter(inv => Math.round(inv.total_amount * 100) - Math.round(inv.amount_paid * 100) > 0));
+        setInvoices(all.rows.map(toInvoice).filter(writeOffable));
         setInvoiceNote(all.truncated ? `Showing ${all.rows.length} of ${all.total} invoices; the rest are not listed here.` : '');
       }).catch(err => { if (!stale) setError(apiErrorMessage(err, 'Could not load invoices - try again')); });
     return () => { stale = true; };
   }, [form.clientId]);
 
   const selectedInv = invoices.find(i => i.id === form.invoiceId);
-  const maxAmount = selectedInv ? Number(selectedInv.total_amount) - Number(selectedInv.amount_paid) : 0;
+  const maxAmount = selectedInv ? balanceStr(selectedInv) : undefined;
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -137,12 +143,12 @@ export default function WriteOffsPage() {
                   <option value="">Select Client *</option>
                   {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <select value={form.invoiceId} onChange={e => { setForm(f => ({ ...f, invoiceId: e.target.value })); const inv = invoices.find(i => i.id === e.target.value); if (inv) setForm(f => ({ ...f, invoiceId: e.target.value, amount: String(Number(inv.total_amount) - Number(inv.amount_paid)) })); }} className="ff-select" required>
+                <select value={form.invoiceId} onChange={e => { setForm(f => ({ ...f, invoiceId: e.target.value })); const inv = invoices.find(i => i.id === e.target.value); if (inv) setForm(f => ({ ...f, invoiceId: e.target.value, amount: balanceStr(inv) })); }} className="ff-select" required>
                   <option value="">Select Invoice *</option>
-                  {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoice_number} — Balance: {fmt(Number(inv.total_amount) - Number(inv.amount_paid))}</option>)}
+                  {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoice_number} — Balance: {fmt(inv.balanceCents / 100)}</option>)}
                 </select>
                 {invoiceNote && <p role="status" className="text-xs text-amber-400 md:col-span-2">{invoiceNote}</p>}
-                <input type="number" step="0.01" min="0.01" max={maxAmount || undefined} value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="ff-input" placeholder="Amount *" required />
+                <input type="number" step="0.01" min="0.01" max={maxAmount} value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="ff-input" placeholder="Amount *" required />
                 <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input" placeholder="Reason *" required />
               </div>
               <div className="flex justify-end gap-2">

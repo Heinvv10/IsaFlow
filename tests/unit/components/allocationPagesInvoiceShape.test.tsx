@@ -200,6 +200,42 @@ describe('write-offs: the invoice picker', () => {
   });
 });
 
+describe('write-offs: picker balances and currency', () => {
+  const openPicker = async (invoices: Record<string, unknown>[]) => {
+    serve(
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', name: 'Cust One' }])),
+      on('GET', '/api/accounting/write-offs', () => ok([])),
+      on('GET', '/api/accounting/customer-invoices-list', () => ok({ invoices, total: invoices.length })),
+    );
+    render(<WriteOffsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /new|add|write.?off/i }));
+    const [clientSelect, invoiceSelect] = (await screen.findAllByRole('combobox')) as HTMLSelectElement[];
+    await screen.findByRole('option', { name: /Cust One/ });
+    fireEvent.change(clientSelect!, { target: { value: 'k1' } });
+    return invoiceSelect!;
+  };
+
+  it('defaults and caps the amount at the cent balance (R100.10 - R100.00 is 0.10, not 0.0999…)', async () => {
+    const invoiceSelect = await openPicker([{ ...CUSTOMER_INVOICES[0]!, id: 'f1', invoice_number: 'FRAC', total_amount: '100.10', amount_paid: '100.00' }]);
+    await screen.findByRole('option', { name: /FRAC/ });
+    fireEvent.change(invoiceSelect, { target: { value: 'f1' } });
+    const amount = screen.getByPlaceholderText('Amount *') as HTMLInputElement;
+    await waitFor(() => expect(amount.value).toBe('0.10'));
+    expect(amount.max).toBe('0.10');
+  });
+
+  it('does not offer a foreign-currency invoice (approval refuses it); ZAR and unset are offered', async () => {
+    await openPicker([
+      { ...CUSTOMER_INVOICES[0]!, id: 'u1', invoice_number: 'USD-INV', currency_code: 'USD' },
+      { ...CUSTOMER_INVOICES[0]!, id: 'z1', invoice_number: 'ZAR-INV', currency_code: 'zar ' },
+      { ...CUSTOMER_INVOICES[0]!, id: 'n1', invoice_number: 'NOCUR-INV', currency_code: null },
+    ]);
+    await screen.findByRole('option', { name: /ZAR-INV/ });
+    expect(screen.getByRole('option', { name: /NOCUR-INV/ })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /USD-INV/ })).toBeNull();
+  });
+});
+
 // ---- #1685 review follow-ups: stale responses, dedupe, truncation, payment paging ----
 const gate = () => { let open!: () => void; const wait = new Promise<void>(r => { open = r; }); return { wait, open }; };
 const flush = () => new Promise<void>(r => setTimeout(r, 30));

@@ -17,8 +17,10 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // R-032 L5: the Login-as guard runs its own query first; it is covered by
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
-vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
-  (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) => ({
+  ...(await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()),
+  assertStoredDocumentSettleable: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
@@ -50,6 +52,7 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { approveWriteOff, createWriteOff, WriteOffInvoiceRefusedError } from '@/modules/accounting/services/ar/writeOffService';
+import { assertStoredDocumentSettleable, ForeignCurrencySettlementError } from '@/modules/accounting/services/shared/documentCurrency';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockCreateJournalEntry = createJournalEntry as unknown as MockedFunction<typeof createJournalEntry>;
@@ -248,6 +251,14 @@ describe('createWriteOff — refuses an invoice with no posted AR up front (C2)'
     // dropping COALESCE would make a customer_id-only invoice read as owned by nobody.
     const [strings] = mockSql.mock.calls[0] as unknown as [readonly string[]];
     expect(strings.join('').replace(/\s+/g, ' ')).toMatch(/COALESCE\(\s*(?:ci\.)?client_id,\s*(?:ci\.)?customer_id\s*\) AS owner_id FROM customer_invoices/);
+  });
+
+  it('refuses a foreign-currency invoice up front (approval would), without inserting', async () => {
+    mockSql.mockResolvedValueOnce([lockedInvoice({ owner_id: CLIENT })]);
+    vi.mocked(assertStoredDocumentSettleable).mockRejectedValueOnce(new ForeignCurrencySettlementError('USD', 'invoice'));
+    await expect(create()).rejects.toBeInstanceOf(ForeignCurrencySettlementError);
+    expect(assertStoredDocumentSettleable).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice', INVOICE_ID);
+    expect(mockSql).toHaveBeenCalledTimes(1); // the read only — no INSERT
   });
 
   it.each([['a draft invoice', 'draft', null], ['a soft-deleted invoice', 'approved', '2026-07-01']])('refuses %s without inserting', async (_name, status, deleted_at) => {
