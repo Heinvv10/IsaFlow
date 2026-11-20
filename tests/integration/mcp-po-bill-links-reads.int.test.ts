@@ -22,6 +22,7 @@ import { getSupplierInvoices, performThreeWayMatch } from '@/modules/accounting/
 import { generateSupplierInvoicePdf } from '@/modules/accounting/services/ap/supplierInvoicePdfBuilder';
 import { inOneTransaction } from './helpers/poMaintHarness';
 import { autoLinkSupplierInvoice } from '@/modules/accounting/services/core/documentStorageService';
+import { listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -161,7 +162,7 @@ describe('readers that keyed on the header PO', () => {
       expect(Buffer.isBuffer(pdf) && pdf.length > 1000).toBe(true);
     } finally { await req.rollback(); }
 
-    // Each PO's filed documents are cross-linked to the bill, and the bill's document to each PO.
+    // Each PO's filed documents are listed on the bill (resolved at read time, #1697 finding 4), and the bill's document linked to each PO.
     for (const [po, name] of [[a.po, 'a.pdf'], [b.po, 'b.pdf']] as const) {
       await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, is_active) VALUES ('purchase_order', $1, 'purchase_order', $2, true)`, [po, name]);
     }
@@ -169,8 +170,12 @@ describe('readers that keyed on the header PO', () => {
     await autoLinkSupplierInvoice(doc, bill.id, f.co);
     const toPos = await pool.query(`SELECT linked_entity_id FROM document_links WHERE document_id = $1 AND linked_entity_type = 'purchase_order' ORDER BY 1`, [doc]);
     expect(toPos.rows.map((r) => String(r.linked_entity_id)).sort()).toEqual([a.po, b.po].sort());
-    const toBill = await pool.query(`SELECT count(*)::INT AS n FROM document_links WHERE linked_entity_type = 'supplier_invoice' AND linked_entity_id = $1 AND link_reason = 'po_invoice_link'`, [bill.id]);
-    expect(toBill.rows[0].n).toBe(2);
+    const onBill = await openRequest(pool, f, f.owner);
+    try {
+      const listed = await onBill.run(() => listEntityDocuments(f.co, 'supplier_invoice', bill.id, 50, 0));
+      const fromPos = listed.ok ? listed.documents.filter((d) => d.linkReason === 'po_invoice_link').map((d) => d.documentName).sort() : [];
+      expect(fromPos).toEqual(['a.pdf', 'b.pdf']);
+    } finally { await onBill.rollback(); }
     await pool.query(`DELETE FROM document_links WHERE document_id = $1 OR linked_entity_id = $2`, [doc, bill.id]);
     await pool.query(`DELETE FROM procurement_documents WHERE entity_id = ANY($1::UUID[])`, [[a.po, b.po, bill.id]]);
   });
