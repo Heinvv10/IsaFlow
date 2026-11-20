@@ -16,6 +16,7 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
+import { PSP_PARTICULAR_KEYS } from './payrollEmployeePspEntity';
 import { DEFAULT_TERMS, PRICED_KEYS, movesPricedTerm, termsFromRow, termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
 import { salaryEndRefusal, salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
@@ -233,6 +234,12 @@ export function employeeChangesOf<T extends Body>(
   // may resend the stored value (the profile form resends every field) but not move it.
   const movesType = body.employmentType !== undefined && body.employmentType !== current.employmentType;
   if (!mayChangePricedTerms && movesType) throw new EmployeeTermsForbidden();
+  // PSP-H: the entity particulars a PSP's H certificate is filed under are priced terms too (security review): a lower role may
+  // resend the stored value but not move one, and never writes them (stripped below).
+  const blank = (v: unknown) => (typeof v === 'string' ? v.trim() || null : v ?? null);
+  if (!mayChangePricedTerms && PSP_PARTICULAR_KEYS.some((k) => body[k] !== undefined && blank(body[k]) !== (current[k] ?? null))) {
+    throw new EmployeeTermsForbidden();
+  }
   const changes = {
     ...body,
     ...terms,
@@ -242,7 +249,7 @@ export function employeeChangesOf<T extends Body>(
     idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
   };  // A caller without the role never writes a priced term, equal to the stored value or not: the stored one was read
   // before the lock, and writing it back could undo a concurrent change by an owner.
-  if (!mayChangePricedTerms) for (const k of [...PRICED_KEYS, 'employmentType']) delete (changes as Record<string, unknown>)[k];
+  if (!mayChangePricedTerms) for (const k of [...PRICED_KEYS, ...PSP_PARTICULAR_KEYS, 'employmentType']) delete (changes as Record<string, unknown>)[k];
   return changes;
 
 }

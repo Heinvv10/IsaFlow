@@ -50,6 +50,7 @@ import { certificateField } from './easyFileCertificateCodes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { buildPspCertificateRecord } from './easyFilePspCertificate';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
 import { employerFundContributionFields, retiredMemberFundFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
@@ -267,14 +268,15 @@ export function buildTrailerRecord(recordCount: number): string[] {
 }
 
 export function buildIrp5File(input: BuildInput): string {
-  if (input.employees.length === 0) {
+  const psp = input.pspCertificates ?? [];
+  if (input.employees.length + psp.length === 0) {
     throw new UsageError('Cannot build an IRP5 file with zero employees');
   }
   // BRS V25.3.0 p. 32: no 3180 more than 30 days after today. Refused for a file that is filed (EMP501 finalise and its
   // download); the ad-hoc export (`filingDate: 'warn'`) builds it and says so (easyFileInput's warnings).
   if (input.filingDate !== 'warn') {
     const kind = String(input.employer.reconciliationPeriod).endsWith('08') ? 'interim' : 'annual';
-    const early = filingDateMessage(input.employees, kind, input.employer.transactionYear, input.asOf ?? new Date());
+    const early = filingDateMessage([...input.employees, ...psp.map((c) => ({ taxPeriodEnd: c.periodEnd }))], kind, input.employer.transactionYear, input.asOf ?? new Date());
     if (early) throw new UsageError(early);
   }
   const lines: string[] = [];
@@ -282,7 +284,8 @@ export function buildIrp5File(input: BuildInput): string {
   for (const emp of input.employees) {
     lines.push(...buildEmployeeRecord(emp));
   }
-  const recordCount = 1 + input.employees.length; // 2010 + each 3010
+  for (const c of psp) lines.push(...buildPspCertificateRecord(c)); // wave 6 PSP-H: nature of person H
+  const recordCount = 1 + input.employees.length + psp.length; // 2010 + each 3010
   lines.push(...buildTrailerRecord(recordCount));
   // BRS §3 file is newline-delimited. Use CRLF — e@syFile Thin Client accepts
   // both but CRLF is what the reference importer samples produce.
