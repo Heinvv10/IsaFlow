@@ -38,6 +38,13 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
   });
 
+  it('garnishee_frequency (GA, kept by FQd): a weekly run with an order in force is refused costing only, naming the employee', () => {
+    expect(refusedBy({ pay_frequency: 'weekly', garnishee_off_month: ['E7'] }).filter((a) => a !== 'irp5')).toEqual(['calculate', 'approve', 'post']);
+    const reasons = judgeRunKind({ ...OK, pay_frequency: 'fortnightly', garnishee_off_month: ['E7'] }, 'calculate');
+    expect(reasons).toEqual([{ clause: 'garnishee_frequency',
+      detail: 'employees E7 have garnishee orders, whose monthly instalments are not yet pro-rated for a fortnightly run' }]);
+  });
+
   it('GA lifted the garnishee clauses: orders and deductions refuse nothing (this release costs and reopens them)', () => {
     expect(refusedBy({ garnishee_orders: 2, garnishee_deductions: 1 })).toEqual([]);
   });

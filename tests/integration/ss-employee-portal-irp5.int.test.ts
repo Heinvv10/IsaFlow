@@ -15,7 +15,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import list from '../../pages/api/employee-portal/irp5/index';
 import pdfRoute from '../../pages/api/employee-portal/irp5/[versionId]';
 import { assembleEasyFileInput } from '@/modules/accounting/services/payroll/easyFileInput';
-import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { buildEmp501Figures, type Emp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { clearRateLimitCache } from '@/lib/rateLimit';
@@ -177,7 +176,7 @@ describe('employee portal IRP5', () => {
     // judges a final run's frequency as at the run, so the year's input is not refused for Bee's move.
     await b.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [emp.bee]);
     try {
-      expect(isRunKindUnsupported(await assembleEasyFileInput(b.company, 2026, 'annual').catch((e: unknown) => e))).toBe(false);
+      await expect(assembleEasyFileInput(b.company, 2026, 'annual')).resolves.toBeDefined();
       const jar = await onboard(b, weekly, '198.18.3.4');
       await b.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [weekly]);
       expect(await listed(jar)).toEqual({ payFrequency: 'weekly', certificates: [] });

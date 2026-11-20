@@ -52,7 +52,8 @@ export interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
-  /** All PSP PAYE in the year, and the variance it does not explain: aggregate figures, for every role (review H). */
+  /** The PSP PAYE in the reconciled months (the interim: March to August), and the variance it does not explain:
+   *  payroll-detail roles only (security ruling 2026-11-19), absent for a viewer. */
   totalPspPaye?: number;
   totalUnexplainedVariance?: number;
   /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
