@@ -39,7 +39,8 @@ export type EntityDocumentsResult =
  * header `purchase_order_id` and its purchase_order_bill_links rows; po_invoice_link), so a delivery note filed before or after the
  * bill shows on it without a link row being written (merge-gate finding 4). Every id read off the bill is fenced to `companyId`: the
  * bill's PO and note columns carry no foreign key, and row security admits every company the user belongs to. A document also
- * reached through an older document_links row is listed once (the link row's reason wins).
+ * reached through an older document_links row is listed once (the link row's reason wins). Every linked document, however it was
+ * reached, is shown only when its own parent (entity_type + entity_id) is a row of `companyId` (gate finding 2).
  *
  * The cap is per query and the merged result is at most 2×limit — the two
  * stores are paged independently because they have different orderings and a
@@ -98,6 +99,19 @@ export async function listEntityDocuments(
     FROM once
     JOIN procurement_documents pd ON pd.id = once.document_id
     WHERE pd.is_active = true
+      -- The document's own parent must be this company's (gate finding 2): a document_links row carries no company, and row
+      -- security admits every company the user belongs to. The table's policy, with the membership replaced by companyId; an
+      -- entity type the policy does not name is never shown.
+      AND (
+        (pd.entity_type = 'supplier_invoice' AND EXISTS (SELECT 1 FROM supplier_invoices p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'customer_invoice' AND EXISTS (SELECT 1 FROM customer_invoices p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'supplier_payment' AND EXISTS (SELECT 1 FROM supplier_payments p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'credit_note' AND EXISTS (SELECT 1 FROM credit_notes p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'purchase_order' AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type IN ('goods_received', 'goods_receipt_note')
+            AND EXISTS (SELECT 1 FROM goods_received_notes p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+      )
     ORDER BY pd.uploaded_at DESC, pd.id DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `) as DbRow[];

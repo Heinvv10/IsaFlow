@@ -6,7 +6,8 @@
  *     on the bill (no bill attachment needed);
  *   - bill first, then the documents: filed on the note and the PO after the bill, they are listed on it too;
  *   - a document already cross-linked to the bill (an older link row) is listed once;
- *   - another company's PO or note named by a bill (the ids carry no foreign key) lends it nothing;
+ *   - another company's PO or note named by a bill (the ids carry no foreign key) lends it nothing, and neither does an older
+ *     document_links row from the bill to another company's documents (gate finding 2 on #1697, a user of both companies);
  *   - procurement_documents' policy admits a legacy goods_receipt_note document of this company's note, and only that.
  * Object storage is not run here: vfStorage.uploadFile is stubbed, every database write is real.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -125,6 +126,29 @@ describe('a bill lists its note\'s and its POs\' documents (finding 4)', () => {
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
     try {
       expect(await onBill(f, bill.id)).toEqual([]);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
+    }
+  });
+});
+
+describe('an older document_links row lends a bill only its own company\'s documents (gate finding 2)', () => {
+  it('a link row from this bill to another company\'s note, PO or bill documents (any type) lists none of them, even to a user of both', async () => {
+    const theirs = await noteOnPo(other);
+    await fileOn(other, 'goods_received', theirs.grn, 'XLINK-dn.pdf');
+    await fileOn(other, 'purchase_order', theirs.po.po, 'XLINK-po.pdf');
+    await legacyDoc(theirs.grn, 'XLINK-legacy.pdf');
+    const theirBill = await seedBill(pool, other, { status: 'draft', lines: [40] });
+    await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, file_url, uploaded_by, is_active)
+                      VALUES ('supplier_invoice', $1, 'invoice', 'XLINK-bill.pdf', 'https://files.test/x', 'x', true)`, [theirBill.id]);
+    const ours = await noteOnPo(f);
+    await fileOn(f, 'goods_received', ours.grn, 'XLINK-ours.pdf');
+    const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
+    await pool.query(`INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
+                      SELECT d.id, 'supplier_invoice', $1, 'grn_invoice_link' FROM procurement_documents d WHERE d.document_name LIKE 'XLINK-%'`, [bill.id]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
+    try {
+      expect(await onBill(f, bill.id)).toEqual(['linked:XLINK-ours.pdf:grn_invoice_link']);
     } finally {
       await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
     }
