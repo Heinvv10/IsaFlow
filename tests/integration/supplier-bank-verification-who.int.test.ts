@@ -128,12 +128,12 @@ describe('a raised verifier role never leaves the details unverifiable', () => {
 
 describe('the sole-approver exception (R-035 Q2)', () => {
   it('the only member of the verifier rank set the details: they verify, recorded self_verified with the roster', async () => {
-    const { c, s } = await changed([[u.b, 'owner'], [u.k, 'bookkeeper']], u.b, u.b);
+    const { c, s } = await changed([[u.b, 'owner'], [u.k, 'viewer']], u.b, u.b);
     const res = await r.verify(u.b, c, s);
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     const rows = await verificationsOf(pool, s);
     expect(rows.map((x) => [x.kind, x.verified_by])).toEqual([['baseline', u.b], ['self_verified', u.b]]);
-    expect(rows[1]!.roster_snapshot).toMatchObject({ requester_role: 'owner', others: [{ user_id: u.k, role: 'bookkeeper' }] });
+    expect(rows[1]!.roster_snapshot).toMatchObject({ requester_role: 'owner', others: [{ user_id: u.k, role: 'viewer' }] });
     expect((await r.state(u.b, c, s)).state).toBe('verified');
   });
 

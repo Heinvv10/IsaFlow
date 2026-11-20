@@ -83,11 +83,11 @@ afterAll(async () => {
 
 describe('admin: remove a company link', () => {
   it('removes the ISAFlow Demo link (version-0 UUID) and audits the previous role', async () => {
-    await link(alice, DEMO, 'bookkeeper');
+    await link(alice, DEMO, 'viewer');
     const r = await remove(alice, DEMO);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(await roleOf(alice, DEMO)).toBeNull();
-    expect(await audits('user.remove_from_company', alice)).toEqual([{ company_id: DEMO, previous_role: 'bookkeeper' }]);
+    expect(await audits('user.remove_from_company', alice)).toEqual([{ company_id: DEMO, previous_role: 'viewer' }]);
   }, 30000);
 
   it('a link that does not exist is a 404, not a silent 200, and nothing is audited', async () => {

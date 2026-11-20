@@ -161,7 +161,7 @@ const MIXED_TYPES: Record<string, [string, number]> = { Standard: ['standard', 1
 const EXEMPT: [Items, Record<string, [string, number]>] = [[{ description: 'Rent', unitPrice: 1000 }], { Rent: ['exempt', 0] }];
 const LEGACY: Items = [{ description: 'Export', unitPrice: 1000 }];
 const cancelNote = (id: string) => () => inTx(f.fx, () => cancelCreditNote(f.fx.companyId, id, f.fx.userId));
-const cancelInvoice = (id: string) => () => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+const cancelInvoice = (id: string) => () => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId, { allowReversal: true }));
 const teardown = async () => {
   if (!f) return;
   await sql`DELETE FROM vat_period_locks WHERE company_id = ${f.fx.companyId}::UUID`;

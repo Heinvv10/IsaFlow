@@ -19,7 +19,7 @@ import { McpRegistry } from '@/lib/mcp/registry';
 import { CreditNoteDeleteRefusal } from '@/modules/accounting/services/ar/creditNoteDeleteService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, runOn, seedBill, seedFixture, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, runOn, seedBill, seedFixture, seedFixtureMember, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
 import { backendPid, waitUntilBlocked } from './helpers/lockWait';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -81,6 +81,7 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
     // audit_log.user_id references users: the fixture's actor needs a row, as every real caller has one.
     for (const f of [fx, other]) {
       await sql`INSERT INTO users (id, email, role, is_active) VALUES (${f.userId}, ${`${f.userId}@test.local`}, 'viewer', true)`;
+      await seedFixtureMember(f); // an owner: the non-draft cancel asks Approve from company_users (#1656)
     }
     await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
@@ -94,6 +95,7 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
       await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM mcp_tool_calls WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM company_users WHERE company_id = ${f.companyId}::UUID`;
       await dropFixture(f);
       await sql`DELETE FROM users WHERE id = ${f.userId}`;
     }

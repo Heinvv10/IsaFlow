@@ -250,7 +250,10 @@ DO $$
 DECLARE
   v text;
 BEGIN
-  FOR v IN SELECT * FROM public.app_pool_reach_violations() ORDER BY 1 LOOP
+  -- Only what this migration answers for: a violation about company_user_permissions. A definer function missing from app_definer_reviews
+  -- (or any other rule's) is the deploy's check (scripts/check-app-login-roles.ts), not a reason to refuse this REVOKE: the advisory
+  -- run on production's schema, which holds no review rows, would otherwise fail on 997b's function.
+  FOR v IN SELECT x FROM public.app_pool_reach_violations() AS x WHERE x LIKE '%company\_user\_permissions%' ORDER BY 1 LOOP
     RAISE EXCEPTION '1010d: %', v;
   END LOOP;
 END $$;

@@ -49,8 +49,9 @@ describe.skipIf(!process.env.DATABASE_URL)('customer invoice cancel: allowRevers
     // The approval is in flight: it holds the invoice row and posts the journal, uncommitted.
     const approval = await openTx(c.fx, async () => {
       await sql`SELECT id FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${c.fx.companyId}::UUID FOR UPDATE`;
-      await postCustomerInvoiceToGL(c.fx.companyId, id, c.fx.userId);
+      // postCustomerInvoiceToGL refuses a draft (master: approve it instead): the status moves first, in the same open transaction.
       await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+      await postCustomerInvoiceToGL(c.fx.companyId, id, c.fx.userId);
     });
     const cancel = settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, id, c.fx.userId, { allowReversal: false })));
     let finished = false;
@@ -70,8 +71,8 @@ describe.skipIf(!process.env.DATABASE_URL)('customer invoice cancel: allowRevers
   it('the same cancel with Approve reverses the journal', async () => {
     const id = await draftInvoice();
     await inTx(c.fx, async () => {
-      await postCustomerInvoiceToGL(c.fx.companyId, id, c.fx.userId);
       await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+      await postCustomerInvoiceToGL(c.fx.companyId, id, c.fx.userId);
     });
     const je = String((await state(id)).gl_journal_entry_id);
     await inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, id, c.fx.userId, { allowReversal: true }));

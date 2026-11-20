@@ -74,6 +74,15 @@ describe('1010d: migration', () => {
     }
   });
 
+  it("answers only for its own table: another rule's violation (an unreviewed definer, as on production's schema dump) does not stop it", async () => {
+    await rolledBack(async (q) => {
+      await q("CREATE FUNCTION public.zz_unreviewed_definer() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'");
+      expect((await rows(q, 'SELECT * FROM public.app_pool_reach_violations()')).length).toBeGreaterThan(0);
+      await q(M1010D); // would raise '1010d: ... SECURITY DEFINER function ... not in app_definer_reviews' if it answered for every rule
+      await expect(q(`GRANT INSERT ON public.${T} TO app_user`).then(() => q(GUARD))).rejects.toThrow(/1010d: .* can INSERT/);
+    });
+  });
+
   it('refuses to apply without the REVOKE', async () => {
     await rolledBack(async (q) => {
       await q(`GRANT INSERT, UPDATE, DELETE ON public.${T} TO app_user`);

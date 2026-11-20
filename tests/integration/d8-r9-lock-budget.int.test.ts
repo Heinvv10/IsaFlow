@@ -129,7 +129,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 9: every row lock of the re
   it('invoice soft delete: its journal held — refuses within the budget', async () => {
     const inv = await postedInvoice(c);
     expectBounded(await againstHolder('gl_journal_entries', inv.je,
-      () => prepareInvoiceDelete('customer_invoice', inv.id, c.fx.companyId, c.fx.userId)), JournalReversalLockTimeoutError);
+      () => prepareInvoiceDelete('customer_invoice', inv.id, c.fx.companyId, c.fx.userId, { allowReversal: true })), JournalReversalLockTimeoutError);
   }, 30000);
 
   it('lockChainHead: ONE deadline across passes — a second pass waits only what the first left', async () => {
