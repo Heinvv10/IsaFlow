@@ -116,3 +116,31 @@ describe('the undo of a deleted bill keeps the same rule', () => {
     expect(await undo(await deletedBill(grn))).toBe('true');
   });
 });
+
+describe('the undo reads the POs a bill names from its lines and its link rows, not only its header', () => {
+  const nameByLine = (bill: string, item: string) => pool.query('UPDATE supplier_invoice_items SET po_item_id = $2 WHERE supplier_invoice_id = $1', [bill, item]);
+  const nameByLink = (bill: string, po: string) => pool.query(
+    `INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 3, 'backfill')`, [f.co, po, bill]);
+
+  it('a line naming another PO than the note\'s refuses the restore; a line naming the note\'s PO allows it', async () => {
+    const { po, grn } = await noteOnPo();
+    const elsewhere = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const wrong = await deletedBill(grn);
+    await nameByLine(wrong, elsewhere.items[0]);
+    expect(await undo(wrong)).toContain('purchase order the bill does not name');
+    const right = await deletedBill(grn);
+    await nameByLine(right, po.items[0]);
+    expect(await undo(right)).toBe('true');
+  });
+
+  it('a link row to another PO than the note\'s refuses the restore; a link row to the note\'s PO allows it', async () => {
+    const { po, grn } = await noteOnPo();
+    const elsewhere = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const wrong = await deletedBill(grn);
+    await nameByLink(wrong, elsewhere.po);
+    expect(await undo(wrong)).toContain('purchase order the bill does not name');
+    const right = await deletedBill(grn);
+    await nameByLink(right, po.po);
+    expect(await undo(right)).toBe('true');
+  });
+});
