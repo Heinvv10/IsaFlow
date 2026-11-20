@@ -27,3 +27,12 @@ describe('EmployeeComponentsCard: a percentage of RFI', () => {
     expect(within(screen.getByRole('row', { name: /Basic Salary/ })).getByText(/R\s25\s000\.00/).getAttribute('title')).toBeNull();
   });
 });
+
+describe('EmployeeComponentsCard: a defined-benefit fund factor (DBF, #1571 review M2)', () => {
+  it('shows the factor with para 12D and what the employer pays, and how the run values it', () => {
+    render(card([row({}), row({ id: 'd', componentName: 'Employer DB pension', amount: 2200, dbMemberCategoryFactor: 0.12 })]));
+    const db = within(screen.getByRole('row', { name: /Employer DB pension/ }));
+    const cell = db.getByText(/^factor 0\.12 \(para 12D\), R\s2\s200\.00 paid$/);
+    expect(cell.getAttribute('title')).toMatch(/employer pays the fund the amount shown; .*factor x retirement-funding income, less the employee's compulsory contributions/);
+  });
+});
