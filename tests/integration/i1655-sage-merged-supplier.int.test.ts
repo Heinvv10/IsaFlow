@@ -191,4 +191,18 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ name: `Rush Co ${active}`, is_active: active, deleted_at: null, merged_into_id: null });
   });
+
+  it('restore strips only the one exact suffix the merge added: a supplier really named "Foo [MERGED]" keeps it, and a lowercase marker is never stripped', async () => {
+    const survivor = await insPlain('Suffix Survivor');
+    const named = await insPlain('Foo [MERGED]');
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, named, userId));
+    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [named])).rows[0].name).toBe('Foo [MERGED] [MERGED]');
+    expect(await inRequestTx(() => restoreRow('supplier', named, companyId))).toBe(true);
+    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [named])).rows[0].name).toBe('Foo [MERGED]');
+    // A merged-away row whose name ends in a different-case marker (not what a merge writes) is left as it is.
+    const lower = await insPlain('Bar [merged]');
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [lower, survivor]);
+    await inRequestTx(() => restoreRow('supplier', lower, companyId));
+    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [lower])).rows[0].name).toBe('Bar [merged]');
+  });
 });

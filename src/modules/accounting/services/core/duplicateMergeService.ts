@@ -178,7 +178,7 @@ async function mergeSuppliers(
   // merged_into_id (migration 1020): the Sage import follows a merged-away supplier to its survivor, so a
   // re-sync does not re-create it as a live supplier and split its new bills from the survivor (#1655).
   await sql`
-    UPDATE suppliers SET deleted_at = NOW(), merged_into_id = ${primaryId}::UUID
+    UPDATE suppliers SET deleted_at = NOW(), merged_into_id = ${primaryId}::UUID, name = name || ' [MERGED]'
     WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
   `;
 
