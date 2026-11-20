@@ -27,7 +27,8 @@ import { BankRequestRefusal } from './bankRequestRefusal';
 export type RuleProjection = Record<string, unknown>;
 export interface HeldRuleChange { status: 'pending_approval'; changeId: string }
 export type RuleWrite = { status: 'applied'; row: Record<string, unknown> } | HeldRuleChange;
-export type RuleWriteGuard = (after: RuleProjection, postsMoney: boolean) => void | Promise<void>;
+/** Runs under the rule lock before any write; `before` is the locked rule (null for a creation). */
+export type RuleWriteGuard = (after: RuleProjection, postsMoney: boolean, before?: RuleProjection | null) => void | Promise<void>;
 
 /** The columns a new rule's caller sets; the rest take the table's defaults (RULE_DEFAULTS). */
 export interface NewRuleColumns {
@@ -95,7 +96,7 @@ export async function writeNewRule(
 ): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const { after, postsMoney, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
-  await guard?.(after, postsMoney);
+  await guard?.(after, postsMoney, null);
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -125,7 +126,7 @@ export async function writeRuleChange(
   if (!before) throw new BankRequestRefusal(`Rule ${ruleId} not found`, 404);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   const { after, postsMoney, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
-  await guard?.(after, postsMoney);
+  await guard?.(after, postsMoney, before);
   if (held) return hold(companyId, ruleId, toggleOnly ? 'toggle' : 'update', after, userId);
   // `after` is the locked row with the patch over it, so setting the editable
   // columns from it moves exactly the named ones.

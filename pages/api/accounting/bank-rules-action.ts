@@ -14,7 +14,9 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
-import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -77,19 +79,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       case 'toggle': {
-        const toggled = await toggleRule(companyId, body.id, body.isActive !== false, userId);
+        // #1656 (round 5): turning an auto-posting rule back on is an approval act, decided under the rule lock (autoPostApprovalGuard).
+        const guard = autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking'));
+        const toggled = await toggleRule(companyId, body.id, body.isActive !== false, userId, guard);
         return apiResponse.success(res, toggled.status === 'applied' ? { toggled: true, status: 'applied' } : { toggled: false, ...toggled });
       }
 
       case 'update': {
-        // #1656 (round 4): switching a rule to auto-create entries is the same approval as creating one that does.
-        if (body.autoCreateEntry === true && await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-posting bank rules')) return;
+        // #1656 (round 5): an edit that leaves an AUTO-POSTING rule auto-posting but changes where it posts or what it matches, or turns it
+        // on, needs Banking Approve whether or not the body names autoCreateEntry: decided under the rule lock from the rule as it stands.
+        const guard = autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking'));
         const updateInput = Object.fromEntries(
           Object.entries(body).filter(([k, v]) =>
             k !== 'action' && k !== 'id' && v !== null && v !== undefined,
           ),
         );
-        const updated = await updateRule(companyId, body.id, updateInput, userId);
+        const updated = await updateRule(companyId, body.id, updateInput, userId, guard);
         return apiResponse.success(res, updated);
       }
 
@@ -103,6 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
+    if (respondIfApprovePermissionRefused(res, err)) return; // auto-posting rule, no Banking Approve: 403 before any write
     if (respondIfBankControlRefused(res, err)) return;
     // R-067 / R-068: both fences run before any write, so the 4xx commits
     // nothing; surface the typed message rather than the generic fallback.

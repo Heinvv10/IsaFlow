@@ -127,7 +127,7 @@ describe('every MCP tool with a data-dependent module fence fails closed (round 
     expect([...kinds].sort()).toEqual(['by_subledger', 'credit_note_by_id', 'per_document']);
     const known = new Set(['credit_note_by_id', 'by_subledger', 'per_document', 'suppliers', 'customers', 'accounts', 'payroll', 'budgets', 'banking', 'vat', 'group', 'accountant', 'items']);
     expect(MCP_TOOLS.map((t) => t.approveModule).filter((m) => m !== undefined && !known.has(m))).toEqual([]);
-  });
+  }, 120_000); // the first import of the whole tool index is slow
 
   it('each real tool of a dependent kind is refused for padded-but-permitted args only with the Approve it asks, and for unresolvable args always', async () => {
     const { MCP_TOOLS } = await import('@/lib/mcp/toolIndex');
@@ -143,5 +143,5 @@ describe('every MCP tool with a data-dependent module fence fails closed (round 
       expect(await moduleFenceRefusal(t, { subledger: ' ar ' }, ctx)).toMatch(/Approve/);
       for (const args of [{}, { subledger: 1 }, { subledger: 'x' }]) expect(await moduleFenceRefusal(t, args, ctx)).not.toBeNull();
     }
-  });
+  }, 120_000);
 });

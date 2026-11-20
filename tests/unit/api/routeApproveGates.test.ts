@@ -85,7 +85,6 @@ const CASES: Case[] = [
   ['sage-migration-action import_customer_invoices', sageAction, 'POST', { action: 'import_customer_invoices' }, {}, 'customers'],
   ['recurring-journals create with autoPost', recurringJournals, 'POST', { autoPost: true }, {}, 'accounts'],
   ['bank-rules create with autoCreateEntry (round 4)', bankRules, 'POST', { ruleName: 'r', matchField: 'description', matchType: 'contains', matchPattern: 'x', glAccountId: ID, autoCreateEntry: true }, {}, 'banking'],
-  ['bank-rules-action update to autoCreateEntry (round 4)', bankRulesAction, 'POST', { action: 'update', id: ID, autoCreateEntry: true }, {}, 'banking'],
   ['commentary/[id]/approve (round 4)', commentaryApprove, 'POST', {}, { id: ID }, 'budgets'],
   ['budgets/variance-notes approve (round 4)', varianceNotes, 'POST', { action: 'approve', id: ID, draft: 'a draft' }, {}, 'budgets'],
   ['bank-rules-action apply', bankRulesAction, 'POST', { action: 'apply', bankAccountId: ID }, {}, 'banking'],

@@ -117,7 +117,8 @@ describe('updateRule — auto_apply', () => {
     await expect(updateRule(COMPANY, RULE, { ruleName: 'Renamed' }, USER, guard))
       .rejects.toThrow('locked refusal');
 
-    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true);
+    // the third argument is the locked rule before the change (round 5: the approval guard compares it with the result)
+    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true, { auto_create_entry: true, rule_name: 'Reload' });
     expect(mockSql.mock.calls.some((call) => call[0].join('').includes('UPDATE bank_categorisation_rules'))).toBe(false);
   });
 });
