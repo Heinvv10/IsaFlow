@@ -15,6 +15,7 @@ import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
+import { assertBillGrn } from './billGoodsReceivedLink';
 import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
@@ -142,6 +143,8 @@ export async function createSupplierInvoice(
       // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
       // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
       await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
+      // Then the bill's goods received note, held FOR SHARE until this commits: a cancel of it waits for this bill and then refuses.
+      const grnId = await assertBillGrn(companyId, input.grnId, { db: tx, lock: true });
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
@@ -153,7 +156,7 @@ export async function createSupplierInvoice(
           external_system, external_ref, external_document_number
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
-          ${input.purchaseOrderId || null}, ${input.grnId || null},
+          ${input.purchaseOrderId || null}, ${grnId},
           ${input.invoiceDate}, ${dueDate || null}, ${dueDateSource},
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
           ${input.paymentTerms || null}, ${input.reference || null},

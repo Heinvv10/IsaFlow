@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { assertBillPoLinks } from '@/modules/accounting/services/ap/supplierInvoicePoLinks';
+import { assertBillGrn } from '@/modules/accounting/services/ap/billGoodsReceivedLink';
 import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
@@ -81,6 +82,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // P5-3 security review: each line's PO line must be this company's (and of purchaseOrderId when named), ahead
     // of the reservation too; the service checks again.
     await assertBillPoLinks(companyId, purchaseOrderId, String(supplierId), safeItems);
+    // The bill's goods received note (this company's, not cancelled), ahead of the reservation too; the service checks again under a lock.
+    await assertBillGrn(companyId, grnId);
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertBillRestorableGrn } from '../ap/billGoodsReceivedLink';
 
 // ── Soft-delete per table ────────────────────────────────────────────────────
 
@@ -116,6 +117,8 @@ export async function restoreRow(
       ` as { id: string }[];
       break;
     case 'supplier_invoice':
+      // A bill naming a goods received note cancelled while it was deleted stays deleted (the note held FOR SHARE first).
+      await assertBillRestorableGrn(companyId, entityId);
       rows = await sql`
         UPDATE supplier_invoices SET deleted_at = NULL
         WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
