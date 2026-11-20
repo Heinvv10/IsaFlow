@@ -7,6 +7,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
@@ -31,6 +32,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const variance = await getPayrollRunVariance(id, companyId);
     return apiResponse.success(res, variance);
   } catch (err) {
+    if (respondIfRunKindUnsupported(res, err)) return; // a run not found (deleted draft, stale link): 404
     return apiResponse.badRequestFromError(res, err, 'Variance load failed');
   }
 }

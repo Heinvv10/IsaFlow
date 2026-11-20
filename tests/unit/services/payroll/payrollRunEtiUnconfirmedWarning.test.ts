@@ -4,6 +4,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/pspComponentGuard', async (orig) => ({
+  ...(await orig<object>()), assertPspRunComponents: vi.fn(async () => undefined), assertReopenedRunKeepsPspTreatment: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
@@ -99,6 +102,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
+  sdlCatchUp: vi.fn(async () => ({ liable: false, earlierLeviable: 0, earlierSdl: 0 })),
 }));
 // No leaver awaiting a severance directive (p3-severance-directive-run covers that).
 vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({

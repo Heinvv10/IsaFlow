@@ -8,6 +8,7 @@ import {
   endEmployeeComponent,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
+import { PspComponentRefused } from '@/modules/accounting/services/payroll/pspLineRules';
 import { isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import { NOT_FOUND, guardCastableArgs, hasWholeCents, ok, strArg, toolError } from './toolHelpers';
@@ -86,7 +87,7 @@ export const assignEmployeeComponentTool: McpTool = {
         args.percent_of_rfi === undefined || args.percent_of_rfi === null ? null : (args.percent_of_rfi as number),
       );
     } catch (err) {
-      if (err instanceof EmployeeComponentRefused || isPayFrequencyRefused(err)) return toolError(err.message);
+      if (err instanceof EmployeeComponentRefused || err instanceof PspComponentRefused || isPayFrequencyRefused(err)) return toolError(err.message);
       throw err;
     }
 
@@ -152,7 +153,7 @@ export const endEmployeeComponentTool: McpTool = {
       });
     } catch (err) {
       // End's guards (payrollComponentDateEdit): a refusal is the agent's to read; anything else is not.
-      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
+      if (err instanceof EmployeeComponentRefused || err instanceof PspComponentRefused) return toolError(err.message);
       throw err;
     }
     if (!ended) return toolError(NOT_FOUND);

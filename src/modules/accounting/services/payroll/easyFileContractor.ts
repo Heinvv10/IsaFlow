@@ -11,7 +11,7 @@
  * calls a 3605 annual payment (a contractor has no employee annual payment), so 03 always has its 3616 beside it (coordinator
  * ruling, 2026-11-10). A certificate with PAYE withheld is an IRP5 with 3616 and no 4150.
  */
-import { nilTaxReason } from './easyFileMedicalFields';
+import { nilTaxReason, thresholdAllowances } from './easyFileMedicalFields';
 import type { EmployeeInput } from './easyFileExportService';
 
 export interface ContractorSplitInput {
@@ -59,7 +59,7 @@ export function contractorAwareReason(emp: EmployeeInput): string {
   if ((emp.independentContractor3616 ?? 0) <= 0) return nilTaxReason(emp);
   const employeeIncome = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
     + (emp.fringeBenefits ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0)
-    + (emp.cashAllowances ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0);
+    + thresholdAllowances(emp);
   if (employeeIncome > 0) nilTaxReason(emp);
   return CONTRACTOR_NON_DEDUCTION_REASON;
 }

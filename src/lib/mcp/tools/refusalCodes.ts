@@ -216,6 +216,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // CLOSED, that job's status); raised before any write.
   'PRACTICE_JOB_CLOSED',
   'PRACTICE_JOB_NOT_FOUND',
+  // Wave 6 PSP: a component a personal service provider cannot carry (pspComponentGuard).
+  'PSP_COMPONENT_REFUSED',
+  'PSP_STATUS_CHANGED_SINCE_APPROVAL',
   'PURCHASE_ORDER_BILL_LINK_REFUSED', // link_bills_to_purchase_order / unlink_bill_from_purchase_order: every row refusal, decided before any write.
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.

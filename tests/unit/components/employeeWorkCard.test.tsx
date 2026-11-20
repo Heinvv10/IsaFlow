@@ -7,6 +7,7 @@ import type { Employee } from '@/components/payroll/EmployeeProfileCard';
 
 // The payslip email field (wave 6 PE) has its own route and test (employeeEmailField.test.tsx).
 vi.mock('@/components/payroll/EmployeeEmailField', () => ({ EmployeeEmailField: () => null }));
+vi.mock('@/components/payroll/PayFrequencyField', () => ({ PayFrequencyField: () => null }));
 // So is the employee portal card (wave 6 SS; employeePortalCard.test.tsx).
 vi.mock('@/components/payroll/EmployeePortalCard', () => ({ EmployeePortalCard: () => null }));
 

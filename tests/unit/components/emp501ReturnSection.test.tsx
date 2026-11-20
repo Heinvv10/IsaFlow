@@ -61,3 +61,14 @@ it('finalise posts the action and the interim period to the EMP501 route', async
   await waitFor(() => expect(posts).toHaveLength(1));
   expect(posts[0]).toEqual({ url: '/api/payroll/emp501/returns', body: { action: 'finalise', periodStart: '2025-03-01', periodEnd: '2025-08-31' } });
 });
+
+it('held by the page (review #1622 L-K): shows the page\'s choice, loads its period, and reports a change to the page', async () => {
+  const onKindChange = vi.fn();
+  render(<Emp501ReturnSection taxYear={2026} kind="annual" onKindChange={onKindChange} />);
+  expect(screen.getByRole('combobox', { name: /Reconciliation/ }).textContent).toMatch(/Annual \(March to February\)/);
+  await ready();
+  expect(gets.at(-1)).toBe('/api/payroll/emp501/returns?periodStart=2025-03-01&periodEnd=2026-02-28');
+  fireEvent.click(screen.getByRole('combobox', { name: /Reconciliation/ }));
+  fireEvent.click(await screen.findByRole('option', { name: /Interim \(March to August\)/ }));
+  expect(onKindChange).toHaveBeenCalledWith('interim');
+});

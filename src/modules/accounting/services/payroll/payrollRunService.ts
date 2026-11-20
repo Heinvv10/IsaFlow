@@ -3,12 +3,14 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
-import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { assertPspRunComponents, assertReopenedRunKeepsPspTreatment, pspGuardWindow } from './pspComponentGuard';
+import { applySdlToLines, estimateAnnualRemuneration, sdlCatchUp } from './sdlLeviabilityService';
+import { isSdlExempt } from './sdlEngine';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
 import {
-  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
+  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, PayrollRunNotFoundError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { LineCadence, PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
@@ -50,7 +52,7 @@ export async function calculatePayrollRun(
   // never reads its year-to-date and later-month warnings while an approval is in flight.
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
-  if (!run) throw new Error('Payroll run not found');
+  if (!run) throw new PayrollRunNotFoundError();
 
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
@@ -77,6 +79,10 @@ export async function calculatePayrollRun(
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
   const frequencyRun = frequencyRunOf(run);
   if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
+  // Wave 6 PSP (M3/M4): a PSP with a retirement fund, s18A, fringe-benefit or loan item is refused (409) before any write.
+  await assertPspRunComponents(companyId, pspGuardWindow(period), employees.map((e) => e.id)); // the run's own dates (FQc)
+  // M2: a reopened month is not re-costed under a different PSP treatment than it was approved with (409).
+  await assertReopenedRunKeepsPspTreatment(companyId, runId, employees.map((e) => e.id));
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -214,7 +220,10 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
+  // The month-to-date catch-up (wave 6 FQd, coordinator ruling): liable once any run of the month is, and this run
+  // carries what the month's earlier final runs left uncharged.
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear,
+    await sdlCatchUp(companyId, runId, !isSdlExempt(annualRemuneration, taxYear)));
 
   await replaceRunLines(runId, companyId, lineInserts);
   await replaceRunGarnisheeDeductions(companyId, runId, garnisheeLines); // GA: recorded here; balances move only at approval

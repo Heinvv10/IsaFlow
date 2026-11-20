@@ -30,6 +30,7 @@ const WRITERS: Record<string, [number, string]> = {
   [`${SERVICES}payPackageService.ts`]: [1, 'package apply: refuseAssignmentWrite under the company lock'],
   [`${SERVICES}payPackageSupersede.ts`]: [2, 'package apply cut: paidPeriodChanged under the company lock'],
   [`${SERVICES}payrollComponentDateEdit.ts`]: [1, 'Edit dates / End: paid months and recurring overlap under the company lock'],
+  [`${SERVICES}definedBenefitAssignment.ts`]: [1, 'DBF: marks a 4001 / 4003 as the defined-benefit fund contribution (C) by id, under the company lock; Login-as refused; audited (dates unchanged)'],
   [`${SERVICES}payrollRunRowWrite.ts`]: [3, "pay-run grid: its unapproved run month's once-off only, under the company lock; refuseAssignmentWrite on insert; audited"],
 };
 
@@ -43,6 +44,7 @@ const INDIRECT: Record<string, [number, string]> = {
   'pages/api/payroll/irp5/summary.ts': [1, 'read-only: the one sql.unsafe is payRunFinalSql (final runs), no write'],
   // Wave 6 FQc: the weekly/fortnightly refusal reads which employees hold a 3810/3801/percent-of-RFI row.
   'src/modules/accounting/services/payroll/payrollFrequencyGuard.ts': [1, 'read-only (wave 6 FQc frequency refusals): the one sql.unsafe is payRunFinalSql (final runs), no write'],
+  // Wave 6 FQd: the run-kind guard judges the employee frequency as at a FINAL run (payRunFinalSql); it only reads the table.
   'src/modules/accounting/services/payroll/yearEndStatusReads.ts': [2, 'read-only (the year-end status route reads, wave 6 FQb1): the two sql.unsafe are payRunFinalSql (final runs), no write'],
 };
 

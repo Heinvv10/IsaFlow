@@ -1,0 +1,101 @@
+/**
+ * Wave 6 PSP-H: the nature-of-person H certificate record (SARS PAYE Employer Reconciliation BRS V25.3.0): 3020 H (p. 17),
+ * 3030 the trading name and never 3040 / 3050 / 3060 / 3080 (pp. 20-26), 3065 1 or 2 with 3066 (pp. 23-24), 3100 (pp. 26-27),
+ * 3170 / 3180 (p. 32), 3200 / 3210 (p. 33), 3601 (G21 p. 31), 4102, 4141 nil, 4142.
+ */
+import { describe, expect, it } from 'vitest';
+import { buildPspCertificateRecord, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
+import { pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { buildIrp5File } from '@/modules/accounting/services/payroll/easyFileExportService';
+
+const base: PspCertificateInput = {
+  employeeId: 'e1', certificateNumber: '712345678920270200000000000003', yearOfAssessment: 2027, entityType: 'company',
+  tradingName: 'Acme Consulting (Pty) Ltd', registrationNumber: '2015/123456/07', taxReference: '9012345675',
+  periodStart: '20260301', periodEnd: '20260430', payPeriods: 12, periodsWorked: 2, directiveNumbers: [],
+  gross3601: 80_000, paye4102: 21_600, uif4141: 0, sdl4142: 800,
+};
+const fields = (r: string[]) => new Map(r.map((l) => [l.slice(0, l.indexOf(',')), l.slice(l.indexOf(',') + 1)]));
+
+describe('buildPspCertificateRecord', () => {
+  it('a PSP company: H, the trading name, 3065 = 1 with its number, 3100, the period, 3601 / 4102 / nil 4141 / 4142', () => {
+    const f = fields(buildPspCertificateRecord(base));
+    expect([f.get('3015'), f.get('3020'), f.get('3030'), f.get('3065'), f.get('3066'), f.get('3100')])
+      .toEqual(['"IRP5"', '"H"', '"Acme Consulting (Pty) Ltd"', '1', '"2015/123456/07"', '9012345675']);
+    expect([f.get('3170'), f.get('3180'), f.get('3200'), f.get('3210')]).toEqual(['20260301', '20260430', '12.0000', '2.0000']);
+    expect([f.get('3601'), f.get('4102'), f.get('4141'), f.get('4142')]).toEqual(['80000', '21600.00', '0.00', '800.00']);
+  });
+
+  it('never a natural person\'s fields: no 3040, 3050, 3060, 3080', () => {
+    const f = fields(buildPspCertificateRecord(base));
+    expect(['3040', '3050', '3060', '3080'].filter((c) => f.has(c))).toEqual([]);
+  });
+
+  it('a trust: 3065 = 2; no registration number: no 3065 or 3066; a directive: 3230', () => {
+    expect(fields(buildPspCertificateRecord({ ...base, entityType: 'trust', registrationNumber: 'IT1234/2019' })).get('3065')).toBe('2');
+    const f = fields(buildPspCertificateRecord({ ...base, registrationNumber: null, directiveNumbers: ['1234567890'] }));
+    expect([f.has('3065'), f.has('3066'), f.get('3230')]).toEqual([false, false, '"1234567890"']);
+  });
+
+  it('no PAYE: refused by name (an IRP5 needs PAYE; no IT3(a) reason for a PSP)', () => {
+    expect(() => buildPspCertificateRecord({ ...base, paye4102: 0 })).toThrow(/Acme Consulting.*no PAYE/);
+  });
+});
+
+const t = { employeeId: 'e1', employeeNumber: 'P1', name: 'Pat Doe', gross: 40_000, paye: 10_800, sdl: 400, alsoEmployee: false, hasParticulars: false, particularsProblem: null };
+describe('pspFilingWarning (PSP-H wording)', () => {
+  it('certified: names the entity\'s own H certificate in the e@syFile file', () => {
+    const w = pspFilingWarning({ ...t, certifiedAs: 'Acme (Pty) Ltd', hasParticulars: true }, 'IRP5 dataset');
+    expect(w).toContain('It is on Acme (Pty) Ltd\'s own certificate in the e@syFile file: nature of person H');
+    expect(w).not.toContain('no certificate');
+  });
+  it('without particulars: on no certificate, and says to add them', () => {
+    const w = pspFilingWarning({ ...t, certifiedAs: null }, 'IRP5 dataset');
+    expect(w).toContain('It is on no certificate');
+    expect(w).toContain('Add them on the employee\'s Work card');
+  });
+  it('particulars held but no PAYE: on no certificate, the IT3(a) question named UNVERIFIED (ruling 2026-11-20)', () => {
+    const w = pspFilingWarning({ ...t, paye: 0, certifiedAs: null, hasParticulars: true }, 'e@syFile file');
+    expect(w).toContain('It is on no certificate: no PAYE was deducted on it');
+    expect(w).toContain('IT3(a) for a PSP is UNVERIFIED');
+    expect(w).not.toContain('Work card');
+  });
+});
+
+describe('buildPspCertificateRecord: 3100 judged again when the file is built', () => {
+  it('a stored tax reference that fails modulus 10 refuses the file by name', () => {
+    expect(() => buildPspCertificateRecord({ ...base, taxReference: '9012345678' })).toThrow(/Acme Consulting.*modulus 10/);
+  });
+});
+
+describe('the filing-date rule (BRS p. 32, 3180 at most 30 days after today) counts the H certificates too', () => {
+  const employer = {
+    tradingName: 'Holdco', payeReferenceNumber: '7123456789', sdlReferenceNumber: null, uifReferenceNumber: null,
+    contactFirstName: 'Jane', contactSurname: 'Horn', contactBusinessPhone: '0118765432', contactCellPhone: null, contactEmail: null,
+    transactionYear: 2027, reconciliationPeriod: 202702, sic7Code: '69201', physicalStreet: '12 Main Road', physicalSuburb: null,
+    physicalCity: 'Johannesburg', physicalPostalCode: '2196',
+  };
+  const psp = { ...base, periodStart: '20260301', periodEnd: '20270228' };
+  it('a file of only H certificates ending too far ahead is refused when filed; built with a warning ad hoc', () => {
+    expect(() => buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20) })).toThrow(/can be filed from 2027-01-29/);
+    expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2027, 2, 15) })).toContain('3020,"H"');
+    expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20), filingDate: 'warn' })).toContain('3180,20270228');
+  });
+});
+
+describe('review of #1689: M1, L1, L2, L3 in the builder and the warning', () => {
+  it('M1: a trust registration number under a company (3065 = 1) is refused by name (BRS p. 24)', () => {
+    expect(() => buildPspCertificateRecord({ ...base, registrationNumber: 'IT1234/2010' })).toThrow(/Acme Consulting.*registration number \(code 3066\).*CCYY\/NNNNNN\/NN/);
+    expect(buildPspCertificateRecord({ ...base, entityType: 'trust', registrationNumber: 'IT1234/2010' })).toContain('3065,2');
+  });
+  it('L1: 3230 goes through the regular-directive rules: not all zeros, at most 5', () => {
+    expect(() => buildPspCertificateRecord({ ...base, directiveNumbers: ['0000000'] })).toThrow(/3230/);
+    expect(() => buildPspCertificateRecord({ ...base, directiveNumbers: ['1', '2', '3', '4', '5', '6'] })).toThrow(/at most 5/);
+  });
+  it('L2: PAYE with no payment (3601 below R1) is refused by name', () => {
+    expect(() => buildPspCertificateRecord({ ...base, gross3601: 0.5 })).toThrow(/Acme Consulting.*no payment/);
+  });
+  it('L3: stored particulars that cannot be filed are named, never called certified', () => {
+    const w = pspFilingWarning({ ...t, hasParticulars: true, certifiedAs: null, particularsProblem: 'its income tax reference (code 3100) is bad' }, 'IRP5 dataset');
+    expect(w).toContain('cannot be filed (its income tax reference (code 3100) is bad)');
+  });
+});

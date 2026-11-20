@@ -1,3 +1,7 @@
+import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
+import {
+  PspRegistrationNotForEntity, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem, type PspParticulars,
+} from './payrollEmployeePspEntity';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -8,6 +12,7 @@ import type { PayFrequency, PayrollEmployee, UnsupportedValue } from './payrollT
 import { payFrequencyOf } from './payrollFrequency';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 import { EmployeeTermsRefused, judgeTerms, movedTerms, termsFromRow, TERM_KEYS, type EmployeeTerms } from './payrollEmployeeTerms';
+import { pspEntityOfPatch } from './payrollEmployeeTaxStatus';
 
 type Row = DbRow;
 
@@ -34,6 +39,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
     payFrequency: payFrequencyOf(r.pay_frequency),
     ...termsFromRow(r),
+    ...pspParticularsFromRow(r),
   };
 }
 
@@ -132,7 +138,7 @@ export async function createPayrollEmployee(
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
       date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held,
-      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation, eti_id_document
+      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation, eti_id_document, psp_entity_type
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
@@ -141,7 +147,7 @@ export async function createPayrollEmployee(
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
       ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld},
       ${data.taxStatus ?? 'employee'}, ${data.payBasis ?? 'monthly'}, ${data.hoursPerWeek ?? null}, ${data.hoursPerDay ?? null},
-      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}, ${data.etiIdDocument ?? null}
+      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}, ${data.etiIdDocument ?? null}, ${data.pspEntityType ?? null}
     )
     RETURNING *
   `) as Row[];
@@ -154,8 +160,10 @@ export async function updatePayrollEmployee(
   companyId: string,
   data: Partial<Omit<PayrollEmployee, 'id' | 'companyId'>>,
   userId?: string,
-): Promise<PayrollEmployee | null> {
+): Promise<(PayrollEmployee & { warnings?: string[] }) | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
+  // Moving off personal service provider with no entity named clears the entity (wave 6 PSP), for every caller.
+  data = { ...data, ...pspEntityOfPatch(data, data.taxStatus, (m) => new EmployeeTermsRefused(m)) };
 
   const toIso = (v: unknown): string | null => (v ? fmtDate(v) : null);
   const dobIso = toIso(data.dateOfBirth);
@@ -175,8 +183,20 @@ export async function updatePayrollEmployee(
   // The date of birth and the ID number decide ETI (age, ETI Act s6(a); the document, s6(b); wave 5 ET): they take the lock too.
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
     || dobIso !== null || data.idNumber !== undefined
-    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const).some(has);
-  const write = (db: typeof sql, now: Row) => db`
+    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
+  // PSP-H (1015): the entity particulars, judged against the row as locked (its status and entity after this patch).
+  const particularsOf = (now: Row) => {
+    const status = has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus;
+    const entity = has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType;
+    const pp = pspParticularsOfPatch(data as Record<string, unknown>, status, entity, (m) => new EmployeeTermsRefused(m));
+    // M1 (review of #1689): the entity moved, the registration number did not: the stored one is judged against the new entity.
+    const reg = pp.pspRegistrationNumber === undefined ? now.psp_registration_number : null;
+    const bad = status === 'personal_service_provider' && entity && entity !== now.psp_entity_type && reg != null
+      ? pspRegistrationProblem(entity, String(reg), new Date().getFullYear()) : null;
+    if (bad && entity) throw new PspRegistrationNotForEntity(entity, bad);
+    return pp;
+  };
+  const write = (db: typeof sql, now: Row, pp: Partial<PspParticulars> = particularsOf(now)) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
       last_name                    = COALESCE(${data.lastName ?? null}, last_name),
@@ -198,6 +218,10 @@ export async function updatePayrollEmployee(
       daily_rate                   = CASE WHEN ${has('dailyRate')} THEN ${data.dailyRate ?? null}::numeric ELSE daily_rate END,
       occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
       eti_id_document              = CASE WHEN ${has('etiIdDocument')} THEN ${data.etiIdDocument ?? null} ELSE eti_id_document END,
+      psp_entity_type              = CASE WHEN ${has('pspEntityType')} THEN ${data.pspEntityType ?? null} ELSE psp_entity_type END,
+      psp_entity_name              = CASE WHEN ${pp.pspEntityName !== undefined} THEN ${pp.pspEntityName ?? null} ELSE psp_entity_name END,
+      psp_registration_number      = CASE WHEN ${pp.pspRegistrationNumber !== undefined} THEN ${pp.pspRegistrationNumber ?? null} ELSE psp_registration_number END,
+      psp_tax_reference            = CASE WHEN ${pp.pspTaxReference !== undefined} THEN ${pp.pspTaxReference ?? null} ELSE psp_tax_reference END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
@@ -222,6 +246,11 @@ export async function updatePayrollEmployee(
       for (const m of movedTerms(termsFromRow(locked), termsFromRow(written[0]), carried)) {
         await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
       }
+      // PSP-H: each particular this write moved (set, changed, or cleared by a move off PSP), in the same transaction.
+      for (const col of ['psp_entity_name', 'psp_registration_number', 'psp_tax_reference'] as const) {
+        const [was, now] = [locked[col] ?? null, written[0][col] ?? null].map((v) => (v == null ? null : String(v)));
+        if (was !== now) await recordEmployeeChange({ companyId, employeeId: id, fieldName: col, oldValue: was ?? null, newValue: now ?? null, userId }, db);
+      }
     }
     return written;
   };
@@ -244,7 +273,13 @@ export async function updatePayrollEmployee(
     });
   }
 
-  return updated;
+  // H2 (wave 6 PSP): a move into or out of PSP in a year with final runs is named, not refused.
+  const warnings = updated && locked ? [
+    await pspSwitchWarning(companyId, id, String(locked.tax_status ?? ''), updated.taxStatus ?? null),
+    // Round 3: an entity change names the months approved at the other entity (a reopen of one refuses).
+    await pspEntityChangeWarning(companyId, id, locked.psp_entity_type == null ? null : String(locked.psp_entity_type), updated.pspEntityType ?? null),
+  ].filter((w): w is string => w !== null) : [];
+  return updated && warnings.length > 0 ? { ...updated, warnings } : updated;
 }
 
 export async function listTaxNumbersForCompany(

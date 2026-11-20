@@ -51,7 +51,7 @@ vi.mock(
 );
 
 import { sql, withTransaction } from '@/lib/neon';
-import { createSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { createSupplierPayment, getSupplierPayments } from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { CreatePaymentInput } from '@/modules/accounting/services/ap/supplierPaymentService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -153,5 +153,20 @@ describe('createSupplierPayment — cross-tenant invoice guard', () => {
     expect(payment.id).toBe(PAYMENT_ID);
     expect(payment.totalAmount).toBe(2500);
     expect(payment.status).toBe('draft');
+  });
+});
+
+// ── getSupplierPayments — the response envelope the allocation pages page through (#1695) ──
+
+describe('getSupplierPayments — envelope', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('is an object with a payments array and a numeric total, never a bare array (the allocation pages need `total` to know the list is whole)', async () => {
+    mockSql.mockResolvedValueOnce([samplePaymentRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    const out = await getSupplierPayments(COMPANY_ID, { limit: 200, offset: 0 });
+    expect(Array.isArray(out)).toBe(false);
+    expect(Array.isArray(out.payments)).toBe(true);
+    expect(typeof out.total).toBe('number');
+    expect(out.total).toBe(1);
   });
 });

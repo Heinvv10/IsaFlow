@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AmountInput, type AmountInputProps } from '@/components/ui/AmountInput';
-import { normaliseAmountText } from '@/components/ui/amountInputText';
+import { normaliseAmountText, blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 afterEach(cleanup);
 
@@ -170,18 +170,18 @@ describe('AmountInput (#1654): review follow-ups', () => {
     expect(field().getAttribute('aria-invalid')).toBe('true');
   });
 
-  it('a refusal is not sticky: blur clears it, and so does a parent reset', () => {
+  it('a refusal survives blur (so a Submit click still sees it) and clears on the next valid change or a parent reset', () => {
     function Reset() {
       const [t, setT] = useState('5');
-      return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('7')}>reset</button></>);
+      return (<form><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('7')}>reset</button></form>);
     }
     render(<Reset />);
     fireEvent.change(field(), { target: { value: '5x' } });
-    expect(field().getAttribute('aria-invalid')).toBe('true');
     fireEvent.blur(field());
+    expect(field().getAttribute('aria-invalid')).toBe('true');
+    expect(field().form!.checkValidity()).toBe(false);
+    fireEvent.change(field(), { target: { value: '56' } });
     expect(field().getAttribute('aria-invalid')).toBeNull();
-    expect(field().form).toBeNull();
-    expect(field().validity.valid).toBe(true);
     fireEvent.change(field(), { target: { value: '5x' } });
     fireEvent.click(screen.getByText('reset'));
     expect(field().value).toBe('7');
@@ -195,14 +195,13 @@ describe('AmountInput (#1654): review follow-ups', () => {
     expect(fireEvent.mouseUp(field())).toBe(true);
   });
 
-  it('a parent reset to "" clears a "." draft; a number parent reset to 0 clears a typed number', () => {
+  it('a string parent reset to "" clears a typed 5; a number parent reset to 0 clears a typed number', () => {
     function StrReset() {
       const [t, setT] = useState('');
       return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('')}>reset</button></>);
     }
     render(<StrReset />);
-    type(field(), '.');
-    expect(field().value).toBe('.');
+    type(field(), '5');
     fireEvent.click(screen.getByText('reset'));
     expect(field().value).toBe('');
     cleanup();
@@ -229,5 +228,104 @@ describe('AmountInput (#1654): review follow-ups', () => {
     expect(field().value).toBe('');
     fireEvent.click(screen.getByText('pick'));
     expect(field().value).toBe('100');
+  });
+});
+
+describe('AmountInput (#1654 follow-up): a `n || \'\'` parent', () => {
+  function OrEmpty({ start }: { start: number }) {
+    const [n, setN] = useState(start);
+    return (<><AmountInput aria-label="amt" value={n || ''} onValueChange={v => setN(v)} /><output data-testid="stored">{String(n)}</output></>);
+  }
+  it('typing "0.75" over 100 keeps every keystroke (the "0" step hands back \'\' and must not wipe the draft)', () => {
+    render(<OrEmpty start={100} />);
+    fireEvent.focus(field());
+    field().select();
+    type(field(), '0.75');
+    expect(field().value).toBe('0.75');
+    expect(screen.getByTestId('stored').textContent).toBe('0.75');
+  });
+  it('typing "0" over 100 shows 0, and a later parent value is still adopted', () => {
+    function Fill() {
+      const [n, setN] = useState(100);
+      return (<><AmountInput aria-label="amt" value={n || ''} onValueChange={v => setN(v)} /><button type="button" onClick={() => setN(100)}>hundred</button></>);
+    }
+    render(<Fill />);
+    fireEvent.change(field(), { target: { value: '0' } });
+    expect(field().value).toBe('0');
+    fireEvent.click(screen.getByText('hundred'));
+    expect(field().value).toBe('100');
+  });
+});
+
+describe('AmountInput (#1654 follow-up 2): echo token and submit guard', () => {
+  function Str({ start }: { start: string }) {
+    const [t, setT] = useState(start);
+    return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('')}>save-reset</button></>);
+  }
+  it('typing 0 in a string parent, then the parent resetting to "", clears the box (not an echo)', () => {
+    render(<Str start="100" />);
+    fireEvent.change(field(), { target: { value: '0' } });
+    expect(field().value).toBe('0');
+    fireEvent.click(screen.getByText('save-reset'));
+    expect(field().value).toBe('');
+  });
+  it('typing "0.00" then a reset to "" clears it too', () => {
+    render(<Str start="" />);
+    type(field(), '0.00');
+    fireEvent.click(screen.getByText('save-reset'));
+    expect(field().value).toBe('');
+  });
+  it('blockOnInvalidAmount is scoped to the root it is given: another form\'s invalid amount does not block this one', () => {
+    render(<><form data-testid="a"><AmountInput aria-label="a-amt" value="25" onValueChange={() => undefined} /></form>
+      <form data-testid="b"><AmountInput aria-label="b-amt" value="25" onValueChange={() => undefined} /></form></>);
+    const a = screen.getByTestId('a'); const b = screen.getByTestId('b');
+    expect(blockOnInvalidAmount(a)).toBe(false);
+    fireEvent.change(screen.getByLabelText('b-amt'), { target: { value: '25 apples' } });
+    expect(blockOnInvalidAmount(b)).toBe(true);
+    expect(blockOnInvalidAmount(a)).toBe(false);
+    expect(blockOnInvalidAmount(null)).toBe(false);
+  });
+});
+
+describe('AmountInput (#1654 follow-up 3): min/max compared in cents', () => {
+  it('max 0.7 - 0.4 (0.29999999999999993) accepts 0.3 but still refuses 0.31', () => {
+    render(<TextHarness initial="" max={0.7 - 0.4} />);
+    fireEvent.change(field(), { target: { value: '0.3' } });
+    expect(field().validity.valid).toBe(true);
+    fireEvent.change(field(), { target: { value: '0.31' } });
+    expect(field().validity.valid).toBe(false);
+  });
+  it('min 0.1 + 0.2 (0.30000000000000004) accepts 0.3; a NaN bound is ignored, not enforced', () => {
+    render(<TextHarness initial="" min={0.1 + 0.2} />);
+    fireEvent.change(field(), { target: { value: '0.3' } });
+    expect(field().validity.valid).toBe(true);
+    cleanup();
+    render(<TextHarness initial="" max={Number.NaN} />);
+    fireEvent.change(field(), { target: { value: '999999' } });
+    expect(field().validity.valid).toBe(true);
+  });
+});
+
+describe('AmountInput (#1654 follow-up 4): min/max in units of 10^decimals', () => {
+  it('quantity min 0.001 at decimals=3 refuses 0 and accepts 0.001', () => {
+    render(<TextHarness initial="" min={0.001} decimals={3} />);
+    fireEvent.change(field(), { target: { value: '0' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.001' } });
+    expect(field().validity.valid).toBe(true);
+  });
+  it('max 0.5 at decimals=3 refuses 0.504 and accepts 0.5', () => {
+    render(<TextHarness initial="" max={0.5} decimals={3} />);
+    fireEvent.change(field(), { target: { value: '0.504' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.5' } });
+    expect(field().validity.valid).toBe(true);
+  });
+  it('a 6-decimal unit price boundary: max 0.000123 refuses 0.000124, accepts 0.000123', () => {
+    render(<TextHarness initial="" max={0.000123} decimals={6} />);
+    fireEvent.change(field(), { target: { value: '0.000124' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.000123' } });
+    expect(field().validity.valid).toBe(true);
   });
 });

@@ -8,6 +8,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
@@ -34,6 +35,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (!report) return apiResponse.notFound(res, 'Import not found');
     return apiResponse.success(res, report);
   } catch (err) {
+    if (respondIfRunKindUnsupported(res, err)) return; // a run not found (deleted draft, stale link): 404
     return apiResponse.badRequestFromError(res, err, 'Comparison failed');
   }
 }

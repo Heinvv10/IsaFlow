@@ -7,6 +7,7 @@
  * benefit, SARS code 3801; payrollNonCashFiling), not in gross_income, taxed in paye. Appended
  * last so the earlier columns keep their positions.
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -19,6 +20,8 @@ import { escapeCsv } from '@/lib/csv';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { warningsHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listRunNonCashBenefits } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
@@ -56,6 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
 
   // FINAL runs only (payRunFinalSql: approved or paid with an approval time, wave 6 EF); a calculated,
   // cancelled or unstamped run declared here would over-state remuneration to SARS.
@@ -78,6 +82,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
     WHERE prh.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('prh'))}
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's line: on no natural-person certificate (wave 6 PSP)
       AND (
         (prh.period_year = ${taxYear - 1} AND prh.period_month >= ${PAYE_TAX_YEAR_START_MONTH})
         OR
@@ -95,7 +100,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const filename = `EMP501_${taxYear - 1}_${taxYear}.csv`;
 
   // A run left out as not final is named, as the e@syFile export names its warnings (wave 6 EF).
-  const runWarnings = await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501');
+  const runWarnings = [
+    ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501'),
+    ...(await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear))).map((t) => pspFilingWarning(t, 'EMP501 file')),
+  ];
   const header = warningsHeader(runWarnings);
   if (header) res.setHeader('X-IsaFlow-Warnings', header);
   res.setHeader('Content-Type', 'text/csv');

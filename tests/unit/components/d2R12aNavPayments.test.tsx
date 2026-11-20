@@ -66,6 +66,29 @@ describe('supplier-payments/new', () => {
   it('a rejected navigation does not say the payment failed', async () => { await rejectedNavigationIsNotAWriteFailure(nav()); });
 });
 
+describe('bank-transactions/new: a refused paste', () => {
+  it('a noValidate form does not submit the old amount after a refused paste', async () => {
+    serve(on('POST', 'bank-transactions-manual', () => ok({})),
+      on('GET', '/bank-accounts', () => ok([{ id: 'b-1', accountCode: '1000', accountName: 'D2 Bank' }])),
+      on('GET', 'chart-of-accounts', () => ok([{ id: 'g-1', accountCode: '5000', accountName: 'D2 GL Expense', accountSubtype: 'expense' }])));
+    render(<BankTxNewPage />);
+    fireEvent.change(await screen.findByPlaceholderText('Search accounts…'), { target: { value: 'D2 GL' } });
+    fireEvent.click(await screen.findByRole('button', { name: /D2 GL Expense/ }));
+    const amount = document.querySelector('input[name="amount"]') as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: '25' } });
+    await waitFor(() => expect((document.querySelector('select[name="bankAccountId"]') as HTMLSelectElement).value).toBe('b-1'));
+    fireEvent.change(amount, { target: { value: '25 apples' } }); // refused: the field keeps "25"
+    expect(amount.value).toBe('25');
+    fireEvent.submit(form());
+    await new Promise((r) => setTimeout(r, 50));
+    const posts = vi.mocked(apiFetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+    expect(posts).toHaveLength(0);
+    fireEvent.change(amount, { target: { value: '26' } });
+    fireEvent.submit(form());
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
+  });
+});
+
 describe('bank-transactions/new', () => {
   const nav = (): NavCase => ({
     push: route.push, warn, button: () => screen.getByRole('button', { name: /Record Transaction|Recording/ }),

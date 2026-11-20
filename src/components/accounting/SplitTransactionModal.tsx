@@ -14,6 +14,7 @@ import { SplitLineRow, type SplitLineState } from './SplitLineRow';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 interface Props {
   transaction: BankTx;
@@ -61,6 +62,7 @@ export function SplitTransactionModal({
   const [openPicker, setOpenPicker] = useState<string | null>(null); // line id with open dropdown
   const [pickerSearch, setPickerSearch] = useState('');
   const pickerRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   // Close picker on outside click
   useEffect(() => {
@@ -96,7 +98,7 @@ export function SplitTransactionModal({
   const canSubmit = Math.abs(remaining) <= 0.01 && lines.every(l => l.targetId && cents(l.amount) > 0);
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || blockOnInvalidAmount(modalRef.current)) return;
     setSubmitting(true);
     try {
       const payload = {
@@ -124,7 +126,7 @@ export function SplitTransactionModal({
 
   return (
     <BankTxModalShell label="Split transaction" onClose={onClose} busy={locked}>
-      <div className="w-full max-w-2xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+      <div ref={modalRef} className="w-full max-w-2xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)]">
           <div className="p-2 rounded-lg bg-purple-500/10">
