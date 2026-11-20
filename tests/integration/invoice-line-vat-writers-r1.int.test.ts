@@ -25,6 +25,8 @@ import { sql } from '@/lib/neon';
 import customerInvoicesCreate from '../../pages/api/accounting/customer-invoices-create';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
 import invoicePdfPreview from '../../pages/api/accounting/invoice-pdf-preview';
+import creditNotesRoute from '../../pages/api/accounting/credit-notes';
+import creditNotesAction from '../../pages/api/accounting/credit-notes-action';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { approveCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
@@ -313,6 +315,38 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
       await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, legacyId, f.fx.userId));
       const second = await unlinkedApprovedNote();
       expect((await inTx(f.fx, () => applyCreditNoteToInvoice(f.fx.companyId, second, legacyId, f.fx.userId))).customerInvoiceId).toBe(legacyId);
+    });
+  });
+
+  describe('golden path (e) through the REST routes, against the TYPED invoice create now makes', () => {
+    it('invoice 200 at 15% -> unlinked note 100 + 15 -> approve (autoApply none) -> apply: 200 OK, the note unlinked, 115 applied', async () => {
+      const post = (route: Parameters<typeof callRoute>[0], url: string, body: Record<string, unknown>) =>
+        callRoute(route, tokens[user]!, f.fx.companyId, 'POST', body, url);
+      const made = await post(customerInvoicesCreate, '/api/accounting/customer-invoices-create', {
+        clientId: f.fx.customerId, invoiceDate: '2026-12-15', dueDate: '2026-12-15', taxRate: 15, notes: 'GP-E',
+        items: [{ description: 'GP-E', quantity: 1, unitPrice: 200 }] });
+      const invoiceId = data<{ id: string }>(made).id;
+      expect((await rows(invoiceId)).map((r) => [r.vat_type, r.tax])).toEqual([['standard', 30]]); // typed, so the late-link path is the typed one
+      const approvedInv = await post(customerInvoicesDetail, '/api/accounting/customer-invoices-detail', { id: invoiceId, action: 'approve' });
+      expect(approvedInv.state.statusCode, JSON.stringify(approvedInv.state.body)).toBe(200);
+      const before = await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, invoiceId));
+      expect(before).toEqual({ remainingNet: 200, remainingVat: 30 });
+
+      const cn = data<{ id: string; taxAmount: number }>(await post(creditNotesRoute, '/api/accounting/credit-notes', {
+        type: 'customer', clientId: f.fx.customerId, creditDate: '2026-12-15', reason: 'GP-E CN', subtotal: 100, taxRate: 15 }));
+      expect(cn.taxAmount).toBe(15);
+      const approved = await post(creditNotesAction, '/api/accounting/credit-notes-action', { action: 'approve', creditNoteId: cn.id, autoApply: 'none' });
+      expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
+      expect(data<{ status: string; applied_to_invoice_ids: unknown[] }>(approved)).toMatchObject({ status: 'approved', applied_to_invoice_ids: [] });
+
+      const applied = await post(creditNotesAction, '/api/accounting/credit-notes-action', { action: 'apply', creditNoteId: cn.id, invoiceId });
+      expect(applied.state.statusCode, JSON.stringify(applied.state.body)).toBe(200);
+      expect(data<{ applied_to_invoice_ids: unknown[] }>(applied).applied_to_invoice_ids).toEqual([{ invoice_id: invoiceId, amount: 115 }]);
+      expect(await sql`SELECT customer_invoice_id, applied_amount::FLOAT8 AS applied, status FROM credit_notes WHERE id = ${cn.id}::UUID`)
+        .toEqual([{ customer_invoice_id: null, applied: 115, status: 'applied' }]);
+      expect(await sql`SELECT total_amount::FLOAT8 - amount_paid::FLOAT8 AS balance FROM customer_invoices WHERE id = ${invoiceId}::UUID`)
+        .toEqual([{ balance: 115 }]);
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, invoiceId))).toEqual(before);
     });
   });
 
