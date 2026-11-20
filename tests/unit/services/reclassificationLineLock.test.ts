@@ -68,6 +68,7 @@ interface Lines {
  * rolled-back transaction, because the whole point is cross-connection
  * visibility.
  *
+ * Production locks lines of POSTED journals; the draft seed is equivalent because the lock reads no status.
  * The journal is a DRAFT. The lock is a row lock on gl_journal_lines and reads
  * no status, so a draft contends exactly as a posted journal does. A posted one
  * cannot be seeded this way any more: migration 999n refuses a line added to a
@@ -180,9 +181,8 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('ROLLBACK').catch(() => undefined);
-      await cleanup(a, lines).catch(() => undefined);
-      await done(a);
-      await done(b);
+      // A cleanup failure fails the test (a swallowed one is how 999n's refusal leaked fixture companies).
+      try { await cleanup(a, lines); } finally { await done(a); await done(b); }
     }
   }, 60_000);
 
@@ -211,10 +211,7 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('ROLLBACK').catch(() => undefined);
-      await cleanup(a, one).catch(() => undefined);
-      await cleanup(a, two).catch(() => undefined);
-      await done(a);
-      await done(b);
+      try { await cleanup(a, one); await cleanup(a, two); } finally { await done(a); await done(b); }
     }
   }, 60_000);
 
@@ -232,8 +229,7 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
       expect(locked).toEqual([]);
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
-      await cleanup(a, lines).catch(() => undefined);
-      await done(a);
+      try { await cleanup(a, lines); } finally { await done(a); }
     }
   }, 60_000);
 
@@ -254,8 +250,7 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
       expect(locked).toEqual(lines.ids);
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
-      await cleanup(a, lines).catch(() => undefined);
-      await done(a);
+      try { await cleanup(a, lines); } finally { await done(a); }
     }
   }, 60_000);
 
