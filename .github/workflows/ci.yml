@@ -691,3 +691,101 @@ jobs:
         run: |
           echo "golden-chunks=$CHUNKS"
           [ "$CHUNKS" = "success" ]
+
+  # ADVISORY, not a gate: do this run's pending migrations apply on
+  # PRODUCTION's schema? The integration gate builds its schema from a dump of
+  # isaflow_dev, so a migration could pass it and fail on production (three
+  # incidents, week of 16 Nov). scripts/ci/prod-baseline/phase-a.sh loads a
+  # schema-only dump of production into a throwaway PostgreSQL 16 (the gate's
+  # own helpers), runs scripts/apply-migrations.ts on top, as run.sh does, then
+  # the schema-drift audit (scripts/audit-schema-drift.ts) on the result.
+  # The dump lives in the PRIVATE repo Heinvv10/isaflow-prod-schema, read with
+  # the deploy key PROD_SCHEMA_READ_KEY; this repo and its logs are public, so
+  # it is never committed, printed, uploaded or cached (the two caches below
+  # hold only ~/.bun/install/cache and ~/apt-debs/*.deb; .ci-prod-schema is
+  # neither). Without the secret (forks, Dependabot, or before it is stored)
+  # the job prints one notice and passes. continue-on-error: a red result shows
+  # on the PR but never fails the run, and no required job needs this one.
+  # Hosted only, so the key and the dump never reach velo's persistent runners.
+  # workflow-runs-ci pins this shape (workflowRunsCiRule.ts, ADVISORY_JOB).
+  prod-schema:
+    name: Migrations on prod schema (advisory)
+    runs-on: ubuntu-24.04
+    # Measured locally: ~5 s to load the dump and apply; the rest is setup.
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      # The secret is only tested for, never printed.
+      - name: Is the production schema baseline available to this run?
+        id: key
+        env:
+          PROD_SCHEMA_READ_KEY: ${{ secrets.PROD_SCHEMA_READ_KEY }}
+        run: |
+          if [ -n "$PROD_SCHEMA_READ_KEY" ]; then
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::prod schema baseline not available to this run; skipped"
+          fi
+
+      # Full history: the stale-branch guard asks whether the baseline's
+      # release is an ancestor of the tested commit.
+      - if: steps.key.outputs.have_key == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # bun and PostgreSQL 16 + pgvector, as golden-chunks installs them.
+      - if: steps.key.outputs.have_key == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.9
+      - if: steps.key.outputs.have_key == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - if: steps.key.outputs.have_key == 'true'
+        id: aptweek
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - if: steps.key.outputs.have_key == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs/*.deb
+          key: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector-
+      - if: steps.key.outputs.have_key == 'true'
+        run: |
+          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
+          mkdir -p "$HOME/apt-debs/partial"
+          sudo chmod -R a+rwX "$HOME/apt-debs"
+          apt_mirror() { case "$1" in
+            2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
+            3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
+            esac; }
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          sudo locale-gen en_US.UTF-8
+
+      - name: Install dependencies
+        if: steps.key.outputs.have_key == 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # After install, into a directory no cache or artifact step reads.
+      - name: Fetch the production schema baseline (private repo)
+        if: steps.key.outputs.have_key == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: Heinvv10/isaflow-prod-schema
+          ssh-key: ${{ secrets.PROD_SCHEMA_READ_KEY }}
+          persist-credentials: false
+          path: .ci-prod-schema
+
+      - name: Apply pending migrations on production's schema
+        if: steps.key.outputs.have_key == 'true'
+        env:
+          # As the velo job's gate step.
+          TZ: Africa/Johannesburg
+        run: PROD_BASELINE_DIR="$GITHUB_WORKSPACE/.ci-prod-schema" bash scripts/ci/prod-baseline/phase-a.sh
