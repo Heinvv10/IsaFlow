@@ -32,6 +32,25 @@ export function toCCYYMMDD(value: unknown): string | null {
 }
 
 /**
+ * The certificate tax period, 3170 / 3180 (BRS V25.3.0 p. 32), all dates CCYYMMDD: the reconciliation period
+ * (`first`..`last`) cut to the employment. An employee employed at no point of it but paid in it (a leaver's severance
+ * paid in a later tax year) has the first and last payment dates instead, clamped to the period. Start is never after
+ * end; null when the employment misses the period and no payment date is known (no tax period can be stated).
+ */
+export function certificateTaxPeriod(p: {
+  first: string; last: string; employmentStart: string | null; employmentEnd: string | null;
+  firstPaid?: string | null; lastPaid?: string | null;
+}): { start: string; end: string } | null {
+  const clamp = (d: string) => (d < p.first ? p.first : d > p.last ? p.last : d);
+  const start = p.employmentStart && p.employmentStart > p.first ? p.employmentStart : p.first;
+  const end = p.employmentEnd && p.employmentEnd < p.last ? p.employmentEnd : p.last;
+  if (start <= end) return { start, end };
+  if (!p.firstPaid || !p.lastPaid) return null;
+  const [a, b] = [clamp(p.firstPaid), clamp(p.lastPaid)];
+  return a <= b ? { start: a, end: b } : { start: b, end: a };
+}
+
+/**
  * Code 3210, pay periods worked (BRS V25.3.0 p. 33), for MONTHLY pay: each calendar month from `start` to
  * `endInclusive` (CCYYMMDD, both inside the period) counts 1, and a month worked in part counts the fraction of its
  * calendar days employed ("pay periods worked which are shorter than a full pay period must be indicated as a decimal

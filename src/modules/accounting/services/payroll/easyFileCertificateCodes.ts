@@ -68,3 +68,10 @@ export function fieldLabel(name: CertificateFieldName, words: string): string {
 export const UNWRITTEN_MANDATORY_CODES = [
   3026, 3136, 3147, 3148, 3149, 3150, 3151, 3195, 3214, 3215, 3216, 3217, 3220, 3240, 3263, 3279, 3285, 3288,
 ] as const;
+
+/**
+ * Said on every e@syFile file (Hein 2026-11-20: capturing these is wave 7; warn, never refuse): the fields e@syFile will
+ * ask for because this file cannot carry them (UNWRITTEN_MANDATORY_CODES).
+ */
+export const UNWRITTEN_FIELDS_WARNING = 'e@syFile will ask for fields IsaFlow does not hold yet (employee addresses, bank details, '
+  + 'business phone, SIC7, and the 3026 / 3195 / 3220 indicators): capture them in e@syFile before you submit.';

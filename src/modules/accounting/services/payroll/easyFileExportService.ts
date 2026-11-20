@@ -46,7 +46,7 @@
  */
 
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
-import { assertIncomeTaxReference, validateEmployee } from './easyFileEmployeeChecks';
+import { assertIncomeTaxReference, filingDateMessage, validateEmployee } from './easyFileEmployeeChecks';
 import { certificateField } from './easyFileCertificateCodes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
@@ -54,7 +54,7 @@ import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { buildPspCertificateRecord } from './easyFilePspCertificate';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
-import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
+import { employerFundContributionFields, retiredMemberFundFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -138,7 +138,19 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
+/** Every refusal of a certificate names its employee and certificate number (a file holds many). */
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
+  try {
+    return employeeRecord(emp);
+  } catch (err) {
+    if (err instanceof UsageError && !err.message.includes(emp.certificateNumber)) {
+      throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+function employeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
   const birth3080 = birthDate3080(emp);
   const lumpSums = emp.lumpSums ?? [];
@@ -205,6 +217,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ...employerFund,
     // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
     emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
+    ...retiredMemberFundFields(emp.fringeBenefits ?? []), // DBF: 4585 / 4586, para 12D(6) members (BRS p. 105-106)
     '9999,9999',
   ];
   const record = withDeductionTotal(lines.filter((l): l is string => l !== null));
@@ -228,6 +241,13 @@ export function buildIrp5File(input: BuildInput): string {
   const psp = input.pspCertificates ?? [];
   if (input.employees.length + psp.length === 0) {
     throw new UsageError('Cannot build an IRP5 file with zero employees');
+  }
+  // BRS V25.3.0 p. 32: no 3180 more than 30 days after today. Refused for a file that is filed (EMP501 finalise and its
+  // download); the ad-hoc export (`filingDate: 'warn'`) builds it and says so (easyFileInput's warnings).
+  if (input.filingDate !== 'warn') {
+    const kind = String(input.employer.reconciliationPeriod).endsWith('08') ? 'interim' : 'annual';
+    const early = filingDateMessage([...input.employees, ...psp.map((c) => ({ taxPeriodEnd: c.periodEnd }))], kind, input.employer.transactionYear, input.asOf ?? new Date());
+    if (early) throw new UsageError(early);
   }
   const lines: string[] = [];
   lines.push(...buildEmployerRecord(input.employer));

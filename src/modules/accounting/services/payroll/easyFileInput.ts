@@ -14,13 +14,13 @@ import {
   type EmployerInput,
   type EmployeeInput,
 } from '@/modules/accounting/services/payroll/easyFileExportService';
-import { emp501Period, reconciliationPeriodCode, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
+import { emp501Period, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
-  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
+  ageAtYearEnd, certificateTaxPeriod, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
@@ -35,7 +35,10 @@ import { loadRetirementContributions } from '@/modules/accounting/services/payro
 import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
 import { loadPspCertificates, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -76,11 +79,9 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 
-  // Lump sums paid under a directive, in a run or outside payroll (own code,
-  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
-  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
-  // follow-ups G1). The stand-alone payments are in no run line, so their
-  // gross and PAYE are added to the run totals.
+  // Lump sums paid under a directive, in a run or outside payroll (own code, PAYE under 4115 or 4102 by code), and annual payments
+  // (3605): reported apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a follow-ups G1). The stand-alone payments
+  // are in no run line, so their gross and PAYE are added to the run totals.
   const bounds = { start: period.start, end: period.end };
   const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee, regularDirectives] = await Promise.all([
     sql`
@@ -203,12 +204,19 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const inCash = unflaggedFringe.get(String(row.id));
     if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
-    const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
-    const endDate = toCCYYMMDD(row.end_date);
-    // An interim certificate does not know a leaving date after August (the employee was employed at its end).
-    const certEndDate = endDate && (kind === 'annual' || endDate <= yoaEndInclusive) ? endDate : null;
-    const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
-    const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
+    // 3170 / 3180: the period cut to the employment (an interim certificate does not know a leaving date after August);
+    // a leaver paid after leaving has the first and last payment dates in the period (certificateTaxPeriod).
+    const paid = [toCCYYMMDD(agg.first_paid), toCCYYMMDD(agg.last_paid), standalone.firstPaid?.replaceAll('-', ''), standalone.lastPaid?.replaceAll('-', '')]
+      .filter((d): d is string => !!d).sort();
+    const taxPeriod = certificateTaxPeriod({
+      first: yoaStart, last: yoaEndInclusive, employmentStart: toCCYYMMDD(row.start_date), employmentEnd: toCCYYMMDD(row.end_date),
+      firstPaid: paid[0], lastPaid: paid[paid.length - 1],
+    });
+    if (!taxPeriod) {
+      throw new EasyFileInputRefusal('validation', `${who}: employed at no point of the period and no payment date is known, `
+        + 'so no certificate tax period (codes 3170 / 3180) can be stated. Check the employee\'s start and end dates.');
+    }
+    const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
@@ -259,38 +267,22 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     throw new EasyFileInputRefusal('bad_request', `No employees with payroll activity in the selected ${kind === 'interim' ? 'interim period' : 'tax year'}`);
   }
 
-  const employer: EmployerInput = {
-    tradingName: String(company.trading_name),
-    payeReferenceNumber: payeRef,
-    sdlReferenceNumber: company.sdl_reference_number ? String(company.sdl_reference_number) : null,
-    uifReferenceNumber: company.uif_reference_number ? String(company.uif_reference_number) : null,
-    contactFirstName: String(company.sars_contact_first_name),
-    contactSurname: String(company.sars_contact_last_name),
-    contactBusinessPhone: company.sars_contact_telephone ? String(company.sars_contact_telephone) : null,
-    contactCellPhone: company.sars_contact_number ? String(company.sars_contact_number) : null,
-    contactEmail: company.email ? String(company.email) : null,
-    transactionYear: taxYear,
-    reconciliationPeriod: reconciliationPeriodCode(period),
-    sic7Code: company.sic7_code ? String(company.sic7_code) : null,
-    physicalStreet: String(company.physical_address_line1),
-    // 2065 is the suburb / district (BRS V25.3.0 p. 14); the company holds no suburb, and a province is neither.
-    physicalSuburb: null,
-    physicalCity: company.physical_city ? String(company.physical_city) : null,
-    physicalPostalCode: String(company.physical_postal_code),
-  };
+  const employer = employerInputOf(company, payeRef, taxYear, period);
 
-  // A directive with no issued date files its effective date as 3231, and a
-  // payment under a directive linked to no employee is on no certificate
-  // (applyTaxDirective now refuses those): both said, naming the directive,
-  // and shown by the IRP5 page.
+  // A directive with no issued date files its effective date as 3231, and a payment under a directive linked to no employee is
+  // on no certificate (applyTaxDirective now refuses those): both said, naming the directive, and shown by the IRP5 page.
   // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
   warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
   warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
     + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
   // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
   if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
-  const warningsTotal = warnings.length;
-  warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
+  // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
+  // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
+  const early = filingDateWarning([...employees, ...pspCertificates.map((c) => ({ taxPeriodEnd: c.periodEnd }))], new Date());
+  const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
+  const warningsTotal = warnings.length + notices.length;
+  warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 
   return {
     employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,

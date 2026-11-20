@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import type { PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { localDay } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
-import { currentCertificate } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
+import { currentCertificate, currentEmployer, isLegacyLayout } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
+import { UsageError } from '@/modules/accounting/services/payroll/easyFileFields';
 import type { Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import type { StoredEmployee } from './emp501Figures';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -21,16 +22,36 @@ export const EMP501_FILE_KIND = FILING_FILE_KIND.EMP501; // 999v's filing_file_k
 
 export interface Emp501File { body: string; filename: string; sha256: string }
 
+type StoredFigures = { taxYear: number; kind: Emp501Kind; employer: EmployerInput; employees: StoredEmployee[]; pspCertificates?: PspCertificateInput[] };
+
+/** The download's file name, from the stored figures alone (a stamped version is served without a rebuild). */
+export function emp501FileName(v: Pick<ReturnVersion, 'figures'>): string {
+  const f = v.figures as StoredFigures;
+  return `IRP5_${f.taxYear - 1}_${f.taxYear}_${f.employer.payeReferenceNumber}${f.kind === 'interim' ? '_08' : ''}.irp5`;
+}
+
 export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Emp501File {
   if (v.formType !== 'EMP501') throw new Error(`emp501FileOf: a ${v.formType} version has no e@syFile file`);
-  const f = v.figures as { taxYear: number; kind: Emp501Kind; employer: EmployerInput; employees: StoredEmployee[]; pspCertificates?: PspCertificateInput[] };
-  // The date of birth is stored as its calendar day (storeEmployee); the builder reads a local-midnight Date (localDay).
-  // A certificate stored before the BRS code fix is read in today's shape (currentCertificate).
-  const employees: EmployeeInput[] = f.employees.map((s) => currentCertificate(s, f.taxYear, f.kind)).map(({ dateOfBirth, ...e }) =>
-    (dateOfBirth === undefined ? e : { ...e, dateOfBirth: dateOfBirth === null ? null : localDay(dateOfBirth) }));
-  const body = buildIrp5File({ employer: f.employer, employees, pspCertificates: f.pspCertificates });
-  const filename = `IRP5_${f.taxYear - 1}_${f.taxYear}_${f.employer.payeReferenceNumber}${f.kind === 'interim' ? '_08' : ''}.irp5`;
-  return { body, filename, sha256: createHash('sha256').update(body, 'utf8').digest('hex') };
+  const f = v.figures as StoredFigures;
+  // Figures stored before the BRS code fix are read in today's shape (easyFileLegacyCertificate): the certificates'
+  // tax period and pay periods, and no province under 2065. The date of birth is stored as its calendar day
+  // (storeEmployee); the builder reads a local-midnight Date (localDay).
+  const legacy = isLegacyLayout(f.employees);
+  let body: string;
+  try {
+    const employees: EmployeeInput[] = f.employees.map((s) => currentCertificate(s, f.taxYear, f.kind)).map(({ dateOfBirth, ...e }) =>
+      (dateOfBirth === undefined ? e : { ...e, dateOfBirth: dateOfBirth === null ? null : localDay(dateOfBirth) }));
+    body = buildIrp5File({ employer: currentEmployer(f.employer, legacy), employees, pspCertificates: f.pspCertificates });
+  } catch (err) {
+    if (!(err instanceof UsageError)) throw err;
+    // A version finalised before the fix may break a rule its rebuild now applies (a missing income tax number under
+    // PAYE): refused by name, with the way out. The version itself is never changed.
+    throw new ReturnRefusal(409, legacy
+      ? `This version was finalised before the e@syFile code fix, and its file cannot be rebuilt: ${err.message} `
+        + 'Correct it (for example, add the income tax number on the employee record), then amend the return and finalise it again.'
+      : `The e@syFile file cannot be built from this version: ${err.message}`);
+  }
+  return { body, filename: emp501FileName(v), sha256: createHash('sha256').update(body, 'utf8').digest('hex') };
 }
 
 /**
@@ -49,10 +70,16 @@ export async function downloadEmp501File(companyId: string, versionId: string, a
     throw new ReturnRefusal(409, `Version ${v.versionNo} was superseded by an amend. Download the current version's file.`,
       STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
-  const file = emp501FileOf(v); // the name; and, unstamped, the bytes (a version that cannot build one is refused here)
   if (v.filingFileSha256) {
-    return { filename: file.filename, body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false };
+    // A stamp in the current layout, or a FILED version's (the record of what was filed, in whatever layout): the stored bytes.
+    if (v.filingFileKind === EMP501_FILE_KIND || v.status === 'filed') {
+      return { filename: emp501FileName(v), body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false };
+    }
+    // Stamped in an earlier layout and not filed (emp501LayoutNote says so on the bar): rebuilt in the current layout,
+    // not stored (999v writes a stamp once); amending and finalising again stamps the current file.
+    return { ...emp501FileOf(v), stamped: false };
   }
+  const file = emp501FileOf(v); // unstamped: the bytes (a version that cannot build one is refused here)
   if (v.status !== 'finalised') return { ...file, stamped: false }; // filed before 999v: the trigger keeps it unstamped
   const sha256 = await stampFilingFile(companyId, v, file.body, EMP501_FILE_KIND, 'irp5', actor.userId);
   return { ...file, sha256, stamped: true };

@@ -7,6 +7,7 @@
  */
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { explainPaye, type PayeExplainInput } from './payeExplain';
+import { withDefinedBenefitCaution } from './definedBenefitExplain';
 import { explainPspPaye } from './pspExplain';
 import type { PspFacts } from './taxStatusTreatment';
 import { explainEti, explainSdl, explainUif } from './statutoryExplain';
@@ -38,7 +39,7 @@ export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
     schema: 1,
     taxYear,
     calculationVersion: PAYROLL_CALCULATION_VERSION,
-    paye: parts.psp ? explainPspPaye({ taxYear, ...parts.paye }, parts.psp) : explainPaye({ taxYear, ...parts.paye }),
+    paye: withDefinedBenefitCaution(parts.psp ? explainPspPaye({ taxYear, ...parts.paye }, parts.psp) : explainPaye({ taxYear, ...parts.paye }), parts.paye.earningParts),
     uif: explainUif({ taxYear, ...parts.uif }),
     sdl: explainSdl({ taxYear, ...parts.sdl }),
     eti: explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti }),
