@@ -288,6 +288,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
   // P5-3 security review (ap/supplierInvoicePoLinks): a bill line's PO line not this company's / not the bill's PO; fixed wording, pre-write.
   'SUPPLIER_INVOICE_PO_LINK_REFUSED',
+  // Review M1 (ap/billGoodsReceivedLink): a bill's goods received note malformed / not this company's / cancelled; fixed wording, pre-write.
+  'SUPPLIER_INVOICE_GRN_REFUSED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
