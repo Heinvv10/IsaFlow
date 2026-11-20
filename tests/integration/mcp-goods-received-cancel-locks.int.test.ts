@@ -142,6 +142,7 @@ describe('the cancel\'s locks (finding 5)', () => {
       // The definer waits on the note with the PO rows held, and no 620: a create on another PO goes through meanwhile.
       const made = await callTool(pool, f, create, grnArgs(another, [[0, 1]]));
       expect(made.isError, made.text).toBe(false);
+      expect(await waitingOn('goods_received_note_cancel'), 'the cancel is still waiting: the create did not wait for it').toBe(true);
       const out = await Promise.race([pending, sleep(15_000).then(() => 'still waiting' as const)]);
       expect(out === 'still waiting' ? out : out.e?.code).toBe('ROW_LOCK_TIMEOUT');
     } finally { await bill.rollback(); }
