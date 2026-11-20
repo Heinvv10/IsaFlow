@@ -106,7 +106,7 @@ async function monthTotals(companyId: string, p: { start: string; end: string })
     LEFT JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
                                AND NOT (e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
-                                        AND e.id = ANY(${certified}::uuid[])) AS psp) x
+                                        AND e.id::text = ANY(${certified}::text[])) AS psp) x
     WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
     GROUP BY 1
