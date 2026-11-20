@@ -14,7 +14,7 @@ import {
   type EmployerInput,
   type EmployeeInput,
 } from '@/modules/accounting/services/payroll/easyFileExportService';
-import { emp501Period, reconciliationPeriodCode, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
+import { emp501Period, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
@@ -36,6 +36,8 @@ import { assertRunKindSupported } from '@/modules/accounting/services/payroll/pa
 import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
+import { loadPspCertificates, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
@@ -58,6 +60,8 @@ export interface EasyFileInput {
   unlinkedPaymentIds: string[];
   /** The payroll employee each certificate is for, by certificate number (wave 6 SS-c: the employee portal's IRP5). */
   certificateEmployees: Array<{ certificateNumber: string; employeeId: string }>;
+  /** Wave 6 PSP-H: each PSP's own H certificate, numbered after the natural persons'. */
+  pspCertificates: PspCertificateInput[];
 }
 
 /** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
@@ -152,7 +156,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const employees: EmployeeInput[] = [];
   const certificateEmployees: EasyFileInput['certificateEmployees'] = [];
   // A PSP's months are on no natural-person certificate (loadCertificateAggregates and every reader leave them out): named (wave 6 PSP).
-  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).map((t) => pspFilingWarning(t, 'e@syFile file'));
+  // Only one on no certificate: a PSP with its particulars is on its own H certificate in this file (PSP-H).
+  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).filter((t) => !t.certifiedAs).map((t) => pspFilingWarning(t, 'e@syFile file'));
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
@@ -260,29 +265,14 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     });
   }
 
-  if (employees.length === 0) {
+  // Wave 6 PSP-H: each PSP with its particulars gets its own H certificate, numbered after these; one without stays off, named.
+  // Never in certificateEmployees: an H certificate is the entity's, so the employee portal never shows it to the person.
+  const pspCertificates = await loadPspCertificates(companyId, bounds, payeRef, taxYear, period.mm, seq);
+  if (employees.length + pspCertificates.length === 0) {
     throw new EasyFileInputRefusal('bad_request', `No employees with payroll activity in the selected ${kind === 'interim' ? 'interim period' : 'tax year'}`);
   }
 
-  const employer: EmployerInput = {
-    tradingName: String(company.trading_name),
-    payeReferenceNumber: payeRef,
-    sdlReferenceNumber: company.sdl_reference_number ? String(company.sdl_reference_number) : null,
-    uifReferenceNumber: company.uif_reference_number ? String(company.uif_reference_number) : null,
-    contactFirstName: String(company.sars_contact_first_name),
-    contactSurname: String(company.sars_contact_last_name),
-    contactBusinessPhone: company.sars_contact_telephone ? String(company.sars_contact_telephone) : null,
-    contactCellPhone: company.sars_contact_number ? String(company.sars_contact_number) : null,
-    contactEmail: company.email ? String(company.email) : null,
-    transactionYear: taxYear,
-    reconciliationPeriod: reconciliationPeriodCode(period),
-    sic7Code: company.sic7_code ? String(company.sic7_code) : null,
-    physicalStreet: String(company.physical_address_line1),
-    // 2065 is the suburb / district (BRS V25.3.0 p. 14); the company holds no suburb, and a province is neither.
-    physicalSuburb: null,
-    physicalCity: company.physical_city ? String(company.physical_city) : null,
-    physicalPostalCode: String(company.physical_postal_code),
-  };
+  const employer = employerInputOf(company, payeRef, taxYear, period);
 
   // A directive with no issued date files its effective date as 3231, and a payment under a directive linked to no employee is
   // on no certificate (applyTaxDirective now refuses those): both said, naming the directive, and shown by the IRP5 page.
@@ -294,12 +284,13 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
   // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
   // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
-  const early = filingDateWarning(employees, new Date());
+  const early = filingDateWarning([...employees, ...pspCertificates.map((c) => ({ taxPeriodEnd: c.periodEnd }))], new Date());
   const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
   const warningsTotal = warnings.length + notices.length;
   warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 
   return {
     employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,
+    pspCertificates,
   };
 }

@@ -111,6 +111,9 @@
   "src/modules/accounting/services/payroll/easyFileInput.ts": [
    {"line":64,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"every final run of the period, each through the run-kind guard (review #1568 M1)"}
   ],
+  "src/modules/accounting/services/payroll/easyFilePspCertificate.ts": [
+   {"line":105,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"PSP-H: tax-period sum of a PSP's lines on final runs (its H certificate)"}
+  ],
   "src/modules/accounting/services/payroll/easyFileRegularDirectives.ts": [
    {"line":26,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"MIN month per directive over the year"}
   ],

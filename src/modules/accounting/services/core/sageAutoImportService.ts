@@ -119,8 +119,10 @@ export function buildSageFetchScript(endpoint: string, take: number): string {
         });
         const json = await res.json();
         total = json.TotalResults || 0;
-        allResults.push(...(json.Results || []));
-        skip += take;
+        const rows = json.Results || [];
+        allResults.push(...rows);
+        if (rows.length === 0) break;
+        skip += rows.length; // #1655: by rows received; Sage may send fewer than take
       }
       return { Results: allResults, TotalResults: total };
     })()
@@ -149,8 +151,10 @@ export function buildSageAccountsFetchScript(): string {
         });
         const json = await res.json();
         total = json.TotalResults || 0;
-        allResults.push(...(json.Results || []));
-        skip += take;
+        const rows = json.Results || [];
+        allResults.push(...rows);
+        if (rows.length === 0) break;
+        skip += rows.length; // #1655: by rows received; Sage may send fewer than take
       }
       return { Results: allResults, TotalResults: total };
     })()
@@ -238,6 +242,7 @@ export function mapSageARInvoices(invoices: SageTaxInvoice[]) {
   return invoices.map(inv => ({
     invoiceNumber: inv.DocumentNumber,
     customerName: inv.Customer?.Name || '',
+    customerSageId: inv.CustomerId,
     invoiceDate: inv.Date?.split('T')[0] || '',
     dueDate: inv.DueDate?.split('T')[0] || '',
     subtotal: inv.Exclusive,
@@ -253,6 +258,7 @@ export function mapSageAPInvoices(invoices: SageSupplierInvoice[]) {
   return invoices.map(inv => ({
     invoiceNumber: inv.DocumentNumber,
     supplierName: inv.Supplier?.Name || '',
+    supplierSageId: inv.SupplierId,
     invoiceDate: inv.Date?.split('T')[0] || '',
     dueDate: inv.DueDate?.split('T')[0] || '',
     subtotal: inv.Exclusive,

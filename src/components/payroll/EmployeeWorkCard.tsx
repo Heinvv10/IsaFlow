@@ -16,6 +16,7 @@ import { EmployeeEmailField } from './EmployeeEmailField';
 import { PayFrequencyField } from './PayFrequencyField';
 import { PayrollTaxStatusField } from './PayrollTaxStatusField';
 import { EmployeePortalCard } from './EmployeePortalCard';
+import { PspEntityParticularsField } from './PspEntityParticularsField';
 
 /** ETI Act s6(b): an SA ID number (checked), an asylum seeker permit, or a refugee identity document. */
 const ETI_ID_DOCUMENT = [
@@ -123,6 +124,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
       <PayFrequencyField employeeId={employee.id} canEdit={canEditPriced} />
+      {employee.taxStatus === 'personal_service_provider' && <PspEntityParticularsField employeeId={employee.id} entity={employee.pspEntityType} stored={employee} canEdit={canEditPriced} onSaved={(p) => onSaved({ ...employee, ...p })} />}
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
       <EmployeePortalCard employeeId={employee.id} canEdit={canEditPriced} />
     </div>
