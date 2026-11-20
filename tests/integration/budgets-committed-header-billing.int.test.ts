@@ -10,10 +10,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
+import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { seedPo, seedRawBill, seedSupplier, type SeededPo } from './helpers/poBillLinkHarness';
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { openPoLineCents } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import { previewPurchaseOrderBudget } from '@/modules/accounting/services/ap/purchaseOrderBudget';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -114,5 +115,14 @@ describe('the link row settles the amount, and each bill nets each PO once', () 
     // Linked or not, the same R100 nets: the link row (backfilled at the subtotal) replaces the header, it does not add to it.
     expect((await pool.query('SELECT amount::TEXT FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id])).rows).toEqual([{ amount: '100.00' }]);
     expect(await openOf(po)).toEqual([20000, 20000]);
+  });
+});
+
+describe('the PO approval uses the same figure', () => {
+  it('checks a PO line at its open amount, its header billing netted', async () => {
+    await setPolicy(pool, f, 'warn');
+    const po = await seedPo(pool, f, { lines: [1000], status: 'draft', cc1: f.cc.FT });
+    await headerBill(po.po, 300);
+    expect((await previewPurchaseOrderBudget(f.co, po.po))!.lines.map((l) => l.amount)).toEqual([700]);
   });
 });

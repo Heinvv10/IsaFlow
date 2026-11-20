@@ -70,6 +70,8 @@ beforeAll(async () => {
     await at('invoiced', 'SPO-I1', 'invoiced', [{ qty: 1, price: 99.99, received: 1, invoiced: 1 }]);
     await at('invoicedNoTrace', 'SPO-I2', 'invoiced', [{ qty: 1, price: 9, received: 1 }]);
     await at('invoicedPartBill', 'SPO-I3', 'invoiced', [{ qty: 4, price: 50, received: 4, invoiced: 4 }]);
+    await at('invoicedCancelledBill', 'SPO-I5', 'invoiced', [{ qty: 1, price: 9, received: 1 }]);
+    await at('invoicedDeletedBill', 'SPO-I6', 'invoiced', [{ qty: 1, price: 9 }]);
     await at('invoicedDraftBill', 'SPO-I4', 'invoiced', [{ qty: 4, price: 50, received: 2 }]);
     await at('sentFullyBilled', 'SPO-E9', 'sent', one());
     await at('sentOverBilled', 'SPO-E10', 'sent', one(2));
@@ -96,6 +98,10 @@ beforeAll(async () => {
   bills.sent = await bill(f, 'sent');
   bills.invoicedPart = await bill(f, 'invoicedPartBill');
   bills.invoicedDraft = await bill(f, 'invoicedDraftBill', { status: 'draft' });
+  // Neither a cancelled nor a soft-deleted bill is live: both invoiced orders close.
+  await bill(f, 'invoicedCancelledBill', { status: 'cancelled' });
+  bills.invoicedDeleted = await bill(f, 'invoicedDeletedBill', { status: 'draft' });
+  await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bills.invoicedDeleted]);
   bills.full = await bill(f, 'sentFullyBilled');
   bills.over = (await seedRawBill(pool, f, { items: [{ total: 150 }], subtotal: 150, total: 172.5, header: S.sentOverBilled!.id, status: 'paid' })).id;
   bills.draft = await bill(f, 'sentDraftBill', { status: 'draft' });
@@ -172,6 +178,8 @@ describe('the status map', () => {
     expect(await status('sentOverBilled')).toEqual(['closed', 'approved']);
     expect(await status('invoiced')).toEqual(['closed', 'received']);
     expect(await status('invoicedNoTrace')).toEqual(['closed', 'received']);
+    expect(await status('invoicedCancelledBill')).toEqual(['closed', 'received']);
+    expect(await status('invoicedDeletedBill')).toEqual(['closed', 'approved']);
     expect(notices.some((n) => n.includes(S.sentFullyBilled!.id) && n.includes('fully billed (R 100'))).toBe(true);
     expect(notices.some((n) => n.includes(S.invoiced!.id) && n.includes('legacy invoiced, and no live bill names it'))).toBe(true);
   });
@@ -217,7 +225,7 @@ describe('the skips and the record', () => {
   });
 
   it('says exactly what it did, and what entered committed spend', async () => {
-    expect(notices).toContain('1022: copied 31 order(s) in all, 3 skipped, 1 renamed, 4 closed, 2 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 33 order(s) in all, 3 skipped, 1 renamed, 6 closed, 2 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 1 supplier of another company, 1 negative line total, 1 line id already in po_items, '
       + '0 id already a purchase order of another company, 0 refused by the database');
     const committing = ['sent', 'sentClean', 'partRecv', 'received', 'piFull', 'piPart', 'sentDraftBill', 'sentInvoicedLine', 'sentCancelledBill',

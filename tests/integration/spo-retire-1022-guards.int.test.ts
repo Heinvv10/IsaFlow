@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
-import { asBeforeRetirement, canonicalSnapshot, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
+import { asBeforeRetirement, canonicalSnapshot, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo, type SpoLine } from './spo-retire-1022.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -26,7 +26,7 @@ const retired = /retired.*use purchase_orders/;
 const counter = async (co: string) => (await pool.query(
   `SELECT prefix, next_number FROM company_document_numbers WHERE company_id = $1 AND document_type = 'purchase_order'`, [co])).rows;
 const poOf = async (id: string) => (await pool.query('SELECT company_id, po_number FROM purchase_orders WHERE id = $1', [id])).rows[0];
-const seed = (fx: BillFixture, number: string, lines = [{ qty: 1, price: 10 }]) =>
+const seed = (fx: BillFixture, number: string, lines: SpoLine[] = [{ qty: 1, price: 10 }]) =>
   asBeforeRetirement(pool, (c) => seedSpo(c, { co: fx.co, supplier: fx.supplier, number, status: 'draft', lines }));
 const companies = () => [f.co, other.co, g.co];
 
@@ -106,6 +106,13 @@ describe('re-runs and the per-order guard', () => {
     expect(notices).toContain('1022: copied 1 order(s) in all, 1 skipped, 0 renamed, 0 closed, 0 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 0 supplier of another company, 0 negative line total, 0 line id already in po_items, '
       + '0 id already a purchase order of another company, 1 refused by the database');
+  });
+
+  it('skips an order whose price overflows po_items (numeric_value_out_of_range), never aborting', async () => {
+    S.overflow = await seed(f, 'OVERFLOW-1', [{ qty: 0.01, price: 0, lineTotal: 1_000_000_000_000 }]);
+    const notices = await runMigration(pool);
+    expect(await poOf(S.overflow.id)).toBeUndefined();
+    expect(notices.some((n) => n.includes(S.overflow!.id) && n.includes('refused by the database (22003)'))).toBe(true);
   });
 });
 
