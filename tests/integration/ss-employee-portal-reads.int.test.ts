@@ -126,15 +126,36 @@ describe('employee portal reads', () => {
   });
 
   it('a run the payslip render refuses (run-kind guard) is not listed, so no listed slip 404s (review #1576 L1)', async () => {
-    // One on run 1 now paid weekly: the 'payslip' guard refuses run 1 (employee_frequency), for everyone on it.
-    await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [emp.one]);
+    // Since FQd an approved run is judged as at its approval, so an employee moved to weekly no longer makes its payslip
+    // refuse (w6-fqd as-at-run). A run the render still refuses: run 1 made off-cycle here (the freeze trigger lifted for
+    // this row, in the disposable fixture only): the 'payslip' guard refuses it (run_kind), for everyone on it.
+    const flip = async (kind: 'off_cycle' | 'regular') => {
+      await a.pool.query('ALTER TABLE payroll_run_headers DISABLE TRIGGER trg_payroll_run_headers_final_frozen');
+      try {
+        await a.pool.query('UPDATE payroll_run_headers SET run_kind = $2, off_cycle_reason = $3 WHERE id = $1',
+          [run1, kind, kind === 'off_cycle' ? 'bonus' : null]);
+      } finally {
+        await a.pool.query('ALTER TABLE payroll_run_headers ENABLE ALWAYS TRIGGER trg_payroll_run_headers_final_frozen');
+      }
+    };
+    await flip('off_cycle');
     try {
       expect((await getSlip(jars.two!, run1)).statusCode).toBe(404);
       expect(await runs(jars.two!)).toEqual([run2]);
     } finally {
-      await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'monthly' WHERE id = $1", [emp.one]);
+      await flip('regular');
     }
     expect(await runs(jars.two!)).toEqual([run2, run1]);
+  });
+
+  it('an employee moved to weekly keeps the payslips of runs approved before (FQd: frequency judged as at the run)', async () => {
+    await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [emp.one]);
+    try {
+      expect((await getSlip(jars.two!, run1)).statusCode).toBe(200);
+      expect(await runs(jars.two!)).toEqual([run2, run1]);
+    } finally {
+      await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'monthly' WHERE id = $1", [emp.one]);
+    }
   });
 
   it('an employee with no final slip gets an empty list, not an error', async () => {

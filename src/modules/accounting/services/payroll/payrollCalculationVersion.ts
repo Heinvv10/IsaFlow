@@ -29,5 +29,8 @@
  *    (para 12D(3)), non-cash and deemed paid into s11F; its amount is the employer's payment (GL 2175, 4472) (DBF).
  * 18: overtime hours at 1.5x / 2x priced on the server (ETI counts their hours once, as 3607, etiHours); a km row splits at the prescribed
  *    rate a km into 3702 / 3703 (not taxed) and 3722 (taxed, UIF, SDL); OVERTIME_ABOVE_BCEA_THRESHOLD (RI, migration 1017).
+ * 19: weekly and fortnightly regular runs are costed (FQd lifts the run-kind `frequency` clause; a run straddling an employee's
+ *    frequency change is refused until acknowledged); SDL is the month's 1% across its runs, floored at the month, so a run
+ *    may carry a negative SDL refunding an earlier run's over-catch-up (FQd).
  */
-export const PAYROLL_CALCULATION_VERSION = 18;
+export const PAYROLL_CALCULATION_VERSION = 19;

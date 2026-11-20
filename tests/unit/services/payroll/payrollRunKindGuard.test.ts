@@ -25,11 +25,24 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({})).toEqual([]);
   });
 
-  it('refuses a weekly or fortnightly run, and an off-cycle run, for every action', () => {
-    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(ALL);
-    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(ALL);
+  it('passes a weekly or fortnightly regular run (wave 6 FQd lifts the clause); refuses an unknown frequency and an off-cycle run, for every action', () => {
+    // IRP5/EMP501 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): weekly payrolls in wave 7.
+    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(['irp5']);
+    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(['irp5']);
+    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly' }, 'irp5')[0]!.detail).toContain('IRP5');
+    expect(refusedBy({ pay_frequency: 'daily' })).toEqual(ALL);
+    expect(refusedBy({ pay_frequency: null })).toEqual(ALL);
+    expect(judgeRunKind({ ...OK, pay_frequency: 'daily' }, 'approve')[0]!.detail).toContain('a daily run');
+    expect(refusedBy({ pay_frequency: 'weekly', run_kind: 'off_cycle' })).toEqual(ALL);
     expect(refusedBy({ run_kind: 'off_cycle' })).toEqual(ALL);
     expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
+  });
+
+  it('garnishee_frequency (GA, kept by FQd): a weekly run with an order in force is refused costing only, naming the employee', () => {
+    expect(refusedBy({ pay_frequency: 'weekly', garnishee_off_month: ['E7'] }).filter((a) => a !== 'irp5')).toEqual(['calculate', 'approve', 'post']);
+    const reasons = judgeRunKind({ ...OK, pay_frequency: 'fortnightly', garnishee_off_month: ['E7'] }, 'calculate');
+    expect(reasons).toEqual([{ clause: 'garnishee_frequency',
+      detail: 'employees E7 have garnishee orders, whose monthly instalments are not yet pro-rated for a fortnightly run' }]);
   });
 
   it('GA lifted the garnishee clauses: orders and deductions refuse nothing (this release costs and reopens them)', () => {
@@ -45,12 +58,19 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ other_frequency: ['E1'] })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
   });
 
+  it('judges the frequency as at a FINAL run: only approve and post meet the current employee (wave 6 FQd)', () => {
+    // An employee moved to weekly at a tax-year start keeps last year's payslips, EMP201 and IRP5.
+    expect(refusedBy({ other_frequency: ['E1'], final: true })).toEqual(['approve', 'post']);
+    expect(refusedBy({ other_frequency: ['E1'], final: false })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
+  });
+
   it('RI lifted the assignment clause: overtime multipliers and travel km refuse nothing', () => {
     expect(refusedBy({ odd_assignments: ['E1'] })).toEqual([]);
   });
 
   it('reports every clause that holds, in order', () => {
-    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle', other_frequency: ['E1'] }, 'approve')
+    // FQd costs weekly and fortnightly runs: a frequency this release does not know (daily) is still refused.
+    expect(judgeRunKind({ ...OK, pay_frequency: 'daily', run_kind: 'off_cycle', other_frequency: ['E1'] }, 'approve')
       .map((r) => r.clause)).toEqual(['frequency', 'run_kind', 'employee_frequency']);
   });
 });
