@@ -64,7 +64,7 @@ describeIfDisposable('ledger column immutability, round 7 (migration 1018)', () 
     await refused(asApp(z, (c) => c.query(`UPDATE ${kind} SET status = NULL WHERE id = $1`, [doc])), NULL_STATUS);
   });
 
-  it.each(KINDS)('%s: Q1 the CHECK refuses a NULL status on an unlinked document; a NULL-status INSERT is refused', async (kind) => {
+  it.each(KINDS)('%s: Q1 the CHECK refuses a NULL status on an unlinked document', async (kind) => {
     const doc = await document(z, kind, { status: 'approved' });
     const err = await asApp(z, (c) => c.query(`UPDATE ${kind} SET status = NULL WHERE id = $1`, [doc])).then(() => null, (e: { constraint?: string }) => e);
     expect(err?.constraint).toBe(`ck_${kind}_status_not_null`);
