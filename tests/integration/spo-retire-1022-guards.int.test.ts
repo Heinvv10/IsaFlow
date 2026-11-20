@@ -169,6 +169,13 @@ describe('the retired tables\' write rules', () => {
     await expect(asOwner((c) => c.query('TRUNCATE supplier_purchase_orders CASCADE'))).rejects.toThrow(/TRUNCATE is refused/);
   });
 
+  it('leaves all four triggers ENABLE ALWAYS', async () => {
+    const rows = (await pool.query(`SELECT tgname, tgenabled FROM pg_trigger WHERE NOT tgisinternal
+      AND tgrelid IN ('supplier_purchase_orders'::regclass, 'supplier_purchase_order_items'::regclass) ORDER BY tgname`)).rows;
+    expect(rows).toEqual(['trg_supplier_purchase_order_items_retired', 'trg_supplier_purchase_order_items_retired_truncate',
+      'trg_supplier_purchase_orders_retired', 'trg_supplier_purchase_orders_retired_truncate'].map((tgname) => ({ tgname, tgenabled: 'A' })));
+  });
+
   it('refuses for every session: session_replication_role = replica does not switch the triggers off', async () => {
     await expect(asOwner(async (c) => {
       await c.query('SET LOCAL session_replication_role = replica');

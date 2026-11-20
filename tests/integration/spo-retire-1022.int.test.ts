@@ -66,6 +66,8 @@ beforeAll(async () => {
     await at('piFull', 'SPO-PI1', 'partially_invoiced', [{ qty: 2, price: 10, received: 2, invoiced: 1 }, { qty: 1, price: 10, received: 1 }]);
     await at('piPart', 'SPO-PI2', 'partially_invoiced', [{ qty: 2, price: 10, received: 2, invoiced: 2 }, { qty: 3, price: 10, received: 1 }]);
     await at('invoiced', 'SPO-I1', 'invoiced', [{ qty: 1, price: 99.99, received: 1, invoiced: 1 }]);
+    await at('invoicedNoTrace', 'SPO-I2', 'invoiced', [{ qty: 1, price: 9, received: 1 }]);
+    await at('sentCancelledBill', 'SPO-E8', 'sent', one());
     await at('sentDraftBill', 'SPO-E1', 'sent', one(2));
     await at('sentInvoicedLine', 'SPO-E2', 'sent', one(0, 1));
     await at('sentDeletedBill', 'SPO-E3', 'sent', one());
@@ -89,7 +91,9 @@ beforeAll(async () => {
   bills.draft = await bill(f, 'sentDraftBill', { status: 'draft' });
   bills.deleted = await bill(f, 'sentDeletedBill');
   await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bills.deleted]);
-  bills.foreign = await bill(other, 'sentForeignBill');
+  // Another company's bill, even one naming this company's supplier (corrupt data), is no evidence.
+  bills.foreign = await bill(other, 'sentForeignBill', { supplier: f.supplier });
+  bills.cancelled = await bill(f, 'sentCancelledBill', { status: 'cancelled' });
   bills.stranger = await bill(f, 'sentStrangerBill', { supplier: await seedSupplier(pool, f, 'Bill stranger') });
   bills.draftBilled = await bill(f, 'draftBilled');
   notices = await runMigration(pool);
@@ -149,13 +153,15 @@ describe('the status map', () => {
     expect(await status('piFull')).toEqual(['closed', 'received']);
     expect(await status('piPart')).toEqual(['closed', 'partially_received']);
     expect(await status('invoiced')).toEqual(['closed', 'received']);
-    for (const k of ['sent', 'sentDraftBill', 'sentInvoicedLine', 'piFull', 'piPart', 'invoiced']) {
+    // The legacy status alone is evidence: no invoiced line, no bill.
+    expect(await status('invoicedNoTrace')).toEqual(['closed', 'received']);
+    for (const k of ['sent', 'sentDraftBill', 'sentInvoicedLine', 'piFull', 'piPart', 'invoiced', 'invoicedNoTrace']) {
       expect(notices.some((n) => n.includes(S[k]!.id) && n.includes('billing evidence')), k).toBe(true);
     }
   });
 
-  it('ignores a soft-deleted bill, another company\'s bill and another supplier\'s bill', async () => {
-    for (const k of ['sentDeletedBill', 'sentForeignBill', 'sentStrangerBill']) expect(await status(k), k).toEqual(['approved', null]);
+  it('ignores a cancelled bill, a soft-deleted bill, another company\'s bill and another supplier\'s bill', async () => {
+    for (const k of ['sentCancelledBill', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill']) expect(await status(k), k).toEqual(['approved', null]);
   });
 
   it('still links the bills that named a legacy id (a closed PO is linkable)', async () => {
@@ -196,11 +202,11 @@ describe('the skips and the record', () => {
   });
 
   it('says exactly what it did, and what entered committed spend', async () => {
-    expect(notices).toContain('1022: copied 24 order(s) in all, 3 skipped, 1 renamed, 6 closed for billing evidence, 2 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 26 order(s) in all, 3 skipped, 1 renamed, 7 closed for billing evidence, 2 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 1 supplier of another company, 1 negative line total, 1 line id already in po_items, '
       + '0 id already a purchase order of another company, 0 refused by the database');
-    const committing = ['sentClean', 'partRecv', 'received', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill'];
-    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 6 order(s), R ${(cents(committing) / 100).toFixed(2)} ex VAT`);
+    const committing = ['sentClean', 'partRecv', 'received', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill', 'sentCancelledBill'];
+    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 7 order(s), R ${(cents(committing) / 100).toFixed(2)} ex VAT`);
     expect(notices).toContain(`1022: company ${other.co} committing copies, order month 2026-05: 1 order(s), R 11.00 ex VAT`);
   });
 });

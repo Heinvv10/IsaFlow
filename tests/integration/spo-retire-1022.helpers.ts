@@ -8,19 +8,20 @@ import { readFileSync } from 'node:fs';
 import type { Pool, PoolClient } from 'pg';
 
 export const MIGRATION = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8');
-const LEGACY = [
-  ['supplier_purchase_orders', ['trg_supplier_purchase_orders_retired', 'trg_supplier_purchase_orders_retired_truncate']],
-  ['supplier_purchase_order_items', ['trg_supplier_purchase_order_items_retired', 'trg_supplier_purchase_order_items_retired_truncate']],
-] as const;
+const LEGACY = ['supplier_purchase_orders', 'supplier_purchase_order_items'] as const;
+const ENABLE: Record<string, string> = { A: 'ENABLE ALWAYS TRIGGER', O: 'ENABLE TRIGGER', R: 'ENABLE REPLICA TRIGGER' };
 
 /** Runs `fn` with the legacy tables' user triggers off (the pre-1022 state), committed. */
 export async function asBeforeRetirement<T>(pool: Pool, fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
-    for (const [t] of LEGACY) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
+    // Each trigger goes back to the state it was in (never forced to ALWAYS, which would hide a migration that left it ENABLE).
+    const states = (await c.query(`SELECT tgrelid::regclass::TEXT AS t, tgname, tgenabled FROM pg_trigger
+      WHERE tgrelid = ANY($1::regclass[]) AND NOT tgisinternal`, [[...LEGACY]])).rows as Array<{ t: string; tgname: string; tgenabled: string }>;
+    for (const t of LEGACY) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
     const out = await fn(c);
-    for (const [t, trgs] of LEGACY) for (const trg of trgs) await c.query(`ALTER TABLE ${t} ENABLE ALWAYS TRIGGER ${trg}`);
+    for (const st of states) if (ENABLE[st.tgenabled]) await c.query(`ALTER TABLE ${st.t} ${ENABLE[st.tgenabled]} ${st.tgname}`);
     await c.query('COMMIT');
     return out;
   } catch (err) {
