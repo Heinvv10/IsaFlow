@@ -4,7 +4,9 @@
  *   - changing the supplier of a draft that carries a note on the old supplier's PO is refused, naming the exit (grn_id), and nothing
  *     is written;
  *   - the same supplier change with grn_id null (the note comes off), or with a live note on a PO of the new supplier, goes through;
- *   - grn_id naming a cancelled note, or a note on another supplier's PO, is refused.
+ *   - grn_id naming a cancelled note, or a note on another supplier's PO, is refused;
+ *   - a cancel of the new note committed while the edit runs: the edit holds the note last and refuses it (never a live bill on a
+ *     cancelled note).
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -12,7 +14,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedSupplier } from './helpers/poBillLinkHarness';
-import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, seedQtyPo } from './helpers/grnHarness';
+import { callRegistry, callTool, dropGrnExtras, dropMaintExtras, grnArgs, seedQtyPo } from './helpers/grnHarness';
 import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGoodsReceived';
 import { cancelGoodsReceivedTool as cancel } from '@/lib/mcp/tools/writeCancelGoodsReceived';
 import { updateSupplierInvoiceTool as update } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
@@ -52,6 +54,16 @@ const draftWith = async (grn: string): Promise<string> => {
     return bill.id;
   } catch (err) { await req.rollback(); throw err; }
 };
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Until a statement containing `fragment` waits on a lock, or `ms` passed (an edit that takes no hold never waits). */
+async function untilBlockedOn(fragment: string, ms: number): Promise<void> {
+  for (let t = 0; t < ms; t += 25) {
+    const rows = (await pool.query(
+      "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database() AND query LIKE '%' || $1 || '%'", [fragment])).rows;
+    if (rows.length > 0) return;
+    await sleep(25);
+  }
+}
 const billRow = async (id: string) => (await pool.query(
   'SELECT supplier_id::text AS supplier_id, grn_id::text AS grn_id FROM supplier_invoices WHERE id = $1', [id])).rows[0] as { supplier_id: string; grn_id: string | null };
 
@@ -95,6 +107,26 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
     const foreign = await callTool(pool, f, update, { invoice_id: bill, grn_id: await noteOf(supplierB) });
     expect(foreign.isError).toBe(true);
     expect(foreign.text).toContain('another supplier\'s purchase order');
+    expect(await billRow(bill)).toEqual({ supplier_id: f.supplier, grn_id: grn });
+  });
+
+  it('a cancel of the new note running during the edit: the edit waits on the note and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
+    const grn = await noteOf();
+    const bill = await draftWith(grn);
+    const next = await noteOf();
+    // The cancel has decided and holds the note FOR UPDATE, uncommitted: the edit's unlocked plan still reads the note as live.
+    const cancelling = await openRequest(pool, f, f.owner);
+    let edit: Promise<Awaited<ReturnType<typeof callRegistry>>> | undefined;
+    try {
+      expect((await cancelling.client.query('SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [next, 'race'])).rows[0]).toEqual({ outcome: 'cancelled' });
+      // Through a real registry: the apply's refusal is thrown, and the registry answers it as the typed refusal an agent reads.
+      edit = callRegistry(pool, f, update, { invoice_id: bill, grn_id: next, idempotency_key: `edit-race-${Date.now()}` });
+      await untilBlockedOn('goods_received_note_hold', 2000);
+      await cancelling.commit();
+    } catch (err) { await cancelling.rollback(); throw err; }
+    const r = await edit!;
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('cancelled');
     expect(await billRow(bill)).toEqual({ supplier_id: f.supplier, grn_id: grn });
   });
 });
