@@ -122,6 +122,25 @@ export async function plantPostedJournal(
   return id;
 }
 
+/**
+ * A reversal of `je` written straight into the ledger as a fixture (no service, so no hook): a POSTED entry linked by reversal_of_id whose lines are
+ * the exact negation of the original's. (A link without the negated lines is no reversal to the mirror: the chain is judged by value.)
+ */
+export async function rawReverseJournal(pool: Pool, je: string, description = 'raw reversal'): Promise<string> {
+  const id = (await pool.query(
+    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
+     SELECT entry_date, $2, source, 'draft', created_by, company_id, id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je, description])).rows[0].id as string;
+  await pool.query(
+    `INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
+     SELECT $2, gl_account_id, credit, debit, company_id, 'raw reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, id]);
+  await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [id]);
+  return id;
+}
+
+/** The posted reversal of `je`, if one is linked to it. */
+export const reversalOf = async (pool: Pool, je: string): Promise<string | undefined> =>
+  (await pool.query("SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted' ORDER BY created_at LIMIT 1", [je])).rows[0]?.id as string | undefined;
+
 /** A customer credit note of A set to approved the way a fixture does, with its approval journal (posted, standing). */
 export async function approveCreditNoteRow(pool: Pool, id: string): Promise<void> {
   const cn = (await pool.query('SELECT credit_note_number AS n, subtotal, tax_amount, total_amount FROM credit_notes WHERE id = $1', [id])).rows[0];

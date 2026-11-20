@@ -12,7 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
-import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationNotCarriedError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -64,7 +64,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
     return await write();
   } catch (err) {
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
-    if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
+    if (err instanceof EliminationStateError || err instanceof EliminationNotCarriedError) return apiResponse.conflict(res, err.message);
     throw err;
   }
 }

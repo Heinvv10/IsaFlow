@@ -8,8 +8,8 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { cancelSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
-import { asAppUser, outcome, withoutTrigger } from './intercompany.helpers';
-import { acc, asService, co, inbox, sentInvoice, U } from './mirror.helpers';
+import { asAppUser, asDefiner, outcome, withoutTrigger } from './intercompany.helpers';
+import { acc, asService, co, inbox, rawReverseJournal, sentInvoice, U } from './mirror.helpers';
 import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { makeLedger } from './ledger.helpers';
 
@@ -155,11 +155,11 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     const journal = (await groupRow()).target_journal_entry_id as string;
     await unbind();   // judge the bill afresh against a second claim on its journal
     // a second row (planted with the immutability trigger off, as only the definer sets a target) claims the same journal
-    await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', async (q) => {
+    await asDefiner(pool, U.a, co.A, async (q) => {
       await q.query(
         `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date, match_status, target_journal_entry_id)
          VALUES ($1, $2, $3, 'sale', 1000, 'ZAR', 'second claim', '2026-09-01', 'matched', $4)`, [co.G, co.A, co.B, journal]);
-    });
+    }, true);
     expect(await sync(U.b, co.B, m.bill)).toBe('variance');
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/already matched to another/) });
   });
@@ -168,7 +168,7 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     const m = await accepted();
     await approveBill(m.bill);
     const je = (await groupRow()).target_journal_entry_id as string;
-    await pool.query("INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id, posted_at) SELECT entry_date, 'reversal', source, 'posted', created_by, company_id, id, now() FROM gl_journal_entries WHERE id = $1", [je]);
+    await rawReverseJournal(pool, je, 'reversal');
     const reversed = (await pool.query('SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id = $1', [je])).rows[0].n;
     expect(reversed, 'the reversing journal was planted').toBe(1);
     expect(await sync(U.b, co.B, m.bill)).toBe('variance');

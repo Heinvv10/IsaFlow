@@ -24,3 +24,11 @@ export class EliminationStateError extends Error {
     this.name = 'EliminationStateError';
   }
 }
+
+/** An elimination whose group row the mirror recorded is posted only while the ledgers still carry that row. */
+export class EliminationNotCarriedError extends Error {
+  constructor(readonly adjustmentId: string) {
+    super('This elimination rests on an intercompany row that is no longer carried by both companies\' ledgers (a document was cancelled or its journal reversed); it cannot be posted.');
+    this.name = 'EliminationNotCarriedError';
+  }
+}

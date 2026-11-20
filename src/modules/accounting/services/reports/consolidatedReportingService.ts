@@ -13,7 +13,7 @@ import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { EliminationNotCarriedError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -201,8 +201,19 @@ export async function createEliminationAdjustment(
   }
 }
 
+/** The elimination feed of one group has one writer at a time: the generator, a post, and every definer that changes a mirrored row's match state take this lock first. */
+async function lockEliminations(groupId: string): Promise<void> {
+  await sql`SELECT public.intercompany_lock_eliminations(${groupId}::UUID)`;
+}
+
 export async function postEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
   try {
+    await lockEliminations(groupId);
+    const source = (await sql`
+      SELECT ca.source_intercompany_id AS src, public.intercompany_row_eliminable(ca.source_intercompany_id) AS ok
+        FROM consolidation_adjustments ca WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.source_intercompany_id IS NOT NULL
+    `) as DbRow[];
+    if (source[0] && source[0].ok !== true) throw new EliminationNotCarriedError(adjustmentId);
     const result = (await sql`
       UPDATE consolidation_adjustments SET status='posted', posted_at=NOW(), updated_at=NOW()
       WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
@@ -250,13 +261,31 @@ export async function getEliminationAdjustments(
 
 // ── Auto-generation ───────────────────────────────────────────────────────────
 
+/**
+ * Reverses (with when and why) the standing eliminations of mirrored group rows that are no longer carried by both ledgers: the repair for a
+ * release that was missed (a failed hook, a reversal made some other way). A row that is no message's is never touched.
+ */
+export async function reverseStaleEliminations(groupId: string): Promise<number> {
+  await sql`SELECT public.intercompany_release_stale_rows(${groupId}::UUID)`;   // (the rows that still say matched; their eliminations are reversed with them)
+  const rows = (await sql`
+    UPDATE consolidation_adjustments ca
+       SET status = 'reversed', updated_at = NOW(), reversed_at = NOW(), reversed_reason = 'the intercompany row is no longer carried by both ledgers'
+     WHERE ca.group_id = ${groupId}::UUID AND ca.status IN ('draft', 'posted') AND ca.source_intercompany_id IS NOT NULL
+       AND public.intercompany_row_eliminable(ca.source_intercompany_id) IS NOT TRUE
+    RETURNING ca.id
+  `) as DbRow[];
+  if (rows.length > 0) log.warn('Stale intercompany eliminations reversed', { groupId, count: rows.length }, 'accounting');
+  return rows.length;
+}
+
 export async function autoGenerateEliminations(
   groupId: string, periodStart: string, periodEnd: string
 ): Promise<ConsolidationAdjustment[]> {
   try {
     // One generator per group at a time (the second waits for the first's commit, then finds its eliminations). An advisory lock, not row locks:
     // FOR UPDATE through the UPDATE policy silently drops the rows a group writer of only a THIRD company may not update.
-    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`intercompany-eliminations:${groupId}`}, 0))`;
+    await lockEliminations(groupId);
+    await reverseStaleEliminations(groupId);
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
              ict.transaction_type, ict.amount, ict.description
@@ -273,7 +302,7 @@ export async function autoGenerateEliminations(
       const standing = (await sql`
         SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
       `) as DbRow[];
-      if (standing.length > 0) continue;
+      if (standing.length > 0) continue; // (a standing one that is no longer carried was reversed above)
       // A row the mirror recorded is eliminated only while the ledgers still carry it (both journals stand, its target is named): re-checked
       // NOW, whatever its match_status says (a direct reversal of a journal, or a status written by hand, is not a hook).
       const eligible = (await sql`SELECT public.intercompany_row_eliminable(${String(tx.id)}::UUID) AS ok`) as DbRow[];
@@ -312,8 +341,19 @@ export async function autoGenerateEliminations(
       }
     }
 
-    log.info('Auto-generated elimination adjustments', { groupId, count: created.length }, 'accounting');
-    return created;
+    // Verified once more now it is written (without a transaction around the generator a release could land between the check and the insert;
+    // inside a request the lock above rules that out): an elimination whose row stopped being carried is reversed here, not left standing.
+    const kept: ConsolidationAdjustment[] = [];
+    for (const adj of created) {
+      const ok = adj.sourceIntercompanyId ? (await sql`SELECT public.intercompany_row_eliminable(${adj.sourceIntercompanyId}::UUID) AS ok`) as DbRow[] : [{ ok: true }];
+      if (ok[0]?.ok === true) {
+        kept.push(adj);
+      } else {
+        await reverseStaleEliminations(groupId);
+      }
+    }
+    log.info('Auto-generated elimination adjustments', { groupId, count: kept.length }, 'accounting');
+    return kept;
   } catch (err) {
     log.error('Failed to auto-generate eliminations', { groupId, error: err }, 'accounting');
     throw err;

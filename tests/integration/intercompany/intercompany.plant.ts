@@ -1,7 +1,7 @@
 /** Rows the intercompany (1000 + 1002) suites plant: through the guards where the guards are what is tested, with one off where a fixture needs it. */
 import type { Pool } from 'pg';
 import { U, plantDocument } from './intercompany.fixture';
-import { asAppUser, asOwner, pairOf, withoutTrigger } from './intercompany.session';
+import { asAppUser, asDefiner, pairOf, withoutTrigger } from './intercompany.session';
 
 /** A group connection as a session that may create one does (the guard triggers run). */
 export async function plantConnection(pool: Pool, x: string, y: string, by = U.ab): Promise<string> {
@@ -89,7 +89,7 @@ export async function plantMessage(pool: Pool, connection: string, from: string,
   const payload = DOCUMENT_KINDS.includes(kind) ? await payloadFor(pool, kind, doc, from) : '{"number":"INV-1"}';
   // A message is written by the database (1013): app_user cannot INSERT one of any kind, so a fixture plants it as the table owner with the
   // sender's claims (the guard's other rules - connection, group, write role, source document - all run).
-  return asOwner(pool, over.user ?? U.ab, from, async (q) => (await q.query(
+  return asDefiner(pool, over.user ?? U.ab, from, async (q) => (await q.query(
     `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
     [connection, from, to, kind, sourceType, doc, payload])).rows[0].id as string, true);

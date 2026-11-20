@@ -10,7 +10,7 @@ import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { matchIntercompanyTransactions, IntercompanyMirroredRowError } from '../../../src/modules/accounting/services/reports/intercompanyService';
 import { asAppUser, outcome, withoutTrigger } from './intercompany.helpers';
-import { approveInvoice, asService, co, plantArInvoice, sentInvoice, U } from './mirror.helpers';
+import { approveInvoice, asService, co, plantArInvoice, rawReverseJournal, reversalOf, sentInvoice, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
 
 assertDisposable();
@@ -74,20 +74,14 @@ describe('B1: a row the mirror recorded is matched by the database only', () => 
     expect(await eliminate()).toHaveLength(1);
     await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
     // the sender's journal reversed straight in the ledger (no service, no hook): the row still says matched, the ledger does not carry it
-    await pool.query(
-      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-       SELECT entry_date, 'raw reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [tx.source_journal_entry_id]);
+    await rawReverseJournal(pool, tx.source_journal_entry_id);
     expect(await eliminate()).toHaveLength(0);
     // the sender's reversal is itself reversed (its journal stands again) and the row is eliminated once more ...
-    await pool.query(
-      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-       SELECT entry_date, 'raw re-reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE company_id = $2 AND reversal_of_id = $1`, [tx.source_journal_entry_id, co.A]);
+    await rawReverseJournal(pool, (await reversalOf(pool, tx.source_journal_entry_id))!, 'raw re-reversal');
     expect(await eliminate()).toHaveLength(1);
     await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
     // ... and now the RECEIVER's journal reversed straight in the ledger: the row still says matched, the ledger does not carry the expense
-    await pool.query(
-      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-       SELECT entry_date, 'raw reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [tx.first_target_journal_entry_id]);
+    await rawReverseJournal(pool, tx.first_target_journal_entry_id);
     expect(await eliminate()).toHaveLength(0);
   });
 });
@@ -190,13 +184,15 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
   }
   const withdraw = (inv: string) => asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [inv])).rows[0].n), true);
   const msg = async (id: string) => (await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [id])).rows[0];
+  const restoreInvoice = (inv: string, je: string) => pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [inv, je]);
 
   it('a pending message: cancelled by hand and withdrawn, then the reversal itself reversed (the invoice is live again): the message is pending again', async () => {
     const m = await sentInvoice(pool);
     const { rev } = await handCancel(m.inv.id);
     expect(await withdraw(m.inv.id)).toBe(1);
     expect(await msg(m.id)).toMatchObject({ status: 'withdrawn' });
-    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));      // the ledger's parity says LIVE again; the mirror hears it
+    await restoreInvoice(m.inv.id, m.message.source_journal_entry_id);                  // the invoice is approved on its journal again ...
+    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));      // ... and the ledger's parity says LIVE again; the mirror hears it
     expect(await msg(m.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
   });
 
@@ -208,6 +204,7 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     expect(await withdraw(m.inv.id)).toBe(1);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
     expect((await adjustments())[0]).toMatchObject({ status: 'reversed', reversed_reason: expect.stringMatching(/sender cancelled/) });
+    await restoreInvoice(m.inv.id, m.message.source_journal_entry_id);
     await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));
     expect(await msg(m.id)).toMatchObject({ status: 'accepted', source_cancelled_at: null });
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
@@ -219,9 +216,7 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     const { rev } = await handCancel(m.inv.id);
     expect(await withdraw(m.inv.id)).toBe(1);
     // the reversal is reversed in the ledger with no service (no hook runs): the stamp is stale
-    await pool.query(
-      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-       SELECT entry_date, 'raw re-reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [rev]);
+    await rawReverseJournal(pool, rev, 'raw re-reversal');
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
   });
@@ -230,9 +225,7 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     const m = await sentInvoice(pool);
     const { rev } = await handCancel(m.inv.id);
     await withdraw(m.inv.id);
-    await pool.query(
-      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-       SELECT entry_date, 'raw re-reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [rev]);
+    await rawReverseJournal(pool, rev, 'raw re-reversal');
     await pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [m.inv.id, m.message.source_journal_entry_id]);
     expect(await send(m.inv.id)).toMatchObject({ message_id: m.id, reason: null });
     expect(await msg(m.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });

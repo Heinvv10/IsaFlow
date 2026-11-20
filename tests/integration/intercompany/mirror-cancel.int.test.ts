@@ -12,9 +12,9 @@ import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/
 import { cancelCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteCancelService';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
-import { asAppUser, asOwner, outcome, withoutTrigger } from './intercompany.helpers';
+import { asAppUser, asDefiner, asOwner, outcome, withoutTrigger } from './intercompany.helpers';
 import {
-  asService, clearMirrorRows, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U, approveCreditNoteRow,
+  asService, clearMirrorRows, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, rawReverseJournal, sentInvoice, U, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -31,9 +31,7 @@ const cancelInvoice = (id: string) => asService(pool, U.a, co.A, () => cancelCus
  */
 const rawReversal = async (inv: string, clearLink: boolean) => {
   const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
-  await pool.query(
-    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-     SELECT entry_date, 'raw reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [je]);
+  await rawReverseJournal(pool, je);
   await pool.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = CASE WHEN $2 THEN NULL ELSE gl_journal_entry_id END WHERE id = $1", [inv, clearLink]);
 };
 const reverseOnly = (inv: string) => rawReversal(inv, true);
@@ -119,9 +117,9 @@ describe('the group row a withdrawal releases is the one the DATABASE recorded (
     const m = await sentInvoice(pool);
     const own = m.message.payload.groupTransactionId as string;
     // a second row of the same pair for the same journal (planted), matched; the payload is made to name it, the recorded reference stays the real one
-    const twin = (await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+    const twin = (await asDefiner(pool, U.a, co.A, (q) => q.query(
       `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, description, transaction_date, match_status)
-       SELECT group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, 'twin', transaction_date, 'variance' FROM intercompany_transactions WHERE id = $1 RETURNING id`, [own]))).rows[0].id as string;
+       SELECT group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, 'twin', transaction_date, 'variance' FROM intercompany_transactions WHERE id = $1 RETURNING id`, [own]), true)).rows[0].id as string;
     await planted(m.id, "payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text))", [twin]);
     await cancelInvoice(m.inv.id);
     expect((await rowOf(own)).match_status).toBe('unmatched');

@@ -13,7 +13,7 @@ import { approveCreditNote } from '../../../src/modules/accounting/services/ar/c
 import { vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { enableFxDocuments } from '../r035-approval.helpers';
-import { asAppUser, asOwner, count } from './intercompany.helpers';
+import { asAppUser, asDefiner, count } from './intercompany.helpers';
 import {
   approveInvoice, asService, co, connect, mirrorCleanup, mirrorSetup, party, plantArCreditNote, plantArInvoice, U, wipeConnections,
 } from './mirror.helpers';
@@ -71,7 +71,7 @@ describe('approving an invoice for a connected customer', () => {
     const insert = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
                     VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, $5::jsonb)`;
     await asAppUser(pool, U.a, co.A, (q) => expect(q.query(insert, [conn, co.A, co.B, inv.id, payload])).rejects.toMatchObject({ code: '42501' }));
-    await asOwner(pool, U.a, co.A, (q) => expect(q.query(insert, [conn, co.A, co.B, inv.id, payload])).rejects.toMatchObject({ code: '23505' }));
+    await asDefiner(pool, U.a, co.A, (q) => expect(q.query(insert, [conn, co.A, co.B, inv.id, payload])).rejects.toMatchObject({ code: '23505' }));
   });
 
   it('a second approval of the same invoice is refused and writes no second message', async () => {

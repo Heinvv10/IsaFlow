@@ -11,7 +11,7 @@ import { sql } from '@/lib/neon';
 import {
   createEliminationAdjustment, postEliminationAdjustment, reverseEliminationAdjustment,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
-import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationNotCarriedError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 
 const G = '80000000-0000-4000-8000-000000000001';
 const ADJ = '70000000-0000-4000-8000-000000000001';
@@ -34,9 +34,19 @@ describe('elimination journal refusals', () => {
     ['post', postEliminationAdjustment, 'draft'],
     ['reverse', reverseEliminationAdjustment, 'posted'],
   ] as const)('%s that updates no row → EliminationStateError (%s required)', async (_n, fn, requiredStatus) => {
+    // a post takes the group's lock and reads the source row of the elimination first (none: a manual adjustment); a reverse goes straight to its UPDATE
+    if (requiredStatus === 'draft') mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     mockSql.mockResolvedValueOnce([]);
     const err = await fn(ADJ, G).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(EliminationStateError);
     expect(err).toMatchObject({ adjustmentId: ADJ, requiredStatus });
+  });
+
+  it('a post of an elimination whose mirrored row is no longer carried is refused (EliminationNotCarriedError) before it updates anything', async () => {
+    mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ src: 'row-1', ok: false }]);
+    const err = await postEliminationAdjustment(ADJ, G).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EliminationNotCarriedError);
+    expect(err).toMatchObject({ adjustmentId: ADJ });
+    expect(mockSql).toHaveBeenCalledTimes(2);   // the lock and the check: no UPDATE
   });
 });

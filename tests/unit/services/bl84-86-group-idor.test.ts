@@ -78,8 +78,8 @@ describe('BL-84: postEliminationAdjustment — group_id must be in UPDATE WHERE 
   beforeEach(() => vi.clearAllMocks());
 
   it('includes both adjustmentId and groupId as SQL values', async () => {
-    // Simulate 1 row updated (success case)
-    vi.mocked(sql).mockResolvedValueOnce([{ id: B184_ADJ_A }] as never);
+    // The group lock, the source-row check (a manual adjustment: none), then 1 row updated (success case)
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ id: B184_ADJ_A }] as never);
 
     await postEliminationAdjustment(B184_ADJ_A, GROUP_A);
 
@@ -89,8 +89,8 @@ describe('BL-84: postEliminationAdjustment — group_id must be in UPDATE WHERE 
   });
 
   it('throws when GROUP_A tries to post GROUP_B adjustment (0 rows affected)', async () => {
-    // Simulate 0 rows updated — cross-group attempt correctly blocked
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // Simulate 0 rows updated — cross-group attempt correctly blocked (after the group lock and the source-row check)
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never);
 
     await expect(
       postEliminationAdjustment(B184_ADJ_B, GROUP_A)
@@ -103,7 +103,7 @@ describe('BL-84: postEliminationAdjustment — group_id must be in UPDATE WHERE 
   });
 
   it('does NOT use GROUP_B id when operating as GROUP_A', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([{ id: B184_ADJ_A }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ id: B184_ADJ_A }] as never);
 
     await postEliminationAdjustment(B184_ADJ_A, GROUP_A);
 

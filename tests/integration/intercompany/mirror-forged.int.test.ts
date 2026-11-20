@@ -12,7 +12,7 @@ import { parseMirrorPayload } from '../../../src/modules/accounting/services/int
 import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, outcome, plantExternal } from './intercompany.helpers';
 import {
-  clearMirrorRows, co, connect, mirrorCleanup, mirrorSetup, plantArCreditNote, plantArInvoice, sentInvoice, U, wipeConnections, approveCreditNoteRow,
+  clearMirrorRows, co, connect, mirrorCleanup, mirrorSetup, plantArCreditNote, plantArInvoice, rawReverseJournal, sentInvoice, U, wipeConnections, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -118,7 +118,7 @@ describe('the database sends the sender\'s document, and only that', () => {
     expect(await sendFor('customer_invoice', noJournal.id)).toMatchObject({ message_id: null, reason: 'no_journal' });
     const reversed = await plantArInvoice(pool, { status: 'approved' });
     const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [reversed.id])).rows[0].je as string;
-    await pool.query("INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id) SELECT entry_date, 'reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1", [je]);
+    await rawReverseJournal(pool, je, 'reversal');
     expect(await sendFor('customer_invoice', reversed.id)).toMatchObject({ message_id: null, reason: 'no_journal' });
     expect(await messageOf(noJournal.id)).toBeUndefined();
     expect(await messageOf(reversed.id)).toBeUndefined();
