@@ -14,11 +14,11 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({
-  ...(await orig<object>()), createRecurringJournal: vi.fn(async () => ({ id: 'rj-1' })), updateRecurringJournalTemplate: vi.fn(async () => undefined),
+  ...(await orig<object>()), createRecurringJournal: vi.fn(async () => ({ id: 'rj-1' })), updateRecurringJournalTemplate: vi.fn(async () => undefined), getRecurringJournalById: vi.fn(async () => null),
 }));
 
 import { checkPermission } from '@/lib/auth/permissionService';
-import { createRecurringJournal, recurringJournalAutoPosts, updateRecurringJournalTemplate } from '@/modules/accounting/services/gl/recurringJournalService';
+import { createRecurringJournal, getRecurringJournalById, recurringJournalAutoPosts, updateRecurringJournalTemplate } from '@/modules/accounting/services/gl/recurringJournalService';
 import handler from '../../../pages/api/accounting/recurring-journals';
 
 const C = '11111111-1111-4111-8111-111111111111';
@@ -88,5 +88,31 @@ describe('POST with Approve keeps the service default', () => {
     vi.mocked(createRecurringJournal).mockClear();
     await call('POST', { ...BASE, autoPost: true });
     expect(stored()?.autoPost).toBe(true);
+  });
+});
+
+describe('PUT recurring-journals cadence (round 6, L6)', () => {
+  const put = (extra: Record<string, unknown>) => call('PUT', { id: 'rj-1', ...extra });
+
+  it('changing frequency or nextRunDate on an auto-posting template needs Chart of Accounts & GL Approve: refused 403, nothing updated', async () => {
+    vi.mocked(getRecurringJournalById).mockResolvedValue({ id: 'rj-1', autoPost: true } as never);
+    for (const patch of [{ frequency: 'weekly' }, { nextRunDate: '2026-12-15' }]) {
+      const res = await put(patch);
+      expect(res.statusCode, JSON.stringify(patch)).toBe(403);
+    }
+    expect(updateRecurringJournalTemplate).not.toHaveBeenCalled();
+  });
+
+  it('a rename or description change posts nothing, and a draft-only template changes cadence freely', async () => {
+    vi.mocked(getRecurringJournalById).mockResolvedValue({ id: 'rj-1', autoPost: true } as never);
+    expect((await put({ templateName: 'New name', description: 'd' })).statusCode).toBe(200);
+    vi.mocked(getRecurringJournalById).mockResolvedValue({ id: 'rj-1', autoPost: false } as never);
+    expect((await put({ frequency: 'weekly' })).statusCode).toBe(200);
+  });
+
+  it('with Approve the cadence change on an auto-posting template goes through', async () => {
+    vi.mocked(checkPermission).mockResolvedValue(true);
+    vi.mocked(getRecurringJournalById).mockResolvedValue({ id: 'rj-1', autoPost: true } as never);
+    expect((await put({ nextRunDate: '2026-12-15' })).statusCode).toBe(200);
   });
 });

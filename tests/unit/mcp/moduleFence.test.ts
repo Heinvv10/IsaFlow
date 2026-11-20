@@ -133,7 +133,7 @@ describe('every MCP tool with a data-dependent module fence fails closed (round 
     const { MCP_TOOLS } = await import('@/lib/mcp/toolIndex');
     const byId = MCP_TOOLS.filter((t) => t.approveModule === 'credit_note_by_id');
     const bySub = MCP_TOOLS.filter((t) => t.approveModule === 'by_subledger');
-    expect(byId.map((t) => t.name).sort()).toEqual(['approve_credit_note', 'cancel_credit_note']);
+    expect(byId.map((t) => t.name).sort()).toEqual(['approve_credit_note']); // cancel_credit_note asks per document: a draft needs no Approve
     expect(bySub.map((t) => t.name)).toEqual(['settle_by_contra']);
     for (const t of byId) {
       expect(await moduleFenceRefusal(t, { credit_note_id: ` ${NOTE} ` }, ctx), t.name).toMatch(/Approve/);

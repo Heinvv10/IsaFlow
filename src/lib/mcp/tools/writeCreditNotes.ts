@@ -162,7 +162,7 @@ export const approveCreditNoteTool: McpTool = {
 
 export const cancelCreditNoteTool: McpTool = {
   name: 'cancel_credit_note',
-  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
+  approveModule: 'per_document', // #1656: a draft cancel needs no Approve; the handler asks the note's own module for a posted one (below)
   description:
     'Cancel a credit note. Requires the write:post permission. ' +
     'An approved, partially applied or applied note: REVERSES its journal entry with a reversing entry (the original stays posted) and un-applies the credit from EVERY document it was applied to — each one\'s amount_paid drops back and its status is recomputed, in the same transaction. ' +
@@ -191,15 +191,17 @@ export const cancelCreditNoteTool: McpTool = {
     // Same reasoning as approve: refuse from a read, never from a catch.
     const note = await getCreditNoteById(ctx.companyId, id);
     if (!note) return toolError(NOT_FOUND);
-    // #1656 (round 4, defence in depth beside the module fence): the note's own module Approve, from the note just read.
+    const dryRun = args.dry_run === true;
+    const reason = strArg(args, 'reason');
+    // A draft has no journal to reverse: its own path (ar/creditNoteDraftCancelService), no VAT-lock preflight, and no Approve (round 6, L7):
+    // cancelling a draft posts nothing, and the service refuses a draft that gained a journal or turned non-draft under its lock.
+    if (note.status === 'draft') return cancelDraft(ctx, id, reason, dryRun);
+    // #1656: cancelling a non-draft note reverses its journal: the note's own module Approve, from the note just read (the fence leaves
+    // this tool to ask per document, as the draft case needs none).
     const cancelModule = APPROVE_MODULE_BY_DOCUMENT[creditNoteApprovalType(note.type)]!;
     if (!(await mayApprove(ctx.companyId, ctx.userId, cancelModule))) {
       return toolError(approveRefusedMessage(cancelModule, `${note.type} credit notes`));
     }
-    const dryRun = args.dry_run === true;
-    const reason = strArg(args, 'reason');
-    // A draft has no journal to reverse: its own path (ar/creditNoteDraftCancelService), no VAT-lock preflight.
-    if (note.status === 'draft') return cancelDraft(ctx, id, reason, dryRun);
     if (note.status !== 'approved' && note.status !== 'partially_applied' && note.status !== 'applied') {
       return toolError(`Cannot cancel credit note with status: ${note.status}`);
     }

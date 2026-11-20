@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import {
   getRecurringJournals,
   createRecurringJournal,
+  getRecurringJournalById,
   recurringJournalAutoPosts,
   updateRecurringJournalTemplate,
   RecurringJournalRequestError,
@@ -58,6 +59,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, templateName, frequency, nextRunDate, description } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    // #1656 (round 6): changing WHEN an auto-posting template runs (frequency, next run date) changes when it posts: Chart of Accounts & GL Approve.
+    // (The flag itself cannot be edited; a rename or description change posts nothing.)
+    if ((frequency !== undefined || nextRunDate !== undefined)) {
+      const template = await getRecurringJournalById(companyId, id);
+      if (template && recurringJournalAutoPosts(template.autoPost)
+        && await refuseWithoutApprove(res, companyId, req.user.id, 'accounts', 'auto-posting recurring journals')) return;
+    }
     try {
       // R-035 PR6 authorship, and the next-run-date rules (not on or before the last run generated — that would
       // generate it twice — nor after the end date), live in the service: recurringJournalEdits.

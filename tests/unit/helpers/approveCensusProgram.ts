@@ -78,3 +78,15 @@ export function markersAbove(node: ts.Node): Array<{ callee: string; line: numbe
   return ranges.flatMap((r) => [...sf.text.slice(r.pos, r.end).matchAll(MARKER)]
     .map((m) => ({ callee: m[1]!, line: sf.getLineAndCharacterOfPosition(r.pos + m.index!).line + 1 })));
 }
+
+/** A return / throw ends the path (a block ending in one does). */
+export const exits = (s: ts.Statement | undefined): boolean => {
+  if (!s) return false;
+  if (ts.isReturnStatement(s) || ts.isThrowStatement(s)) return true;
+  return ts.isBlock(s) && s.statements.length > 0 && exits(s.statements[s.statements.length - 1]);
+};
+
+/** The static text of a tagged template (the parts joined by ?). */
+export const templateText = (t: ts.TaggedTemplateExpression): string =>
+  ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text
+    : `${t.template.head.text}?${t.template.templateSpans.map((s) => s.literal.text).join('?')}`;

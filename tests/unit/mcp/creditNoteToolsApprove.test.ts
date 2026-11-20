@@ -104,6 +104,20 @@ describe('approve_credit_note', () => {
 });
 
 describe('cancel_credit_note', () => {
+  it("#1656 round 6 (L7): a DRAFT note is cancelled without Approve (it posts nothing); a posted one is not", async () => {
+    try {
+      vi.mocked(mayApprove).mockResolvedValue(false);
+      vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'draft' } as never);
+      // The draft path is reached (its own service wants a request transaction, which proves it was not refused for Approve first).
+      await expect(cancelCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx())).rejects.toThrow(/requires a request transaction/);
+      expect(mayApprove).not.toHaveBeenCalled();
+      vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'approved' } as never);
+      expect(errText(await cancelCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx()))).toMatch(/permission to approve/);
+    } finally {
+      vi.mocked(mayApprove).mockResolvedValue(true);
+    }
+  });
+
   it("#1656 round 4 (defence in depth): the tool asks the note's own module Approve from the note it read, whatever the fence did", async () => {
     vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'approved' } as never);
     vi.mocked(mayApprove).mockResolvedValueOnce(false);

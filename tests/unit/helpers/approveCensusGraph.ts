@@ -26,7 +26,7 @@
  */
 import ts from 'typescript';
 import { resolve } from 'path';
-import { calleeName, markersAbove, markersIn, objectProp, programFor, ROOT, unwrap } from './approveCensusProgram';
+import { calleeName, exits, markersAbove, markersIn, objectProp, programFor, ROOT, templateText, unwrap } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -128,11 +128,6 @@ export function analyse(cfg: CensusConfig): Census {
     const g = gateOf(x);
     return g && g.spec.kind === 'refuse' ? [g.module] : [];
   };
-  const exits = (s: ts.Statement | undefined): boolean => {
-    if (!s) return false;
-    if (ts.isReturnStatement(s) || ts.isThrowStatement(s)) return true;
-    return ts.isBlock(s) && s.statements.length > 0 && exits(s.statements[s.statements.length - 1]);
-  };
   /** The modules a STATEMENT leaves passed for everything after it in its block. */
   const statementGates = (s: ts.Statement): string[] => {
     if (ts.isIfStatement(s) && exits(s.thenStatement)) return falseMeans(s.expression);
@@ -202,9 +197,6 @@ export function analyse(cfg: CensusConfig): Census {
 
   // ── calls, and the units that run posting SQL ─────────────────────────────────────────────────
   const wrapped = new Map<string, string>(); // file -> the module its route wrapper gates
-  const templateText = (t: ts.TaggedTemplateExpression): string =>
-    ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text
-      : `${t.template.head.text}?${t.template.templateSpans.map((s) => s.literal.text).join('?')}`;
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || sf.fileName.includes('node_modules')) continue;
     for (const w of wrapperNames) {
