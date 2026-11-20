@@ -48,10 +48,10 @@ const billInput = (grnId: unknown) => ({
   items: [{ description: 'Delivered goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: f.acc.opex }],
 });
 /** createSupplierInvoice in its own app_user request: the bill id, or the error's message. Committed only when it succeeds. */
-const createBill = async (grnId: unknown): Promise<{ id?: string; error?: string }> => {
+const createBill = async (grnId: unknown, purchaseOrderId?: string): Promise<{ id?: string; error?: string }> => {
   const req = await openRequest(pool, f, f.owner);
   try {
-    const bill = await req.run(() => createSupplierInvoice(f.co, billInput(grnId), f.owner));
+    const bill = await req.run(() => createSupplierInvoice(f.co, { ...billInput(grnId), ...(purchaseOrderId ? { purchaseOrderId } : {}) }, f.owner));
     await req.commit();
     return { id: bill.id };
   } catch (err) {
@@ -166,11 +166,38 @@ describe('a bill create racing a cancel of its note (M1)', () => {
     expect(await liveBills(grn)).toBe(0);
   });
 
+  it('a cancel holding the PO the bill also names: the bill waits on the PO, never holds the note first (no deadlock)', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const made = await callTool(pool, f, create, grnArgs(po, [[0, 4]]));
+    const grn = String(made.body.grn_id);
+    // The cancel's own order, by hand, paused after the PO row: number lock 620 -> PO FOR UPDATE.
+    const req = await openRequest(pool, f, f.owner);
+    await req.client.query('SELECT public.take_number_lock($1::text, 620)', [f.co]);
+    await req.client.query('SELECT id FROM purchase_orders WHERE id = $1 FOR UPDATE', [po.po]);
+    const billing = (async () => {
+      const b = await openRequest(pool, f, f.owner);
+      try {
+        await b.run(() => createSupplierInvoice(f.co, { ...billInput(grn), purchaseOrderId: po.po }, f.owner));
+        await b.commit();
+        return 'created';
+      } catch (err) { await b.rollback(); return (err as Error).message; }
+    })();
+    await blockedOn('FOR KEY SHARE');
+    const out = (await req.client.query('SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [grn, 'race'])).rows[0];
+    await req.commit();
+    expect(out).toEqual({ outcome: 'cancelled' });
+    expect(await billing).toContain('is cancelled');
+    expect(await liveBills(grn)).toBe(0);
+  });
+
   it('raced at once: exactly one wins, never a cancelled note with a live bill', async () => {
     for (let round = 0; round < 8; round++) {
-      const grn = await note(f);
-      const [bill, cancelled] = await Promise.all([createBill(grn), callTool(pool, f, cancel, { grn_id: grn, reason: 'race' })]);
+      // Odd rounds: the bill also names the note's PO, so both sides lock that PO row too.
+      const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+      const grn = String((await callTool(pool, f, create, grnArgs(po, [[0, 4]]))).body.grn_id);
+      const [bill, cancelled] = await Promise.all([createBill(grn, round % 2 ? po.po : undefined), callTool(pool, f, cancel, { grn_id: grn, reason: 'race' })]);
       const outcome = `round ${round}: bill ${bill.error ?? 'created'}, cancel ${cancelled.isError ? refusal(cancelled.text).code : 'cancelled'}`;
+      expect(bill.error ?? '', outcome).not.toContain('deadlock');
       expect([bill.error === undefined, !cancelled.isError].filter(Boolean), outcome).toHaveLength(1);
       expect((await noteStatus(grn)) === 'cancelled' && (await liveBills(grn)) > 0, outcome).toBe(false);
     }

@@ -143,7 +143,8 @@ raised before anything is written. Orders, first lock first:
 | PO approve | budget gate (block) -> PO row |
 | PO cancel (approved) | PO row `FOR UPDATE` (refuses while links exist) |
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
-| goods receipt cancel (`cancel_goods_received`, `mcp-goods-received.md`) | number lock 620 -> PO row -> its `po_items` rows -> the note row `FOR UPDATE` (no bill row; a bill naming the note takes KEY SHARE on it through the `grn_id` foreign key and holds no PO row) |
+| goods receipt cancel (`cancel_goods_received`, `mcp-goods-received.md`) | number lock 620 -> PO row -> its `po_items` rows -> the note row `FOR UPDATE` (taken again, and the refusals re-decided, inside `goods_received_note_cancel`); reads bills, never locks one. `supplier_invoices.grn_id` has NO foreign key, so a bill takes no KEY SHARE on the note: it takes the hold below |
+| a bill naming a goods received note (`billGoodsReceivedLink.ts`) | create: the named POs `FOR KEY SHARE` (above) -> the note `FOR SHARE` (`goods_received_note_hold`, bounded); undo of a deleted bill: the bill row `FOR UPDATE` -> the note `FOR SHARE`. Never a PO row after the note, never a note before a PO or bill row |
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
 | `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows it names `FOR KEY SHARE` (id order; ALWAYS taken when the bill names a PO, whether or not a link is then written; also what the link FK takes) -> link inserts / deletes. |
 | supplier merge | batches -> payments -> bills -> supplier_purchase_orders (unchanged); refuses first when linked |
@@ -157,7 +158,9 @@ closing releases it; the PO maintenance tools above take the PO row and never a 
 touches a PO row is the app writer (a draft edit), whose lock is `KEY SHARE`, compatible with link / unlink's `NO KEY UPDATE`
 (it conflicts only with `FOR UPDATE` holders: PO cancel / approve / goods receipt, which take no bill row, so no cycle either);
 bill approve / cancel hold no PO row (their budget check reads POs without row locks); goods receipt's number lock
-precedes its PO row and the link tool takes neither; the external-ref advisory keys (`external_ref:<company>:po_bill_link:...`)
+precedes its PO row and the link tool takes neither; a goods received note is the LAST lock of everyone who takes it (cancel:
+620 -> PO -> po_items -> note; bill create: PO -> note; bill restore: bill -> note), and its holders wait on nothing after it, so
+the ranks bill < PO < note never invert (`mcp-goods-received-bills.int.test.ts` interleaves a bill and a cancel both ways); the external-ref advisory keys (`external_ref:<company>:po_bill_link:...`)
 are taken only by the link tool, always before its PO rows, always sorted. Proven in motion by
 `mcp-po-bill-links-races.int.test.ts`: link x unlink x PO cancel x bill approve x bill cancel on the same rows under the
 block policy, ten rounds, with a draft edit leg, no 40P01 / 55P03 and a consistent end state; a deterministic draft edit vs

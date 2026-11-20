@@ -10,8 +10,8 @@
  * definer: app_user has no UPDATE on the notes, which a row lock needs) and judged UNDER that lock. The cancel takes the note
  * `FOR UPDATE` and then looks for live bills, so exactly one wins: the bill waits for a running cancel and then reads `cancelled`, or the
  * cancel waits for the bill and then finds it (grn_on_bill). Lock order: after whatever PO rows the create holds (`assertBillPoLinks`,
- * FOR KEY SHARE) and the bill row (restore); the cancel holds 620 -> PO -> po_items -> note and never a bill row, so no cycle. Bounded
- * like every PO lock (5 s, typed retryable).
+ * FOR KEY SHARE; its bill row is new) and after the bill row (restore); the cancel holds 620 -> PO -> po_items -> note and never a bill
+ * row, so no cycle. Bounded like every PO lock (5 s, typed retryable).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -56,15 +56,18 @@ export async function assertBillGrn(companyId: string, grnId: unknown, opts: { d
 
 /**
  * Before a soft-deleted bill is restored (undo): a bill that names a note of this company that is now cancelled stays deleted
- * (`SoftDeleteRefusalError`, 400), since a cancel only ever passed it because it was deleted. Held FOR SHARE, so a cancel cannot slip
- * between this check and the restore. A grn_id naming no note of this company is left as it was (the cancel never sees it).
+ * (`SoftDeleteRefusalError`, 400), since a cancel only ever passed it because it was deleted. The bill row FIRST (`FOR UPDATE`, the
+ * row the restore then updates), then the note FOR SHARE: bill -> note, as a draft edit takes bill -> PO and the cancel PO -> note,
+ * so no cycle; a cancel cannot slip between this check and the restore. A grn_id naming no note of this company is left as it was
+ * (the cancel never sees it).
  */
 export async function assertBillRestorableGrn(companyId: string, billId: string): Promise<void> {
-  const bill = ((await sql`
+  const bill = (await withRowLockBudget(async () => (await sql`
     SELECT grn_id::text AS grn_id FROM supplier_invoices
-     WHERE id = ${billId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND grn_id IS NOT NULL
-  `) as DbRow[])[0];
-  if (!bill) return;
+     WHERE id = ${billId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NOT NULL
+       FOR UPDATE
+  `) as DbRow[], () => new RowLockTimeoutError(`Supplier invoice ${billId}`)))[0];
+  if (!bill || bill.grn_id == null) return;
   if (await noteStatus(sql, companyId, String(bill.grn_id), true) === 'cancelled') {
     throw new SoftDeleteRefusalError('This bill names a goods received note that has since been cancelled, so it cannot be restored');
   }

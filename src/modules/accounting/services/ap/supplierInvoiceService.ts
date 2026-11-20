@@ -143,8 +143,8 @@ export async function createSupplierInvoice(
       // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
       // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
       await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
-      // Then the bill's goods received note, held FOR SHARE until this commits: a cancel of it waits for this bill and then refuses.
-      const grnId = await assertBillGrn(companyId, input.grnId, { db: tx, lock: true });
+      // The bill's goods received note: this company's and live (no lock yet; held below, after every PO lock this create takes).
+      const grnId = await assertBillGrn(companyId, input.grnId, { db: tx });
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
@@ -194,6 +194,9 @@ export async function createSupplierInvoice(
       // Migration 1006: the table is the one list of bill <-> PO links. The header PO and every PO the lines name (of this
       // supplier, in a linkable status) get an `app` link, in the bill's own transaction.
       await recordBillLinks(companyId, invoiceId, userId, tx);
+      // The note LAST (FOR SHARE until this commits; PO rows -> note, as the cancel's PO -> note): a cancel of it waits for this bill
+      // and then refuses it as on a bill, or this waits for the cancel and refuses the cancelled note.
+      await assertBillGrn(companyId, grnId, { db: tx, lock: true });
 
       return rows[0] as Row;
     });
