@@ -66,8 +66,16 @@
 --      the cancel stamps its journal by the journal's id alone. A document whose journal is in force is not deleted;
 --      a linked document deleted with its journal out of force stamps that journal as a cancel does (the Demo
 --      company's wipe is exempt as in 999n). document_cancelled_at is written only from those document triggers.
+--   8. (round 5) A cancelled or soft-deleted document links no journal. An invoice or bill is not soft-deleted
+--      (deleted_at NULL -> value) while its journal is in force, and rule 1 counts a soft-deleted holder as cancelled.
 --
--- BOUNDARY (stated, not oversold). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
+-- BOUNDARY (stated, not oversold). The "only from the document triggers" test for document_cancelled_at is
+-- pg_trigger_depth() > 1. migration_admin (non-superuser, an ops role) has TEMP and can nest a pg_temp trigger to pass
+-- it; app_user has no TEMP (945). Such a forged stamp only refuses a later re-instatement of that journal (fail closed).
+-- The advisory keys ('doc_journal_link:' || journal id) are not tenant-gated: a session that knows another tenant's
+-- journal id can hold its key and stall that tenant's link, cancel or delete until lock_timeout (55P03; the services
+-- answer it as a retry). It writes nothing. An RLS-gated row lock on the chain root instead deadlocks against the
+-- invoice cancel, which row-locks the root before the chain head (measured: round-5 report). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
 -- tier because only a privilege split (a posting role distinct from the request role) closes them: an INSERT of a
 -- journal with an arbitrary source / description (createJournalEntry serves ~60 callers as the same login); a draft or
 -- pending document set to 'approved' without a link (AR approve writes status before it posts and links; AP can approve
@@ -103,13 +111,15 @@
 --   DROP TRIGGER IF EXISTS trg_doc_cancelled_final ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_company_frozen ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_delete_in_force ON public.<table>;
+--   DROP TRIGGER IF EXISTS trg_doc_soft_delete_in_force ON public.customer_invoices / public.supplier_invoices;
 --   DROP FUNCTION IF EXISTS public.gl_je_reversal_no_insert(), public.gl_je_reversal_link(),
 --     public.gl_je_posted_header_frozen(), public.gl_je_reversed_status(), public.gl_je_reversed_at_release(), public.doc_journal_link_guard(),
 --     public.doc_cancel_in_force(), public.gl_journal_in_force(uuid), public.gl_lines_are_negation(uuid, uuid),
 --     public.gl_journal_is_linked(uuid), public.gl_jl_linked_set_frozen(), public.gl_jl_linked_account_check(),
 --     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_cancel_kept(),
 --     public.doc_cancelled_final(), public.doc_company_frozen(), public.doc_delete_in_force(),
---     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid);
+--     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
+--     public.doc_soft_delete_in_force();
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -350,9 +360,13 @@ BEGIN
                JOIN public.gl_journal_entries j ON j.id = a.id
               WHERE (a.dist + v_below) % 2 = 1
                 AND (j.document_cancelled_at IS NOT NULL
-                     OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled')
-                     OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled')
+                     OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
+                     OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
                      OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled'))) THEN
+    -- (round 5 N2) A soft-deleted invoice or bill counts as cancelled while it stays deleted: the undo clears deleted_at
+    -- (restoreRow) BEFORE it re-reverses, so a restored document re-instates and a deleted one does not.
     RAISE EXCEPTION 'gl_journal_entries: this reversal would put the journal of a cancelled document back in force'
       USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reinstates_cancelled_document';
   END IF;
@@ -647,7 +661,13 @@ BEGIN
     PERFORM public.gl_je_stamp_document_cancel(TG_TABLE_NAME, OLD.gl_journal_entry_id);
     RETURN NEW;
   END IF;
-  -- NULL -> X. One session at a time per journal, so two cannot both pass the "linked by no other document" test.
+  -- NULL -> X. A cancelled or soft-deleted document links nothing (round 5 N1: it would hold a journal in force that the
+  -- sub-ledger excludes, and could then never be cancelled or deleted). Census: approve, the take-on imports, Sage and
+  -- the Demo reseed link documents that are open (approved, partially_paid, paid; draft for "Post to GL").
+  IF NEW.status = 'cancelled' OR OLD.status = 'cancelled' OR (pg_catalog.to_jsonb(NEW) ->> 'deleted_at') IS NOT NULL THEN
+    RAISE EXCEPTION '%: a cancelled or deleted document does not link a journal', TG_TABLE_NAME USING ERRCODE = '23514';
+  END IF;
+  -- One session at a time per journal, so two cannot both pass the "linked by no other document" test.
   PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
   SELECT e.company_id, e.reversal_of_id INTO v_company, v_contra
     FROM public.gl_journal_entries e WHERE e.id = NEW.gl_journal_entry_id;
@@ -753,6 +773,28 @@ BEGIN
 END
 $$;
 
+-- A soft delete (deleted_at NULL -> value) takes an invoice or bill out of the sub-ledger as a delete does, so it waits
+-- for the journal to be out of force (round 5 N2): softDeleteService reverses the chain head first, then sets
+-- deleted_at. No stamp: the undo clears deleted_at and re-reverses, and rule 1 counts the deleted row meanwhile.
+CREATE OR REPLACE FUNCTION public.doc_soft_delete_in_force()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
+  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
+  IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
+    RAISE EXCEPTION '%: a document whose journal is in force is not deleted (reverse the journal first)', TG_TABLE_NAME
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.customer_invoices
   FOR EACH ROW
@@ -791,6 +833,12 @@ CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
   EXECUTE FUNCTION public.doc_delete_in_force();
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
+CREATE OR REPLACE TRIGGER trg_doc_soft_delete_in_force
+  BEFORE UPDATE OF deleted_at ON public.customer_invoices
+  FOR EACH ROW
+  WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.gl_journal_entry_id IS NOT NULL)
+  EXECUTE FUNCTION public.doc_soft_delete_in_force();
+ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_soft_delete_in_force;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.supplier_invoices
@@ -830,6 +878,12 @@ CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
   EXECUTE FUNCTION public.doc_delete_in_force();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
+CREATE OR REPLACE TRIGGER trg_doc_soft_delete_in_force
+  BEFORE UPDATE OF deleted_at ON public.supplier_invoices
+  FOR EACH ROW
+  WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.gl_journal_entry_id IS NOT NULL)
+  EXECUTE FUNCTION public.doc_soft_delete_in_force();
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_soft_delete_in_force;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.credit_notes
