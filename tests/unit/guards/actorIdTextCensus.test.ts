@@ -77,8 +77,9 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 137: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 114: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
-  [`${S}payroll/payrollRunLock.ts`]: { 229: 'prepared_by     = ${preparedBy},' },
+  [`${S}payroll/payrollRunCreatePeriod.ts`]: { 83: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end, run_date' },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 126: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
+  [`${S}payroll/payrollRunLock.ts`]: { 238: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 79: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
@@ -102,10 +103,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     273: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
-    48: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    122: 'submitted_by = ${userId}, updated_at = NOW()',
-    126: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
-    209: 'submitted_by = ${actorUserId},',
+    49: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
+    129: 'submitted_by = ${userId}, updated_at = NOW()',
+    133: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    221: 'submitted_by = ${actorUserId},',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
@@ -142,12 +143,12 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 117: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 129: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    134: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',

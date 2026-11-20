@@ -33,11 +33,20 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-/** static, velo and golden-chunks share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly three (golden-chunks' steps are not pinned by the rule). */
+/** Where each job's text starts in ci.yml: `  <id>:` at the jobs' indent. */
+const jobStart = (id: string): number => REAL.indexOf(`\n  ${id}:\n`);
+/**
+ * static, velo, golden-chunks and prod-schema share their hosted setup steps (the last two are not pinned by the
+ * gate checks): edit the nth (0 = static's, 1 = velo's), which must be the one occurrence inside that job.
+ */
 function editNth(from: string, to: string, nth: 0 | 1): string {
-  const parts = REAL.split(from);
-  expect(parts.length - 1, `fixture anchor must occur three times: ${from}`).toBe(3);
-  return parts.reduce((acc, part, i) => (i === 0 ? part : acc + (i - 1 === nth ? to : from) + part), '');
+  const [lo, hi] = nth === 0 ? [jobStart('static'), jobStart('velo')] : [jobStart('velo'), jobStart('quality')];
+  const at: number[] = [];
+  for (let i = REAL.indexOf(from); i !== -1; i = REAL.indexOf(from, i + 1)) at.push(i);
+  expect(lo, 'static, velo, quality in that order').toBeGreaterThan(0);
+  expect(at.filter((i) => i > lo && i < hi), `fixture anchor must occur once in the ${nth === 0 ? 'static' : 'velo'} job: ${from}`).toHaveLength(1);
+  const target = at.find((i) => i > lo && i < hi)!;
+  return REAL.slice(0, target) + to + REAL.slice(target + from.length);
 }
 
 const GATE_STEP = [
@@ -377,5 +386,56 @@ describe('the required check passes only when both gate groups passed', () => {
 
   it.each(cases)('refuses: %s', (_label, mutated) => {
     expect(check(mutated).length).toBeGreaterThan(0);
+  });
+});
+
+describe('the advisory prod-schema job is the one exception, and only for that id, name and shape', () => {
+  const ADV_HEADER = '  prod-schema:\n    name: Migrations on prod schema (advisory)\n';
+  const ADV_COE = '    timeout-minutes: 15\n    continue-on-error: true\n';
+  const ADV_FETCH = '        with:\n          repository: Heinvv10/isaflow-prod-schema\n          ssh-key: ${{ secrets.PROD_SCHEMA_READ_KEY }}\n          persist-credentials: false\n          path: .ci-prod-schema\n';
+  const ADV_RUN = '        run: PROD_BASELINE_DIR="$GITHUB_WORKSPACE/.ci-prod-schema" bash scripts/ci/prod-baseline/phase-a.sh\n';
+  const ADV_BUN_CACHE = "          path: ~/.bun/install/cache\n          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}\n          restore-keys: bun-${{ runner.os }}-\n      - if: steps.key.outputs.have_key == 'true'\n        id: aptweek\n";
+
+  it('is advisory and the required checks do not wait for it', () => {
+    const jobs = (load(REAL) as { jobs: Record<string, Record<string, unknown>> }).jobs;
+    expect(jobs['prod-schema']!['continue-on-error']).toBe(true);
+    for (const [id, job] of Object.entries(jobs)) {
+      expect([job.needs].flat(), `${id} must not need prod-schema`).not.toContain('prod-schema');
+    }
+  });
+
+  it.each([
+    ['the same job under another id', edit(ADV_HEADER, ADV_HEADER.replace('prod-schema:', 'prod-schema-2:'))],
+    ['continue-on-error on another job (golden-lane)', edit('    name: Golden Paths lane\n', '    name: Golden Paths lane\n    continue-on-error: true\n')],
+    ['a second advisory job', `${REAL}  sidecar:\n    name: Another advisory\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n    continue-on-error: true\n    steps:\n      - run: echo hi\n`],
+    ['continue-on-error removed (a red result would fail the run)', edit(ADV_COE, '    timeout-minutes: 15\n')],
+    ['continue-on-error false', edit(ADV_COE, '    timeout-minutes: 15\n    continue-on-error: false\n')],
+    ['continue-on-error as an expression', edit(ADV_COE, "    timeout-minutes: 15\n    continue-on-error: ${{ github.event_name == 'push' }}\n")],
+    ['renamed to the required check', edit(ADV_HEADER, '  prod-schema:\n    name: Type Check, Lint & Test\n')],
+    ['renamed', edit(ADV_HEADER, '  prod-schema:\n    name: Migrations on prod schema\n')],
+    ['run on velo (the deploy key and the dump on a persistent runner)', edit(`${ADV_HEADER}    runs-on: ubuntu-24.04\n`, `${ADV_HEADER}    runs-on: [self-hosted, linux, velo]\n`)],
+    ['run where CI_HOSTED says', edit(`${ADV_HEADER}    runs-on: ubuntu-24.04\n`, `${ADV_HEADER}    runs-on: ${LIGHT}\n`)],
+    ['given its own permissions, even read-only ones', edit(ADV_COE, `${ADV_COE}    permissions:\n      contents: read\n`)],
+    ['given needs (it would wait on, or be skipped with, another job)', edit(ADV_COE, `${ADV_COE}    needs: route\n`)],
+    ['given a job-level env', edit(ADV_COE, `${ADV_COE}    env:\n      KEY: \${{ secrets.PROD_SCHEMA_READ_KEY }}\n`)],
+    ['taking the ci- concurrency group', edit(ADV_COE, `${ADV_COE}    concurrency:\n      group: ci-\${{ github.ref }}\n`)],
+    ['a timeout over the cap', edit(ADV_COE, '    timeout-minutes: 90\n    continue-on-error: true\n')],
+    ['the dump uploaded as an artifact', edit(ADV_RUN, `${ADV_RUN}      - uses: actions/upload-artifact@v4\n        with:\n          name: dump\n          path: .ci-prod-schema\n`)],
+    ['the dump cached', edit(ADV_BUN_CACHE, ADV_BUN_CACHE.replace('path: ~/.bun/install/cache', 'path: .ci-prod-schema'))],
+    ['the bun cache widened to the checkout', edit(ADV_BUN_CACHE, ADV_BUN_CACHE.replace('path: ~/.bun/install/cache', 'path: |\n            ~/.bun/install/cache\n            .ci-prod-schema'))],
+    ['the private checkout leaving the deploy key in .git/config', edit(ADV_FETCH, ADV_FETCH.replace('persist-credentials: false', 'persist-credentials: true'))],
+    ['the private checkout without persist-credentials', edit(ADV_FETCH, ADV_FETCH.replace('          persist-credentials: false\n', ''))],
+    ['the private checkout pointed at another repo (the run would test some other schema)', edit(ADV_FETCH, ADV_FETCH.replace('Heinvv10/isaflow-prod-schema', 'Heinvv10/other'))],
+    ['a third-party action', edit(ADV_RUN, `${ADV_RUN}      - uses: someone/print-files@v1\n`)],
+    ['setup-bun unpinned', edit("        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0\n        with:\n          bun-version: 1.3.9\n      - if: steps.key", "        uses: oven-sh/setup-bun@v2\n        with:\n          bun-version: 1.3.9\n      - if: steps.key")],
+  ])('refuses: %s', (_label, mutated) => {
+    expect(check(mutated).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['quality', '    needs: [route, static, velo]\n', '    needs: [route, static, velo, prod-schema]\n'],
+    ['golden-paths', '    needs: golden-chunks\n    if: ${{ always() }}\n', '    needs: [golden-chunks, prod-schema]\n    if: ${{ always() }}\n'],
+  ])('refuses the advisory job in the needs of the required %s', (_job, from, to) => {
+    expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 });

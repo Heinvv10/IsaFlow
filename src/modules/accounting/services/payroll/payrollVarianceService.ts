@@ -12,6 +12,7 @@
  *   • else      — 'low' (no flag, change still shown)
  */
 
+import { PayrollRunNotFoundError } from './payrollRunLock';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { runOrderKeySql } from './payrollRunOrder';
@@ -98,7 +99,7 @@ export async function getPayrollRunVariance(
      LIMIT 1
   `) as DbRow[];
   if (currentRows.length === 0 || !currentRows[0]) {
-    throw new Error('Payroll run not found');
+    throw new PayrollRunNotFoundError();
   }
   const cur = currentRows[0];
   const curMonth = Number(cur.period_month);

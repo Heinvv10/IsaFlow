@@ -13,7 +13,7 @@ import { SignJWT } from 'jose';
 import { als } from '@/lib/als';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
-import { sdlMonthSplitRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
+import { sdlRecalculateRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
@@ -77,17 +77,17 @@ describe('the SDL month gate reads the run as the calculation costed it', () => 
     // the figure the calculation costs (the non-contractor lines' allEarnings); its own stored decision is checked above.
     const got = await asA(async () => ({
       stored: await estimateAnnualRemuneration(A, MAY, 'stored', runId),
-      refusal: await sdlMonthSplitRefusal(A, runId),
+      refusal: await sdlRecalculateRefusal(A, runId),
     }));
     expect(got).toEqual({ stored: 258000, refusal: null });
   });
 
   it('a single-run month whose own stored decision is stale is refused, and recalculating the run clears it', async () => {
     await pool.query('UPDATE payroll_run_lines SET sdl_exempt = false WHERE run_id = $1', [runId]); // costed on a stale month
-    const before = await asA(() => sdlMonthSplitRefusal(A, runId));
-    expect(before?.detail).toMatch(/To approve: recalculate this run\.$/);
+    const before = await asA(() => sdlRecalculateRefusal(A, runId));
+    expect([before?.code, before?.detail]).toEqual(["sdl_recalculate", expect.stringMatching(/Recalculate this run, then approve it\.$/)]);
     const recalc = await call(calculate as Route, 'POST', `/api/payroll/runs/${runId}/calculate`, runId);
     expect(recalc.statusCode).toBe(200);
-    expect(await asA(() => sdlMonthSplitRefusal(A, runId))).toBeNull();
+    expect(await asA(() => sdlRecalculateRefusal(A, runId))).toBeNull();
   });
 });

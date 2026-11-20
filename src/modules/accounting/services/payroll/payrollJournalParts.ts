@@ -209,7 +209,7 @@ export async function buildLabourLines(
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({
       employeeId,
-      labourAmount: round2(grossShare * (costBeforeEti - sdlPart - medicalPart) + (sdlPart > 0 ? Number(r.sdl) || 0 : 0)
+      labourAmount: round2(grossShare * (costBeforeEti - sdlPart - medicalPart) + (totalNonCash > 0 ? Number(r.sdl) || 0 : 0)
         + (employerMedical.get(employeeId) ?? 0) - etiShare * etiUsed),
     });
   }

@@ -38,19 +38,31 @@ async function periodRuns(companyId: string, periodStart: string, periodEnd: str
   }));
 }
 
-export async function finaliseEmpReturn(
-  companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor,
-): Promise<ReturnVersion> {
-  const runs = await periodRuns(companyId, periodStart, periodEnd);
+/**
+ * Why an EMP201 for the period cannot be filed now: a pay run of it (any non-cancelled one, a reopened run included) is
+ * not final under R-035, so the return would not match the payslips. Null when every run is final. Shared by the
+ * lifecycle finalise and the legacy draft-and-mark-submitted path (breaker #1622: a reopened run's month is not filed).
+ */
+export async function emp201NotFinalRefusal(companyId: string, periodStart: string, periodEnd: string): Promise<string | null> {
+  return notFinalMessage(companyId, await periodRuns(companyId, periodStart, periodEnd));
+}
+
+async function notFinalMessage(companyId: string, runs: RunHeader[]): Promise<string | null> {
   const notFinal: string[] = [];
   for (const run of runs) {
     if (!(await isPayRunFinal(companyId, run.id))) notFinal.push(run.month);
   }
-  if (notFinal.length > 0) {
-    throw new ReturnRefusal(409,
-      `Pay run${notFinal.length === 1 ? '' : 's'} for ${notFinal.join(', ')} ${notFinal.length === 1 ? 'is' : 'are'} `
-      + 'not final under the approval rule, so the EMP201 would not match the payslips. Approve or cancel it first.');
-  }
+  return notFinal.length === 0 ? null
+    : `Pay run${notFinal.length === 1 ? '' : 's'} for ${notFinal.join(', ')} ${notFinal.length === 1 ? 'is' : 'are'} `
+      + 'not final under the approval rule, so the EMP201 would not match the payslips. Approve or cancel it first.';
+}
+
+export async function finaliseEmpReturn(
+  companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor,
+): Promise<ReturnVersion> {
+  const runs = await periodRuns(companyId, periodStart, periodEnd);
+  const notFinal = await notFinalMessage(companyId, runs);
+  if (notFinal) throw new ReturnRefusal(409, notFinal);
 
   const figures = await generateEMP201(companyId, periodStart, periodEnd);
   const summed = new Set(figures.payrollRuns.map((r) => r.id));
