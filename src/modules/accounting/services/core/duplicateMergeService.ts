@@ -121,6 +121,9 @@ async function mergeSuppliers(
   if (poRefusal) throw new SupplierMergeRefusal(poRefusal);
   const sideBlock = await sideRefusal(companyId, duplicateId, primaryId);
   if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
+  // The intercompany side moves before any other write: its guard may refuse, and a 400 on the request transaction commits what was written.
+  const side = await moveIntercompanySide(companyId, duplicateId, primaryId);
+  if (side.refusal) throw new SupplierMergeRefusal(side.refusal);
 
   let count = 0;
 
@@ -169,7 +172,7 @@ async function mergeSuppliers(
   `;
   count += r5.length;
 
-  count += await moveIntercompanySide(companyId, duplicateId, primaryId);
+  count += side.moved;
   count += await moveExpectationsAndAlerts(companyId, duplicateId, primaryId);
 
   // merged_into_id (migration 1020): the Sage import follows a merged-away supplier to its survivor, so a

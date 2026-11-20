@@ -72,4 +72,11 @@ describe('supplier merge routes — DRC flag refusal', () => {
     expect(mocks.withTransaction).toHaveBeenCalledTimes(1);
     expect(status(res)).toBe(200);
   });
+
+  it('duplicates-merge hands the caller\'s company role to mergeEntities (approved POs move only for owner / admin)', async () => {
+    mocks.mergeEntities.mockResolvedValueOnce({ reassignedTransactions: 0 });
+    const res = response();
+    await duplicatesMerge({ ...post({ entityType: 'supplier', primaryId: A, duplicateId: B }), companyRole: 'manager' } as unknown as NextApiRequest, res);
+    expect(mocks.mergeEntities).toHaveBeenCalledWith(COMPANY, 'supplier', A, B, 'u', 'manager');
+  });
 });

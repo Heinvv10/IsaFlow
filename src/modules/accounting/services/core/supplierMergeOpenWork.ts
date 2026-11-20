@@ -20,7 +20,7 @@
  *   clashing coding rules) is a product decision nobody has made. They stay readable on the row.
  * Documents (payments, bills, both PO tables, credit notes) always move: nothing else shows them.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
 export const BOTH_SIDES_REFUSAL =
@@ -40,47 +40,111 @@ export async function sideRefusal(companyId: string, sourceId: string, targetId:
   return target[0] ? BOTH_SIDES_REFUSAL : null;
 }
 
-/** Points the source's intercompany side at the survivor (after `sideRefusal` found none to refuse). */
-export async function moveIntercompanySide(companyId: string, sourceId: string, targetId: string): Promise<number> {
-  const moved = (await sql`
-    UPDATE intercompany_connection_sides SET supplier_id = ${targetId}::UUID
-     WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
-     RETURNING id
-  `) as DbRow[];
-  return moved.length;
+export const SIDE_GUARD_REFUSAL =
+  'The intercompany connection of this supplier cannot be changed right now: it needs a user with a write role in this company, on a connection that is not revoked. Fix that first, then merge.';
+
+/** SQLSTATEs the intercompany sides guard raises (23514 state / 42501 role / 23503 foreign company). */
+const SIDE_GUARD_CODES = ['23514', '42501', '23503'];
+
+/**
+ * Points the source's intercompany side at the survivor (after `sideRefusal` found none to refuse). The sides guard may
+ * refuse (a revoked connection, a session without a write role): that is answered as a refusal text, not thrown as a 500.
+ * It runs in a savepoint, so the refused statement leaves the transaction usable. Call it BEFORE any other write: a 400
+ * on the request transaction commits what was written.
+ */
+export async function moveIntercompanySide(
+  companyId: string, sourceId: string, targetId: string,
+): Promise<{ moved: number; refusal: string | null }> {
+  try {
+    const moved = await withSavepoint('supplier_merge_side', async () => (await sql`
+      UPDATE intercompany_connection_sides SET supplier_id = ${targetId}::UUID
+       WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
+       RETURNING id
+    `) as DbRow[]);
+    return { moved: moved.length, refusal: null };
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string' && SIDE_GUARD_CODES.includes(code)) return { moved: 0, refusal: SIDE_GUARD_REFUSAL };
+    throw err;
+  }
 }
 
-/** Moves the expectation and the open alerts to the survivor, keeping the survivor's where both have one. Returns the rows moved. */
+/**
+ * Moves the expectation and the open alerts to the survivor, and the chase opt-out with them. Returns the rows actually changed.
+ *
+ * - suppliers.chase_opted_out: if the source is muted the survivor becomes muted (the safe default for outbound messages);
+ *   a muted survivor stays muted. Never refused.
+ * - Where the survivor already has an alert for the same date, the survivor's row stays and takes the MORE ADVANCED state of
+ *   the two (resolved / dismissed > chased > pending), with its chase fields and resolving bill: a chased source alert must not
+ *   lose to a pending survivor one (the cron would chase again), and a resolved one (its bill now on the survivor) must not
+ *   leave a pending survivor alert to be chased for an invoice that arrived. The source's open duplicate is then dropped; its
+ *   resolved / dismissed one stays as history.
+ * - The survivor's expectation wins over the source's; the moved open alerts follow it. History alerts are not re-pointed
+ *   (their expectation link is cleared when the source's expectation goes), so supplier_id and expectation_id never disagree.
+ */
 export async function moveExpectationsAndAlerts(companyId: string, sourceId: string, targetId: string): Promise<number> {
   let moved = 0;
+  const muted = (await sql`
+    UPDATE suppliers SET chase_opted_out = TRUE
+     WHERE id = ${targetId}::UUID AND company_id = ${companyId}::UUID AND chase_opted_out = FALSE
+       AND EXISTS (SELECT 1 FROM suppliers s WHERE s.id = ${sourceId}::UUID AND s.company_id = ${companyId}::UUID AND s.chase_opted_out)
+     RETURNING id
+  `) as DbRow[];
+  moved += muted.length;
+
   const own = (await sql`
     SELECT id FROM supplier_expectations WHERE company_id = ${companyId}::UUID AND supplier_id = ${targetId}::UUID
   `) as DbRow[];
   const src = (await sql`
     SELECT id FROM supplier_expectations WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
   `) as DbRow[];
-  if (src[0] && !own[0]) {
-    await sql`UPDATE supplier_expectations SET supplier_id = ${targetId}::UUID, updated_at = NOW() WHERE id = ${String(src[0].id)}::UUID`;
-    moved += 1;
-  } else if (src[0] && own[0]) {
-    // The survivor's expectation stays: the source's alerts (history included) follow it, then the source's is dropped.
-    await sql`
-      UPDATE expected_invoice_alerts SET expectation_id = ${String(own[0].id)}::UUID
-       WHERE company_id = ${companyId}::UUID AND expectation_id = ${String(src[0].id)}::UUID
-    `;
-    await sql`DELETE FROM supplier_expectations WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID`;
+  const ownId = own[0] ? String(own[0].id) : null;
+  if (src[0] && !ownId) {
+    const e = (await sql`
+      UPDATE supplier_expectations SET supplier_id = ${targetId}::UUID, updated_at = NOW()
+       WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID RETURNING id
+    `) as DbRow[];
+    moved += e.length;
   }
-  // An open alert for a date the survivor already has one for is a duplicate: dropped; the others move.
+
+  // Same-date clash: the survivor's alert takes the more advanced state, then (equal chased) the chase facts it lacks.
   await sql`
+    UPDATE expected_invoice_alerts t SET status = a.status, chased_at = a.chased_at, chase_method = a.chase_method,
+           chase_to_address = a.chase_to_address, resolved_invoice_id = a.resolved_invoice_id, resolved_at = a.resolved_at,
+           dismissed_reason = a.dismissed_reason, updated_at = NOW()
+      FROM expected_invoice_alerts a
+     WHERE t.company_id = ${companyId}::UUID AND t.supplier_id = ${targetId}::UUID
+       AND a.company_id = t.company_id AND a.supplier_id = ${sourceId}::UUID AND a.expected_by = t.expected_by
+       AND (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
+         > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
+  `;
+  await sql`
+    UPDATE expected_invoice_alerts t SET chased_at = COALESCE(t.chased_at, a.chased_at),
+           chase_to_address = COALESCE(t.chase_to_address, a.chase_to_address), chase_method = COALESCE(t.chase_method, a.chase_method),
+           updated_at = NOW()
+      FROM expected_invoice_alerts a
+     WHERE t.company_id = ${companyId}::UUID AND t.supplier_id = ${targetId}::UUID AND t.status = 'chased'
+       AND a.company_id = t.company_id AND a.supplier_id = ${sourceId}::UUID AND a.expected_by = t.expected_by AND a.status = 'chased'
+  `;
+  const dropped = (await sql`
     DELETE FROM expected_invoice_alerts a
      WHERE a.company_id = ${companyId}::UUID AND a.supplier_id = ${sourceId}::UUID AND a.status IN ('pending', 'chased')
        AND EXISTS (SELECT 1 FROM expected_invoice_alerts t
                     WHERE t.company_id = a.company_id AND t.supplier_id = ${targetId}::UUID AND t.expected_by = a.expected_by)
-  `;
+     RETURNING a.id
+  `) as DbRow[];
+  moved += dropped.length;
   const alerts = (await sql`
-    UPDATE expected_invoice_alerts SET supplier_id = ${targetId}::UUID, updated_at = NOW()
+    UPDATE expected_invoice_alerts SET supplier_id = ${targetId}::UUID, updated_at = NOW(),
+           expectation_id = CASE WHEN ${ownId}::UUID IS NULL THEN expectation_id ELSE ${ownId}::UUID END
      WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID AND status IN ('pending', 'chased')
      RETURNING id
   `) as DbRow[];
-  return moved + alerts.length;
+  moved += alerts.length;
+
+  if (src[0] && ownId) {
+    await sql`DELETE FROM supplier_expectations WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID`;
+    moved += 1;
+  }
+  return moved;
 }

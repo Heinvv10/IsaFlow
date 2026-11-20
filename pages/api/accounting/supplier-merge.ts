@@ -77,6 +77,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (poRefusal) throw new SupplierMergeRefusal(poRefusal);
       const sideBlock = await sideRefusal(companyId, source_id, target_id);
       if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
+      const side = await moveIntercompanySide(companyId, source_id, target_id);
+      if (side.refusal) throw new SupplierMergeRefusal(side.refusal);
 
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
@@ -126,7 +128,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;
-      await moveIntercompanySide(companyId, source_id, target_id);
       await moveExpectationsAndAlerts(companyId, source_id, target_id);
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):

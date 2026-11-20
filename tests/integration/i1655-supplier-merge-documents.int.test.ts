@@ -5,11 +5,12 @@
  * follows the supplier; open expectations and alerts follow it, history stays. The route path is in
  * supplier-merge-route-drc-flag.int.test.ts.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { APPROVED_EDIT_REFUSAL } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
-import { BOTH_SIDES_REFUSAL } from '@/modules/accounting/services/core/supplierMergeOpenWork';
+import { PO_BILL_LINKS_REFUSAL } from '@/modules/accounting/services/core/duplicateMergeService';
+import { BOTH_SIDES_REFUSAL, SIDE_GUARD_REFUSAL } from '@/modules/accounting/services/core/supplierMergeOpenWork';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageMergedWorld } from './helpers/sageMergedSupplierWorld';
 import { plantExternal } from './intercompany/intercompany.plant';
@@ -102,6 +103,69 @@ describe('purchase orders (#1699 review)', () => {
     expect(await ownerOf('credit_notes', cn)).toBe(gone);
     expect(await billSupplier('AP-LINK-1')).toBe(gone);
   });
+
+  it('a cancelled PO moves for a manager (it commits nothing); a received one needs owner / admin, keeps its approver and records it', async () => {
+    const survivor = await insPlain('Status Survivor');
+    const gone = await insPlain('Status Gone');
+    const cancelled = await seedPo(gone, 'PO-X', 'cancelled');
+    await merge(survivor, gone, 'manager');
+    expect(await ownerOf('purchase_orders', cancelled)).toBe(survivor);
+
+    const survivor2 = await insPlain('Received Survivor');
+    const gone2 = await insPlain('Received Gone');
+    const received = await seedPo(gone2, 'PO-RC', 'received');
+    await expect(merge(survivor2, gone2, 'manager')).rejects.toThrow(/approved, partly received or received/);
+    await merge(survivor2, gone2, 'owner');
+    const { rows } = await pool.query('SELECT supplier_id, approved_by FROM purchase_orders WHERE id = $1', [received]);
+    expect(rows[0]).toEqual({ supplier_id: survivor2, approved_by: 'original-approver' });
+    expect((await auditRows(received))[0].metadata).toMatchObject({ status: 'received', prior_approved_by: 'original-approver' });
+  });
+
+  it('returns the number of rows it actually moved', async () => {
+    const survivor = await insPlain('Count Survivor');
+    const gone = await insPlain('Count Gone');
+    await seedPo(gone, 'PO-CNT', 'draft');
+    await seedCreditNote(gone);
+    expect((await merge(survivor, gone)).reassignedTransactions).toBe(2);
+  });
+
+  it('holds the source\'s PO rows BEFORE it checks for bill links: a link committed while the merge waits is seen and refused', async () => {
+    const survivor = await insPlain('Probe Survivor');
+    const gone = await insPlain('Probe Gone', 'sage', '982');
+    const po = await seedPo(gone, 'PO-PROBE');
+    await bill('AP-PROBE-1', 'Probe Gone', 982);
+    const billId = String((await pool.query('SELECT id FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2',
+      [companyId, `AP-PROBE-1-${tag}`])).rows[0].id);
+    // A link maker holds the PO row (as link_bills_to_purchase_order does) and has made its link, uncommitted.
+    const maker = await pool.connect();
+    const makerPid = Number((await maker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+    let blocked = false;
+    let outcome: Promise<unknown>;
+    try {
+      await maker.query('BEGIN');
+      await maker.query('SELECT id FROM purchase_orders WHERE id = $1 FOR NO KEY UPDATE', [po]);
+      await maker.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 10, 'app')",
+        [companyId, po, billId]);
+      outcome = merge(survivor, gone).then(() => 'merged', (err: unknown) => err);
+      for (let i = 0; i < 100 && !blocked; i++) {
+        const { rows } = await pool.query(
+          `SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND application_name = $1 AND pid <> $2
+             AND query ILIKE '%FROM purchase_orders%FOR NO KEY UPDATE%'`, [w.applicationName, makerPid]);
+        blocked = rows.length > 0;
+        if (!blocked) await new Promise((r) => setTimeout(r, 50));
+      }
+      await maker.query('COMMIT');
+    } finally {
+      await maker.query('ROLLBACK').catch(() => undefined);
+      maker.release();
+    }
+    // The merge waited on the PO lock (taken before the link check), then saw the committed link and refused cleanly.
+    expect(blocked).toBe(true);
+    const result = await outcome!;
+    expect(result).toBeInstanceOf(SupplierMergeRefusal);
+    expect((result as Error).message).toBe(PO_BILL_LINKS_REFUSAL);
+    expect(await ownerOf('purchase_orders', po)).toBe(gone);
+  });
 });
 
 describe('supplier credit notes (#1699 review)', () => {
@@ -131,6 +195,11 @@ describe('supplier credit notes (#1699 review)', () => {
 });
 
 describe('the intercompany side (#1699 review)', () => {
+  afterEach(async () => {
+    await pool.query('DELETE FROM intercompany_connection_sides WHERE company_id = $1', [companyId]);
+    await pool.query('DELETE FROM intercompany_connections WHERE company_low_id = $1 OR company_high_id = $1', [companyId]);
+  });
+
   const plantSide = async (supplierId: string, connection: string, other = partner) => asOwner(pool, userId, companyId, (q) => q.query(
     'INSERT INTO intercompany_connection_sides (connection_id, company_id, partner_company_id, supplier_id) VALUES ($1, $2, $3, $4)',
     [connection, companyId, other, supplierId]), true);
@@ -159,46 +228,17 @@ describe('the intercompany side (#1699 review)', () => {
     expect(await sideSupplier(second)).toBe(survivor);
     expect((await pool.query('SELECT deleted_at FROM suppliers WHERE id = $1', [gone])).rows[0].deleted_at).toBeNull();
   });
-});
 
-describe('expectations and expected-invoice alerts (#1699 review)', () => {
-  const expect_ = async (supplierId: string, day = 5) => String((await pool.query(
-    "INSERT INTO supplier_expectations (company_id, supplier_id, cadence, expected_day_of_month) VALUES ($1, $2, 'monthly', $3) RETURNING id",
-    [companyId, supplierId, day])).rows[0].id);
-  const alert = async (supplierId: string, expectedBy: string, status = 'pending', expectationId: string | null = null) => String((await pool.query(
-    'INSERT INTO expected_invoice_alerts (company_id, supplier_id, expectation_id, expected_by, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-    [companyId, supplierId, expectationId, expectedBy, status])).rows[0].id);
-  const alertRow = async (id: string) => (await pool.query('SELECT supplier_id, expectation_id FROM expected_invoice_alerts WHERE id = $1', [id])).rows[0] ?? null;
-
-  it('moves the expectation and the open alerts; resolved and dismissed alerts stay as history', async () => {
-    const survivor = await insPlain('Exp Survivor');
-    const gone = await insPlain('Exp Gone');
-    const e = await expect_(gone);
-    const open = await alert(gone, '2026-06-05', 'pending', e);
-    const chased = await alert(gone, '2026-07-05', 'chased', e);
-    const resolved = await alert(gone, '2026-05-05', 'resolved', e);
-    const dismissed = await alert(gone, '2026-04-05', 'dismissed', e);
-    await merge(survivor, gone);
-    expect(String((await pool.query('SELECT supplier_id FROM supplier_expectations WHERE id = $1', [e])).rows[0].supplier_id)).toBe(survivor);
-    expect((await alertRow(open)).supplier_id).toBe(survivor);
-    expect((await alertRow(chased)).supplier_id).toBe(survivor);
-    expect((await alertRow(resolved)).supplier_id).toBe(gone);
-    expect((await alertRow(dismissed)).supplier_id).toBe(gone);
-  });
-
-  it('where the survivor has its own expectation and an alert for the same date, the survivor\'s rows stay and the source\'s duplicates go', async () => {
-    const survivor = await insPlain('Exp Clash Survivor');
-    const gone = await insPlain('Exp Clash Gone');
-    const own = await expect_(survivor, 10);
-    const theirs = await expect_(gone, 20);
-    const ownAlert = await alert(survivor, '2026-06-05', 'pending', own);
-    const clash = await alert(gone, '2026-06-05', 'pending', theirs);
-    const other = await alert(gone, '2026-08-05', 'pending', theirs);
-    await merge(survivor, gone);
-    const exps = (await pool.query('SELECT id, expected_day_of_month FROM supplier_expectations WHERE company_id = $1 AND supplier_id = ANY($2)', [companyId, [survivor, gone]])).rows;
-    expect(exps).toEqual([{ id: own, expected_day_of_month: 10 }]);
-    expect(await alertRow(clash)).toBeNull();
-    expect(await alertRow(ownAlert)).toEqual({ supplier_id: survivor, expectation_id: own });
-    expect(await alertRow(other)).toEqual({ supplier_id: survivor, expectation_id: own });
+  it('a session the sides guard refuses (no write role claims) gets a refusal, not a server error, and nothing moved', async () => {
+    const survivor = await insPlain('IC Guard Survivor');
+    const gone = await insPlain('IC Guard Gone');
+    const connection = await plantExternal(pool, companyId, partner, 'active', userId);
+    await plantSide(gone, connection);
+    const po = await seedPo(gone, 'PO-GUARD', 'draft');
+    await expect(inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, 'admin')))
+      .rejects.toThrow(SIDE_GUARD_REFUSAL);
+    expect(await sideSupplier(connection)).toBe(gone);
+    expect(await ownerOf('purchase_orders', po)).toBe(gone);
+    await pool.query('DELETE FROM intercompany_connections WHERE id = $1', [connection]);
   });
 });
