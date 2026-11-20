@@ -7,6 +7,7 @@
 import { UsageError } from './easyFileFields';
 import type { EmployeeInput } from './easyFileExportService';
 import { fieldLabel } from './easyFileCertificateCodes';
+import { localCCYYMMDD } from './easyFileEmployeeFacts';
 
 /**
  * BRS V25.3.0 p. 43 (3232): a directive for these income codes has a numeric
@@ -17,7 +18,7 @@ const NUMERIC_DIRECTIVE_CODES = new Set([
   '3905', '3955', '3909', '3915', '3920', '3921', '3922', '3923', '3924', '3926',
 ]);
 
-export function validateEmployee(emp: EmployeeInput): void {
+export function validateEmployee(emp: EmployeeInput, asOf: Date = new Date()): void {
   if (emp.certificateNumber.length !== 30) {
     throw new UsageError(`Certificate number (code 3010) must be exactly 30 characters: "${emp.certificateNumber}" (${emp.certificateNumber.length})`);
   }
@@ -28,6 +29,10 @@ export function validateEmployee(emp: EmployeeInput): void {
     throw new UsageError(`ID number (code 3060) must be 13 digits for natural persons: "${emp.idNumber}"`);
   }
   // BRS V25.3.0 p. 27: for nature of person A the income tax reference starts with 0, 1, 2 or 3 (9 is a company's).
+  // BRS p. 27: "Must not contain ONLY zeros".
+  if (emp.taxNumber && /^0+$/.test(emp.taxNumber)) {
+    throw new UsageError(`${fieldLabel('incomeTaxReference', 'Income tax reference number')} must not be only zeros: "${emp.taxNumber}"`);
+  }
   if (emp.taxNumber && !/^[0-3]\d{9}$/.test(emp.taxNumber)) {
     throw new UsageError(`${fieldLabel('incomeTaxReference', 'Income tax reference number')} must be 10 digits starting with 0, 1, 2 or 3: "${emp.taxNumber}"`);
   }
@@ -42,7 +47,15 @@ export function validateEmployee(emp: EmployeeInput): void {
   if (emp.taxPeriodStart < `${emp.yearOfAssessment - 1}0101`) {
     throw new UsageError(`${fieldLabel('taxPeriodStart', 'Certificate tax period start date')} ${emp.taxPeriodStart} is before 1 January ${emp.yearOfAssessment - 1}`);
   }
-  // BRS p. 33: 3210 cannot be greater than 3200.
+  const latest = latestTaxPeriodEnd(asOf);
+  if (emp.taxPeriodEnd > latest) {
+    throw new UsageError(`${fieldLabel('taxPeriodEnd', 'Certificate tax period end date')} ${emp.taxPeriodEnd} is more than 30 days after today `
+      + `(BRS V25.3.0 p. 32): this certificate can be filed from ${earliestFilingDay(emp.taxPeriodEnd)}`);
+  }
+  // BRS p. 33: N3.4 (at most 999.9999); 3210 cannot be greater than 3200.
+  if (emp.payPeriodsInYear > 999.9999) {
+    throw new UsageError(`${fieldLabel('payPeriodsInYear', 'Pay periods in the year')} must be at most 999.9999: ${emp.payPeriodsInYear}`);
+  }
   if (!(emp.payPeriodsInYear > 0) || !(emp.payPeriodsWorked > 0) || emp.payPeriodsWorked > emp.payPeriodsInYear) {
     throw new UsageError(`${fieldLabel('payPeriodsWorked', 'Pay periods worked')} must be more than 0 and not more than `
       + `the pay periods in the year (code 3200): ${emp.payPeriodsWorked} of ${emp.payPeriodsInYear}`);
@@ -80,4 +93,19 @@ export function assertIncomeTaxReference(emp: EmployeeInput, it3aReason: string 
   const why = it3aReason === null ? 'PAYE was withheld' : `the IT3(a) reason is ${it3aReason}`;
   throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${fieldLabel('incomeTaxReference', 'income tax reference number')} `
     + `is required because ${why}. Capture the employee's tax number on the employee record.`);
+}
+
+const fromCCYYMMDD = (d: string): Date => new Date(Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6, 8)));
+const displayDay = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** BRS V25.3.0 p. 32 (3180): "cannot be greater than the current date plus 30 days" (local calendar days). */
+export function latestTaxPeriodEnd(asOf: Date): string {
+  const d = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() + 30);
+  return localCCYYMMDD(d);
+}
+
+/** The first day a certificate whose tax period ends on `end` may be filed (30 days before it), YYYY-MM-DD. */
+export function earliestFilingDay(end: string): string {
+  const e = fromCCYYMMDD(end);
+  return displayDay(new Date(e.getFullYear(), e.getMonth(), e.getDate() - 30));
 }

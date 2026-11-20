@@ -21,6 +21,10 @@ export function loadCertificateAggregates(
       SUM(prl.uif_employee) AS total_uif_emp,
       SUM(prl.uif_employer) AS total_uif_empr,
       SUM(prl.sdl)          AS total_sdl,
+      -- The first and last day paid in the period (the run date, else its month's last day): the certificate tax period of a
+      -- leaver paid after leaving (3170 / 3180, easyFileInput), whose employment dates are outside it.
+      MIN(COALESCE(prh.run_date, (make_date(prh.period_year, prh.period_month, 1) + INTERVAL '1 month - 1 day')::date)) AS first_paid,
+      MAX(COALESCE(prh.run_date, (make_date(prh.period_year, prh.period_month, 1) + INTERVAL '1 month - 1 day')::date)) AS last_paid,
       -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
       COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
       -- Inside those lines: the taxable 3605 and the non-cash benefits, each floored at nil per line (the 3605 leaves the employee's 3605 and is

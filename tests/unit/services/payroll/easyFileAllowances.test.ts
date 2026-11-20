@@ -4,10 +4,16 @@
  * benefit which is subject to PAYE" (p. 105; mandatory when 3701 + 3802 + 3816 is above zero and within 20-80% of it,
  * p. 54), 4474 the employer's medical contribution = 3810 (p. 103), 4497 totals the 40 / 44 / 45 codes (p. 57: "Total of all values specified under 40-deduction, 44-contribution and 45-information codes", so 4474 and 4582 count).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterAll, vi } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { contractorAwareReason } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { allowanceCertificateFields } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
+
+// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
+// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
+// built while the suite is collected).
+vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
+afterAll(() => { vi.useRealTimers(); });
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001', yearOfAssessment: 2027, surname: 'Molefe', firstNames: 'Thandi', initials: 'T',

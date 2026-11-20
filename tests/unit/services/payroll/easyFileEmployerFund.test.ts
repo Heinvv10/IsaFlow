@@ -7,9 +7,15 @@
  *   4001 must be completed" (likewise 4473 with 3825 and 4003, 4475 with 3828 and 4006);
  * - p. 57: 4497 totals every 40xx / 44xx / 45xx value.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterAll, vi } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+
+// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
+// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
+// built while the suite is collected).
+vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
+afterAll(() => { vi.useRealTimers(); });
 
 const base: EmployeeInput = {
   certificateNumber: '712345678920270200000000000001', yearOfAssessment: 2027, surname: 'Molefe', firstNames: 'Thandi',

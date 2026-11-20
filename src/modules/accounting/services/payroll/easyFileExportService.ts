@@ -46,7 +46,7 @@
  */
 
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
-import { assertIncomeTaxReference, validateEmployee } from './easyFileEmployeeChecks';
+import { assertIncomeTaxReference, earliestFilingDay, latestTaxPeriodEnd, validateEmployee } from './easyFileEmployeeChecks';
 import { certificateField } from './easyFileCertificateCodes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
@@ -137,8 +137,20 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
-export function buildEmployeeRecord(emp: EmployeeInput): string[] {
-  validateEmployee(emp);
+/** Every refusal of a certificate names its employee and certificate number (a file holds many). */
+export function buildEmployeeRecord(emp: EmployeeInput, asOf: Date = new Date()): string[] {
+  try {
+    return employeeRecord(emp, asOf);
+  } catch (err) {
+    if (err instanceof UsageError && !err.message.includes(emp.certificateNumber)) {
+      throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+function employeeRecord(emp: EmployeeInput, asOf: Date): string[] {
+  validateEmployee(emp, asOf);
   const birth3080 = birthDate3080(emp);
   const lumpSums = emp.lumpSums ?? [];
   const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
@@ -227,10 +239,19 @@ export function buildIrp5File(input: BuildInput): string {
   if (input.employees.length === 0) {
     throw new UsageError('Cannot build an IRP5 file with zero employees');
   }
+  const asOf = input.asOf ?? new Date();
+  // BRS V25.3.0 p. 32: no 3180 more than 30 days after today. Said once for the file (an annual file built before the
+  // year's last 30 days), before any certificate repeats it.
+  const lastEnd = input.employees.map(e => e.taxPeriodEnd).sort().at(-1)!;
+  if (lastEnd > latestTaxPeriodEnd(asOf)) {
+    const kind = String(input.employer.reconciliationPeriod).endsWith('08') ? 'interim' : 'annual';
+    throw new UsageError(`The ${kind} e@syFile file for tax year ${input.employer.transactionYear} can be built from ${earliestFilingDay(lastEnd)}: `
+      + `SARS refuses a certificate tax period (code 3180) ending more than 30 days after today, and this period ends on ${lastEnd}.`);
+  }
   const lines: string[] = [];
   lines.push(...buildEmployerRecord(input.employer));
   for (const emp of input.employees) {
-    lines.push(...buildEmployeeRecord(emp));
+    lines.push(...buildEmployeeRecord(emp, asOf));
   }
   const recordCount = 1 + input.employees.length; // 2010 + each 3010
   lines.push(...buildTrailerRecord(recordCount));

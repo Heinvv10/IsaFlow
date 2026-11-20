@@ -20,7 +20,7 @@ import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/d
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
-  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
+  ageAtYearEnd, certificateTaxPeriod, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
@@ -199,12 +199,19 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const inCash = unflaggedFringe.get(String(row.id));
     if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
-    const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
-    const endDate = toCCYYMMDD(row.end_date);
-    // An interim certificate does not know a leaving date after August (the employee was employed at its end).
-    const certEndDate = endDate && (kind === 'annual' || endDate <= yoaEndInclusive) ? endDate : null;
-    const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
-    const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
+    // 3170 / 3180: the period cut to the employment (an interim certificate does not know a leaving date after August);
+    // a leaver paid after leaving has the first and last payment dates in the period (certificateTaxPeriod).
+    const paid = [toCCYYMMDD(agg.first_paid), toCCYYMMDD(agg.last_paid), standalone.firstPaid?.replaceAll('-', ''), standalone.lastPaid?.replaceAll('-', '')]
+      .filter((d): d is string => !!d).sort();
+    const taxPeriod = certificateTaxPeriod({
+      first: yoaStart, last: yoaEndInclusive, employmentStart: toCCYYMMDD(row.start_date), employmentEnd: toCCYYMMDD(row.end_date),
+      firstPaid: paid[0], lastPaid: paid[paid.length - 1],
+    });
+    if (!taxPeriod) {
+      throw new EasyFileInputRefusal('validation', `${who}: employed at no point of the period and no payment date is known, `
+        + 'so no certificate tax period (codes 3170 / 3180) can be stated. Check the employee\'s start and end dates.');
+    }
+    const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });

@@ -3,10 +3,16 @@
  * with no PAYE the certificate is an IT3(a) with 4150 = 03 (SARS BRS V25.3.0 p. 109, valid with 3616 per p. 62), over or under the
  * R99 000 threshold alike (as 3601 with no tax over the threshold, nilTaxReason would refuse the whole file).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterAll, vi } from 'vitest';
 import { contractorAwareReason, splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+
+// A 2027 certificate ends on 28 February 2027: the BRS lets 3180 be at most 30 days after today (p. 32), so these
+// tests run on a day the 2027 file can be built (wave 6 EZF). Only Date is faked, from module load (some records are
+// built while the suite is collected).
+vi.useFakeTimers({ toFake: ['Date'], now: new Date(2027, 2, 15) });
+afterAll(() => { vi.useRealTimers(); });
 
 describe('splitContractorIncome: decided per line, never from the status today; ALL contractor income is 3616', () => {
   const z = { contractorAnnual: 0, contractorDirective: 0, contractorNonCash: 0, annualAll: 0 };

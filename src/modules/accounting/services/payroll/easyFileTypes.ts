@@ -82,4 +82,6 @@ export interface LumpSumInput {
 export interface BuildInput {
   employer: EmployerInput;
   employees: EmployeeInput[];
+  /** "Today" for the BRS rules that read the current date (3180: at most 30 days after it); default the clock. */
+  asOf?: Date;
 }
