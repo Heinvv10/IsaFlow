@@ -10,7 +10,7 @@
  */
 import type { McpTool } from '../types';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
-import { storedCreditNoteRate, typedCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedVat';
+import { creditNoteVatAndTotal, storedCreditNoteRate, typedCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedVat';
 import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 import {
   validateCreditNoteLinks,
@@ -20,7 +20,7 @@ import { planMirroredSupplierNote } from '@/modules/accounting/services/ap/suppl
 import { mcpPostingOpts } from '../mcpActor';
 import { MIRROR_ARG_SCHEMA, mirrorReply, readMirrorArgs } from './creditNoteMirrorArgs';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { hasWholeCents } from '@/lib/money/wholeCents';
+import { MCP_MONEY_FIELDS, creditNoteMoneyProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
 
 const TYPES = ['customer', 'supplier'] as const;
 
@@ -55,7 +55,7 @@ export const createCreditNoteTool: McpTool = {
       credit_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       subtotal: { type: 'number', exclusiveMinimum: 0, description: 'NET of VAT' },
       tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %; default: the linked document\'s rate, else the standard rate on credit_date (against an invoice with a VAT type per line: accepted only when it gives the required VAT)' },
-      tax_amount: { type: 'number', minimum: 0, description: 'The VAT as a figure, instead of tax_rate. Omitted on a note linked to an invoice with a VAT type per line: that invoice\'s remaining VAT in proportion.' },
+      tax_amount: { type: 'number', minimum: 0, description: 'The VAT as a figure, instead of tax_rate (sent with tax_rate, the rate must give exactly this figure on the subtotal, or both are refused). Omitted on a note linked to an invoice with a VAT type per line: that invoice\'s remaining VAT in proportion.' },
       reason: { type: 'string' },
       duplicate_of: {
         type: 'string',
@@ -84,35 +84,15 @@ export const createCreditNoteTool: McpTool = {
     });
     if (bad) return bad;
 
-    // Non-positive subtotals invert the note's GL at approve — a negative
-    // credit note is an invoice wearing the wrong document type, and it would
-    // pass every downstream balance check while moving the ledger the wrong
-    // way. The REST route guards its line items for the same reason.
-    // JSON numbers only (#1701): Number() reads "" / [] / false as 0 and true as 1.
-    const subtotal = typeof args.subtotal === 'number' ? args.subtotal : Number.NaN;
-    if (!Number.isFinite(subtotal) || subtotal <= 0) {
-      return toolError('subtotal must be a positive number (net of VAT)');
-    }
-    // Whole cents: a third decimal was rounded by the column, and create and approve then disagreed by a cent (#1701).
-    if (!hasWholeCents(subtotal)) return toolError('subtotal must be in whole cents');
-
-    let taxRate: number | undefined;
-    if (args.tax_rate !== undefined && args.tax_rate !== null) {
-      taxRate = typeof args.tax_rate === 'number' ? args.tax_rate : Number.NaN;
-      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
-        return toolError('tax_rate must be between 0 and 100');
-      }
-    }
-
-    let taxAmountArg: number | undefined;
-    if (args.tax_amount !== undefined && args.tax_amount !== null) {
-      // A number only: a tax_amount "" read as 0 disabled the typed default and stored a 0-VAT note.
-      taxAmountArg = typeof args.tax_amount === 'number' ? args.tax_amount : Number.NaN;
-      if (!Number.isFinite(taxAmountArg) || taxAmountArg < 0) return toolError('tax_amount must be a number of zero or more');
-      if (!hasWholeCents(taxAmountArg)) return toolError('tax_amount must be in whole cents');
-      // VAT above the net is no VAT any rate gives (the old bound was tax_rate <= 100).
-      if (taxAmountArg > subtotal) return toolError('tax_amount cannot be more than the subtotal');
-    }
+    // The money, before any read or write: the REST route's rule (creditNoteMoneyProblem), so both surfaces refuse
+    // the same requests in the same words. JSON numbers only (Number() read "" / [] / false as 0 and true as 1), whole
+    // cents, a positive subtotal (a negative one inverts the note's GL at approve), a VAT figure within the subtotal,
+    // and a tax_rate beside a tax_amount only when it gives that figure (#1701 round 3).
+    const moneyProblem = creditNoteMoneyProblem({ subtotal: args.subtotal, taxRate: args.tax_rate, taxAmount: args.tax_amount }, MCP_MONEY_FIELDS);
+    if (moneyProblem) return toolError(moneyProblem);
+    const subtotal = args.subtotal as number;
+    const taxRate = args.tax_rate == null ? undefined : args.tax_rate as number;
+    const taxAmountArg = args.tax_amount == null ? undefined : args.tax_amount as number;
 
     const clientId = strArg(args, 'client_id');
     const supplierId = strArg(args, 'supplier_id');
@@ -184,36 +164,35 @@ export const createCreditNoteTool: McpTool = {
     // about the second.
     const duplicateOf = strArg(args, 'duplicate_of');
     // The rate the service computes a note with no rate and no figure at (storedCreditNoteRate: the linked document's
-    // header rate, else the standard rate on the note's date): a header read, independent of any approval.
-    const taxRateForTotal = taxRate ?? (taxAmountArg === undefined && !mirrored
-      ? await storedCreditNoteRate(ctx.companyId, { customerInvoiceId, supplierInvoiceId, creditDate }, null) : 15);
-    const money = (n: number) => Math.round(n * 100) / 100;
+    // header rate, else the standard rate on the note's date): a header read, independent of any approval, made only
+    // when a total is compared at it (the replay's or the duplicate check's), and at most once.
+    let storedRate: Promise<number> | null = null;
+    const rateForTotal = (): Promise<number> => taxRate !== undefined ? Promise.resolve(taxRate)
+      : (storedRate ??= storedCreditNoteRate(ctx.companyId, { customerInvoiceId, supplierInvoiceId, creditDate }, null));
+    // A total as createCreditNote stores it (creditNoteVatAndTotal, exact cents), so a cent-edge note is neither
+    // reported as differing on replay nor missed by the duplicate check.
+    const totalOf = async (figure: number | undefined): Promise<number> =>
+      creditNoteVatAndTotal(subtotal, figure !== undefined ? 0 : await rateForTotal(), figure).totalAmount;
     // A customer note linked to an invoice with no figure given may be one against a TYPED invoice, whose VAT is the
     // invoice's remaining VAT in proportion: read only AFTER the replay, so a replay (by external_ref, after the note was
     // approved) returns the note instead of recomputing a figure its own approval moved. A replay always compares the
     // date and the subtotal (VAT-independent); the total only where the VAT is known without that read (a figure, a rate,
-    // mirror_bill, an unlinked or supplier note), so a linked customer note with no figure, typed or not, compares no total.
+    // mirror_bill, an unlinked or supplier note), so a linked customer note with no figure or rate compares no total.
     const typedCandidate = type === 'customer' && !mirrored && !!customerInvoiceId && taxAmountArg === undefined;
     // Before the duplicate-draft check: re-sending the same source note returns it, rather than a refusal.
     const replay = await createReplayOrLock(ctx, 'credit_note', xref, {
       creditNoteType: type as (typeof TYPES)[number],
-      // Rounded as createCreditNote stores it (tax first, then total), so a cent-edge note is not reported as differing.
       expect: {
         date: creditDate,
         subtotal,
-        totalAmount: mirrored ? money(subtotal + mirrored.taxAmount)
-          : taxAmountArg !== undefined ? money(subtotal + taxAmountArg)
-            : typedCandidate && taxRate === undefined ? null
-              : money(subtotal + money(subtotal * taxRateForTotal / 100)),
+        totalAmount: typedCandidate && taxRate === undefined ? null : await totalOf(mirrored?.taxAmount ?? taxAmountArg),
       },
     });
     if (replay) return replay;
     // The required VAT against a typed invoice (reads only); a tax_rate missing it is refused here, a registered refusal, pre-write.
     const typed = typedCandidate ? await typedCreditNoteVat(ctx.companyId, { type: 'customer', customerInvoiceId, subtotal, taxRate }) : null;
     const figure = typed?.taxAmount ?? taxAmountArg;
-    const total = mirrored
-      ? money(subtotal + mirrored.taxAmount)
-      : figure !== undefined ? money(subtotal + figure) : money(subtotal * (1 + taxRateForTotal / 100));
+    const total = await totalOf(mirrored?.taxAmount ?? figure);
 
     const duplicate = await findOpenDuplicateDraft(
       ctx.companyId,

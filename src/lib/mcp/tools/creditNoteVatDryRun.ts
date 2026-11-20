@@ -7,7 +7,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { requiredCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
+import { PROPORTIONAL, RECREATE, requiredCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 
 const cents = (n: number): number => Math.round(n * 100);
@@ -44,8 +44,7 @@ export async function proportionalVatRefusals(companyId: string, orderedIds: rea
       const required = cents(requiredCreditNoteVat({ remainingNet: st.r / 100, remainingVat: st.v / 100, subtotal: s / 100 }));
       if (tax !== required) {
         why = `${label} reverses ${money(s)} of an invoice with ${money(st.r)} left, so its VAT must be ${money(required)}, not ${money(tax)}. `
-          + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-          + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.';
+          + `${PROPORTIONAL} ${RECREATE}`;
       }
     }
     if (why) { out.set(id, `vat_split_refused: ${why}`); continue; }

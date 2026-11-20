@@ -14,6 +14,7 @@ import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP } from '@/components/accounting/formActionBar';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { creditNoteVatAndTotal } from '@/modules/accounting/services/ar/creditNoteVatFigures';
 
 interface Client { id: string; company_name: string }
 
@@ -38,8 +39,11 @@ export default function NewCreditNotePage() {
     taxRate: 15,
   });
 
-  const taxAmount = Math.round(form.subtotal * form.taxRate / 100 * 100) / 100;
-  const totalAmount = form.subtotal + taxAmount;
+  // What the note is stored with (creditNoteVatAndTotal, exact cents: 33.30 at 15% is 5.00, not the float's 4.99); a
+  // subtotal or rate the route refuses shows no VAT.
+  const { taxAmount, totalAmount } = form.subtotal > 0 && Number.isFinite(form.subtotal) && form.taxRate >= 0 && form.taxRate <= 100
+    ? creditNoteVatAndTotal(form.subtotal, form.taxRate, null)
+    : { taxAmount: 0, totalAmount: Number.isFinite(form.subtotal) ? form.subtotal : 0 };
 
   useEffect(() => {
     apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {

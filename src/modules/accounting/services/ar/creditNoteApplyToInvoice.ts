@@ -91,7 +91,8 @@ export async function applyCreditNoteToInvoice(
   // A note approved UNLINKED debited default_revenue, none of the invoice's legs. Applied to a TYPED invoice it is applied
   // (as the MCP apply and the FIFO walk apply it) but NOT linked: linked, it would count in that invoice's reversed VAT
   // (invoiceCreditBasis sums tax_amount by link) while its net stayed on every leg, so the invoice could be credited its
-  // full net again on less VAT. Unlinked, invoiceCreditBasis does not see it at all. A legacy invoice links, as before.
+  // full net again on less VAT. Unlinked, invoiceCreditBasis counts the APPLICATION instead (round 3 M1): its net and VAT
+  // in the note's own proportion come off what the invoice has left to credit. A legacy invoice links, as before.
   const linkTo = !cn.customer_invoice_id && (await typedInvoiceCreditState(companyId, invoiceId)) ? null : invoiceId;
 
   // FX PR0: neither a foreign note nor a foreign invoice can be settled, whatever the switch.

@@ -23,23 +23,17 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
-import { parseDecimal, roundTo } from '../shared/functionalAmounts';
 import { exactCents } from '../shared/vatLineAmounts';
 import type { CreditNoteCreateInput } from '../../types/ar.types';
-import { CreditNoteVatSplitRefusal, requiredCreditNoteVat } from './creditNoteTypedSplit';
+import { CreditNoteVatSplitRefusal, PROPORTIONAL, requiredCreditNoteVat } from './creditNoteTypedSplit';
+import { vatAtRateCents } from './creditNoteVatFigures';
 import { typedInvoiceCreditState } from './invoiceRevenuePosting';
+
+// The exact-cents rule (pure, client-safe), re-exported for the server callers that import it from here.
+export { creditNoteVatAndTotal, vatAtRateCents } from './creditNoteVatFigures';
 
 const cents = exactCents;
 const money = (c: number): string => (c / 100).toFixed(2);
-const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
-
-/** ROUND(subtotal x rate / 100, 2) in exact decimal, half away from zero (33.30 at 15% is 5.00; the float product gave 4.99). */
-export function vatAtRateCents(subtotal: number, rate: number): number {
-  const s = parseDecimal(subtotal);
-  const r = parseDecimal(rate);
-  const d = roundTo({ digits: s.digits * r.digits, scale: s.scale + r.scale + 2 }, 2);
-  return Number(d.digits * 10n ** BigInt(2 - d.scale));
-}
 
 export async function typedCreditNoteVat(
   companyId: string,

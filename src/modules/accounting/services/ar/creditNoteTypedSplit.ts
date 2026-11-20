@@ -68,6 +68,19 @@ export function requiredCreditNoteVat(input: { remainingNet: number; remainingVa
 }
 
 /**
+ * What an UNLINKED customer note's application to an invoice (credit_note_allocations.amount_allocated, a gross figure)
+ * settles of that invoice's net and VAT: split by the note's own subtotal : tax_amount, VAT rounded half away from zero
+ * to the cent and the net the rest, so the two add up to the applied amount exactly. All of a 50 + 7.50 note is
+ * 50 / 7.50; 115 of a 200 + 30 note is 100 / 15 (#1701 round 3 M1: invoiceCreditBasis counts it against the invoice).
+ */
+export function appliedNetAndVat(applied: number, subtotal: number, taxAmount: number): { net: number; vat: number } {
+  const a = cents(applied);
+  const gross = cents(subtotal) + cents(taxAmount);
+  const vat = gross > 0 ? mulDivRound(a, cents(taxAmount), gross) : 0;
+  return { net: (a - vat) / 100, vat: vat / 100 };
+}
+
+/**
  * A gross amount (a dispute's) split into a subtotal and the VAT requiredCreditNoteVat gives it, adding up to the gross
  * exactly; null when no subtotal within two cents of the proportional one does (the gross is more than is left), and
  * null (a refusal, never a throw) when nothing is left or the VAT left is negative (hand-made data; approve refuses it).
@@ -86,12 +99,13 @@ export function splitGrossProportionally(gross: number, remainingNet: number, re
   return null;
 }
 
-const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
+/** The one wording of the proportional-only rule, on every surface that refuses by it (#1701 round 3 Q4). */
+export const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
 /**
  * What to do about it (#1701 round 2): a draft whose VAT was right when it was created goes stale when a sibling draft on
  * the same invoice is approved first (the invoice's remaining VAT moved), and approve stays exact.
  */
-const RECREATE = 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.';
+export const RECREATE = 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.';
 
 /** The note's revenue debits and allocation rows against a typed invoice's legs. Throws CreditNoteVatSplitRefusal. */
 export function allocateTypedCreditNote(

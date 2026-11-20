@@ -20,7 +20,7 @@ import { CreditNoteDimensionRefusal, creditNoteHeaderTags } from './creditNoteHe
 import { readCodingId } from './invoiceLineCoding';
 import { assertBillLineAccounts } from '../ap/billLineAccountGuard';
 import { assertSupplierNoteHeaderTags } from '../ap/supplierCreditNoteExpenseLines';
-import { storedCreditNoteRate, typedCreditNoteVat } from './creditNoteTypedVat';
+import { creditNoteVatAndTotal, storedCreditNoteRate, typedCreditNoteVat } from './creditNoteTypedVat';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -144,10 +144,8 @@ export async function createCreditNote(companyId: string,
     const typed = await typedCreditNoteVat(companyId, input);
     // No rate named: one rule (storedCreditNoteRate), so the stored rate never contradicts the stored VAT.
     const taxRate = typed?.taxRate ?? await storedCreditNoteRate(companyId, input, input.taxAmount ?? null);
-    const taxAmount = typed ? typed.taxAmount : input.taxAmount != null
-      ? Math.round(input.taxAmount * 100) / 100
-      : Math.round(input.subtotal * taxRate / 100 * 100) / 100;
-    const totalAmount = Math.round((input.subtotal + taxAmount) * 100) / 100;
+    // Exact cents (creditNoteVatAndTotal): the float product stored 4.99 on 33.30 at 15% (#1701 round 3).
+    const { taxAmount, totalAmount } = creditNoteVatAndTotal(input.subtotal, taxRate, typed ? typed.taxAmount : input.taxAmount);
 
     // supplier_id is a UUID column (migration 202) referencing suppliers(id),
     // NOT an integer. The previous `Number(input.supplierId)` turned every real

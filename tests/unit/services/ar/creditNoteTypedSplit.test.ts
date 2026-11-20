@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CreditNoteVatSplitRefusal, allocateTypedCreditNote, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
+  CreditNoteVatSplitRefusal, PROPORTIONAL, RECREATE, allocateTypedCreditNote, appliedNetAndVat, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
 } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { RevenueLeg } from '@/modules/accounting/services/ar/invoiceRevenueLines';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
@@ -95,24 +95,19 @@ describe('the proportional rule, case by case', () => {
   it.each([
     ['mixed: 150 + 22.50 (15% of 150)', MIXED(), 150, 150, 22.5,
       'Credit note CN-9 reverses 150.00 of an invoice with 1500.00 left, so its VAT must be 15.00, not 22.50. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 50.50 + 7.58 (the rate on 50.50)', TEN_X_10_10(), 15.2, 50.5, 7.58,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.58. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.03: 50.15 + 7.52', TEN_X_10_03(), 15, 50.15, 7.52,
       'Credit note CN-9 reverses 50.15 of an invoice with 100.30 left, so its VAT must be 7.50, not 7.52. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 50.50 + 7.59 (one cent under)', TEN_X_10_10(), 15.2, 50.5, 7.59,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.59. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 101.00 + 15.21 (clearing, one cent over)', TEN_X_10_10(), 15.2, 101, 15.21,
       'Credit note CN-9 reverses 101.00 of an invoice with 101.00 left, so its VAT must be 15.20, not 15.21. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines. '
-      + 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
       'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
     ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 must credit a positive amount.'],
@@ -184,6 +179,17 @@ describe('splitGrossProportionally (dispute notes)', () => {
     'null, not a throw, for gross %s against net %s and VAT %s left', (g, r, v) => {
       expect(splitGrossProportionally(g, r, v)).toBeNull();
     });
+});
+
+describe('appliedNetAndVat (an unlinked note applied to a typed invoice, #1701 round 3 M1)', () => {
+  it.each([
+    ['all of a 50 + 7.50 note', 57.5, 50, 7.5, { net: 50, vat: 7.5 }],
+    ['115 of a 200 + 30 note', 115, 200, 30, { net: 100, vat: 15 }],
+    ['half of a 50 + 7.50 note', 28.75, 50, 7.5, { net: 25, vat: 3.75 }],
+    ['one cent of a 100 + 15 note: VAT 0.0013 rounds to 0', 0.01, 100, 15, { net: 0.01, vat: 0 }],
+    ['a cent edge, 10 of a 33.30 + 5.00 note: VAT 1.3054 -> 1.31', 10, 33.3, 5, { net: 8.69, vat: 1.31 }],
+    ['a zero-VAT note: all net', 40, 40, 0, { net: 40, vat: 0 }],
+  ] as const)('%s', (_l, applied, subtotal, tax, expected) => expect(appliedNetAndVat(applied, subtotal, tax)).toEqual(expected));
 });
 
 describe('legsAreTyped', () => {

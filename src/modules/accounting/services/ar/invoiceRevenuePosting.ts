@@ -15,7 +15,7 @@ import {
   allocateCreditNote, isRevenueCoded, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
 import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
-import { allocateTypedCreditNote, legsAreTyped } from './creditNoteTypedSplit';
+import { allocateTypedCreditNote, appliedNetAndVat, legsAreTyped } from './creditNoteTypedSplit';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -114,6 +114,7 @@ export async function typedInvoiceCreditState(companyId: string, invoiceId: stri
 /**
  * The invoice journal's revenue legs (what live earlier notes took recorded on each), the pre-874 notes to replay, and
  * for a typed invoice its remaining VAT (VAT Output legs less the tax of live earlier customer notes; null if legacy).
+ * A typed invoice also replays the net, and takes off the VAT, of the live unlinked notes applied to it.
  * Live = not draft, not cancelled; `noteId` (the note being approved, a draft at this read) is excluded as well.
  */
 async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: string, defaultRevenueAccountId: string):
@@ -168,6 +169,23 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
   }));
   const replayed = legacy.map((e) => Number(e.subtotal));
   if (!legsAreTyped(legs)) return { legs, replayed, remainingVat: null };
+  // Live UNLINKED customer notes APPLIED to this typed invoice (#1701 round 3 M1). Applying one does not link it
+  // (creditNoteApplyToInvoice, the MCP apply and the FIFO walk), so neither its revenue rows nor its link count it, yet
+  // it settled the invoice: each application is split into the net and VAT it settles by the note's own
+  // subtotal : tax_amount (appliedNetAndVat); the net is taken pro rata like a replayed note, the VAT off the remaining
+  // VAT. Unapply deletes the row and cancel reverses the note, so either gives the share back.
+  const appliedUnlinked = (await sql`
+    SELECT cna.amount_allocated, cn.subtotal, cn.tax_amount
+    FROM credit_note_allocations cna
+    JOIN credit_notes cn ON cn.id = cna.credit_note_id AND cn.company_id = cna.company_id
+    WHERE cna.company_id = ${companyId}::UUID AND cna.invoice_id = ${invoiceId}::UUID
+      AND cn.type = 'customer' AND cn.customer_invoice_id IS NULL
+      AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
+    ORDER BY cn.approved_at NULLS FIRST, cn.id
+  `) as Record<string, unknown>[];
+  const shares = appliedUnlinked.map((r) => appliedNetAndVat(Number(r.amount_allocated), Number(r.subtotal), Number(r.tax_amount)));
+  replayed.push(...shares.map((x) => x.net));
+  const appliedVat = shares.reduce((a, x) => a + Math.round(x.vat * 100), 0) / 100;
   const vat = (await sql`
     SELECT (SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
             FROM customer_invoices ci
@@ -180,7 +198,7 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
               AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID) AS reversed_vat
   `) as Record<string, unknown>[];
   // One row always (two scalar subqueries).
-  const remainingVat = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) / 100 : 0;
+  const remainingVat = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat) - appliedVat) * 100) / 100 : 0;
   return { legs, replayed, remainingVat };
 }
 

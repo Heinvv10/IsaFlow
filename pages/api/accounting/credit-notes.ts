@@ -78,7 +78,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         supplierInvoiceId: supplierInvoiceId || undefined,
         creditDate,
         reason: reason || undefined,
-        subtotal: Number(subtotal),
+        subtotal,
         taxRate: taxRate ?? undefined,
         taxAmount: taxAmount ?? undefined,
         projectId: projectId || undefined,

@@ -51,6 +51,15 @@ describe('createCreditNote and a typed invoice', () => {
     expect(inserted()).toEqual({ subtotal: 150, taxRate: 0, taxAmount: 0, total: 150 });
   });
 
+  it.each([[33.3, 5, 38.3], [3.3, 0.5, 3.8], [43.3, 6.5, 49.8], [100.3, 15.05, 115.35]])(
+    'a rate gives its VAT in exact cents: %s at 15 percent stores %s, total %s (#1701 round 3 M2; the float stored 4.99 on 33.30)',
+    async (subtotal, taxAmount, total) => {
+      mockSql.mockResolvedValue([creditNoteRow()]);
+      typed.mockResolvedValueOnce(null);
+      await createCreditNote(COMPANY_ID, note({ customerInvoiceId: undefined, subtotal, taxRate: 15 }), USER_ID);
+      expect(inserted()).toEqual({ subtotal, taxRate: 15, taxAmount, total });
+    });
+
   it('a refusal is raised before the INSERT', async () => {
     mockSql.mockResolvedValue([creditNoteRow()]);
     typed.mockRejectedValueOnce(new CreditNoteVatSplitRefusal('must carry VAT of 15.00'));

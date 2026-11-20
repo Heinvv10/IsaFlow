@@ -21,9 +21,9 @@ vi.mock('@/lib/neon', () => ({
   }),
 }));
 
-import { storedCreditNoteRate, typedCreditNoteVat, vatAtRateCents } from '@/modules/accounting/services/ar/creditNoteTypedVat';
+import { creditNoteVatAndTotal, storedCreditNoteRate, typedCreditNoteVat, vatAtRateCents } from '@/modules/accounting/services/ar/creditNoteTypedVat';
 import { exactCents } from '@/modules/accounting/services/shared/vatLineAmounts';
-import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
+import { CreditNoteVatSplitRefusal, PROPORTIONAL } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 
 const CO = '11111111-1111-4111-8111-111111111111';
@@ -57,7 +57,7 @@ describe('a caller\'s taxRate on such a note', () => {
     expect((err as CreditNoteVatSplitRefusal).code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');
     expect((err as Error).message).toBe('A credit note crediting 150.00 of invoice INV-9 (1500.00 left to credit) must carry VAT of 15.00, '
       + 'its remaining VAT in proportion; taxRate 15 gives 22.50. Leave taxRate out (the VAT then defaults to 15.00) or send taxAmount 15.00. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.');
+      + PROPORTIONAL);
   });
 });
 
@@ -98,6 +98,18 @@ describe('the rate check is exact cents (#1701 round 1)', () => {
   it('so a full credit of 33.30 with VAT 5.00 left is accepted at taxRate 15', async () => {
     h.state = { remainingNet: 33.3, remainingVat: 5 };
     expect(await typedCreditNoteVat(CO, note({ subtotal: 33.3, taxRate: 15 }))).toEqual({ taxAmount: 5, taxRate: 15 });
+  });
+});
+
+describe('creditNoteVatAndTotal (#1701 round 3 M2 / L2): the one rule a stored, replayed and deduped total uses', () => {
+  it.each([
+    [33.3, 5, 38.3], [3.3, 0.5, 3.8], [43.3, 6.5, 49.8], [100.3, 15.05, 115.35],
+  ])('%s at 15 percent: VAT %s, total %s', (subtotal, tax, total) => {
+    expect(creditNoteVatAndTotal(subtotal, 15, null)).toEqual({ taxAmount: tax, totalAmount: total });
+  });
+  it('a figure is the VAT whatever the rate, the total its exact sum', () => {
+    expect(creditNoteVatAndTotal(0.1, 15, 0.2)).toEqual({ taxAmount: 0.2, totalAmount: 0.3 });
+    expect(creditNoteVatAndTotal(150, 15, 0)).toEqual({ taxAmount: 0, totalAmount: 150 });
   });
 });
 

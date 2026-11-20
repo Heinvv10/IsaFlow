@@ -37,6 +37,7 @@ vi.mock('@/lib/mcp/tools/externalRef', async (orig) => ({
 import routeHandler from '../../../../pages/api/accounting/credit-notes';
 import { createCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotesCreate';
 import { createReplayOrLock } from '@/lib/mcp/tools/externalRef';
+import { storedCreditNoteRate } from '@/modules/accounting/services/ar/creditNoteTypedVat';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -178,17 +179,76 @@ describe('#1701 round 2: JSON numbers only, and a figure beside a rate must agre
     ['tax_amount false', { tax_amount: false }, 'tax_amount must be a number of zero or more'],
     ['tax_amount true', { tax_amount: true }, 'tax_amount must be a number of zero or more'],
     ['tax_amount "15"', { tax_amount: '15' }, 'tax_amount must be a number of zero or more'],
-    ['tax_rate ""', { tax_rate: '' }, 'tax_rate must be between 0 and 100'],
-    ['tax_rate []', { tax_rate: [] }, 'tax_rate must be between 0 and 100'],
-    ['tax_rate false', { tax_rate: false }, 'tax_rate must be between 0 and 100'],
-    ['tax_rate true', { tax_rate: true }, 'tax_rate must be between 0 and 100'],
-    ['subtotal "150"', { subtotal: '150' }, 'subtotal must be a positive number (net of VAT)'],
-    ['subtotal true', { subtotal: true }, 'subtotal must be a positive number (net of VAT)'],
-    ['subtotal []', { subtotal: [] }, 'subtotal must be a positive number (net of VAT)'],
+    ['tax_rate ""', { tax_rate: '' }, 'tax_rate must be a number from 0 to 100'],
+    ['tax_rate []', { tax_rate: [] }, 'tax_rate must be a number from 0 to 100'],
+    ['tax_rate false', { tax_rate: false }, 'tax_rate must be a number from 0 to 100'],
+    ['tax_rate true', { tax_rate: true }, 'tax_rate must be a number from 0 to 100'],
+    ['subtotal "150"', { subtotal: '150' }, 'subtotal must be a positive amount'],
+    ['subtotal true', { subtotal: true }, 'subtotal must be a positive amount'],
+    ['subtotal []', { subtotal: [] }, 'subtotal must be a positive amount'],
   ])('MCP refuses %s, nothing read or created', async (_l, over, msg) => {
     const r = await createCreditNoteTool.handler({ ...args, ...over }, ctx);
     expect([r.isError, r.content[0]!.text]).toEqual([true, msg]);
     expect(m.typed).not.toHaveBeenCalled();
     expect(m.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('#1701 round 3: one money rule on both surfaces, exact cents, and the rate read only when it is used', () => {
+  const rest = { type: 'customer', clientId: CUSTOMER, creditDate: '2026-09-20' };
+  const args = { type: 'customer', client_id: CUSTOMER, credit_date: '2026-09-20', idempotency_key: 'k' };
+  const mcp = async (over: Record<string, unknown>) => (await createCreditNoteTool.handler({ ...args, ...over }, ctx)).content[0]!.text;
+  const snake = (msg: string) => msg.replace(/taxRate/g, 'tax_rate').replace(/taxAmount/g, 'tax_amount');
+
+  it.each([
+    [{ subtotal: 100, taxRate: 15, taxAmount: 0 }, 'taxRate 15 does not give taxAmount 0.00 on 100.00: send one of them, or both agreeing'],
+    [{ subtotal: 33.3, taxRate: 15, taxAmount: 4.99 }, 'taxRate 15 does not give taxAmount 4.99 on 33.30: send one of them, or both agreeing'],
+    [{ subtotal: 100, taxRate: 101 }, 'taxRate must be a number from 0 to 100'],
+    [{ subtotal: 100, taxRate: -1 }, 'taxRate must be a number from 0 to 100'],
+    [{ subtotal: -5 }, 'subtotal must be a positive amount'],
+    [{ subtotal: 1.234 }, 'subtotal must be in whole cents'],
+    [{ subtotal: 100, taxAmount: -1 }, 'taxAmount must be a number of zero or more'],
+    [{ subtotal: 100, taxAmount: 1.234 }, 'taxAmount must be in whole cents'],
+    [{ subtotal: 1, taxAmount: 2 }, 'taxAmount cannot be more than the subtotal'],
+  ])('REST and MCP refuse %j in the same words (MCP names its own fields), nothing read or created', async (money, msg) => {
+    expect(await post({ ...rest, ...money })).toMatchObject({ kind: 'badRequest', error: msg });
+    const { subtotal, taxRate, taxAmount } = money as { subtotal: number; taxRate?: number; taxAmount?: number };
+    expect(await mcp({ subtotal, ...(taxRate !== undefined ? { tax_rate: taxRate } : {}), ...(taxAmount !== undefined ? { tax_amount: taxAmount } : {}) }))
+      .toBe(snake(msg));
+    expect(m.typed).not.toHaveBeenCalled();
+    expect(vi.mocked(storedCreditNoteRate)).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
+  });
+
+  it('MCP takes a figure beside the rate that gives it (33.30 at 15% is 5.00)', async () => {
+    await createCreditNoteTool.handler({ ...args, subtotal: 33.3, tax_rate: 15, tax_amount: 5 }, ctx);
+    expect(m.create.mock.calls[0]![1]).toMatchObject({ subtotal: 33.3, taxRate: 15, taxAmount: 5 });
+  });
+
+  it.each([[33.3, 38.3], [3.3, 3.8], [43.3, 49.8], [100.3, 115.35]])(
+    'MCP %s at 15 percent: the replay expectation and the duplicate-draft total are both %s (exact cents, as stored)', async (subtotal, total) => {
+      await createCreditNoteTool.handler({ ...args, subtotal, tax_rate: 15, external_system: 'sage', external_ref: `R-${subtotal}` }, ctx);
+      expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { subtotal, totalAmount: total } });
+      expect((m.dup.mock.calls[0] as unknown[])[2]).toBe(total);
+    });
+
+  it('the stored rate is read only when a total is compared at it (Q5)', async () => {
+    const rate = vi.mocked(storedCreditNoteRate);
+    await createCreditNoteTool.handler({ ...args, subtotal: 100, tax_rate: 15 }, ctx);
+    expect(rate).not.toHaveBeenCalled();
+    await createCreditNoteTool.handler({ ...args, subtotal: 100, tax_amount: 15 }, ctx);
+    expect(rate).not.toHaveBeenCalled();
+    // A typed answer gives the figure: no replay total, and the duplicate total is the figure's.
+    m.typed.mockResolvedValueOnce({ taxAmount: 15, taxRate: 15 });
+    await createCreditNoteTool.handler({ ...args, customer_invoice_id: INV, subtotal: 150, external_system: 'sage', external_ref: 'Q5-T' }, ctx);
+    expect(rate).not.toHaveBeenCalled();
+    // A legacy linked invoice (no typed answer): read once, for the duplicate total only.
+    await createCreditNoteTool.handler({ ...args, customer_invoice_id: INV, subtotal: 150 }, ctx);
+    expect(rate).toHaveBeenCalledTimes(1);
+    // Unlinked with no rate and no figure: read once, for both the replay and the duplicate totals.
+    rate.mockClear();
+    await createCreditNoteTool.handler({ ...args, subtotal: 100, external_system: 'sage', external_ref: 'Q5-U' }, ctx);
+    expect(rate).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createReplayOrLock).mock.calls.at(-1)![3]).toMatchObject({ expect: { totalAmount: 115 } });
   });
 });
