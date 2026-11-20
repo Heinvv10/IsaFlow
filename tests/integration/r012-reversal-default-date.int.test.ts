@@ -59,6 +59,7 @@ async function periods(ranges: Array<[string, string, 'open' | 'closed']>): Prom
   let n = 0;
   for (const [start, end, status] of ranges) {
     n++;
+    // The year is inserted 'open' (fiscal_years_insert_open) and re-derives its status from the period below.
     await sql`
       INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
       VALUES (${fx.companyId}::UUID, ${2100 + n}, ${start}::DATE, ${end}::DATE)`;
