@@ -118,7 +118,7 @@ const READ_BY_HAND = new Set([
   // intercompany_pairing_partner_loan_balance's SUM over gl_journal_entries / gl_journal_lines. No DDL on either table, no dynamic SQL.
   '1012_intercompany_pairing.sql',
   // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
-  // gl_journal_entries and the three document tables). One column added, document_released_at (NOT_MATERIAL); none renamed
+  // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
   // or rebuilt, no dynamic SQL.
   '1018_ledger_column_immutability.sql',
 ]);

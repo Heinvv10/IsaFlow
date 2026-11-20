@@ -13,8 +13,10 @@ type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
 const KINDS: Kind[] = ['customer_invoices', 'supplier_invoices', 'credit_notes'];
 let z: Freeze;
 let legs: Leg[];
-const setLink = (kind: Kind, id: string, je: string | null) => (c: import('pg').PoolClient) =>
-  c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]);
+/** A link, or (null) the unlink as only a cancel writes it (migration 1018 round 3: status 'cancelled' in the same UPDATE). */
+const setLink = (kind: Kind, id: string, je: string | null) => (c: import('pg').PoolClient) => (je === null
+  ? c.query(`UPDATE ${kind} SET gl_journal_entry_id = NULL, status = 'cancelled' WHERE id = $1`, [id])
+  : c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]));
 /** A posted contra linked to `original`: the ledger's own reversal (written as the superuser). */
 async function reverse(original: string): Promise<string> {
   const contra = await journal(z, negate(legs));

@@ -62,15 +62,15 @@ describeIfDisposable('ledger column immutability, round 3 (migration 1018)', () 
       expect(err?.code).toBe('23514');
       expect(err?.constraint).toBe('gl_je_reinstates_cancelled_document');
       expect(await inForce(o)).toBe(false);
-      const released = ((await sql`SELECT document_released_at AS t FROM gl_journal_entries WHERE id = ${o}::UUID`) as Row[])[0]!.t;
-      expect(released !== null).toBe(kind !== 'credit_notes'); // the note keeps its link: its status is what the rule reads
+      const released = ((await sql`SELECT document_cancelled_at AS t FROM gl_journal_entries WHERE id = ${o}::UUID`) as Row[])[0]!.t;
+      expect(released).not.toBeNull(); // every cancel stamps its journal, the note's (which keeps its link) too
     });
 
   it('M1 the release stamp is kept: app_user cannot clear or move it', async () => {
     const { o, doc } = await approvedAndReversed('customer_invoices');
     await asApp(z, cancel('customer_invoices', doc), { commit: true });
-    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET document_released_at = NULL WHERE id = $1', [o])), /stays released/);
-    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET document_released_at = now() - interval '1 day' WHERE id = $1", [o])), /stays released/);
+    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET document_cancelled_at = NULL WHERE id = $1', [o])), /stays marked so/);
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET document_cancelled_at = now() - interval '1 day' WHERE id = $1", [o])), /stays marked so/);
   });
 
   it('M1 a chain held by a document that is NOT cancelled is still re-instated (the soft-delete undo shape)', async () => {

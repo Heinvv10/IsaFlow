@@ -17,8 +17,10 @@ type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
 const KINDS: Kind[] = ['customer_invoices', 'supplier_invoices', 'credit_notes'];
 let z: Freeze;
 let legs: Leg[];
-const setLink = (kind: Kind, id: string, je: string | null) => (c: PoolClient) =>
-  c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]);
+/** A link, or (null) the unlink as only a cancel writes it (migration 1018 round 3: status 'cancelled' in the same UPDATE). */
+const setLink = (kind: Kind, id: string, je: string | null) => (c: PoolClient) => (je === null
+  ? c.query(`UPDATE ${kind} SET gl_journal_entry_id = NULL, status = 'cancelled' WHERE id = $1`, [id])
+  : c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]));
 const setStatus = (kind: Kind, id: string, status: string) => (c: PoolClient) =>
   c.query(`UPDATE ${kind} SET status = $2 WHERE id = $1`, [id, status]);
 const link = (contra: string, original: string) => (c: PoolClient) =>

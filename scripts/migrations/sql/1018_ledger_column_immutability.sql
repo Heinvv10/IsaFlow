@@ -28,11 +28,10 @@
 --      The chain stays one line of fewer than 64 journals: a link onto a branched chain (legacy duplicates), or one that
 --      would make it 64 long, is refused (fail closed; gl_journal_in_force counts such a chain as in force).
 --      A link never puts back in force (odd parity, see gl_journal_in_force) a journal of the chain whose document was
---      cancelled: one a cancelled document still links (the credit-note cancel keeps its link), or one a document let go
---      of (document_released_at, set when the invoice and bill cancels clear their link, rule 4). Only a document cancel
---      clears a link, and a cleared journal is never linked again (rule 4 wants it in force), so the narrow rule closes
---      cancel -> re-reverse without touching the soft-delete undo, which re-instates the journal of a document that is
---      restored, not cancelled. The link takes the chain root's lock too (sorted with the two above), the lock a
+--      cancelled: one stamped document_cancelled_at (every cancel of a linked document stamps its journal, rules 4 and
+--      5, so deleting the document row afterwards removes no evidence), or one a cancelled document still links (a
+--      legacy cancel, before the stamp). The narrow rule closes cancel -> re-reverse without touching the soft-delete
+--      undo, which re-instates the journal of a document that is restored, not cancelled. The link takes the chain root's lock too (sorted with the two above), the lock a
 --      document's cancel and unlink take, so a cancel and a re-instating link wait for one another.
 --      reversed_at / reversed_by are a STAMP the caller may write (the claim sets it before the contra exists), so no
 --      rule below trusts them: "in force" is decided by the ledger alone (see gl_journal_in_force).
@@ -47,14 +46,16 @@
 --      it NULL -> X only when X is a posted, unreversed journal of the document's own company, itself no reversal
 --      contra and linked by no other document (the check holds a per-journal advisory lock so two sessions cannot both
 --      take it). It is not swapped X -> Y, and cleared X -> NULL only when X is no longer in force (a posted contra links
---      to it): exactly what approve, the take-on imports and cancel do. The clear stamps X.document_released_at (a
---      new, nullable column, set once and never changed or cleared again); X's chain is linear and under 64 when linked.
+--      to it), and only by the cancel itself (status moving to 'cancelled' in the same UPDATE): exactly what approve, the
+--      take-on imports and the invoice and bill cancels do. The clear stamps X.document_cancelled_at (a new, nullable
+--      column, set once and never changed or cleared again); X's chain is linear and under 64 when linked.
 --   5. A document moves to 'cancelled', or from an approved-side status back to 'draft' / 'pending_approval' (the same
 --      effect on the AR/AP population), only when the journal it still links is no longer in force: cancel reverses the
 --      chain head first, and the credit-note cancel keeps its link. A draft with a journal ("Post to GL") may still
 --      become pending_approval. "In force" is the parity of the reversal chain (gl_journal_in_force), so a chain
---      re-instated by O <- R <- R2 still holds its document. The check holds the journal's lock (rule 1). A cancelled
---      document that still links a journal (a credit note) does not leave 'cancelled': cancelling is final.
+--      re-instated by O <- R <- R2 still holds its document. The check holds the journal's lock (rule 1), and a cancel
+--      that keeps its link (the credit note) stamps the journal document_cancelled_at. A cancelled document never leaves
+--      'cancelled' (no application path un-cancels; the MCP tools say cancelling is final), linked or not.
 --   6. A journal that is linked as a reversal, or that a reversal links, has a closed line set: no line is added to it or
 --      removed from it, and a line's account may move only if the two journals are still exact negations at COMMIT
 --      (an account merge moves both sides in one transaction; one side alone is refused). The Demo company's wipe and
@@ -65,9 +66,8 @@
 -- journal with an arbitrary source / description (createJournalEntry serves ~60 callers as the same login); a draft or
 -- pending document set to 'approved' without a link (AR approve writes status before it posts and links; AP can approve
 -- with a NULL link: provisional bank-first, legacy rows); an approved document linked to a journal the caller posted
--- itself with the right source; a cancelled invoice or bill (its link already cleared) set back to an open status; a
--- legacy invoice or bill cancelled before this migration (its link cleared, no document_released_at) whose chain is
--- re-reversed. The reversal and the link rules above
+-- itself with the right source; a legacy invoice or bill cancelled before this migration (its link cleared, no
+-- document_cancelled_at) whose chain is re-reversed; a legacy cancelled credit note, deleted, then re-reversed. The reversal and the link rules above
 -- are what a consumer of the chain or the link should trust, not source. Rows already in the database are judged when
 -- next written (no scan, no backfill).
 --
@@ -76,7 +76,7 @@
 -- clears. A legacy document whose linked journal has a posted contra but whose own link was never cleared still clears.
 --
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
--- tables for an instant, bounded by lock_timeout. ADD COLUMN document_released_at (nullable, no default: no rewrite)
+-- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
 --
 -- Rollback:
@@ -85,7 +85,7 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_header_frozen ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_at_release ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_status ON public.gl_journal_entries;
---   DROP TRIGGER IF EXISTS trg_gl_je_document_release_kept ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_je_document_cancel_kept ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_set_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
 --   DROP INDEX IF EXISTS public.ix_gl_je_reversal_of_lookup;
@@ -93,18 +93,20 @@
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_ins ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_upd ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_cancel_in_force ON public.<table>;
+--   DROP TRIGGER IF EXISTS trg_doc_cancelled_final ON public.<table>;
 --   DROP FUNCTION IF EXISTS public.gl_je_reversal_no_insert(), public.gl_je_reversal_link(),
 --     public.gl_je_posted_header_frozen(), public.gl_je_reversed_status(), public.gl_je_reversed_at_release(), public.doc_journal_link_guard(),
 --     public.doc_cancel_in_force(), public.gl_journal_in_force(uuid), public.gl_lines_are_negation(uuid, uuid),
 --     public.gl_journal_is_linked(uuid), public.gl_jl_linked_set_frozen(), public.gl_jl_linked_account_check(),
---     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_release_kept();
---   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_released_at;
+--     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_cancel_kept(),
+--     public.doc_cancelled_final();
+--   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
 
--- The journal a document's cancel let go of (rule 4 sets it, rule 1 reads it). Not frozen in audit snapshots
+-- The journal of a document that was cancelled (rules 4 and 5 set it, rule 1 reads it). Not frozen in audit snapshots
 -- (tests/helpers/auditSnapshotColumns.ts): the cancel's reversal, which is frozen, is the ledger fact.
-ALTER TABLE public.gl_journal_entries ADD COLUMN IF NOT EXISTS document_released_at timestamptz;
+ALTER TABLE public.gl_journal_entries ADD COLUMN IF NOT EXISTS document_cancelled_at timestamptz;
 
 -- ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -315,7 +317,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.gl_journal_ancestors(NEW.reversal_of_id) a
                JOIN public.gl_journal_entries j ON j.id = a.id
               WHERE (a.dist + v_below) % 2 = 1
-                AND (j.document_released_at IS NOT NULL
+                AND (j.document_cancelled_at IS NOT NULL
                      OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled')
                      OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled')
                      OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled'))) THEN
@@ -406,10 +408,10 @@ CREATE OR REPLACE TRIGGER trg_gl_je_reversed_at_release
   EXECUTE FUNCTION public.gl_je_reversed_at_release();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_reversed_at_release;
 
--- document_released_at is set once (rule 4's unlink) and kept: clearing it would let rule 1 re-instate the chain. A
+-- document_cancelled_at is set once (a document's cancel, rules 4 and 5) and kept: clearing it would let rule 1 re-instate the chain. A
 -- caller setting it on a journal of its own only refuses that journal's re-instatement (fail closed), so NULL -> value
 -- is left open.
-CREATE OR REPLACE FUNCTION public.gl_je_document_release_kept()
+CREATE OR REPLACE FUNCTION public.gl_je_document_cancel_kept()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
@@ -418,16 +420,16 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  RAISE EXCEPTION 'gl_journal_entries: a journal a cancelled document let go of stays released' USING ERRCODE = '23514';
+  RAISE EXCEPTION 'gl_journal_entries: the journal of a cancelled document stays marked so' USING ERRCODE = '23514';
 END
 $$;
 
-CREATE OR REPLACE TRIGGER trg_gl_je_document_release_kept
-  BEFORE UPDATE OF document_released_at ON public.gl_journal_entries
+CREATE OR REPLACE TRIGGER trg_gl_je_document_cancel_kept
+  BEFORE UPDATE OF document_cancelled_at ON public.gl_journal_entries
   FOR EACH ROW
-  WHEN (OLD.document_released_at IS NOT NULL AND NEW.document_released_at IS DISTINCT FROM OLD.document_released_at)
-  EXECUTE FUNCTION public.gl_je_document_release_kept();
-ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_release_kept;
+  WHEN (OLD.document_cancelled_at IS NOT NULL AND NEW.document_cancelled_at IS DISTINCT FROM OLD.document_cancelled_at)
+  EXECUTE FUNCTION public.gl_je_document_cancel_kept();
+ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_cancel_kept;
 
 -- ── 6. the line set of a linked journal ────────────────────────────────────────────────────────────────────────
 
@@ -572,9 +574,12 @@ BEGIN
       RAISE EXCEPTION '%: a document''s journal in force cannot be unlinked (reverse it first)', TG_TABLE_NAME
         USING ERRCODE = '23514';
     END IF;
-    -- Only a cancel clears a link (rule 4): the journal it lets go of is never put back in force (rule 1 reads this).
-    UPDATE public.gl_journal_entries SET document_released_at = now()
-     WHERE id = OLD.gl_journal_entry_id AND company_id = NEW.company_id AND document_released_at IS NULL;
+    IF NEW.status IS DISTINCT FROM 'cancelled' OR OLD.status = 'cancelled' THEN
+      RAISE EXCEPTION '%: a document''s journal is unlinked only by its cancel', TG_TABLE_NAME USING ERRCODE = '23514';
+    END IF;
+    -- The cancel's journal is never put back in force (rule 1 reads this).
+    UPDATE public.gl_journal_entries SET document_cancelled_at = now()
+     WHERE id = OLD.gl_journal_entry_id AND company_id = NEW.company_id AND document_cancelled_at IS NULL;
     RETURN NEW;
   END IF;
   -- NULL -> X. One session at a time per journal, so two cannot both pass the "linked by no other document" test.
@@ -612,14 +617,32 @@ BEGIN
   END IF;
   -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this cancel, or this for it.
   PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
-  IF OLD.status = 'cancelled' THEN
-    RAISE EXCEPTION '%: a cancelled document that links a journal stays cancelled', TG_TABLE_NAME USING ERRCODE = '23514';
-  END IF;
   IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not cancelled or sent back to draft (reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';
   END IF;
+  -- A cancel that keeps its link (the credit note): its journal is never put back in force (rule 1 reads this), even
+  -- once the document row is gone.
+  IF NEW.status = 'cancelled' THEN
+    UPDATE public.gl_journal_entries SET document_cancelled_at = now()
+     WHERE id = NEW.gl_journal_entry_id AND company_id = NEW.company_id AND document_cancelled_at IS NULL;
+  END IF;
   RETURN NEW;
+END
+$$;
+
+-- A cancelled document stays cancelled, linked or not (S1: an unlink and an un-cancel in one UPDATE, or one after the
+-- other, dodged a link-only rule).
+CREATE OR REPLACE FUNCTION public.doc_cancelled_final()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION '%: a cancelled document stays cancelled (cancelling is final)', TG_TABLE_NAME USING ERRCODE = '23514';
 END
 $$;
 
@@ -637,12 +660,17 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.customer_invoices
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR OLD.status = 'cancelled'
-             OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
+CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
+  BEFORE UPDATE OF status ON public.customer_invoices
+  FOR EACH ROW
+  WHEN (OLD.status = 'cancelled' AND NEW.status IS DISTINCT FROM OLD.status)
+  EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
+ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.supplier_invoices
@@ -658,12 +686,17 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.supplier_invoices
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR OLD.status = 'cancelled'
-             OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
+CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
+  BEFORE UPDATE OF status ON public.supplier_invoices
+  FOR EACH ROW
+  WHEN (OLD.status = 'cancelled' AND NEW.status IS DISTINCT FROM OLD.status)
+  EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.credit_notes
@@ -679,9 +712,14 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.credit_notes
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR OLD.status = 'cancelled'
-             OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
+CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
+  BEFORE UPDATE OF status ON public.credit_notes
+  FOR EACH ROW
+  WHEN (OLD.status = 'cancelled' AND NEW.status IS DISTINCT FROM OLD.status)
+  EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
+ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
