@@ -26,6 +26,7 @@ import {
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -56,4 +57,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

@@ -15,6 +15,7 @@ import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { payslipEmailActor } from '@/lib/payslipEmailApi';
 import { readPayslipEmailState, setPayslipEmailEnabled } from '@/modules/accounting/services/payroll/payslipEmailSettings';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({ enabled: z.boolean() }).strict();
 
@@ -32,4 +33,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, await setPayslipEmailEnabled(companyId, parsed.data.enabled, actor));
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))));

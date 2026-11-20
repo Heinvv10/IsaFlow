@@ -33,6 +33,7 @@ import { listVersions, type ReturnVersionView } from '@/modules/accounting/servi
 import { emp501Readiness } from '@/modules/accounting/services/returns/emp501Readiness';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { ReturnRefusal, type ReturnVersion } from '@/modules/accounting/services/returns/returnVersionTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Query = z.object({ periodStart: ISO_DATE, periodEnd: ISO_DATE });
@@ -107,4 +108,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));

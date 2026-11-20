@@ -22,6 +22,7 @@ import {
   payeTaxPeriodNumber,
 } from '@/modules/accounting/utils/payeTaxYear';
 import { latestPayrollRun } from '@/modules/accounting/services/payroll/payrollRunHeaders';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 interface CompanyRow {
   name: string;
@@ -79,4 +80,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withPayrollModule(withErrorHandler(handler)));

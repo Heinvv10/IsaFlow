@@ -200,6 +200,7 @@ export const createDraftQuoteTool: McpTool = {
 
 export const finalizeInvoiceTool: McpTool = {
   name: 'finalize_invoice',
+  approveModule: 'customers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve a DRAFT customer invoice (draft → approved, posts it to the GL) — irreversible. Requires the write:post permission.',
   scope: 'write:invoices',

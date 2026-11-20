@@ -19,6 +19,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { describePayRunApproval } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { describePayRunDecision } from '@/modules/accounting/services/payroll/payRunDecision';
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -41,4 +42,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, { ...run, lines, approval, approvalDecision, payslipsFinal });
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));

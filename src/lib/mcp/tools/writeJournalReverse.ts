@@ -61,6 +61,7 @@ function foreignDimensionWarnings(droppedLines: number): { code: string; detail:
 
 export const reverseJournalEntryTool: McpTool = {
   name: TOOL,
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Reverse a POSTED journal entry by posting a contra entry that offsets it line for line. '
     + 'The original KEEPS status "posted" and is marked reversed in metadata, so the pair nets to '

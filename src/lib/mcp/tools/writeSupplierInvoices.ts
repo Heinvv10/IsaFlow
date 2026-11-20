@@ -168,6 +168,7 @@ export const createSupplierInvoiceTool: McpTool = {
 
 export const approveSupplierInvoiceTool: McpTool = {
   name: 'approve_supplier_invoice',
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve a DRAFT supplier invoice and POST it to the ledger — DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. ' +
     'The invoice must be in draft or pending_approval; anything else is refused with its current status. '

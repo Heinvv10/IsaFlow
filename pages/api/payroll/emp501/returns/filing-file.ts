@@ -21,6 +21,7 @@ import { UUID } from '@/lib/schemas/common';
 import { downloadEmp501File } from '@/modules/accounting/services/returns/emp501FilingFile';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({ versionId: UUID, format: z.literal('irp5').default('irp5') });
 
@@ -49,4 +50,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));

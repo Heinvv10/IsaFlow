@@ -18,6 +18,7 @@ import {
   upsertCostCentreGlMapping,
   deleteCostCentreGlMapping,
 } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const PutBody = z.object({ expenseAccountId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }) }).strict();
 
@@ -45,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

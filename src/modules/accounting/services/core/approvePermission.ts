@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
 import { checkPermission } from '@/lib/auth/permissionService';
 import { logAuditOrThrow } from './auditTrailService';
 
-export type ApproveModule = 'suppliers' | 'customers' | 'accounts' | 'payroll' | 'budgets';
+export type ApproveModule = 'suppliers' | 'customers' | 'accounts' | 'payroll' | 'budgets' | 'banking' | 'vat' | 'group' | 'accountant';
 
 /** The module whose Approve governs each approvable document type (R-035 document types and purchase orders). */
 export const APPROVE_MODULE_BY_DOCUMENT: Readonly<Record<string, ApproveModule>> = Object.freeze({
@@ -36,7 +36,8 @@ export const APPROVE_MODULE_BY_DOCUMENT: Readonly<Record<string, ApproveModule>>
 
 const MODULE_LABEL: Record<ApproveModule, string> = {
   suppliers: 'Suppliers & AP', customers: 'Customers & AR', accounts: 'Chart of Accounts & GL', payroll: 'Payroll',
-  budgets: 'Budgets',
+  budgets: 'Budgets', banking: 'Banking & Reconciliation', vat: 'VAT & Tax', group: 'Group Consolidation',
+  accountant: "Accountant's Area",
 };
 
 export function approveRefusedMessage(module: ApproveModule, what: string): string {

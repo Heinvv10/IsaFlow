@@ -16,6 +16,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { isUuidParam } from '@/lib/validation';
 import { setComponentCountsAsRfi } from '@/modules/accounting/services/payroll/payrollComponentRfi';
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
@@ -37,4 +38,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

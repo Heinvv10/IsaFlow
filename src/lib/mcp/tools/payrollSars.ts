@@ -41,6 +41,7 @@ function lastDeclared(runDates: string[], paymentDates: string[]): string {
 
 export const emp201StatusTool: McpTool = {
   name: 'emp201_status',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'The SARS EMP201 position for a period: PAYE withheld, the ETI claimed against it, PAYE actually payable after that offset, UIF split into the employee and employer halves, SDL, and the pay runs each figure came from. ' +
     'It counts only runs in a DECLARABLE status — approved or paid. A draft or calculated run is not a finalised payroll and must not be declared, and a cancelled one never counts. It reports the runs it used so you can check that against list_pay_runs; if a month you expected is missing, the run was almost certainly never approved. ' +
@@ -136,6 +137,7 @@ export const emp201StatusTool: McpTool = {
 
 export const irp5DataTool: McpTool = {
   name: 'irp5_data',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Per-employee annual payroll totals for a SARS tax year, as an IRP5 / IT3(a) needs them: cash gross pay, non-cash fringe benefits by SARS code, taxable income, PAYE, the employee and employer UIF halves, SDL, ETI and net pay, with the number of pay runs behind each employee. ' +
     'The SA tax year runs 1 MARCH to 28 or 29 FEBRUARY, so tax_year 2026 means 2025-03-01 to 2026-02-28. Pass the year the tax year ENDS in. ' +

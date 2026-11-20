@@ -21,6 +21,7 @@ import {
   BULK_EMPLOYMENT_TYPES,
 } from '@/modules/accounting/services/payroll/payrollBulkEmployeeService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Filter = z
   .object({
@@ -56,4 +57,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));

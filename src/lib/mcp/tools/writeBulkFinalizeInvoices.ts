@@ -145,6 +145,7 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
 
 export const bulkFinalizeInvoicesTool: McpTool = {
   name: TOOL,
+  approveModule: 'customers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve and POST up to 100 DRAFT customer invoices in ONE call — each posts DR Accounts Receivable / CR Revenue + CR VAT Output and seals its PDF as evidence. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each invoice by its invoice_id (from list_customer_invoices or bulk_create_customer_invoices). '

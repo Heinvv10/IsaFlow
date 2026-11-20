@@ -17,6 +17,7 @@ import { requireUuidParam } from '@/lib/schemas/common';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { readEmployeeReadiness } from '@/modules/accounting/services/payroll/employeeReadinessRead';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -38,4 +39,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, read);
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))));

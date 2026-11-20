@@ -31,10 +31,7 @@ import { mayReadBudgetFigures } from './budgetFigures';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import {
-  type BulkApproveAdapter,
-  type DocumentState,
-  partitionDocuments,
-  postPartitionedDocuments,
+  type BulkApproveAdapter, type DocumentState, partitionDocuments, postPartitionedDocuments,
 } from './bulkApproveRunner';
 import {
   MAX_DOCUMENTS,
@@ -147,6 +144,7 @@ async function postWithGate(ctx: Parameters<BulkApproveAdapter<ApprovedRow>['pos
 
 export const bulkApproveSupplierInvoicesTool: McpTool = {
   name: TOOL,
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '

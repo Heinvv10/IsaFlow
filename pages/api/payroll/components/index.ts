@@ -23,6 +23,7 @@ import { paidOutsidePayrollRefusal } from '@/modules/accounting/services/payroll
 import {
   componentRfiRefusal, defaultCountsAsRfi, DEFINED_BENEFIT_REFUSAL, logDefinedBenefitRefusal,
 } from '@/modules/accounting/services/payroll/payrollComponentRfi';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -95,4 +96,4 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

@@ -16,6 +16,7 @@ import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFina
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 type Row = DbRow;
 
@@ -118,4 +119,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, summary);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(handler))));

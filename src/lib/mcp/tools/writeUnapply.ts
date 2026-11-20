@@ -23,6 +23,7 @@ const COMMON_TAIL =
 
 export const unapplySupplierPaymentTool: McpTool = {
   name: 'unapply_supplier_payment',
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     "Take a PROCESSED supplier payment's cash back off one bill (invoice_id) or every bill it is "
     + 'applied to, WITHOUT voiding the payment: each bill gets its balance back and the payment keeps '
@@ -74,6 +75,7 @@ export const unapplySupplierPaymentTool: McpTool = {
 
 export const unapplyCreditNoteTool: McpTool = {
   name: 'unapply_credit_note',
+  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
   description:
     "Take an approved credit note's credit back off one document (invoice_id) or every document it is "
     + 'applied to, WITHOUT cancelling the note: each document gets its balance back and the note keeps '

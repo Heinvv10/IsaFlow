@@ -15,6 +15,7 @@ import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { bankFileWriter, respondIfBankFileRefused, UUID } from '@/lib/payrollBankFileApi';
 import { settleBankFile } from '@/modules/accounting/services/payroll/payrollBankFileConfirm';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
@@ -35,4 +36,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))));

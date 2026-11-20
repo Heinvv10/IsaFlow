@@ -22,6 +22,7 @@ import { NOT_FOUND, guardCastableArgs, hasWholeCents, ok, strArg, toolError } fr
 
 export const adjustCreditNoteApplicationTool: McpTool = {
   name: 'adjust_credit_note_application',
+  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
   description:
     "Change how much of an APPROVED credit note is applied to ONE document (document_id): a customer invoice for "
     + 'a customer note, a supplier bill for a supplier note. new_amount is what the note should have applied to '

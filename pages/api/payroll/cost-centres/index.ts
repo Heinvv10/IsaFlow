@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterService';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const CreateBody = z
   .object({
@@ -62,4 +63,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

@@ -28,6 +28,7 @@ import {
   type ComponentConfig,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { countSeverity, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 export type { YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
@@ -165,4 +166,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, payload);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(handler))));

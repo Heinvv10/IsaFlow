@@ -20,6 +20,7 @@ import {
   applyPackageToEmployee,
   PayPackageNotFoundError,
 } from '@/modules/accounting/services/payroll/payPackageService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({
   packageId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }),
@@ -50,4 +51,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));

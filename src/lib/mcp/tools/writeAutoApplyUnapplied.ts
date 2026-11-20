@@ -59,6 +59,7 @@ export function parseAutoApplyUnappliedArgs(args: Record<string, unknown>): {
 
 export const autoApplyUnappliedTool: McpTool = {
   name: TOOL,
+  approveModule: 'by_subledger', // #1656: moduleFence asks this Approve before the handler
   description:
     'Apply the BACKLOG of unapplied supplier payments, customer receipts and credit notes to the '
     + "documents they settle: each contact's oldest open documents first, part-paying the one the "

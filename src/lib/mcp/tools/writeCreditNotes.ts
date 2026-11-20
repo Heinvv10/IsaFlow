@@ -51,6 +51,7 @@ export { createCreditNoteTool } from './writeCreditNotesCreate';
 
 export const approveCreditNoteTool: McpTool = {
   name: 'approve_credit_note',
+  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve a DRAFT credit note and POST it to the ledger. Requires the write:post permission. ' +
     'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. ' +
@@ -161,6 +162,7 @@ export const approveCreditNoteTool: McpTool = {
 
 export const cancelCreditNoteTool: McpTool = {
   name: 'cancel_credit_note',
+  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
   description:
     'Cancel a credit note. Requires the write:post permission. ' +
     'An approved, partially applied or applied note: REVERSES its journal entry with a reversing entry (the original stays posted) and un-applies the credit from EVERY document it was applied to — each one\'s amount_paid drops back and its status is recomputed, in the same transaction. ' +

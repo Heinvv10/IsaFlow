@@ -28,6 +28,7 @@ import {
   getPayrollEmployee,
   updatePayrollEmployee,
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -72,4 +73,4 @@ async function handler(
 }
 
 // The terms are pay detail: the request log masks them.
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS }));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS })));

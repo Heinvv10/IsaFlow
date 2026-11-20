@@ -114,6 +114,7 @@ function liveOrder<T extends { id: string }>(items: readonly T[], states: Map<st
 
 export const bulkApproveCreditNotesTool: McpTool = {
   name: TOOL,
+  approveModule: 'per_document', // #1656: mixed note types; the handler skips each note whose module Approve is missing
   description:
     'Approve and POST up to 100 DRAFT credit notes in ONE call. Requires the write:post permission. '
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '

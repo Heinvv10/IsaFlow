@@ -30,6 +30,7 @@ import { checkReportRateLimit, getClientIp, INTERACTIVE_REPORT_LIMIT } from '@/l
 import { getPayslips, PayslipNotFound } from '@/modules/accounting/services/payroll/payslipModel';
 import { buildPayslipPdf, payslipFilename } from '@/modules/accounting/services/payroll/payslipPdf';
 import { auditPayslipDownload } from '@/modules/accounting/services/payroll/payslipHistory';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -92,4 +93,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))));

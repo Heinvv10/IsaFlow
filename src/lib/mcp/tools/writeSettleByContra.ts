@@ -41,6 +41,7 @@ const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
 
 export const settleByContraTool: McpTool = {
   name: TOOL,
+  approveModule: 'by_subledger', // #1656: moduleFence asks this Approve before the handler
   description:
     'Settle a customer invoice or a supplier bill against another GL account — a loan, '
     + 'intercompany or director\'s account — WITHOUT any cash moving. Use it when the debt was '

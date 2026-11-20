@@ -25,6 +25,7 @@ import { updateEmployeeComponentDates } from '@/modules/accounting/services/payr
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -128,4 +129,4 @@ async function handler(
 }
 
 // The URL names the employee, so a logged amount is what that person earns.
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] }));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] })));

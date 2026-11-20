@@ -14,6 +14,7 @@ import { NOT_FOUND, guardCastableArgs, hasWholeCents, ok, strArg, toolError } fr
 
 export const assignEmployeeComponentTool: McpTool = {
   name: 'assign_employee_component',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Give an employee a pay component — a basic salary, an allowance, a deduction. '
     + 'This is what makes an employee payable: the run costs earnings from components, so an '
@@ -105,6 +106,7 @@ export const assignEmployeeComponentTool: McpTool = {
 
 export const endEmployeeComponentTool: McpTool = {
   name: 'end_employee_component',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Stop a pay component from a given date — a salary that changed, an allowance that ended. '
     + 'The assignment is CLOSED, never deleted, so past runs that costed it stay explainable. '

@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollLoanService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const CreateBody = z
   .object({
@@ -80,4 +81,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 }
 
 // The body names the employee, so a logged principal is what that person owes.
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['principal'] }));
+export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['principal'] })));

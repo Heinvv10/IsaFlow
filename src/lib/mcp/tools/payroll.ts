@@ -58,6 +58,7 @@ function postedThroughOr(value: string | null): string {
 
 export const listEmployeesTool: McpTool = {
   name: 'list_employees',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'List payroll employees with their employment status, start and end dates, and whether they are excluded from UIF. ' +
     'Returns EVERY status by default — active, terminated, suspended — because a listing that silently showed only active staff would hide exactly the leaver whose final pay run you are chasing. Pass status to narrow it. ' +
@@ -157,6 +158,7 @@ export const listEmployeesTool: McpTool = {
 
 export const listPayRunsTool: McpTool = {
   name: 'list_pay_runs',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'List payroll runs with their statutory totals — gross, PAYE, UIF (employee and employer combined), SDL, ETI and net pay — and whether each one actually reached the general ledger. ' +
     'posted_to_gl is the field that matters: a run can be calculated and approved and still have posted NOTHING, which is the state these books were found in. journal_entry_id names the journal when it did post. ' +
