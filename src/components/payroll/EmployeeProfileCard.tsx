@@ -30,6 +30,10 @@ export interface Employee {
   taxStatus?: 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
   /** Wave 6 PSP (migration 1013): set exactly for a personal service provider. */
   pspEntityType?: 'company' | 'trust' | null;
+  /** Wave 6 PSP-H (migration 1015): the entity particulars of a PSP's H certificate. */
+  pspEntityName?: string | null;
+  pspRegistrationNumber?: string | null;
+  pspTaxReference?: string | null;
   payBasis?: 'monthly' | 'hourly' | 'daily';
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
