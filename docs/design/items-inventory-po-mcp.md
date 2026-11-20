@@ -61,27 +61,31 @@ gains no statuses, so billed, closed and cancelled POs commit nothing). Attachme
 `supplier_purchase_orders` (247) is retired into `purchase_orders` + `po_items`. The migration:
 
 - copies every legacy header and line **under its own id**, so a bill header naming a legacy id names its canonical copy;
-  figures as stored (subtotal / tax / total, each line's `line_total` and `tax_amount`), quantity to 2 dp, `unit_price` =
-  `line_total / quantity` at 6 dp (1001's effective price: a line's discount is in it), so `round(quantity x unit_price)` =
-  `line_total`; `item_id` / `gl_account_id` only when they are the company's; quantities received / invoiced carried;
-- maps statuses: draft -> draft, sent -> approved, partially_received / received / cancelled as they are, invoiced -> closed
-  (from received). partially_invoiced: when a live bill (not cancelled or deleted) of the same company and supplier names it
-  in its header -> received when every line is fully received, else partially_received (it keeps committing and the backfill
-  links the bill); otherwise -> closed from received / partially_received by the same test, with a NOTICE each (no bill can
-  net its billed part off, so committing the whole order would overstate). Note: a header-only link does not reduce committed
-  for an open PO (`mcp-po-bill-links.md` known limits); a bill whose lines named the legacy line ids nets, as those ids are
-  the copies' `po_items` ids;
-- puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every line;
+  figures as stored (the legacy `line_total` is net: the SPO writer stored round(quantity x unit_price, 2) with the VAT in
+  `tax_amount`), quantity to 2 dp, `unit_price` = `line_total / quantity` at 6 dp (1001's effective price: a discount is
+  in it). A line whose 2-dp quantity is 0 or cannot give its total back to the cent is copied as 1 unit at its total, with
+  "(qty <original> @ <price>)" in its description. `item_id` / `gl_account_id` only when they are the company's;
+- maps statuses: draft and cancelled stay. Any other order with **billing evidence** (a live bill of its company and
+  supplier naming it in `purchase_order_id`, any status; a line with `qty_invoiced > 0`; a legacy invoiced /
+  partially_invoiced status) is copied **closed**, from received / partially_received / approved by quantity, with a
+  NOTICE. Why: a header link nets nothing from committed (`mcp-po-bill-links.md` known limits), so an open copy would
+  commit what its bills already put in actuals (review round 1, reproduced on `readCommitments`). The cost: a partly billed
+  order's unbilled remainder drops out of committed, and no app path reopens a closed copy today
+  (`set_purchase_order_status` needs an `external_ref`, which no copy carries). Without evidence: sent -> approved,
+  partially_received and received stay (committing). A NOTICE per company and order month gives what entered committed;
+- puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every
+  line (another company's centre goes to `notes`); `approved_by` / `approved_at` stay NULL (no reader needs them);
 - never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with "was SPO <number>" in its
-  notes, and a NOTICE names it. No copy carries `external_ref` (that would make it an "imported" PO for
-  `set_purchase_order_status`);
-- reads the legacy `line_total` as net: the SPO writer stored round(quantity x unit_price, 2) with the tax beside it;
-- skips with a WARNING, leaving the row in the legacy table, an order whose supplier is another company's or with a line
-  `po_items` refuses (quantity <= 0 at 2 dp, a negative total), and NOTICEs the count per reason;
-- raises the `purchase_order` counter past a copied number of its own form and runs `purchase_order_bill_links_backfill`
-  for each company copied;
-- makes both legacy tables refuse INSERT, UPDATE and the DELETE of a row with no canonical copy (a state rule, so the Demo
-  wipe, which deletes the legacy rows before the canonical ones, still runs). The tables are not dropped.
+  notes and a NOTICE. No copy carries `external_ref`;
+- skips with a WARNING and a `supplier_purchase_orders_retired_skips` row (id, reason), leaving the row in the legacy
+  table: another company's supplier, an id that is another company's purchase order, a negative line total, a line id
+  `po_items` holds, or (each order in its own sub-transaction) any order a check / not-null / unique / foreign-key
+  constraint refuses. A NOTICE counts them per reason;
+- raises the `purchase_order` counter past a copied number of its own form (never back) and runs
+  `purchase_order_bill_links_backfill` for each company copied;
+- makes both legacy tables refuse INSERT, UPDATE and TRUNCATE. DELETE follows state: a header with its copy in its own
+  company or a skip record, a line whose header could go or is already gone (the cascade; not by the line's own copy,
+  since the PO PUT reinserts lines under new ids). So the Demo wipe deletes every legacy row. The tables are not dropped.
 
 The legacy pages redirect to `/accounting/purchase-orders` (same id), the legacy route and `purchaseOrderService` are
 deleted, and every reader (the supplier POs report, both PDFs, supplier merge, the cost-centre guard, the NL-query
