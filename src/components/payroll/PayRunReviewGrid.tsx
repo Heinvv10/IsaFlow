@@ -150,10 +150,16 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
     }
     const held = runUnits.rows.find((r) => r.employeeId === l.employeeId && r.kind === kind && r.multiplier === m);
+    const hourlyRate = runUnits.rates.find((r) => r.employeeId === l.employeeId)?.hourlyRate ?? null;
+    // No rate and nothing stored: one line, as the hours cell's "Set the hourly rate first". A disabled input and its
+    // wrapped helper made every salaried row taller and pushed the last rows' Saved status below the fold (z6).
+    if (kind === 'overtime' && hourlyRate == null && !held) {
+      return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">No hourly rate: set it on the employee page</Link>;
+    }
     const label = kind === 'overtime' ? `Overtime hours at ${multiplier}x, ${l.employeeName}` : `Travel km, ${l.employeeName}`;
     return (
       <RunUnitCell key={`${kind}${m ?? ''}`} id={`run-${runId}-${kind}-${row}`} kind={kind} label={label} quantity={held?.quantity ?? null} amount={held?.amount ?? null}
-        hourlyRate={runUnits.rates.find((r) => r.employeeId === l.employeeId)?.hourlyRate ?? null} multiplier={multiplier}
+        hourlyRate={hourlyRate} multiplier={multiplier}
         resetKey={resets[unitsKey(l.employeeId, kind, m)] ?? 0}
         kmThisTaxYear={kind === 'travel' ? runUnits.kmToDate.find((k) => k.employeeId === l.employeeId)?.km ?? null : null}
         onCommit={(h, rate) => commitUnits(l.employeeId, kind, m, h, rate)} onRefuse={() => refuse(l.employeeId, `${kind}${m ?? ''}`)} />

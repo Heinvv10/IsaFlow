@@ -51,7 +51,9 @@ describe('overtime hours', () => {
     fireEvent.blur(input);
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(body(0)).toMatchObject({ units: { kind: 'overtime', multiplier: 2, quantity: 8, expectedQuantity: null } });
-    expect((await cell('Thandi Nkosi', 'Overtime hours at 2x')).disabled).toBe(true);
+    // No rate: no input at all, only the way to set one.
+    expect(screen.queryByLabelText('Overtime hours at 2x, Thandi Nkosi')).toBeNull();
+    expect(screen.getByRole('link', { name: 'No hourly rate: set it on the employee page' }).getAttribute('href')).toBe('/payroll/employees/e-2');
   });
 });
 
