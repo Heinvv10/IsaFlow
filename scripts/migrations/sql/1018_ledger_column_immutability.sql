@@ -11,7 +11,7 @@
 -- judges the rows, so it binds every non-superuser session: app_user, migration_admin, platform_admin and the app's
 -- login roles. The exemption is a SUPERUSER session (is_superuser), which can disable any trigger anyway; production's
 -- app, deploy and admin pools have none, and the integration fixtures' postgres is one (it seeds the shapes the app
--- never writes). It does NOT bind the table OWNER against ALTER TABLE ... DISABLE TRIGGER (as 999n says): production's
+-- never writes). It does NOT bind the table OWNER, who can switch a trigger off (as 999n says): production's
 -- app login isaflow_app is not the owner, so only the deploy/owner login could switch these off. All triggers ENABLE
 -- ALWAYS, so session_replication_role = replica skips none.
 -- No SECURITY DEFINER function, so no app_definer_reviews row. Every function reads as the caller and fails closed: a

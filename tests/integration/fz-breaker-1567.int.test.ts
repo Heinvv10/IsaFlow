@@ -122,7 +122,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
       await expect(as(who, async (c) => {
         await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
         await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit = 800', [je]);
-      })).rejects.toThrow(/cannot be added or removed/);
+      })).rejects.toThrow(/cannot be added or removed|are closed/); // 999n's line-set rule, or 1018's once the contra links the journal
       expect(await journal(je)).toEqual(INTACT);
     });
     it(`B5 [${who}]: a posted journal is not deleted outright (its lines would cascade)`, async () => {
