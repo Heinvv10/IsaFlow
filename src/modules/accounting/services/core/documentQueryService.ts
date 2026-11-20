@@ -75,10 +75,11 @@ export async function listEntityDocuments(
        WHERE ${entityType}::text = 'supplier_invoice' AND si.id = ${entityId}::uuid AND si.company_id = ${companyId}::uuid
     ), bill_pos AS (
       SELECT po.id FROM purchase_orders po
+        JOIN (SELECT b.purchase_order_id AS id FROM bill b
+              UNION
+              SELECT l.purchase_order_id FROM purchase_order_bill_links l, bill
+               WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid) named ON named.id = po.id
        WHERE po.company_id = ${companyId}::uuid
-         AND (po.id IN (SELECT b.purchase_order_id FROM bill b)
-           OR po.id IN (SELECT l.purchase_order_id FROM purchase_order_bill_links l, bill
-                         WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid))
     ), bill_note AS (
       SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
     ), reached AS (
