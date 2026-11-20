@@ -46,9 +46,10 @@ describeIfDisposable('ledger column immutability, round 2 (migration 1018)', () 
     const original = await journal(z, legs);
     const doc = await document(z, kind, { link: original });
     const back = kind === 'credit_notes' ? ['draft'] : ['draft', 'pending_approval'];
-    for (const status of back) await refused(asApp(z, setStatus(kind, doc, status)), /journal is in force/);
+    for (const status of back) await refused(asApp(z, setStatus(kind, doc, status)), /not sent back to draft or pending approval/);
     await reverseAsSuperuser(z, original, legs);
-    await asApp(z, setStatus(kind, doc, 'draft'));
+    // Round 6 (rule 9): out of force does not open the way back either; a linked document is cancelled instead.
+    for (const status of back) await refused(asApp(z, setStatus(kind, doc, status)), /not sent back to draft or pending approval/);
     const unlinked = await document(z, kind, { status: 'approved' });
     await asApp(z, setStatus(kind, unlinked, 'draft')); // the provisional withdraw: a NULL link
     if (kind !== 'credit_notes') {

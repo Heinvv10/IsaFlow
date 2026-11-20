@@ -8,8 +8,11 @@
 --
 -- WHAT. State rules, never a rule on current_user and never an app.* flag: a role test is beaten by
 -- set_config('role', ...) and a flag is set by the same login that forges (memory: runtime-role guard beaten). Each rule
--- judges the rows, so it binds every non-superuser session: app_user, migration_admin, platform_admin and the app's
--- login roles. The exemption is a SUPERUSER session (is_superuser), which can disable any trigger anyway; production's
+-- judges the rows, so it binds every non-superuser session the app runs: app_user, platform_admin and the app's login
+-- roles. migration_admin is a trusted ops role these rules do NOT bind: it has TRIGGER and TRUNCATE on these tables,
+-- CREATE on public and TEMP, so it can attach a trigger that rewrites a row after them, truncate past row triggers, or
+-- nest a pg_temp trigger to pass the pg_trigger_depth() test of document_cancelled_at; the rules bind it only
+-- incidentally (a plain UPDATE it writes is judged like any other). Its grants are not changed here. The exemption is a SUPERUSER session (is_superuser), which can disable any trigger anyway; production's
 -- app, deploy and admin pools have none, and the integration fixtures' postgres is one (it seeds the shapes the app
 -- never writes). It does NOT bind the table OWNER, who can switch a trigger off (as 999n says): production's
 -- app login isaflow_app is not the owner, so only the deploy/owner login could switch these off. All triggers ENABLE
@@ -68,14 +71,16 @@
 --      company's wipe is exempt as in 999n). document_cancelled_at is written only from those document triggers.
 --   8. (round 5) A cancelled or soft-deleted document links no journal. An invoice or bill is not soft-deleted
 --      (deleted_at NULL -> value) while its journal is in force, and rule 1 counts a soft-deleted holder as cancelled.
+--   9. (round 6) A LINKED document never goes back from the approved side to draft / pending_approval, in force or not:
+--      out of force first and re-reversed after, it would hold a journal in force while AR/AP leave it out. Census: the
+--      one app writer of approved -> draft (capture/provisionalAttachSettle) needs gl_journal_entry_id IS NULL.
+--      The advisory keys every rule takes (public.ledger_link_key) hash the journal's id AND its created_at, read as the
+--      caller under RLS (frozen on a posted journal by 999n; every key is a posted journal's on any path that writes),
+--      so another tenant, which cannot see the journal, cannot compute the key to stall it (round 6 P3). Same locks, same
+--      order as before.
 --
 -- BOUNDARY (stated, not oversold). The "only from the document triggers" test for document_cancelled_at is
--- pg_trigger_depth() > 1. migration_admin (non-superuser, an ops role) has TEMP and can nest a pg_temp trigger to pass
--- it; app_user has no TEMP (945). Such a forged stamp only refuses a later re-instatement of that journal (fail closed).
--- The advisory keys ('doc_journal_link:' || journal id) are not tenant-gated: a session that knows another tenant's
--- journal id can hold its key and stall that tenant's link, cancel or delete until lock_timeout (55P03; the services
--- answer it as a retry). It writes nothing. An RLS-gated row lock on the chain root instead deadlocks against the
--- invoice cancel, which row-locks the root before the chain head (measured: round-5 report). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
+-- pg_trigger_depth() > 1; app_user has no TEMP (945) to nest one (migration_admin: see WHAT). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
 -- tier because only a privilege split (a posting role distinct from the request role) closes them: an INSERT of a
 -- journal with an arbitrary source / description (createJournalEntry serves ~60 callers as the same login); a draft or
 -- pending document set to 'approved' without a link (AR approve writes status before it posts and links; AP can approve
@@ -119,7 +124,7 @@
 --     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_cancel_kept(),
 --     public.doc_cancelled_final(), public.doc_company_frozen(), public.doc_delete_in_force(),
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
---     public.doc_soft_delete_in_force();
+--     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -220,6 +225,20 @@ AS $$
   SELECT up.id, up.dist, up.rid IS NULL FROM up;
 $$;
 
+-- The advisory key of a journal: its id and created_at (epoch microseconds, so TimeZone / DateStyle never change it),
+-- read as the caller. A session that cannot see the journal (another tenant) gets a different key and so cannot hold
+-- this one; every session of the journal's own company computes the same one.
+CREATE OR REPLACE FUNCTION public.ledger_link_key(p_entry uuid)
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT pg_catalog.hashtextextended('doc_journal_link:' || p_entry::text || ':' ||
+    COALESCE((SELECT (extract(epoch FROM e.created_at) * 1000000)::bigint::text
+                FROM public.gl_journal_entries e WHERE e.id = p_entry), ''), 0);
+$$;
+
 -- The rules below take an advisory lock and THEN read what other sessions committed. At READ COMMITTED each statement
 -- after the lock reads a fresh snapshot; at REPEATABLE READ or SERIALIZABLE it reads the transaction's first snapshot,
 -- older than the lock, so the lock would serialise nothing (round 4 H1). So a non-superuser writing what these rules
@@ -301,7 +320,7 @@ BEGIN
   SELECT a.id INTO v_root FROM public.gl_journal_ancestors(NEW.reversal_of_id) a WHERE a.is_root;
   FOR v_key IN SELECT DISTINCT k FROM unnest(ARRAY[NEW.id::text, NEW.reversal_of_id::text, v_root::text]) k
                 WHERE k IS NOT NULL ORDER BY k LOOP
-    PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || v_key, 0));
+    PERFORM pg_advisory_xact_lock(public.ledger_link_key(v_key::uuid));
   END LOOP;
   IF EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = NEW.id)
      OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = NEW.id)
@@ -649,7 +668,7 @@ BEGIN
       RAISE EXCEPTION '%: a document''s journal cannot be swapped', TG_TABLE_NAME USING ERRCODE = '23514';
     END IF;
     -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this unlink, or this for it.
-    PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || OLD.gl_journal_entry_id::text, 0));
+    PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.gl_journal_entry_id));
     IF public.gl_journal_in_force(OLD.gl_journal_entry_id) THEN
       RAISE EXCEPTION '%: a document''s journal in force cannot be unlinked (reverse it first)', TG_TABLE_NAME
         USING ERRCODE = '23514';
@@ -668,7 +687,7 @@ BEGIN
     RAISE EXCEPTION '%: a cancelled or deleted document does not link a journal', TG_TABLE_NAME USING ERRCODE = '23514';
   END IF;
   -- One session at a time per journal, so two cannot both pass the "linked by no other document" test.
-  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
   SELECT e.company_id, e.reversal_of_id INTO v_company, v_contra
     FROM public.gl_journal_entries e WHERE e.id = NEW.gl_journal_entry_id;
   -- In force = posted, not stamped reversed and no posted contra (gl_journal_in_force); a contra itself is refused here.
@@ -702,7 +721,13 @@ BEGIN
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this cancel, or this for it.
-  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
+  -- Rule 9: back to draft / pending approval is refused for a linked document whatever its journal's force (a cancelled
+  -- one is left to trg_doc_cancelled_final, which says why).
+  IF NEW.status IN ('draft', 'pending_approval') AND OLD.status IS DISTINCT FROM 'cancelled' THEN
+    RAISE EXCEPTION '%: a linked document is not sent back to draft or pending approval (cancel it instead)', TG_TABLE_NAME
+      USING ERRCODE = '23514';
+  END IF;
   IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not cancelled or sent back to draft (reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';
@@ -761,7 +786,7 @@ BEGIN
     RETURN OLD;
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || OLD.gl_journal_entry_id::text, 0));
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.gl_journal_entry_id));
   IF public.gl_journal_in_force(OLD.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not deleted (cancel it, or reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';
@@ -786,7 +811,7 @@ BEGIN
     RETURN NEW;
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
   IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not deleted (reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';
