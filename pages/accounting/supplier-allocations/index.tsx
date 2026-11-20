@@ -3,7 +3,7 @@
  * Sage Parity: Transactions > Allocate Payments
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -28,6 +28,7 @@ export default function SupplierAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const invoicesRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -84,7 +85,7 @@ export default function SupplierAllocationsPage() {
   const unallocTotal = payments.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
 
   const doAllocate = async () => {
-    if (blockOnInvalidAmount()) return;
+    if (blockOnInvalidAmount(invoicesRef.current)) return;
     if (!selected || totalAlloc <= 0) return;
     setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
@@ -152,7 +153,7 @@ export default function SupplierAllocationsPage() {
             </div>
 
             {/* Outstanding Invoices */}
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div ref={invoicesRef} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">
                 {selected ? `Invoices for ${selected.supplierName}` : 'Select a payment'}
               </div>

@@ -15,21 +15,26 @@ export function normaliseAmountText(raw: string, decimals = 2): string {
 }
 
 /** '' when the draft is acceptable, else the message for setCustomValidity. */
-export function amountValidity(draft: string, o: { min?: number; max?: number; required: boolean }): string {
+export function amountValidity(draft: string, o: { min?: number; max?: number; required: boolean; decimals?: number }): string {
   if (draft === '') return o.required ? 'Enter an amount.' : '';
   if (!/\d/.test(draft)) return 'Enter an amount like 100 or 100.50.';
-  const n = Number(draft);
-  if (o.min !== undefined && n < o.min) return `The amount must be at least ${o.min}.`;
-  if (o.max !== undefined && n > o.max) return `The amount cannot be more than ${o.max}.`;
+  // Compared in units of 10^decimals (cents for money, thousandths for a quantity): 0.1 + 0.2 is not 0.3, and 0 is not 0.001.
+  const unit = 10 ** (o.decimals ?? 2);
+  const scaled = Math.round(Number(draft) * unit);
+  if (o.min !== undefined && Number.isFinite(o.min) && scaled < Math.round(o.min * unit)) return `The amount must be at least ${o.min}.`;
+  if (o.max !== undefined && Number.isFinite(o.max) && scaled > Math.round(o.max * unit)) return `The amount cannot be more than ${o.max}.`;
   return '';
 }
 
 /**
  * For a submit handler that the browser's own form check does not guard (a `noValidate` form, or a button that is not a
- * submit): true when an AmountInput under `root` is invalid (a refused paste, a lone ".", a value outside min/max), after
- * showing its message. The caller aborts, so the old value is never sent silently.
+ * submit): true when an AmountInput under `root` (the form or modal element, never the whole document: another amount on
+ * the page must not block this submit) is invalid (a refused paste, a lone ".", a value outside min/max), after
+ * showing its message. A null root (not mounted) cannot happen at submit: the handler runs from the element's own
+ * controls, so the ref is set; null then means nothing of ours to check. The caller aborts, so the old value is never sent silently.
  */
-export function blockOnInvalidAmount(root: ParentNode = document): boolean {
+export function blockOnInvalidAmount(root: ParentNode | null): boolean {
+  if (!root) return false; // not mounted: nothing of ours to check
   const bad = Array.from(root.querySelectorAll<HTMLInputElement>('input[data-amount-input]')).find(i => !i.validity.valid);
   if (!bad) return false;
   bad.reportValidity();
