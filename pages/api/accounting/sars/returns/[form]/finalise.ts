@@ -22,6 +22,7 @@ import {
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Body = z.object({
@@ -46,6 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const { companyId, companyRole } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  // #1656 (Hein: gate everything): finalising a return approves it, so it asks VAT (VAT201) or Payroll (EMP201) Approve.
+  if (await refuseWithoutApprove(res, companyId, userId, form === 'EMP201' ? 'payroll' : 'vat', `${form} returns`)) return;
   const { periodStart, periodEnd, overrideReason, force, acknowledgeVatReturnMismatch, mismatchReason } = parsed.data;
   try {
     const { version, vatReturn } = await finaliseReturn(companyId, form, periodStart, periodEnd,

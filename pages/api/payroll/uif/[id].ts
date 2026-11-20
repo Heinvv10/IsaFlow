@@ -18,6 +18,7 @@ import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBa
 import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -44,6 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const body = (req.body ?? {}) as PatchBody;
 
     if (body.markPaid === true) {
+      if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'UIF payments')) return; // #1656: posts the payment journal, before any write
       try {
         const result = await withJournalDateRefusal(res, () => markUifDeclarationPaid(
           companyId,

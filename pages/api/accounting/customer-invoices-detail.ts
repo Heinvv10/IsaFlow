@@ -141,6 +141,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // balance (see customerInvoiceCancelService). Handled in the service layer
     // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
+      if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return; // #1656: reverses the approval journal
       try {
         const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId));
         if (posted === JOURNAL_DATE_REFUSED) return;

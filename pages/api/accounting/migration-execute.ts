@@ -15,6 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeMigration } from '@/modules/accounting/services/core/migrationExecuteService';
 import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const VALID_SOURCES: MigrationSource[] = ['xero', 'quickbooks', 'pastel'];
 
@@ -25,6 +26,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'opening balances')) return; // #1656: the import posts its opening journals
   const { source, accounts = [], customers = [], suppliers = [] } = req.body as {
     source: string;
     accounts: unknown[];

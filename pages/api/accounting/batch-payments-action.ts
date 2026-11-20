@@ -66,6 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await cancelBatch(companyId, id);
         return apiResponse.success(res, { status: 'cancelled' });
       case 'reverse': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'payment batches (reverse)')) return; // #1656 (Hein: gate everything)
         // A PROCESSED batch: one contra of the batch journal, every bill
         // un-applied by this batch's allocations, members voided. Same gate as
         // every other action here, and as single-payment void.

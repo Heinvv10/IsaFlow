@@ -39,6 +39,7 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -64,6 +65,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId: string = req.user?.id ?? 'system';
+  // #1656 (Hein: gate everything): a match that posts the bank line's journal asks Banking Approve, before any write.
+  // journal_line / bank_transfer tie the line to a journal that already exists, so they post nothing (as `match`).
+  const posts = candidateType !== 'journal_line' && candidateType !== 'bank_transfer';
+  if (posts && await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return;
 
   try {
     // Get the bank transaction amount for partial payment calculations
