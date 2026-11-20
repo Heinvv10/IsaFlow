@@ -1,5 +1,5 @@
 /**
- * Wave 6 OC, review #1620 final breaker H: SDL as a month-to-date catch-up (payrollSdlMonthToDate), through the real
+ * Wave 6 OC, review #1620 final breaker H: SDL as a month-to-date catch-up (sdlLeviabilityService.sdlCatchUp, FQd's month-to-date catch-up), through the real
  * routes, three tenants:
  *  - A (rev1620-brk-sdl-lock): an exempt regular month, then a R600 000 bonus: the bonus run is liable and carries the
  *    regular run's 1%, so the month's EMP201 SDL is 1% of all it paid (R6 203);
@@ -16,7 +16,7 @@ import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
-import { loadMonthToDateSdl } from '@/modules/accounting/services/payroll/payrollSdlMonthToDate';
+import { sdlCatchUp } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
 
 // 23:15 SAST on 17 November: the minted sessions stay valid across the move to the 18th below.
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
@@ -81,9 +81,9 @@ describe('SDL settled for the month to date', () => {
     const m = await month(t);
     expect(m.levied).toBeCloseTo(m.due, 2);
     expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBeCloseTo(6_203, 2);
-    // The line says why: liable on this run, carrying the month's earlier runs.
+    // The line says why (FQd's month step): this run carries the month's SDL, the earlier runs' share included.
     const steps = (await t.pool.query(`SELECT explanation->'sdl'->'steps' AS s FROM payroll_run_lines WHERE run_id = $1`, [id])).rows[0].s as Array<{ key: string; amount: number }>;
-    expect(steps.find((s) => s.key === 'sdl.catchUp')?.amount).toBe(203);
+    expect(steps.find((s) => s.key === 'sdl.month')?.amount).toBe(6_203);
 
     // P7 (FQd's breaker case, off-cycle): the bonus, final with its R203 catch-up, is reopened, recalculated and approved
     // again. The month's SDL stays exactly 1% of its leviable pay (R6 203), never 1% plus the catch-up again.
@@ -129,7 +129,7 @@ describe('SDL settled for the month to date', () => {
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const id = String(made.body.data!.id);
     expect((await t.api.calculate(id)).statusCode).toBe(200);
-    expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierLeviable: 20300, earlierLevied: 0 });
+    expect(await sdlCatchUp(t.company, id, false)).toEqual({ liable: false, earlierLeviable: 20300, earlierSdl: 0 });
     // A run of the month paid earlier (the 20th) but not final (calculated): nothing of it is caught up.
     const seeded = String((await t.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date,
         run_kind, off_cycle_reason, period_start, period_end, employee_count)
@@ -137,7 +137,7 @@ describe('SDL settled for the month to date', () => {
     try {
       await t.pool.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, sdl, sdl_leviable, sdl_exempt)
         VALUES ($1, $2, 10000, 10000, 0, 10000, 0, 10000, true)`, [seeded, mid[t.company]]);
-      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierLeviable: 20300, earlierLevied: 0 });
+      expect(await sdlCatchUp(t.company, id, false)).toEqual({ liable: false, earlierLeviable: 20300, earlierSdl: 0 });
     } finally {
       await t.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [seeded]);
       await t.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [seeded]);
