@@ -141,7 +141,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // balance (see customerInvoiceCancelService). Handled in the service layer
     // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
-      if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return; // #1656: reverses the approval journal
+      // #1656: cancelling an approved invoice reverses its journal, so it asks Approve (a draft's cancel posts nothing).
+      const [cur] = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
+      const reverses = cur !== undefined && !['draft', 'pending_approval'].includes(String(cur.status));
+      if (reverses && await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return;
       try {
         const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId));
         if (posted === JOURNAL_DATE_REFUSED) return;
