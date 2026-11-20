@@ -30,6 +30,46 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-20 — Payroll Wave 6 (FQd/RI/DBF/PSP-H/EZF), VAT201 Nil Pair, Mobile Cards
+
+**Payroll — Wave 6**
+
+- FQd (frequency-keyed runs): calculation version 19; weekly garnishee refused for `garnishee_frequency` alone; `EmployeeWorkCard` PSP-then-frequency order (#1622)
+- RI run inputs: per-employee run input units; RI calculation version 18; overtime cell with no hourly rate rendered as a one-line link, not a disabled input (#1580, #1692)
+- DBF DB fund factor table (migration 1014) (#1571)
+- PSP-H entity particulars: certified PSP ids bound as text; company-format vs trust number validation; `PSP_REGISTRATION_NOT_FOR_ENTITY` refusal; particulars role-gated, logged, injection-safe; modulus-10 check; H record on EZF code map (migration 1015) (#1689)
+- EZF BRS codes: portal never refuses a filed certificate; `@1` versions cannot be marked filed; leaver tax period fix; BRS-field warning on every e@syFile export (wave-7 warn-not-refuse) (#1688)
+
+**VAT201**
+
+- Nil-rated cancelled pair rule fix; pair rule review round 1 (#1698)
+
+**AmountInput / AR**
+
+- `AmountInput` min/max compared in units of 10^decimals (not raw cents); submit guard scoped to the form/modal (#1696)
+- Allocation invoice shape fix (#1686)
+
+**Sage**
+
+- Sage supplier sync fix (#1693)
+
+**GL**
+
+- Reclassification line-lock fixture seeds a draft journal (`999n` refuses lines on a posted journal); fixture cleanup failures now fail the test (#1690)
+
+**Mobile**
+
+- Supplier statement balances as cards below `lg`; 44 px touch targets (#1702)
+- Bureau clients as cards below `lg`; 44 px touch targets (#1700)
+
+**CI**
+
+- Advisory job: migrations tested against prod schema (phase A) (#1694)
+
+Migrations: **1011** (`payroll_run_lines_rls`), **1012** (`intercompany_pairing`), **1013** (`payroll_psp_tax_status`), **1014** (`payroll_db_fund_factor`), **1015** (`payroll_psp_entity_particulars`), **1017** (`payroll_run_input_units`)
+
+---
+
 ## 2026-11-19 — MCP PO-Bill Links & Maintenance, Intercompany P1, Payroll OC, VAT201 Rate-Check
 
 **MCP / AP — PO-Bill Links**
