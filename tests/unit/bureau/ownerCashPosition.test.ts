@@ -63,9 +63,30 @@ describe('pickPayrollRun', () => {
     const due = { ...cur, pay_date: '2026-06-30' };
     expect(pickPayrollRun([paid, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: true, totalRequired: 5000, runsCounted: 1 });
     expect(pickPayrollRun([paid, due], 4000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 1000, runsCounted: 1 });
-    expect(pickPayrollRun([paid, due], 300, '2026-06-11')).toMatchObject({ runId: 'prev', canPay: false, shortfall: 100 });
+    // A paid run never produces a shortfall (review #1679 codex 4): the due run is the one short.
+    expect(pickPayrollRun([paid, due], 300, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4700 });
     // A pay date of today is still due.
     expect(pickPayrollRun([{ ...paid, pay_date: '2026-06-11' }, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, runsCounted: 2 });
+  });
+
+  // Review #1679 codex 3 and 4: the forecast follows the PAY DATE, not the costing order (regular before off-cycle).
+  describe('by pay date (review #1679)', () => {
+    const regular = run({ id: 'regular', total_net: '600', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-30' });
+    it('a bonus due tomorrow is funded first; the shortfall falls on the regular run at month-end', () => {
+      const bonus = run({ id: 'bonus', total_net: '600', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-12' });
+      // Rows arrive in costing order (regular first); cash pays the bonus first.
+      expect(pickPayrollRun([regular, bonus], 1000, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: false, shortfall: 200, runsCounted: 2 });
+      expect(pickPayrollRun([regular, bonus], 1200, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: true, totalRequired: 1200 });
+    });
+    it('a bonus already paid never reports a shortfall over an affordable due run', () => {
+      const due = { ...regular, total_net: '500' };
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05' });
+      expect(pickPayrollRun([due, paidBonus], 1000, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: true, totalRequired: 500, runsCounted: 1 });
+    });
+    it('with only paid runs, the latest is reported as covered (its money has left)', () => {
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05' });
+      expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, shortfall: 0 });
+    });
   });
 
   it('cash that covers each run alone but not both is short on the second', () => {

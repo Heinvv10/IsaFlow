@@ -107,36 +107,36 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
 }
 
 /**
- * Which run of the window to report. A run whose pay date is today or later is STILL DUE, and cash pays the due runs
- * in pay order: each is judged against what the due runs before it left (review #1549 L1), so `totalRequired` is the
- * due runs up to and including it and `runsCounted` how many. A run whose pay date has passed is judged on its own, as
- * before: nothing marks a run paid (no writer sets 'paid'; a bank-file confirmation exists only where the platform
- * flag is on), so last month's approved run still sits in the window after its salaries left the bank, and adding it
- * would report a false shortfall (review #1549 N-H1). The first run cash cannot cover is reported; when every run is
- * covered, the latest DUE run (its cumulative figure), else the latest run with totals. A run with no totals yet (a draft) needs nothing and never hides a shortfall
- * on another run; with no totals at all, the earliest run. No `asAt`: every run is due.
+ * Which run of the window to report. Cash pays runs by PAY DATE (review #1679 codex 3), whatever order costs them
+ * (runOrderKeySql puts a regular run before its month's off-cycle runs): rows are taken in pay-date order, the given
+ * order breaking ties. A run whose pay date is today or later is STILL DUE: each is judged against what the due runs
+ * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
+ * A run whose pay date has passed has been paid (nothing marks a run paid, review #1549 N-H1), so it is never added to
+ * the due runs and never produces a shortfall (review #1679 codex 4): it is reported only when no due run has totals,
+ * as covered. The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
+ * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
+ * no totals at all, the earliest run. No `asAt`: every run is due.
  */
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
-  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || String(r.pay_date).slice(0, 10) >= asAt;
+  const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
+  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || payDate(r) >= asAt;
+  const byPayDate = runs.map((r, i) => ({ r, i }))
+    .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
   let required = 0;
   let counted = 0;
-  let latest: CashPositionPayroll | null = null;
+  let latestPaid: CashPositionPayroll | null = null;
   let latestDue: CashPositionPayroll | null = null;
-  for (const r of runs) {
+  for (const r of byPayDate) {
     const own = shapePayrollAffordability(r, cash)!;
     if (own.totalRequired <= 0) continue;
-    let judged = own;
-    if (due(r)) {
-      required = r2(required + own.totalRequired);
-      counted += 1;
-      judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
-    }
+    if (!due(r)) { latestPaid = { ...own, canPay: true, shortfall: 0 }; continue; }
+    required = r2(required + own.totalRequired);
+    counted += 1;
+    const judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
     if (!judged.canPay) return judged;
-    // A run whose pay date has passed never replaces a due run already judged: that would report a paid run (a bonus
-    // paid on the 15th) in place of the due runs' cumulative figure (wave 6 OC, review #1549 D1 follow-up).
-    if (due(r)) latestDue = judged; else latest = judged;
+    latestDue = judged;
   }
-  return latestDue ?? latest ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
+  return latestDue ?? latestPaid ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────
