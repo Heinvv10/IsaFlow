@@ -76,11 +76,20 @@
 --      one app writer of approved -> draft (capture/provisionalAttachSettle) needs gl_journal_entry_id IS NULL.
 --      The advisory keys every rule takes (public.ledger_link_key) hash the journal's id AND its created_at, read as the
 --      caller under RLS (frozen on a posted journal by 999n; every key is a posted journal's on any path that writes),
---      so another tenant, which cannot see the journal, cannot compute the key to stall it (round 6 P3). Same locks, same
---      order as before.
+--      so another tenant, which cannot see the journal, cannot compute the key blind (round 6 P3). It can still READ a key
+--      another session holds from pg_locks (readable by PUBLIC) and hold it: see BOUNDARY. Same locks, same order.
+--  10. (round 7) A linked document's status is never NULL (status is nullable and the CHECK passes NULL, so a NULL
+--      walked around rules 5 and 9): a NULL status on a linked document is refused, a NULL old status counts as the
+--      approved side, a NULL-status document links no journal, and rule 1 counts a NULL-status holder as cancelled
+--      (out of AR/AP). Plus CHECK (status IS NOT NULL) NOT VALID on the three tables: new writes, no scan of old rows
+--      (isaflow_dev holds none; production unscanned), VALIDATE left for after a production census.
 --
 -- BOUNDARY (stated, not oversold). The "only from the document triggers" test for document_cancelled_at is
--- pg_trigger_depth() > 1; app_user has no TEMP (945) to nest one (migration_admin: see WHAT). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
+-- pg_trigger_depth() > 1; app_user has no TEMP (945) to nest one (migration_admin: see WHAT). The advisory keys are
+-- observable: pg_locks (pg_lock_status()) is readable by PUBLIC, so a session of any tenant can read a key another
+-- session holds and then hold it, stalling that journal's link, cancel, delete or reversal until lock_timeout
+-- (55P03, answered as a retry); it writes nothing. Closing it means revoking pg_locks / pg_lock_status() from PUBLIC
+-- (a superuser change, after production's grants are checked), not this migration. A state rule cannot know WHO wrote a row. Still open, and logged for the planner
 -- tier because only a privilege split (a posting role distinct from the request role) closes them: an INSERT of a
 -- journal with an arbitrary source / description (createJournalEntry serves ~60 callers as the same login); a draft or
 -- pending document set to 'approved' without a link (AR approve writes status before it posts and links; AP can approve
@@ -97,6 +106,8 @@
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
 -- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
+-- ADD CONSTRAINT ... CHECK ... NOT VALID (rule 10) takes ACCESS EXCLUSIVE on each document table for an instant and
+-- scans no row.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_no_insert ON public.gl_journal_entries;
@@ -126,12 +137,28 @@
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
 --     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
+--   ALTER TABLE public.<table> DROP CONSTRAINT IF EXISTS ck_<table>_status_not_null;  (each document table)
 
 SET LOCAL lock_timeout = '5s';
 
 -- The journal of a document that was cancelled (rules 4 and 5 set it, rule 1 reads it). Not frozen in audit snapshots
 -- (tests/helpers/auditSnapshotColumns.ts): the cancel's reversal, which is frozen, is the ledger fact.
 ALTER TABLE public.gl_journal_entries ADD COLUMN IF NOT EXISTS document_cancelled_at timestamptz;
+
+-- Rule 10: a document's status is never NULL from here on (NOT VALID: new writes only, no scan of existing rows).
+DO $$
+DECLARE
+  v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['customer_invoices', 'supplier_invoices', 'credit_notes'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+                    WHERE conrelid = ('public.' || v_table)::regclass AND conname = 'ck_' || v_table || '_status_not_null') THEN
+      EXECUTE pg_catalog.format('ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (status IS NOT NULL) NOT VALID',
+                                v_table, 'ck_' || v_table || '_status_not_null');
+    END IF;
+  END LOOP;
+END
+$$;
 
 -- ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -226,8 +253,9 @@ AS $$
 $$;
 
 -- The advisory key of a journal: its id and created_at (epoch microseconds, so TimeZone / DateStyle never change it),
--- read as the caller. A session that cannot see the journal (another tenant) gets a different key and so cannot hold
--- this one; every session of the journal's own company computes the same one.
+-- read as the caller. A session that cannot see the journal (another tenant) computes a different key, so it cannot
+-- derive this one blind; it can still read a held key from pg_locks (BOUNDARY). Every session of the journal's own
+-- company computes the same one.
 CREATE OR REPLACE FUNCTION public.ledger_link_key(p_entry uuid)
 RETURNS bigint
 LANGUAGE sql
@@ -380,10 +408,11 @@ BEGIN
               WHERE (a.dist + v_below) % 2 = 1
                 AND (j.document_cancelled_at IS NOT NULL
                      OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
+                                 AND (COALESCE(d.status, 'cancelled') = 'cancelled' OR d.deleted_at IS NOT NULL))
                      OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
-                     OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id AND d.status = 'cancelled'))) THEN
+                                 AND (COALESCE(d.status, 'cancelled') = 'cancelled' OR d.deleted_at IS NOT NULL))
+                     OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id
+                                 AND COALESCE(d.status, 'cancelled') = 'cancelled'))) THEN
     -- (round 5 N2) A soft-deleted invoice or bill counts as cancelled while it stays deleted: the undo clears deleted_at
     -- (restoreRow) BEFORE it re-reverses, so a restored document re-instates and a deleted one does not.
     RAISE EXCEPTION 'gl_journal_entries: this reversal would put the journal of a cancelled document back in force'
@@ -686,6 +715,9 @@ BEGIN
   IF NEW.status = 'cancelled' OR OLD.status = 'cancelled' OR (pg_catalog.to_jsonb(NEW) ->> 'deleted_at') IS NOT NULL THEN
     RAISE EXCEPTION '%: a cancelled or deleted document does not link a journal', TG_TABLE_NAME USING ERRCODE = '23514';
   END IF;
+  IF NEW.status IS NULL THEN
+    RAISE EXCEPTION '%: a document without a status does not link a journal', TG_TABLE_NAME USING ERRCODE = '23514';
+  END IF;
   -- One session at a time per journal, so two cannot both pass the "linked by no other document" test.
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
   SELECT e.company_id, e.reversal_of_id INTO v_company, v_contra
@@ -722,6 +754,10 @@ BEGIN
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this cancel, or this for it.
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
+  -- Rule 10: a linked document always has a status (NULL leaves every status-filtered AR/AP list).
+  IF NEW.status IS NULL THEN
+    RAISE EXCEPTION '%: a linked document keeps a status (NULL is refused)', TG_TABLE_NAME USING ERRCODE = '23514';
+  END IF;
   -- Rule 9: back to draft / pending approval is refused for a linked document whatever its journal's force (a cancelled
   -- one is left to trg_doc_cancelled_final, which says why).
   IF NEW.status IN ('draft', 'pending_approval') AND OLD.status IS DISTINCT FROM 'cancelled' THEN
@@ -834,7 +870,8 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.customer_invoices
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status IS NULL OR NEW.status = 'cancelled'
+             OR (NEW.status IN ('draft', 'pending_approval') AND COALESCE(OLD.status, '') NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
@@ -879,7 +916,8 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.supplier_invoices
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status IS NULL OR NEW.status = 'cancelled'
+             OR (NEW.status IN ('draft', 'pending_approval') AND COALESCE(OLD.status, '') NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
@@ -924,7 +962,8 @@ CREATE OR REPLACE TRIGGER trg_doc_cancel_in_force
   BEFORE UPDATE OF status ON public.credit_notes
   FOR EACH ROW
   WHEN (NEW.gl_journal_entry_id IS NOT NULL AND NEW.status IS DISTINCT FROM OLD.status
-        AND (NEW.status = 'cancelled' OR (NEW.status IN ('draft', 'pending_approval') AND OLD.status NOT IN ('draft', 'pending_approval'))))
+        AND (NEW.status IS NULL OR NEW.status = 'cancelled'
+             OR (NEW.status IN ('draft', 'pending_approval') AND COALESCE(OLD.status, '') NOT IN ('draft', 'pending_approval'))))
   EXECUTE FUNCTION public.doc_cancel_in_force();
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_journal_link_ins;
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_journal_link_upd;
