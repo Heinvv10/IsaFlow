@@ -4,11 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { useFocusFirstInvalidOnSubmit } from '@/hooks/useFocusFirstInvalidOnSubmit';
 
-function BannerForm({ role, preExisting = false }: { role?: string; preExisting?: boolean }) {
+function BannerForm({ role, preExisting = false, slow = false, stale = false }: { role?: string; preExisting?: boolean; slow?: boolean; stale?: boolean }) {
   useFocusFirstInvalidOnSubmit();
   const [shown, setShown] = useState(preExisting);
   return (
-    <form onSubmit={(e) => { e.preventDefault(); setTimeout(() => setShown(true), 60); }}>
+    <form onSubmit={(e) => { e.preventDefault(); setTimeout(() => setShown(true), slow ? 2500 : 60); }}>
+      {stale && <input aria-label="old" aria-invalid className="hidden" />}
       {shown && <div role={role} className="bg-red-500/10" data-testid="banner">Could not save</div>}
       <button type="submit">Save</button>
     </form>
@@ -100,5 +101,69 @@ describe('focus the first invalid field after a failed submit (phones)', () => {
     submit();
     await new Promise((r) => setTimeout(r, 450));
     expect(scroll).not.toHaveBeenCalled();
+  });
+
+  // Scope and filtering: only a real error banner, inside the form's own container, may pull the page.
+  function Scoped({ kind, after = 60, initial = 'Could not save' }: { kind: 'chip' | 'toast' | 'elsewhere' | 'text'; after?: number; initial?: string }) {
+    useFocusFirstInvalidOnSubmit();
+    const [on, setOn] = useState(false);
+    return (
+      <div>
+        <div data-testid="container">
+          {kind === 'text' && <div role="alert" data-testid="banner">{on ? 'Second failure' : initial}</div>}
+          <form onSubmit={(e) => { e.preventDefault(); setTimeout(() => setOn(true), after); }}>
+            {kind === 'chip' && on && <span className="bg-red-500/10">Inactive</span>}
+            <button type="submit">Save</button>
+          </form>
+          {kind === 'toast' && on && <div className="fixed bottom-4"><div role="alert">Saved</div></div>}
+        </div>
+        {kind === 'elsewhere' && on && <div role="alert" data-testid="far">Other widget failed</div>}
+      </div>
+    );
+  }
+
+  it('ignores an inline red chip that appears after a search-style submit', async () => {
+    render(<Scoped kind="chip" />);
+    submit();
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('ignores a toast (fixed position, role=alert)', async () => {
+    render(<Scoped kind="toast" />);
+    submit();
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('ignores a banner outside the form container', async () => {
+    render(<Scoped kind="elsewhere" />);
+    submit();
+    await new Promise((r) => setTimeout(r, 450));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('scrolls to a banner that stayed mounted but changed its text (second failure)', async () => {
+    render(<Scoped kind="text" />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(scroll.mock.contexts[0]).toBe(screen.getByTestId('banner'));
+  });
+
+  it('still catches an error that arrives after a slow server response', async () => {
+    render(<BannerForm slow />);
+    submit();
+    await waitFor(() => expect(scroll).toHaveBeenCalled(), { timeout: 5000 });
+  });
+
+  it('skips a stale invalid field in a collapsed panel and finds the banner instead', async () => {
+    const real = HTMLElement.prototype.checkVisibility;
+    HTMLElement.prototype.checkVisibility = function (this: HTMLElement) { return !this.classList.contains('hidden'); };
+    try {
+      render(<BannerForm stale />);
+      submit();
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(screen.getByLabelText('old')).not.toHaveFocus();
+    } finally { HTMLElement.prototype.checkVisibility = real; }
   });
 });
