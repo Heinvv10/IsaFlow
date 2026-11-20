@@ -9,7 +9,10 @@
  * the reversal into a later period when the original's is closed (fiscal close) or locked (VAT lock, for a journal that
  * moves a VAT figure), and then both legs are real: the original was filed in its own period and the reversal belongs
  * in the later one. So an original whose posted reversal falls outside this period is not hidden; a cancelled document
- * never reversed still is. Recursive: a hand reversal of the reversal is hidden with them.
+ * never reversed still is. Recursive, because reversing the reversal by hand would otherwise re-admit the cancelled
+ * document's VAT; UNION dedupes, so a cycle terminates. Both arms walk POSTED journals only: a draft reversal has no GL
+ * effect, so it neither frees its original nor carries the hiding on to its own reversal. (This is the one copy of the
+ * explanation: the SQL text sent to the database carries none.)
  *
  * The base list names cancelled customer AND supplier documents. The nil-rated reader reads only revenue lines, which
  * customer documents post; a bill line may name a revenue account (billLineAccountGuard does not refuse one), and then
@@ -17,10 +20,13 @@
  * link on cancel, so its journals are in no list and simply count, each in its own period.
  *
  * UNCODED revenue (no VAT code) counts in the nil-rated reader only where a zero-tax customer document stands behind it
- * (`untaxed_documents`: a live document's own journal, unchanged). A CANCELLED zero-tax document keeps its uncoded legs
- * countable along its whole reversal chain (`untaxed_cancelled_chain`), so the pair rule alone decides them, exactly as
- * it decides coded legs: same period, the pair contributes nothing; across periods, the original keeps the period it
- * was filed in and the reversal carries the equal and opposite into the later one.
+ * (`untaxed_documents`: a live document's own journal, unchanged). A cancelled zero-tax document whose row STILL LINKS
+ * its journal keeps its uncoded legs countable along the whole reversal chain (`untaxed_cancelled_chain`), so the pair
+ * rule alone decides them, exactly as it decides coded legs: same period, the pair contributes nothing; across periods,
+ * the original keeps the period it was filed in and the reversal carries the opposite into the later one. That is a
+ * cancelled customer CREDIT NOTE (creditNoteCancelService keeps the link) and a legacy invoice row whose link survived
+ * its cancel; customerInvoiceCancelService nulls the link today, so a cancelled invoice is in neither list (reports/
+ * .claude.md OPEN).
  */
 import { sql } from '@/lib/neon';
 
@@ -51,18 +57,6 @@ export function cancelledEntriesCteSql(companyId: string, periodStart: string, p
         WHERE cn.company_id = ${companyId}::UUID AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
           AND cn.gl_journal_entry_id IS NOT NULL
     )
-    -- A cancellation posts a reversing journal that no document row links to,
-    -- so the original alone was suppressed and the reversal landed in the boxes.
-    -- The pair is only ever hidden TOGETHER. resolveReversalDate pushes the
-    -- reversal into a later period when the original's period is closed, and
-    -- then both legs are real: the original was filed in its own period and the
-    -- credit belongs in the later one. So an original whose posted reversal
-    -- falls outside this period is not suppressed either, while a cancelled
-    -- document that was never reversed still is.
-    -- Recursive because reversing the reversal by hand would otherwise re-admit
-    -- the cancelled document's VAT; UNION dedupes, so a cycle terminates. Both
-    -- arms walk POSTED journals only: a draft reversal has no GL effect, so it
-    -- neither frees its original nor carries suppression on to its own reversal.
     , cancelled_entries AS (
       SELECT b.id FROM cancelled_entries_base b
         WHERE NOT EXISTS (
@@ -89,9 +83,10 @@ export function cancelledEntriesCteSql(companyId: string, periodStart: string, p
  * `untaxed_documents AS (...), untaxed_cancelled_chain AS (...)`: the journals whose UNCODED revenue legs the nil-rated
  * reader counts (as zero-rated), before the pair rule hides any. Spliced after another CTE of a `WITH RECURSIVE`.
  *   - untaxed_documents: the journal a live (not cancelled) zero-tax customer invoice or customer note links.
- *   - untaxed_cancelled_chain: the journal a CANCELLED zero-tax one still links, and every posted reversal down its
- *     chain. Without it the pair rule could not keep such an original in its own, filed period, nor carry its
- *     reversal into the later one: the original belongs to no live document, the reversal to no document at all.
+ *   - untaxed_cancelled_chain: the journal a CANCELLED zero-tax one still links (a customer credit note; a legacy
+ *     invoice row whose link survived, since the invoice cancel nulls it), and every posted reversal down its chain.
+ *     Without it the pair rule could not keep such an original in its own, filed period, nor carry its reversal into
+ *     the later one: the original belongs to no live document, the reversal to no document at all.
  */
 export function untaxedJournalsCteSql(companyId: string) {
   return sql`untaxed_documents AS (

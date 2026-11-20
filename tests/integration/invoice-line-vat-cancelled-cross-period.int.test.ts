@@ -38,11 +38,13 @@ import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 import { typeLines } from './helpers/lineVatFixture';
+import { closePeriod } from '@/modules/accounting/services/gl/fiscalPeriodService';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
 }));
 vi.mock('@/modules/accounting/services/audit/autoSnapshotQueue', () => ({ scheduleAutoSnapshot: vi.fn() }));
+vi.mock('@/modules/accounting/services/budgets/drivers/budgetRollQueue', () => ({ scheduleBudgetRoll: vi.fn() }));
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
@@ -137,12 +139,19 @@ async function onDay<T>(day: string, fn: () => Promise<T>): Promise<T> {
   try { return await fn(); } finally { vi.useRealTimers(); }
 }
 
-/** The fixture's one open 2026 period becomes Jan..`end` CLOSED and the rest of 2026 open, as a year-end close leaves it. */
+/**
+ * The fixture's one open 2026 period is split into Jan..`end` and the rest of 2026 (layout only, as the fixture itself
+ * inserts its period), then Jan..`end` is CLOSED through the product's close: `closePeriod`, what POST
+ * /fiscal-periods-action `close` calls (status and prior-period guards, the readiness gate, under the row lock).
+ */
 async function closeFiscalThrough(end: string): Promise<void> {
   const c = f.fx.companyId;
-  await sql`UPDATE fiscal_periods SET end_date = ${end}::DATE, status = 'closed' WHERE company_id = ${c}::UUID`;
+  const first = ((await sql`UPDATE fiscal_periods SET end_date = ${end}::DATE WHERE company_id = ${c}::UUID
+    RETURNING id`) as { id: string }[])[0]!.id;
   await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
     VALUES (${c}::UUID, ${`FY26b ${f.fx.tag}`}, 2, 2026, ${end}::DATE + 1, '2026-12-31', 'open')`;
+  const closed = await inTx(f.fx, () => closePeriod(c, first, f.fx.userId));
+  expect(closed.status).toBe('closed');
 }
 
 const MIXED_ITEMS: Items = [
@@ -177,10 +186,10 @@ describeIfDisposable('a credit note dated in a VAT-locked period and cancelled l
       { p1: [0, 0, 0, 0], p2After: [0, 0, 1000, 0] });
   });
 
-  // An uncoded journal moves no VAT figure the lock knows (journalVatLockGuard), so the VAT lock does not roll its
-  // reversal: it is dated with the note, in the FILED period, and the pair is hidden there. Field 2 moves 600 -> 1000:
-  // uncoded revenue posted into a locked period, which returnDrift reports by design, with its note.
-  it('(iii) a legacy zero-VAT note of 400 (uncoded): its reversal stays in P1, so P1 drifts by design', async () => {
+  // PRE-EXISTING, pinned as it stands (reports/.claude.md OPEN (i)): an uncoded journal moves no VAT figure the lock
+  // knows (journalVatLockGuard), so the VAT lock does not roll its reversal: it is dated with the note, in the FILED
+  // period, and the pair is hidden there. Field 2 moves 600 -> 1000, which returnDrift reports with its uncoded note.
+  it('(iii) a legacy zero-VAT note of 400 (uncoded): its reversal stays in P1, so P1 drifts (OPEN (i))', async () => {
     const inv = await approvedInvoice('2026-05-10', LEGACY, 0);
     const cn = await approvedNote(inv, '2026-05-20', 400);
     const notes = await crossPeriod(['2026-05-01', '2026-05-31'], ['2026-06-01', '2026-06-30'], cancelNote(cn),
@@ -206,8 +215,10 @@ describeIfDisposable('an invoice dated in a VAT-locked period and cancelled late
   });
 });
 
-// A CLOSED fiscal period dates the reversal TODAY (journalEntryReversalDate), whatever its lines: the one way an
-// uncoded pair straddles a VAT period. P1 is VAT-locked too, as a filed period is.
+// A CLOSED fiscal period dates the reversal TODAY, whatever its lines (journalEntryReversalDate
+// resolveReversalDateDetailed: the original's period not open -> fmtDate(new Date())): the one way an uncoded pair
+// straddles a VAT period. P1 is VAT-locked too, as a filed period is. crossPeriod asserts each reversal's entry_date is
+// the faked P2 day, so the state these cases depend on is checked, not assumed.
 describeIfDisposable('a legacy zero-VAT document (uncoded) in a closed, filed period, cancelled later', () => {
   let note: string;
   let invoice: string;

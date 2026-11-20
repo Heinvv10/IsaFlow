@@ -21,6 +21,7 @@ import { cancelCreditNote, createCreditNote } from '@/modules/accounting/service
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { getVat201Return } from '@/modules/accounting/services/reports/vat201Return';
 import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { listNilRatedLines, type NilRatedField } from '@/modules/accounting/services/reports/vat201NilRatedDrill';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
@@ -71,6 +72,13 @@ const nil = async (from: string, to: string) => {
   const n = await inTx(f.fx, () => getNilRatedSupplies(f.fx.companyId, from, to));
   return { zeroRated: n.zeroRated, exempt: n.exempt, onTaxedJournals: n.onTaxedJournals };
 };
+/** The drill-down's lines for fields 2, 2A and 3 sum to the aggregate the form reads (same pair rule, same CTEs). */
+async function expectDrillTies(from: string, to: string): Promise<void> {
+  const n = await inTx(f.fx, () => getNilRatedSupplies(f.fx.companyId, from, to));
+  const sum = async (field: NilRatedField) => Math.round((await inTx(f.fx, () =>
+    listNilRatedLines(f.fx.companyId, from, to, field))).reduce((t, l) => t + l.amount * 100, 0)) / 100;
+  expect([await sum('2'), await sum('2A'), await sum('3')]).toEqual([n.zeroRated - n.exported, n.exported, n.exempt]);
+}
 
 describeIfDisposable('a credit note approved and cancelled in one period: the pair contributes nothing', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
@@ -83,6 +91,7 @@ describeIfDisposable('a credit note approved and cancelled in one period: the pa
     await cancelNote(cn.id);
     expect(await nil('2026-06-01', '2026-06-30')).toEqual({ zeroRated: 0, exempt: 1000, onTaxedJournals: 0 });
     expect(await fields('2026-06-01', '2026-06-30')).toEqual([0, 0, 1000, 0]);
+    await expectDrillTies('2026-06-01', '2026-06-30');
   });
 
   it('a legacy zero-VAT note (uncoded legs) on a legacy zero-VAT invoice, cancelled in one period: the invoice alone', async () => {
@@ -91,6 +100,7 @@ describeIfDisposable('a credit note approved and cancelled in one period: the pa
     expect(await fields('2026-07-01', '2026-07-31')).toEqual([0, 600, 0, 0]);
     await cancelNote(cn.id);
     expect(await fields('2026-07-01', '2026-07-31')).toEqual([0, 1000, 0, 0]);
+    await expectDrillTies('2026-07-01', '2026-07-31');
   });
 
   // The box basis walks the reversal chain (K-032): a hand reversal of the cancel's reversal is hidden with the pair,
@@ -108,6 +118,7 @@ describeIfDisposable('a credit note approved and cancelled in one period: the pa
       WHERE id = ${await reversalOf(r1)}::UUID`) as { d: string }[])[0]!.d)).toBe('2026-08-20');
     expect(await nil('2026-08-01', '2026-08-31')).toEqual({ zeroRated: 300, exempt: 200, onTaxedJournals: 500 });
     expect(await fields('2026-08-01', '2026-08-31')).toEqual([1000, 300, 200, 150]);
+    await expectDrillTies('2026-08-01', '2026-08-31');
   });
 });
 
@@ -120,6 +131,7 @@ describeIfDisposable('a cancelled typed invoice leaves the VAT201 at zero (the c
     expect(await fields('2026-07-01', '2026-07-31')).toEqual([0, 0, 1000, 0]);
     await cancel(id);
     expect(await fields('2026-07-01', '2026-07-31')).toEqual([0, 0, 0, 0]);
+    await expectDrillTies('2026-07-01', '2026-07-31');
   });
 
   it('a typed mixed invoice cancelled in one period: the nil-rated reader reads nothing and every field is 0', async () => {
@@ -128,6 +140,7 @@ describeIfDisposable('a cancelled typed invoice leaves the VAT201 at zero (the c
     await cancel(id);
     expect(await nil('2026-08-01', '2026-08-31')).toEqual({ zeroRated: 0, exempt: 0, onTaxedJournals: 0 });
     expect(await fields('2026-08-01', '2026-08-31')).toEqual([0, 0, 0, 0]);
+    await expectDrillTies('2026-08-01', '2026-08-31');
   });
 
   // Uncoded legs count only on an untaxed document's OWN journal; the cancelled invoice's is excluded by status and its
@@ -138,6 +151,7 @@ describeIfDisposable('a cancelled typed invoice leaves the VAT201 at zero (the c
     await cancel(id);
     expect(await nil('2026-09-01', '2026-09-30')).toEqual({ zeroRated: 0, exempt: 0, onTaxedJournals: 0 });
     expect(await fields('2026-09-01', '2026-09-30')).toEqual([0, 0, 0, 0]);
+    await expectDrillTies('2026-09-01', '2026-09-30');
   });
 });
 
