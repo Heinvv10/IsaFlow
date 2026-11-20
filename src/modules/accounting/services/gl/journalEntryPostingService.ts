@@ -24,6 +24,7 @@ import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
+import { isReinstateCancelledDocumentRefusal, JournalReinstatesCancelledDocumentError } from './journalReinstateRefusal';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -249,6 +250,8 @@ async function reverseJournalEntryInner(
         && (err as { constraint?: unknown }).constraint === 'ux_gl_je_reversal_of') {
         throw new Error('Journal entry already reversed');
       }
+      // Migration 1018: the link would put a cancelled document's journal back in force (gl/journalReinstateRefusal).
+      if (isReinstateCancelledDocumentRefusal(err)) throw new JournalReinstatesCancelledDocumentError(entry.entryNumber);
       throw err;
     }
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).

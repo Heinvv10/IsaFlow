@@ -297,6 +297,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
   'PAYROLL_RUN_DIRECTIVE_USE',
   'EMPLOYEE_END_DATE_DIRECTIVE',
+  'JOURNAL_REINSTATES_CANCELLED_DOCUMENT', // 1018 round 3: re-reversal of a cancelled document's journal (gl/journalReinstateRefusal)
   'PREPARER_ID_NOT_SUPPORTED', // wave 6 HYb: a non-UUID preparer of a pay run R-035 governs (payrollPreparerGuard)
   'LEAVER_EXIT_AMBIGUOUS', // two live leaver-exit audit rows for a directive's current expiry: nothing restored
   'LEAVER_EXIT_WINDOW_TAKEN', // undoing a leaver exit when another run taxed the employee inside the restored window
