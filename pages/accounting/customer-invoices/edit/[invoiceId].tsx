@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
-import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { formTotals, useVatMode } from '@/components/accounting/customer-invoices/formVat';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
@@ -24,7 +24,7 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 import { useWipLines } from '@/components/accounting/customer-invoices/useWipLines';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 import { useDueDateFollowsTerms } from '@/components/accounting/customer-invoices/useDueDateFollowsTerms';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
@@ -146,15 +146,16 @@ export default function EditCustomerInvoicePage() {
   const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
 
-  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
-  const taxRate = effectiveTaxRate(taxMode, form.taxRate);
-  const lineTotal = (l: LineItem) => lineTotalForMode(taxMode, taxRate, l);
+  // Priced as the server stores it (formVat: per-line VAT; no VAT for a company not registered for it); a half-typed field previews as 0.
+  const vatMode = useVatMode(taxMode);
+  const taxRate = effectiveTaxRate(vatMode, form.taxRate);
+  const lineTotal = (l: LineItem) => lineTotalForMode(vatMode, taxRate, l);
   const pickTaxMode = (mode: TaxMode) => { setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
-  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
+  const { subtotal, tax, total } = formTotals(lines.map(l => ({ ...l, unitPrice: storedUnitPrice(vatMode, l.unitPrice, taxRate) })), taxRate, form.invoiceDate);
 
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
   const id = String(invoiceId ?? '');
-  const draft = { form, lines, taxMode };
+  const draft = { form, lines, taxMode: vatMode };
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved

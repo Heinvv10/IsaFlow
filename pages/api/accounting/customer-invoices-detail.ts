@@ -120,6 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_amount') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
+    if (result.kind === 'vat_refused') return apiResponse.badRequest(res, result.message, { code: result.code }); // before any write
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     // Read after the write, under its row lock: what the page's next Approve & email (shownDigest) and next PUT

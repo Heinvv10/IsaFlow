@@ -21,6 +21,8 @@ export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   unitPrice: number;
   /** The catalogue item (migration 1005), when the line names one; null = none (clears it on an edit). */
   itemId?: string | null;
+  /** The line's VAT type as sent (`vat_type`); the service holds it to the contract (invoiceLineVatTypes). */
+  vatType?: unknown;
 }
 
 export interface ParsedCustomerInvoice {
@@ -48,6 +50,11 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     unit_price: { type: 'number', minimum: 0 },
     gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the item\'s sales account (when item_id is given) or the default sales account.' },
     item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line credits the item\'s sales account. An inactive item is refused.' },
+    vat_type: {
+      type: 'string', enum: ['standard', 'zero_rated', 'exempt'],
+      description: 'The line\'s VAT type; its rate comes from the type and the invoice date, never from the caller. '
+        + 'Omitted: the customer\'s default VAT type if zero-rated or exempt, else the item\'s, else the revenue account\'s, else standard (never together with tax_rate).',
+    },
     project_id: {
       type: 'string',
       description: 'Job (a `projects` id — what Project Profitability reads) the line\'s revenue belongs to. '
@@ -138,7 +145,7 @@ export function parseCustomerInvoiceInput(
     const dims = parseDimensionRefs(o, `items[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity, ...coding, ...item });
+    items.push({ description, unitPrice, quantity, ...coding, ...item, ...(o.vat_type === undefined ? {} : { vatType: o.vat_type }) });
   }
   const projectId = readCodingId(args.project_id);
   if (projectId === undefined) return 'project_id must be a UUID';

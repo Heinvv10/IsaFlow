@@ -2,7 +2,7 @@
  * Master plan wave 4, PR PV, review round 1: what the unsaved preview must refuse or accept as create does.
  *
  * - The totals cap (create's "The invoice total is too large", total or functional total of 1e13 or more) is one pure
- *   function, `draftTotals`, that create and the preview both call.
+ *   function, `assertDraftTotalFits`, that create and the preview both call.
  * - A body nested too deep for `JSON.stringify` is a PreviewBodyError (a 400), never a RangeError (a 500).
  * - A line description or the notes over 2,000 characters or 20 line breaks is refused (page amplification).
  * - A date that is not on the calendar (2026-02-30) is refused, by the preview and by create, before any write.
@@ -19,7 +19,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 }));
 
 import {
-  createDraftCustomerInvoice, draftTotals, InvoiceLineValidationError,
+  assertDraftTotalFits, createDraftCustomerInvoice, InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import {
   parsePreviewBody, PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS, PREVIEW_MAX_TOTAL_LINE_BREAKS, PREVIEW_MAX_TEXT_CHARS, PREVIEW_MAX_TEXT_LINE_BREAKS, PreviewBodyError,
@@ -39,23 +39,23 @@ const inserts = () => m.sql.mock.calls.filter((c) => String((c[0] as string[]).j
 
 beforeEach(() => { m.sql.mockReset(); m.sql.mockResolvedValue([ROW]); });
 
-describe('draftTotals: the totals cap create and the preview share', () => {
-  it('returns invoiceTotals under the cap', () => {
-    expect(draftTotals([100, 50], 15, 1)).toEqual({ subtotal: 150, tax: 22.5, total: 172.5 });
+describe('assertDraftTotalFits: the totals cap create and the preview share', () => {
+  it('passes a total under the cap', () => {
+    expect(() => assertDraftTotalFits(172.5, 1)).not.toThrow();
   });
 
   it('refuses a total of 1e13 or more', () => {
-    expect(() => draftTotals([1e13], 0, 1)).toThrow(InvoiceLineValidationError);
-    expect(() => draftTotals([1e13], 0, 1)).toThrow('The invoice total is too large');
+    expect(() => assertDraftTotalFits(1e13, 1)).toThrow(InvoiceLineValidationError);
+    expect(() => assertDraftTotalFits(1e13, 1)).toThrow('The invoice total is too large');
     // A rate under 1 shrinks the functional amount: the document total's own cap still holds.
-    expect(() => draftTotals([1e13], 0, 0.5)).toThrow('The invoice total is too large');
-    expect(draftTotals([9_999_999_999_999.99], 0, 1).total).toBe(9_999_999_999_999.99);
+    expect(() => assertDraftTotalFits(1e13, 0.5)).toThrow('The invoice total is too large');
+    expect(() => assertDraftTotalFits(9_999_999_999_999.99, 1)).not.toThrow();
   });
 
   it('refuses a functional total of 1e13 or more', () => {
-    expect(() => draftTotals([100], 0, 1e12)).toThrow('The invoice total is too large');
-    expect(() => draftTotals([1e12], 0, 10)).toThrow('The invoice total is too large');
-    expect(draftTotals([1e11], 0, 10).total).toBe(1e11);
+    expect(() => assertDraftTotalFits(100, 1e12)).toThrow('The invoice total is too large');
+    expect(() => assertDraftTotalFits(1e12, 10)).toThrow('The invoice total is too large');
+    expect(() => assertDraftTotalFits(1e11, 10)).not.toThrow();
   });
 });
 
@@ -66,7 +66,7 @@ describe('the preview refuses a total create refuses', () => {
   });
 
   it('USD at an exchange rate of 1e300 on a company with foreign currencies (beyond a plain decimal)', async () => {
-    expect(() => draftTotals([100], 0, 1e300)).toThrow(new InvoiceLineValidationError('The exchange rate is too large'));
+    expect(() => assertDraftTotalFits(100, 1e300)).toThrow(new InvoiceLineValidationError('The exchange rate is too large'));
     await expect(buildInvoicePreviewModel(CO, parsePreviewBody(one({ currencyCode: 'USD', exchangeRate: 1e300 }))))
       .rejects.toThrow(new InvoiceLineValidationError('The exchange rate is too large'));
   });
@@ -96,10 +96,10 @@ describe('a body nested too deep to measure', () => {
 });
 
 describe('exchange rate and date shapes the columns cannot hold', () => {
-  it('draftTotals refuses an exchange rate of 1e12 or more (numeric(18,6)), and takes just under', () => {
-    expect(() => draftTotals([0.01], 0, 5e14)).toThrow(InvoiceLineValidationError);
-    expect(() => draftTotals([0.01], 0, 1e12)).toThrow('The exchange rate is too large');
-    expect(draftTotals([0.01], 0, 999_999_999_999).total).toBe(0.01);
+  it('assertDraftTotalFits refuses an exchange rate of 1e12 or more (numeric(18,6)), and takes just under', () => {
+    expect(() => assertDraftTotalFits(0.01, 5e14)).toThrow(InvoiceLineValidationError);
+    expect(() => assertDraftTotalFits(0.01, 1e12)).toThrow('The exchange rate is too large');
+    expect(() => assertDraftTotalFits(0.01, 999_999_999_999)).not.toThrow();
   });
 
   it('create refuses that rate as a 400 before any insert', async () => {

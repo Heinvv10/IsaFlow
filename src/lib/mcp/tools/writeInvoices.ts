@@ -69,6 +69,7 @@ export const createDraftInvoiceTool: McpTool = {
   name: 'create_draft_invoice',
   description:
     'Create a customer invoice in DRAFT status (an invoice number is reserved). Does not post to the GL or send — use finalize_invoice (needs write:post) to approve. '
+    + 'VAT is set per line by items[].vat_type (standard, zero_rated or exempt), its rate taken from the type and the invoice date; tax_rate is a legacy input (the standard rate or 0 only, never with a line vat_type), and a company not registered for VAT gets no VAT on any line. '
     + 'Pass external_system + external_ref (e.g. the Sage tax invoice id) to make the create idempotent: a live invoice already carrying them is returned instead (already_existed: true).',
   scope: 'write:invoices',
   write: true,
@@ -80,7 +81,7 @@ export const createDraftInvoiceTool: McpTool = {
       project_id: { type: 'string', description: 'The invoice\'s project, display only; tag lines to post by project (items[].project_id).' },
       invoice_date: { type: 'string', format: 'date' },
       due_date: { type: 'string', format: 'date', description: "When omitted: from the customer's payment terms (see list_customers), else the company's default terms" },
-      tax_rate: { type: 'number', minimum: 0 },
+      tax_rate: { type: 'number', minimum: 0, description: 'LEGACY, instead of items[].vat_type: the standard VAT rate on the invoice date (every line standard) or 0 (every line zero-rated); any other rate is refused, as is tax_rate together with a line vat_type. A company not registered for VAT writes every line with no VAT and refuses a standard line or a rate above 0.' },
       notes: { type: 'string' },
       ...EXTERNAL_REF_CREATE_PROPS,
       idempotency_key: { type: 'string' },

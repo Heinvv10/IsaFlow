@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { invoiceDigests } from '@/modules/accounting/services/ar/invoicePdfModel';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -48,6 +49,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
     // Raised before the first write: the 400 commits nothing.
     if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+    // Per-line VAT (invoiceLineVatTypes): a type, a legacy rate or VAT asked of a non-vendor, refused before the first write.
+    if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
     if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
     if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);

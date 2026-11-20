@@ -19,6 +19,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { mcpPostingOpts } from '../mcpActor';
 import { MAX_LINES } from './invoiceCreateArgs';
 import {
@@ -34,7 +35,8 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
   description:
     'Create up to 100 DRAFT customer invoices in ONE call. Each element takes the same payload as create_draft_invoice, without its idempotency_key. '
     + 'Reserves an invoice number for each; posts nothing to the GL — approve each with finalize_invoice (needs write:post). '
-    + 'ALL OR NOTHING: if any element is rejected or fails, none of them are created, so a retry on the same idempotency_key is safe.',
+    + 'ALL OR NOTHING: if any element is rejected or fails, none of them are created, so a retry on the same idempotency_key is safe. '
+    + 'VAT is set per line by items[].vat_type (standard, zero_rated or exempt), its rate taken from the type and the invoice date; tax_rate is a legacy input (the standard rate or 0 only, never with a line vat_type), and a company not registered for VAT gets no VAT on any line.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -54,7 +56,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
             project_id: { type: 'string', description: 'The invoice\'s project, display only; tag lines to post by project (items[].project_id).' },
             invoice_date: { type: 'string', format: 'date' },
             due_date: { type: 'string', format: 'date' },
-            tax_rate: { type: 'number', minimum: 0 },
+            tax_rate: { type: 'number', minimum: 0, description: 'LEGACY, instead of items[].vat_type: the standard VAT rate on the invoice date (every line standard) or 0 (every line zero-rated); any other rate is refused, as is tax_rate together with a line vat_type. A company not registered for VAT writes every line with no VAT and refuses a standard line or a rate above 0.' },
             notes: { type: 'string' },
           },
           required: ['customer_id', 'items'],
@@ -113,6 +115,8 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
         }
         // The registered refusal, named by element, so the agent sees which line to recode.
         if (err instanceof InvoiceLineCodingRefusal) throw new InvoiceLineCodingRefusal(`invoices[${i}]: ${err.message}`);
+        if (err instanceof InvoiceLineVatRefusal) throw new InvoiceLineVatRefusal(`invoices[${i}]: ${err.message}`);
+        if (err instanceof InvoiceVatNotRegisteredRefusal) throw new InvoiceVatNotRegisteredRefusal(`invoices[${i}]: ${err.message}`);
         throw elementError(i, err, 'Failed to create customer invoice.');
       }
     }

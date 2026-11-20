@@ -61,7 +61,8 @@ describe('the preview prints the totals the page shows (create\'s pricing)', () 
   it('pins the inclusive 3 × R10 case to the cent', async () => {
     const { printed, preview } = await both('inclusive', [line('1', 3, 10)]);
     expect(printed).toEqual({ subtotal: 26.1, tax: 3.92, total: 30.02 });
-    expect(preview.model.items).toEqual([{ description: 'Line 1', quantity: 3, unit_price: 8.7, amount: 26.1, tax_rate: 15 }]);
+    expect(preview.model.items).toEqual([{ description: 'Line 1', quantity: 3, unit_price: 8.7, amount: 26.1, tax_rate: 15,
+      tax_amount: 3.92, vat_type: 'standard' }]);
   });
 
   it('in a foreign currency: the document figures, and its currency and rate', async () => {
@@ -140,8 +141,9 @@ describe('the body\'s caps and shape', () => {
     expect(() => parsePreviewBody(raw)).toThrow(message);
   });
 
-  it('does not carry a line\'s coding (never looked up, never printed)', () => {
-    const parsed = parsePreviewBody({ clientId: CLIENT, items: [{ description: 'x', unitPrice: 1, glAccountId: JOB, projectId: JOB, itemId: JOB }] });
-    expect(parsed.items).toEqual([{ description: 'x', quantity: undefined, unitPrice: 1, discount: undefined }]);
+  it('does not carry a line\'s job or dimensions; its VAT type, item and account only for its VAT type', () => {
+    const parsed = parsePreviewBody({ clientId: CLIENT, items: [{ description: 'x', unitPrice: 1, glAccountId: JOB, projectId: JOB, itemId: JOB, cc2Id: JOB }] });
+    expect(parsed.items).toEqual([{ description: 'x', quantity: undefined, unitPrice: 1, discount: undefined,
+      vatType: undefined, itemId: JOB, glAccountId: JOB }]);
   });
 });
