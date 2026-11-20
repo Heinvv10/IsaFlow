@@ -61,6 +61,9 @@
 --      foreign key, numeric_value_out_of_range) is named in a WARNING and then FAILS the migration: nothing is copied and the
 --      legacy tables stay writable, rather than a green release with orders behind it (review M1). Then the migration RAISES
 --      unless copied + skipped = the legacy headers it set out to copy.
+--   2b. purchase_order_bill_links_backfill (1006) is redefined, verbatim but for held_c: a link it does not own on a PO the bill's
+--      lines name is no longer subtracted on top of those lines (one rand to one PO; PR #1703 ledger breaker BRK-B), as the app
+--      writer now does too.
 --   3. Per company copied: the purchase_order counter moves past the highest copied number of the counter's own form (prefix +
 --      1-9 digits, as the PO import does; never back). The SPO writer issued "<prefix>-<padded>" (PO-0000005) from this same
 --      counter (document_type 'purchase_order'), so its numbers are already behind the counter and are not of the canonical
@@ -68,7 +71,9 @@
 --      (company) (1006) links the bills that named a legacy id; then the close step above; then a NOTICE per order-date month
 --      gives the committing copies, their ex-VAT line total and the billing that nets it (what entered committed spend).
 --
--- LOCKS. ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes it; reads of them wait too), SHARE ROW EXCLUSIVE on
+-- LOCKS. First the purchase_order counter rows of every company with legacy orders (FOR UPDATE), the order an app PO create takes
+--   them in (counter, then purchase_orders), so the two cannot deadlock. ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes
+--   it; reads of them wait too), SHARE ROW EXCLUSIVE on
 --   purchase_orders (LOCK TABLE: no app PO insert can take a number between the free-number check and the copy's insert); ROW
 --   EXCLUSIVE on po_items,
 --   company_document_numbers and purchase_order_bill_links. All held to commit; lock_timeout bounds each wait. The legacy
@@ -129,6 +134,101 @@ CREATE TRIGGER trg_supplier_purchase_order_items_retired BEFORE INSERT OR UPDATE
   FOR EACH ROW EXECUTE FUNCTION public.supplier_purchase_orders_retired();
 ALTER TABLE public.supplier_purchase_order_items ENABLE ALWAYS TRIGGER trg_supplier_purchase_order_items_retired;
 
+-- ── 1b. The 1006 backfill: one rand of a bill to one PO ───────────────────────────────────────────────────────────
+-- 1006's function verbatim except held_c: a link this writer does not own, on a PO the bill's lines name, is no longer subtracted
+-- on top of those lines (PR #1703 ledger breaker BRK-B; the app writer, billPurchaseOrderLinks.recordBillLinks, changes the same way,
+-- and mcp-po-bill-links-amounts keeps the two equal). INVOKER, owner and grants unchanged by CREATE OR REPLACE.
+
+CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill(p_company UUID DEFAULT NULL)
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  inserted BIGINT := 0;
+  skipped BIGINT := 0;
+  n BIGINT;
+  r RECORD;
+BEGIN
+  FOR r IN
+  -- THE PLAN HAS NO bills x POs SHAPE, WHATEVER THE STATISTICS. Every join is on a key: a bill to its lines' posted cents (the function, per
+  -- bill), a line to its po_items row (id), a po_items row to its PO (id), a bill to its header PO (id). The bill's company / supplier and the
+  -- PO's status are compared only AFTER `pairs` is materialized, as a filter on one row: never as a join clause, which lets the planner join
+  -- bills to every PO of their supplier (it did: the bill lines, a CTE without statistics, merge-joined to purchase_orders ON company AND
+  -- supplier, estimated at 41 rows, were 982 167 for 1 300 bills x 400 POs). Nothing below `pairs` joins: a header PO that a line also names
+  -- folds into the line's pair by GROUP BY (no NOT IN / anti join against a CTE, which nested loops rescan once per bill), and the bill's
+  -- company / subtotal / held cents ride along instead of being joined back.
+  WITH cand AS MATERIALIZED (
+    SELECT si.id, si.company_id, si.supplier_id, si.purchase_order_id AS header_po, round(si.subtotal * 100)::BIGINT AS sub_c,
+           -- What the bill's links this writer does not own (mcp, or with an external reference) already hold.
+           COALESCE((SELECT SUM(round(l.amount * 100)) FROM purchase_order_bill_links l
+                      WHERE l.company_id = si.company_id AND l.supplier_invoice_id = si.id
+                        AND NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL)
+                        -- 1022 (PR #1703, breaker BRK-B): not a link of a PO the bill's lines name: the lines account for it.
+                        AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+                                         WHERE x.supplier_invoice_id = si.id AND pi.purchase_order_id = l.purchase_order_id)), 0)::BIGINT AS held_c
+      FROM supplier_invoices si
+     WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL AND (p_company IS NULL OR si.company_id = p_company)
+       AND (si.purchase_order_id IS NOT NULL
+            OR EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id IS NOT NULL))
+  ), pairs AS MATERIALIZED (
+    -- One row per bill line that names a PO line (its posted cents; po_bill_posted_cents once per bill) and one per bill header, each with
+    -- the PO it reaches BY ID and that PO's company / supplier / status, unfiltered: MATERIALIZED keeps the filter below out of these joins.
+    SELECT c.id AS bill, c.company_id, c.supplier_id, c.sub_c, c.held_c, TRUE AS by_line, p.cents,
+           po.id AS po, po.company_id AS po_company, po.supplier_id AS po_supplier, po.status AS po_status
+      FROM cand c
+      CROSS JOIN LATERAL public.po_bill_posted_cents(c.id) p
+      JOIN supplier_invoice_items sii ON sii.id = p.item_id
+      JOIN po_items pi ON pi.id = sii.po_item_id
+      JOIN purchase_orders po ON po.id = pi.purchase_order_id
+    UNION ALL
+    SELECT c.id, c.company_id, c.supplier_id, c.sub_c, c.held_c, FALSE, NULL::BIGINT,
+           po.id, po.company_id, po.supplier_id, po.status
+      FROM cand c
+      JOIN purchase_orders po ON po.id = c.header_po
+  ), parts AS (
+    -- Per (bill, PO) of the bill's company and supplier, PO linkable: the posted cents of the lines that name it (at most the subtotal), or
+    -- NULL when only the header names it.
+    SELECT pr.bill, pr.po, pr.company_id, pr.sub_c, pr.held_c,
+           CASE WHEN bool_or(pr.by_line) THEN LEAST(SUM(pr.cents) FILTER (WHERE pr.by_line), pr.sub_c)::BIGINT END AS cents
+      FROM pairs pr
+     WHERE pr.po_company = pr.company_id AND pr.po_supplier = pr.supplier_id
+       AND pr.po_status IN ('approved', 'partially_received', 'received', 'closed')
+     GROUP BY pr.bill, pr.po, pr.company_id, pr.sub_c, pr.held_c
+  ), sized AS (
+    SELECT pt.bill, pt.po, pt.cents, pt.company_id, pt.sub_c, pt.held_c, COALESCE(pt.cents, 0) > 0 AS positive,
+           COALESCE(SUM(pt.cents) FILTER (WHERE pt.cents > 0) OVER (PARTITION BY pt.bill), 0) AS pos_total,
+           MIN(pt.po::TEXT COLLATE "C") FILTER (WHERE COALESCE(pt.cents, 0) <= 0) OVER (PARTITION BY pt.bill) AS first_fallback
+      FROM parts pt
+  ), amounts AS (
+    SELECT s.company_id, s.po, s.bill, CASE WHEN s.positive THEN s.cents ELSE s.sub_c - s.pos_total - s.held_c END AS cents
+      FROM sized s WHERE s.positive OR (s.po::TEXT COLLATE "C") = s.first_fallback
+  )
+  SELECT a.company_id, a.po, a.bill, a.cents FROM amounts a WHERE a.cents > 0 ORDER BY a.bill, a.po
+  LOOP
+    BEGIN
+      INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source)
+      VALUES (r.company_id, r.po, r.bill, r.cents / 100.0, 'backfill')
+      ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING;
+      GET DIAGNOSTICS n = ROW_COUNT;
+      inserted := inserted + n;
+    EXCEPTION WHEN check_violation OR foreign_key_violation THEN
+      skipped := skipped + 1;
+      RAISE WARNING 'purchase_order_bill_links_backfill: skipped purchase order % / bill % (it changed while the backfill ran): %', r.po, r.bill, SQLERRM;
+    END;
+  END LOOP;
+  RAISE NOTICE 'purchase_order_bill_links_backfill: % link(s) written, % skipped', inserted, skipped;
+  RETURN inserted;
+END;
+$$;
+
+-- ── 1c. Lock order: the purchase_order counters BEFORE purchase_orders ─────────────────────────────────────────────
+-- An app PO create reserves its number (company_document_numbers row) and then inserts into purchase_orders; taking the
+-- counters of every company with legacy orders first, then the table, keeps this migration in that order (no deadlock with it).
+SELECT 1 FROM public.company_document_numbers n
+ WHERE n.document_type = 'purchase_order' AND n.company_id IN (SELECT DISTINCT s.company_id FROM public.supplier_purchase_orders s)
+ ORDER BY n.company_id FOR UPDATE;
 LOCK TABLE public.purchase_orders IN SHARE ROW EXCLUSIVE MODE;
 
 -- ── 2 + 3. The copy, the counter, the bill links, the close step, the committed record ──────────────────────────
@@ -314,8 +414,9 @@ BEGIN
 
   -- The billing committed nets per copied PO (budgets/remainingHeaderBilled + billedLinesByPoItem, in SQL): bills approved / paid /
   -- partially_paid, not soft-deleted, of the PO's company and supplier; a bill with a line naming a line of the PO nets by those
-  -- lines' posted cents, else by its link's amount, else by its subtotal less what it attributes to each OTHER PO (the larger of its
-  -- lines' posted cents and its link amount there: a link written from those lines holds the same rand; review M2). The backfill
+  -- lines' posted cents, else by its link's amount, else by its subtotal less what it attributes to each OTHER PO (its lines' posted
+  -- cents, positive only, when its lines name that PO, else its link amount there: one rand to one PO; review M2, breaker BRK-B/E),
+  -- kept between 0 and the subtotal (budgets/billAttribution, the TS twin). The backfill
   -- above has linked every header-only bill it could, so that last branch is reached only for a bill it skipped.
   -- (Line netting in the app still counts a soft-deleted approved bill; for a copy only a legacy bill can line-link, never.)
   -- Kept in a variable, not a TEMP table: no DDL beyond the triggers.
@@ -331,9 +432,11 @@ BEGIN
            (SELECT COALESCE(SUM(p.cents), 0) FROM public.po_bill_posted_cents(cd.bill) p
               JOIN public.supplier_invoice_items x ON x.id = p.item_id JOIN public.po_items pi ON pi.id = x.po_item_id
              WHERE pi.purchase_order_id = cd.po) AS line_c,
-           (SELECT COALESCE(SUM(GREATEST(COALESCE(lc.c, 0), COALESCE(lk.c, 0))), 0)
-              FROM (SELECT pi.purchase_order_id AS p, SUM(pc.cents) AS c FROM public.po_bill_posted_cents(cd.bill) pc
-                      JOIN public.supplier_invoice_items x ON x.id = pc.item_id JOIN public.po_items pi ON pi.id = x.po_item_id
+           (SELECT COALESCE(SUM(CASE WHEN lc.p IS NOT NULL THEN GREATEST(0, lc.c) ELSE lk.c END), 0)
+              FROM (SELECT pi.purchase_order_id AS p, SUM(COALESCE(pc.cents, 0)) AS c
+                      FROM public.supplier_invoice_items x JOIN public.po_items pi ON pi.id = x.po_item_id
+                      LEFT JOIN public.po_bill_posted_cents(cd.bill) pc ON pc.item_id = x.id
+                     WHERE x.supplier_invoice_id = cd.bill
                      GROUP BY pi.purchase_order_id) lc
               FULL JOIN (SELECT o.purchase_order_id AS p, round(o.amount * 100) AS c FROM public.purchase_order_bill_links o
                           WHERE o.supplier_invoice_id = cd.bill) lk ON lk.p = lc.p
@@ -349,7 +452,7 @@ BEGIN
   SELECT COALESCE(jsonb_object_agg(g.po, g.cents), '{}'::JSONB) INTO v_billed FROM (
     SELECT t.po::TEXT AS po, SUM(CASE WHEN t.by_lines THEN t.line_c
                                       WHEN t.link_amount IS NOT NULL THEN round(t.link_amount * 100)
-                                      ELSE GREATEST(0, round(t.subtotal * 100) - t.else_c) END)::BIGINT AS cents
+                                      ELSE LEAST(round(t.subtotal * 100), GREATEST(0, round(t.subtotal * 100) - t.else_c)) END)::BIGINT AS cents
       FROM tie t GROUP BY t.po) g;
 
   FOR h IN

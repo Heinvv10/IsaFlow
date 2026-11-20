@@ -10,7 +10,8 @@ import type { DbRow } from '@/lib/neon';
 import { lockExternalRef } from '../core/externalRefService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
-import { postedExpenseLines } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
+import { billTies } from '../budgets/billAttribution';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import type { BillFacts, BillLineFacts, ExistingLink, LinkRequest, PoFacts } from './purchaseOrderBillLinkTypes';
@@ -22,6 +23,7 @@ export interface LinkFacts {
   poItemOwner: Map<string, string>;
   existing: ExistingLink[];
   refOwners: Map<string, ExistingLink>;
+  headerBilled: Map<string, Array<{ billId: string; cents: number }>>;
 }
 
 const low = (v: unknown) => String(v).toLowerCase();
@@ -134,6 +136,18 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     `) as DbRow[];
     for (const r of owned) refOwners.set(`${r.external_system}\u0000${r.external_ref}`, existingLinkOf(r));
   }
+  // One attribution (budgets/billAttribution, PR #1703 isaflow-c8): a link whose bill's lines name its PO holds the lines' posted
+  // amount, whatever amount it stored (a link written with an explicit amount beside lines before the planner checked them).
+  const existing = links.map(existingLinkOf);
+  const linkPos = [...new Set(existing.map((l) => l.poId))];
+  const ties = await billTies(companyId, [...new Set([...linkPos, ...poIds])], { statuses: null });
+  const byLines = new Map(ties.filter((t) => t.via === 'lines').map((t) => [`${t.billId}|${t.poId}`, t.cents]));
+  for (const l of existing) { const c = byLines.get(`${l.billId}|${l.poId}`); if (c !== undefined) l.amountCents = c; }
+  const headerBilled = new Map<string, Array<{ billId: string; cents: number }>>();
+  for (const t of ties) {
+    if (t.via !== 'header' || t.deleted || !(BILLED_STATUSES as readonly string[]).includes(t.status) || !poIds.includes(t.poId)) continue;
+    headerBilled.set(t.poId, [...(headerBilled.get(t.poId) ?? []), { billId: t.billId, cents: t.cents }]);
+  }
   return {
     resolvedPo,
     pos: new Map(poRows.map((r) => [low(r.id), {
@@ -141,7 +155,8 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     }])),
     bills,
     poItemOwner: new Map(owners.map((r) => [low(r.id), low(r.po)])),
-    existing: links.map(existingLinkOf),
+    existing,
     refOwners,
+    headerBilled,
   };
 }

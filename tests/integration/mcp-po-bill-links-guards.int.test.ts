@@ -113,6 +113,8 @@ describe('the migration backfill', () => {
     const file = readFileSync('scripts/migrations/sql/1006_purchase_order_bill_links.sql', 'utf8');
     const functions = file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.po_bill_posted_cents'), file.indexOf('SELECT public.purchase_order_bill_links_backfill();'));
     await pool.query(functions);
+    const later = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8'); // 1022 redefines the backfill: the LIVE one
+    await pool.query(later.slice(later.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'), later.indexOf('-- ── 1c.')));
     await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     const rows = await linkRows(pool, f);
     const byBill = new Map(rows.map((r) => [r.bill, r]));

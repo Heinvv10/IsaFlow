@@ -51,6 +51,11 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
      never pass its subtotal; a line amount is never more than the subtotal (a negative last line can make the lines' sum
      larger). Of several such POs in the app writer / backfill only the lowest id (byte order of its text) is linked.
    Refused (MCP) when it would be <= 0 or take a bill's links past its subtotal (+1c); the app writer links nothing then.
+   PR #1703 (ledger breaker): when lines of the bill name the PO, the link IS their posted amount: an explicit amount more than
+   1c off is refused, and lines that post R0 are refused (no subtotal fallback). "What its other links hold" counts, per other
+   PO, its lines' posted amount when its lines name that PO, else that PO's link (one rand to one PO; `budgets/billAttribution`,
+   which every reader uses, so a stored amount that disagrees with its lines is read as the lines'). The backfill is redefined
+   in 1022 the same way.
 5. **Billed** for a PO = sum of link amounts on bills in approved / paid / partially_paid (`BILLED_STATUSES`), not
    deleted. Per PO line: billed qty and amount from linked bill lines (`billedLinesByPoItem`, the same posted amounts
    committed uses). Computed on read; nothing is rolled up into `po_items`, so there is nothing to drift.

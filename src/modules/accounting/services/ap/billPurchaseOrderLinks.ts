@@ -105,6 +105,7 @@ export async function recordBillLinks(companyId: string, billId: string, userId:
            (source IN ('app', 'backfill') AND external_ref IS NULL) AS owned
       FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ${billId}::UUID
   `) as DbRow[];
+  const linePos = new Set(items.filter((i) => i.item_po).map((i) => String(i.item_po).toLowerCase()));
   const plan = planBillLinks({
     subtotalCents: toCents(Number(bill.subtotal)),
     lines: items.map((i) => {
@@ -112,7 +113,9 @@ export async function recordBillLinks(companyId: string, billId: string, userId:
       return { poId: po && usable.has(po) ? po : null, postedCents: posted.get(String(i.id)) ?? 0 };
     }),
     headerPoId: header && usable.has(header) ? header : null,
-    heldCents: links.filter((l) => l.owned !== true).reduce((s, l) => s + toCents(Number(l.amount)), 0),
+    // A link this writer does not own, on a PO the bill's lines do NOT name: the lines already account for a named PO (one rand to one
+    // PO; PR #1703 breaker BRK-B), so its link is not subtracted as well.
+    heldCents: links.filter((l) => l.owned !== true && !linePos.has(String(l.po).toLowerCase())).reduce((s, l) => s + toCents(Number(l.amount)), 0),
   });
   const want = new Map(plan.map((p) => [p.poId, p.amountCents]));
   const owned = links.filter((l) => l.owned === true);

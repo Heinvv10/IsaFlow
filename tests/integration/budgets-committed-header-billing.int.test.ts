@@ -116,10 +116,12 @@ describe('the link row settles the amount, and each bill nets each PO once', () 
     await link(a.po, bill.id, 400, 'app');
     expect(await openOf(a)).toEqual([60000]);
     expect(await openOf(b)).toEqual([40000]);
-    // A larger link on A (an mcp link of 700) is what A holds: B nets the 300 left.
+    // A disagreeing link on A (an mcp link of 700, the pre-BRK-A shape) changes nothing: A's lines name it, so A holds their
+    // R400 (one rand to one PO: lines when lines name the PO, else its link); B still nets 600.
     await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
     await link(a.po, bill.id, 700);
-    expect(await openOf(b)).toEqual([70000]);
+    expect(await openOf(a)).toEqual([60000]);
+    expect(await openOf(b)).toEqual([40000]);
   });
 
   it('a new canonical PO with a header-only bill nets too (one rule for every PO)', async () => {

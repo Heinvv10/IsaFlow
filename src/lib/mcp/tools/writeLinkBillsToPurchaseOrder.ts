@@ -54,14 +54,14 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
     `Link bills (supplier invoices) to the purchase orders they were billed against: up to ${MAX_LINKS_PER_CALL} pairs per call. Posts NOTHING: no journal, and the bill's status, totals and amount_paid are untouched, so approved bills can be linked without reposting. `
-    + 'Each link: po_id or po_number, bill_id, optional amount (ex-VAT billed against that PO; default: the posted ex-VAT of the bill lines you link, else the bill subtotal less what its other links hold), '
-    + 'optional lines [{po_item_id, bill_line_id}] (whole bill line to whole PO line: this is what reduces budget committed and feeds the three-way match; a link with no lines is header-only and does not), '
+    + 'Each link: po_id or po_number, bill_id, optional amount (ex-VAT billed against that PO; with lines it is the posted ex-VAT of the bill lines naming this PO and any other amount is refused, lines that post nothing are refused; without lines the default is the bill subtotal less what the bill already attributes to its other POs), '
+    + 'optional lines [{po_item_id, bill_line_id}] (whole bill line to whole PO line: budget committed nets those lines, and they feed the three-way match; a link with no lines nets committed by its amount, spread over the PO lines), '
     + 'and external_system + external_ref to make the link idempotent (the same pair under the same reference comes back already_existed). '
     + 'A bill may be linked to several purchase orders (split amounts); the amounts of one bill may not pass its subtotal. Same company and same supplier only. '
     + 'The PO must be approved, partially_received, received or closed; the bill approved, paid or partially_paid (a draft or cancelled bill is not billed). '
     + 'A pair already linked under the same external_ref is already_existed (refused with payload_differs when the amount or lines you send differ); a pair linked without a reference (made by the app) takes the external_ref you send (adopted_reference); any other repeat is refused (unlink_bill_from_purchase_order first). '
     + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed. '
-    + 'Known limits: credit notes do not reduce what is billed; a header-only link (no lines) does not reduce budget committed for a still-open PO; '
+    + 'Known limits: credit notes do not reduce what is billed; a header-only link reduces committed at the PO line, not on the bill\'s own account or month; '
     + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',
   scope: 'write:invoices',

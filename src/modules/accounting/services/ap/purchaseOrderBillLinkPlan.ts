@@ -11,11 +11,14 @@
  *     reference adopts it under the same test; any other attempt is refused; a reference on ANOTHER pair is refused;
  *   - a line link names a line of the row's PO and a line of the row's bill; a bill line already naming ANOTHER PO line
  *     is refused (naming the same one is fine); a bill line is named once in a call;
- *   - amount: explicit; else the posted ex-VAT of the bill's lines linked to this PO (named now, or already) when that
- *     is above zero; else the bill's subtotal less its other links. It must be above zero and take the bill's links no
- *     further than its subtotal (+1 c);
+ *   - amount: when lines of the bill name this PO (named now, or already), the posted ex-VAT of those lines, and an explicit
+ *     amount must be that within a cent (PR #1703 breaker BRK-A: else the lines net one figure and the link holds another) and
+ *     lines that post nothing are refused (BRK-C); else explicit; else the bill's subtotal less what it attributes to its
+ *     other POs (lines when its lines name that PO, else that PO's link: one rand to one PO, BRK-B). It must be above zero
+ *     and take the bill no further than its subtotal (+1 c);
  *   - close_when_fully_billed: an approved / partially_received / received PO that the call leaves fully billed
- *     (billed = amounts of links on approved / paid / partially_paid bills, >= subtotal - 1 c) becomes closed; the
+ *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that name the PO
+ *     only in their header, as `budgets/billAttribution` and committed count them, >= subtotal - 1 c) becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
 import {
@@ -37,6 +40,8 @@ export interface PlanInput {
   /** The existing links carrying a reference some request names, keyed `system\u0000ref`. */
   refOwners: ReadonlyMap<string, ExistingLink>;
   closeWhenFullyBilled: boolean;
+  /** Per PO, the approved / paid / partially_paid bills that name it only in their header (no link row): what each holds. */
+  headerBilled?: ReadonlyMap<string, ReadonlyArray<{ billId: string; cents: number }>>;
 }
 
 const refKey = (r: { system: string; ref: string }) => `${r.system}\u0000${r.ref}`;
@@ -47,9 +52,16 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
   const planned: PlannedLink[] = [];
   const pairSeen = new Map<string, number>();
   const lineClaimed = new Map<string, { index: number; poItemId: string }>();
-  // Per bill: cents already linked (existing, then earlier rows of this call).
-  const billLinked = new Map<string, number>();
-  for (const l of input.existing) billLinked.set(l.billId, (billLinked.get(l.billId) ?? 0) + l.amountCents);
+  // Per bill, what it attributes to each PO: its links (the read gives a line-linked pair its lines' amount), then, for a PO its
+  // lines name, those lines (positive only); then earlier rows of this call.
+  const attributed = new Map<string, Map<string, number>>();
+  const att = (billId: string) => { if (!attributed.has(billId)) attributed.set(billId, new Map()); return attributed.get(billId)!; };
+  for (const l of input.existing) att(l.billId).set(l.poId, l.amountCents);
+  for (const b of input.bills.values()) {
+    const byPo = new Map<string, number>();
+    for (const l of b.lines) if (l.poItemPoId) byPo.set(l.poItemPoId, (byPo.get(l.poItemPoId) ?? 0) + l.postedCents);
+    for (const [p, c] of byPo) att(b.id).set(p, Math.max(0, c));
+  }
 
   for (const r of input.requests) {
     const refuse = (reason: string) => { refusals.push({ index: r.index, reason }); };
@@ -107,14 +119,21 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     const lineWrites = r.lines.filter((l) => bill.lines.find((b) => b.id === l.billLineId)!.poItemId !== l.poItemId);
     for (const l of r.lines) lineClaimed.set(l.billLineId, { index: r.index, poItemId: l.poItemId });
 
-    const others = billLinked.get(bill.id) ?? 0;
+    const others = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
+    const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
     let amount: number;
-    if (r.amountCents !== null) amount = r.amountCents;
-    else {
-      const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
+    if (linked.length > 0) {
       const fromLines = linked.reduce((s, b) => s + b.postedCents, 0);
-      amount = fromLines > 0 ? fromLines : bill.subtotalCents - others;
-    }
+      if (fromLines <= 0) {
+        refuse(`the bill lines named for purchase order ${po.poNumber} post ${fmt(fromLines)}; a link needs an amount above zero (link the bill without lines, or name lines that post)`);
+        continue;
+      }
+      if (r.amountCents !== null && Math.abs(r.amountCents - fromLines) > FULLY_BILLED_TOLERANCE_CENTS) {
+        refuse(`amount ${fmt(r.amountCents)} is not what the bill lines named for purchase order ${po.poNumber} post (${fmt(fromLines)}); send that amount, or no amount`);
+        continue;
+      }
+      amount = fromLines;
+    } else amount = r.amountCents ?? bill.subtotalCents - others;
     if (amount <= 0) {
       refuse(`the amount to link is ${fmt(amount)}; give an amount above zero (bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT, ${fmt(others)} already linked)`);
       continue;
@@ -123,7 +142,7 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(others)} is already linked; ${fmt(amount)} more would pass it`);
       continue;
     }
-    billLinked.set(bill.id, others + amount);
+    att(bill.id).set(po.id, amount);
     planned.push({
       index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber, amountCents: amount,
       ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null, adopt: false,
@@ -174,6 +193,8 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
     for (const p of planned) {
       if (p.poId === poId && !p.existing && counted(input.bills.get(p.billId)?.status)) billed += p.amountCents;
     }
+    const linkedNow = new Set(planned.filter((p) => p.poId === poId).map((p) => p.billId));
+    for (const h of input.headerBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += h.cents;
     let statusAfter = po.status;
     const fully = isFullyBilled(billed, po.subtotalCents);
     if (touched.has(poId) && input.closeWhenFullyBilled && fully && (CLOSABLE_PO_STATUSES as readonly string[]).includes(po.status)) {

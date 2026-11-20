@@ -176,7 +176,8 @@ describe('refusals: every bad row listed, nothing written', () => {
   it('a bill line already naming another PO line, a line named twice, and an amount past the subtotal are refused', async () => {
     const a = await seedPo(pool, f, { lines: [100] });
     const b = await seedPo(pool, f, { lines: [100] });
-    const bill = await seedBill(pool, f, { lines: [100] });
+    // PR #1703 (BRK-A): an explicit amount beside lines must be the lines' posted amount, so the R40 is now a R40 line of a R100 bill.
+    const bill = await seedBill(pool, f, { lines: [40, 60] });
     expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: bill.id, amount: 40, lines: [{ po_item_id: a.items[0], bill_line_id: bill.lines[0] }] }] })).isError).toBe(false);
     const again = await callTool(pool, f, link, { links: [{ po_id: b.po, bill_id: bill.id, lines: [{ po_item_id: b.items[0], bill_line_id: bill.lines[0] }] }] });
     expect(again.text).toContain('already names another purchase order line');
@@ -218,16 +219,17 @@ describe('idempotency on external_ref', () => {
     const po = await seedPo(pool, f, { lines: [60, 40] });
     const bill = await seedBill(pool, f, { lines: [60, 40] });
     const ref = { external_system: 'sage', external_ref: 'PD-1' };
-    const made = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, amount: 60, lines: [{ po_item_id: po.items[1], bill_line_id: bill.lines[0] }], ...ref }] });
+    // bill.lines is in unit_price order: [0] is the R40 line, [1] the R60 one (PR #1703 BRK-A: an amount beside lines is theirs).
+    const made = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, amount: 60, lines: [{ po_item_id: po.items[1], bill_line_id: bill.lines[1] }], ...ref }] });
     expect(made.isError, made.text).toBe(false);
     const sameAmount = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, amount: 40, ...ref }] });
     expect(sameAmount.isError).toBe(true);
     expect(sameAmount.text).toContain('payload_differs');
     expect(sameAmount.text).toContain('amount 40.00 against 60.00 stored');
-    const otherLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[1] }], ...ref }] });
+    const otherLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }], ...ref }] });
     expect(otherLines.text).toContain('payload_differs');
     expect(otherLines.text).toContain('the lines named are not the lines linked');
-    const same = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, amount: 60, lines: [{ po_item_id: po.items[1], bill_line_id: bill.lines[0] }], ...ref }] });
+    const same = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, amount: 60, lines: [{ po_item_id: po.items[1], bill_line_id: bill.lines[1] }], ...ref }] });
     expect(same.body).toMatchObject({ linked: 0, already_existed: 1 });
   });
 
