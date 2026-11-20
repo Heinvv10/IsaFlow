@@ -93,31 +93,35 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-/**
- * The run's SDL decision on the line (wave 6 OC, payrollSdlMonthToDate): `liableEarlier`, liable because an earlier
- * final run of the month was (the estimate alone would exempt it); `catchUp`, the month-to-date adjustment on this line:
- * its share of the month's SDL (1% of the month to date less what earlier final runs charged) less 1% of its own pay.
- */
-type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; liableEarlier?: boolean; catchUp?: number };
+/** `month`: the month's earlier approved runs this run's SDL is judged with (wave 6 FQd, the month-to-date SDL). */
+type SdlCharge = {
+  annualRemuneration: number; exempt: boolean; sdl: number;
+  month?: { earlierLeviable: number; earlierSdl: number; runSdl: number; covered: boolean };
+};
 
 function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
-  const own = charge.exempt ? 0 : Math.round(leviable * SDL_RATE * 100) / 100;
-  return [
+  const steps: ExplainStep[] = [
     {
-      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
+      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt this month: remuneration at or under the threshold' : 'Employer liable this month: remuneration over the threshold (once liable, the rest of the month is too)',
       amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
-      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
+      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated, with the month to date)', amount: charge.annualRemuneration }],
     },
-    ...(charge.liableEarlier ? [{ key: 'sdl.liableEarlier', label: 'Liable this month: an earlier run of the month was liable, and a month once liable stays liable', amount: null }] : []),
-    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' as const },
-    ...(charge.catchUp
-      ? [
-        { key: 'sdl.own', label: 'SDL on this line\'s own pay', amount: own, formula: `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
-        { key: 'sdl.catchUp', label: 'Month-to-date adjustment: the month\'s SDL is 1% of its leviable pay to date less what its earlier runs charged, shared by leviable pay', amount: charge.catchUp },
-        { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: `${r(own)} + ${r(charge.catchUp)}` },
-      ]
-      : [{ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` }]),
+    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
   ];
+  if (charge.month) {
+    const m = charge.month;
+    steps.push({
+      key: 'sdl.month', label: m.covered
+        ? "The month's SDL is already covered by earlier approved runs: nothing more is due on this run"
+        : m.runSdl < 0
+          ? "The earlier approved runs carried more SDL than the month now owes: this run reduces the month's SDL to 1% of its leviable pay"
+          : "This run's SDL is the month's: 1% of the month's approved runs' leviable pay with this run's, less the SDL they carried, shared by leviable pay",
+      amount: m.runSdl, formula: `${pct(SDL_RATE)} × (${r(m.earlierLeviable)} + this run's leviable pay) − ${r(m.earlierSdl)}`,
+    });
+  }
+  steps.push({ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt'
+    : charge.month ? "this line's share of the run's SDL, by leviable pay" : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` });
+  return steps;
 }
 
 /** The SDL explanation of a line costed with the threshold deferred, completed once the run has decided it (applySdlToLines). */

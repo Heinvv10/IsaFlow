@@ -66,11 +66,12 @@ export default function BankTransfersPage() {
   useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
   const idempotency = useIdempotencyKey();
+  const panelRef = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false); // state alone lets a second click in before the re-render that disables the button
 
   const handleTransfer = async (confirmDuplicate = false) => {
     if (inFlight.current) return;
-    if (blockOnInvalidAmount()) return;
+    if (blockOnInvalidAmount(panelRef.current)) return;
     if (dates.blocked) {
       setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
       return;
@@ -142,7 +143,7 @@ export default function BankTransfersPage() {
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
             </div>
           ) : (
-            <div className="space-y-6">
+            <div ref={panelRef} className="space-y-6">
               <div className="p-6 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">From Account</label>

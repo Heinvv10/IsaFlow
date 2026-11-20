@@ -166,12 +166,8 @@ export function recomputeSdl(fig: FigureExplanation): number {
   const leviable = Math.max(0, round2(toDate - r.amt('sdl.carried')));
   expect([r.amt('sdl.payToDate'), r.amt('sdl.deductionToDate'), r.amt('sdl.leviableToDate'), r.amt('sdl.leviable')].map(cents))
     .toEqual([pay, deduction, toDate, leviable].map(cents));
-  // Liable once an earlier run of the month was (OC, payrollSdlMonthToDate), whatever this run's estimate says.
-  const exempt = !r.has('sdl.liableEarlier') && r.amt('sdl.annualRemuneration') <= r.amt('sdl.threshold');
-  const own = exempt ? 0 : round2(leviable * r.amt('sdl.rate'));
-  if (!r.has('sdl.catchUp')) return own;
-  expect(cents(r.amt('sdl.own'))).toBe(cents(own));
-  return round2(own + r.amt('sdl.catchUp'));
+  const exempt = r.amt('sdl.annualRemuneration') <= r.amt('sdl.threshold');
+  return exempt ? 0 : round2(leviable * r.amt('sdl.rate'));
 }
 
 function recomputeEti(fig: FigureExplanation): number {

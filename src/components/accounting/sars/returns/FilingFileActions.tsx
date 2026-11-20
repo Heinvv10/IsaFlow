@@ -9,6 +9,7 @@ import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
+import { emp501LayoutNote } from '@/modules/accounting/services/returns/emp501FileLayout';
 import type { ReturnForm, ReturnVersionView } from './returnLifecycleClient';
 
 const FORMATS: Record<ReturnForm, Array<['csv' | 'json' | 'pdf' | 'irp5', string]>> = {
@@ -26,6 +27,7 @@ export function FilingFileActions({ form, version, nameOf, onStamped }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const stamped = version.filingFileSha256 !== null;
+  const layoutNote = emp501LayoutNote(version); // an EMP501 file stamped in an earlier e@syFile layout (wave 6 EZF)
 
   const download = async (format: 'csv' | 'json' | 'pdf' | 'irp5') => {
     setBusy(true); setError('');
@@ -63,6 +65,7 @@ export function FilingFileActions({ form, version, nameOf, onStamped }: Props) {
             ? 'Download the filing file, capture it on SARS eFiling, then mark the return filed with the payment reference number eFiling shows.'
             : 'This version was filed before IsaFlow generated filing files.'}
       </p>
+      {layoutNote && <p role="note" className="text-xs text-amber-700 dark:text-amber-400" data-testid="filing-file-layout-note">{layoutNote}</p>}
       <div className="flex flex-wrap gap-2">
         {FORMATS[form].map(([format, label]) => (
           <Button key={format} size="sm" variant="secondary" leftIcon={Download} disabled={busy} onClick={() => void download(format)}>

@@ -3,15 +3,16 @@
  *
  * The same population `getNilRatedSupplies` sums: posted revenue legs inside the
  * period whose own VAT code is zero-rated, export or exempt, or that carry no
- * code on a document that raised no VAT; a cancelled document's journal is out.
- * A line is `credit - debit`, so a credit note nets off. The predicate is
- * restated here rather than imported because the aggregate has no row form; the
- * tie tests compare the two against hand-written cents.
+ * code on a document that raised no VAT; a cancelled document's journals follow
+ * the K-032 pair rule. A line is `credit - debit`, so a credit note nets off. The
+ * CTEs (which journals are hidden, which may carry uncoded legs) are the same
+ * fragments the aggregate splices (vatCancelledPairSql); the rest of the
+ * predicate is restated here because the aggregate has no row form, and the tie
+ * tests compare the two against hand-written cents.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-
-const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
+import { cancelledEntriesCteSql, uncodedLegCountsSql, untaxedJournalsCteSql } from './vatCancelledPairSql';
 
 export type NilRatedField = '2' | '2A' | '3';
 
@@ -48,31 +49,8 @@ export async function listNilRatedLines(
   const types = NIL_RATED_FIELD_TYPES[field];
   const includeUncoded = field === '2';
   const rows = (await sql`
-    WITH cancelled_entries AS (
-      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND ci.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND ci.gl_journal_entry_id IS NOT NULL
-      UNION
-      SELECT cn.gl_journal_entry_id FROM credit_notes cn
-        WHERE cn.company_id = ${companyId}::UUID
-          AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND cn.gl_journal_entry_id IS NOT NULL
-    ),
-    untaxed_documents AS (
-      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND COALESCE(ci.tax_amount, 0) = 0
-          AND ci.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND ci.gl_journal_entry_id IS NOT NULL
-      UNION
-      SELECT cn.gl_journal_entry_id FROM credit_notes cn
-        WHERE cn.company_id = ${companyId}::UUID
-          AND cn.type = 'customer'
-          AND COALESCE(cn.tax_amount, 0) = 0
-          AND cn.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND cn.gl_journal_entry_id IS NOT NULL
-    )
+    WITH RECURSIVE ${cancelledEntriesCteSql(companyId, periodStart, periodEnd)},
+    ${untaxedJournalsCteSql(companyId)}
     SELECT jl.id::TEXT AS line_id, je.id::TEXT AS journal_entry_id,
            COALESCE(je.entry_number, '') AS entry_number, je.entry_date::TEXT AS entry_date,
            ga.account_code, ga.account_name, jl.vat_type, (jl.credit - jl.debit) AS amount
@@ -89,7 +67,7 @@ export async function listNilRatedLines(
       AND je.id NOT IN (SELECT id FROM cancelled_entries)
       AND (
         jl.vat_type = ANY(${types as string[]}::TEXT[])
-        OR (${includeUncoded}::BOOLEAN AND jl.vat_type IS NULL AND je.id IN (SELECT id FROM untaxed_documents))
+        OR (${includeUncoded}::BOOLEAN AND ${uncodedLegCountsSql()})
       )
     ORDER BY je.entry_date, je.entry_number, jl.id
   `) as DbRow[];

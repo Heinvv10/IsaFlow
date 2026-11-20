@@ -5,6 +5,7 @@
  */
 import Link from 'next/link';
 import { formatCurrency } from '@/utils/formatters';
+import { formatPeriodRange } from '@/modules/accounting/services/payroll/payrollPayWeek';
 
 export interface RunRow {
   id: string;
@@ -19,6 +20,10 @@ export interface RunRow {
   /** Migration 999a / wave 6 OC: an off-cycle run names its reason beside the month. */
   runKind?: string;
   offCycleReason?: string | null;
+  /** Wave 6 FQd: a weekly or fortnightly run is labelled by its dates, a monthly one by its month. */
+  payFrequency?: string;
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }
 
 /** ' · bonus run' for an off-cycle run (wave 6 OC); '' for a regular one. */
@@ -26,7 +31,13 @@ export const runKindSuffix = (r: { runKind?: string; offCycleReason?: string | n
   (r.runKind === 'off_cycle' ? ` · ${r.offCycleReason ?? 'off-cycle'} run` : '');
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-export const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}${runKindSuffix(r)}`;
+const FREQUENCY_WORD: Record<string, string> = { weekly: 'Week', fortnightly: 'Fortnight' };
+export const periodLabel = (r: RunRow) => {
+  const word = FREQUENCY_WORD[r.payFrequency ?? ''];
+  return (word && r.periodStart && r.periodEnd
+    ? `${word} ${formatPeriodRange(r.periodStart, r.periodEnd)}`
+    : `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`) + runKindSuffix(r);
+};
 
 export function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {

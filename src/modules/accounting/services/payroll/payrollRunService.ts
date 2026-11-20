@@ -4,13 +4,13 @@ import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { assertPspRunComponents, assertReopenedRunKeepsPspTreatment, pspGuardWindow } from './pspComponentGuard';
-import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
-import { loadMonthToDateSdl } from './payrollSdlMonthToDate';
+import { applySdlToLines, estimateAnnualRemuneration, sdlCatchUp } from './sdlLeviabilityService';
+import { isSdlExempt } from './sdlEngine';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
 import {
-  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
+  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, PayrollRunNotFoundError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { LineCadence, PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
@@ -54,7 +54,7 @@ export async function calculatePayrollRun(
   // never reads its year-to-date and later-month warnings while an approval is in flight.
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
-  if (!run) throw new Error('Payroll run not found');
+  if (!run) throw new PayrollRunNotFoundError();
 
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
@@ -234,9 +234,10 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  // SDL as a month-to-date catch-up (wave 6 OC, review #1620 final breaker H): liable once the month is, and a liable run
-  // carries what the month's earlier final runs did not levy (payrollSdlMonthToDate).
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await loadMonthToDateSdl(companyId, runId));
+  // The month-to-date catch-up (wave 6 FQd, coordinator ruling): liable once any run of the month is, and this run
+  // carries what the month's earlier final runs left uncharged.
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear,
+    await sdlCatchUp(companyId, runId, !isSdlExempt(annualRemuneration, taxYear)));
 
   await replaceRunLines(runId, companyId, lineInserts);
   await replaceRunGarnisheeDeductions(companyId, runId, garnisheeLines); // GA: recorded here; balances move only at approval

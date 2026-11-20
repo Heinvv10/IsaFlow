@@ -55,6 +55,7 @@ const EXPECTED_CASE_IDS = [
   'psp-trust-45pct',
   'ra-annual-cap-binds-2027',
   'rf-employer-contribution-15pct-rfi-cap-binds-on-total',
+  'ri-eti-hourly-overtime-counted-once',
   'ri-overtime-10h-at-1-5x',
   'ri-reimbursive-1000km-at-prescribed-3703',
   'ri-reimbursive-above-prescribed-3702-3722',
@@ -114,10 +115,6 @@ describe('payroll oracle fixtures', () => {
   it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries (DBF moved the cap case there)', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
-    'ri-overtime-10h-at-1-5x': 'RI',
-    'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
-    'ri-reimbursive-above-prescribed-3702-3722': 'RI',
-    'ri-sunday-8h-at-2x': 'RI',
     'sage-2027-03-marco': 'PARITY',
     });
     // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).
@@ -128,6 +125,8 @@ describe('payroll oracle fixtures', () => {
       // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
       'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
       'psp-company-27pct', 'psp-trust-45pct',
+      // RI: the BCEA-multiplier cases match the engine (adversarial payroll signed them; no current BCEA consolidation read).
+      'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x',
       'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
     ]);
   });

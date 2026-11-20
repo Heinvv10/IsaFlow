@@ -11,7 +11,7 @@ import {
   type PayrollRunSummary,
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import { isPayrollRunLocked, PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { isPayrollRunLocked, PayrollRunLockedError, PayrollRunNotFoundError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
@@ -151,6 +151,7 @@ export const calculatePayRunTool: McpTool = {
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError
         || err instanceof PayrollLoanLockTimeoutError
+        || err instanceof PayrollRunNotFoundError // a draft deleted while this call waited (wave 6 FQd)
         || err instanceof UnsupportedTaxYearError) {
         return toolError(err.message);
       }

@@ -28,6 +28,8 @@ export interface MappedCustomer {
   vatNumber?: string;
   contactPerson?: string;
   creditLimit?: number;
+  /** Sage's own customer ID: stamped as external_ref, matched first on a re-sync (sagePartyMatch). */
+  sageId?: number;
 }
 
 export interface MappedSupplier {
@@ -36,11 +38,15 @@ export interface MappedSupplier {
   phone?: string;
   vatNumber?: string;
   contactPerson?: string;
+  /** Sage's own supplier ID: stamped as external_ref, matched first on a re-sync (sagePartyMatch). */
+  sageId?: number;
 }
 
 export interface MappedARInvoice {
   invoiceNumber: string;
   customerName: string;
+  /** Sage's CustomerId: picks the right customer when two share a name. */
+  customerSageId?: number;
   invoiceDate: string;
   dueDate?: string;
   subtotal: number;
@@ -55,6 +61,8 @@ export interface MappedARInvoice {
 export interface MappedAPInvoice {
   invoiceNumber: string;
   supplierName: string;
+  /** Sage's SupplierId: picks the right supplier when two share a name. */
+  supplierSageId?: number;
   invoiceDate: string;
   dueDate?: string;
   subtotal: number;

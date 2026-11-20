@@ -23,7 +23,7 @@
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL + employer medical (non-cash 3810) and fund (3817/3825/3828) − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
- *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
+ *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL (DR when the run's SDL is negative, M-E)
  *   CR 2175 deductions + employer medical (scheme payable), or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
  *   CR garnishee payable (GA): the run's garnishee deductions, on their own line per payable account the orders name, out of
  *     what would otherwise be 2175's (gross − PAYE − employee UIF − net already includes them)
@@ -188,22 +188,26 @@ export async function buildPayrollJournalPlan(
         glAccountId: l.glAccountId,
         accountCode: acc?.code ?? '',
         accountName: acc?.name ?? '',
-        debit: round2(l.debit),
-        credit: 0,
+        // A negative share (an SDL refund larger than the run's cost, breaker #1622 L-H) reduces the expense: a credit.
+        debit: l.debit >= 0 ? round2(l.debit) : 0,
+        credit: l.debit < 0 ? round2(-l.debit) : 0,
         description: l.description,
         inactiveAccount: acc ? !acc.isActive : false,
         cc1Id: l.cc1Id,
       });
     }
   } else {
-    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI'));
+    built.push(labourDebit >= 0
+      ? line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI')
+      : line('5200', 0, -labourDebit, 'Labour costs reduced — an SDL refund larger than the run\'s cost (the month\'s earlier runs carried more than 1%)'));
   }
 
   const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
   built.push(payeNet >= 0 || paye < 0 ? line('2140', 0, payeNet, 'PAYE payable, net of ETI') : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
-  // A negative run SDL is a within-month refund (payrollSdlMonthToDate): it reduces the SDL payable, as a debit.
-  built.push(sdl >= 0 ? line('2160', 0, sdl, 'SDL payable') : line('2160', -sdl, 0, 'SDL refund within the month (the month\'s SDL corrected down)'));
+  // A negative run SDL (FQd, breaker #1622 M-E) refunds the month's over-catch-up: it debits 2160 and, inside the labour
+  // line, reduces the SDL cost, so the month's SDL payable is 1% of its leviable pay.
+  built.push(sdl >= 0 ? line('2160', 0, sdl, 'SDL payable') : line('2160', -sdl, 0, "SDL payable reduced: the month's earlier runs carried more than 1%"));
   built.push(netPayLine(netPayTarget, round2(net)));
   // The employee's own deductions and the employer's medical contribution are separate lines: a reversal of the one must never
   // hide the other under a "reversal" label.

@@ -26,7 +26,8 @@ import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { EMPLOYMENT_TERMS_BLOCKING_CODES } from './validationEngine';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import { sdlMonthSplitRefusal } from './payrollSdlMonthGate';
+import { sdlRecalculateRefusal } from './payrollSdlMonthGate';
+import { straddleRefusal } from './payrollFrequencyStraddle';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
 export const FRINGE_BENEFIT_NOT_APPLIED = 'FRINGE_BENEFIT_NOT_APPLIED';
@@ -195,6 +196,9 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
         + 'one compulsory contribution to this fund (employee profile, Defined-benefit fund contributions), or move the factor to the 3817 / 3825 component, then recalculate.',
     };
   }
+  // An employee's first run at a new frequency that pays days twice or leaves days unpaid, not acknowledged (wave 6 FQd).
+  const straddle = await straddleRefusal(companyId, runId, lineIds);
+  if (straddle) return straddle;
   // A run of the month costed on an SDL decision the month, judged now, no longer gives (payrollSdlMonthGate, wave 6 FQb1).
-  return sdlMonthSplitRefusal(companyId, runId);
+  return sdlRecalculateRefusal(companyId, runId);
 }

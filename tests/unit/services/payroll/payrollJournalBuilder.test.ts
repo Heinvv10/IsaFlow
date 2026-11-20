@@ -233,14 +233,14 @@ describe('buildPayrollJournalPlan — tenant scope', () => {
   });
 });
 
-// Wave 6 OC (FQd delta 2): a run's SDL may be negative, a within-month refund (payrollSdlMonthToDate). It posts as a
-// debit to 2160 (never a negative credit), the labour debit falls by it, and the journal balances.
+// Wave 6 FQd/OC: a run's SDL may be negative, a within-month refund (sdlLeviabilityService.lineSdlShares, floored at the
+// month). It posts as a debit to 2160 (never a negative credit), the labour debit falls by it, and the journal balances.
 describe('buildPayrollJournalPlan: a negative run SDL (within-month refund)', () => {
   it('debits SDL payable with the refund and balances', async () => {
     routeMock(standardRoutes({ header: [{ ...HEADER, total_sdl: -40 }] }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     const sdl = plan!.lines.filter((l) => l.accountCode === '2160');
-    expect(sdl).toEqual([expect.objectContaining({ debit: 40, credit: 0, description: 'SDL refund within the month (the month\'s SDL corrected down)' })]);
+    expect(sdl).toEqual([expect.objectContaining({ debit: 40, credit: 0, description: "SDL payable reduced: the month's earlier runs carried more than 1%" })]);
     expect(plan!.lines.every((l) => l.debit >= 0 && l.credit >= 0)).toBe(true);
     expect(plan!.lines.find((l) => l.accountCode === '5200')!.debit).toBeCloseTo(100000 + 1000 - 40, 2);
     expect(plan!.totalDebit).toBeCloseTo(plan!.totalCredit, 2);
