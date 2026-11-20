@@ -136,7 +136,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" ghostscript; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" ghostscript; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -261,7 +261,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector poppler-utils; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector poppler-utils; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
@@ -269,7 +269,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" libreoffice-calc-nogui; } && exit 0; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" libreoffice-calc-nogui; } && exit 0; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           rm -f "$HOME"/apt-debs/*.deb
           echo '::warning::libreoffice install failed; soffice tests will skip'
           echo '### LibreOffice install failed: the soffice suites (xlsxNormaliseScanNames, budget-grid-import-libreoffice) skip in this part' >> "$GITHUB_STEP_SUMMARY"
@@ -496,7 +496,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
 
       - name: Install dependencies

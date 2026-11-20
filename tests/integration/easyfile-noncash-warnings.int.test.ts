@@ -14,6 +14,7 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import easyfileExport from '../../pages/api/payroll/irp5/easyfile-export';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -94,7 +95,11 @@ async function exportFile(of = company): Promise<{ status: number; body: string;
   const res = {
     status(code: number) { out.status = code; return res; },
     setHeader(name: string, value: string) {
-      if (name === 'X-IsaFlow-Warnings') out.warnings = JSON.parse(decodeURIComponent(value)) as string[];
+      // The file-wide notices (wave 6 EZF: unwritten BRS fields; too early to file) are left out: not what this suite judges.
+      if (name === 'X-IsaFlow-Warnings') {
+        out.warnings = (JSON.parse(decodeURIComponent(value)) as string[])
+          .filter((w) => w !== UNWRITTEN_FIELDS_WARNING && !w.startsWith('e@syFile will refuse this file until'));
+      }
       return res;
     },
     getHeader() { return undefined; },

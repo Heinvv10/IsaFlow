@@ -1,38 +1,42 @@
 /**
- * The revenue legs `postCustomerInvoiceToGL` and `approveCreditNote` post —
- * each poster makes ONE call here and keeps its AR and VAT legs as they were.
- * The allocation is pure (`invoiceRevenueLines.ts`); this file reads what it
+ * What `postCustomerInvoiceToGL` and `approveCreditNote` read to build their
+ * revenue legs — the invoice's checked stored lines, and a note's share of the
+ * invoice journal's revenue legs. The allocation is pure
+ * (`invoiceRevenueLines.ts`, `invoiceVatLegs.ts`); this file reads what it
  * allocates.
  */
 import { sql } from '@/lib/neon';
 import { creditNoteHeaderOf } from './creditNoteHeaderTags';
 import type { JournalLineInput } from '../../types/gl.types';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
-import { assertPostsStoredDimensions, isApprovingFrom } from '../gl/dimensions/dimensionStoredPosting';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard';
 import {
-  allocateCreditNote, buildInvoiceRevenueLines, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
+  allocateCreditNote, isRevenueCoded, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
+import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
+import { allocateTypedCreditNote, legsAreTyped } from './creditNoteTypedSplit';
 
 /**
- * The invoice's revenue credit legs. `credit` is the amount the journal
- * carries; the stored lines decide only where it goes. An invoice with no
- * coded line gets the single default_revenue leg it always got. `status` is
+ * The invoice's stored lines (with their VAT, migration 1008), held to every
+ * rule posting must meet before its journal is created. The caller builds the
+ * credit legs from them: buildInvoiceRevenueLines for a legacy invoice (an
+ * invoice with no coded line gets the single default_revenue leg it always
+ * got), invoiceVatLegs for one whose lines carry their VAT type. `status` is
  * the one the invoice is posted FROM: approving (draft, pending_approval)
  * refuses a line its customer's or project's FNO would add to, or a dimension
  * no longer an active master; past draft it posts as stored (#675).
  */
-export async function invoiceRevenueJournalLines(
+export async function postableInvoiceLines(
   companyId: string,
   invoiceId: string,
-  invoice: { number: string; documentSubtotal: number; credit: number },
-  defaultRevenueAccountId: string,
+  invoiceNumber: string,
   status: string,
-): Promise<JournalLineInput[]> {
+): Promise<StoredVatLine[]> {
   const stored = await storedInvoiceLines(companyId, invoiceId);
   const lines = stored?.lines ?? [];
   await assertPostsStoredDimensions(companyId, status, lines,
-    (i) => `Invoice ${invoice.number} line ${i + 1}`, stored?.customerFnoId ?? null);
+    (i) => `Invoice ${invoiceNumber} line ${i + 1}`, stored?.customerFnoId ?? null);
   if (lines.some(isRevenueCoded)) {
     // Under lock, against the chart as it is now — approve already refused
     // this before its first write; Post to GL and the backfills meet it here,
@@ -40,14 +44,7 @@ export async function invoiceRevenueJournalLines(
     const refusal = await storedLinesRefusal(companyId, stored);
     if (refusal) throw new InvoiceLineCodingRefusal(refusal);
   }
-  return buildInvoiceRevenueLines({
-    invoiceNumber: invoice.number,
-    documentSubtotal: invoice.documentSubtotal,
-    credit: invoice.credit,
-    lines,
-    defaultRevenueAccountId,
-    strict: isApprovingFrom(status),
-  });
+  return lines;
 }
 
 /**
@@ -76,7 +73,11 @@ export async function invoiceRevenueJournalLines(
  */
 export async function creditNoteRevenueJournalLines(
   companyId: string,
-  note: { id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags },
+  note: {
+    id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags;
+    /** The note's VAT: against a TYPED invoice it must be the invoice's remaining VAT in proportion (creditNoteTypedSplit). */
+    taxAmount: number;
+  },
   defaultRevenueAccountId: string,
 ): Promise<{ lines: JournalLineInput[]; allocations: CreditNoteAllocation[] }> {
   if (!note.customerInvoiceId) {
@@ -86,17 +87,48 @@ export async function creditNoteRevenueJournalLines(
     );
     return { lines, allocations: [] };
   }
+  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, note.customerInvoiceId, note.id, defaultRevenueAccountId);
+  // Every leg coded (a typed invoice): proportional only, its VAT exact. Otherwise pro rata over every leg, as before.
+  if (remainingVat !== null) {
+    return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, remainingVat },
+      note.number, defaultRevenueAccountId, replayed);
+  }
+  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, replayed);
+}
+
+/** A note id no note has: what a caller with no note yet (a dispute about to raise one) excludes. */
+const NO_NOTE = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * What a TYPED invoice still has to credit, for a caller raising a note against it (a dispute): its remaining net over
+ * every revenue leg and its remaining VAT; null for a legacy invoice (any uncoded leg) or one with no journal.
+ */
+export async function typedInvoiceCreditState(companyId: string, invoiceId: string):
+  Promise<{ remainingNet: number; remainingVat: number } | null> {
+  // Nothing is posted here, so no leg's post account is read: the default revenue account is not needed.
+  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, invoiceId, NO_NOTE, NO_NOTE);
+  if (remainingVat === null) return null;
+  return { remainingNet: remainingCarries(legs, replayed).reduce((a, b) => a + b, 0) / 100, remainingVat };
+}
+
+/**
+ * The invoice journal's revenue legs (what live earlier notes took recorded on each), the pre-874 notes to replay, and
+ * for a typed invoice its remaining VAT (VAT Output legs less the tax of live earlier customer notes; null if legacy).
+ * Live = not draft, not cancelled; `noteId` (the note being approved, a draft at this read) is excluded as well.
+ */
+async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: string, defaultRevenueAccountId: string):
+  Promise<{ legs: RevenueLeg[]; replayed: number[]; remainingVat: number | null }> {
   // One leg per revenue journal line, keyed by the line itself: a re-tag or an account merge moves
   // the line in place, so what earlier notes took from it moves with it (two lines merged into one
   // group, then one re-tagged, reopened the group's capacity — review #685).
   const invoiceLegs = (await sql`
     SELECT jl.id AS journal_line_id, jl.gl_account_id, a.is_active, jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id,
-           jl.credit - jl.debit AS net
+           jl.vat_type, jl.credit - jl.debit AS net
     FROM customer_invoices ci
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
     JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
-    WHERE ci.id = ${note.customerInvoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
       AND a.account_type = 'revenue'
     ORDER BY jl.created_at, jl.id
   `) as Record<string, unknown>[];
@@ -105,15 +137,15 @@ export async function creditNoteRevenueJournalLines(
     SELECT a.journal_line_id, SUM(a.amount) AS amount
     FROM credit_note_revenue_allocations a
     JOIN credit_notes cn ON cn.id = a.credit_note_id AND cn.company_id = a.company_id
-    WHERE a.company_id = ${companyId}::UUID AND a.invoice_id = ${note.customerInvoiceId}::UUID
-      AND NOT a.is_excess AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID
+    WHERE a.company_id = ${companyId}::UUID AND a.invoice_id = ${invoiceId}::UUID
+      AND NOT a.is_excess AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
     GROUP BY a.journal_line_id
   `) as Record<string, unknown>[];
   // Live earlier notes that recorded nothing: approved before 874 — replayed.
   const legacy = (await sql`
     SELECT cn.subtotal FROM credit_notes cn
-    WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${note.customerInvoiceId}::UUID
-      AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID
+    WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${invoiceId}::UUID
+      AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
       AND NOT EXISTS (SELECT 1 FROM credit_note_revenue_allocations a
                       WHERE a.company_id = cn.company_id AND a.credit_note_id = cn.id)
     ORDER BY cn.approved_at NULLS FIRST, cn.id
@@ -131,8 +163,25 @@ export async function creditNoteRevenueJournalLines(
     net: Number(r.net),
     taken: takenByLeg.get(String(r.journal_line_id)) ?? 0,
     journalLineId: String(r.journal_line_id),
+    // A typed invoice's leg (migration 1008): the note reverses it on the same VAT type. Uncoded stays uncoded.
+    vatType: storedVatType(r.vat_type),
   }));
-  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, legacy.map((e) => Number(e.subtotal)));
+  const replayed = legacy.map((e) => Number(e.subtotal));
+  if (!legsAreTyped(legs)) return { legs, replayed, remainingVat: null };
+  const vat = (await sql`
+    SELECT (SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+            FROM customer_invoices ci
+            JOIN gl_journal_lines jl ON jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
+            JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
+            WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+              AND COALESCE(a.account_subtype, '') = 'vat_output') AS invoice_vat,
+           (SELECT COALESCE(SUM(cn.tax_amount), 0) FROM credit_notes cn
+            WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${invoiceId}::UUID
+              AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID) AS reversed_vat
+  `) as Record<string, unknown>[];
+  // One row always (two scalar subqueries).
+  const remainingVat = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) / 100 : 0;
+  return { legs, replayed, remainingVat };
 }
 
 /**

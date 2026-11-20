@@ -221,56 +221,75 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  it('an unknown tax status (a PSP) is refused for approve, not for reopen', async () => {
+  // Wave 6 PSP made personal_service_provider known (1013): a status no release writes stands in for an unknown one.
+  it('an unknown tax status is refused for approve, not for reopen', async () => {
     await inRolledBackTx(async (c) => {
       await c.query('ALTER TABLE payroll_employees DROP CONSTRAINT payroll_employees_tax_status_check');
-      await c.query("UPDATE payroll_employees SET tax_status = 'personal_service_provider' WHERE id = $1", [monthlyEmp]);
+      await c.query("UPDATE payroll_employees SET tax_status = 'labour_broker' WHERE id = $1", [monthlyEmp]);
     }, async () => {
       expect(clauses(await refusal('approve'))).toEqual(['tax_status']);
       expect(await refusal('reopen')).toBeNull();
     });
   });
 
-  it('a km assignment, a rate multiplier and a defined-benefit factor are refused for costing, not for payslips', async () => {
+  it('RI lifted the km and rate-multiplier clause (migration 1017): a km row or an overtime multiplier is refused nothing', async () => {
     const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     for (const prepare of [
+      async (c: PoolClient) => { await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`); },
       async (c: PoolClient) => {
-        for (const r of (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'payroll_employee_components'::regclass
-          AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity_unit%'`)).rows) {
-          await c.query(`ALTER TABLE payroll_employee_components DROP CONSTRAINT ${String(r.conname)}`);
-        }
-        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN rate_multiplier numeric');
-        await c.query(`UPDATE payroll_employee_components SET rate_multiplier = 1.5 WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN db_member_category_factor numeric');
-        await c.query(`UPDATE payroll_employee_components SET db_member_category_factor = 1.2 WHERE id IN (${assignment})`);
+        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'hour', rate_multiplier = 1.5 WHERE id IN (${assignment})`);
       },
     ]) {
       await inRolledBackTx(prepare, async () => {
-        expect(clauses(await refusal('calculate'))).toEqual(['assignment']);
-        expect(clauses(await refusal('approve'))).toEqual(['assignment']);
-        expect(await refusal('payslip')).toBeNull();
+        for (const action of ['calculate', 'approve', 'post', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
       });
     }
   });
 
-  it('an active garnishee order is refused for costing; a cancelled one is not; a deduction on the run refuses reopen', async () => {
+  it('a defined-benefit factor is no longer refused: DBF (migration 1014) lifted that clause and values the row', async () => {
+    const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     await inRolledBackTx(async (c) => {
-      await c.query('CREATE TABLE payroll_garnishee_orders (id uuid DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid, status text)');
-      await c.query('CREATE TABLE payroll_garnishee_deductions (id uuid DEFAULT gen_random_uuid(), run_id uuid, order_id uuid)');
-      await c.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'cancelled')", [A, monthlyEmp]);
+      await c.query(`UPDATE payroll_employee_components SET amount = 0, db_member_category_factor = 0.12 WHERE id IN (${assignment})`);
     }, async () => {
+      expect(await refusal('calculate')).toBeNull();
       expect(await refusal('approve')).toBeNull();
-      const client = als.getStore()!.client as PoolClient;
-      await client.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'active')", [A, monthlyEmp]);
-      expect(clauses(await refusal('approve'))).toEqual(['garnishee_order']);
-      expect(await refusal('reopen')).toBeNull();
-      await client.query('INSERT INTO payroll_garnishee_deductions (run_id) VALUES ($1)', [runId]);
-      expect(clauses(await refusal('reopen'))).toEqual(['garnishee_deduction']);
     });
+  });
+
+  it('GA lifted the garnishee clauses: a run whose employee has an active order, carrying a deduction, is refused nothing', async () => {
+    // 999z's real tables (GA). The order's own guard trigger needs a session user and a payable: seeded as the owner.
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2189', 'GA lift', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      const order = (await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC1', 'Cred', 100, '2020-01-01', $3, 'x') RETURNING id`,
+      [A, monthlyEmp, acct])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount)
+        VALUES ($1, $2, $3, $4, 100, 100)`, [A, runId, order, monthlyEmp]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
+    });
+  });
+
+  it('garnishee_frequency (rev #1574): a weekly run with an employee whose order is in force is refused costing, until pro-rating', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2188', 'GA freq', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
+      [A, monthlyEmp, acct]);
+      await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post'] as const) {
+        expect(clauses(await refusal(action)), action).toContain('garnishee_frequency');
+      }
+      for (const action of ['reopen', 'payslip'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');
+      }
+    });
+    // The same order on the monthly run: no garnishee clause (the run is the monthly one again outside the rolled-back tx).
+    expect(clauses(await refusal('calculate'))).not.toContain('garnishee_frequency');
   });
 });

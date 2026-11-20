@@ -10,11 +10,14 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { customerOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 const fmt = (n: number) => formatMoney(n);
 
 interface Payment { id: string; paymentNumber: string; clientName: string; clientId: string; date: string; amount: number; allocatedAmount: number; }
-interface Invoice { id: string; invoiceNumber: string; date: string; total: number; outstanding: number; }
+type Invoice = OpenInvoiceRow;
 
 export default function CustomerAllocationsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -58,11 +61,11 @@ export default function CustomerAllocationsPage() {
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setError(''); setLoadingInv(true);
     try {
-      const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/customer-invoices-list?client_id=${p.clientId}&status=approved&status=sent&status=partially_paid&status=overdue&limit=200`, { credentials: 'include' });
       await assertOk(res, 'Could not load invoices for this receipt - try again');
       const json = await res.json();
-      const inv: Invoice[] = json.data?.items || json.data || [];
-      setInvoices(inv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+      const raw: Record<string, unknown>[] = json.data?.invoices || json.data?.items || [];
+      setInvoices(customerOpenRows(raw));
     } catch (err) {
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load invoices for this receipt - try again'));
@@ -83,6 +86,7 @@ export default function CustomerAllocationsPage() {
   const unallocTotal = payments.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
 
   const doAllocate = async () => {
+    if (blockOnInvalidAmount()) return;
     if (!selected || totalAlloc <= 0) return;
     setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
@@ -175,8 +179,8 @@ export default function CustomerAllocationsPage() {
                           <p className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(inv.date)} &middot; Total: {fmt(inv.total)}</p>
                         </div>
                         {allocs[inv.id] !== undefined && (
-                          <input type="number" value={allocs[inv.id]} step="0.01" min="0" max={inv.outstanding}
-                            onChange={e => setAllocs(prev => ({ ...prev, [inv.id]: Number(e.target.value) }))}
+                          <AmountInput value={allocs[inv.id] ?? 0} min={0} max={inv.outstanding} aria-label={`Allocate to ${inv.invoiceNumber}`}
+                            onValueChange={n => setAllocs(prev => ({ ...prev, [inv.id]: n }))}
                             onClick={e => e.stopPropagation()}
                             className="w-28 px-2 py-1 text-right bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-sm tabular-nums text-[var(--ff-text-primary)]" />
                         )}

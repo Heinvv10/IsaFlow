@@ -12,6 +12,7 @@ import type { DbRow } from '@/lib/neon';
 import { buildIrp5File, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { currentCertificate, currentEmployer, isLegacyLayout } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import type { Emp501Kind, Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { ReturnRefusal } from './returnVersionTypes';
@@ -40,6 +41,12 @@ export interface Emp501Figures {
   warnings: string[];
   totals: Emp501Totals;
   runs: Emp501Run[];
+  /**
+   * Which payroll employee each certificate is for (wave 6 SS-c): the employee portal shows an employee their own
+   * certificate from a FILED version by this map, never by a name or an ID number. Not part of the file or the drift
+   * check (the certificates are), and never in emp501PublicFigures. Absent on a version finalised before SS-c.
+   */
+  certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }>;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -106,7 +113,7 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
   }
   return {
     taxYear: p.taxYear, kind: p.kind, employer: input.employer, employees: input.employees.map(storeEmployee), warnings: input.warnings,
-    totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock),
+    totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock), certificateEmployees: input.certificateEmployees,
   };
 }
 
@@ -124,9 +131,22 @@ export async function emp501Drift(companyId: string, p: Emp501Period, recorded: 
     .map((name) => ({ name, recorded: cents(Number(was[name] ?? 0)), current: now.totals[name] }))
     .filter((f) => f.recorded !== f.current);
   const same = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
+  // Figures recorded before the BRS code fix compare in today's shape (easyFileLegacyCertificate): the certificates' tax
+  // period and pay periods, and the employer with no province under 2065. A certificate that cannot be rebuilt is drift.
+  const recordedEmployees = Array.isArray(recorded.employees) ? (recorded.employees as object[]) : [];
+  const legacy = isLegacyLayout(recordedEmployees);
+  let employeesNow: unknown = recorded.employees;
+  try {
+    employeesNow = legacy ? recordedEmployees.map((e) => currentCertificate(e, p.taxYear, p.kind)) : recorded.employees;
+  } catch (err) {
+    if (!(err instanceof UsageError)) throw err;
+    employeesNow = null;
+  }
+  const employerNow = legacy && recorded.employer && typeof recorded.employer === 'object'
+    ? currentEmployer(recorded.employer as EmployerInput, true) : recorded.employer;
   const changed = [
-    ...(same(recorded.employer, now.employer) ? [] : ['employer']),
-    ...(same(recorded.employees, now.employees) ? [] : ['certificates']),
+    ...(same(employerNow, now.employer) ? [] : ['employer']),
+    ...(same(employeesNow, now.employees) ? [] : ['certificates']),
     ...(same(recorded.runs, now.runs) ? [] : ['runs']),
   ];
   return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };

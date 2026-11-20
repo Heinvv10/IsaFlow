@@ -6,6 +6,7 @@
 import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 import { PAYROLL_REFUSAL_CODES } from './payrollRefusalCodes';
 import { BUDGET_REFUSAL_CODES } from './budgetRefusalCodes';
+import { VAT_LINE_REFUSAL_CODES } from './vatLineRefusalCodes';
 
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
@@ -213,11 +214,17 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // CLOSED, that job's status); raised before any write.
   'PRACTICE_JOB_CLOSED',
   'PRACTICE_JOB_NOT_FOUND',
+  // Wave 6 PSP: a component a personal service provider cannot carry (pspComponentGuard).
+  'PSP_COMPONENT_REFUSED',
+  'PSP_STATUS_CHANGED_SINCE_APPROVAL',
+  'PURCHASE_ORDER_BILL_LINK_REFUSED', // link_bills_to_purchase_order / unlink_bill_from_purchase_order: every row refusal, decided before any write.
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
   'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
+  // update / cancel / close / set status of a PO (ap/purchaseOrderErrors): the PO's status, a receipt, linked bills or an owner / admin rule; decided before any write.
+  'PURCHASE_ORDER_MAINTENANCE_REFUSED',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
   'PURCHASE_ORDER_NOT_FOUND',
@@ -284,6 +291,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   ...SYSTEM_ROLE_REFUSAL_CODES,
   ...PAYROLL_REFUSAL_CODES,
   ...BUDGET_REFUSAL_CODES,
+  ...VAT_LINE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',

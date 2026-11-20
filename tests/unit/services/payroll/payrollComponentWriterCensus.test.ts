@@ -30,6 +30,7 @@ const WRITERS: Record<string, [number, string]> = {
   [`${SERVICES}payPackageService.ts`]: [1, 'package apply: refuseAssignmentWrite under the company lock'],
   [`${SERVICES}payPackageSupersede.ts`]: [2, 'package apply cut: paidPeriodChanged under the company lock'],
   [`${SERVICES}payrollComponentDateEdit.ts`]: [1, 'Edit dates / End: paid months and recurring overlap under the company lock'],
+  [`${SERVICES}definedBenefitAssignment.ts`]: [1, 'DBF: marks a 4001 / 4003 as the defined-benefit fund contribution (C) by id, under the company lock; Login-as refused; audited (dates unchanged)'],
   [`${SERVICES}payrollRunRowWrite.ts`]: [3, "pay-run grid: its unapproved run month's once-off only, under the company lock; refuseAssignmentWrite on insert; audited"],
 };
 
@@ -37,7 +38,8 @@ const WRITERS: Record<string, [number, string]> = {
 const INDIRECT: Record<string, [number, string]> = {
   'scripts/ci/golden/cloneCompany.ts': [2, 'golden-path sandbox cloner: copies the table by name for a clone company, dev/CI only'],
   'scripts/lib/demoReseed/types.ts': [1, 'Demo reseed: the insert order names the table; rows are fixed-amount Basic Salary assignments of the fictional employees, inserted with them'],
-  'scripts/lib/demoReseed/wipePlan.ts': [2, 'Demo reseed: a Demo-scoped DELETE step (via payroll_employees.employee_id), and that comment-free table name again in its via list'],
+  // (its DELETE FROM ${step.table} builder moved to wipeSql.ts, which never names the table, so it is no longer counted)
+  'scripts/lib/demoReseed/wipePlan.ts': [1, 'Demo reseed: a Demo-scoped DELETE step (via payroll_employees.employee_id): the table name in the step list'],
   // Wave 6 EF: read-only routes that read the table and splice the final-run fragment (sql.unsafe(payRunFinalSql(...))).
   'pages/api/payroll/irp5/summary.ts': [1, 'read-only: the one sql.unsafe is payRunFinalSql (final runs), no write'],
   // Wave 6 FQc: the weekly/fortnightly refusal reads which employees hold a 3810/3801/percent-of-RFI row.

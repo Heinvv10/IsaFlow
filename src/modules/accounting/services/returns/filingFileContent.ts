@@ -19,9 +19,10 @@ import { createHash } from 'crypto';
 import { csvCell } from '@/lib/csv';
 import { VAT201_SARS_LAYOUT, type Vat201SarsGroup } from '@/modules/accounting/services/reports/vat201SarsFields';
 import { ReturnRefusal, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
+import { EMP501_EASYFILE_KIND } from './emp501FileLayout';
 
 /** `<file>@<generator version>`, as 999v's CHECK pairs it with the form. */
-export const FILING_FILE_KIND = { VAT201: 'vat201_capture_csv@1', EMP201: 'emp201_capture_csv@1', EMP501: 'emp501_easyfile@1' } as const satisfies Record<ReturnForm, string>;
+export const FILING_FILE_KIND = { VAT201: 'vat201_capture_csv@1', EMP201: 'emp201_capture_csv@1', EMP501: EMP501_EASYFILE_KIND } as const satisfies Record<ReturnForm, string>;
 export type FilingFileKind = (typeof FILING_FILE_KIND)[ReturnForm];
 
 export interface CaptureSheet {

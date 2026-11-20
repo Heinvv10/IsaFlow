@@ -53,7 +53,14 @@ vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', async (ori
   ...(await orig<object>()), lockVatPeriod: vi.fn(), unlockVatPeriod: vi.fn(), getVatPeriodLock: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockFigures', () => ({
-  computeVatLockFigures: vi.fn().mockResolvedValue({ figures: {}, report: { rateCheck: { ties: true } } }),
+  computeVatLockFigures: vi.fn().mockResolvedValue({
+    figures: {},
+    report: { rateCheck: { ties: true, rate: 0.15, inputVariance: 0, entriesWithoutBaseTotal: 0 }, totals: { outputTax: 0 }, boxes: [] },
+  }),
+}));
+// The lock's 15% check gives field 1 the nil-rated share back (vat201RateCheck); nothing nil-rated here.
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({
+  getNilRatedSupplies: vi.fn().mockResolvedValue({ onTaxedJournals: 0 }),
 }));
 vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', async (orig) => ({
   ...(await orig<object>()), assertVatGateClear: vi.fn().mockResolvedValue({ overridden: false }),

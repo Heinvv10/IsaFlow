@@ -14,6 +14,8 @@ import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes'
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 /** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
 interface HeldTransfer { journalId: string; message: string }
@@ -68,11 +70,12 @@ export default function BankTransfersPage() {
 
   const handleTransfer = async (confirmDuplicate = false) => {
     if (inFlight.current) return;
+    if (blockOnInvalidAmount()) return;
     if (dates.blocked) {
       setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
       return;
     }
-    if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
+    if (!fromAccount || !toAccount || !(parseFloat(amount) > 0) || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
@@ -178,13 +181,11 @@ export default function BankTransfersPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Amount (ZAR)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
+                    <AmountInput
+                      min={0}
                       value={amount}
                       disabled={isSubmitting}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onValueChange={(_n, text) => setAmount(text)}
                       className="w-full px-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                       placeholder="0.00"
                     />

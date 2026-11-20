@@ -244,6 +244,13 @@ export const KEEP_TABLES: readonly string[] = [
   'subscriptions', 'subscription_charges', 'subscription_mandates', 'admin_invoices', 'flow_wallet', 'flow_purchases',
   'paystack_payment_requests', 'stitch_payment_requests', 'payment_transactions', 'analytics_websites', 'page_visits',
   'mcp_tool_calls', 'http_idempotency_keys', 'background_jobs', 'email_log',
+  // Migration 1002: one lock row per company (backfilled, and made by a trigger on companies). Infrastructure of the intercompany
+  // group protocol, never data the reseed writes or wipes: a company always keeps its row (the Demo company too). The lock rows
+  // and the document slots have a company_id but no app role can read them; the census lists tables through
+  // information_schema.columns, which shows a role only the columns it may access, so a reseed role without a grant never reads
+  // them (and cannot fail on them). A slot exists only for a live intercompany link, and the guard that refuses while a
+  // connection, message or link names the Demo company (intercompanyRelationRows) refuses those first.
+  'intercompany_company_locks',
 ];
 
 /**
@@ -269,10 +276,6 @@ export const QA_MAILBOX_NAME = 'QA Demo Mailbox';
  */
 export const INVOICE_PAYMENT_REQUEST_TABLES: readonly string[] = ['paystack_payment_requests', 'stitch_payment_requests'];
 
-export function invoiceRequestWhere(): string {
-  return "company_id = $1::uuid AND purpose = 'customer_invoice' AND customer_invoice_id IS NOT NULL";
-}
-
 /** Kept tables that are append-only history: their text is reported (R1), never failed on, since it cannot be changed. */
 export function isAppendOnlyKept(table: string): boolean {
   return PRESERVE_APPEND_ONLY.includes(table) || table.startsWith('audit_');
@@ -282,34 +285,10 @@ export function isKept(table: string): boolean {
   return KEEP_TABLES.includes(table) || KEEP_PREFIXES.some((p) => table.startsWith(p));
 }
 
-/** The WHERE clause of a step; `$1` is always the company id, never interpolated. */
-export function stepWhere(step: WipeStep): string {
-  const scope = step.via
-    ? [...(step.orCompany ? ['company_id = $1::uuid'] : []),
-        ...step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`)].join(' OR ')
-    : 'company_id = $1::uuid';
-  return step.preserve ? `(${scope}) AND NOT (${step.preserve})` : scope;
-}
-
-/**
- * For a child step with more than one foreign key: rows the step would delete (a Demo parent) that ALSO name a
- * parent row of another company. Corrupt data the run refuses rather than deleting another tenant's link silently.
- */
-export function crossTenantSql(step: WipeStep): string | null {
-  if (!step.via || step.via.length < 2) return null;
-  const foreign = step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id <> $1::uuid)`).join(' OR ');
-  return `SELECT count(*)::int AS n FROM ${step.table} WHERE (${stepWhere(step)}) AND (${foreign})`;
-}
-
 /** Kept tables whose Demo rows a wiped parent removes by ON DELETE CASCADE: [table, fk column, parent]. Counted, not kept. */
 export const CASCADE_WITH: ReadonlyArray<readonly [string, string, string]> = [
   ['supplier_bank_verifications', 'supplier_id', 'suppliers'],
 ];
 
-export function countSql(step: WipeStep): string {
-  return `SELECT count(*)::int AS n FROM ${step.table} WHERE ${stepWhere(step)}`;
-}
-
-export function deleteSql(step: WipeStep): string {
-  return `DELETE FROM ${step.table} WHERE ${stepWhere(step)}`;
-}
+// The SQL builders (stepWhere, crossTenantSql, countSql, deleteSql, invoiceRequestWhere) live in wipeSql.ts.
+export { countSql, crossTenantSql, deleteSql, invoiceRequestWhere, stepWhere } from './wipeSql';

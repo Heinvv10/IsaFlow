@@ -9,11 +9,14 @@ import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { supplierOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 const fmt = (n: number) => formatMoney(n);
 
 interface Payment { id: string; paymentNumber: string; supplierName: string; supplierId: string; date: string; amount: number; allocatedAmount: number; }
-interface Invoice { id: string; invoiceNumber: string; date: string; total: number; outstanding: number; }
+type Invoice = OpenInvoiceRow;
 
 export default function SupplierAllocationsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -59,8 +62,8 @@ export default function SupplierAllocationsPage() {
       const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
       await assertOk(res, 'Could not load the supplier invoices - try again');
       const json = await res.json();
-      const rawInv: Invoice[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })();
-      setInvoices(rawInv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+      const rawInv: Record<string, unknown>[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.invoices || []; })();
+      setInvoices(supplierOpenRows(rawInv));
     } catch (err) {
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
@@ -81,6 +84,7 @@ export default function SupplierAllocationsPage() {
   const unallocTotal = payments.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
 
   const doAllocate = async () => {
+    if (blockOnInvalidAmount()) return;
     if (!selected || totalAlloc <= 0) return;
     setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
@@ -173,8 +177,8 @@ export default function SupplierAllocationsPage() {
                           <p className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(inv.date)} &middot; Total: {fmt(inv.total)}</p>
                         </div>
                         {allocs[inv.id] !== undefined && (
-                          <input type="number" value={allocs[inv.id]} step="0.01" min="0" max={inv.outstanding}
-                            onChange={e => setAllocs(prev => ({ ...prev, [inv.id]: Number(e.target.value) }))}
+                          <AmountInput value={allocs[inv.id] ?? 0} min={0} max={inv.outstanding} aria-label={`Allocate to ${inv.invoiceNumber}`}
+                            onValueChange={n => setAllocs(prev => ({ ...prev, [inv.id]: n }))}
                             onClick={e => e.stopPropagation()}
                             className="w-28 px-2 py-1 text-right bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-sm tabular-nums text-[var(--ff-text-primary)]" />
                         )}

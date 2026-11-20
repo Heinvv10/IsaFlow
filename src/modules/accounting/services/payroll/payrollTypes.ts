@@ -3,15 +3,18 @@ import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 import type { RegularPayDirectiveType } from './taxDirectiveKinds';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
+import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
-export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+/** A personal service provider's entity (migration 1013): it picks the rate (taxTables personalServiceProviderRates). */
+export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
-/** The unit of a run's quantity on a component row (migration 967). */
-export type QuantityUnit = 'hour' | 'day';
+/** The unit of a run's quantity on a component row (migration 967; 'km' for reimbursive travel, 1017 RI). */
+export type QuantityUnit = 'hour' | 'day' | 'km';
 
 export interface PayrollEmployee {
   id: string;
@@ -37,6 +40,8 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
+  /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
+  pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
@@ -94,12 +99,26 @@ export interface EmployeeComponent {
   /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
   quantity?: number | null;
   quantityUnit?: QuantityUnit | null;
+  /** RI (1017): overtime hours at 1.5 or 2.0 (BCEA s10(2), s16(1)); amount = hours x hourly rate x this. Null on other rows. */
+  rateMultiplier?: number | null;
+  /** RI: a row splitTravelRows made from a km row (3702 / 3703 within the prescribed rate, 3722 above it); only these are certified. */
+  reimbursiveTravel?: true;
   /** The assignment costs this fraction of the line's RFI (migration 975; rfi.ts costs `amount` from it). Absent or null = a plain amount. */
   percentOfRfi?: number | null;
   /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
   rfiBase?: number;
   /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
   employerFundAsCash?: boolean;
+  /** DBF (migration 1014): a defined-benefit fund member category factor; the run values `amount` from it (definedBenefitFund.ts). */
+  dbMemberCategoryFactor?: number | null;
+  /** Set by costDefinedBenefitFund: C, the employee's own contributions to that fund the value was reduced by. */
+  dbEmployeeContribution?: number;
+  /** DBF: on a factor row, para 12D(6) (retired / a deceased member's dependant or nominee): no value, reported as 4585 / 4586. */
+  dbMemberRetired?: boolean;
+  /** DBF: on a 4001 / 4003 deduction, the compulsory contribution to the defined-benefit fund (C counts these rows only). */
+  dbFundMemberContribution?: boolean;
+  /** Set by costDefinedBenefitFund: what the employer pays the fund (the row's stored amount); `amount` becomes the fringe X. */
+  dbEmployerContribution?: number;
 }
 
 export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
@@ -146,7 +165,9 @@ export interface ValidationResult {
   /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
   etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none' | 'directive';
+  treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
+  psp?: { entity: PspEntityType; rate: number };
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
@@ -185,6 +206,8 @@ export interface PayrollLineInput {
   notEmployedInPeriod?: boolean;
   /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
   regularPayDirective?: RegularPayDirectiveState;
+  /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
+  garnisheeOrders?: GarnisheeOrderInput[];
   /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
   cadence?: LineCadence;
 }
@@ -203,6 +226,10 @@ export interface ComponentBreakdownItem {
   quantity?: number;
   quantityUnit?: QuantityUnit;
   rate?: number;
+  /** RI: the overtime multiplier the hours were priced at. */
+  rateMultiplier?: number;
+  /** RI: made by splitTravelRows from a km row; the certificate certifies 3702 / 3703 / 3722 only from these (payrollAllowanceFiling). */
+  reimbursiveTravel?: true;
   /**
    * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
    * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;
@@ -223,6 +250,12 @@ export interface ComponentBreakdownItem {
   /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
   percentOfRfi?: number;
   rfiBase?: number;
+  /** DBF (migration 1014): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
+  dbMemberCategoryFactor?: number;
+  dbEmployeeContribution?: number;
+  /** DBF: the contribution the employer pays the fund (GL 2175, IRP5 4472 / 4473, or 4585 / 4586 when dbMemberRetired). */
+  dbEmployerContribution?: number;
+  dbMemberRetired?: true;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';
@@ -279,7 +312,10 @@ export interface PayrollLineResult {
   donationBase: number;
   donationDeduction: number;
   eti: EtiResult;
+  /** After any garnishee deductions (GA), never below nil. */
   netPay: number;
+  /** The garnishee deductions taken from net pay (payrollGarnishee); stored in payroll_garnishee_deductions. */
+  garnishees: GarnisheeDeduction[];
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
   /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */

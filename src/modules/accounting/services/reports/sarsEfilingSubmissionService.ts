@@ -15,6 +15,7 @@ import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
 import { evaluateVat201Filability } from './vat201LedgerFields';
+import { filedRateVariance } from './vat201RateCheck';
 import { getVat201Return } from './vat201Return';
 import { draftBlockReason, draftDrift } from './sarsEfilingDraftDrift';
 import { isvPayloadMappedToSarsFields, ISV_PAYLOAD_UNMAPPED_REASON } from './sarsEfilingPayloadGuard';
@@ -148,7 +149,8 @@ export async function submitVAT201ToSars(
   if (!filability.filable) {
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'blocked', message: filability.reason,
-      detail: { rateCheckTies: vat201.rateCheck.ties, outputVariance: vat201.rateCheck.outputVariance, inputVariance: vat201.rateCheck.inputVariance },
+      // The 15% figures and materiality verdict filability judged (output tax against the taxed output base it files).
+      detail: filedRateVariance(vat201),
       createdBy: userId,
     });
     throw new EfilingBlockedError(filability.reason!);

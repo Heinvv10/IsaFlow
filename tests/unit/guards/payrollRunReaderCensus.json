@@ -210,6 +210,16 @@
   "src/modules/accounting/services/payroll/payrollBatchShared.ts": [
    {"line":165,"text":"SELECT * FROM payroll_batches","class":"S","owner":"FQb1","why":"batch by id"}
   ],
+  "src/modules/accounting/services/payroll/definedBenefitAssignment.ts": [
+   {"line":47,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"one employee's factor rows (DBF one-per-kind check), no run"},
+   {"line":77,"text":"FROM payroll_employee_components o","class":"S","owner":"FQb1","why":"one employee's marked rows (DBF second-tick check), no run"},
+   {"line":99,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"assignment by id (DBF Edit dates overlap check)"},
+   {"line":75,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"assignment by id (DBF contribution mark)"},
+   {"line":85,"text":"await tx`UPDATE payroll_employee_components SET db_fund_member_contribution = ${marked} WHERE id = ${assignmentId}::uuid`;","class":"S","owner":"FQb1","why":"assignment write by id"}
+  ],
+  "src/modules/accounting/services/payroll/definedBenefitReadiness.ts": [
+   {"line":20,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"a set of employees over the tax year's final runs (DBF readiness), no per-month lookup"}
+  ],
   "src/modules/accounting/services/payroll/payrollComponentDateEdit.ts": [
    {"line":106,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQb1","why":"assignment by id"},
    {"line":114,"text":"FROM payroll_employee_components","class":"S","owner":"FQb1","why":"sibling assignments"},
@@ -357,8 +367,7 @@
    {"line":46,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunKindGuard.ts": [
-   {"line":78,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":98,"text":"JOIN payroll_employee_components c ON c.employee_id = p.id","class":"S","owner":"FQb1","why":"assignments overlapping the run's period_start/period_end"}
+   {"line":78,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunLineRows.ts": [
    {"line":70,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id"}
@@ -406,7 +415,8 @@
    {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
    {"line":128,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
    {"line":145,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":164,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":164,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":183,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id (DBF db_fund_unsettled)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRegularDirective.ts": [
    {"line":57,"text":"COALESCE((SELECT h.run_date FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid), b.last_day) AS judge","class":"S","owner":"FQb1","why":"by run id (run_date)"},
@@ -419,8 +429,13 @@
   ],
   "src/modules/accounting/services/payroll/payrollRunRowWrite.ts": [
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
-   {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}","class":"S","owner":"FQb1","why":"assignment write by id"},
-   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"S","owner":"FQc","why":"FQc converted (R, F2): a run input is a once-off over the run's own dates (monthBounds of runPeriodOf)"}
+   {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}, rate_multiplier = ${multiplier}::numeric","class":"S","owner":"FQb1","why":"assignment write by id"},
+   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, rate_multiplier, effective_from, effective_to, is_recurring, supersede_inferred)","class":"S","owner":"FQc","why":"FQc converted (R, F2): a run input is a once-off over the run's own dates (monthBounds of runPeriodOf)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunUnitsRead.ts": [
+   {"line":49,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (F2): RI's overtime and km rows are keyed by monthBounds of runPeriodOf, the run's own dates"},
+   {"line":57,"text":"await db`SELECT id FROM payroll_employee_components WHERE id = ANY(${rows.map((r) => String(r.id))}::uuid[]) ORDER BY id FOR UPDATE`;","class":"S","owner":"FQb1","why":"row lock by id"},
+   {"line":68,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"a sum of the tax year's km rows to the month's end, shown only (tax never reads it)"}
   ],
   "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
    {"line":31,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"this run, by id"},
@@ -480,6 +495,15 @@
   ],
   "src/modules/accounting/services/payroll/preValidationService.ts": [
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
+  ],
+  "src/modules/accounting/services/payroll/pspComponentGuard.ts": [
+   {"line":39,"text":"JOIN payroll_employee_components ec ON ec.employee_id = e.id","class":"R","owner":"FQc","why":"PSP refused components live in the run's period, whose dates the caller takes from its month (F2)"},
+   {"line":82,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"a reopened run's own lines, by run id (M2 treatment check)"}
+  ],
+  "src/modules/accounting/services/payroll/pspFiling.ts": [
+   {"line":42,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"tax-year sum of PSP lines on final runs"},
+   {"line":84,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"count of final runs in the tax year (switch warning)"},
+   {"line":114,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"months of the tax year's final runs with a PSP line at another entity (entity-change warning)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
    {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
@@ -545,6 +569,13 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
    {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeOrders.ts": [
+   {"line":99,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the approved/paid runs (rev #1574 L3)"},
+   {"line":102,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the runs not yet approved"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeRun.ts": [
+   {"line":93,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"GA: by run id; the run's own period_start/period_end and calculated_at (stale-order refusal, rev #1574 M2), right for any frequency"}
   ]
  }
 }

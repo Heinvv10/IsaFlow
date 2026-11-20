@@ -44,9 +44,11 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'entry.id', 'je.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
+  // wave 6 GA: garnishee orders, their payable account, a run's deductions
+  'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
   // wave 6 EFa: a tax return version's row id
   'v.id',
-  // wave 6 FQc: a payroll component (the frequency refusal) and the run whose payslip year to date is read
+  // wave 6 FQc: a payroll component (the frequency refusal; also wave 6 PSP's pspComponentGuard) and the run whose payslip year to date is read
   'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
@@ -69,13 +71,15 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
   },
-  [`${S}payroll/payrollApprovalService.ts`]: { 150: 'approved_by = ${approvedBy},' },
+  [`${S}payroll/payrollApprovalService.ts`]: { 153: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
+  // Wave 6 GA: payroll_garnishee_orders.created_by is TEXT, restamped by its trigger from the session user (999z).
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 137: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 114: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
   [`${S}payroll/payrollRunLock.ts`]: { 229: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 78: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunReopen.ts`]: { 79: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
     122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
@@ -94,8 +98,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
     93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
-    229: 'status, submitted_by, updated_at',
-    269: 'submitted_by = ${submittedByUserId},',
+    233: 'status, submitted_by, updated_at',
+    273: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     48: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -136,11 +140,12 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 117: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
-  [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },
+  [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
