@@ -188,12 +188,13 @@ describe('run population and the guard (grill F3)', () => {
   it("company B cannot read or be refused about company A's run: the route answers 404 and the guard finds nothing", async () => {
     const r = await call(runDetail as Route, 'GET', `/api/payroll/runs/${runId}`, runId, { user: adminB, company: B });
     expect(r.statusCode).toBe(404);
-    await pool.query("UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1", [runId]);
+    // Since OC a monthly off-cycle run is costed; a weekly one is still refused (off-cycle runs are monthly only).
+    await pool.query("UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus', pay_frequency = 'weekly' WHERE id = $1", [runId]);
     try {
       expect(await refusal('calculate', B)).toBeNull();
       expect(clauses(await refusal('calculate', A))).toEqual(['run_kind']);
     } finally {
-      await pool.query("UPDATE payroll_run_headers SET run_kind = 'regular', off_cycle_reason = NULL WHERE id = $1", [runId]);
+      await pool.query("UPDATE payroll_run_headers SET run_kind = 'regular', off_cycle_reason = NULL, pay_frequency = 'monthly' WHERE id = $1", [runId]);
     }
   });
 });
