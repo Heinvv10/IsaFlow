@@ -305,3 +305,27 @@ describe('AmountInput (#1654 follow-up 3): min/max compared in cents', () => {
     expect(field().validity.valid).toBe(true);
   });
 });
+
+describe('AmountInput (#1654 follow-up 4): min/max in units of 10^decimals', () => {
+  it('quantity min 0.001 at decimals=3 refuses 0 and accepts 0.001', () => {
+    render(<TextHarness initial="" min={0.001} decimals={3} />);
+    fireEvent.change(field(), { target: { value: '0' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.001' } });
+    expect(field().validity.valid).toBe(true);
+  });
+  it('max 0.5 at decimals=3 refuses 0.504 and accepts 0.5', () => {
+    render(<TextHarness initial="" max={0.5} decimals={3} />);
+    fireEvent.change(field(), { target: { value: '0.504' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.5' } });
+    expect(field().validity.valid).toBe(true);
+  });
+  it('a 6-decimal unit price boundary: max 0.000123 refuses 0.000124, accepts 0.000123', () => {
+    render(<TextHarness initial="" max={0.000123} decimals={6} />);
+    fireEvent.change(field(), { target: { value: '0.000124' } });
+    expect(field().validity.valid).toBe(false);
+    fireEvent.change(field(), { target: { value: '0.000123' } });
+    expect(field().validity.valid).toBe(true);
+  });
+});

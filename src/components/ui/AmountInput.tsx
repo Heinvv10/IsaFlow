@@ -62,7 +62,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     emitted.current = value;
     setDraft(asText(value));
   }, [value]);
-  const message = refused ? REFUSED : amountValidity(draft, { min, max, required: Boolean(required) });
+  const message = refused ? REFUSED : amountValidity(draft, { min, max, required: Boolean(required), decimals });
   React.useEffect(() => { inner.current?.setCustomValidity(message); }, [message]);
   return (
     <input
