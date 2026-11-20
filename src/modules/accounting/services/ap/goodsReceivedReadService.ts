@@ -3,14 +3,21 @@
  * `goods_received`) and the bills that carry them (`supplier_invoices.grn_id`). Reads only; every query is company-scoped
  * (grn_items and po_items have no company_id: they are reached through the note / the PO). Cancelled notes are listed with
  * status `cancelled`. The list is offset-paged on (received_date, grn_number, id), a total order; the detail's lists are capped
- * with their totals beside them.
+ * with their totals beside them, and its items page (`items_offset` / `items_limit`; `items_truncated` when the page is not every item,
+ * `items_next_offset` null on the last page). The caps
+ * and text limits are sized so the widest reply (every list full, every text field at its limit in three-byte characters) stays
+ * under MAX_READ_RESULT_BYTES (gate finding 5; `mcp-goods-received-read.int.test.ts`). A note's documents are both entity types
+ * it is filed under: `goods_received` and the legacy `goods_receipt_note` (gate finding 4).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 
 export const GRN_STATUSES = ['draft', 'received', 'inspected', 'accepted', 'rejected', 'cancelled'] as const;
-export const GRN_DETAIL_CAPS = { items: 100, documents: 25, bills: 25 } as const;
+/** `items` is the largest page of items (items_limit's maximum and default). */
+export const GRN_DETAIL_CAPS = { items: 40, documents: 25, bills: 25 } as const;
+/** Both entity types a note's documents are filed under (VALID_ENTITY_TYPES writes only the first). */
+export const GRN_DOCUMENT_ENTITY_TYPES = ['goods_received', 'goods_receipt_note'] as const;
 const TEXT_CAP = 150;
 
 const day = (v: unknown): string | null => (v == null || v === '' ? null : fmtDate(v));
@@ -47,7 +54,7 @@ export async function listGoodsReceived(
            g.cancelled_at, g.cancelled_by, g.cancel_reason, g.created_at, po.po_number, po.status AS po_status, po.supplier_id, s.name AS supplier_name,
            (SELECT count(*) FROM grn_items gi WHERE gi.grn_id = g.id)::INT AS line_count,
            (SELECT count(*) FROM procurement_documents d
-             WHERE d.entity_type = 'goods_received' AND d.entity_id = g.id AND d.is_active = true)::INT AS document_count,
+             WHERE d.entity_type = ANY(${[...GRN_DOCUMENT_ENTITY_TYPES]}::TEXT[]) AND d.entity_id = g.id AND d.is_active = true)::INT AS document_count,
            count(*) OVER ()::INT AS total_rows
       FROM goods_received_notes g
       JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
@@ -72,7 +79,10 @@ export async function listGoodsReceived(
   };
 }
 
-export async function readGoodsReceivedDetail(companyId: string, grnId: string) {
+export async function readGoodsReceivedDetail(
+  companyId: string, grnId: string, itemsPage: { offset: number; limit: number } = { offset: 0, limit: GRN_DETAIL_CAPS.items },
+) {
+  const itemsLimit = Math.min(Math.max(1, itemsPage.limit), GRN_DETAIL_CAPS.items);
   const head = ((await sql`
     SELECT g.*, po.po_number, po.status AS po_status, po.supplier_id, s.name AS supplier_name
       FROM goods_received_notes g
@@ -81,19 +91,26 @@ export async function readGoodsReceivedDetail(companyId: string, grnId: string) 
      WHERE g.id = ${grnId}::UUID AND g.company_id = ${companyId}::UUID
   `) as DbRow[])[0];
   if (!head) return null;
+  // LEFT JOIN (gate finding 6): an item whose PO line is not on the note's PO (a legacy row, which the cancel refuses as
+  // items_not_on_po) is kept with its own quantities, the line's metadata null; it sorts after the note's PO's lines.
   const items = (await sql`
-    SELECT gi.id, gi.po_item_id, gi.quantity_received, gi.quantity_rejected, gi.notes, pi.description, pi.quantity AS ordered,
+    SELECT gi.id, gi.po_item_id, gi.quantity_received, gi.quantity_rejected, gi.notes, pi.id AS on_po, pi.description, pi.quantity AS ordered,
            pi.quantity_received AS line_received, count(*) OVER ()::INT AS total_rows
       FROM grn_items gi
       JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::UUID
-      JOIN po_items pi ON pi.id = gi.po_item_id AND pi.purchase_order_id = g.purchase_order_id
+      LEFT JOIN po_items pi ON pi.id = gi.po_item_id AND pi.purchase_order_id = g.purchase_order_id
      WHERE gi.grn_id = ${grnId}::UUID
-     ORDER BY pi.sort_order, pi.id, gi.id LIMIT ${GRN_DETAIL_CAPS.items}
+     ORDER BY pi.sort_order NULLS LAST, pi.id NULLS LAST, gi.po_item_id, gi.id LIMIT ${itemsLimit} OFFSET ${itemsPage.offset}
   `) as DbRow[];
+  // The total when the page is past the end (no row to carry the window count).
+  const itemsTotal = items[0] ? Number(items[0].total_rows) : itemsPage.offset === 0 ? 0 : Number(((await sql`
+    SELECT count(*)::INT AS n FROM grn_items gi JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::UUID
+     WHERE gi.grn_id = ${grnId}::UUID
+  `) as DbRow[])[0]?.n ?? 0);
   const docs = (await sql`
     SELECT d.id, d.document_name, d.document_type, d.mime_type, d.file_size, d.uploaded_at, count(*) OVER ()::INT AS total_rows
       FROM procurement_documents d JOIN goods_received_notes g ON g.id = d.entity_id AND g.company_id = ${companyId}::UUID
-     WHERE d.entity_type = 'goods_received' AND d.entity_id = ${grnId}::UUID AND d.is_active = true
+     WHERE d.entity_type = ANY(${[...GRN_DOCUMENT_ENTITY_TYPES]}::TEXT[]) AND d.entity_id = ${grnId}::UUID AND d.is_active = true
      ORDER BY d.uploaded_at, d.id LIMIT ${GRN_DETAIL_CAPS.documents}
   `) as DbRow[];
   const bills = (await sql`
@@ -104,12 +121,19 @@ export async function readGoodsReceivedDetail(companyId: string, grnId: string) 
   const total = (rows: DbRow[]) => (rows[0] ? Number(rows[0].total_rows) : 0);
   return {
     goods_received_note: noteOut(head),
-    items: items.map((i) => ({
-      id: String(i.id), po_item_id: String(i.po_item_id), description: short(i.description), quantity_ordered: Number(i.ordered),
-      quantity_received: Number(i.quantity_received), quantity_rejected: Number(i.quantity_rejected ?? 0),
-      po_line_quantity_received: Number(i.line_received ?? 0), notes: short(i.notes),
-    })),
-    items_total: total(items),
+    items: items.map((i) => {
+      const onPo = i.on_po != null;
+      return {
+        id: String(i.id), po_item_id: String(i.po_item_id), on_purchase_order: onPo, description: onPo ? short(i.description) : null,
+        quantity_ordered: onPo ? Number(i.ordered) : null,
+        quantity_received: Number(i.quantity_received), quantity_rejected: Number(i.quantity_rejected ?? 0),
+        po_line_quantity_received: onPo ? Number(i.line_received ?? 0) : null, notes: short(i.notes),
+      };
+    }),
+    items_total: itemsTotal,
+    items_offset: itemsPage.offset,
+    items_truncated: items.length < itemsTotal,
+    items_next_offset: items.length > 0 && itemsPage.offset + items.length < itemsTotal ? itemsPage.offset + items.length : null,
     documents: docs.map((d) => ({
       id: String(d.id), name: short(d.document_name), document_type: text(d.document_type), mime_type: text(d.mime_type),
       size: d.file_size == null ? null : Number(d.file_size), uploaded_at: stamp(d.uploaded_at),

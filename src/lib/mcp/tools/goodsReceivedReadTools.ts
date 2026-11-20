@@ -72,13 +72,19 @@ export const getGoodsReceivedTool: McpTool = {
     'One goods received note by grn_id: the note (status, received date / by, notes, purchase order and supplier, external reference, cancel details), '
     + 'its items (the PO line description, ordered quantity, this note\'s received and rejected quantities, and the PO line\'s total received), '
     + 'its documents (delivery notes filed on it) and the bills that carry it (supplier_invoices.grn_id; a deleted bill is listed with deleted: true). '
-    + `Lists are capped (items ${GRN_DETAIL_CAPS.items}, documents ${GRN_DETAIL_CAPS.documents}, bills ${GRN_DETAIL_CAPS.bills}) with items_total / documents_total / bills_total beside them. `
+    + 'An item whose PO line is not on the note\'s purchase order (an old record) is listed with on_purchase_order: false and the line\'s description and quantities null. '
+    + `Items page: items_limit (default and max ${GRN_DETAIL_CAPS.items}) from items_offset; the reply carries items_total, items_truncated (true when this page is not every item) and items_next_offset (null on the last page). `
+    + `Documents (both the goods_received and the legacy goods_receipt_note entity types) are capped at ${GRN_DETAIL_CAPS.documents} and bills at ${GRN_DETAIL_CAPS.bills}, with documents_total / bills_total beside them; long text is cut at 150 characters, notes and the cancel reason at 500. `
     + 'A goods received note posts nothing to the ledger.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
     type: 'object',
-    properties: { grn_id: { type: 'string', description: 'Goods received note UUID (list_goods_received)' } },
+    properties: {
+      grn_id: { type: 'string', description: 'Goods received note UUID (list_goods_received)' },
+      items_offset: { ...OFFSET_SCHEMA, description: 'Items to skip. Pass the previous reply\'s items_next_offset; omit for the first page.' },
+      items_limit: { type: 'integer', minimum: 1, maximum: GRN_DETAIL_CAPS.items, description: `Items per page (default and max ${GRN_DETAIL_CAPS.items})` },
+    },
     required: ['grn_id'],
     additionalProperties: false,
   },
@@ -86,7 +92,15 @@ export const getGoodsReceivedTool: McpTool = {
     if (!strArg(args, 'grn_id')) return toolError('grn_id is required');
     const bad = guardCastableArgs(args, { uuid: ['grn_id'] });
     if (bad) return bad;
-    const detail = await readGoodsReceivedDetail(ctx.companyId, strArg(args, 'grn_id')!);
+    const itemsOffset = parseOffset({ offset: args.items_offset });
+    if (typeof itemsOffset === 'string') return toolError(`items_${itemsOffset}`);
+    const rawLimit = args.items_limit;
+    if (rawLimit !== undefined && rawLimit !== null
+      && (typeof rawLimit !== 'number' || !Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > GRN_DETAIL_CAPS.items)) {
+      return toolError(`items_limit must be an integer from 1 to ${GRN_DETAIL_CAPS.items}`);
+    }
+    const itemsLimit = typeof rawLimit === 'number' ? rawLimit : GRN_DETAIL_CAPS.items;
+    const detail = await readGoodsReceivedDetail(ctx.companyId, strArg(args, 'grn_id')!, { offset: itemsOffset, limit: itemsLimit });
     return detail ? ok(detail) : toolError(NOT_FOUND);
   },
 };
