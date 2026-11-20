@@ -30,7 +30,7 @@ describe('B1 ETI hours count overtime twice for an hourly employee', () => {
 
 const baseEmp = {
   certificateNumber: '712345678920270200000000000001', yearOfAssessment: 2027, surname: 'B', firstNames: 'A', initials: 'A',
-  idNumber: '0201015800085', taxNumber: '0123456789', employmentStartDate: '20260301', employmentEndDate: null, periodsInYoA: 12,
+  idNumber: '0201015800085', taxNumber: '0123456789', taxPeriodStart: '20260301', taxPeriodEnd: '20270228', payPeriodsInYear: 12, payPeriodsWorked: 12,
   annualPayments3605: 0, paye4102: 0, uifEmployee: 900, uifEmployer: 900, sdl4142: 900, taxThreshold: 99000,
 };
 

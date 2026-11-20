@@ -1,7 +1,7 @@
 /**
  * Employee facts for the e@syFile employee record, from the payroll employee
  * row (moved out of pages/api/payroll/irp5/easyfile-export.ts, 300-line cap):
- * names, dates in CCYYMMDD, periods in the year of assessment, the age on the
+ * names, dates in CCYYMMDD, pay periods worked (3210), the age on the
  * year's last day and the tax threshold that follows from it.
  */
 
@@ -31,13 +31,46 @@ export function toCCYYMMDD(value: unknown): string | null {
   return `${y}${m}${day}`;
 }
 
-export function monthsBetween(start: string, endInclusive: string): number {
-  // Inputs are CCYYMMDD. Count full months the employee was active within
-  // the year-of-assessment window, max 12.
-  const s = new Date(`${start.slice(0, 4)}-${start.slice(4, 6)}-${start.slice(6, 8)}`);
-  const e = new Date(`${endInclusive.slice(0, 4)}-${endInclusive.slice(4, 6)}-${endInclusive.slice(6, 8)}`);
-  const months = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + (e.getUTCMonth() - s.getUTCMonth()) + 1;
-  return Math.min(12, Math.max(0, months));
+/**
+ * The certificate tax period, 3170 / 3180 (BRS V25.3.0 p. 32), all dates CCYYMMDD: the reconciliation period
+ * (`first`..`last`) cut to the employment. An employee employed at no point of it but paid in it (a leaver's severance
+ * paid in a later tax year) has the first and last payment dates instead, clamped to the period. Start is never after
+ * end; null when the employment misses the period and no payment date is known (no tax period can be stated).
+ */
+export function certificateTaxPeriod(p: {
+  first: string; last: string; employmentStart: string | null; employmentEnd: string | null;
+  firstPaid?: string | null; lastPaid?: string | null;
+}): { start: string; end: string } | null {
+  const clamp = (d: string) => (d < p.first ? p.first : d > p.last ? p.last : d);
+  const start = p.employmentStart && p.employmentStart > p.first ? p.employmentStart : p.first;
+  const end = p.employmentEnd && p.employmentEnd < p.last ? p.employmentEnd : p.last;
+  if (start <= end) return { start, end };
+  if (!p.firstPaid || !p.lastPaid) return null;
+  const [a, b] = [clamp(p.firstPaid), clamp(p.lastPaid)];
+  return a <= b ? { start: a, end: b } : { start: b, end: a };
+}
+
+/**
+ * Code 3210, pay periods worked (BRS V25.3.0 p. 33), for MONTHLY pay: each calendar month from `start` to
+ * `endInclusive` (CCYYMMDD, both inside the period) counts 1, and a month worked in part counts the fraction of its
+ * calendar days employed ("pay periods worked which are shorter than a full pay period must be indicated as a decimal
+ * fraction of such pay period"), to 4 decimals. Named assumption: calendar days, not working days; the BRS names no basis.
+ * NAMED LIMIT (wave 6 EZF review): for a leaver paid after leaving, 3170 / 3180 are the payment dates
+ * (certificateTaxPeriod), so 3210 is the calendar fraction between them, not periods worked (none were in the year).
+ * UNVERIFIED that e@syFile accepts it; the BRS defines 3210 only for periods worked.
+ */
+export function monthlyPayPeriodsWorked(start: string, endInclusive: string): number {
+  const ymd = (v: string) => [Number(v.slice(0, 4)), Number(v.slice(4, 6)), Number(v.slice(6, 8))] as const;
+  const [sy, sm, sd] = ymd(start);
+  const [ey, em, ed] = ymd(endInclusive);
+  let total = 0;
+  for (let y = sy, m = sm; y < ey || (y === ey && m <= em); m === 12 ? (y += 1, m = 1) : (m += 1)) {
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = y === sy && m === sm ? sd : 1;
+    const to = y === ey && m === em ? ed : days;
+    total += Math.max(0, to - from + 1) / days;
+  }
+  return Math.round(total * 10000) / 10000;
 }
 
 /**

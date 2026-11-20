@@ -32,6 +32,7 @@ import { validateCertificateTaxFields } from '@/modules/accounting/services/payr
 import {
   approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -87,6 +88,8 @@ async function seed(
   return { f, runs: ids };
 }
 
+const isFileNotice = (w: string): boolean => w === UNWRITTEN_FIELDS_WARNING || w.startsWith('e@syFile will refuse this file until');
+
 async function exportFile(f: SeveranceFixture): Promise<{ status: number; file: string; warnings: string[]; body: unknown }> {
   const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as {
     url: string; query: Record<string, unknown>;
@@ -98,7 +101,10 @@ async function exportFile(f: SeveranceFixture): Promise<{ status: number; file: 
   out.state.end = function end(this: typeof out.state, body?: unknown) { if (typeof body === 'string') file = body; return this; };
   await (easyfile as Route)(req as never, out.res as never);
   const raw = out.headers.get('x-isaflow-warnings');
-  return { status: out.state.statusCode, file, body: out.state.body, warnings: raw ? JSON.parse(decodeURIComponent(String(raw))) as string[] : [] };
+  // The file-wide notices (wave 6 EZF: the BRS fields IsaFlow does not hold, and "too early to file" until the year's
+  // last 30 days) are left out: these tests are about the medical warnings.
+  const all = raw ? JSON.parse(decodeURIComponent(String(raw))) as string[] : [];
+  return { status: out.state.statusCode, file, body: out.state.body, warnings: all.filter((w) => !isFileNotice(w)) };
 }
 
 const employeeRecord = (file: string): string[] => {
