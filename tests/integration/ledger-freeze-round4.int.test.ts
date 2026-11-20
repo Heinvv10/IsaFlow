@@ -85,6 +85,17 @@ describeIfDisposable('ledger column immutability, round 4 (migration 1018)', () 
       expect(await inForce(o)).toBe(true);
     });
 
+    it(`H1 ${iso} X2b: a credit-note cancel (it keeps its link) from a snapshot older than a re-instating link is refused`, async () => {
+      const { o, r, doc } = await approvedAndReversed('credit_notes');
+      const a = await openAt(iso);
+      try {
+        await a.query('SELECT count(*) FROM gl_journal_entries');
+        await asApp(z, link(await journal(z, legs), r), { commit: true });
+        expect(await settle(a.query("UPDATE credit_notes SET status = 'cancelled' WHERE id = $1", [doc]))).toMatch(READ_COMMITTED_ONLY);
+      } finally { await a.query('ROLLBACK').catch(() => undefined); a.release(); }
+      expect(await inForce(o)).toBe(true);
+    });
+
     it(`H1 ${iso} X3: a second document cannot link one journal from an older snapshot`, async () => {
       const x = await journal(z, legs);
       const [d1, d2] = [await document(z, 'customer_invoices', { status: 'draft' }), await document(z, 'credit_notes', { status: 'draft' })];
