@@ -42,6 +42,8 @@ export interface Emp501Readiness {
   /**
    * Blocks (review of #1689 L3): a PSP whose held particulars cannot be filed (3100 fails modulus 10, a 3066 not for its
    * entity: reachable only by direct SQL or a later rule). The file leaves it off; finalising waits until it is corrected.
+   * Intended (review of #1689, ruling L-b): this blocks even for a PSP with no PAYE, which is on no certificate anyway: a
+   * data-hygiene stop that fails closed, so bad particulars are fixed before any return is filed.
    */
   pspParticularsErrors: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */

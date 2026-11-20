@@ -29,8 +29,9 @@ export function pspRegistrationProblem(entity: PspEntityType | null, v: string, 
   if (v.length > 30) return 'must be at most 30 characters (3066)';
   const bad = forbidden(v);
   if (bad) return bad;
-  if (entity !== 'company') return null;
   const m = /^(\d{4})\/\d{6}\/(\d{2})$/.exec(v);
+  // L-a (review of #1689): a company-format number is not a trust's (it would file as 3065 = 2 with a company 3066).
+  if (entity !== 'company') return m ? 'is a company registration number (CCYY/NNNNNN/NN), not a trust registration number' : null;
   if (!m) return 'must be a company registration number in the format CCYY/NNNNNN/NN';
   const year = Number(m[1]);
   if (year < 1800 || year > currentYear) return `must have a year from 1800 to ${currentYear}`;

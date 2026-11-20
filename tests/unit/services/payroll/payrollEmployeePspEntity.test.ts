@@ -24,6 +24,8 @@ describe('pspRegistrationProblem', () => {
   });
   it('a trust (type 2): free text up to 30, no comma or pipe', () => {
     expect(pspRegistrationProblem('trust', 'IT1234/2019', 2026)).toBeNull();
+    // L-a: a company-format number is not a trust's (it would file as 3065 = 2 with a company 3066).
+    expect(pspRegistrationProblem('trust', '2015/123456/07', 2026)).toMatch(/company registration number.*not a trust/);
     expect(pspRegistrationProblem('trust', 'IT1,234', 2026)).toMatch(/comma/);
     expect(pspRegistrationProblem('trust', 'x'.repeat(31), 2026)).toMatch(/30/);
   });
