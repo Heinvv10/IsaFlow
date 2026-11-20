@@ -264,9 +264,10 @@ ALTER FUNCTION public.goods_received_note_hold(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.goods_received_note_hold(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.goods_received_note_hold(uuid) TO app_user, app_service;
 
--- The definers' owner reads and writes these through its own grants, not default privileges.
+-- The definers' owner reads and writes these through its own grants, not default privileges. (company_users: 930 already
+-- requires migration_admin to read it, and only the pinned migrations grant on it.)
 GRANT SELECT, UPDATE ON public.goods_received_notes, public.po_items, public.purchase_orders TO migration_admin;
-GRANT SELECT ON public.grn_items, public.supplier_invoices, public.company_users TO migration_admin;
+GRANT SELECT ON public.grn_items, public.supplier_invoices TO migration_admin;
 
 -- ── Only the cancel changes a note: app_user loses UPDATE and DELETE on both tables ───────────────────────────────
 -- No app path UPDATEs or DELETEs either table except the cancel, which now runs in goods_received_note_cancel. A privilege holds
