@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { PAYROLL_AUDIT_ENTITY_TYPES } from './auditPayrollTypes';
 
 export type AuditAction =
   | 'create'
@@ -73,6 +74,11 @@ export interface AuditLogFilters {
   search?: string;
   limit?: number;
   offset?: number;
+  /**
+   * Does the reader hold Payroll read? REQUIRED, so no caller can forget it: without it the payroll entity types (auditPayrollTypes.ts) are
+   * left out of the rows AND the count (so a page is never short), whatever else the filters say (#1656 round 8).
+   */
+  payrollRead: boolean;
 }
 
 /**
@@ -135,6 +141,7 @@ export async function getAuditLog(
     const dateFrom = filters.dateFrom ?? null;
     const dateTo = filters.dateTo ?? null;
     const search = filters.search ? `%${filters.search}%` : null;
+    const hidden = filters.payrollRead ? null : [...PAYROLL_AUDIT_ENTITY_TYPES];
 
     const [rows, countRows] = await Promise.all([
       sql`
@@ -142,6 +149,7 @@ export async function getAuditLog(
         FROM audit_log
         WHERE company_id = ${companyId}::UUID
           AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
+          AND (${hidden}::TEXT[] IS NULL OR entity_type <> ALL(${hidden}::TEXT[]))
           AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
           AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
           AND (${action}::VARCHAR IS NULL OR action = ${action})
@@ -161,6 +169,7 @@ export async function getAuditLog(
         FROM audit_log
         WHERE company_id = ${companyId}::UUID
           AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
+          AND (${hidden}::TEXT[] IS NULL OR entity_type <> ALL(${hidden}::TEXT[]))
           AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
           AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
           AND (${action}::VARCHAR IS NULL OR action = ${action})
@@ -189,7 +198,10 @@ export async function getEntityHistory(
   companyId: string,
   entityType: string,
   entityId: string,
+  /** Payroll read (required): without it a payroll entity type has no history to return (#1656 round 8). */
+  payrollRead: boolean,
 ): Promise<AuditLogItem[]> {
+  if (!payrollRead && PAYROLL_AUDIT_ENTITY_TYPES.includes(entityType)) return [];
   try {
     const rows = (await sql`
       SELECT *
