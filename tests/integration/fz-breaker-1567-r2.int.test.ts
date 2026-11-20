@@ -60,6 +60,14 @@ async function mkJournal(date: string, source = 'auto_payroll'): Promise<string>
   await su.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [j]);
   return j;
 }
+/** A posted contra of `je` (the ledger's own reversal, as the superuser), so a flip to 'reversed' is the real one migration 1018 allows. */
+async function contraOf(je: string): Promise<void> {
+  const c = (await one(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+    SELECT entry_date, 'fz contra', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).id as string;
+  await su.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+    SELECT $1, gl_account_id, credit, debit, company_id FROM gl_journal_lines WHERE journal_entry_id = $2`, [c, je]);
+  await su.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [c, je]);
+}
 async function finalRun(status: 'approved' | 'calculated' = 'approved'): Promise<{ run: string; je: string }> {
   month += 1;
   const y = YEAR + Math.floor(month / 12); const m = (month % 12) + 1;
@@ -93,9 +101,11 @@ describe('999n breaker round 2: refused', () => {
       })).rejects.toThrow(/leaves posted only to reversed|status cannot be NULL/);
       expect((await one('SELECT journal_entry_id AS j FROM payroll_run_headers WHERE id = $1', [run])).j).toBe(je);
     });
-    it(`N3 [${who}]: no other move out of posted or reversed (reversed -> posted, posted -> draft); posted -> reversed is allowed`, async () => {
+    it(`N3 [${who}]: no other move out of posted or reversed (reversed -> posted, posted -> draft); posted -> reversed is allowed once a posted reversal links it (migration 1018)`, async () => {
       const je = await mkJournal('2026-03-12', 'manual');
       await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(/leaves posted only to reversed/);
+      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]))).rejects.toThrow(/marked reversed only when a posted reversal links to it/);
+      await contraOf(je);
       await as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]));
       await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]))).rejects.toThrow(/leaves posted only to reversed/);
     });

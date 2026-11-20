@@ -70,6 +70,14 @@ async function mkJournal(status: 'posted' | 'reversed', date = '2026-03-31'): Pr
   if (status === 'reversed') await su.query("UPDATE gl_journal_entries SET status = 'reversed', reversed_at = now() WHERE id = $1", [j]);
   return j;
 }
+/** A posted contra of `je` (the ledger's own reversal, as the superuser), so a flip to 'reversed' is the real one migration 1018 allows. */
+async function contraOf(je: string): Promise<void> {
+  const c = (await one(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+    SELECT entry_date, 'fz contra', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).id as string;
+  await su.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+    SELECT $1, gl_account_id, credit, debit, company_id FROM gl_journal_lines WHERE journal_entry_id = $2`, [c, je]);
+  await su.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [c, je]);
+}
 /** An approved run of two lines (R800 net) linked to its posted payroll journal. */
 async function finalRun(): Promise<{ run: string; je: string }> {
   month += 1;
@@ -110,6 +118,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
     });
     it(`B4 [${who}]: posted -> reversed, drop the net-pay credit, reversed -> posted never yields an unbalanced posted journal`, async () => {
       const { je } = await finalRun();
+      await contraOf(je); // 1018: the flip to reversed needs a posted reversal; the line removal is what 999n refuses
       await expect(as(who, async (c) => {
         await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
         await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit = 800', [je]);
@@ -290,6 +299,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     try {
       await c.query('BEGIN');
       await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_posted_frozen');
+      await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_reversed_status'); // migration 1018's own refusal of the same move
       const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
         VALUES ('2026-03-31', 'fz s3b', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 44, 0, $3)', [je, ACC.sal, A]);
