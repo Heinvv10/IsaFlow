@@ -182,7 +182,7 @@ export async function updatePayrollEmployee(
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
     || dobIso !== null || data.idNumber !== undefined
     || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
-  // PSP-H (1014): the entity particulars, judged against the row as locked (its status and entity after this patch).
+  // PSP-H (1015): the entity particulars, judged against the row as locked (its status and entity after this patch).
   const particularsOf = (now: Row) => pspParticularsOfPatch(data as Record<string, unknown>,
     has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus,
     has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType, (m) => new EmployeeTermsRefused(m));

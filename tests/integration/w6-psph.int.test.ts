@@ -1,5 +1,5 @@
 /**
- * Wave 6 PSP-H on real Postgres (migration 1014): a PSP's entity particulars. The CHECKs (only a PSP holds them, the 9-prefixed
+ * Wave 6 PSP-H on real Postgres (migration 1015): a PSP's entity particulars. The CHECKs (only a PSP holds them, the 9-prefixed
  * tax reference, the lengths), the PATCH route for two tenants (judged, cleared on moving off PSP, refused for Login-as).
  * Disposable DB only.
  */
@@ -29,7 +29,7 @@ const row = async (id: string) => (await pool.query(
   'SELECT tax_status, psp_entity_name, psp_registration_number, psp_tax_reference FROM payroll_employees WHERE id = $1', [id])).rows[0];
 const GOOD = { pspEntityName: 'Acme Consulting (Pty) Ltd', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345678' };
 
-describe('1014: the CHECKs', () => {
+describe('1015: the CHECKs', () => {
   it('only a PSP holds particulars; the tax reference is 10 digits starting with 9; names are 1-120, numbers 1-30', async () => {
     const f = await seedEmployee(pool, fixtures, 'psph checks', 20_000);
     const set = (status: string, entity: string | null, name: string | null, reg: string | null, tax: string | null) => pool.query(

@@ -1,12 +1,12 @@
 /**
- * A personal service provider's entity particulars (wave 6 PSP-H, migration 1014): what its H certificate carries. Judged
+ * A personal service provider's entity particulars (wave 6 PSP-H, migration 1015): what its H certificate carries. Judged
  * before any write, against SARS PAYE Employer Reconciliation BRS V25.3.0:
  * - 3030 (FT120) the trading name of the company / CC or trust, for nature of person H (p. 20);
  * - 3066 (FT30) its registration number, with 3065 = 1 for a company / CC (format CCYY/NNNNNN/NN, CCYY from 1800 to this
  *   year, the last two digits one of the listed suffixes) or 2 for a trust (no stated format) (pp. 23-24);
  * - 3100 its income tax reference: ten digits starting with 9 for E, G and H (pp. 26-27). The BRS also requires a modulus 10
  *   test, whose algorithm it does not state: UNVERIFIED, not applied here.
- * No value may hold a comma or a pipe (BRS §3, easyFileFields). Only a PSP holds them (the 1014 CHECK); moving off PSP clears them.
+ * No value may hold a comma or a pipe (BRS §3, easyFileFields). Only a PSP holds them (the 1015 CHECK); moving off PSP clears them.
  */
 import type { PspEntityType } from './payrollTypes';
 
