@@ -174,6 +174,21 @@ describe('UIF booked across the month (review #1679)', () => {
     expect(big.uif).toMatchObject({ employeeContribution: 127.12, employerContribution: 137.12, isCapped: true });
     expectRecomputes(big);
   });
+  it('booked within what the rebuilt pay explains is not pay: R10 000.50 rebuilt, R100.01 booked, a R0.50 bonus owes nil (fix check L1)', () => {
+    const line = bonusLine(0.5, { uifRemuneration: 10_000.5, eti: 0, etiComponents: [earning('basic', '3601', 10_000.5)],
+      uifEmployee: 100.01, uifEmployer: 100.01 });
+    expect(line.uif).toMatchObject({ employeeContribution: 0, employerContribution: 0 });
+    expectRecomputes(line);
+  });
+  it('the sides diverge on the ceiling: R50 / R40 booked, then R13 000: the employee side is capped, the employer side is not (fix check L3)', () => {
+    const line = bonusLine(13_000, { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 50, uifEmployer: 40 });
+    // Employee: 5 000 + 13 000 > 17 712, 177.12 − 50; employer: 4 000 + 13 000 = 17 000, 170 − 40.
+    expect(line.uif).toMatchObject({ employeeContribution: 127.12, employerContribution: 130, isCapped: true });
+    const steps = Object.fromEntries(line.explanations.uif.steps.map((st) => [st.key, st.amount]));
+    expect([steps['uif.cappedEmployee'], steps['uif.cappedEmployer']]).toEqual([1, 0]);
+    expect([steps['uif.leviableEmployee'], steps['uif.leviableEmployer']]).toEqual([12_712, 13_000]);
+    expectRecomputes(line);
+  });
   it('R10 001.50 then a R7 710.50 bonus: the month levies exactly R177.12 each side (R100.02 + R77.10, not R77.11)', () => {
     const regular = regularLine(10_001.5);
     expect(regular.uif.employeeContribution).toBe(100.02);

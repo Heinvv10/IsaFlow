@@ -156,8 +156,14 @@ function recomputeUif(fig: FigureExplanation): number {
     // An off-cycle line (review #1679): each side's earlier pay is the larger of the rebuilt pay and booked ÷ rate; the
     // month's liability on it plus this run's pay is rounded once, less what that side booked.
     const side = (s: 'Employee' | 'Employer'): number => {
-      const earlier = Math.max(r.amt('uif.earlierRebuilt'), round2(r.amt(`uif.booked${s}`) / r.amt('uif.rate')));
+      const rebuilt = r.amt('uif.earlierRebuilt');
+      const booked = r.amt(`uif.booked${s}`);
+      const own = round2(Math.min(rebuilt, r.amt('uif.ceiling')) * r.amt('uif.rate'));
+      const earlier = booked > own ? Math.max(rebuilt, round2(booked / r.amt('uif.rate'))) : rebuilt;
       expect(cents(r.amt(`uif.earlier${s}`))).toBe(cents(earlier));
+      // Each side's own room and cap (fix check L2).
+      expect(cents(r.amt(`uif.leviable${s}`))).toBe(cents(Math.max(0, Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling') - earlier))));
+      expect(r.amt(`uif.capped${s}`)).toBe(earlier + Math.max(0, r.amt('uif.remuneration')) > r.amt('uif.ceiling') ? 1 : 0);
       const liability = round2(Math.min(earlier + r.amt('uif.remuneration'), r.amt('uif.ceiling')) * r.amt('uif.rate'));
       expect(cents(r.amt(`uif.monthLiability${s}`))).toBe(cents(liability));
       return Math.max(0, round2(liability - r.amt(`uif.booked${s}`)));

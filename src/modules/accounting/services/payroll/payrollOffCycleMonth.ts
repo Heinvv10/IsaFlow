@@ -48,32 +48,37 @@ export interface UifSides { employee: number; employer: number }
  * month-to-date remuneration up to the ceiling and rounded ONCE, less what the earlier lines booked, each side, never
  * below nil. So the month never levies more than 1% of the ceiling (R10 001.50 then R7 710.50: R100.02 then R77.10, not
  * R77.11). The earlier remuneration, each side, is the larger of the one rebuilt from the breakdown and the one the
- * stored contribution implies (booked ÷ 1%): an imported line with no breakdown that withheld R50 levied on R5 000, so
- * a R5 000 bonus owes R50, not nil, and one that withheld R177.12 leaves the bonus nil. `monthToDate`, `leviable` and
- * `isCapped` record the larger side's figure.
+ * stored contribution implies (booked ÷ 1%), the latter only where the booked UIF exceeds what the rebuilt pay explains
+ * (fix check L1: a booked cent of rounding is not R0.50 of pay): an imported line with no breakdown that withheld R50
+ * levied on R5 000, so a R5 000 bonus owes R50, not nil, and one that withheld R177.12 leaves the bonus nil. Each side's
+ * month to date, leviable and cap are its own (`sides`, fix check L2); `monthToDate`, `leviable` and `isCapped` are
+ * the larger side's, for the line's single record.
  */
 export function offCycleUif(thisRemuneration: number, earlier: MonthEarlierLines, taxYear: number): {
   uif: UifResult; leviable: number; monthToDate: number; rebuilt: number;
-  earlierPay: UifSides; liability: UifSides; booked: UifSides;
+  earlierPay: UifSides; liability: UifSides; booked: UifSides; leviableSides: UifSides; capped: { employee: boolean; employer: boolean };
 } {
   const ceiling = getTaxYearConfig(taxYear).uifCeiling;
   const pay = Math.max(0, thisRemuneration);
   const rebuilt = Math.max(0, earlier.uifRemuneration);
   const own = round2(Math.min(rebuilt, ceiling) * UIF_RATE);
   const booked = { employee: earlier.uifEmployee ?? own, employer: earlier.uifEmployer ?? own };
-  const earlierOf = (b: number): number => Math.max(rebuilt, round2(Math.max(0, b) / UIF_RATE));
+  const earlierOf = (b: number): number => (b > own ? Math.max(rebuilt, round2(b / UIF_RATE)) : rebuilt);
   const earlierPay = { employee: earlierOf(booked.employee), employer: earlierOf(booked.employer) };
   const liabilityOf = (e: number): number => round2(Math.min(e + pay, ceiling) * UIF_RATE);
   const liability = { employee: liabilityOf(earlierPay.employee), employer: liabilityOf(earlierPay.employer) };
   const monthToDate = Math.max(earlierPay.employee, earlierPay.employer);
+  const leviableOf = (e: number): number => Math.max(0, Math.min(thisRemuneration, ceiling - e));
+  const leviableSides = { employee: leviableOf(earlierPay.employee), employer: leviableOf(earlierPay.employer) };
+  const capped = { employee: earlierPay.employee + pay > ceiling, employer: earlierPay.employer + pay > ceiling };
   return {
     uif: {
       employeeContribution: Math.max(0, round2(liability.employee - booked.employee)),
       employerContribution: Math.max(0, round2(liability.employer - booked.employer)),
-      isCapped: monthToDate + pay > ceiling,
+      isCapped: capped.employee || capped.employer,
     },
-    leviable: Math.max(0, Math.min(thisRemuneration, ceiling - monthToDate)),
-    monthToDate, rebuilt, earlierPay, liability, booked,
+    leviable: leviableOf(monthToDate),
+    monthToDate, rebuilt, earlierPay, liability, booked, leviableSides, capped,
   };
 }
 
