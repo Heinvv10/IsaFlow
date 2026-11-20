@@ -116,6 +116,29 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     expect(vat201.outputInvoices.map((i) => [i.vatType, i.totalExclVat, i.vatAmount])).toEqual([['zero_rated', 500, 0]]);
   });
 
+  // Round 4, item 2: the inclusive flag through the REAL read. A gross of 100.01 entered VAT-inclusive backs out VAT
+  // 13.04 and net 86.97, but 86.97 x 15% is 13.05: the stored VAT is a cent off the net at the rate. With amounts_are
+  // 'inclusive' that cent is allowed; the same lines with amounts_are NULL are refused at approve.
+  it('an inclusive line whose backed-out VAT is a cent off its net at the rate posts; the same exclusive is refused', async () => {
+    const make = async (amountsAre: string | null) => {
+      const id = await draft('2026-06-10', [{ description: 'Gross', unitPrice: 86.97 }]);
+      await typeLines(id, { Gross: ['standard', 13.04] }, { tax: 13.04 });
+      await sql`UPDATE customer_invoice_items SET unit_price = 100.01 WHERE invoice_id = ${id}::UUID`;
+      await sql`UPDATE customer_invoices SET amounts_are = ${amountsAre} WHERE id = ${id}::UUID`;
+      return id;
+    };
+    const { glJournalEntryId } = await approve(await make('inclusive'));
+    expect(await journalLegs(f, glJournalEntryId!)).toEqual([
+      L('1100', 100.01, 0), L('2120', 0, 13.04, { vat: 'standard' }), L('4000', 0, 86.97, { vat: 'standard' }),
+    ]);
+    const exclusive = await make(null);
+    const err = await approve(exclusive).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+    expect((err as Error).message).toMatch(/line 1 is standard: its VAT on 86\.97 at 15% is 13\.05, but it carries 13\.04/);
+    expect(await sql`SELECT status, gl_journal_entry_id FROM customer_invoices WHERE id = ${exclusive}::UUID`)
+      .toEqual([{ status: 'draft', gl_journal_entry_id: null }]);
+  });
+
   it('refuses a partly typed invoice at approve, writing nothing', async () => {
     const id = await draft('2026-10-15', [{ description: 'Typed', unitPrice: 100 }, { description: 'Plain', unitPrice: 100 }]);
     await typeLines(id, { Typed: ['standard', 15] });

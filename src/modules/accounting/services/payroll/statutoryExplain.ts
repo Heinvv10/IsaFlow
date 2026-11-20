@@ -93,22 +93,39 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-function chargeSteps(taxYear: number, leviable: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number }): ExplainStep[] {
-  return [
+/** `month`: the month's earlier approved runs this run's SDL is judged with (wave 6 FQd, the month-to-date SDL). */
+type SdlCharge = {
+  annualRemuneration: number; exempt: boolean; sdl: number;
+  month?: { earlierLeviable: number; earlierSdl: number; runSdl: number; covered: boolean };
+};
+
+function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
+  const steps: ExplainStep[] = [
     {
-      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
+      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt this month: remuneration at or under the threshold' : 'Employer liable this month: remuneration over the threshold (once liable, the rest of the month is too)',
       amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
-      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
+      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated, with the month to date)', amount: charge.annualRemuneration }],
     },
     { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
-    { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
   ];
+  if (charge.month) {
+    const m = charge.month;
+    steps.push({
+      key: 'sdl.month', label: m.covered
+        ? "The month's SDL is already covered by earlier approved runs: nothing more is due on this run"
+        : m.runSdl < 0
+          ? "The earlier approved runs carried more SDL than the month now owes: this run reduces the month's SDL to 1% of its leviable pay"
+          : "This run's SDL is the month's: 1% of the month's approved runs' leviable pay with this run's, less the SDL they carried, shared by leviable pay",
+      amount: m.runSdl, formula: `${pct(SDL_RATE)} × (${r(m.earlierLeviable)} + this run's leviable pay) − ${r(m.earlierSdl)}`,
+    });
+  }
+  steps.push({ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt'
+    : charge.month ? "this line's share of the run's SDL, by leviable pay" : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` });
+  return steps;
 }
 
 /** The SDL explanation of a line costed with the threshold deferred, completed once the run has decided it (applySdlToLines). */
-export function withSdlCharge(
-  sdl: FigureExplanation, taxYear: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number },
-): FigureExplanation {
+export function withSdlCharge(sdl: FigureExplanation, taxYear: number, charge: SdlCharge): FigureExplanation {
   const pending = sdl.steps.findIndex(s => s.key === SDL_PENDING);
   if (pending < 0) return { ...sdl, result: charge.sdl };
   const leviable = sdl.steps.find(s => s.key === 'sdl.leviable')?.amount ?? 0;

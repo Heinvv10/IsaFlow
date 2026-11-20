@@ -7,6 +7,7 @@ import { CalendarDays, ArrowLeft, Loader2, Calculator, Lock, Unlock, GitCompare,
 import { payslipUrl } from '@/components/payroll/PayslipDrawer';
 import { PayrollRunStatusBadge as StatusBadge } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { DeleteDraftRunButton } from '@/components/payroll/DeleteDraftRunButton';
 
 interface Props {
   runId: string;
@@ -81,6 +82,8 @@ export function RunHeaderActions({
               Reopen Period
             </button>
           )}
+          {/* A draft never calculated can be deleted (wave 6 FQd), next to the run's other actions (review #1622 UI L5). */}
+          {run.status === 'draft' && run.lines.length === 0 && canWrite(companyRole) && <DeleteDraftRunButton runId={runId} />}
           {/* The calculate route is withWriteAccess: a viewer would only get a 403. */}
           {canWrite(companyRole) && (
             <button onClick={calculate} disabled={calculating || !canCalculate}

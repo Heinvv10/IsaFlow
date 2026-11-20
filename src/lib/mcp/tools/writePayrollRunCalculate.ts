@@ -11,7 +11,7 @@ import {
   type PayrollRunSummary,
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import { isPayrollRunLocked, PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { isPayrollRunLocked, PayrollRunLockedError, PayrollRunNotFoundError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
@@ -25,6 +25,7 @@ import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpe
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { assertPreparerSupported, PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
 import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
 import { assertFrequencyCostable, frequencyRunOf, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
 import { runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -141,11 +142,12 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || err instanceof PreparerIdNotSupportedError
-        || isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
+        || isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof PspComponentRefused || err instanceof PspStatusChangedSinceApproval) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError
         || err instanceof PayrollLoanLockTimeoutError
+        || err instanceof PayrollRunNotFoundError // a draft deleted while this call waited (wave 6 FQd)
         || err instanceof UnsupportedTaxYearError) {
         return toolError(err.message);
       }

@@ -4,6 +4,7 @@
  * and hand both sides to the pure comparator.
  */
 
+import { PayrollRunNotFoundError } from './payrollRunLock';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { compareParallelRun } from './payrollParallelRunComparator';
@@ -129,7 +130,7 @@ export async function getParallelRunReport(
     ? await getRunById(companyId, runId)
     : await findRunForPeriod(companyId, imp.periodMonth, imp.periodYear);
   if (runId && !runRow) {
-    throw new Error('Payroll run not found');
+    throw new PayrollRunNotFoundError();
   }
   if (!runRow) {
     return { import: imp, run: null, comparison: null, loanInstalmentBlocker: null };

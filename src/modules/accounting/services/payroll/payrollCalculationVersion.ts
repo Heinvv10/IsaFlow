@@ -24,5 +24,13 @@
  *    date across the month's runs, ETI claimed on the month's last run, the year to date and once-offs keyed by run (FQc).
  * 15: garnishee orders come off net pay after tax: emoluments attachments within 25% of basic salary (Magistrates' Courts Act
  *    s65J(1A)(a)), maintenance outside it and first (Maintenance Act s28, s29(3)); recorded per run (GA).
+ * 16: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 1013).
+ * 17: a defined-benefit fund row (db_member_category_factor, migration 1014) is valued X = factor x RFI - the marked compulsory contributions
+ *    (para 12D(3)), non-cash and deemed paid into s11F; its amount is the employer's payment (GL 2175, 4472) (DBF).
+ * 18: overtime hours at 1.5x / 2x priced on the server (ETI counts their hours once, as 3607, etiHours); a km row splits at the prescribed
+ *    rate a km into 3702 / 3703 (not taxed) and 3722 (taxed, UIF, SDL); OVERTIME_ABOVE_BCEA_THRESHOLD (RI, migration 1017).
+ * 19: weekly and fortnightly regular runs are costed (FQd lifts the run-kind `frequency` clause; a run straddling an employee's
+ *    frequency change is refused until acknowledged); SDL is the month's 1% across its runs, floored at the month, so a run
+ *    may carry a negative SDL refunding an earlier run's over-catch-up (FQd).
  */
-export const PAYROLL_CALCULATION_VERSION = 15;
+export const PAYROLL_CALCULATION_VERSION = 19;

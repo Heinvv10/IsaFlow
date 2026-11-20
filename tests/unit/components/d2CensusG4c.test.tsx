@@ -48,7 +48,7 @@ describe('supplier-allocations', () => {
   trio({ name: 'unallocated payments', render: () => render(<SupplierAllocationsPage />), match: u => u.includes('supplier-payments'),
     data: PAYMENT_LIST, plain: 'Could not load the unallocated payments - try again', success: /PAY-D2-777/ });
   trio({ name: 'invoices for the selected payment', render: () => render(<SupplierAllocationsPage />), match: u => u.includes('supplier-invoices'),
-    data: [{ id: 'i1', invoiceNumber: 'SINV-D2-777', date: '2031-03-01', total: 100, outstanding: 100 }], others: list,
+    data: [{ id: 'i1', invoiceNumber: 'SINV-D2-777', invoiceDate: '2031-03-01', totalAmount: '100.00', amountPaid: '0.00', balance: '100.00' }], others: list,
     drive: async () => { fireEvent.click(await screen.findByText(/PAY-D2-777/)); },
     plain: 'Could not load the supplier invoices - try again', success: /SINV-D2-777/ });
 });

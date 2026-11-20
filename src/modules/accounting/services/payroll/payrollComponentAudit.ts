@@ -13,7 +13,9 @@ export interface ComponentChangeActor { userId: string; userEmail?: string; chan
 
 export type ComponentChangeKind = 'edit' | 'end' | 'cancel' | 'assign' | 'package_assign' | 'package_supersede' | 'batch_assign'
   // The pay-run grid's once-off for its run month (payrollRunPeriodInputs): set or changed, and removed (amount nil).
-  | 'run_input' | 'run_input_remove';
+  | 'run_input' | 'run_input_remove'
+  // DBF: a 4001 / 4003 deduction marked or unmarked as the compulsory contribution to a defined-benefit fund (C, para 12D(3)).
+  | 'db_fund_contribution_mark';
 
 export async function auditComponentChange(
   tx: TxSql,

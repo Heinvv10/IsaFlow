@@ -25,14 +25,19 @@ import { getTaxYear } from './taxTables';
 import type { PayFrequency, PayrollPeriod } from './payrollTypes';
 import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { employeeName, frequencyStraddles, straddleReasons } from './payrollFrequencyStraddle';
+import { formatDayRange } from './payrollPayWeek';
 
 export class PayFrequencyRefusedError extends Error {
   constructor(
     readonly status: 400 | 409, readonly reasons: RunKindReason[],
-    /** PAY_PERIOD_OVERLAP: the run's dates overlap another regular run of its frequency (review #1575 G6). */
-    readonly code: 'PAY_FREQUENCY_REFUSED' | 'PAY_PERIOD_OVERLAP' = 'PAY_FREQUENCY_REFUSED',
+    /** PAY_PERIOD_OVERLAP: the run's dates overlap another regular run of its frequency (review #1575 G6).
+     *  FREQUENCY_CHANGE_STRADDLE: an employee's first run at a new frequency pays days twice or leaves days unpaid (FQd). */
+    readonly code: 'PAY_FREQUENCY_REFUSED' | 'PAY_PERIOD_OVERLAP' | 'FREQUENCY_CHANGE_STRADDLE' = 'PAY_FREQUENCY_REFUSED',
+    /** Each reason is already a sentence for the user (FQd's writer and straddle copy): no "Refused:" frame. */
+    plain = false,
   ) {
-    super(`Refused: ${reasons.map((r) => r.detail).join('; ')}.`);
+    super(plain ? reasons.map((r) => r.detail).join(' ') : `Refused: ${reasons.map((r) => r.detail).join('; ')}.`);
     this.name = 'PayFrequencyRefusedError';
   }
 }
@@ -45,9 +50,10 @@ const names = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(', 
 
 /**
  * The employees (of `employeeIds`, this company's) with terms a weekly or fortnightly run cannot cost, in the window:
- * by kind, their employee numbers.
+ * by kind, their employee numbers. Also the pay-frequency writer's terms check (wave 6 FQd, coordinator ruling: the
+ * writer refuses exactly what calculate refuses).
  */
-async function unsupportedTerms(companyId: string, employeeIds: string[], from: string, to: string): Promise<DbRow> {
+export async function unsupportedTerms(companyId: string, employeeIds: string[], from: string, to: string): Promise<DbRow> {
   const rows = (await sql`
     WITH people AS (
       SELECT e.id, e.employee_number FROM payroll_employees e
@@ -122,6 +128,11 @@ async function refuseOverlappingRun(companyId: string, run: FrequencyRun, start:
     + 'so this run is not calculated' }], 'PAY_PERIOD_OVERLAP');
 }
 
+/** A run's dates: its own, or (monthly) its calendar month. */
+function runDatesOf(period: PayrollPeriod): { start: string; end: string } {
+  return { start: period.start ?? `${period.year}-${String(period.month).padStart(2, '0')}-01`, end: period.end ?? payrollRunReadDate(period) };
+}
+
 /**
  * An employee already paid, on a non-cancelled run of ANOTHER frequency, for days this run also pays: refused (409
  * PAY_PERIOD_OVERLAP), naming the employee and that run's dates. The mid-year frequency check sees one tax year only, so a
@@ -130,11 +141,20 @@ async function refuseOverlappingRun(companyId: string, run: FrequencyRun, start:
  */
 async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun, employeeIds: string[]): Promise<void> {
   if (employeeIds.length === 0) return;
-  const { period } = run;
-  const start = period.start ?? `${period.year}-${String(period.month).padStart(2, '0')}-01`;
-  const end = period.end ?? payrollRunReadDate(period);
-  const rows = (await sql`
-    SELECT e.employee_number, h.pay_frequency, to_char(h.period_start, 'YYYY-MM-DD') AS start, to_char(h.period_end, 'YYYY-MM-DD') AS stop
+  const { start, end } = runDatesOf(run.period);
+  // An employee's frequency change (payrollFrequencyStraddle): judged first, on the employee's first run at this frequency.
+  const settled = new Map<string, { from: string; to: string }>();
+  if (run.runKind === undefined || run.runKind === 'regular') {
+    const straddles = await frequencyStraddles(companyId, { id: run.runId ?? null, frequency: run.frequency, start, end }, employeeIds);
+    const reasons = straddleReasons(straddles);
+    if (reasons.length > 0) throw new PayFrequencyRefusedError(409, reasons, 'FREQUENCY_CHANGE_STRADDLE', true);
+    // Exactly the days acknowledged (breaker #1622 M-C): an old-frequency run overlapping this one inside them passes.
+    for (const x of straddles) if (x.kind === 'straddle' && x.acknowledged && x.overlap) settled.set(x.employeeId, x.overlap);
+  }
+  const rows = ((await sql`
+    SELECT l.employee_id, e.first_name, e.last_name, h.pay_frequency, to_char(h.period_start, 'YYYY-MM-DD') AS start,
+           to_char(h.period_end, 'YYYY-MM-DD') AS stop, to_char(GREATEST(h.period_start, ${start}::date), 'YYYY-MM-DD') AS o_from,
+           to_char(LEAST(h.period_end, ${end}::date), 'YYYY-MM-DD') AS o_to
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
@@ -143,11 +163,14 @@ async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun,
        AND daterange(h.period_start, h.period_end, '[]') && daterange(${start}::date, ${end}::date, '[]')
        AND l.employee_id = ANY(${employeeIds}::uuid[])
      ORDER BY e.employee_number, h.period_start
-  `) as DbRow[];
+  `) as DbRow[]).filter((r) => {
+    const ok = settled.get(String(r.employee_id));
+    return !(ok && String(r.o_from) >= ok.from && String(r.o_to) <= ok.to);
+  });
   if (rows.length === 0) return;
   throw new PayFrequencyRefusedError(409, rows.map((r) => ({ clause: 'pay_period_overlap' as const,
-    detail: `employee ${String(r.employee_number)} is already paid for ${String(r.start)} to ${String(r.stop)} on a ${String(r.pay_frequency)} `
-      + `run, and this ${run.frequency} run's dates ${start} to ${end} overlap them: those days would be paid twice` })), 'PAY_PERIOD_OVERLAP');
+    detail: `${employeeName(r)} is already paid for ${formatDayRange(String(r.start), String(r.stop))} on the ${String(r.pay_frequency)} run, `
+      + `and this ${run.frequency} run pays ${formatDayRange(start, end)}: the days in both would be paid twice.` })), 'PAY_PERIOD_OVERLAP', true);
 }
 
 /** At calculate, before any write. `employeeIds`: the run's population. */
@@ -172,8 +195,13 @@ export async function assertFrequencyCostable(
     const reasons = termsReasons(await unsupportedTerms(companyId, employeeIds, period.start, period.end), frequency);
     if (reasons.length > 0) throw new PayFrequencyRefusedError(400, reasons);
   }
+  // A mid-year change first: no acknowledgement of a straddle can make it payable (payrollFrequencyStraddle).
+  await refuseMixedFrequencyYear(companyId, frequency, getTaxYear(period.month, period.year), employeeIds);
   await refuseOtherFrequencyOverlap(companyId, run, employeeIds);
-  const taxYear = getTaxYear(period.month, period.year);
+}
+
+/** A final line this tax year (by the run's EMP201 month) at another frequency: 409, change at the start of a tax year. */
+export async function refuseMixedFrequencyYear(companyId: string, frequency: PayFrequency, taxYear: number, employeeIds: string[]): Promise<void> {
   const mixed = (await sql`
     SELECT array_agg(DISTINCT e.employee_number) AS numbers
       FROM payroll_run_lines l
@@ -204,16 +232,6 @@ export async function assertFrequencyTermsAssignable(companyId: string, employee
   if (!e || (e.pay_frequency !== 'weekly' && e.pay_frequency !== 'fortnightly')) return;
   throw new PayFrequencyRefusedError(400, [{ clause: 'frequency_terms', detail: `employee ${String(e.employee_number)} is paid `
     + `${String(e.pay_frequency)}, and ${what} cannot be costed on a ${String(e.pay_frequency)} run yet (support comes in a later release)` }]);
-}
-
-/**
- * For the writer of payroll_employees.pay_frequency (FQd): refused (409) when the employee already has a final line
- * this tax year at another frequency. `asAt`: the date the change takes effect ('YYYY-MM-DD').
- */
-export async function assertFrequencyChangeAllowed(companyId: string, employeeId: string, to: PayFrequency, asAt: string): Promise<void> {
-  const month = Number(asAt.slice(5, 7));
-  const year = Number(asAt.slice(0, 4));
-  await assertFrequencyCostable(companyId, { frequency: to, period: { year, month }, runDate: null }, [employeeId]);
 }
 
 /** Fringe benefits (38xx) and the travel allowance (3701): costed on monthly rules only (review #1575 L1). */

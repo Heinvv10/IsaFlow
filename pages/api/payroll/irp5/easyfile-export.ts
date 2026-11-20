@@ -48,14 +48,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (err.kind === 'bad_request') return apiResponse.badRequest(res, err.message);
     return apiResponse.error(res, 'VALIDATION_ERROR' as never, err.message, err.details);
   }
-  const { employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds } = input;
+  const { employer, employees, pspCertificates, payeRef, warnings, warningsTotal, unlinkedPaymentIds } = input;
 
   try {
-    const fileBody = buildIrp5File({ employer, employees });
+    // Built even before it can be filed (BRS p. 32): the warnings say from when (wave 6 EZF, ruling L3 b).
+    const fileBody = buildIrp5File({ employer, employees, pspCertificates, filingDate: 'warn' });
     const filename = `IRP5_${taxYear - 1}_${taxYear}_${payeRef}${periodRaw === 'interim' ? '_08' : ''}.irp5`;
 
     log.info('e@syFile IRP5 export generated', {
-      companyId, taxYear, employees: employees.length, bytes: fileBody.length,
+      companyId, taxYear, employees: employees.length, pspCertificates: pspCertificates.length, bytes: fileBody.length,
     }, 'easyFileExport');
     if (warnings.length > 0) {
       // Counts only in the log: the text names employees and is for the authorised caller.

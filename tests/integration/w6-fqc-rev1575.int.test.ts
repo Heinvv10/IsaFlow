@@ -308,7 +308,9 @@ describe('round 2 (G1-G5): the month-order gate', () => {
 });
 
 describe('round 4: one employee, two frequencies, overlapping days', () => {
-  it('weekly 22-28 Feb 2026 (tax year 2026), then fortnightly 26 Feb-11 Mar 2026 (2027): refused (409 PAY_PERIOD_OVERLAP) naming the employee and the week', async () => {
+  // Since FQd (breaker #1622 M2) the first run at the new frequency is judged by payrollFrequencyStraddle: the overlap is
+  // FREQUENCY_CHANGE_STRADDLE naming the days twice paid, and the next fortnight must start the day after the week.
+  it('weekly 22-28 Feb 2026 (tax year 2026), then fortnightly 26 Feb-11 Mar 2026 (2027): refused (409 FREQUENCY_CHANGE_STRADDLE) naming the employee and the days', async () => {
     const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
       const a = await seedWeekly(c, A);
       const b = await seedWeekly(c, B);
@@ -323,14 +325,14 @@ describe('round 4: one employee, two frequencies, overlapping days', () => {
          VALUES ($1, 3, 2026, 'draft', 'fortnightly', '2026-02-26', '2026-03-11') RETURNING id`, [t.company])).rows[0].id);
       const refused = await calculatePayrollRun(await fortnight(A), A.company)
         .then(() => null, (e: unknown) => e as { code?: string; status?: number; message: string });
-      // After the overlap: the next fortnight from 12 March is costed.
-      await c.query(`UPDATE payroll_run_headers SET period_start = '2026-03-12', period_end = '2026-03-25' WHERE company_id = $1 AND pay_frequency = 'fortnightly'`, [A.company]);
+      // Starting the day after the week (1 March): nothing paid twice, nothing unpaid, costed.
+      await c.query(`UPDATE payroll_run_headers SET period_start = '2026-03-01', period_end = '2026-03-14' WHERE company_id = $1 AND pay_frequency = 'fortnightly'`, [A.company]);
       const next = String((await c.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND pay_frequency = 'fortnightly'`, [A.company])).rows[0].id);
       const after = await calculatePayrollRun(next, A.company).then(() => 'ok', (e: Error) => e.message);
       return { refused, after };
     });
-    expect(got.refused).toMatchObject({ code: 'PAY_PERIOD_OVERLAP', status: 409 });
-    expect(got.refused?.message).toContain('employee FQC-BIG is already paid for 2026-02-22 to 2026-02-28 on a weekly run');
+    expect(got.refused).toMatchObject({ code: 'FREQUENCY_CHANGE_STRADDLE', status: 409 });
+    expect(got.refused?.message).toContain('Wanda FQC-BIG was last paid weekly up to 28 Feb 2026, and this fortnightly run starts on 26 Feb 2026: 26–28 Feb 2026 would be paid twice. Settle those days with a once-off adjustment');
     expect(got.after).toBe('ok');
   });
 });

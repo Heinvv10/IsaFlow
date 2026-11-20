@@ -3,18 +3,20 @@
  * Sage Parity: Transactions > Allocate Payments
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { supplierOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 const fmt = (n: number) => formatMoney(n);
 
 interface Payment { id: string; paymentNumber: string; supplierName: string; supplierId: string; date: string; amount: number; allocatedAmount: number; }
-interface Invoice { id: string; invoiceNumber: string; date: string; total: number; outstanding: number; }
+type Invoice = OpenInvoiceRow;
 
 export default function SupplierAllocationsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -26,6 +28,7 @@ export default function SupplierAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const invoicesRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -60,8 +63,8 @@ export default function SupplierAllocationsPage() {
       const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
       await assertOk(res, 'Could not load the supplier invoices - try again');
       const json = await res.json();
-      const rawInv: Invoice[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })();
-      setInvoices(rawInv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+      const rawInv: Record<string, unknown>[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.invoices || []; })();
+      setInvoices(supplierOpenRows(rawInv));
     } catch (err) {
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
@@ -82,6 +85,7 @@ export default function SupplierAllocationsPage() {
   const unallocTotal = payments.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
 
   const doAllocate = async () => {
+    if (blockOnInvalidAmount(invoicesRef.current)) return;
     if (!selected || totalAlloc <= 0) return;
     setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
@@ -149,7 +153,7 @@ export default function SupplierAllocationsPage() {
             </div>
 
             {/* Outstanding Invoices */}
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div ref={invoicesRef} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">
                 {selected ? `Invoices for ${selected.supplierName}` : 'Select a payment'}
               </div>

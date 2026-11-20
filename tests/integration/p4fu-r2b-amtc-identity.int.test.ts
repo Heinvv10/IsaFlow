@@ -70,9 +70,10 @@ beforeAll(async () => {
   for (const [i, e] of EMPLOYEES.entries()) {
     const id = (await pool.query<{ id: string }>(
       `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth,
-                                      medical_aid_main_member, medical_aid_dependants_count, id_number)
-       VALUES ($1, $2, 'Emp', $2, '2020-01-01', $3::date, $4, $5, $6) RETURNING id`,
-      [f.company, e.number, e.born, e.member, e.dependants, `${e.born.slice(2, 4)}061550090${i}8`])).rows[0]!.id;
+                                      medical_aid_main_member, medical_aid_dependants_count, id_number, tax_number)
+       VALUES ($1, $2, 'Emp', $2, '2020-01-01', $3::date, $4, $5, $6, $7) RETURNING id`,
+      // A tax number: an IRP5 with PAYE needs 3100 (BRS V25.3.0 p. 26; wave 6 EZF).
+      [f.company, e.number, e.born, e.member, e.dependants, `${e.born.slice(2, 4)}061550090${i}8`, `012345678${i}`])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, '2020-01-01')`,
       [id, salary, e.salary]);

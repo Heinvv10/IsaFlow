@@ -30,12 +30,13 @@ import { refreshCache } from '@/modules/accounting/services/payroll/sarsCodesSer
 beforeEach(() => { st.queries = []; refreshCache(); });
 
 describe('pre-validation query count', () => {
-  it.each([1, 200])('%i employee(s): three queries, whatever the count', async (n) => {
+  // Four since wave 6 FQd (#1622 M-D): the certificate year's monthly-only check, one query whatever the count.
+  it.each([1, 200])('%i employee(s): four queries, whatever the count', async (n) => {
     st.employees = n;
     const out = await preValidateTaxYear('c1', { taxYear: 2027 });
     expect(out!.employeesChecked).toBe(n);
     // Every employee lacks a tax and an ID number: the engine really ran for each.
     expect(out!.errors).toBe(2 * n);
-    expect(st.queries).toHaveLength(3);
+    expect(st.queries).toHaveLength(4);
   });
 });

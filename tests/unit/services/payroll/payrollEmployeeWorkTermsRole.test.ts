@@ -87,3 +87,24 @@ describe('work terms: the priced ones (status, basis, hours, rates) are owner/ad
     expect(() => employeeChangesOf({ hourlyRate: null }, hourly, true)).toThrow(EmployeeOnboardingRefused);
   });
 });
+
+describe('PSP-H: the PSP entity particulars are priced terms too (security review)', () => {
+  const current = {
+    taxNumber: null, idNumber: null, startDate: '2020-01-01', endDate: null, taxStatus: 'personal_service_provider', pspEntityType: 'company',
+    pspEntityName: 'Acme (Pty) Ltd', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345675',
+  } as never;
+  const stored = { pspEntityName: 'Acme (Pty) Ltd', pspRegistrationNumber: '2015/123456/07', pspTaxReference: '9012345675' };
+  it('a manager moving one is forbidden; clearing one too', () => {
+    for (const body of [{ pspEntityName: 'Hijack' }, { pspTaxReference: '9000000001' }, { pspRegistrationNumber: '' }, { pspEntityName: null }]) {
+      expect(() => employeeChangesOf(body, current, false), JSON.stringify(body)).toThrow(EmployeeTermsForbidden);
+    }
+  });
+  it('a manager resending the stored values writes none of them (a stale resend never undoes an owner\'s change)', () => {
+    const out = employeeChangesOf({ ...stored, pspEntityName: ' Acme (Pty) Ltd ', occupation: 'Consultant' }, current, false) as Record<string, unknown>;
+    expect(['pspEntityName', 'pspRegistrationNumber', 'pspTaxReference'].filter((k) => k in out)).toEqual([]);
+    expect(out.occupation).toBe('Consultant');
+  });
+  it('an owner / admin moves them', () => {
+    expect(employeeChangesOf({ pspEntityName: 'New (Pty) Ltd' }, current, true)).toMatchObject({ pspEntityName: 'New (Pty) Ltd' });
+  });
+});

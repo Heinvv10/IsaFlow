@@ -11,12 +11,15 @@
 import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { refusePspAssignment } from './pspComponentGuard';
 import type { PaidPeriod } from './payrollComponentPaidMonths';
 import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
+import { refuseDbComponentWithoutFactor } from './definedBenefitAssignment';
 import { refuseComponentAtFrequency } from './payrollFrequencyGuard';
 
+/** `dbFactor`: the row carries a defined-benefit factor (DBF); a defined_benefit component without one is refused on every path. */
 export interface AssignmentWrite {
-  employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean; percentOfRfi?: number | null;
+  employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean; percentOfRfi?: number | null; dbFactor?: boolean;
 }
 export interface WriteGuardOptions { paid?: PaidPeriod[]; named?: boolean; overlap?: boolean }
 
@@ -42,7 +45,10 @@ async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): 
 export async function refuseAssignmentWrite(
   tx: TxSql, companyId: string, a: AssignmentWrite, opts: WriteGuardOptions = {},
 ): Promise<void> {
+  // Wave 6 PSP (M3/M4): a component a PSP cannot carry is refused (409, PspComponentRefused) whatever its dates.
+  await refusePspAssignment(tx, companyId, a.employeeId, a.componentId);
   try {
+    await refuseDbComponentWithoutFactor(tx, companyId, a.componentId, a.dbFactor === true);
     await refuseComponentAtFrequency(tx, companyId, a.employeeId, a.componentId, a.percentOfRfi ?? null);
     if (!a.recurring) {
       refuseOnceOffSpan(a.from, a.to);

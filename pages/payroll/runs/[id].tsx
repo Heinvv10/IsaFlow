@@ -24,8 +24,10 @@ import type { OnExplain, RunLineAmounts } from '@/components/payroll/PayrollRunL
 import { useLineExplain } from '@/components/payroll/LineExplain';
 import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
+import { periodLabel } from '@/components/payroll/RunCards';
+import { emptyLinesMessage } from '@/components/payroll/runEmptyLines';
+import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export default function PayrollRunDetailPage() {
   const router = useRouter();
@@ -68,7 +70,7 @@ export default function PayrollRunDetailPage() {
 
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
-  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
+  const period = periodLabel(run);
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
@@ -104,6 +106,9 @@ export default function PayrollRunDetailPage() {
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
           <SelfApprovedNote decision={run.approvalDecision} />
+          {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
+            <FrequencyChangeCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} />
+          )}
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
@@ -143,9 +148,7 @@ export default function PayrollRunDetailPage() {
             </div>
             {run.lines.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
-                No lines yet{canWrite(companyRole)
-                  ? <> — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.</>
-                  : '.'}
+                {emptyLinesMessage(run, canWrite(companyRole))}
               </div>
             ) : editable && grid.inputs ? (
               <>
@@ -155,7 +158,7 @@ export default function PayrollRunDetailPage() {
                   </p>
                 )}
                 <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resets={grid.resets}
-                  commit={grid.commit} commitHours={grid.commitHours} refuse={grid.refuse} forgetRefused={grid.forgetRefused} onPayslip={openPayslip} onExplain={explain} />
+                  commit={grid.commit} commitHours={grid.commitHours} commitUnits={grid.commitUnits} refuse={grid.refuse} forgetRefused={grid.forgetRefused} onPayslip={openPayslip} onExplain={explain} />
               </>
             ) : (
               <>
