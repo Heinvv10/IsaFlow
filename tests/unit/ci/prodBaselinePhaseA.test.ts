@@ -18,12 +18,15 @@ let scratch = '';
 let repo = '';
 let base = '';
 
+// Inside a git hook (pre-push runs the unit tests) git exports GIT_DIR and friends. Inherited, they point every git
+// call here, and the script's own, at the repository being pushed instead of the scratch one: drop them all.
+const NO_GIT_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
 const GIT_ENV = {
   GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid',
 };
 function git(...args: string[]): string {
-  const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, ...GIT_ENV } });
+  const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...NO_GIT_ENV, ...GIT_ENV } });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 }
@@ -38,7 +41,7 @@ function fakeBaseline(meta: unknown, sha256Line?: string): void {
 
 /** null: PROD_BASELINE_DIR unset. */
 function run(dir: string | null = base): { status: number | null; out: string; err: string } {
-  const env: Record<string, string | undefined> = { ...process.env, ...GIT_ENV, TMPDIR: scratch };
+  const env: Record<string, string | undefined> = { ...NO_GIT_ENV, ...GIT_ENV, TMPDIR: scratch };
   if (dir === null) delete env.PROD_BASELINE_DIR;
   else env.PROD_BASELINE_DIR = dir;
   const r = spawnSync('bash', [SCRIPT], { cwd: repo, encoding: 'utf8', env });
