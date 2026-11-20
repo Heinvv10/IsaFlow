@@ -111,29 +111,8 @@ export interface EmployeeComponent {
 export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
 import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
-export interface PayeInput {
-  annualTaxableIncome: number;
-  /** Age on the last day of the tax year (28/29 Feb), which decides the age rebates. */
-  ageAtPeriodEnd: number;
-  monthlyMedicalBeneficiaries: number;
-  taxYear: number;
-  /** Medical scheme fees paid through payroll for the year (4005), for the 65+ additional credit; absent = none. */
-  annualMedicalSchemeFees?: number;
-}
-
-export interface PayeResult {
-  annualTax: number;
-  monthlyPaye: number;
-  effectiveRate: number;
-  rebatesApplied: number;
-  medicalCreditsApplied: number;
-}
-
-export interface UifResult {
-  employeeContribution: number;
-  employerContribution: number;
-  isCapped: boolean;
-}
+export type { PayeInput, PayeResult, UifResult } from './payrollTypesTax';
+import type { PayeResult, UifResult } from './payrollTypesTax';
 
 export type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypesEti';
 
