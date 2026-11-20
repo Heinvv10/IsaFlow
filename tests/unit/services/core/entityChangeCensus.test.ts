@@ -89,7 +89,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invitations/index.ts', 'pages/api/invitations/revoke/[id].ts',
     'pages/api/invite/[token].ts', `${S}core/userInvitationService.ts`,
   ],
-  company_user_permissions: ['src/lib/auth/permissionService.ts'],
+  company_user_permissions: [`${S}core/memberWrites.ts`, 'src/modules/admin/services/companyMembershipService.ts'],
   companies: [
     'pages/api/accounting/afs/pis-score.ts', 'pages/api/accounting/chase-settings.ts', 'pages/api/accounting/cipc-annual-return.ts',
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',

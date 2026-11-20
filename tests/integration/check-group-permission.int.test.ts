@@ -4,6 +4,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { checkGroupPermission } from '@/lib/auth/permissionService';
+import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { listGroupCandidates } from '@/modules/accounting/services/intercompany/connectionRead';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error('DATABASE_URL required');
@@ -12,13 +14,15 @@ const A = '00000000-0000-0000-0000-0000000c0001';
 const B = '00000000-0000-0000-0000-0000000c0002';
 const LEFT = '00000000-0000-0000-0000-0000000c0003';
 const SUSPENDED = '00000000-0000-0000-0000-0000000c0004';
+const DELETED = '00000000-0000-0000-0000-0000000c0005';
 const GROUP = '00000000-0000-0000-0000-0000000c0090';
 const U = {
   writer: '00000000-0000-0000-0000-0000000c00a1', viewerStale: '00000000-0000-0000-0000-0000000c00a2',
   split: '00000000-0000-0000-0000-0000000c00a3', withheld: '00000000-0000-0000-0000-0000000c00a4',
   bookkeeper: '00000000-0000-0000-0000-0000000c00a5', leftCo: '00000000-0000-0000-0000-0000000c00a6',
   none: '00000000-0000-0000-0000-0000000c00a7', viewer: '00000000-0000-0000-0000-0000000c00a8',
-  inSuspended: '00000000-0000-0000-0000-0000000c00a9',
+  inSuspended: '00000000-0000-0000-0000-0000000c00a9', inDeleted: '00000000-0000-0000-0000-0000000c00aa',
+  both: '00000000-0000-0000-0000-0000000c00ab',
 };
 
 describe('checkGroupPermission (real SQL)', () => {
@@ -50,15 +54,20 @@ describe('checkGroupPermission (real SQL)', () => {
     await admin.query(`INSERT INTO companies (id, name, is_active, status, suspended_at) VALUES ($1,'CGP Suspended',true,'suspended',now()) ON CONFLICT (id) DO NOTHING`, [SUSPENDED]);
     await admin.query(`INSERT INTO company_group_members (group_id, company_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [GROUP, SUSPENDED]);
     await member(SUSPENDED, U.inSuspended, 'owner');
+    await admin.query(`INSERT INTO companies (id, name, is_active, status) VALUES ($1,'CGP Deleted',true,'deleted') ON CONFLICT (id) DO NOTHING`, [DELETED]);
+    await admin.query(`INSERT INTO company_group_members (group_id, company_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [GROUP, DELETED]);
+    await member(DELETED, U.inDeleted, 'owner');
+    // One person who writes in the live company A and in both ended ones (suspended, deleted) and in the live B.
+    await member(A, U.both, 'manager'); await member(B, U.both, 'manager'); await member(SUSPENDED, U.both, 'owner'); await member(DELETED, U.both, 'owner');
   });
 
   afterAll(async () => {
-    await admin.query(`DELETE FROM company_user_permissions WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
-    await admin.query(`DELETE FROM company_users WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
+    await admin.query(`DELETE FROM company_user_permissions WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED, DELETED]]);
+    await admin.query(`DELETE FROM company_users WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED, DELETED]]);
     await admin.query(`DELETE FROM company_group_members WHERE group_id = $1::UUID`, [GROUP]);
     await admin.query(`DELETE FROM company_groups WHERE id = $1::UUID`, [GROUP]);
     await admin.query(`DELETE FROM users WHERE id = ANY($1::TEXT[])`, [Object.values(U)]);
-    await admin.query(`DELETE FROM companies WHERE id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
+    await admin.query(`DELETE FROM companies WHERE id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED, DELETED]]);
     await admin.end();
   });
 
@@ -92,5 +101,28 @@ describe('checkGroupPermission (real SQL)', () => {
   it('round 6 (L5): a member company that is suspended no longer carries the user', async () => {
     expect(await checkGroupPermission(U.inSuspended, GROUP, 'group', 'approve')).toBe(false);
     expect(await checkGroupPermission(U.inSuspended, GROUP, 'group', 'read')).toBe(false);
+  });
+
+  // Round 7 (F-M1): the same live-company rule for the group and company access guards and the intercompany candidate list.
+  it('round 7 (F-M1): a suspended or deleted company carries nobody in the group read, the group write or the company write', async () => {
+    for (const u of [U.inSuspended, U.inDeleted]) {
+      expect(await userBelongsToGroup(u, GROUP), `belongs ${u}`).toBe(false);
+      expect(await userCanWriteGroup(u, GROUP), `writes group ${u}`).toBe(false);
+    }
+    expect(await userCanWriteCompany(U.inSuspended, SUSPENDED)).toBe(false);
+    expect(await userCanWriteCompany(U.inDeleted, DELETED)).toBe(false);
+    // ...and a live company still does
+    expect(await userBelongsToGroup(U.writer, GROUP)).toBe(true);
+    expect(await userCanWriteGroup(U.writer, GROUP)).toBe(true);
+    expect(await userCanWriteCompany(U.writer, A)).toBe(true);
+    // a person in a live AND an ended company is carried by the live one only
+    expect(await userBelongsToGroup(U.both, GROUP)).toBe(true);
+    expect(await userCanWriteCompany(U.both, SUSPENDED)).toBe(false);
+    expect(await userCanWriteCompany(U.both, DELETED)).toBe(false);
+  });
+
+  it('round 7 (F-M1): listGroupCandidates offers the live companies the person writes in, never a suspended or deleted one', async () => {
+    const names = (await listGroupCandidates(U.both, A)).map((c) => c.companyName);
+    expect(names).toEqual(['CGP B']);
   });
 });
