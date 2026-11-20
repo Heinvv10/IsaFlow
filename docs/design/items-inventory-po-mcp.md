@@ -65,13 +65,19 @@ gains no statuses, so billed, closed and cancelled POs commit nothing). Attachme
   `line_total / quantity` at 6 dp (1001's effective price: a line's discount is in it), so `round(quantity x unit_price)` =
   `line_total`; `item_id` / `gl_account_id` only when they are the company's; quantities received / invoiced carried;
 - maps statuses: draft -> draft, sent -> approved, partially_received / received / cancelled as they are, invoiced -> closed
-  (from received), partially_invoiced -> closed (from received when every line is fully received, else partially_received);
+  (from received). partially_invoiced: when a live bill (not cancelled or deleted) of the same company and supplier names it
+  in its header -> received when every line is fully received, else partially_received (it keeps committing and the backfill
+  links the bill); otherwise -> closed from received / partially_received by the same test, with a NOTICE each (no bill can
+  net its billed part off, so committing the whole order would overstate). Note: a header-only link does not reduce committed
+  for an open PO (`mcp-po-bill-links.md` known limits); a bill whose lines named the legacy line ids nets, as those ids are
+  the copies' `po_items` ids;
 - puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every line;
-- never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with the original in
-  `external_system = 'supplier_purchase_orders'` / `external_ref` / `external_document_number` (which also makes it an
-  "imported" PO for `set_purchase_order_status`), and a NOTICE names it;
+- never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with "was SPO <number>" in its
+  notes, and a NOTICE names it. No copy carries `external_ref` (that would make it an "imported" PO for
+  `set_purchase_order_status`);
+- reads the legacy `line_total` as net: the SPO writer stored round(quantity x unit_price, 2) with the tax beside it;
 - skips with a WARNING, leaving the row in the legacy table, an order whose supplier is another company's or with a line
-  `po_items` refuses (quantity <= 0 at 2 dp, a negative total);
+  `po_items` refuses (quantity <= 0 at 2 dp, a negative total), and NOTICEs the count per reason;
 - raises the `purchase_order` counter past a copied number of its own form and runs `purchase_order_bill_links_backfill`
   for each company copied;
 - makes both legacy tables refuse INSERT, UPDATE and the DELETE of a row with no canonical copy (a state rule, so the Demo
