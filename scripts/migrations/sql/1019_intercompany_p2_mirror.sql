@@ -190,19 +190,33 @@ GRANT EXECUTE ON FUNCTION public.intercompany_lines_negate(uuid, uuid) TO migrat
 DROP FUNCTION IF EXISTS public.intercompany_journal_chain_length(uuid, uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_length(p_je uuid, p_company uuid, p_asat date DEFAULT NULL)
 RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  WITH RECURSIVE chain(id) AS (
-    SELECT je.id FROM public.gl_journal_entries je
-     WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted' AND (p_asat IS NULL OR je.entry_date <= p_asat)
-    UNION
-    SELECT r.id FROM public.gl_journal_entries r JOIN chain ON r.reversal_of_id = chain.id
-     WHERE r.company_id = p_company AND r.status = 'posted' AND (p_asat IS NULL OR r.entry_date <= p_asat) AND public.intercompany_lines_negate(r.id, chain.id)
-  )
-  SELECT count(*)::integer FROM chain
+-- Walked level by level with an index lookup per level (reversal_of_id = ANY(the level)), not as a recursive CTE: the planner cannot size a
+-- recursive work table and hashed it against the whole journal table, so each call cost a scan of every tenant's journals.
+DECLARE
+  v_level uuid[];
+  v_seen uuid[];
+  v_n integer;
+BEGIN
+  SELECT ARRAY[je.id] INTO v_level FROM public.gl_journal_entries je
+   WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted' AND (p_asat IS NULL OR je.entry_date <= p_asat);
+  IF v_level IS NULL THEN RETURN 0; END IF;
+  v_seen := v_level;
+  v_n := 1;
+  FOR i IN 1..1000 LOOP
+    SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
+     WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
+       AND (p_asat IS NULL OR r.entry_date <= p_asat) AND public.intercompany_lines_negate(r.id, r.reversal_of_id);
+    EXIT WHEN v_level IS NULL;
+    v_seen := v_seen || v_level;
+    v_n := v_n + cardinality(v_level);
+  END LOOP;
+  RETURN v_n;
+END;
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) TO migration_admin;
@@ -634,18 +648,30 @@ GRANT EXECUTE ON FUNCTION public.intercompany_receiver_je(uuid, date) TO migrati
 -- the date: the only dates on which a pair resting on that chain can start or stop standing. SECURITY INVOKER, migration_admin only.
 CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_dates(p_je uuid, p_company uuid)
 RETURNS SETOF date
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
+ROWS 3   -- (a journal and its reversals: the planner's default of 1000 rows per call inflated every estimate above it)
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  WITH RECURSIVE chain(id, d) AS (
-    SELECT je.id, je.entry_date FROM public.gl_journal_entries je WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted'
-    UNION
-    SELECT r.id, r.entry_date FROM public.gl_journal_entries r JOIN chain ON r.reversal_of_id = chain.id
-     WHERE r.company_id = p_company AND r.status = 'posted' AND public.intercompany_lines_negate(r.id, chain.id)
-  )
-  SELECT chain.d FROM chain
+-- (level by level with an index lookup per level, as intercompany_journal_chain_length)
+DECLARE
+  v_level uuid[];
+  v_seen uuid[];
+BEGIN
+  SELECT ARRAY[je.id] INTO v_level FROM public.gl_journal_entries je WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted';
+  IF v_level IS NULL THEN RETURN; END IF;
+  RETURN QUERY SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = p_je;
+  v_seen := v_level;
+  FOR i IN 1..1000 LOOP
+    SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
+     WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
+       AND public.intercompany_lines_negate(r.id, r.reversal_of_id);
+    EXIT WHEN v_level IS NULL;
+    RETURN QUERY SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = ANY (v_level);
+    v_seen := v_seen || v_level;
+  END LOOP;
+END;
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_journal_chain_dates(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_dates(uuid, uuid) TO migration_admin;
@@ -696,6 +722,9 @@ RETURNS TABLE (transaction_id uuid, source_company_id uuid, target_company_id uu
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+-- jit off: the statement's estimated cost (function calls per row) crosses the JIT thresholds, and compiling it cost about 1.6 s per call
+-- against about 0.15 s to run it (measured on 10 000 rows); a report call is short and runs once
+SET jit = off
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   WITH RECURSIVE rws AS (
