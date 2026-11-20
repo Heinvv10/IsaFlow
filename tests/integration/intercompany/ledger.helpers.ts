@@ -11,14 +11,15 @@ import { asService, clearMirrorRows, co, connect, eliminationCleanup, eliminatio
 
 /**
  * Waits (polling pg_stat_activity, at most `ms`) until some session of this database is blocked on a lock (optionally of one wait_event,
- * e.g. 'advisory'), and says whether it saw one: a concurrency case proves the second session REACHED the lock instead of sleeping and hoping.
+ * e.g. 'advisory'; or of one backend `pid`), and says whether it saw one: a concurrency case proves the second session REACHED the lock instead of sleeping and hoping.
  */
-export async function lockWaiter(pool: Pool, event: string | null = null, ms = 10000): Promise<boolean> {
+export async function lockWaiter(pool: Pool, event: string | null = null, ms = 10000, pid: number | null = null): Promise<boolean> {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     const n = (await pool.query(
-      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND ($1::text IS NULL OR wait_event = $1)`,
-      [event])).rows[0].n as number;
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND ($1::text IS NULL OR wait_event = $1)
+          AND ($2::int IS NULL OR pid = $2)`,
+      [event, pid])).rows[0].n as number;
     if (n > 0) return true;
     await new Promise((r) => setTimeout(r, 25));
   }

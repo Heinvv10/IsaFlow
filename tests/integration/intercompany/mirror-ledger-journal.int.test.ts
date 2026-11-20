@@ -148,19 +148,25 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     expect(await derived()).toHaveLength(0);
   });
 
-  it('a journal that is already another row\'s target is not matched to this one', async () => {
+  it('a journal that is already another MIRRORED row\'s target is not matched to this one; a non-mirrored row naming it holds nothing (round 9)', async () => {
     const m = await accepted();
     await approveBill(m.bill);
     const journal = (await groupRow()).target_journal_entry_id as string;
     await unbind();   // judge the bill afresh against a second claim on its journal
-    // a second row (planted with the immutability trigger off, as only the definer sets a target) claims the same journal
+    // a MANUAL row naming the journal (planted as the definers' owner, past the INSERT refusal): a writer's column, it holds nothing
     await asDefiner(pool, U.a, co.A, async (q) => {
       await q.query(
         `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date, match_status, target_journal_entry_id)
          VALUES ($1, $2, $3, 'sale', 1000, 'ZAR', 'second claim', '2026-09-01', 'matched', $4)`, [co.G, co.A, co.B, journal]);
     }, true);
+    expect(await sync(U.b, co.B, m.bill)).toBe('matched');
+    await unbind();
+    // another MIRRORED row holding it as its target (only the definer binds those): that one does
+    const other = await accepted();
+    await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      'UPDATE intercompany_transactions SET target_journal_entry_id = $2 WHERE id = $1', [other.message.payload.groupTransactionId, journal]));
     expect(await sync(U.b, co.B, m.bill)).toBe('variance');
-    expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/already matched to another/) });
+    expect((await rows()).find((r) => r.id === m.message.payload.groupTransactionId)).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/already matched to another/) });
   });
 
   it('a REVERSED journal is not an expense: the bill\'s journal reversed by hand, the row does not stay matched', async () => {

@@ -4,8 +4,9 @@
  * `intercompany_mirror_eliminations(group, start, end)` returns the dated EVENTS of each mirrored row whose two companies are current members of
  * the group: +E (kind 'eliminate') on the date the two ledgers start supporting the pair, and the counter-elimination -E (kind 'reverse') on
  * the date they stop (a value-negating reversal on either side), each judged with only the links dated on or before it; standing again is a
- * new +E. A period is the sum of the events dated in it, so any range is the sum of its months line by line and a later booking never changes
- * an earlier period. Within a period a +E and a -E on one receiver journal cancel. The lines are the journals' OWN accounts (the sender's
+ * new +E. A period is the sum of the events dated in it, so at any moment any range is the sum of its months line by line; a later booking or
+ * reversal does not change an earlier period, but re-pointing a receiver document's journal link does (no dated history of links is kept;
+ * 1018 refuses that swap to non-superusers). Within a period a +E and a -E on one receiver journal cancel. The lines are the journals' OWN accounts (the sender's
  * revenue, the receiver's expense), each mapped to its group account. A credit note's row is negative: its entry is the invoice's with the
  * sides swapped, in positive amounts; a counter-elimination swaps them again.
  */

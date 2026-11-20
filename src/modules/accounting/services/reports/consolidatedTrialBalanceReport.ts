@@ -24,7 +24,10 @@
  * booked earlier in the year in the members' YTD columns uneliminated, so the
  * TB disagreed with the income statement for fyStart..periodEnd. Members whose
  * years start on different dates (coterminous = false) are eliminated from
- * the EARLIEST of their starts; their columns are not additive anyway.
+ * the EARLIEST of their starts; their columns are not additive anyway. A
+ * per-member window is not defined: a stored adjustment's lines carry group
+ * accounts only (no company), and a derived event's revenue and expense lines
+ * would fall in different windows (an unbalanced elimination).
  *
  * P2-5: accounts with no group-CoA mapping are excluded from the rows AND from
  * the brought-forward sum, and the count and value of what was dropped is

@@ -14,9 +14,9 @@ import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { autoGenerateEliminations, createEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { EliminationAlreadyStandsError } from '../../../src/modules/accounting/services/reports/eliminationErrors';
-import { acc, asService, co, groupAccounts as ga, U } from './mirror.helpers';
+import { acc, asService, co, groupAccounts as ga, inbox, plantArInvoice, U } from './mirror.helpers';
 import { lockWaiter, makeLedger } from './ledger.helpers';
-import { withoutTrigger } from './intercompany.helpers';
+import { asAppUser, withoutTrigger } from './intercompany.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 12 });
@@ -60,8 +60,9 @@ describe('B-M4: one receiver journal, one row', () => {
     const [c1, c2] = [await session(U.b, co.B), await session(U.b, co.B)];
     try {
       expect(await claim(c1, m1.bill)).toBe('matched');
+      const pid2 = Number((await c2.query('SELECT pg_backend_pid() AS p')).rows[0].p);
       const second = claim(c2, m2.bill).then((s) => ({ s, err: null as string | null }), (e: Error) => ({ s: null, err: e.message }));
-      const waited = await lockWaiter(pool, null, 5000);   // the second's write waits on the first's uncommitted claim of J
+      const waited = await lockWaiter(pool, null, 5000, pid2);   // the SECOND transaction's write waits on the first's uncommitted claim of J
       await c1.query('COMMIT');
       const out = await second;
       if (out.err === null) await c2.query('COMMIT'); else await c2.query('ROLLBACK');
@@ -79,7 +80,7 @@ describe('B-M4: one receiver journal, one row', () => {
     expect(await net()).toEqual({ rev: 1000, exp: -1000 });
   }, 60000);
 
-  it('the first-match path refuses a journal ANOTHER row holds (as its target): a journal two rows hold eliminates nothing', async () => {
+  it('the first-match path refuses a journal another MIRRORED row holds as its target (the database binds those): it eliminates nothing', async () => {
     const m1 = await accepted();
     await approveBill(m1.bill);
     const m2 = await accepted();
@@ -93,9 +94,14 @@ describe('B-M4: one receiver journal, one row', () => {
 
 describe('B-L1: the period key is the sender journal\'s own date', () => {
   it('the sender\'s journal dated 5 Oct for an invoice (and group row) dated 1 Sep, booked by B on 1 Sep: Sep 0, Oct 1 keyed 5 Oct', async () => {
-    const m = await accepted();   // 1 Sep 2026
-    await approveBill(m.bill);
-    await pool.query("UPDATE gl_journal_entries SET entry_date = '2026-10-05' WHERE id = $1", [m.message.source_journal_entry_id]);
+    // the invoice dated 1 Sep with its approval journal dated 5 Oct (created so, never re-dated: 1018 freezes a posted journal's date), sent by
+    // the database and accepted by B
+    const inv = await plantArInvoice(pool, { status: 'approved', journalDate: '2026-10-05' });
+    const sent = await asAppUser(pool, U.a, co.A, async (q) => (await q.query("SELECT * FROM public.intercompany_send_for_source('customer_invoice', $1)", [inv.id])).rows[0], true);
+    expect(sent).toMatchObject({ reason: null });
+    expect((await inbox.accept(U.b, co.B, sent.message_id)).state.statusCode).toBe(200);
+    const bill = (await pool.query('SELECT target_doc_id FROM intercompany_messages WHERE id = $1', [sent.message_id])).rows[0].target_doc_id as string;
+    await approveBill(bill);
     expect(await derived('2026-09-01', '2026-09-30')).toHaveLength(0);
     expect((await derived('2026-10-01', '2026-10-31')).map((e) => e.keyDate)).toEqual(['2026-10-05']);
   });

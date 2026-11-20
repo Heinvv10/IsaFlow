@@ -102,11 +102,11 @@ export async function connect(pool: Pool, over: { cutover?: string | null; autoA
 /** A posted journal of `company` with no lines (the approval journal of a planted APPROVED document: the database sends only documents that are in the ledger). */
 export async function plantPostedJournal(
   pool: Pool, company: string, description: string, source = 'auto_invoice',
-  fig: { total: number; subtotal: number; tax: number; credit?: boolean } = { total: 1, subtotal: 1, tax: 0 },
+  fig: { total: number; subtotal: number; tax: number; credit?: boolean } = { total: 1, subtotal: 1, tax: 0 }, date = '2026-09-01',
 ): Promise<string> {
   const id = (await pool.query(
-    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', $1, $2, 'draft', $3, $4) RETURNING id`,
-    [description, source, U.ab, company])).rows[0].id as string;
+    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ($5::date, $1, $2, 'draft', $3, $4) RETURNING id`,
+    [description, source, U.ab, company, date])).rows[0].id as string;
   // The lines the real approval writes (receivable = gross, revenue = net, output VAT), a credit note's with the sides swapped: the database
   // sends a document only when its journal carries its figures, and the journal can be REVERSED like any posted one.
   const acct = async (subtype: string) => (await pool.query('SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = $2 LIMIT 1', [company, subtype])).rows[0].id as string;
@@ -154,14 +154,14 @@ export async function approveCreditNoteRow(pool: Pool, id: string): Promise<void
 export interface PlantedInvoice { id: string; number: string }
 
 /** A customer invoice of A for A's linked customer (a DRAFT unless `status` says otherwise; an approved one carries a posted approval journal): two lines (R600 + R400) and 15% VAT, R1 150 in all. */
-export async function plantArInvoice(pool: Pool, over: { date?: string; customer?: string; lines?: [string, number, number][]; currency?: string; status?: string } = {}): Promise<PlantedInvoice> {
+export async function plantArInvoice(pool: Pool, over: { date?: string; customer?: string; lines?: [string, number, number][]; currency?: string; status?: string; journalDate?: string } = {}): Promise<PlantedInvoice> {
   const id = crypto.randomUUID();
   const number = `ICAR-${id.slice(0, 8)}`;
   const lines = over.lines ?? [['Fibre install', 2, 300], ['Router', 1, 400]];
   const subtotal = lines.reduce((s, [, q, p]) => s + q * p, 0);
   const tax = Math.round(subtotal * 15) / 100;
   const customer = over.customer ?? party.aCustomer;
-  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Customer invoice ${number}`, 'auto_invoice', { total: subtotal + tax, subtotal, tax }) : null;
+  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Customer invoice ${number}`, 'auto_invoice', { total: subtotal + tax, subtotal, tax }, over.journalDate ?? '2026-09-01') : null;
   await pool.query(
     `INSERT INTO customer_invoices(id, company_id, invoice_number, customer_id, client_id, invoice_date, due_date, subtotal, tax_rate, tax_amount,
        total_amount, currency_code, exchange_rate, status, created_by, gl_journal_entry_id)
