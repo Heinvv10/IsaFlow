@@ -48,7 +48,8 @@ async function readPage(url: string, message: string, keys: readonly string[]): 
   const json = await res.json();
   const d = json.data;
   const rows: Raw[] = Array.isArray(d) ? d : keys.map(k => d?.[k]).find(Array.isArray) ?? [];
-  const raw = Array.isArray(d) ? undefined : d?.total;
+  // a bare array has no paging envelope, so it is the whole list; an object without `total` is unknown
+  const raw = Array.isArray(d) ? rows.length : d?.total;
   const total = raw === undefined || raw === null || !Number.isFinite(Number(raw)) ? null : Number(raw);
   return { rows, total };
 }

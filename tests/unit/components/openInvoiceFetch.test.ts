@@ -54,6 +54,13 @@ describe('fetchAllPages: an endpoint that ignores offset', () => {
 
 describe('readPage via fetchAllPayments: a response without total', () => {
   beforeEach(() => vi.mocked(apiFetch).mockReset());
+  it('a bare array carries no paging envelope: it is the whole list, one request', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(reply(mk(0, 3)));
+    const out = await fetchAllPayments('supplier', 'x');
+    expect(out).toMatchObject({ total: 3, truncated: false });
+    expect(out.rows).toHaveLength(3);
+    expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1);
+  });
   it('does not stop after page 1, even when the server caps a page below the limit asked for', async () => {
     const cap = PAYMENT_PAGE_SIZE / 2; // the server answers 100 to limit=200
     vi.mocked(apiFetch)
