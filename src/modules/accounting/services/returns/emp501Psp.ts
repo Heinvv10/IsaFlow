@@ -18,20 +18,20 @@ function pspFigures(t: MonthTotals): string {
 /**
  * explained_psp (coordinator ruling 2026-11-19): a filed EMP201 (a lifecycle version, or a legacy row with stored totals)
  * that equals the certificates plus the PSP lines it covers, with any PSP figure (PAYE or SDL) not nil. Never a refusal:
- * 'March 2026: explained by PSP PAYE 4050.00 and SDL 150.00 (on no certificate: add the PSP's entity particulars)'.
+ * 'March 2026: explained by PSP PAYE 4050.00 and SDL 150.00 (on no certificate: a PSP without its entity particulars or with no PAYE)'.
  */
 export function pspExplainedMonths(f: Emp501Filings): string[] {
   const versions = f.months.flatMap((m) => {
     const psp = f.psp.get(m.month);
     if (m.emp201.kind !== 'version' || !anyNonZero(psp)) return [];
     return differences(versionTotals(m.emp201.version), add(m.totals, psp)).length === 0
-      ? [`${monthName(m.month)}: explained by ${pspFigures(psp)} (on no certificate: add the PSP's entity particulars)`] : [];
+      ? [`${monthName(m.month)}: explained by ${pspFigures(psp)} (on no certificate: a PSP without its entity particulars or with no PAYE)`] : [];
   });
   const legacy = f.legacyRows.flatMap((row) => {
     if (!row.stored || !row.spanCertificates || !anyNonZero(row.spanPsp)) return [];
     if (differences(row.stored, add(row.spanCertificates, row.spanPsp)).length > 0) return [];
     const name = monthsName([row.start.slice(0, 7), row.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i));
-    return [`${name}${row.reference ? ` (reference ${row.reference})` : ''}: explained by ${pspFigures(row.spanPsp)} (on no certificate: add the PSP's entity particulars)`];
+    return [`${name}${row.reference ? ` (reference ${row.reference})` : ''}: explained by ${pspFigures(row.spanPsp)} (on no certificate: a PSP without its entity particulars or with no PAYE)`];
   });
   return [...versions, ...legacy];
 }

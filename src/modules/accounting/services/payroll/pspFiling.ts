@@ -28,8 +28,10 @@ export interface PspFilingTotal {
   sdl: number;
   /** Whether the employee also has non-PSP lines on the year's final runs (a natural-person certificate too). */
   alsoEmployee: boolean;
-  /** The entity's trading name when its H certificate is in the e@syFile file (a trading name and a tax reference held), else null. */
+  /** The entity's trading name when its H certificate is in the e@syFile file (a trading name and a tax reference held, PAYE above nil), else null. */
   certifiedAs: string | null;
+  /** Its trading name and tax reference are held (whether or not it is certified). */
+  hasParticulars: boolean;
 }
 
 /** The PSP lines on the final runs whose period is within [start, end], by employee (this company only). */
@@ -38,7 +40,7 @@ export async function listPspFilingTotals(
 ): Promise<PspFilingTotal[]> {
   const rows = (await sql`
     SELECT e.id::text AS employee_id, e.employee_number, e.first_name, e.last_name,
-           CASE WHEN e.psp_tax_reference IS NOT NULL THEN e.psp_entity_name END AS certified_as,
+           CASE WHEN e.psp_tax_reference IS NOT NULL THEN e.psp_entity_name END AS particulars_name,
            SUM(l.gross_pay) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS gross,
            SUM(l.paye) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS paye,
            SUM(l.sdl) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS sdl,
@@ -59,7 +61,9 @@ export async function listPspFilingTotals(
     employeeId: String(r.employee_id), employeeNumber: String(r.employee_number ?? ''),
     name: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(),
     gross: r2(r.gross), paye: r2(r.paye), sdl: r2(r.sdl), alsoEmployee: r.also_employee === true,
-    certifiedAs: r.certified_as == null ? null : String(r.certified_as),
+    // As loadPspCertificates decides it: particulars held AND PAYE above nil on the period's PSP lines.
+    certifiedAs: r.particulars_name != null && r2(r.paye) > 0 ? String(r.particulars_name) : null,
+    hasParticulars: r.particulars_name != null,
   }));
 }
 
@@ -70,6 +74,10 @@ export function pspFilingWarning(t: PspFilingTotal, filing: string): string {
   if (t.certifiedAs) {
     return `${what}It is on ${t.certifiedAs}'s own certificate in the e@syFile file: nature of person H, payments under 3601 `
       + '(SARS PAYE Employer Reconciliation BRS V25.3.0 p. 17; PAYE-GEN-01-G21 p. 31).';
+  }
+  if (t.hasParticulars) {
+    return `${what}It is on no certificate: no PAYE was deducted on it, and the entity's certificate (nature of person H) is an IRP5, `
+      + 'which needs PAYE. Whether SARS wants an IT3(a) for a PSP is UNVERIFIED (it lists no reason code for one).';
   }
   return `${what}It is on no certificate: a PSP's certificate is the company's or trust's (nature of person H, SARS PAYE Employer `
     + 'Reconciliation BRS V25.3.0 p. 17), and it needs the entity\'s trading name and income tax reference (starting with 9). '

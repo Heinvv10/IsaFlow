@@ -10,10 +10,11 @@
  * pay periods in the year and worked (p. 33), 3230 any IRP3(b) directive number (p. 41), 3601 the payments (PAYE-GEN-01-G21
  * p. 31), 4102 the PAYE, 4141 the UIF (nil on a PSP's lines), 4142 the SDL.
  *
- * Certified only with a trading name and a tax reference (3100 is mandatory when 4102 is above nil, p. 26); without them the
- * PSP's months stay off the file, named (pspFiling). A PSP with no PAYE in the period is refused: an IRP5 needs 4102 above nil
- * and SARS lists no IT3(a) reason for a PSP (UNVERIFIED), so the file is refused naming it; clearing its tax reference leaves it
- * off instead.
+ * Certified only with a trading name and a tax reference (3100 is mandatory when 4102 is above nil, p. 26) and PAYE on its
+ * PSP lines in the period; otherwise the PSP's months stay off the file, named (pspFiling), and the rest of the file exports
+ * (coordinator ruling 2026-11-20). With no PAYE an IRP5 cannot be issued (4102 above nil), and whether a PSP takes an IT3(a)
+ * (SARS lists no reason code for one) is UNVERIFIED, so none is written. The builder still refuses a no-PAYE input (never
+ * reached: loadPspCertificates leaves it out).
  *
  * CODE MAP: every identity and period field is written through the single e@syFile code map (easyFileCertificateCodes,
  * wave 6 EZF), with 3065 / 3066 added there. 3100 must pass the BRS modulus 10 test (Appendix B §8.1, pp. 117-118).
@@ -116,6 +117,7 @@ export async function loadPspCertificates(
       JOIN payroll_employees e ON e.id = x.employee_id AND e.company_id = ${companyId}::uuid
      WHERE e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
      GROUP BY e.id, e.psp_entity_type, e.psp_entity_name, e.psp_registration_number, e.psp_tax_reference, e.pay_frequency, e.last_name, e.first_name
+    HAVING SUM(x.paye) > 0 -- no PAYE: on no certificate, named (pspFilingWarning); never a refusal of the file (ruling 2026-11-20)
      ORDER BY e.last_name, e.first_name, e.id
   `) as DbRow[];
   // 3200: the pay intervals in a year by the payroll's frequency; 3210: those the PSP was paid in (FQc's weekly runs count by run).

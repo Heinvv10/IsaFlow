@@ -86,12 +86,20 @@ export const cents = (n: number): number => Math.round(n * 100) / 100;
 const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.paye + b.paye), uif: cents(a.uif + b.uif), sdl: cents(a.sdl + b.sdl) });
 /**
  * YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee;
- * a PSP's line (pspLineFlag) is on its own H certificate when the PSP has its particulars (trading name and tax reference,
- * easyFilePspCertificate: wave 6 PSP-H) and so counts in `certs`; without them it is on no certificate, so it is summed
+ * a PSP's line (pspLineFlag) is on its own H certificate when the PSP has its particulars (trading name and tax reference)
+ * and PAYE on its PSP lines in the period (easyFilePspCertificate: wave 6 PSP-H), and so counts in `certs`; without them it is on no certificate, so it is summed
  * apart (`psp`) and never in `certs` (wave 6 PSP).
  */
 async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<{ certs: Map<string, MonthTotals>; psp: Map<string, MonthTotals> }> {
+  // Certified = the H certificate easyFilePspCertificate files for the same period: particulars held AND PAYE on its PSP lines.
   const rows = (await sql`
+    WITH paying_psp AS (
+      SELECT l.employee_id FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
+       WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
+         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
+         AND l.validation_results @> ${pspLineFlag}::jsonb
+       GROUP BY l.employee_id HAVING SUM(l.paye) > 0
+    )
     SELECT to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') AS month,
            COALESCE(SUM(l.paye) FILTER (WHERE NOT x.psp), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer) FILTER (WHERE NOT x.psp), 0) AS uif,
            COALESCE(SUM(l.sdl) FILTER (WHERE NOT x.psp), 0) AS sdl,
@@ -101,7 +109,8 @@ async function monthTotals(companyId: string, p: { start: string; end: string })
     LEFT JOIN payroll_run_lines l ON l.run_id = h.id
     LEFT JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
-                               AND (e.psp_entity_name IS NULL OR e.psp_tax_reference IS NULL) AS psp) x
+                               AND NOT (e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
+                                        AND e.id IN (SELECT employee_id FROM paying_psp)) AS psp) x
     WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
     GROUP BY 1

@@ -107,7 +107,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await fileEmp201(rf, 3); // declares 14 800 PAYE: Alice's 4 000 + the PSP's 10 800
     const g = await readiness(rf);
     expect(g.emp201Mismatches).toEqual([]);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: a PSP without its entity particulars or with no PAYE)']);
     expect((g.warnings as string[]).some((w) => w.includes('explained by PSP'))).toBe(true);
     expect(g.ready).toBe(true);
     const r = await finaliseEmp501(rf);
@@ -132,7 +132,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true), 0, 400);
     await fileEmp201(rf, 3);
     const g = await readiness(rf);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP SDL 400.00 (on no certificate: a PSP without its entity particulars or with no PAYE)']);
     expect((await finaliseEmp501(rf)).status).toBe(200);
   });
 
@@ -141,7 +141,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true));
     await legacyMarch(rf, 14_800, 700, 'L-B');
     const g = await readiness(rf);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025 (reference L-B): explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025 (reference L-B): explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: a PSP without its entity particulars or with no PAYE)']);
     expect((await finaliseEmp501(rf)).status).toBe(200);
   });
 
@@ -165,6 +165,24 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
       '3065,1', '3066,"2015/123456/07"', '3100,9012345675', '3170,20250301', '3180,20250331', '3200,12.0000', '3210,1.0000',
       '3601,40000', '4102,10800.00', '4141,0.00', '4142,400.00']);
     expect(lines).toContain('6010,3');
+  });
+
+  it('PSP-H ruling 2026-11-20: a PSP with particulars but no PAYE is on no certificate, named, and the file still exports', async () => {
+    const rf = await company('PSP-H-NOPAYE');
+    await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true, true), 0, 400);
+    await fileEmp201(rf, 3);
+    const g = await readiness(rf);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP SDL 400.00 (on no certificate: a PSP without its entity particulars or with no PAYE)']);
+    const r = await finaliseEmp501(rf);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const id = String(((r.body as { data: { version: Row } }).data.version).id);
+    const v = ((await sql`SELECT figures FROM tax_return_versions WHERE id = ${id}::UUID AND company_id = ${rf.fx.companyId}::UUID`) as Row[])[0]!;
+    const f = v.figures as { totals: Row; warnings: string[] };
+    expect(f.totals).toMatchObject({ certificates: 1, paye: 4000, sdl: 300 });
+    expect(f.warnings.some((w) => w.includes('Pspco') && w.includes('no PAYE was deducted on it'))).toBe(true);
+    const body = emp501FileOf({ formType: 'EMP501', figures: v.figures as Record<string, unknown> }).body;
+    expect(body).not.toContain('3020,"H"');
+    expect(body).toContain('6010,2');
   });
 
   it('C (review L4): a legacy EMP201 that left the PSP out refuses, and the message says the figure is certificates plus PSP', async () => {

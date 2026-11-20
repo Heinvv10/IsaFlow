@@ -41,9 +41,9 @@ describe('buildPspCertificateRecord', () => {
 });
 
 describe('pspFilingWarning (PSP-H wording)', () => {
-  const t = { employeeId: 'e1', employeeNumber: 'P1', name: 'Pat Doe', gross: 40_000, paye: 10_800, sdl: 400, alsoEmployee: false };
+  const t = { employeeId: 'e1', employeeNumber: 'P1', name: 'Pat Doe', gross: 40_000, paye: 10_800, sdl: 400, alsoEmployee: false, hasParticulars: false };
   it('certified: names the entity\'s own H certificate in the e@syFile file', () => {
-    const w = pspFilingWarning({ ...t, certifiedAs: 'Acme (Pty) Ltd' }, 'IRP5 dataset');
+    const w = pspFilingWarning({ ...t, certifiedAs: 'Acme (Pty) Ltd', hasParticulars: true }, 'IRP5 dataset');
     expect(w).toContain('It is on Acme (Pty) Ltd\'s own certificate in the e@syFile file: nature of person H');
     expect(w).not.toContain('no certificate');
   });
@@ -51,6 +51,12 @@ describe('pspFilingWarning (PSP-H wording)', () => {
     const w = pspFilingWarning({ ...t, certifiedAs: null }, 'IRP5 dataset');
     expect(w).toContain('It is on no certificate');
     expect(w).toContain('Add them on the employee\'s Work card');
+  });
+  it('particulars held but no PAYE: on no certificate, the IT3(a) question named UNVERIFIED (ruling 2026-11-20)', () => {
+    const w = pspFilingWarning({ ...t, paye: 0, certifiedAs: null, hasParticulars: true }, 'e@syFile file');
+    expect(w).toContain('It is on no certificate: no PAYE was deducted on it');
+    expect(w).toContain('IT3(a) for a PSP is UNVERIFIED');
+    expect(w).not.toContain('Work card');
   });
 });
 
