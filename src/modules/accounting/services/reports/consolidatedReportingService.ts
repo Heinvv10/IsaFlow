@@ -236,10 +236,11 @@ export async function getEliminationAdjustments(
       ORDER BY created_at DESC
     `) as DbRow[];
     const stored = rows.map(mapAdjustmentRow);
-    // The mirrored documents' eliminations are derived (as at the period end), not stored: listed after the stored ones, labelled, with no id to act on.
+    // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
+    // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
     const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd) : [];
     return [...derived.map((m): ConsolidationAdjustment => ({
-      id: `mirror:${m.transactionId}`, groupId, adjustmentNumber: 'AUTO', adjustmentType: 'interco_revenue', description: m.description,
+      id: `mirror:${m.transactionId}:${m.receiverJournalId}:${m.kind}`, groupId, adjustmentNumber: 'AUTO', adjustmentType: 'interco_revenue', description: m.description,
       periodStart: m.keyDate, periodEnd: m.keyDate, status: 'posted', automatic: true,
       lines: m.lines.map(l => ({ groupAccountId: l.groupAccountId, debit: l.debit, credit: l.credit, description: l.description })),
       sourceIntercompanyId: m.transactionId, postedBy: null, postedAt: null, createdAt: m.keyDate,

@@ -17,8 +17,14 @@
  *     is not merged into a posted equity account — see BROUGHT_FORWARD_CODE.
  *
  * Eliminations follow the same split: cumulative for balance-sheet group
- * accounts (as getConsolidatedBalanceSheet already does), range-bound for
- * income-statement ones.
+ * accounts (as getConsolidatedBalanceSheet already does), and for
+ * income-statement ones the SAME window as the members' P&L columns: from the
+ * fiscal year start to periodEnd (stored adjustments whose period lies inside
+ * it, derived events dated in it). Cutting them at periodStart left a sale
+ * booked earlier in the year in the members' YTD columns uneliminated, so the
+ * TB disagreed with the income statement for fyStart..periodEnd. Members whose
+ * years start on different dates (coterminous = false) are eliminated from
+ * the EARLIEST of their starts; their columns are not additive anyway.
  *
  * P2-5: accounts with no group-CoA mapping are excluded from the rows AND from
  * the brought-forward sum, and the count and value of what was dropped is
@@ -135,11 +141,12 @@ function addEntityNet(row: ConsolidatedTrialBalanceRow, companyId: string, net: 
   row.entities[companyId]!.credit = round2(row.entities[companyId]!.credit + credit);
 }
 
+/** plStart: where the members' income-statement columns start (their fiscal year start), so P&L eliminations cover the same window. */
 async function applyEliminations(
   accountMap: Map<string, ConsolidatedTrialBalanceRow>,
-  groupId: string, periodStart: string, periodEnd: string,
+  groupId: string, plStart: string, periodEnd: string,
 ): Promise<void> {
-  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, periodStart, periodEnd, INCEPTION);
+  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, plStart, periodEnd, INCEPTION);
   const applicable = [
     ...cumulative.filter(e => BALANCE_SHEET_TYPES.has(e.groupAccountType)),
     ...inRange.filter(e => !BALANCE_SHEET_TYPES.has(e.groupAccountType)),
@@ -217,7 +224,8 @@ export async function getConsolidatedTrialBalance(
       addEntityNet(entry, member.companyId, -broughtForward);
     }
 
-    await applyEliminations(accountMap, groupId, periodStart, periodEnd);
+    const starts = Object.values(fiscalYearStarts).sort();
+    await applyEliminations(accountMap, groupId, starts[0] ?? periodStart, periodEnd);
 
     const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
     const totals: ConsolidatedTrialBalanceTotals = {

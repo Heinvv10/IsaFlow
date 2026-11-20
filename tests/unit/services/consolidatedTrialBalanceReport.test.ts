@@ -202,6 +202,13 @@ describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () 
     const revenue = tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!;
     expect(revenue.eliminationDebit).toBe(300); // in-range, not the 9999 cumulative figure
   });
+
+  it('B-M3: a mid-year range takes the income-statement eliminations from the members\' fiscal year start (the window of their P&L columns), not periodStart', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
+    expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
+    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, '2025-03-01', '2025-06-30', '1900-01-01');
+  });
 });
 
 // ── P2-5: the assertion the single-company report has ─────────────────────────

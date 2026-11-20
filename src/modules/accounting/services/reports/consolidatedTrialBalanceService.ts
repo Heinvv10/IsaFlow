@@ -164,19 +164,20 @@ export async function getPostedEliminations(
 }
 
 /**
- * The cumulative (inception to the end) and the in-period eliminations a statement needs, the derived function called ONCE: the in-period
- * derived ones are those whose period key is on or after the start (the function judges everything as at the end either way).
+ * The cumulative (inception to the end) and the in-period eliminations a statement needs. The derived ones are dated events (an elimination,
+ * a counter-elimination), so each window is its own call: the cumulative window nets to what stands at the end, the in-period one is the
+ * events dated in the period (an event's netting depends on the window, so neither is a filter of the other).
  */
 export async function getPostedEliminationsSplit(
   groupId: string, periodStart: string, periodEnd: string, inception: string,
 ): Promise<{ cumulative: EliminationLineWithAccount[]; inRange: EliminationLineWithAccount[] }> {
-  const [storedAll, storedRange, mirrored] = await Promise.all([
+  const [storedAll, storedRange, mirroredAll, mirroredRange] = await Promise.all([
     storedEliminations(groupId, inception, periodEnd), storedEliminations(groupId, periodStart, periodEnd),
-    getMirroredEliminations(groupId, inception, periodEnd),
+    getMirroredEliminations(groupId, inception, periodEnd), getMirroredEliminations(groupId, periodStart, periodEnd),
   ]);
   return {
-    cumulative: [...storedAll, ...asLines(mirrored)],
-    inRange: [...storedRange, ...asLines(mirrored.filter((e) => e.keyDate >= periodStart))],
+    cumulative: [...storedAll, ...asLines(mirroredAll)],
+    inRange: [...storedRange, ...asLines(mirroredRange)],
   };
 }
 

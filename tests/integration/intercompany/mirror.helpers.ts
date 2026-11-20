@@ -124,16 +124,18 @@ export async function plantPostedJournal(
 
 /**
  * A reversal of `je` written straight into the ledger as a fixture (no service, so no hook): a POSTED entry linked by reversal_of_id whose lines are
- * the exact negation of the original's. (A link without the negated lines is no reversal to the mirror: the chain is judged by value.)
+ * the exact negation of the original's. (A link without the negated lines is no reversal to the mirror: the chain is judged by value.) Linked the
+ * way the reversal service links one, AFTER it is posted (1018 refuses an INSERT that carries reversal_of_id).
  */
 export async function rawReverseJournal(pool: Pool, je: string, description = 'raw reversal'): Promise<string> {
   const id = (await pool.query(
-    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
-     SELECT entry_date, $2, source, 'draft', created_by, company_id, id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je, description])).rows[0].id as string;
+    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
+     SELECT entry_date, $2, source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je, description])).rows[0].id as string;
   await pool.query(
     `INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
      SELECT $2, gl_account_id, credit, debit, company_id, 'raw reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, id]);
   await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [id]);
+  await pool.query('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [id, je]);
   return id;
 }
 

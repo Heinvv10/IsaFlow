@@ -15,7 +15,7 @@ import { getPostedEliminations } from '../../../src/modules/accounting/services/
 import { getEliminationAdjustments } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { getConsolidatedIncomeStatement } from '../../../src/modules/accounting/services/reports/consolidatedStatementsService';
 import { acc, asService, co, errorOf, groupAccounts as ga, inbox, rawReverseJournal, sentInvoice, U } from './mirror.helpers';
-import { makeLedger } from './ledger.helpers';
+import { lockWaiter, makeLedger } from './ledger.helpers';
 import { withoutTrigger } from './intercompany.helpers';
 
 assertDisposable();
@@ -156,9 +156,10 @@ describe('R2: the migration never changes existing consolidation data; without i
       const first = asService(pool, U.ab, co.A, async () => { const out = await L.eliminate(); written(); await held; return out; });
       await wrote;
       const second = asService(pool, U.ab, co.A, () => L.eliminate());
-      await new Promise((r) => setTimeout(r, 500));
+      const waited = await lockWaiter(pool, 'advisory');   // (polled, not slept: the second run has reached the per-group lock)
       release();
       const [a, b] = await Promise.all([first, second]);
+      expect(waited, 'the second run waited on the per-group lock').toBe(true);
       expect([a.length, b.length]).toEqual([1, 0]);
       expect(await L.adjustments()).toHaveLength(1);
     } finally {

@@ -16,7 +16,7 @@ import { getPostedEliminations } from '../../../src/modules/accounting/services/
 import { getEliminationAdjustments } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asAppUser, withoutTrigger } from './intercompany.helpers';
 import { asService, co, groupAccounts, rawReverseJournal, reversalOf, U } from './mirror.helpers';
-import { makeLedger } from './ledger.helpers';
+import { lockWaiter, makeLedger } from './ledger.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -249,10 +249,11 @@ describe('the reports read the derived lines beside the stored manual ones; the 
     const wrote = new Promise<void>((r) => { written = r; });
     const first = asService(pool, U.ab, co.A, async () => { const out = await eliminate(); written(); await held; return out; });
     await wrote;
-    const second = asService(pool, U.ab, co.A, () => eliminate());   // waits on the first's uncommitted insert, then does nothing
-    await new Promise((r) => setTimeout(r, 500));
+    const second = asService(pool, U.ab, co.A, () => eliminate());   // waits on the first's per-group lock, then skips the row
+    const waited = await lockWaiter(pool, 'advisory');   // (polled, not slept: the second run has reached the per-group lock)
     release();
     const [a, b] = await Promise.all([first, second]);
+    expect(waited, 'the second run waited on the per-group lock').toBe(true);
     expect([a.length, b.length]).toEqual([1, 0]);
     expect(await adjustments()).toHaveLength(1);
   });

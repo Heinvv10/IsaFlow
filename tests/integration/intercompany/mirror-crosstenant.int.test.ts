@@ -133,11 +133,21 @@ describe('B3: the sender\'s journal must carry the document\'s figures, by value
     expect((await approveInvoice(small.id)).state.statusCode).toBe(200);
     const smallJe = await journalOf(small.id);
     const big = await plantArInvoice(pool, { lines: [['Big job', 1, 90000]] });
-    await asAppUser(pool, U.a, co.A, async (q) => {
-      expect(await outcome(q, "UPDATE customer_invoices SET invoice_number = invoice_number || '-old', gl_journal_entry_id = NULL WHERE id = $1", [small.id])).toBe('ok');
-      expect(await outcome(q, "UPDATE customer_invoices SET invoice_number = $2, status = 'approved', gl_journal_entry_id = $3 WHERE id = $1", [big.id, small.number, smallJe])).toBe('ok');
-    }, true);
-    expect(await send(big.id)).toMatchObject({ message_id: null, reason: 'no_journal', detail: expect.stringMatching(/receivable is not the document's total/) });
+    // Without 1018 both column writes go through and the database judges the journal by value; with 1018 the unlink of a journal in force is
+    // refused first, so the R90 000 invoice is never approved on it. Either way it is unsendable; the outcome is printed.
+    const [unlink, relink] = await asAppUser(pool, U.a, co.A, async (q) => [
+      await outcome(q, "UPDATE customer_invoices SET invoice_number = invoice_number || '-old', gl_journal_entry_id = NULL WHERE id = $1", [small.id]),
+      await outcome(q, "UPDATE customer_invoices SET invoice_number = $2, status = 'approved', gl_journal_entry_id = $3 WHERE id = $1", [big.id, small.number, smallJe]),
+    ], true);
+    process.stderr.write(`[crosstenant T1b] unlink: ${unlink}; relink: ${relink}\n`);
+    if (unlink === 'ok') {
+      expect(relink).toBe('ok');
+      expect(await send(big.id)).toMatchObject({ message_id: null, reason: 'no_journal', detail: expect.stringMatching(/receivable is not the document's total/) });
+    } else {
+      expect(unlink).toMatch(/^23514: customer_invoices: a document's journal in force cannot be unlinked/);
+      expect(relink).toMatch(/^23514: customer_invoices: /);
+      expect(await send(big.id)).toMatchObject({ message_id: null, reason: 'not_approved' });
+    }
     expect(await rows()).toHaveLength(0);
   });
 
@@ -169,10 +179,11 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     let rev = '';
     await asAppUser(pool, U.a, co.A, async (q) => {
       rev = (await q.query(
-        `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id) VALUES ('2026-09-01', 'hand reversal', 'manual', 'draft', $1, $2, $3) RETURNING id`,
-        [U.a, co.A, je])).rows[0].id as string;
+        `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', 'hand reversal', 'manual', 'draft', $1, $2) RETURNING id`,
+        [U.a, co.A])).rows[0].id as string;
       for (const l of lines) await q.query('INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, $3, $4, $5)', [rev, l.a, l.c, l.d, co.A]);
       await q.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [rev]);
+      await q.query('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [rev, je]);   // linked once posted, as the reversal service does (1018)
       await q.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = $1", [inv]);
     }, true);
     return { je, rev };

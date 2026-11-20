@@ -1,12 +1,13 @@
 /**
  * The eliminations of the MIRRORED intercompany documents (P2), derived at read time and never stored.
  *
- * `intercompany_mirror_eliminations(group, start, end)` returns the elimination LINES the two ledgers support AS AT the period end (reversal
- * chains counting only links dated on or before it, the receiver's financial-year cut-off, both journals' figures by value), for the rows whose
- * period key (the later of the sender's document date and the receiver's journal date) falls in the period. The lines are the journals' OWN
- * accounts: the sender's revenue accounts and the receiver's expense accounts, each mapped to its group account. Nothing is written, so no hook,
- * lock or repair stands between a ledger and a figure, and a reversal booked in a later period cannot change an earlier one. A credit note's
- * row is negative: its entry is the invoice's with the sides swapped, in positive amounts.
+ * `intercompany_mirror_eliminations(group, start, end)` returns the dated EVENTS of each mirrored row whose two companies are current members of
+ * the group: +E (kind 'eliminate') on the date the two ledgers start supporting the pair, and the counter-elimination -E (kind 'reverse') on
+ * the date they stop (a value-negating reversal on either side), each judged with only the links dated on or before it; standing again is a
+ * new +E. A period is the sum of the events dated in it, so any range is the sum of its months line by line and a later booking never changes
+ * an earlier period. Within a period a +E and a -E on one receiver journal cancel. The lines are the journals' OWN accounts (the sender's
+ * revenue, the receiver's expense), each mapped to its group account. A credit note's row is negative: its entry is the invoice's with the
+ * sides swapped, in positive amounts; a counter-elimination swaps them again.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -14,6 +15,8 @@ import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
 export const MIRRORED_LABEL = 'Automatic: mirrored intercompany documents';
+/** The label of a counter-elimination: the pair stopped standing in the period (a reversal on either side). */
+export const MIRRORED_REVERSAL_LABEL = 'Automatic counter-elimination: mirrored intercompany documents reversed';
 
 export interface MirroredLine {
   groupAccountId: string; groupAccountCode: string; groupAccountName: string; groupAccountType: string; groupAccountSubtype: string;
@@ -22,7 +25,11 @@ export interface MirroredLine {
 
 export interface MirroredElimination {
   transactionId: string;
-  /** The period the elimination belongs to: the later of the sender's document date and the receiver's journal date. */
+  /** The receiver's journal the pair stood on (one row can stand on a second journal after a reverse-and-repost). */
+  receiverJournalId: string;
+  /** 'eliminate' (+E: the pair started standing) or 'reverse' (-E: it stopped standing; the lines are the elimination's, swapped). */
+  kind: 'eliminate' | 'reverse';
+  /** The date of the event: the day the pair started (the later of the two journals' dates) or stopped standing. */
   keyDate: string;
   description: string;
   amount: number;
@@ -44,33 +51,40 @@ async function loadMappings(groupId: string): Promise<Map<string, GroupAccount>>
     { id: String(r.id), code: String(r.account_code), name: String(r.account_name), type: String(r.account_type ?? ''), subtype: String(r.account_subtype ?? '') }]));
 }
 
-/** The mirrored documents' eliminations whose period key is in [periodStart, periodEnd], as at periodEnd. A row with an account that has no group account is logged and left out whole (as the manual generator does). */
+/** The mirrored documents' elimination events dated in [periodStart, periodEnd]. A row with an account that has no group account is logged and left out whole (as the manual generator does). */
 export async function getMirroredEliminations(groupId: string, periodStart: string, periodEnd: string): Promise<MirroredElimination[]> {
   const rows = (await sql`
-    SELECT transaction_id, source_company_id, target_company_id, amount, key_date, description, side, gl_account_id, net
+    SELECT transaction_id, source_company_id, target_company_id, amount, key_date, description, side, gl_account_id, net, receiver_journal_id, kind
       FROM public.intercompany_mirror_eliminations(${groupId}::UUID, ${periodStart}::DATE, ${periodEnd}::DATE)
-     ORDER BY key_date, transaction_id, side DESC, gl_account_id
+     ORDER BY key_date, transaction_id, receiver_journal_id, side DESC, gl_account_id
   `) as Row[];
   if (rows.length === 0) return [];
   const mappings = await loadMappings(groupId);
   const byRow = new Map<string, MirroredElimination & { skip: boolean }>();
   for (const r of rows) {
     const id = String(r.transaction_id);
-    let e = byRow.get(id);
+    const kind = String(r.kind) === 'reverse' ? 'reverse' : 'eliminate';
+    const key = `${id}:${String(r.receiver_journal_id)}:${kind}`;
+    let e = byRow.get(key);
     if (!e) {
-      e = { transactionId: id, keyDate: dateText(r.key_date), amount: Number(r.amount), skip: false, lines: [],
-            description: `${MIRRORED_LABEL} - ${String(r.description ?? '')}`.trim() };
-      byRow.set(id, e);
+      const keyDate = dateText(r.key_date);
+      e = { transactionId: id, receiverJournalId: String(r.receiver_journal_id), kind, keyDate, skip: false, lines: [],
+            amount: kind === 'reverse' ? -Number(r.amount) : Number(r.amount),
+            description: kind === 'reverse'
+              ? `${MIRRORED_REVERSAL_LABEL} - ${String(r.description ?? '')} (no longer standing from ${keyDate})`.trim()
+              : `${MIRRORED_LABEL} - ${String(r.description ?? '')}`.trim() };
+      byRow.set(key, e);
     }
     const revenue = String(r.side) === 'revenue';
     const ga = mappings.get(`${String(revenue ? r.source_company_id : r.target_company_id)}:${String(r.gl_account_id)}`);
     if (!ga) { e.skip = true; continue; }
     const net = Number(r.net);
-    // revenue: debited by what the sender booked as revenue; expense: credited by what the receiver booked as expense (a credit note: swapped)
+    // revenue: debited by what the sender booked as revenue; expense: credited by what the receiver booked as expense (a credit note, or a
+    // counter-elimination, whose net the database has already negated: swapped)
     const debit = revenue ? Math.max(net, 0) : Math.max(-net, 0);
     const credit = revenue ? Math.max(-net, 0) : Math.max(net, 0);
     e.lines.push({ groupAccountId: ga.id, groupAccountCode: ga.code, groupAccountName: ga.name, groupAccountType: ga.type, groupAccountSubtype: ga.subtype, debit, credit,
-                   description: `Eliminate intercompany ${revenue ? 'revenue' : 'expense'}` });
+                   description: `${kind === 'reverse' ? 'Reverse the elimination of' : 'Eliminate'} intercompany ${revenue ? 'revenue' : 'expense'}` });
   }
   const out: MirroredElimination[] = [];
   for (const { skip, ...e } of byRow.values()) {

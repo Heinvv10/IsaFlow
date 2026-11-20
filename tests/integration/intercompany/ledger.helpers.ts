@@ -9,6 +9,22 @@ import { getMirroredEliminations } from '../../../src/modules/accounting/service
 import { asAppUser, withoutTrigger } from './intercompany.helpers';
 import { asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, inbox, mirrorCleanup, mirrorSetup, sentInvoice, U } from './mirror.helpers';
 
+/**
+ * Waits (polling pg_stat_activity, at most `ms`) until some session of this database is blocked on a lock (optionally of one wait_event,
+ * e.g. 'advisory'), and says whether it saw one: a concurrency case proves the second session REACHED the lock instead of sleeping and hoping.
+ */
+export async function lockWaiter(pool: Pool, event: string | null = null, ms = 10000): Promise<boolean> {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const n = (await pool.query(
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND ($1::text IS NULL OR wait_event = $1)`,
+      [event])).rows[0].n as number;
+    if (n > 0) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return false;
+}
+
 export function makeLedger(pool: Pool) {
   const extra = { supplier: crypto.randomUUID(), asset: crypto.randomUUID() };
   const rows = async () => (await pool.query('SELECT * FROM intercompany_transactions WHERE group_id = $1 ORDER BY created_at', [co.G])).rows;

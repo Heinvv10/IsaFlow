@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { asDefiner, outcome } from './intercompany.helpers';
-import { clearMirrorRows, co, connect, dataOf, inbox, mirrorCleanup, mirrorSetup, plantArInvoice, sentInvoice, U } from './mirror.helpers';
+import { asService, clearMirrorRows, co, connect, dataOf, inbox, mirrorCleanup, mirrorSetup, plantArInvoice, sentInvoice, U } from './mirror.helpers';
 import { eliminationCleanup, eliminationSetup } from './mirror.helpers';
 import { autoGenerateEliminations } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 
@@ -55,7 +55,7 @@ describe.each(LOGINS)('as %s', (login) => {
     }));
     for (const v of Object.values(out)) expect(v).toMatch(/^(42501|23514)/);
     expect((await pool.query("SELECT count(*)::int AS n FROM intercompany_transactions WHERE description = 'forged'")).rows[0].n).toBe(0);
-    expect(await autoGenerateEliminations(co.G, '2026-01-01', '2026-12-31')).toHaveLength(0);
+    expect(await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-12-31'))).toHaveLength(0);   // (in a transaction, as a request runs it)
   });
 
   it('cannot forge the system-update flags, nor sign another user\'s name on a row it may update', async () => {

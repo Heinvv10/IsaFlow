@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({ sql: vi.fn(), log: { info: vi.fn(), warn: vi.fn(),
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/logger', () => ({ log: m.log }));
 
-import { getMirroredEliminations, MIRRORED_LABEL } from '@/modules/accounting/services/reports/mirrorEliminations';
+import { getMirroredEliminations, MIRRORED_LABEL, MIRRORED_REVERSAL_LABEL } from '@/modules/accounting/services/reports/mirrorEliminations';
 
 const G = '80000000-0000-4000-8000-000000000001';
 const line = (id: string, amount: number, side: 'revenue' | 'expense', account: string, net: number) => ({
@@ -50,6 +50,20 @@ describe('getMirroredEliminations', () => {
     const [e] = await getMirroredEliminations(G, '2026-01-01', '2026-12-31');
     expect(pairs(e!)).toEqual([['G-REV', 0, 200], ['G-EXP', 200, 0]]);
     expect(e!.amount).toBe(-200);
+  });
+
+  it('a counter-elimination (kind reverse, nets negated by the database) is its own item, labelled, with the elimination\'s sides swapped', async () => {
+    const ev = (kind: string, je: string, sign: number, date: string) => [
+      { ...line('t1', 1000, 'revenue', 'a-rev', sign * 1000), kind, receiver_journal_id: je, key_date: date },
+      { ...line('t1', 1000, 'expense', 'b-exp', sign * 1000), kind, receiver_journal_id: je, key_date: date }];
+    m.sql.mockResolvedValueOnce([...ev('eliminate', 'J1', 1, '2026-01-15'), ...ev('reverse', 'J1', -1, '2026-02-10'), ...ev('eliminate', 'J2', 1, '2026-03-05')])
+      .mockResolvedValueOnce(MAPPINGS);
+    const out = await getMirroredEliminations(G, '2026-01-01', '2026-03-31');
+    expect(out.map((e) => [e.kind, e.receiverJournalId, e.keyDate, e.amount])).toEqual([
+      ['eliminate', 'J1', '2026-01-15', 1000], ['reverse', 'J1', '2026-02-10', -1000], ['eliminate', 'J2', '2026-03-05', 1000]]);
+    expect(out[1]!.description).toBe(`${MIRRORED_REVERSAL_LABEL} - Invoice 1 (mirrored) (no longer standing from 2026-02-10)`);
+    expect(pairs(out[1]!)).toEqual([['G-REV', 0, 1000], ['G-EXP', 1000, 0]]);
+    expect(out[1]!.lines.map((l) => l.description)).toEqual(['Reverse the elimination of intercompany revenue', 'Reverse the elimination of intercompany expense']);
   });
 
   it('a row with an account that has no group account is left out whole and logged', async () => {

@@ -30,14 +30,34 @@ const chainChanged = (user: string, company: string, je: string) =>
   asAppUser(pool, user, company, async (q) => Number((await q.query('SELECT public.intercompany_journal_chain_changed($1) AS n', [je])).rows[0].n), true);
 const send = (doc: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.query("SELECT * FROM public.intercompany_send_for_source('customer_invoice', $1)", [doc])).rows[0], true);
 
-/** A journal a WRITER posts (app_user): any source / text / reversal_of_id. lines: [account, debit, credit]. */
+/**
+ * A journal a WRITER posts (app_user): any source / text, linked by reversal_of_id AFTER it is posted (an INSERT carrying one is refused by
+ * 1018). Without 1018 the link is set; with it a link that is not a true negation is refused (a 23514), so the forgery never exists. Either
+ * outcome leaves the mirror unmoved, which is what the cases assert; the outcome is printed. lines: [account, debit, credit].
+ */
 async function forge(q: PoolClient, company: string, user: string, lines: [string, number, number][], reversalOf: string | null): Promise<string> {
   const id = (await q.query(
-    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id) VALUES ('2026-09-01', 'forged', 'manual', 'draft', $1, $2, $3) RETURNING id`,
-    [user, company, reversalOf])).rows[0].id as string;
+    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', 'forged', 'manual', 'draft', $1, $2) RETURNING id`,
+    [user, company])).rows[0].id as string;
   for (const [a, d, c] of lines) await q.query('INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, $3, $4, $5)', [id, a, d, c, company]);
   await q.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [id]);
+  if (reversalOf) {
+    const link = await outcome(q, 'UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [id, reversalOf]);
+    expect(link).toMatch(/^(ok|23514: gl_journal_entries: )/);
+    process.stderr.write(`[parity] forged link: ${link === 'ok' ? 'set (no 1018)' : `refused (1018): ${link}`}\n`);
+  }
   return id;
+}
+/** A fixture's true reversal of `je`, or false when the ledger refuses it (#1691 round 3: a chain whose head a cancelled document held). */
+async function tryRawReverse(je: string, description: string): Promise<boolean> {
+  try {
+    await rawReverseJournal(pool, je, description);
+    return true;
+  } catch (err) {
+    expect((err as { code?: string }).code).toBe('23514');
+    process.stderr.write(`[parity] re-reversal refused: ${(err as Error).message}\n`);
+    return false;
+  }
 }
 /** The empty-value "reversal": a debit and a credit of R1 on one account (nets to nothing). */
 const forgedEmpty = async (company: string, user: string, subtype: string, parent: string | null) => {
@@ -93,7 +113,9 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     let old = '';
     await asAppUser(pool, U.a, co.A, async (q) => {
       old = await forge(q, co.A, U.a, [[ar, 5, 0], [ar, 0, 5]], null);
-      expect(await outcome(q, 'UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [old, r1])).toBe('ok');   // a writer can
+      const link = await outcome(q, 'UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [old, r1]);   // a writer can (without 1018), or 1018 refuses it
+      expect(link).toMatch(/^(ok|23514: gl_journal_entries: a reversal's lines must be the exact negation)/);
+      process.stderr.write(`[parity R1b] re-point: ${link === 'ok' ? 'set (no 1018)' : `refused (1018): ${link}`}\n`);
     }, true);
     await chainChanged(U.a, co.A, old);
     expect(await chain(je, co.A)).toBe(2);
@@ -108,12 +130,14 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
     expect(await derived()).toHaveLength(0);
     const r1 = (await reversalOf(pool, je))!;
-    await rawReverseJournal(pool, r1, 'valid re-reversal');          // by value a real reversal: the chain is odd again
-    expect(await chain(je, co.A)).toBe(3);
-    await chainChanged(U.a, co.A, (await reversalOf(pool, r1))!);
+    // by value a real reversal: the chain is odd again. #1691 round 3 refuses re-instating a chain whose head a cancelled document held: then
+    // the ledger does not carry the revenue again and nothing is eliminated.
+    const reinstated = await tryRawReverse(r1, 'valid re-reversal');
+    expect(await chain(je, co.A)).toBe(reinstated ? 3 : 2);
+    if (reinstated) await chainChanged(U.a, co.A, (await reversalOf(pool, r1))!);
     expect((await msg(m.id)).source_cancelled_at).not.toBeNull();   // the invoice is cancelled and unlinked: not revived
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await derived()).toHaveLength(1);   // (A's ledger carries the revenue again and B's the expense: the elimination is what both books show)
+    expect(await derived()).toHaveLength(reinstated ? 1 : 0);   // (re-instated, A's ledger carries the revenue again and B's the expense: the elimination is what both books show)
   });
 
   it('R3: the send does not re-pend a withdrawn message of a cancelled invoice (forged re-reversal, or a true one)', async () => {
@@ -124,7 +148,7 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
       await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, sent.inv.id, U.a));
       expect(await msg(sent.id)).toMatchObject({ status: 'withdrawn' });
       const r1 = (await reversalOf(pool, je))!;
-      if (how === 'forged') await forgedEmpty(co.A, U.a, 'receivable', r1); else await rawReverseJournal(pool, r1, 'valid re-reversal');
+      if (how === 'forged') await forgedEmpty(co.A, U.a, 'receivable', r1); else await tryRawReverse(r1, 'valid re-reversal');
       expect(await send(sent.inv.id)).toMatchObject({ message_id: null });
       expect(await msg(sent.id)).toMatchObject({ status: 'withdrawn' });
     }
