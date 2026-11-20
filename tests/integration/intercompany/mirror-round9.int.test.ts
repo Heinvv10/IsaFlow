@@ -4,6 +4,7 @@
  *      target is B's bound journal is refused at INSERT (intercompany_journal_claimed); and a row planted with such a target anyway (a legacy
  *      manual row, or the hook-free path) holds nothing, because the exclusivity checks count only what the DATABASE bound
  *      (intercompany_journal_bound_elsewhere);
+ *  S9  intercompany_journal_claimed answers only for journals of the caller's groups (no cross-tenant oracle);
  *  M2  the exclusivity lookups use their indexes (no scan of every tenant's rows).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -73,6 +74,22 @@ describe('M1: a writer\'s row naming another pair\'s receiver journal', () => {
     await L.unbind();
     expect(await net()).toEqual({ rev: 1000, exp: -1000 });   // the document path (intercompany_receiver_journal_problem)
     expect(await L.sync(U.b, co.B, m.bill)).toBe('matched');   // and the receiver's sync still binds it
+  });
+});
+
+describe('S9: intercompany_journal_claimed is no cross-tenant oracle', () => {
+  it('a user of a tenant in no group with B asks about B\'s bound journal: false; a member of B\'s group gets the answer', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    const j = (await L.groupRow()).target_journal_entry_id as string;
+    const ask = () => asAppUser(pool, U.c, co.C, async (q) => (await q.query('SELECT public.intercompany_journal_claimed($1) AS c', [j])).rows[0].c as boolean);
+    expect(await ask()).toBe(true);   // C is a member of G (beforeAll)
+    await pool.query('DELETE FROM company_group_members WHERE group_id = $1 AND company_id = $2', [co.G, co.C]);
+    try {
+      expect(await ask()).toBe(false);   // C (only in H) learns nothing about B's journal
+    } finally {
+      await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [co.G, co.C]);
+    }
   });
 });
 

@@ -1362,7 +1362,9 @@ $$;
 -- A request's new row names no match and no reason (the 999r body, plus the two columns of 1019).
 -- Whether journal p_je is already held: the target or first match of any intercompany row, or the journal of a bill / supplier credit note
 -- that an accepted invoice / credit-note message created (a mirrored document, bound or not yet). A definer: the INSERT trigger below asks it
--- for a writer who may not be able to read those rows. Answers a boolean only.
+-- for a writer who may not be able to read those rows. Answers a boolean only, and only for a journal of a company that is a current member of
+-- a group the CALLER is a member of (rls_user_group_ids(): the only journals a writer's row may name, rls_intercompany_parties_ok); for any
+-- other journal it answers false, so it is no oracle on another tenant's journals.
 CREATE OR REPLACE FUNCTION public.intercompany_journal_claimed(p_je uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -1370,14 +1372,17 @@ STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.intercompany_transactions o WHERE o.target_journal_entry_id = p_je)
+  SELECT EXISTS (SELECT 1 FROM public.gl_journal_entries je
+                   JOIN public.company_group_members gm ON gm.company_id = je.company_id AND gm.left_date IS NULL
+                  WHERE je.id = p_je AND gm.group_id IN (SELECT public.rls_user_group_ids()))
+  AND (EXISTS (SELECT 1 FROM public.intercompany_transactions o WHERE o.target_journal_entry_id = p_je)
       OR EXISTS (SELECT 1 FROM public.intercompany_transactions o WHERE o.first_target_journal_entry_id = p_je)
       OR EXISTS (SELECT 1 FROM public.supplier_invoices si JOIN public.intercompany_messages x
                    ON x.target_doc_type = 'supplier_invoice' AND x.target_doc_id = si.id AND x.status = 'accepted' AND x.kind IN ('invoice', 'credit_note')
                   WHERE si.gl_journal_entry_id = p_je)
       OR EXISTS (SELECT 1 FROM public.credit_notes cn JOIN public.intercompany_messages x
                    ON x.target_doc_type = 'credit_note' AND x.target_doc_id = cn.id AND x.status = 'accepted' AND x.kind IN ('invoice', 'credit_note')
-                  WHERE cn.gl_journal_entry_id = p_je)
+                  WHERE cn.gl_journal_entry_id = p_je))
 $$;
 ALTER FUNCTION public.intercompany_journal_claimed(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_journal_claimed(uuid) FROM PUBLIC;
@@ -1687,7 +1692,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
     ('intercompany_journal_claimed(uuid)', 'public.intercompany_journal_claimed(uuid)',
-     'nothing: whether a journal is already the target or first match of an intercompany row, or the journal of a document an accepted mirror message created (a boolean, for the intercompany_transactions INSERT trigger of a writer who may not read those rows)'),
+     'nothing: whether a journal of a company in a group the caller is a current member of (false for any other journal) is already the target or first match of an intercompany row, or the journal of a document an accepted mirror message created (a boolean, for the intercompany_transactions INSERT trigger of a writer who may not read those rows)'),
     ('intercompany_is_mirrored_row(uuid)', 'public.intercompany_is_mirrored_row(uuid)',
      'nothing: whether a group row is the one a message records (a read of intercompany_messages for a trigger of a writer who is no party of the message)'),
     ('intercompany_mirror_eliminations(uuid,date,date)', 'public.intercompany_mirror_eliminations(uuid, date, date)',
