@@ -5,6 +5,7 @@
  * any document. A LEGACY NULL-status row (the CHECK is NOT VALID) counts as the approved side (no NULL -> draft) and,
  * as a holder, as cancelled (no re-instatement). Not over-strict: the ordinary status moves still pass.
  */
+import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
@@ -103,6 +104,53 @@ describeIfDisposable('ledger column immutability, round 7 (migration 1018)', () 
       await c.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.fx.companyId]);
       expect(await settle(c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [x, doc]))).toMatch(/without a status does not link/);
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+  });
+
+  // Q2, the stated BOUNDARY (not a guarantee): pg_locks is readable by PUBLIC, so another tenant can read a key that a
+  // session holds and hold it; the victim waits until lock_timeout (55P03) and nothing is written. If pg_locks is ever
+  // revoked from PUBLIC on the test cluster, this flips: then invert it into the guarantee.
+  it('Q2 (R6-2) boundary: a key read from pg_locks lets another tenant stall a journal until lock_timeout, writing nothing', async () => {
+    const oacc = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${z.f.other.companyId}::UUID AND account_code = '4100'`) as Row[])[0]!.id);
+    const bUser = randomUUID();
+    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${bUser}, ${`lcf-b-${bUser}@isaflow.test`}, 'admin', true)`;
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${z.f.other.companyId}::UUID, ${bUser}, 'admin')`;
+    const open = async (user: string, company: string) => {
+      const c = await z.pool.connect();
+      await c.query('BEGIN');
+      await c.query("SET LOCAL lock_timeout = '1500ms'");
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+      return c;
+    };
+    const je = await journal(z, [[oacc, 100, 0], [oacc, 0, 100]], { company: z.f.other.companyId });
+    const [d1, d2] = [await document(z, 'customer_invoices', { status: 'draft', company: z.f.other.companyId }),
+      await document(z, 'customer_invoices', { status: 'draft', company: z.f.other.companyId })];
+    const keysOf = async (c: PoolClient) => new Set(((await c.query(
+      "SELECT ((classid::bigint << 32) | objid::bigint)::text AS k FROM pg_locks WHERE locktype = 'advisory' AND granted")).rows as Row[]).map((r) => String(r.k)));
+    const a = await open(z.f.fx.userId, z.f.fx.companyId);
+    const b = await open(bUser, z.f.other.companyId);
+    try {
+      expect((await a.query('SELECT 1 FROM gl_journal_entries WHERE id = $1', [je])).rowCount).toBe(0); // A cannot see the journal
+      const before = await keysOf(a);
+      await b.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [je, d1]); // B holds the key
+      const seen = [...await keysOf(a)].filter((k) => !before.has(k));
+      await b.query('ROLLBACK');
+      for (const k of seen) await a.query('SELECT pg_advisory_xact_lock($1::bigint)', [k]);
+      await b.query('BEGIN');
+      await b.query("SET LOCAL lock_timeout = '1500ms'");
+      await b.query('SET LOCAL ROLE app_user');
+      await b.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: bUser, role: 'authenticated' })]);
+      await b.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.other.companyId]);
+      const res = await b.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [je, d2]).then(() => 'linked', (e: { code?: string }) => String(e.code));
+      expect(res).toBe('55P03');
+    } finally {
+      await b.query('ROLLBACK').catch(() => undefined); b.release();
+      await a.query('ROLLBACK').catch(() => undefined); a.release();
+      await sql`DELETE FROM company_users WHERE user_id = ${bUser}`;
+      await sql`DELETE FROM users WHERE id = ${bUser}`;
+    }
+    expect(((await sql`SELECT count(*)::int AS n FROM customer_invoices WHERE gl_journal_entry_id = ${je}::UUID`) as Row[])[0]!.n).toBe(0);
   });
 
   it.each(KINDS)('%s: over-strict check, the ordinary moves of a linked document still pass (approve, cancel after reversal)', async (kind) => {
