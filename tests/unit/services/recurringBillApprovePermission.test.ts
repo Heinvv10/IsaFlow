@@ -141,6 +141,8 @@ describe('creating or switching on an autoPost supplier-invoice template', () =>
   it('PUT: a non-UUID id, or a template this company does not have, is 404 before the gate', async () => {
     manager(false);
     expect((await call('PUT', { id: 'not-a-uuid', autoPost: true })).statusCode).toBe(404);
+    // ...and it never reaches SQL, where the ::UUID cast would be a 500 (22P02).
+    expect(vi.mocked(sql).mock.calls.some((c) => c.slice(1).includes('not-a-uuid'))).toBe(false);
     storedTemplate = null;
     expect((await call('PUT', { id: T, autoPost: true })).statusCode).toBe(404);
     expect(updateRecurringTemplate).not.toHaveBeenCalled();
