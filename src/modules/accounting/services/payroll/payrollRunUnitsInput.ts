@@ -1,6 +1,7 @@
 /**
- * The pay-run grid's overtime hours and travel km (wave 6 RI, migration 999t). Each is a once-off row on the run month's key,
+ * The pay-run grid's overtime hours and travel km (wave 6 RI, migration 1017). Each is a once-off row on the run month's key,
  * as the hours of HD (payrollRunHoursInput.ts), priced here in whole cents, never sent by the client:
+ * Since FQc the key is the run's own dates (monthBounds of runPeriodOf), so a weekly run's overtime belongs to that run (F2).
  *   - overtime: the company's one overtime (3607) earning, `quantity` hours, `quantity_unit` 'hour', `rate_multiplier` 1.5 or 2,
  *     amount = hours x the employee's hourly rate x the multiplier (payrollRunInputUnits.overtimeAmountCents). One row per multiplier.
  *   - travel: the company's one reimbursive travel (3703, else 3702) earning, `quantity` km, `quantity_unit` 'km',
@@ -13,6 +14,7 @@ import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { hoursAmountCents } from './payrollRunHours';
 import { OVERTIME_MULTIPLIERS, overtimeAmountCents, overtimeHourlyRate } from './payrollRunInputUnits';
 import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
@@ -46,9 +48,9 @@ export async function setRunUnits(companyId: string, runId: string, employeeId: 
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new PayrollRunInputRefusedError(404, 'Payroll run not found');
-  const period = { year: Number(run.period_year), month: Number(run.period_month) };
+  const period = runPeriodOf(run); // wave 6 FQc (F2): a once-off is keyed by its run's own dates
   await assertRunEditable(companyId, runId, run, period);
-  const employee = (await listPayrollRunEmployees(companyId, period)).find((e) => e.id === employeeId);
+  const employee = (await listPayrollRunEmployees(companyId, period, payFrequencyOf(run.pay_frequency))).find((e) => e.id === employeeId);
   if (!employee) throw refuse('This employee is not on this run.');
   const componentId = (await unitComponents(companyId))[kind];
   if (!componentId) {

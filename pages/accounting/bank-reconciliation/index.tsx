@@ -125,12 +125,12 @@ export default function BankReconciliationListPage() {
               onClick={() => setPendingCancel(r)}
               title="Cancel reconciliation"
               aria-label={`Cancel reconciliation for ${r.bankAccountName || 'bank account'}`}
-              className="text-[var(--ff-text-tertiary)] hover:text-red-400 transition-colors"
+              className="max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center text-[var(--ff-text-tertiary)] hover:text-red-400 transition-colors"
             >
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400"
+          <Link href={`/accounting/bank-reconciliation/${r.id}`} className="max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center text-teal-500 hover:text-teal-400"
             aria-label={`${r.status === 'completed' ? 'View' : 'Continue'} reconciliation for ${r.bankAccountName || 'bank account'}`}>
             {r.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </Link>
@@ -144,7 +144,7 @@ export default function BankReconciliationListPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <Landmark className="h-6 w-6 text-teal-500" />
@@ -159,13 +159,13 @@ export default function BankReconciliationListPage() {
             <div className="flex items-center gap-2">
               <Link
                 href="/accounting/bank-reconciliation/import"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 transition-colors text-sm font-medium"
               >
                 Import Statement
               </Link>
               <Link
                 href="/accounting/bank-reconciliation/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Reconciliation
               </Link>

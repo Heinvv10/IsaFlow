@@ -4,6 +4,7 @@
  * DELETE of a step can never disagree.
  */
 
+import { Refusal } from './cli';
 import type { Tx } from './db';
 import {
   BALANCE_CACHE_STEP, CASCADE_WITH, INVOICE_PAYMENT_REQUEST_TABLES, QA_MAILBOX_NAME, WIPE_STEPS, countSql, crossTenantSql, deleteSql, invoiceRequestWhere, isKept,
@@ -11,6 +12,11 @@ import {
 
 export interface TableCount { table: string; n: number }
 
+/**
+ * The base tables with a company_id column that the connected role can see. information_schema.columns lists only columns the role
+ * may access, which is what keeps tables no app role can read (the intercompany lock rows and slots, migration 1002) out of the
+ * census for a reseed role that holds no grant on them, instead of failing with permission denied.
+ */
 async function companyTables(tx: Tx): Promise<string[]> {
   const rows = await tx.query<{ t: string }>(`
     SELECT c.table_name AS t FROM information_schema.columns c
@@ -99,6 +105,34 @@ export async function intercompanyCount(tx: Tx, companyId: string): Promise<numb
     WHERE source_journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = $1::uuid)
        OR target_journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = $1::uuid)`, [companyId]);
   return r?.n ?? 0;
+}
+
+/**
+ * Intercompany connections, messages and links that name the Demo company. They have no company_id column (a pair of companies),
+ * so the census cannot see them; the wipe would leave them dangling or take a partner's side with it. Not handled: the run refuses.
+ */
+export async function intercompanyRelationRows(tx: Tx, companyId: string): Promise<TableCount[]> {
+  // (invited_by_company_id is not read: a CHECK makes it one of the pair, so the pair columns already name it.)
+  const reads: Array<[string, string]> = [
+    ['intercompany_connections', 'company_low_id = $1::uuid OR company_high_id = $1::uuid'],
+    ['intercompany_messages', 'from_company_id = $1::uuid OR to_company_id = $1::uuid'],
+    ['intercompany_document_links', 'company_a_id = $1::uuid OR company_b_id = $1::uuid'],
+  ];
+  const out: TableCount[] = [];
+  for (const [table, where] of reads) {
+    try {
+      const [r] = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`, [companyId]);
+      if (r && r.n > 0) out.push({ table, n: r.n });
+    } catch (err) {
+      // A role that cannot read the table, or a database from before migration 1000: a clean refusal that names it, not a raw driver error.
+      const code = (err as { code?: string }).code;
+      if (code === '42501' || code === '42P01') {
+        throw new Refusal(`cannot check ${table} for the Demo company (${code === '42501' ? 'this role cannot read it' : 'the table does not exist: migration 1000 is not applied'}); resolve before reseeding`);
+      }
+      throw err;
+    }
+  }
+  return out;
 }
 
 export async function runWipe(tx: Tx, companyId: string): Promise<TableCount[]> {

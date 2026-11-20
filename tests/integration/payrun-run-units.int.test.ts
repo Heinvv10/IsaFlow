@@ -1,5 +1,5 @@
 /**
- * Overtime hours and travel km on a pay run (wave 6 RI, migration 999t) through the real chain: PUT /api/payroll/runs/[id]/inputs
+ * Overtime hours and travel km on a pay run (wave 6 RI, migration 1017) through the real chain: PUT /api/payroll/runs/[id]/inputs
  * with { employeeId, units: { kind, multiplier, quantity, ratePerKm, expectedQuantity } }. The amount is priced on the server and
  * stored on the run month's once-off row with its quantity, unit and multiplier; the calculation splits a km row at the prescribed
  * rate (R4.95 a km in tax year 2027). Two tenants: company B's run is never reached from company A. Disposable fixture DB only.

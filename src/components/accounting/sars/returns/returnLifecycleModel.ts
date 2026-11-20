@@ -57,7 +57,9 @@ export function availableActions(
   }
   const acts = ACT_ROLES.includes(role ?? '');
   const finalise = live === null && canWrite(role);
-  const file = live?.status === 'finalised' && acts;
+  // Wave 6 EFa: filed only once the version's filing file was generated (the server refuses otherwise). A version
+  // finalised before 999v's cut-off needs none (filingFileRequired false): a VAT201 of that age cannot generate one.
+  const file = live?.status === 'finalised' && acts && (live.filingFileSha256 !== null || live.filingFileRequired === false);
   const amend = live !== null && acts;
   let note: string | null = null;
   if (live === null && !canWrite(role)) note = 'You have read-only access to this company, so you cannot finalise the return.';
@@ -74,6 +76,8 @@ const FIELDS: Record<ReturnForm, Array<[string, string, boolean]>> = {
     ['totalPAYE', 'PAYE', true], ['totalETI', 'ETI', true], ['payePayable', 'PAYE payable', true],
     ['totalUIF', 'UIF', true], ['totalSDL', 'SDL', true],
   ],
+  // The EMP501 routes send these totals flat (pages/api/payroll/emp501/returns, wave 6 EFb).
+  EMP501: [['certificates', 'Certificates', false], ['paye', 'PAYE', true], ['uif', 'UIF', true], ['sdl', 'SDL', true]],
 };
 
 /** The recorded figures a person reads, in form order (VAT201: output, input, net; EMP201: the liability lines). */

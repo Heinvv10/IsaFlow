@@ -255,6 +255,7 @@ describe('the configuration-reference sweep', async () => {
       expect(excluded.map((r) => `${r.tbl}.${r.col}`)).toEqual(expect.arrayContaining([
         'supplier_invoice_items.gl_account_id', 'expense_claim_lines.gl_account_id',
         'po_items.gl_account_id', 'capture_events.resolved_gl_account_id',
+        'items.sales_account_id', 'items.purchases_account_id', // migration 1005: the item master's default accounts
       ]));
     } finally {
       client.release();

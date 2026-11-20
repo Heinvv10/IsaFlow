@@ -1,6 +1,6 @@
 /** Types and refusals for tax return versions (wave 5 L1a). */
 
-export type ReturnForm = 'VAT201' | 'EMP201';
+export type ReturnForm = 'VAT201' | 'EMP201' | 'EMP501';
 export type ReturnVersionStatus = 'finalised' | 'filed' | 'superseded';
 
 export interface ReturnVersion {
@@ -24,6 +24,11 @@ export interface ReturnVersion {
   amendedBy: string | null;
   amendReason: string | null;
   amendedAt: string | null;
+  /** The filing file IsaFlow generated for this version (migration 999v): sha256 of its capture CSV, kind, when, who. */
+  filingFileSha256: string | null;
+  filingFileKind: string | null;
+  filingFileAt: string | null;
+  filingFileBy: string | null;
 }
 
 /**
@@ -77,6 +82,13 @@ export interface VatReturnRecord {
   netVat: number;
   sarsReference: string | null;
   submittedAt: string | null;
+  /** The version the settlement was posted against (wave 6 VR); null for a record made before the lifecycle. */
+  returnVersionNo: number | null;
   /** True when its figures differ from the version's (or, before finalising, the figures about to be recorded). */
   mismatch: boolean;
+  /**
+   * The latest settlement row made although the control accounts and the VAT201 differed, with its reason. The two
+   * gap figures are the PERIOD's (control accounts, VAT201); `netVat` is what that row posted (a top-up: the delta).
+   */
+  ledgerGap: { netVat: number; ledgerNetVat: number; reportNetVat: number; reason: string } | null;
 }

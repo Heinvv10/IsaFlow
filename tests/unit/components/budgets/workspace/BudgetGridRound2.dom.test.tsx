@@ -82,15 +82,14 @@ describe('row actions from the keyboard', () => {
     expect(keyPrevented(cell(ID.rev2, 3), init)).toBe(true);
     expect(await screen.findByRole('menuitem', { name: 'Spread across months…' })).toBeInTheDocument();
   });
-  it('focus moves to the ⋯ trigger, so ArrowDown + Enter run the menu item and the grid neither moves nor edits', async () => {
+  it('focus moves into the ⋯ menu (its first item), so Enter runs the menu item and the grid neither moves nor edits', async () => {
     mount();
     fireEvent.mouseDown(cell(ID.rev2, 3), { button: 0 });
     fireEvent.keyDown(cell(ID.rev2, 3), { key: 'F10', shiftKey: true });
-    await screen.findByRole('menuitem', { name: 'Spread across months…' });
-    const trigger = screen.getByRole('button', { name: 'Row actions for 1010 Account 1010' });
-    expect(document.activeElement).toBe(trigger);
+    const first = await screen.findByRole('menuitem', { name: 'Spread across months…' });
+    // The menu button pattern (ActionMenu, WP4b review): opening moves focus onto the first item, not the trigger.
+    expect(document.activeElement).toBe(first);
     const before = store.getGridState();
-    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
     fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
     expect(await screen.findByRole('dialog')).toHaveAccessibleName(/Spread across months/);
     expect(store.getGridState().focus).toEqual(before.focus);

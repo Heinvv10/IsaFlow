@@ -38,6 +38,10 @@ describe('overtime pricing', () => {
     expect(overtimeHourlyRate(employee({ hoursPerWeek: null }), 20000)).toBeNull();
     expect(overtimeHourlyRate(employee({ payBasis: 'daily', dailyRate: 640, hoursPerDay: null }), 0)).toBeNull();
   });
+  it('a weekly or fortnightly salaried employee: the period basic over the period hours (FQc frequencies), not a month', () => {
+    expect(overtimeHourlyRate(employee({ payFrequency: 'weekly' }), 4000)).toBe(100);
+    expect(overtimeHourlyRate(employee({ payFrequency: 'fortnightly' }), 8000)).toBe(100);
+  });
 });
 
 describe('travel km split at the prescribed rate', () => {

@@ -19,6 +19,10 @@ import { todayInSast } from '../../../src/lib/saDateParser';
 import { addDaysISO } from '../../../src/lib/dateUtils';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { warmInvoiceRoutes } from './helpers/warmInvoiceRoutes';
+
+// Fresh `next dev` compiles the saved invoice's page on Create and reloads /new under the push: see helpers/warmInvoiceRoutes.ts.
+test.beforeAll(warmInvoiceRoutes);
 
 const NEW = '/accounting/customer-invoices/new';
 const EDIT_KEY = '/accounting/customer-invoices/edit/[invoiceId]';

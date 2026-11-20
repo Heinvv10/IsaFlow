@@ -22,6 +22,7 @@ import {
   type InvoiceRow,
 } from './bankMatchCandidatesService';
 import { lineFitsBankLineFragment } from './bankMatchTargetFit';
+import { provisionallyHeldJournalIds } from './bankProvisionalHeldJournals';
 import { PAYABLE_PO_STATUSES, purchaseOrderOutstandingSql } from './purchaseOrderOutstanding';
 
 
@@ -244,22 +245,10 @@ export async function fetchJournalLineCandidates(
       -- company's statement lines per candidate instead of probing uq_bank_tx_matched_line (80 s, sec-nrfa round 29).
       AND NOT EXISTS (SELECT 1 FROM bank_transactions mb
                       WHERE mb.matched_journal_line_id = jl.id AND mb.company_id = jl.company_id OFFSET 0)
-      -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
-      -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
-      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,
-      -- walking DOWN from every held provisional (a journal is held iff its chain reaches one), and hashed for NOT IN:
-      -- a walk correlated to each candidate re-ran per bank line (6 s at 200k lines, sec-nrfa round 24 M1) or per
-      -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1). DISTINCT keeps the NOT IN
-      -- hashed whatever the held set's estimate (a plain SELECT spilled past hash_mem to a linear scan per candidate:
-      -- 16-40 s with thousands of held provisionals, sec-nrfa round 26 M1). Filtered on the line, not on je: on je the
-      -- planner could pair every unheld journal with every bank leg by a join filter (3-18 s, brk-nrfa round 27).
-      AND jl.journal_entry_id NOT IN (
-          WITH RECURSIVE held AS (
-            SELECT bp.provisional_je_id AS id, 0 AS d FROM bank_transactions bp
-            WHERE bp.provisional_je_id IS NOT NULL AND bp.company_id = ${companyId}::UUID
-            UNION ALL SELECT c.id, held.d + 1 FROM gl_journal_entries c JOIN held ON c.reversal_of_id = held.id
-              WHERE c.company_id = ${companyId}::UUID AND held.d < 64)
-          SELECT DISTINCT id FROM held)
+      -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409),
+      -- read through the reversal chain as confirm does; ONE set, shared with the reconciliation's GL side
+      -- (bankProvisionalHeldJournals, where the plan history of this walk is kept).
+      AND jl.journal_entry_id NOT IN (${provisionallyHeldJournalIds(companyId)})
     -- Every candidate is this bank's line of the exact amount, so: the nearest date (computed only between finite
     -- dates: an 'infinity' date sorts last instead of failing the query — sec r16).
     ORDER BY CASE WHEN isfinite(je.entry_date) AND isfinite(${txDate}::DATE) THEN ABS(je.entry_date - ${txDate}::DATE) END

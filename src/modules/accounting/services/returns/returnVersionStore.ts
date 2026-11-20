@@ -28,6 +28,10 @@ export function mapVersion(r: DbRow): ReturnVersion {
     amendedBy: text(r.amended_by),
     amendReason: text(r.amend_reason),
     amendedAt: r.amended_at == null ? null : iso(r.amended_at),
+    filingFileSha256: text(r.filing_file_sha256),
+    filingFileKind: text(r.filing_file_kind),
+    filingFileAt: r.filing_file_at == null ? null : iso(r.filing_file_at),
+    filingFileBy: text(r.filing_file_by),
   };
 }
 
@@ -84,7 +88,7 @@ export function nextVersion(existing: ReturnVersion[]): { versionNo: number; ame
 }
 
 /**
- * Refuses (409) when a live (non-superseded) version of this form overlaps the period. Called
+ * Refuses (409) when a live (non-superseded) version of this form overlaps the period (an EMP501: has the same period). Called
  * before the finalise and again once the VAT exclusive key is held, so a concurrent finalise
  * that committed in between is seen.
  */
@@ -95,6 +99,8 @@ export async function assertNoLiveOverlap(
     SELECT version_no, status, period_start, period_end FROM tax_return_versions
     WHERE company_id = ${companyId}::UUID AND form_type = ${form} AND status <> 'superseded'
       AND period_start <= ${periodEnd}::DATE AND period_end >= ${periodStart}::DATE
+      -- An EMP501's interim (Mar-Aug) and annual (Mar-Feb) are two returns SARS expects both of: only the same period clashes.
+      AND (${form} <> 'EMP501' OR (period_start = ${periodStart}::DATE AND period_end = ${periodEnd}::DATE))
     LIMIT 1
   `) as DbRow[];
   const r = rows[0];

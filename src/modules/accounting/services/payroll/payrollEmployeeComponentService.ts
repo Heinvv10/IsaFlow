@@ -1,4 +1,5 @@
 import { sql, withTransaction } from '@/lib/neon';
+import { assertComponentAssignableAtFrequency } from './payrollFrequencyGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
@@ -9,7 +10,9 @@ import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMont
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffSpan } from './payrollOnceOffGuard';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
-import { judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
+import { judgeDbFactor, judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
+import { refuseSecondDbFactorRow } from './definedBenefitAssignment';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -25,11 +28,18 @@ export interface EmployeeComponentAssignment {
   percentOfRfi: number | null;
   /** RF: a pre-RF employer fund row kept as cash (migration 975's opt-out). */
   employerFundAsCash: boolean;
+  /** DBF (migration 1014): the defined-benefit fund member category factor; amount is then what the employer pays the fund. */
+  dbMemberCategoryFactor: number | null;
+  /** DBF: a para 12D(6) member (retired, or a deceased member's dependant or nominee). */
+  dbMemberRetired: boolean;
+  /** DBF: this 4001 / 4003 deduction is the compulsory contribution to the defined-benefit fund (C). */
+  dbFundMemberContribution: boolean;
 }
 
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
   componentName: string;
   componentType: string;
+  sarsSourceCode: string;
   /** False: the component was switched off, and a run does not pay it (getEmployeeComponents) though the row is open. */
   componentActive: boolean;
   /** From the component: only a taxable recurring earning is a salary for the readiness check. */
@@ -49,6 +59,9 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
     isRecurring: r.is_recurring === false ? false : true,
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
     employerFundAsCash: r.employer_fund_as_cash === true,
+    dbMemberCategoryFactor: r.db_member_category_factor == null ? null : Number(r.db_member_category_factor),
+    dbMemberRetired: r.db_member_retired === true,
+    dbFundMemberContribution: r.db_fund_member_contribution === true,
   };
 }
 
@@ -97,6 +110,12 @@ function dayOf(value: string, field: string): string {
  * with `actor` in the same transaction (payrollComponentAudit), so the approval gate sees it. `percentOfRfi` (RF, a fraction
  * 0-1) makes the row a share of retirement-funding income, costed per run (rfi.ts): amount must then be 0, and only a
  * retirement contribution (4001 / 4003 / 4006 deduction, 3817 / 3825 / 3828 earning) may carry it (judgePercentOfRfi).
+ * `dbMemberCategoryFactor` (DBF, a fraction 0-1) makes it an employer's defined-benefit contribution valued per para 12D(3)
+ * in each run (definedBenefitFund.ts): amount = what the employer pays the fund (0 or more), recurring, 3817 / 3825 only,
+ * never with percentOfRfi (judgeDbFactor), one live row per fund kind (refuseSecondDbFactorRow, 409); `dbMemberRetired`
+ * (only with a factor) makes it a para 12D(6) member. Setting
+ * one is refused to a platform-admin Login-as session (R-032; assertNotImpersonating, before any read or write): the factor
+ * is a tax valuation input taken from the fund's certificate, recorded under the name of the person who set it.
  */
 export async function assignComponentToEmployee(
   companyId: string,
@@ -108,7 +127,12 @@ export async function assignComponentToEmployee(
   isRecurring: boolean,
   actor: ComponentChangeActor,
   percentOfRfi: number | null = null,
+  dbMemberCategoryFactor: unknown = null,
+  dbMemberRetired: unknown = false,
 ): Promise<EmployeeComponentAssignment> {
+  if (dbMemberCategoryFactor !== null) await assertNotImpersonating();
+  if (typeof dbMemberRetired !== 'boolean') throw new EmployeeComponentRefused('dbMemberRetired must be true or false.');
+  if (dbMemberRetired && dbMemberCategoryFactor === null) throw new EmployeeComponentRefused('dbMemberRetired goes only with a dbMemberCategoryFactor.');
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
@@ -125,15 +149,20 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
+    await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi); // wave 6 FQc, §0a.11
     await judgeFundAssignment(tx, companyId, componentId);
+    // DBF before RF: a factor beside a percentage is refused as that pair, whatever the percentage says.
+    if (dbMemberCategoryFactor !== null) await judgeDbFactor(tx, companyId, componentId, { factor: dbMemberCategoryFactor, percentOfRfi, amount, isRecurring });
     if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
-    await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
+    await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring, dbFactor: dbMemberCategoryFactor !== null });
+    if (dbMemberCategoryFactor !== null) await refuseSecondDbFactorRow(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr });
 
     log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
     const rows = (await tx`
       INSERT INTO payroll_employee_components (
-        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred, percent_of_rfi
+        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred, percent_of_rfi,
+        db_member_category_factor, db_member_retired
       ) VALUES (
         ${employeeId}::uuid,
         ${componentId}::uuid,
@@ -142,7 +171,9 @@ export async function assignComponentToEmployee(
         ${effectiveToStr},
         ${isRecurring},
         FALSE, -- written by this release: superseded_at decides (migration 953)
-        ${percentOfRfi}
+        ${percentOfRfi},
+        ${dbMemberCategoryFactor === null ? null : Number(dbMemberCategoryFactor)}::numeric,
+        ${dbMemberRetired}
       )
       RETURNING *
     `) as Row[];
@@ -186,7 +217,8 @@ export async function listEmployeeComponentAssignments(
     SELECT
       pec.id, pec.employee_id, pec.component_id, pec.amount,
       pec.effective_from, pec.effective_to, pec.is_recurring, pec.percent_of_rfi, pec.employer_fund_as_cash,
-      pc.name AS component_name,
+      pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
+      pc.name AS component_name, btrim(pc.sars_source_code) AS sars_source_code,
       pc.component_type,
       pc.is_active AS component_active,
       pc.is_taxable
@@ -200,6 +232,7 @@ export async function listEmployeeComponentAssignments(
     ...mapAssignment(r),
     componentName: String(r.component_name),
     componentType: String(r.component_type),
+    sarsSourceCode: String(r.sars_source_code),
     componentActive: Boolean(r.component_active),
     isTaxable: Boolean(r.is_taxable),
   }));

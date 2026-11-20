@@ -65,7 +65,9 @@ for (const theme of THEMES) test(`exclude an imported line, Undo, and it is back
     await page.goto(`${BANK}?account_id=${bankAccountId}`, { waitUntil: 'domcontentloaded' });
     const row = page.locator(ROWS, { hasText: ref });
     await expect(row).toBeVisible({ timeout: 60_000 });
-    await row.getByRole('button', { name: /^Exclude, / }).click();
+    // Exclude is the last item of the row's More actions menu (WP4b).
+    await row.getByRole('button', { name: /^More actions, / }).click();
+    await page.getByRole('menuitem', { name: 'Exclude', exact: true }).click();
     await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
     await page.getByRole('button', { name: 'Exclude Transaction' }).click();
 

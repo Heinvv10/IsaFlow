@@ -81,7 +81,7 @@ async function kmToDateOf(companyId: string, period: RunPeriod, employeeIds: str
  * leave pay, corrections) are not the basic (review #1580 M2). 0 when none can be told: the write then refuses overtime.
  */
 export async function monthlyBasicOf(companyId: string, employee: PayrollEmployee, period: RunPeriod): Promise<number> {
-  const recurring = (await getEmployeeComponents(employee.id, companyId, payrollRunReadDate(period))).filter((c) => c.isRecurring !== false);
+  const recurring = (await getEmployeeComponents(employee.id, companyId, payrollRunReadDate(period), period.start)).filter((c) => c.isRecurring !== false);
   const distinct = [...new Map(recurring.map((c) => [c.component.id, c.component])).values()];
   const found = hoursComponentOf(distinct);
   if (!('component' in found)) return 0;

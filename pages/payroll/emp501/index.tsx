@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { emp501AllReconciled, emp501TotalStatus } from '@/components/payroll/emp501TotalStatus';
+import { Emp501ReturnSection } from '@/components/payroll/emp501/Emp501ReturnSection';
 
 interface ReconciliationRow {
   month: number;
@@ -16,7 +18,9 @@ interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
-  status: 'balanced' | 'variance' | 'no_data';
+  pspPaye?: number;
+  unexplainedVariance?: number;
+  status: 'balanced' | 'explained_psp' | 'variance' | 'no_data';
 }
 
 interface Emp501Summary {
@@ -25,16 +29,20 @@ interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
+  /** Runs left out as not final, and each PSP's PAYE on no natural-person certificate (wave 6 PSP), by name. */
+  runWarnings?: string[];
 }
 
 const STATUS_STYLES: Record<string, string> = {
   balanced: 'bg-teal-500/10 text-teal-400',
   variance: 'bg-red-500/10 text-red-400',
+  explained_psp: 'bg-amber-500/10 text-amber-400',
   no_data: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]',
 };
 const STATUS_LABELS: Record<string, string> = {
   balanced: 'Balanced',
   variance: 'Variance',
+  explained_psp: 'PSP PAYE (see note)',
   no_data: 'No Data',
 };
 
@@ -89,7 +97,8 @@ export default function Emp501Page() {
   };
 
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
-  const allBalanced = summary?.rows.every(r => r.status !== 'variance') ?? false;
+  const allBalanced = summary ? emp501AllReconciled(summary.rows) : false;
+  const totalStatus = summary ? emp501TotalStatus(summary.rows, summary.totalVariance) : 'balanced';
 
   return (
     <AppLayout>
@@ -127,6 +136,7 @@ export default function Emp501Page() {
         </div>
 
         <div className="p-6 space-y-6">
+          <Emp501ReturnSection taxYear={taxYear} />
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
@@ -137,12 +147,17 @@ export default function Emp501Page() {
             </div>
           ) : summary && (
             <>
-              {allBalanced && summary.rows.some(r => r.status === 'balanced') && (
+              {allBalanced && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm font-medium">
                   <CheckCircle className="h-4 w-4" /> All periods reconcile. Ready for filing through e@syFile
                 </div>
               )}
 
+              {(summary.runWarnings ?? []).map(w => (
+                <div key={w} className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-400 text-sm">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{w}</span>
+                </div>
+              ))}
               <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
                 <table className="w-full text-sm">
                   <thead>
@@ -181,8 +196,8 @@ export default function Emp501Page() {
                         {formatCurrency(Math.abs(summary.totalVariance))}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${Math.abs(summary.totalVariance) < 0.01 ? STATUS_STYLES.balanced : STATUS_STYLES.variance}`}>
-                          {Math.abs(summary.totalVariance) < 0.01 ? 'Balanced' : 'Variance'}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[totalStatus]}`}>
+                          {STATUS_LABELS[totalStatus]}
                         </span>
                       </td>
                     </tr>

@@ -12,18 +12,21 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { isRatedDate } from '@/lib/vat/standardRate';
+import { DOCUMENT_LINE_VAT_TYPES, vatTypeLabel } from '@/modules/accounting/services/shared/vatTypes';
+import { lineAmount, vatDocumentTotals, vatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
 
-interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
+interface LineItem { description: string; quantity: number; unitPrice: number; vatType: (typeof DOCUMENT_LINE_VAT_TYPES)[number] }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
-const VAT_TYPES = [
-  { value: 'standard', label: 'Standard (15%)' },
-  { value: 'zero', label: 'Zero Rated (0%)' },
-  { value: 'exempt', label: 'Exempt' },
-];
+/** The line's amount as the server prices it; 0 while a field is mid-edit (empty, NaN, absurd). */
+const pricedAmount = (li: LineItem): number =>
+  (Number.isFinite(li.quantity) && Number.isFinite(li.unitPrice) && Math.abs(li.quantity * li.unitPrice) < 1e13
+    ? lineAmount(li.quantity, li.unitPrice) : 0);
 
 const emptyLine = (): LineItem => ({ description: '', quantity: 1, unitPrice: 0, vatType: 'standard' });
 
@@ -45,12 +48,12 @@ export default function NewSupplierCreditNotePage() {
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
 
-  const subtotal = lineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0);
-  const vatAmount = lineItems.reduce((s, li) => {
-    const amt = li.quantity * li.unitPrice;
-    return s + (li.vatType === 'standard' ? Math.round(amt * 0.15 * 100) / 100 : 0);
-  }, 0);
-  const total = subtotal + vatAmount;
+  // As the server prices it (shared/vatLineAmounts): VAT per line, by its type, at the rate of the credit date.
+  // A date mid-edit has no rate to read and must not throw in render: preview at today's until it is whole.
+  const vatDate = isRatedDate(form.creditDate) ? form.creditDate : localISODate();
+  const { subtotal, vat: vatAmount, total } = vatDocumentTotals(lineItems.map((li) => {
+    return vatLineAmounts(pricedAmount(li), li.vatType, vatDate);
+  }));
 
   const updateLine = (idx: number, patch: Partial<LineItem>) =>
     setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, ...patch } : li));
@@ -182,15 +185,15 @@ export default function NewSupplierCreditNotePage() {
                       {lineItems.map((li, idx) => (
                         <tr key={idx} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-2 py-2"><input type="text" value={li.description} onChange={e => updateLine(idx, { description: e.target.value })} placeholder="Item description" className={inp} required /></td>
-                          <td className="px-2 py-2"><input type="number" aria-label={`Line ${idx + 1} quantity`} min="0.001" step="0.001" value={li.quantity} onChange={e => updateLine(idx, { quantity: Number(e.target.value) })} className={`${inp} text-right`} /></td>
-                          <td className="px-2 py-2"><input type="number" aria-label={`Line ${idx + 1} unit price`} min="0" step="0.01" value={li.unitPrice} onChange={e => updateLine(idx, { unitPrice: Number(e.target.value) })} className={`${inp} text-right`} /></td>
+                          <td className="px-2 py-2"><AmountInput aria-label={`Line ${idx + 1} quantity`} min={0.001} decimals={3} value={li.quantity} onValueChange={n => updateLine(idx, { quantity: n })} className={`${inp} text-right`} /></td>
+                          <td className="px-2 py-2"><AmountInput aria-label={`Line ${idx + 1} unit price`} placeholder="0.00" min={0} decimals={6} value={li.unitPrice} onValueChange={n => updateLine(idx, { unitPrice: n })} className={`${inp} text-right`} /></td>
                           <td className="px-2 py-2">
-                            <select name="vatType" aria-label={`Line ${idx + 1} VAT type`} value={li.vatType} onChange={e => updateLine(idx, { vatType: e.target.value })} className={inp}>
-                              {VAT_TYPES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+                            <select name="vatType" aria-label={`Line ${idx + 1} VAT type`} value={li.vatType} onChange={e => updateLine(idx, { vatType: e.target.value as LineItem['vatType'] })} className={inp}>
+                              {DOCUMENT_LINE_VAT_TYPES.map(v => <option key={v} value={v}>{vatTypeLabel(v, vatDate)}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {formatCurrency(li.quantity * li.unitPrice)}
+                            {formatCurrency(pricedAmount(li))}
                           </td>
                           <td className="px-2 py-2">
                             <button type="button" aria-label={`Remove line ${idx + 1}`} onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">

@@ -44,7 +44,8 @@ export function useSupplierInvoiceActions(opts: Options | null): {
   const approvalHolds = ['required', 'pending', 'stale'].includes(invoice.approval?.state ?? '');
   const canApprove = canEdit && !approvalHolds;
   const canCancel = invoice.status !== 'paid' && invoice.status !== 'partially_paid' && invoice.status !== 'cancelled';
-  const canMatch = !!invoice.purchaseOrderId;
+  // A bill linked to several purchase orders has no header PO (migration 1006) but its lines name PO lines.
+  const canMatch = !!invoice.purchaseOrderId || (invoice.items ?? []).some((i) => !!i.poItemId);
   const canRecordPayment = ['approved', 'partially_paid'].includes(invoice.status) && invoice.balance > 0;
 
   const documentsGroup: InvoiceActionGroup = {

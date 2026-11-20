@@ -1,5 +1,5 @@
 /**
- * Overtime hours and reimbursive travel km on a pay run (wave 6 RI, migration 999t). Pure.
+ * Overtime hours and reimbursive travel km on a pay run (wave 6 RI, migration 1017). Pure.
  *
  * OVERTIME. An hours row carrying `rateMultiplier` is overtime: amount = hours x the hourly rate x the multiplier, priced on
  * the server in whole cents (overtimeAmountCents) and stored, so the line costs what was entered. The multiplier is 1.5
@@ -29,7 +29,6 @@ export const TRAVEL_WITHIN_RATE_CODE = '3702';
 export const TRAVEL_NOT_TAXABLE_CODE = '3703';
 export const TRAVEL_EXCESS_CODE = '3722';
 export const OVERTIME_ABOVE_BCEA_THRESHOLD = 'OVERTIME_ABOVE_BCEA_THRESHOLD';
-const WEEKS_PER_MONTH = 52 / 12;
 
 /**
  * BCEA s6(3) earnings thresholds a year, by the date each took effect. UNVERIFIED against the Gazette text (read through
@@ -57,13 +56,18 @@ export const isRunInputUnitRow = (c: Pick<EmployeeComponent, 'rateMultiplier' | 
 export const overtimeAmountCents = (hours: number, hourlyRate: number, multiplier: number): number =>
   Math.round((Math.round(hours * 100) * Math.round(hourlyRate * 100) * multiplier) / 100);
 
-/** The hourly rate overtime is priced at, to the cent; null when it cannot be told (the write refuses, naming what is missing). */
+/**
+ * The hourly rate overtime is priced at, to the cent; null when it cannot be told (the write refuses, naming what is missing).
+ * A salaried employee's rate is the period's basic over the period's hours: hours a week x 52 / the periods a year (12 monthly,
+ * 26 fortnightly, 52 weekly; FQc), so a weekly basic is not divided as if it were a month's.
+ */
 export function overtimeHourlyRate(
-  employee: Pick<PayrollEmployee, 'payBasis' | 'hourlyRate' | 'dailyRate' | 'hoursPerDay' | 'hoursPerWeek'>, monthlyBasic: number,
+  employee: Pick<PayrollEmployee, 'payBasis' | 'hourlyRate' | 'dailyRate' | 'hoursPerDay' | 'hoursPerWeek'> & { payFrequency?: string }, periodBasic: number,
 ): number | null {
+  const weeksPerPeriod = 52 / (PERIODS_A_YEAR[employee.payFrequency ?? 'monthly'] ?? 12);
   const rate = employee.payBasis === 'hourly' ? employee.hourlyRate
     : employee.payBasis === 'daily' ? (employee.dailyRate != null && employee.hoursPerDay ? employee.dailyRate / employee.hoursPerDay : null)
-      : employee.hoursPerWeek && monthlyBasic > 0 ? monthlyBasic / (employee.hoursPerWeek * WEEKS_PER_MONTH) : null;
+      : employee.hoursPerWeek && periodBasic > 0 ? periodBasic / (employee.hoursPerWeek * weeksPerPeriod) : null;
   return rate == null || !(rate > 0) ? null : cents(rate) / 100;
 }
 

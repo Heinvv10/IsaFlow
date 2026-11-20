@@ -27,6 +27,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 import { setRunHours } from '@/modules/accounting/services/payroll/payrollRunHoursInput';
 import { setRunUnits, type UnitEntry } from '@/modules/accounting/services/payroll/payrollRunUnitsInput';
+import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -86,7 +87,7 @@ function refused(res: NextApiResponse, id: string, err: unknown): void {
   if (respondIfLockTimeout(res, err)) return;
   if (err instanceof PayrollRunInputRefusedError) {
     if (err.status === 404) return apiResponse.notFound(res, 'PayrollRun', id);
-    if (err.status === 409) return apiResponse.conflict(res, err.message);
+    if (err.status === 409) return apiResponse.conflict(res, err.message, err instanceof PreparerIdNotSupportedError ? { code: err.code } : undefined);
     return apiResponse.badRequest(res, err.message);
   }
   throw err;

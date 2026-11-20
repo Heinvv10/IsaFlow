@@ -63,6 +63,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
     `${S}gl/chartOfAccountsService.ts`, `${S}gl/chartOfAccountsTemplateSeed.ts`, `${S}gl/defaultAccountsService.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, `${S}gl/openingBalanceEquityService.ts`,
+    `${S}payroll/payrollGarnisheeAccount.ts`, // GA: the lazy garnishee payable on a company's first order (F13)
     'src/modules/admin/services/sageMigrationOrchestrator.ts',
   ],
   payroll_employees: [
@@ -75,6 +76,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',
     'scripts/acceptance/entity-onboarding-admin.ts', // acceptance admin scenarios on the throwaway DB (psql)
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
+    'scripts/deploy/verifyCompany/provisionDb.ts', // the Deploy Verification approver's admin membership (additive, idempotent, one company)
     'scripts/provision-isademo2.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}core/memberWrites.ts`,
@@ -93,6 +95,8 @@ const WRITERS: Record<string, string[]> = {
     'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/ci/golden-hosted/seed-demo.sql', // seeds the throwaway database of a hosted Golden Paths run (psql), never a shared one
+    'scripts/deploy/verifyCompany/provisionDb.ts', // flags the new Deploy Verification company is_demo (entity_change_capture records it); additive, idempotent, one company
+    'scripts/deploy/verifyCompany/seedBlocks.ts', // flags the Deploy Verification migration sandbox is_demo, once (entity_change_capture records it)
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,

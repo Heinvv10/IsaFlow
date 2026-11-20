@@ -14,7 +14,8 @@ const order: string[] = [];
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async () => [{ id: 'r1', company_id: 'c1', period_month: 6, period_year: 2026, status: 'approved' }]),
+  sql: Object.assign(vi.fn(async () => [{ id: 'r1', company_id: 'c1', period_month: 6, period_year: 2026, status: 'approved' }]),
+    { unsafe: (text: string) => text }),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(vi.fn(async () => [{ id: 'r1' }]))),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
@@ -29,6 +30,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollApprovalGate', () => ({
 }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn(async () => ({})) }));
 vi.mock('@/modules/accounting/services/payroll/payRunDecision', () => ({ readPayRunDecision: vi.fn(async () => null) }));
+// GA: the garnishee reads at approval are not this test's subject (its sql mock answers every query with a header row).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({ judgeGarnisheeBalances: vi.fn(), applyRunGarnishees: vi.fn(async () => 0) }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => ({ claimRunSeveranceDirectives: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({ recordPayRunApprovalAudit: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn(async () => { order.push('post'); return 'je1'; }) }));

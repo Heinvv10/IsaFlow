@@ -13,11 +13,14 @@ import {
 import { DIMENSION_LINE_PROPERTIES, parseDimensionRefs } from './dimensionArgs';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { MAX_LINES } from './invoiceCreateArgs';
+import { itemIdArg } from './itemToolArgs';
 
 export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   description: string;
   quantity?: number;
   unitPrice: number;
+  /** The catalogue item (migration 1005), when the line names one; null = none (clears it on an edit). */
+  itemId?: string | null;
 }
 
 export interface ParsedCustomerInvoice {
@@ -43,7 +46,8 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     description: { type: 'string' },
     quantity: { type: 'number', exclusiveMinimum: 0 },
     unit_price: { type: 'number', minimum: 0 },
-    gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the default sales account.' },
+    gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the item\'s sales account (when item_id is given) or the default sales account.' },
+    item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line credits the item\'s sales account. An inactive item is refused.' },
     project_id: {
       type: 'string',
       description: 'Job (a `projects` id — what Project Profitability reads) the line\'s revenue belongs to. '
@@ -129,10 +133,12 @@ export function parseCustomerInvoiceInput(
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;
+    const item = itemIdArg(o.item_id, `items[${i}]`);
+    if (typeof item === 'string') return item;
     const dims = parseDimensionRefs(o, `items[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity, ...coding });
+    items.push({ description, unitPrice, quantity, ...coding, ...item });
   }
   const projectId = readCodingId(args.project_id);
   if (projectId === undefined) return 'project_id must be a UUID';

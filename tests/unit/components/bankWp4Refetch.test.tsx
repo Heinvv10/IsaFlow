@@ -74,7 +74,7 @@ afterEach(() => { cleanup(); });
 async function open(query: Record<string, string> = {}) {
   cap.router = makeFakeRouter(query);
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect(ids().length).toBeGreaterThan(0));
   await settle();
 }
@@ -189,7 +189,7 @@ describe('clicking the account already open changes nothing', () => {
     fireEvent.click(screen.getByTestId('card-a')); // a is the selected account
     await settle();
     expect(cap.filters.txType).toBe('spent');
-    expect(screen.getByTestId('bank-tx-selected-count').textContent).toBe('1 selected');
+    expect(screen.getByTestId('bank-tx-selection-live').textContent).toBe('1 selected');
     expect(listUrls().length).toBe(n);
   });
 });

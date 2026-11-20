@@ -37,8 +37,8 @@ import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { draftEditDueDate } from './customerInvoiceDraftDueDate';
+import { resolveDraftEditItems } from './customerInvoiceDraftItems';
 import type { CustomerInvoiceDraftEditResult } from './customerInvoiceDraftEditResult';
-
 type Row = Record<string, unknown>;
 const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
 
@@ -51,8 +51,9 @@ export async function editDraftCustomerInvoice(
   const {
     id, notes, internalNotes,
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, currencyCode, exchangeRate, items, projectId,
+    taxRate, currencyCode, exchangeRate, items: sentItems, projectId,
   } = edit;
+  let items = sentItems;
   // Blank is "no change", as it is "the functional currency" on create.
   const fxCode = currencyCode?.trim().toUpperCase() || null;
   const fxRateOverride = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : null;
@@ -141,9 +142,9 @@ export async function editDraftCustomerInvoice(
     let unchanged = (_c: InvoiceLineCoding): InvoiceLineCoding => _c;
     let wip: WipLinkCheck | null = null;
     if (items) {
-      const stored = ((await tx`
-        SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
-      `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
+      const withItems = await resolveDraftEditItems(tx, companyId, id, items); // migration 1005: item links, their default account, the stored coding
+      if ('message' in withItems) return { kind: 'bad_line' as const, message: withItems.message };
+      const { stored } = withItems; items = withItems.items;
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
       wip = await wipLinks(tx, companyId, id, items, edit.releaseTimeEntryIds); // keep a link, or release it by name
@@ -267,12 +268,12 @@ export async function editDraftCustomerInvoice(
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, line_position
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, line_position, item_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i} -- the entry order (956)
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i}, ${it.itemId ?? null}::UUID -- line_position is the entry order (956)
           )
         `;
       }

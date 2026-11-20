@@ -16,6 +16,10 @@ import {
   lockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import {
+  rateCheckFailure, rateCheckForFiling,
+} from '@/modules/accounting/services/reports/vat201RateCheck';
 import { VatPeriodLockRefusal, assertLockablePeriod } from '@/modules/accounting/services/reports/vatPeriodLockBounds';
 import {
   assertVatGateClear, getCompanyRoleForUser, vatGateExceptionCounts, VatGateBlockedError, VatGateOverrideForbiddenError,
@@ -38,7 +42,7 @@ export const vatReconciliationTool: McpTool = {
     'Reconciles VAT month by month across three sources: what the general ledger posted, what the invoices say, and what was actually submitted on a VAT return. Returns each month with GL revenue and VAT, invoice revenue and VAT, the submitted return where one exists, the capital-goods split, the variance between each pair, and the effective VAT rate. '
     + 'issues[] flags a month whose effective rate falls outside 14–16% (a misclassification of zero-rated or exempt supplies), a revenue or output-VAT variance above the threshold, and any month with no return submitted at all. '
     + 'USE IT FOR: "does the VAT control account agree with what we filed", and "how much VAT is sitting in the ledger that SARS has never been told about" — R1,383,192 of apparent shortfall on one company was assembled by hand from a bank export before this existed. '
-    + 'LIMITS: a month with no vat_returns record shows returnOutputVat null and a variance of 0, which means NOT SUBMITTED, not "agrees". Supplier-invoice input VAT is not carried in the invoice column (invoiceInputVat is always 0) — compare glInputVat instead. It reports; it files nothing.',
+    + 'LIMITS: a month with no VAT201 filing (a finalised or filed return version, or for older periods a vat_returns record) shows returnOutputVat null and a variance of 0, which means NOT SUBMITTED, not "agrees"; returnStatus says finalised, filed or submitted. Supplier-invoice input VAT is not carried in the invoice column (invoiceInputVat is always 0) — compare glInputVat instead. It reports; it files nothing.',
   scope: 'read:vat',
   write: false,
   inputSchema: {
@@ -87,7 +91,8 @@ export const vat201ExportTool: McpTool = {
   description:
     'The VAT201 in a form you can file: the SARS field codes (F01–F16) with their values, or a CSV of the boxes. Computed from the SAME journal-derived boxes as vat_status, so the return you export is the one the 15% check was run against. '
     + 'format: "sars_payload" (the default) returns the field codes; "csv" returns a spreadsheet of every box with its base, tax, implied tax at 15% and variance, and the VAT the boxes could not place. '
-    + 'rateCheck is carried through: DO NOT FILE a return whose ties is false without reading the per-box variance first — that is the check SARS runs. '
+    + 'filingRateCheck is the 15% check SARS runs, on the figures this return files: output tax against taxedOutputBase, after nilRatedGivenBack of zero-rated or exempt supplies on journals that also carry output VAT is given back (uncodedGivenBack: the uncoded revenue on documents that recorded no VAT inside it). It is computed by the same function lock_vat_period and finalise refuse on, on the ledger as read at call time, whether or not the period is locked, and with no lock taken: a posting between this read and a lock can change it, and the lock recomputes it under the VAT lock. Decide whether to file on filingRateCheck.ties: do not file while it is false without reading its variances first. '
+    + 'rateCheck is the per-box diagnostic, measured before that give-back, so it can read ties=false for a correct period with zero-rated or exempt lines on taxed journals. In the csv, the implied_tax_at_15pct and variance columns and the TOTALS row are that diagnostic; the FILING_CHECK row states filingRateCheck. '
     + 'If the period has been locked by lock_vat_period, the lock is returned, and driftSinceLock is non-null when the ledger no longer computes what was filed. That is evidence that something was posted into a filed period, not an updated return. '
     + 'blockingExceptions carries getVatExceptions\' blocking counts as a WARNING ONLY — this tool never refuses on them, unlike lock_vat_period and manual mark-submitted. '
     + 'LIMITS: it produces the payload; it does not submit anything to SARS and does not create a vat_returns record.',
@@ -119,7 +124,8 @@ export const lockVatPeriodTool: McpTool = {
     'Records that a VAT period has been filed and stops it being changed. Stores the return that was filed — output tax, input tax, net VAT — together with the posted_through those figures were computed at, so that a later disagreement between the filed return and the ledger can be told apart from an arithmetic error. '
     + 'WHY YOU NEED IT: nothing else stops a journal being posted into a period that has already been filed. One live ledger accepts a 2022 posting made today, and the return submitted for 2022 no longer agrees with the ledger it came from, with nothing recording that it ever did. '
     + 'RUN dry_run FIRST. The dry run runs every guard the live call runs — the period must not run backwards, must not already be locked, and its 15% check is reported — and writes nothing. '
-    + 'It REFUSES to lock a period whose rateCheck.ties is false unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
+    + 'It REFUSES to lock a period that fails SARS\'s 15% check unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
+    + 'The check is output tax against the taxed output supplies the return files, which exclude the zero-rated and exempt supplies on journals that also carry output VAT (declared in fields 2 and 3), judged under the VAT lock. filingRateCheck is that verdict, with the fields vat_status and vat201_export return (ties, outputVariance, inputVariance, taxedOutputBase, nilRatedGivenBack, uncodedGivenBack); decide on filingRateCheck.ties. filingRateCheck is null when the period was already locked: nothing was judged and nothing was read. rateCheck is the report\'s per-box diagnostic, unmodified, and can read ties=false for a correct period with zero-rated or exempt lines on taxed journals. '
     + 'BOUNDS: the period must end on or before today, span at most 12 months, and not overlap another active lock. '
     + 'IDEMPOTENT BY THE PERIOD ITSELF: locking a period that is already locked returns the EXISTING lock and does not overwrite its figures, so a retry can never rewrite what was filed. '
     + 'ENFORCED: once locked, every posting that would move a VAT-return figure dated inside the period is refused (a journal with no VAT line still posts), and a reversal whose default date falls inside it is dated forward past the lock. '
@@ -174,9 +180,13 @@ export const lockVatPeriodTool: McpTool = {
       throw err;
     }
 
-    if (!existing && report.rateCheck.ties === false && args.force !== true) {
+    // An existing lock is returned as it stands and judges nothing: no nil-rated read. Otherwise the read runs
+    // before any write; if it throws, the registry rolls the savepoint back and nothing is recorded.
+    const filing = existing
+      ? null : rateCheckForFiling(report, await getNilRatedSupplies(ctx.companyId, period.start, period.end));
+    if (filing && !filing.ties && args.force !== true) {
       return toolError(
-        `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is over-claimed by ${report.rateCheck.inputVariance} (summed per journal). `
+        `${rateCheckFailure(filing)} `
         + 'Read vat_status detail="full" to find which journals, or pass force:true to lock it as it stands.',
       );
     }
@@ -197,6 +207,7 @@ export const lockVatPeriodTool: McpTool = {
           alreadyLocked: existing,
           figures,
           rateCheck: report.rateCheck,
+          filingRateCheck: filing,
           excludedRows: report.excludedRows,
           exceptionCounts: counts,
           wouldRequireOverride: counts.totalExceptions > 0,
@@ -234,7 +245,7 @@ export const lockVatPeriodTool: McpTool = {
     }
 
     return {
-      ...ok({ locked: result.lock, created: result.created, rateCheck: report.rateCheck }),
+      ...ok({ locked: result.lock, created: result.created, rateCheck: report.rateCheck, filingRateCheck: filing }),
       // A lock that already existed wrote nothing, so it must not occupy the
       // key either — the same rule as a dry run.
       ...(result.created ? {} : { wroteNothing: true }),

@@ -27,7 +27,7 @@ import { als } from '@/lib/als';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
 import {
-  ctxFor, inRolledBackTx, seedVatCompany, seedTradeVat, seedFiscalPeriod,
+  ctxFor, inRolledBackTx, seedVatCompany, seedTradeVat, seedFiscalPeriod, seedFinalisedVat201,
   FIXTURE_USER_ID, type VatFixture,
 } from '../../helpers/vatControlFixture';
 
@@ -69,6 +69,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
       // 2010 is more than AUTO_CREATE_YEARS_BACK behind today, so nothing will
       // create a period for 2011-01-01 and the entry would post with a NULL one.
       await seedTradeVat(client, f, '2010-11-15', '2010-11-20');
+      await seedFinalisedVat201(client, f, '2010-11-01', '2010-12-31'); // VR: a settlement needs a finalised VAT201
 
       await expect(
         als.run(ctxFor(client, f.companyId), () =>
@@ -87,6 +88,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
     await inRolledBackTx(async (client) => {
       const f = await seedVatCompany(client, 'submit message');
       await seedTradeVat(client, f, '2010-11-15', '2010-11-20');
+      await seedFinalisedVat201(client, f, '2010-11-01', '2010-12-31'); // VR: a settlement needs a finalised VAT201
 
       await expect(
         als.run(ctxFor(client, f.companyId), () =>
@@ -103,6 +105,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
       await seedFiscalPeriod(client, f.companyId, '2026-01-01', '2026-02-28', 1, 2026);
       await seedFiscalPeriod(client, f.companyId, '2026-03-01', '2026-03-31', 2, 2026);
       await seedTradeVat(client, f, '2026-01-15', '2026-01-20');
+      await seedFinalisedVat201(client, f, '2026-01-01', '2026-02-28'); // VR: a settlement needs a finalised VAT201
 
       await als.run(ctxFor(client, f.companyId), () =>
         submitVATReturn(f.companyId, { periodStart: '2026-01-01', periodEnd: '2026-02-28' }, FIXTURE_USER_ID),
@@ -123,6 +126,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
       // Deliberately NO fiscal periods at all: a brand-new company's shape, and
       // the case ensureFiscalPeriodForDate exists to serve.
       await seedTradeVat(client, f, '2027-05-15', '2027-05-20');
+      await seedFinalisedVat201(client, f, '2027-05-01', '2027-06-30'); // VR: a settlement needs a finalised VAT201
 
       // No period covers 2027-07-01, but 2027 is inside the window, so the
       // write path creates the year itself. A guard that refused here would
@@ -149,6 +153,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
       const f = await seedVatCompany(client, 'submit gap year');
       await seedFiscalPeriod(client, f.companyId, '2027-05-01', '2027-06-30', 1, 2027);
       await seedTradeVat(client, f, '2027-05-15', '2027-05-20');
+      await seedFinalisedVat201(client, f, '2027-05-01', '2027-06-30'); // VR: a settlement needs a finalised VAT201
 
       await als.run(ctxFor(client, f.companyId), () =>
         submitVATReturn(f.companyId, { periodStart: '2027-05-01', periodEnd: '2027-06-30' }, FIXTURE_USER_ID),
@@ -169,6 +174,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
       const f = await seedVatCompany(client, 'submit gap closed year');
       const closed = await seedFiscalPeriod(client, f.companyId, '2027-05-01', '2027-06-30', 1, 2027);
       await seedTradeVat(client, f, '2027-05-15', '2027-05-20');
+      await seedFinalisedVat201(client, f, '2027-05-01', '2027-06-30'); // VR: a settlement needs a finalised VAT201
       await client.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [closed]);
 
       await expect(

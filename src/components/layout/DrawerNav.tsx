@@ -60,17 +60,14 @@ function Items({ items, asPath, depth, idPrefix }: { items: NavItem[]; asPath: s
 
 function TabGroup({ tab, asPath, active }: { tab: Tab; asPath: string; active: boolean }) {
   const id = `drawer-nav-${tab.id}`;
-  // A daily link named like a section that lists the same page ("Customers" beside the Customers section) shows
-  // "Customers" twice in one accordion; the section wins. A daily link into a differently named section (Invoices
-  // -> Transactions > Tax Invoices) stays: it is the one-tap shortcut the drawer exists for.
-  const links = tab.links?.filter(l => !(tab.items ?? []).some(i => isFlyout(i) && i.section === l.label && hrefsOf(i.items).includes(l.href)));
-  // The landing row: skipped when a daily link below already opens it, named like that daily link when the
-  // section rule above dropped it (Banking: "Transactions", as on desktop), "X home" only when no daily link names it.
-  const homeLabel = tab.links?.find(l => l.href === tab.href)?.label ?? `${tab.label} home`;
+  // Every daily link shows, as in the desktop menu: each also sits in a section (Invoices -> Transactions > Tax
+  // Invoices, Customer List -> Customers > List of Customers), and the daily row is the one-tap shortcut the drawer
+  // exists for. No daily link is named like a section (tests/unit/nav/menuLabelCollisions.test.ts), so no word repeats.
+  // The landing row: skipped when a daily link already opens it, "X home" otherwise (Library).
   return (
     <Group id={id} label={tab.label} depth={0} active={active}>
-      {tab.href && !links?.some(l => l.href === tab.href) && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{homeLabel}</Link>}
-      <NavLinksBlock links={links} tabItems={tab.items} asPath={asPath} onNav={() => undefined}
+      {tab.href && !tab.links?.some(l => l.href === tab.href) && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{`${tab.label} home`}</Link>}
+      <NavLinksBlock links={tab.links} tabItems={tab.items} asPath={asPath} onNav={() => undefined}
         linkClassName={a => rowCls(a, 1)} separatorClassName="border-t border-[var(--ff-canvas-border)] my-1 ml-7" />
       {tab.topItems?.map(item => (
         <Link key={item.href} href={item.href} className="block py-2 pl-7 pr-4 text-sm text-teal-700 dark:text-teal-300 hover:bg-slate-100 dark:hover:bg-white/5">

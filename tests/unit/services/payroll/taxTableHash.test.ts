@@ -2,8 +2,9 @@
  * Tax-table pin (wave-4 spec §4 O): tax year -> SHA-256 of the statutory figures the payroll
  * engine reads for that year:
  * - taxTables.ts: brackets, rebates, thresholds, medical credits, UIF ceiling, SDL threshold, s11F cap, the non-standard
- *   daily threshold (G21 p. 28; R394 in 2027, R383 in 2026, null = unverified in 2025), the reimbursive rate per km (RI: R4.95 in
- *   2027, R4.76 in 2026, R4.84 in 2025, Notice 4456 GG 50243);
+ *   daily threshold (G21 p. 28; R394 in 2027, R383 in 2026, null = unverified in 2025), the personal service provider
+ *   rates (A06 row 6: company 27%, trust 45%; wave 6 PSP), the reimbursive rate per km (RI: R4.95 in 2027, R4.76 in 2026,
+ *   R4.84 in 2025, Notice 4456 GG 50243);
  * - the rates: UIF_RATE, SDL_RATE, RETIREMENT_DEDUCTION_RATE (27.5%), the s18A DONATION_LIMIT (5%);
  * - etiTables.ts / etiEngine.ts: the ETI table and the national minimum wage (ET) for each month of the year,
  *   the age band, the 24-month window and the first-year length.
@@ -31,9 +32,9 @@ const TABLE_OWNER = 'the wave coordinator agent prepares the February tables PR 
 const CRON = '~/bin/isaflow-tax-tables-cron.sh';
 
 const PINNED: Record<number, string> = {
-  2025: 'eafcaa8ace1398384564cad344a78fb387c973ae6f64a3e071ecea3abf96ec31',
-  2026: '6dba1141a05f6796209604160f76eedd42eaefd96033d8f94f3f97159fd34129',
-  2027: '031e85d0c8473fdb7dc7ba7c722ad3a7ff060c039285ca77facb9ded5b5f4623',
+  2025: '50744fa96cfc3902eb927740163e5ba9ea08cd724ad61cc25e53e103f9da3820',
+  2026: 'b805a950c7aa19836676c414bcc9e6a9b7c0095b251c63f0ab72467c9d686f25',
+  2027: '4c245db9947c3b6af0da4e59f9e4dac5bd1ffa3278ae3948aa3226943885135b',
 };
 
 /** JSON with sorted keys and Infinity spelled out, so the hash is stable and Infinity is not lost as null. */

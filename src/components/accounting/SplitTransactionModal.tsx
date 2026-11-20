@@ -14,6 +14,7 @@ import { SplitLineRow, type SplitLineState } from './SplitLineRow';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 interface Props {
   transaction: BankTx;
@@ -40,7 +41,7 @@ function newLine(amount = ''): SplitLineState {
 }
 
 /** A typed amount as rand and cents: the server takes whole cents only. */
-const cents = (raw: string) => Math.round((parseFloat(raw) || 0) * 100) / 100;
+export const cents = (raw: string) => Math.round((parseFloat(raw) || 0) * 100) / 100;
 
 /** What the route takes for one line: an account line, or a supplier / customer line. */
 function linePayload(l: SplitLineState) {
@@ -96,7 +97,7 @@ export function SplitTransactionModal({
   const canSubmit = Math.abs(remaining) <= 0.01 && lines.every(l => l.targetId && cents(l.amount) > 0);
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || blockOnInvalidAmount()) return;
     setSubmitting(true);
     try {
       const payload = {

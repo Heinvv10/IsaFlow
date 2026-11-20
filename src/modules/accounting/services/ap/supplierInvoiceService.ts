@@ -15,6 +15,7 @@ import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
+import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
   SupplierInvoiceItem,
@@ -29,6 +30,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
 import { dueDateSourceOf } from '../shared/dueDateSource';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
@@ -95,14 +97,16 @@ export async function createSupplierInvoice(
     // R-068: supplier_invoices.supplier_id's FK is tenant-agnostic and the one
     // supplier read below (the VAT number) yields NULL on a miss. Before any write.
     await assertSupplierInCompany(companyId, input.supplierId);
+    // Migration 1005: a line naming a catalogue item (this company's, active) and no account takes the item's purchases account.
+    const lineInputs = await applyItemLineDefaults(companyId, input.items || [], 'purchase', (i) => `items[${i}]`, { deriveTax: input.taxRate === undefined });
     // P5-3 security review: a line's po_item_id must be this company's PO line (of the bill's PO when named).
-    await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, input.items || []);
+    await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs);
 
-    assertSupplierInvoiceLines(input.items || [], trustSourceTax);
-    await assertBillLineAccounts(companyId, (input.items || []).map((i) => i.glAccountId));
+    assertSupplierInvoiceLines(lineInputs, trustSourceTax);
+    await assertBillLineAccounts(companyId, lineInputs.map((i) => i.glAccountId));
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
     const { items: totalledItems, subtotal, totalTax, totalAmount } =
-      computeSupplierInvoiceTotals(input.items, invoiceTaxRate, trustSourceTax);
+      computeSupplierInvoiceTotals(lineInputs, invoiceTaxRate, trustSourceTax);
     // The supplier's default CC1/CC2/BU (migration 890) fill what a line leaves open (the line's own win); CC1 is
     // derived from each CC2, a conflicting CC1 refused — before any write (no dimension query when none is named).
     const computedItems = await resolveBillLineDimensions(companyId, input.supplierId, totalledItems, input.costCenterId);
@@ -135,6 +139,9 @@ export async function createSupplierInvoice(
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
+      // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
+      // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
+      await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
@@ -167,7 +174,7 @@ export async function createSupplierInvoice(
             supplier_invoice_id, po_item_id, description, quantity,
             unit_price, tax_rate, tax_amount, line_total,
             gl_account_id, project_id, cost_center_id, vat_classification,
-            cc1_id, cc2_id, bu_id
+            cc1_id, cc2_id, bu_id, item_id
           ) VALUES (
             ${invoiceId}::UUID, ${item.poItemId || null}, ${item.description},
             ${item.quantity}, ${item.unitPrice}, ${item.taxRate},
@@ -175,10 +182,15 @@ export async function createSupplierInvoice(
             ${item.glAccountId || null}, ${item.projectId || null},
             ${item.costCenterId || null},
             ${item.vatClassification || defaultVatClassification(item.taxRate)},
-            ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
+            ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID,
+            ${item.itemId || null}::UUID
           )
         `;
       }
+
+      // Migration 1006: the table is the one list of bill <-> PO links. The header PO and every PO the lines name (of this
+      // supplier, in a linkable status) get an `app` link, in the bill's own transaction.
+      await recordBillLinks(companyId, invoiceId, userId, tx);
 
       return rows[0] as Row;
     });
@@ -222,6 +234,7 @@ function mapItemRow(row: Row): SupplierInvoiceItem {
     taxAmount: Number(row.tax_amount),
     lineTotal: Number(row.line_total),
     glAccountId: row.gl_account_id ? String(row.gl_account_id) : undefined,
+    itemId: row.item_id ? String(row.item_id) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,
     costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
     cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,

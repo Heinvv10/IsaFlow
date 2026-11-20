@@ -26,6 +26,7 @@ import {
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
@@ -112,7 +113,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof ArPostingAfterWriteError) throw err;
     // An application whose documents moved apart from the note (brief step 7): after the writes, so 5xx rolls them back.
     if (err instanceof CreditNoteApplicationDriftError) throw err;
-    if (err instanceof CreditNoteDimensionRefusal || err instanceof MirroredNoteVatRefusal) {
+    if (err instanceof CreditNoteDimensionRefusal || err instanceof MirroredNoteVatRefusal || err instanceof CreditNoteVatSplitRefusal) {
       return apiResponse.badRequest(res, err.message, { code: err.code });
     }
     const message = err instanceof Error ? err.message : 'Action failed';

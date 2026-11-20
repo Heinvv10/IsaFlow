@@ -28,6 +28,9 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { listRetiredMemberWith4001, retiredMember4001Message } from '@/modules/accounting/services/payroll/definedBenefitReadiness';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 
 type Row = DbRow;
 
@@ -80,7 +83,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
-  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe] = await Promise.all([
+  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe, retired4001] = await Promise.all([
     sql`
       SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
       FROM   payroll_employees
@@ -101,6 +104,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
         AND ${sql.unsafe(payRunFinalSql('prh'))}
+        -- A personal service provider's line: on no natural-person certificate, decided per line (pspFiling, wave 6 PSP).
+        AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
         AND (
           (prh.period_year = ${periods.startYear} AND prh.period_month >= ${periods.startMonth})
           OR
@@ -137,7 +142,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
     listRunNonCashBenefits(companyId, bounds),
     listRunUnflaggedFringe(companyId, bounds),
+    listRetiredMemberWith4001(companyId, bounds),
   ]);
+  const pspByEmployee = new Map((await listPspFilingTotals(companyId, bounds)).map((t) => [t.employeeId, t]));
 
   const employeesWithSeveranceDirective = new Set(
     directiveRows.map((r) => String(r.employee_id)),
@@ -184,11 +191,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
     }, taxYear);
     // 3801 items paid in cash (costed before the benefit was non-cash) are in 3601: the e@syFile export warns too.
+    const psp = pspByEmployee.get(String(emp.id));
+    if (psp) messages.push({ severity: 'warning', code: 'IRP5_PSP_NOT_CERTIFIED', field: 'gross', message: pspFilingWarning(psp, 'IRP5 certificate') });
     const inCash = unflaggedFringe.get(String(emp.id));
     if (inCash) {
       messages.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross',
         message: unflaggedFringeWarning(`${String(emp.first_name)} ${String(emp.last_name)}`.trim(), inCash) });
     }
+    // DBF: a para 12D(6) member with 4001 / 4003 (BRS p. 54), refused by name.
+    if (retired4001.has(String(emp.id))) messages.push(retiredMember4001Message(`${String(emp.first_name)} ${String(emp.last_name)}`.trim()));
 
     return {
       employeeId: String(emp.id),

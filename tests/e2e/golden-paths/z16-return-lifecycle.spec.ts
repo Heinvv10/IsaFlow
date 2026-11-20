@@ -10,15 +10,23 @@
  * and offers Amend instead or Close. The file and amend dialogs, the refusal and the drawer pass axe; focus enters the
  * drawer and returns to the Versions button.
  *
+ * VR (wave 6): settling the period (POST /vat-returns) is 409 while it has no live version and writes nothing; once
+ * filed it settles (first run) or has nothing left to settle (later runs, 409), and the drawer shows the settlement
+ * with the version it was posted against.
+ *
  * Nothing goes to SARS: "Mark filed" records a filing made elsewhere, and the ISV send routes are aborted for the run.
+ * Wave 6 EFa: each version's filing file is downloaded before it is marked filed (z27 checks the file itself), and the
+ * reference is a SARS payment reference number.
  * The sandbox keeps one VAT period whose chain grows by two versions per run; a live version left by an earlier run is
  * amended first through the API. RETURN_EVIDENCE_DIR=<dir> saves a screenshot per width and theme.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { join } from 'path';
-import { Api, gpRef } from './_api';
+import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
+import { vatPrn } from './helpers/prn';
+import { settleAnimations } from './helpers/settleAnimations';
 import { THEMES, rootTheme, settle } from '../helpers/themeSpec';
 
 const PAGE = '/accounting/sars/vat201';
@@ -33,6 +41,7 @@ interface Version { id: string; versionNo: number; status: string }
 /** A finished bi-monthly period of last year on the sandbox's alignment (odd: Feb-Mar, even: Jan-Feb). */
 async function period(api: Api, companyId: string): Promise<{ start: string; end: string; startText: string; endText: string }> {
   const c = await api.get<Record<string, unknown>>(`/api/accounting/companies?id=${companyId}`);
+  company = c;
   const y = new Date().getFullYear() - 1;
   const even = String(c.vatPeriodAlignment ?? c.vat_period_alignment ?? 'odd') === 'even';
   return even
@@ -49,19 +58,26 @@ async function generate(page: Page, p: { startText: string; endText: string }): 
   await page.getByRole('button', { name: 'Generate' }).click();
 }
 
-/** The modal zooms in over 200 ms; axe mid-animation reads blended colours. */
-async function settled(page: Page): Promise<void> {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
-}
-
 const status = (page: Page) => page.getByTestId('return-lifecycle-status');
+/** The sandbox company as period() read it; its VAT number begins every PRN. */
+let company: Record<string, unknown> = {};
+/** A VAT201 payment reference number the filing route accepts for the sandbox, different each run. */
+const prn = () => vatPrn(company);
+
+/** EFa: download the live version's filing file; the bar then names its sha256 and offers Mark filed. */
+async function downloadFilingFile(page: Page): Promise<void> {
+  const bar = page.getByTestId('return-lifecycle');
+  const [download] = await Promise.all([page.waitForEvent('download'), bar.getByRole('button', { name: 'Filing file (CSV)' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^VAT201_\d{6}_v\d+\.csv$/);
+  await expect(bar.getByTestId('filing-file-status')).toContainText('sha256', { timeout: 30_000 });
+}
 
 async function act(page: Page, button: RegExp, fill?: { label: RegExp | string; value: string }, axeKey?: string): Promise<void> {
   await page.getByTestId('return-lifecycle').getByRole('button', { name: button }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   if (fill) await dialog.getByLabel(fill.label).fill(fill.value);
-  if (axeKey) await settled(page);
+  if (axeKey) await settleAnimations(page);
   if (axeKey) await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: axeKey, baseline: NOTHING_EXCUSED });
   await dialog.getByRole('button', { name: button }).click();
   // A refusal stays in the dialog in the server's words: fail with it rather than with a bare timeout.
@@ -94,10 +110,21 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
 
   await act(page, new RegExp(`^Finalise( v${n})?$`));
   await expect(status(page)).toHaveText(`Finalised (v${n}), not filed`);
-  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16A') }, 'z16-file-dialog');
+  await downloadFilingFile(page);
+  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: prn() }, 'z16-file-dialog');
   await expect(status(page)).toHaveText(`Filed (v${n})`);
   await act(page, /^Amend$/, { label: /Reason for the amendment/, value: 'z16: a supplier bill was missed' }, 'z16-amend-dialog');
   await expect(status(page)).toHaveText(`Amended: finalise v${n + 1}`);
+
+  // VR (§0a.12): with no live version the VAT settlement is refused before anything is written.
+  const settleBody = { periodStart: p.start, periodEnd: p.end };
+  const settlement = async () => (await api.get<{ vatReturn: { status: string; returnVersionNo: number | null } | null }>(
+    `/api/accounting/sars/returns/vat201/versions?${q}`)).vatReturn;
+  const settledBefore = await settlement();
+  const refusedSettle = await api.postRaw('/api/accounting/vat-returns', settleBody);
+  expect(refusedSettle.status, 'settling an amended period is refused').toBe(409);
+  expect(JSON.stringify(refusedSettle.json)).toContain('VAT201_NOT_FINALISED');
+  expect(await settlement(), 'the refusal wrote no settlement').toEqual(settledBefore);
 
   // A stale tab: v(n+1) is finalised elsewhere while this page still offers Finalise. The refusal is shown in the
   // server's words, the bar reloads to the truth, and the dialog offers Amend instead or Close.
@@ -108,13 +135,23 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
   await expect(dialog.getByTestId('return-refusal')).toContainText(`already finalised as version ${n + 1}. Amend it before finalising again.`);
   await expect(status(page)).toHaveText(`Finalised (v${n + 1}), not filed`);
   await expect(dialog.getByRole('button', { name: 'Amend instead' })).toBeVisible();
-  await settled(page);
+  await settleAnimations(page);
   await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: 'z16-stale-refusal', baseline: NOTHING_EXCUSED });
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'vat201-stale-refusal-1568.png') });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toBeHidden();
-  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16B') });
+  await downloadFilingFile(page);
+  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: prn() });
   await expect(status(page)).toHaveText(`Filed (v${n + 1})`);
+
+  // The filed version is settled: the first run posts it (linked to that version); a later run's new version has
+  // nothing left to settle (409 VAT_ALREADY_SETTLED; a top-up only posts a difference). Either way the drawer names
+  // the version the settlement was posted against.
+  const settleRes = await api.postRaw('/api/accounting/vat-returns', settleBody);
+  expect([200, 409], `settle: ${JSON.stringify(settleRes.json)}`).toContain(settleRes.status);
+  if (settleRes.status === 200) expect(settleRes.json.data.returnVersionId).toBeTruthy();
+  else expect(JSON.stringify(settleRes.json), 'a later run: nothing left to settle').toContain('VAT_ALREADY_SETTLED');
+  expect((await settlement())?.returnVersionNo, 'the settlement names a version').toBeTruthy();
 
   const steps = page.getByRole('list', { name: 'Lifecycle steps' });
   await expect(steps).toContainText(`v${n} amended`);
@@ -145,6 +182,7 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
       await expect(drawer.getByRole('article', { name: `Version ${n}` })).toContainText('z16: a supplier bill was missed');
       await expect(drawer.getByRole('article', { name: `Version ${n}` })).not.toContainText('Lock removed');
       await expect(drawer.getByRole('article', { name: `Version ${n + 1}` })).toContainText('filed');
+      await expect(drawer, 'the settlement is shown with its version').toContainText(/VAT settlement, posted against v\d+: submitted/);
       await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: 'z16-return-versions', baseline: NOTHING_EXCUSED });
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `vat201-versions-${theme}-${width}.png`) });
       await page.keyboard.press('Escape');

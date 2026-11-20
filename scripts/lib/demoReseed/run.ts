@@ -23,6 +23,7 @@ import { renderReport, renderCounts } from './report';
 import { deployChecks, runPostChecks, type ExtraCheck } from './postCheck';
 import { SEED_TABLES } from './types';
 import { countWipe, keptReport, runWipe } from './wipe';
+import { finaliseRuns, reopenFinalRuns, splitFinalHeaders } from './payrollFinal';
 import {
   basicSalaryComponent, ensureFiscalCalendar, genericBankMetadata, insertRows, leaveTypes, readDocFamilies, rebuildBalances,
   renameCompany, resolveAccounts, resolveActor, setDocCounters,
@@ -130,12 +131,14 @@ async function steps(tx: Tx, companyId: string, opts: RunOptions, readOnly: bool
     return { exitCode: 0, inserted, deleted: Object.fromEntries(wouldDelete.map((c) => [c.table, c.n])) };
   }
 
+  await reopenFinalRuns(tx, companyId);
   const deleted = Object.fromEntries((await runWipe(tx, companyId)).map((c) => [c.table, c.n]));
   const left = (await countWipe(tx, companyId)).filter((c) => c.n > 0);
   if (left.length > 0) throw new Error(`wipe left Demo rows in: ${left.map((c) => `${c.table} (${c.n})`).join(', ')}`);
   await renameCompany(tx, companyId);
   await genericBankMetadata(tx, companyId, accounts.bank, win);
   await ensureFiscalCalendar(tx, companyId, win);
+  const runs = splitFinalHeaders(data.rows.payroll_run_headers);
   for (const t of SEED_TABLES) {
     // Invoices and bills are history the books already hold: they go in through the app's import exemption
     // (withApprovalGateExempt, with its rank check), as every importer's do, never by setting the gate off by hand.
@@ -144,9 +147,10 @@ async function steps(tx: Tx, companyId: string, opts: RunOptions, readOnly: bool
       await withAppContext(tx.client, { userId: actor, companyId }, () =>
         withApprovalGateExempt({ companyId, userId: actor, open: true, documentType }, () => insertRows(tx, t, data.rows[t])));
     } else {
-      await insertRows(tx, t, data.rows[t]);
+      await insertRows(tx, t, t === 'payroll_run_headers' ? runs.insert : data.rows[t]);
     }
   }
+  await finaliseRuns(tx, companyId, runs.finals);
   const firstPurchase = data.rows.assets.map((a) => String(a.purchase_date)).sort()[0];
   if (firstPurchase) {
     const dep = await postDepreciationHistory(tx.client, companyId, actor, firstPurchase, win);

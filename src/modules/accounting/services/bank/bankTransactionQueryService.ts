@@ -25,6 +25,7 @@ import {
 } from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
 import { underStampBudget } from './reconciliationSessionLock';
+import { withJitOff } from '../gl/dimensions/boundedStatements';
 
 type Row = DbRow;
 
@@ -65,85 +66,90 @@ export async function getBankTransactions(
     const offset = typeof rawOffset === 'number' && Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
     // `LIMIT $n::INT + 1` fetches one row past the page so a next page can be
     // detected without a second count; the probe row is trimmed before return.
-    let rows: Row[];
-    let countRows: Row[];
+    // JIT off for the page and its count (withJitOff): the settled-document evidence in TX_SELECT can push the
+    // plan estimate past the JIT thresholds, and LLVM then spends ~20 s compiling a query that runs in ~300 ms.
+    const { rows, countRows } = await withJitOff(async (): Promise<{ rows: Row[]; countRows: Row[] }> => {
+      let rows: Row[];
+      let countRows: Row[];
 
-    if (filters?.reconciliationId) {
-      // BL-81: must scope by company_id to prevent cross-tenant data reads
-      const keyset = bankTxKeysetCond(cursor, 'DESC');
-      rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
-          AND bt.company_id = ${companyId}::UUID
-          ${keyset}
-        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
-        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
-        WHERE reconciliation_id = ${filters.reconciliationId}::UUID
-          AND company_id = ${companyId}::UUID`) as Row[];
-    } else if (filters?.bankAccountId && filters?.status) {
-      const searchPattern = filters.search ? `%${filters.search}%` : '%';
-      const fromDate = filters.fromDate || '1900-01-01';
-      const toDate = filters.toDate || '2099-12-31';
-      // The amount filter is on the SIZE of the line (ABS): "Min R 100" must find a R150 payment as well as a R150 receipt.
-      // A bound is a magnitude too (ABS): the list API refuses a negative one (400), but a service caller that passes the signed
-      // amount of the line it wants (-123.45 to -123.45) still finds it.
-      const fromAmt = filters.fromAmount || '0';
-      const toAmt = filters.toAmount || '999999999';
-      // The tab's lines (./bankTxTabCond): New = waiting for review, Reviewed = reviewed + reconciled.
-      const tabCond = tabStatusCond(filters.status, filters.reconFilter);
-      // SAFETY INVARIANT: all condition strings below are built from fixed string
-      // literals keyed on validated enum values — no user input is interpolated
-      // directly. The final `extra` fragment is therefore safe.
-      const txTypeCond = filters.txType === 'spent' ? 'AND bt.amount < 0'
-        : filters.txType === 'received' ? 'AND bt.amount > 0' : '';
-      const validAllocTypes = ['account', 'supplier', 'customer', 'transfer'] as const;
-      const safeAllocType = filters.allocType && validAllocTypes.includes(filters.allocType as typeof validAllocTypes[number])
-        ? filters.allocType : null;
-      const allocTypeCond = safeAllocType ? `AND bt.allocation_type = '${safeAllocType}'` : '';
-      const hasSuggCond = filters.hasSuggestion === 'yes'
-        ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL)'
-        : filters.hasSuggestion === 'no'
-          ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL'
-          : '';
-      // sortDir is strictly validated — only 'ASC' or 'DESC' are possible
-      const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
-      if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
-      const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond(filters)].filter(Boolean).join(' ');
-      // The keyset must track sortDir — the date leg flips with the ORDER BY.
-      const keyset = bankTxKeysetCond(cursor, sortDir);
-      rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
-          AND bt.company_id = ${companyId}::UUID
-          ${sql.unsafe(tabCond)}
-          AND bt.feed_state <> 'removed'
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
-          AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
-          ${sql.unsafe(extra)}
-          ${keyset}
-        ORDER BY bt.transaction_date ${sql.unsafe(sortDir)}, bt.amount DESC, bt.id DESC
-        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
-        WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
-          AND bt.company_id = ${companyId}::UUID
-          ${sql.unsafe(tabCond)}
-          AND bt.feed_state <> 'removed'
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
-          AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
-          ${sql.unsafe(extra)}`) as Row[];
-    } else {
-      // Branch 3 (a bank account, no tab status) and the company-wide read: one predicate, ./bankTxScopeWhere.
-      const where = bankTxScopeWhere(companyId, filters);
-      const keyset = bankTxKeysetCond(cursor, 'DESC');
-      rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE ${where}
-          ${keyset}
-        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
-        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
-        WHERE ${where}`) as Row[];
-    }
+      if (filters?.reconciliationId) {
+        // BL-81: must scope by company_id to prevent cross-tenant data reads
+        const keyset = bankTxKeysetCond(cursor, 'DESC');
+        rows = (await sql`${sql.unsafe(TX_SELECT)}
+          WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
+            AND bt.company_id = ${companyId}::UUID
+            ${keyset}
+          ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
+          LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
+        countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
+          WHERE reconciliation_id = ${filters.reconciliationId}::UUID
+            AND company_id = ${companyId}::UUID`) as Row[];
+      } else if (filters?.bankAccountId && filters?.status) {
+        const searchPattern = filters.search ? `%${filters.search}%` : '%';
+        const fromDate = filters.fromDate || '1900-01-01';
+        const toDate = filters.toDate || '2099-12-31';
+        // The amount filter is on the SIZE of the line (ABS): "Min R 100" must find a R150 payment as well as a R150 receipt.
+        // A bound is a magnitude too (ABS): the list API refuses a negative one (400), but a service caller that passes the signed
+        // amount of the line it wants (-123.45 to -123.45) still finds it.
+        const fromAmt = filters.fromAmount || '0';
+        const toAmt = filters.toAmount || '999999999';
+        // The tab's lines (./bankTxTabCond): New = waiting for review, Reviewed = reviewed + reconciled.
+        const tabCond = tabStatusCond(filters.status, filters.reconFilter);
+        // SAFETY INVARIANT: all condition strings below are built from fixed string
+        // literals keyed on validated enum values — no user input is interpolated
+        // directly. The final `extra` fragment is therefore safe.
+        const txTypeCond = filters.txType === 'spent' ? 'AND bt.amount < 0'
+          : filters.txType === 'received' ? 'AND bt.amount > 0' : '';
+        const validAllocTypes = ['account', 'supplier', 'customer', 'transfer'] as const;
+        const safeAllocType = filters.allocType && validAllocTypes.includes(filters.allocType as typeof validAllocTypes[number])
+          ? filters.allocType : null;
+        const allocTypeCond = safeAllocType ? `AND bt.allocation_type = '${safeAllocType}'` : '';
+        const hasSuggCond = filters.hasSuggestion === 'yes'
+          ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL)'
+          : filters.hasSuggestion === 'no'
+            ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL'
+            : '';
+        // sortDir is strictly validated — only 'ASC' or 'DESC' are possible
+        const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
+        const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond(filters)].filter(Boolean).join(' ');
+        // The keyset must track sortDir — the date leg flips with the ORDER BY.
+        const keyset = bankTxKeysetCond(cursor, sortDir);
+        rows = (await sql`${sql.unsafe(TX_SELECT)}
+          WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+            AND bt.company_id = ${companyId}::UUID
+            ${sql.unsafe(tabCond)}
+            AND bt.feed_state <> 'removed'
+            AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+            AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
+            AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
+            ${sql.unsafe(extra)}
+            ${keyset}
+          ORDER BY bt.transaction_date ${sql.unsafe(sortDir)}, bt.amount DESC, bt.id DESC
+          LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
+        countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
+          WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+            AND bt.company_id = ${companyId}::UUID
+            ${sql.unsafe(tabCond)}
+            AND bt.feed_state <> 'removed'
+            AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+            AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
+            AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
+            ${sql.unsafe(extra)}`) as Row[];
+      } else {
+        // Branch 3 (a bank account, no tab status) and the company-wide read: one predicate, ./bankTxScopeWhere.
+        const where = bankTxScopeWhere(companyId, filters);
+        const keyset = bankTxKeysetCond(cursor, 'DESC');
+        rows = (await sql`${sql.unsafe(TX_SELECT)}
+          WHERE ${where}
+            ${keyset}
+          ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
+          LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
+        countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
+          WHERE ${where}`) as Row[];
+      }
+      return { rows, countRows };
+    });
 
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;

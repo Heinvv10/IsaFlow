@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync } from 'node:fs';
 import {
-  caseProblems, gapListProblems, LIST_FILES, loadCases, loadKnownGaps, loadUnverified, ORACLE_DIR,
+  caseProblems, failingFields, gapListProblems, LIST_FILES, runCase, loadCases, loadKnownGaps, loadUnverified, ORACLE_DIR,
 } from '../../../fixtures/payroll-oracle/oracle';
 
 const cases = loadCases();
@@ -91,6 +91,7 @@ const EXPECTED_CASE_IDS = [
   'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
   'weekly-starter-g21-3-of-7-days',
+  'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',
 ];
 
@@ -111,31 +112,49 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries', () => {
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries (DBF moved the cap case there)', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
-    'db-fund-12d-s11f-cap-binds': 'DBF',
-    'ga-emolument-attachment-capped-25pct': 'GA',
-    'ga-maintenance-outside-cap': 'GA',
     'offcycle-bonus-after-regular-g21': 'OC',
     'offcycle-termination-leave-after-regular': 'OC',
-    'psp-company-27pct': 'PSP',
-    'psp-trust-45pct': 'PSP',
     'sage-2027-03-marco': 'PARITY',
-    'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
-    'weekly-6000-third-week-month-uif-ceiling': 'FQc',
-    'weekly-starter-fourth-week-averaged': 'FQc',
-    'weekly-starter-g21-3-of-7-days': 'FQc',
-    'weekly-week-53-pay-sunday': 'FQc',
     });
-    // RI closed its four gaps; its two BCEA-multiplier cases are UNVERIFIED and match the engine (adv-payroll signs them).
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x']);
+    // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).
+    // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
+    expect(unverified.map(u => u.case).sort()).toEqual([
+      // DBF: the s11F cap case now matches its hand figure; UNVERIFIED for the para 12D(3) formula's form only (adversarial payroll sign-off).
+      'db-fund-12d-category-factor', 'db-fund-12d-s11f-cap-binds', 'director-uif-on-remuneration',
+      // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
+      'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
+      'psp-company-27pct', 'psp-trust-45pct',
+      // RI: the BCEA-multiplier cases match the engine (adversarial payroll signed them; no current BCEA consolidation read).
+      'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x',
+      'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
+    ]);
   });
 
-  it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {
+  it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {
     expect(gaps.map(g => g.case)).not.toContain('sdl-after-para-2-4-deductions');
     expect(gaps.map(g => g.case)).not.toContain('sage-2027-03-phekis');
     expect(gaps.map(g => g.case)).not.toContain('sage-2027-03-david');
+  });
+
+  it('AN: Sage\'s days annualisation closes Phekis and David to the cent, with no tolerance left on any vendor case', () => {
+    for (const id of ['sage-2027-03-phekis', 'sage-2027-03-david']) {
+      const c = cases.find(x => x.id === id)!;
+      expect(c.tolerance, id).toBeUndefined();
+      expect(failingFields(c, runCase(c)), id).toEqual([]);
+    }
+    expect(cases.filter(c => /^(sage|simplepay|both)$/.test(c.source) && c.tolerance).map(c => c.id)).toEqual([]);
+  });
+
+  it('AN: every remaining tolerance is the ruled ×12 departure on a SARS or UNVERIFIED hand figure, at most 5c', () => {
+    const tolerated = cases.flatMap(c => Object.entries(c.tolerance ?? {}).map(([f, t]) => ({ id: c.id, f, source: c.source, ...t })));
+    expect(tolerated.length).toBeGreaterThan(0);
+    for (const t of tolerated) {
+      expect(t.reason, `${t.id}.${t.f}`).toBe('ruling 5: AN 365/30.4166 over G21 p. 8 ×12');
+      expect(/^(sars-guide:|UNVERIFIED$)/.test(t.source), `${t.id}`).toBe(true);
+    }
   });
 });
 
