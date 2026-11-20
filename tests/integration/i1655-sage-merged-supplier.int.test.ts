@@ -246,6 +246,32 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(await billSupplier('AP-LARCH-1')).toBe(survivor);
   });
 
+  it('a second Sage party cannot claim the other unstamped alias of a survivor the first already claimed by name', async () => {
+    const survivor = await insPlain('Spruce Co Survivor');
+    const [g1, g2] = [await insPlain('Spruce Co'), await insPlain('Spruce Co')];
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = ANY($1)', [[g1, g2], survivor]);
+    // Sage party 947 reaches the survivor by name and claims one alias.
+    expect((await syncSuppliers([party(947, 'Spruce Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    // A different Sage party of that name does not take the remaining alias: it gets its own live row.
+    expect((await syncSuppliers([party(948, 'Spruce Co')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    expect(await byRef('948')).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
+    expect((await byRef('947')).map((r) => r.merged_into_id)).toEqual([survivor]);
+    // Re-syncing both creates nothing more.
+    expect((await syncSuppliers([party(947, 'Spruce Co'), party(948, 'Spruce Co')])).suppliers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
+  });
+
+  it('a merged-away supplier stored with a trailing space still matches by its name', async () => {
+    const survivor = await insPlain('Fir Co Survivor');
+    const gone = await insPlain('Fir Co ');
+    // As the supplier-merge route does it: 'Fir Co ' becomes 'Fir Co  [MERGED]'.
+    await pool.query(
+      "UPDATE suppliers SET is_active = false, name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1",
+      [gone, survivor]);
+    expect((await syncSuppliers([party(949, 'Fir Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await byRef('949')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
+  });
+
   it('a claim lost to a concurrent import matches again: two Sage parties never share one row', async () => {
     const live = await insPlain('Birch Co');
     // Import 1 claims the unstamped live row for Sage id 991 and holds its transaction open.

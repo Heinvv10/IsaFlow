@@ -38,6 +38,10 @@
  * (another system's, say) is not matched by name: it could never be stamped, so it would match every
  * later party of that name. (A pull without a Sage id still reaches the survivor by that name.)
  *
+ * Likewise, a name-only match through an unstamped merged-away row is refused when another merged-away
+ * row of that name, reaching the same survivor, already carries a different Sage id: that alias was
+ * claimed by another Sage party, so the survivor is not this party's by name.
+ *
  * A name-only match through merged-away rows must name ONE survivor: when unstamped merged-away rows of
  * that name lead to different survivors, nothing says which one the party is, so it matches none and
  * the sync creates its own live row (the bill import reports the supplier as not found). Rows that all
@@ -79,20 +83,29 @@ export async function matchSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null },
 ): Promise<SageSupplierMatch | null> {
   const ref = sageRef(party.sageId);
+  // The merge route appends ' [MERGED]' to the stored (untrimmed) name: strip it before trimming, so a
+  // row stored as 'Acme ' (now 'Acme  [MERGED]') still matches 'Acme'.
   const rows = (await sql`
-    WITH RECURSIVE hit AS (
-      SELECT id, deleted_at, merged_into_id, created_at,
-             (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE AS by_ref
+    WITH RECURSIVE named AS (
+      SELECT id, deleted_at, merged_into_id, created_at, external_system, external_ref,
+             LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
+             OR (deleted_at IS NOT NULL AND UPPER(name) LIKE '% [MERGED]'
+                 AND LOWER(BTRIM(LEFT(name, LENGTH(name) - 9))) = LOWER(BTRIM(${party.name}))) AS name_hit
       FROM suppliers
       WHERE company_id = ${companyId}::UUID
         AND (deleted_at IS NULL OR merged_into_id IS NOT NULL)
-        AND (
-          (external_system = 'sage' AND external_ref = ${ref}::TEXT)
-          OR ((LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
-               OR (deleted_at IS NOT NULL AND LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name})) || ' [merged]'))
-              AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL)
-              AND (${ref}::TEXT IS NULL OR deleted_at IS NULL OR external_ref IS NULL))
-        )
+    ), hit AS (
+      SELECT id, deleted_at, merged_into_id, created_at,
+             (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE AS by_ref,
+             (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
+              AND external_system = 'sage' AND external_ref IS DISTINCT FROM ${ref}::TEXT) IS TRUE AS conflict
+      FROM named
+      WHERE (external_system = 'sage' AND external_ref = ${ref}::TEXT)
+         OR (name_hit
+             AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL)
+             AND (${ref}::TEXT IS NULL OR deleted_at IS NULL OR external_ref IS NULL))
+         OR (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
+             AND external_system = 'sage' AND external_ref IS DISTINCT FROM ${ref}::TEXT)
     ), chain AS (
       SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen FROM hit h
       UNION ALL
@@ -101,18 +114,24 @@ export async function matchSageSupplier(
       JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
       WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
     )
-    SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge
+    SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
     FROM chain c JOIN hit h ON h.id = c.start_id
     WHERE c.deleted_at IS NULL
-    ORDER BY h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
+    ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
   `) as Row[];
-  const first = rows[0];
+  // Merged-away rows of this name already stamped with ANOTHER Sage id: matched only to spot a conflict.
+  const conflicts = rows.filter((r) => r.conflict === true);
+  const matches = rows.filter((r) => r.conflict !== true);
+  const first = matches[0];
   if (!first) return null;
   const viaMerge = first.via_merge === true;
   const byRef = first.by_ref === true;
   // Ranked first, a name-only merged hit means no Sage-id hit and no live hit exist: every row is a
   // name-only merged hit. They must all lead to one survivor, or the party matches none of them.
-  if (viaMerge && !byRef && new Set(rows.map((r) => String(r.id))).size > 1) return null;
+  if (viaMerge && !byRef && new Set(matches.map((r) => String(r.id))).size > 1) return null;
+  // Another Sage party already claimed a same-name alias of this survivor: the remaining unstamped alias
+  // could be either party, so it is not this one's (two Sage parties never share one survivor by name).
+  if (viaMerge && !byRef && conflicts.some((r) => String(r.id) === String(first.id))) return null;
   return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
 }
 
