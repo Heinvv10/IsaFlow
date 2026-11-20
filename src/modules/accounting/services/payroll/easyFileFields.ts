@@ -111,3 +111,22 @@ export function isValidUifRef(value: string): boolean {
 export function isValidTaxNumber(value: string): boolean {
   return /^[01239][0-9]{9}$/.test(value);
 }
+
+/**
+ * BRS V25.3.0 Appendix B §8.1 (pp. 117-118), "Modulus 10 check on Income Tax Number": digits 1, 3, 5, 7 and 9 are doubled
+ * (a result above 9 has its two digits added, 18 -> 9), digits 2, 4, 6 and 8 are added as they are; digit 10 is 10 less the
+ * last digit of the total, or 0 when that last digit is 0. The BRS's examples: 0001339050 (total 20) and 0667056642
+ * (total 38) are valid. Applied to a PSP's 3100 (wave 6 PSP-H); not yet to a natural person's (it would refuse files
+ * that export today: EZF's ruling).
+ */
+export function passesIncomeTaxModulus10(value: string): boolean {
+  if (!/^\d{10}$/.test(value)) return false;
+  let total = 0;
+  for (let i = 0; i < 9; i++) {
+    const d = Number(value[i]);
+    const r = i % 2 === 0 ? d * 2 : d;
+    total += r > 9 ? r - 9 : r;
+  }
+  const last = total % 10;
+  return Number(value[9]) === (last === 0 ? 0 : 10 - last);
+}

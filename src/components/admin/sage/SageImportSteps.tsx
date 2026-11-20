@@ -83,7 +83,7 @@ export function SageCommitPanel({ summary, committing, onCommit }: {
       </div>
       {!summary && (
         <p className="text-sm text-ink-muted">
-          Existing customers/suppliers are matched by name; duplicate invoice numbers are skipped; existing GL accounts are skipped on conflict (account_code).
+          Existing customers/suppliers are matched by their Sage id, else by name (deleted ones are not matched); duplicate invoice numbers are skipped; existing GL accounts are skipped on conflict (account_code).
         </p>
       )}
 

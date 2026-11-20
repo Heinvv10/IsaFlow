@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from './sageMigrationCommitService';
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
+import { findSageCustomer, findSageSupplier } from './sagePartyMatch';
 import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -76,9 +77,10 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const c of pulled.customers?.records ?? []) {
     await sp(`cust_${i++}`, async () => {
       try {
-        const existed = (await sql`SELECT 1 FROM customers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${c.name}) LIMIT 1`) as Row[];
+        // The same match upsertCustomer makes (sagePartyMatch), so "skipped" means "matched a live customer".
+        const existed = await findSageCustomer(companyId, c);
         await upsertCustomer(companyId, c);
-        if (existed.length) summary.customers.skipped += 1; else summary.customers.created += 1;
+        if (existed) summary.customers.skipped += 1; else summary.customers.created += 1;
       } catch (err) {
         summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
@@ -91,9 +93,9 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const s of pulled.suppliers?.records ?? []) {
     await sp(`supp_${i++}`, async () => {
       try {
-        const existed = (await sql`SELECT 1 FROM suppliers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${s.name}) LIMIT 1`) as Row[];
+        const existed = await findSageSupplier(companyId, s);
         await upsertSupplier(companyId, s);
-        if (existed.length) summary.suppliers.skipped += 1; else summary.suppliers.created += 1;
+        if (existed) summary.suppliers.skipped += 1; else summary.suppliers.created += 1;
       } catch (err) {
         summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;

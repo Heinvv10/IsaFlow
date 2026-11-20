@@ -7,6 +7,7 @@
  * benefit, SARS code 3801; payrollNonCashFiling), not in gross_income, taxed in paye. Appended
  * last so the earlier columns keep their positions.
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -57,6 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
 
   // FINAL runs only (payRunFinalSql: approved or paid with an approval time, wave 6 EF); a calculated,
   // cancelled or unstamped run declared here would over-state remuneration to SARS.

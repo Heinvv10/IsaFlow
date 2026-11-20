@@ -33,6 +33,7 @@ export default function CustomerAllocationsPage() {
   const [paymentCut, setPaymentCut] = useState<{ shown: number; total: number } | null>(null);
   const loadSeq = useRef(0); // the latest invoice load wins; an older one that finishes later is ignored
   const [cutOff, setCutOff] = useState<{ shown: number; total: number } | null>(null);
+  const invoicesRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -87,7 +88,7 @@ export default function CustomerAllocationsPage() {
   const unallocTotal = payments.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
 
   const doAllocate = async () => {
-    if (blockOnInvalidAmount()) return;
+    if (blockOnInvalidAmount(invoicesRef.current)) return;
     if (!selected || totalAlloc <= 0) return;
     setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
@@ -157,7 +158,7 @@ export default function CustomerAllocationsPage() {
             </div>
 
             {/* Outstanding Invoices */}
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div ref={invoicesRef} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">
                 {selected ? `Invoices for ${selected.clientName}` : 'Select a receipt'}
               </div>

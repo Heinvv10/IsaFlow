@@ -30,6 +30,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { log } from '@/lib/logger';
 import { safeFetch, checkPublicUrl } from '@/lib/safeFetch';
 import { issuePullToken } from '@/modules/admin/services/sagePullBinding';
+import { pullAllSagePages } from '@/modules/admin/services/sagePagedPull';
 import {
   mapSageAccounts,
   mapSageCustomers,
@@ -42,7 +43,6 @@ const DEFAULT_SAGE_BASE = 'https://accounting.sageone.co.za';
 // M5: the caller-supplied sageBase must be a Sage host — never let the cookie be
 // replayed to an attacker-chosen internal/metadata endpoint (SSRF).
 const SAGE_ALLOWED_HOSTS = ['sageone.co.za'];
-const PAGE_SIZE = 200;
 
 interface SageEnvelope { Results?: unknown[]; TotalResults?: number; }
 interface CompanyResp { Name?: string; TaxNumber?: string; RegistrationNumber?: string; CurrencySymbol?: string; TakeOnBalanceDate?: string; }
@@ -60,32 +60,26 @@ function buildHeaders(cookie: string): HeadersInit {
   };
 }
 
+/** Every page of one list endpoint; refuses a pull that ends short of Sage's total (sagePagedPull, #1655). */
 async function pullEndpoint(
   base: string,
   cookie: string,
   endpoint: string,
   bodyExtras: Record<string, unknown> = {},
 ): Promise<SageEnvelope> {
-  const allResults: unknown[] = [];
-  let skip = 0;
-  let total = Infinity;
-  while (skip < total) {
+  const { results, total } = await pullAllSagePages(endpoint, async (skip, take) => {
     const res = await safeFetch(`${base}${endpoint}`, {
       method: 'POST',
       headers: buildHeaders(cookie),
-      body: JSON.stringify({ FilterId: 0, Search: '', Skip: skip, Take: PAGE_SIZE, ...bodyExtras }),
+      body: JSON.stringify({ FilterId: 0, Search: '', Skip: skip, Take: take, ...bodyExtras }),
     }, { allowHosts: SAGE_ALLOWED_HOSTS });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`${endpoint} failed: ${res.status} ${text.slice(0, 200)}`);
     }
-    const json = (await res.json()) as SageEnvelope;
-    total = json.TotalResults ?? 0;
-    allResults.push(...(json.Results ?? []));
-    skip += PAGE_SIZE;
-    if ((json.Results ?? []).length < PAGE_SIZE) break;
-  }
-  return { Results: allResults, TotalResults: allResults.length };
+    return (await res.json()) as SageEnvelope;
+  });
+  return { Results: results, TotalResults: total };
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

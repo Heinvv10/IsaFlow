@@ -57,14 +57,16 @@ export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, mul
       if (kind === 'overtime' || hundredths == null || rateCents != null) onCommit(hundredths, kind === 'travel' ? rateCents : null);
     },
   });
-  const helper = amount != null && quantity != null ? `${formatCurrency(amount)} paid`
+  // A stored overtime row whose employee has since lost the hourly rate stays editable, so it can be cleared (empty the cell);
+  // a new figure is refused by the server until the rate is set (post-merge review of #1580, L1).
+  const helper = amount != null && quantity != null
+    ? (kind === 'overtime' && hourlyRate == null ? `${formatCurrency(amount)} paid; no hourly rate: empty to remove, or set the rate to change it` : `${formatCurrency(amount)} paid`)
     : kind === 'overtime' ? (hourlyRate == null ? 'No hourly rate: set it on the employee page' : `${formatCurrency(hourlyRate)} an hour x ${multiplier}`)
       : 'Enter km and the rate a km';
   return (
     <div className="w-40 min-w-40 space-y-1 [&_label]:sr-only">
       <Input id={id} label={label} type="text" inputMode="decimal" autoComplete="off" spellCheck={false}
         value={field.text} placeholder="0" error={field.error ?? undefined} helperText={helper} className="text-right tabular-nums"
-        disabled={kind === 'overtime' && hourlyRate == null}
         onChange={(e) => field.onTextChange(e.target.value)} onBlur={() => field.commit()}
         onKeyDown={(e) => { if (e.key === 'Enter') field.commit(); }} />
       {kind === 'travel' && (

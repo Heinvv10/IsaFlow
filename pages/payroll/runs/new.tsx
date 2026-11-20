@@ -1,5 +1,5 @@
 /**
- * New Payroll Run — Phase 2.
+ * New Payroll Run — Phase 2; weekly and fortnightly periods from wave 6 FQd (RunPeriodPicker).
  * Route: /payroll/runs/new
  */
 import { useState } from 'react';
@@ -9,6 +9,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Plus, ArrowLeft, Loader2 } from 'lucide-react';
+import { Select } from '@/components/ui/Select';
+import { RunPeriodPicker } from '@/components/payroll/RunPeriodPicker';
+
+const FREQUENCIES = [
+  { value: 'monthly', label: 'Monthly' }, { value: 'weekly', label: 'Weekly' }, { value: 'fortnightly', label: 'Fortnightly' },
+];
+type Frequency = 'monthly' | 'weekly' | 'fortnightly';
 
 const MONTHS = [
   { v: 1, n: 'January' }, { v: 2, n: 'February' }, { v: 3, n: 'March' },
@@ -19,22 +26,36 @@ const MONTHS = [
 
 export default function NewPayrollRunPage() {
   const router = useRouter();
+  const [frequency, setFrequency] = useState<Frequency>('monthly');
+  const [periodStart, setPeriodStart] = useState<string | null>(null);
   const today = new Date();
   const [month, setMonth] = useState<number>(today.getMonth() + 1);
   const [year, setYear] = useState<number>(today.getFullYear());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** The run that already holds the chosen period (409 PAY_PERIOD_EXISTS): linked beside the error (review #1622 UI L3). */
+  const [existing, setExisting] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (frequency !== 'monthly' && !periodStart) {
+      setError('Choose the period the run pays for.');
+      return;
+    }
     setSubmitting(true);
     setError('');
+    setExisting(null);
     let target = '';
     try {
       const res = await apiFetch('/api/payroll/runs', {
         method: 'POST',
-        body: JSON.stringify({ month, year }),
+        body: JSON.stringify(frequency === 'monthly' ? { month, year } : { frequency, periodStart }),
       });
+      if (res.status === 409) {
+        const body = await res.clone().json().catch(() => null) as { error?: { details?: { runId?: unknown } } } | null;
+        const runId = body?.error?.details?.runId;
+        if (typeof runId === 'string') setExisting(runId);
+      }
       await assertOk(res, 'Could not create the payroll run - try again');
       const json = await res.json();
       const created = json.data ?? json;
@@ -73,20 +94,30 @@ export default function NewPayrollRunPage() {
 
         <form onSubmit={submit} className="p-6 max-w-md space-y-6">
           {error && (
-            <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
+            <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-400 text-sm">
+              {error}
+              {existing && <> <Link href={`/payroll/runs/${existing}`} className="underline">Open the existing run</Link></>}
+            </div>
           )}
           <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
-            <div>
-              <label htmlFor="run-month" className={label}>Month</label>
-              <select id="run-month" className={field} value={month} onChange={e => setMonth(Number(e.target.value))}>
-                {MONTHS.map(m => <option key={m.v} value={m.v}>{m.n}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="run-year" className={label}>Year</label>
-              <input id="run-year" type="number" min="2020" max="2099" className={field}
-                value={year} onChange={e => setYear(Number(e.target.value) || today.getFullYear())} />
-            </div>
+            <Select label="Pay frequency" options={FREQUENCIES} value={frequency}
+              onChange={v => { if (v) { setFrequency(v as Frequency); setError(''); } }} />
+            {frequency === 'monthly' ? (<>
+              <div>
+                <label htmlFor="run-month" className={label}>Month</label>
+                <select id="run-month" className={field} value={month} onChange={e => setMonth(Number(e.target.value))}>
+                  {MONTHS.map(m => <option key={m.v} value={m.v}>{m.n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="run-year" className={label}>Year</label>
+                <input id="run-year" type="number" min="2020" max="2099" className={field}
+                  value={year} onChange={e => setYear(Number(e.target.value) || today.getFullYear())} />
+              </div>
+            </>) : (
+              <RunPeriodPicker frequency={frequency} value={periodStart} onChange={setPeriodStart} />
+            )}
+            <p className="text-sm text-[var(--ff-text-secondary)]">The run pays only employees paid {frequency}.</p>
           </div>
           <div className="flex items-center gap-3">
             <button type="submit" disabled={submitting}

@@ -17,6 +17,7 @@
    "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
   ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
+   "ORDER BY ${runOrderKeySql('h')} DESC",
    "ORDER BY ${runOrderKeySql('h')} DESC"
   ],
   "src/modules/accounting/services/payroll/payrollRunQueryService.ts": [
@@ -53,6 +54,9 @@
   {"file":"src/modules/accounting/services/ask/askTax.ts","line":69,"text":"const run = await getDeclarablePayRun(companyId, t ? { year: t.y, month: t.m } : null);","class":"S","owner":"FQb2","why":"a named month answers with that month's regular run (getDeclarablePayRun prefers it, FQb1); the month's other final runs are named with the combined gross (askPayRunMonth, review #1549 L4)"}
  ],
  "rows": {
+  "pages/api/payroll/runs/[id]/frequency-change.ts": [
+   {"line":33,"text":"const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): by run id"}
+  ],
   "pages/api/payroll/emp501/export.ts": [
    {"line":76,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum of declarable lines"}
   ],
@@ -106,6 +110,9 @@
   ],
   "src/modules/accounting/services/payroll/easyFileInput.ts": [
    {"line":64,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"every final run of the period, each through the run-kind guard (review #1568 M1)"}
+  ],
+  "src/modules/accounting/services/payroll/easyFilePspCertificate.ts": [
+   {"line":105,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"PSP-H: tax-period sum of a PSP's lines on final runs (its H certificate)"}
   ],
   "src/modules/accounting/services/payroll/easyFileRegularDirectives.ts": [
    {"line":26,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"MIN month per directive over the year"}
@@ -247,11 +254,26 @@
    {"line":110,"text":"SELECT * FROM payroll_external_imports","class":"S","owner":"FQb1","why":"external import by id"},
    {"line":156,"text":"DELETE FROM payroll_external_imports","class":"S","owner":"FQb1","why":"external import delete by id"}
   ],
+  "src/modules/accounting/services/payroll/payrollCertificateFrequency.ts": [
+   {"line":17,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-D): EXISTS-style list of the tax year's final weekly/fortnightly runs (by EMP201 month): certificates refuse the year"}
+  ],
+  "src/modules/accounting/services/payroll/payrollFrequencyChange.ts": [
+   {"line":28,"text":"SELECT max(h.period_end) + 1 FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the day after the employee's last final day at another frequency: the new frequency's first day"},
+   {"line":35,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the employee's not-final runs of another frequency from the new frequency's first day, any number"}
+  ],
+  "src/modules/accounting/services/payroll/payrollFrequencyAcks.ts": [
+   {"line":44,"text":"JOIN payroll_run_headers h ON h.id = a.entity_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-F): every acknowledged pay-frequency change at one frequency, with its run's dates and finality (one audit row each)"}
+  ],
   "src/modules/accounting/services/payroll/payrollFrequencyGuard.ts": [
    {"line":62,"text":"SELECT 1 FROM payroll_employee_components c","class":"S","owner":"FQc","why":"EXISTS: an employee holds a row the frequency cannot cost in the run's window"},
    {"line":111,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"EXISTS-style list: other regular runs of the frequency whose dates overlap this run's (review #1575 G6), any number a month"},
    {"line":139,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"an employee's lines on runs of ANOTHER frequency whose dates overlap this run's (review #1575 r4), any number a month"},
    {"line":180,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"EXISTS over the tax year's final lines at another frequency (any number of runs a month)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollFrequencyStraddle.ts": [
+   {"line":71,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): each employee's last final regular run at another frequency (DISTINCT ON, by period_end): where the old frequency stopped paying"},
+   {"line":83,"text":"SELECT h2.id, h2.period_start, h2.period_end FROM payroll_run_headers h2","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-C): the earliest non-cancelled regular run at the new frequency paying after that day (LATERAL, LIMIT 1): where the change is judged"},
+   {"line":161,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd: by run id (the approval gate's straddle check)"}
   ],
   "src/modules/accounting/services/payroll/payrollJournalBuilder.ts": [
    {"line":84,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): by run id; description runJournalDescriptionOf the run; entry date and reference stay the EMP201 month's (the period the liability is declared in)"}
@@ -356,11 +378,22 @@
    {"line":100,"text":"FROM payroll_run_directive_uses","class":"S","owner":"FQb1","why":"uses after a date; months are labels"},
    {"line":124,"text":"FROM payroll_run_directive_uses u","class":"S","owner":"FQb1","why":"uses of one employee"}
   ],
+  "src/modules/accounting/services/payroll/payrollPayWeekSettings.ts": [
+   {"line":53,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd: any final weekly/fortnightly regular run paid this tax year: the pay-week lock"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunCreatePeriod.ts": [
+   {"line":35,"text":"SELECT id, period_start, period_end FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQd: any regular run of the frequency whose dates overlap the new period (duplicate / overlap refusal)"},
+   {"line":68,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQd: a weekly/fortnightly regular run keyed by its period dates"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunDelete.ts": [
+   {"line":41,"text":"DELETE FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'","class":"S","owner":"FQb1","why":"FQd: one draft run by id, never calculated or approved"}
+  ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
-   {"line":65,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"list of runs"},
+   {"line":65,"text":"SELECT * FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd: list of runs, in pay order (runOrderKeySql) since FQd: several weekly runs a month"},
    {"line":76,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): latestPayrollRun, the latest in pay order (period context, was ORDER BY month LIMIT 1 in the route)"},
-   {"line":119,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQb1 converted (R): ON CONFLICT on the 999a regular-period key, not the per-month unique FQx drops"},
-   {"line":145,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":111,"text":"SELECT id FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQd (UI r2 L2): the monthly regular run that already holds the period, so the 409 links to it"},
+   {"line":125,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQb1 converted (R): ON CONFLICT on the 999a regular-period key, not the per-month unique FQx drops"},
+   {"line":144,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunHoursGate.ts": [
    {"line":24,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"FQc converted (R): leaver test against the run's first day (h.period_start)"},
@@ -438,8 +471,7 @@
    {"line":68,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"a sum of the tax year's km rows to the month's end, shown only (tax never reads it)"}
   ],
   "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
-   {"line":31,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"this run, by id"},
-   {"line":32,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month","class":"S","owner":"FQb1","why":"every non-cancelled run of the month with its stored SDL decision, re-judged against the month estimated now (one decision per month, review #1507)"}
+   {"line":23,"text":"SELECT period_year, period_month, status FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd (review #1622, SDL catch-up): this run by id; its own SDL re-judged at approval (sdl_recalculate)"}
   ],
   "src/modules/accounting/services/payroll/payrollSeveranceDirective.ts": [
    {"line":176,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"another run that paid 3901 (any)"}
@@ -506,7 +538,10 @@
    {"line":114,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"months of the tax year's final runs with a PSP line at another entity (entity-change warning)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
+   {"line":104,"text":"SELECT pay_frequency, run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd (review #1622): this run's frequency and kind, by id: a weekly/fortnightly run's estimator"},
+   {"line":130,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (SDLA s4(b)); FQd (review #1622): at least a weekly/fortnightly run x 52/26 beside the month's other runs"},
+   {"line":204,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"FQd (review #1622, SDL catch-up): this run by id, for its month"},
+   {"line":205,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year","class":"S","owner":"FQb1","why":"FQd (review #1622, SDL catch-up): the month's other costed runs (any frequency or kind): liable before, and the final ones' leviable and SDL to catch up"}
   ],
   "src/modules/accounting/services/payroll/taxDirectiveLeaverUndo.ts": [
    {"line":147,"text":"SELECT h.period_year, h.period_month FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a declarable run; labels"}

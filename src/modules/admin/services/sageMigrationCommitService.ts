@@ -39,59 +39,40 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
+import { findSageCustomer, findSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<string> {
-  const existing = (await sql`
-    SELECT id FROM customers
-    WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${c.name}) LIMIT 1
-  `) as Row[];
-  if (existing.length) return String(existing[0]!.id);
+  const existing = await findSageCustomer(companyId, c);
+  if (existing) return existing;
+  const ref = sageRef(c.sageId);
   const inserted = (await sql`
-    INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type)
+    INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type, external_system, external_ref)
     VALUES (
       ${companyId}::UUID, ${c.name.trim()},
       ${c.email?.trim() ?? null}, ${c.phone?.trim() ?? null},
       ${c.vatNumber?.trim() ?? null}, ${c.contactPerson?.trim() ?? null},
-      ${c.creditLimit ?? 0}, TRUE, NULL, NULL
+      ${c.creditLimit ?? 0}, TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
   return String(inserted[0]!.id);
 }
 
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<string> {
-  const existing = (await sql`
-    SELECT id FROM suppliers
-    WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${s.name}) LIMIT 1
-  `) as Row[];
-  if (existing.length) return String(existing[0]!.id);
+  const existing = await findSageSupplier(companyId, s);
+  if (existing) return existing;
+  const ref = sageRef(s.sageId);
   const inserted = (await sql`
-    INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type)
+    INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type, external_system, external_ref)
     VALUES (
       ${companyId}::UUID, ${s.name.trim()},
       ${s.email?.trim() ?? null}, ${s.phone?.trim() ?? null},
       ${s.vatNumber?.trim() ?? null}, ${s.contactPerson?.trim() ?? null},
-      TRUE, NULL, NULL
+      TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
   return String(inserted[0]!.id);
-}
-
-async function resolveCustomerId(companyId: string, name: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT id FROM customers
-    WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${name}) LIMIT 1
-  `) as Row[];
-  return rows.length ? String(rows[0]!.id) : null;
-}
-
-async function resolveSupplierId(companyId: string, name: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT id FROM suppliers
-    WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${name}) LIMIT 1
-  `) as Row[];
-  return rows.length ? String(rows[0]!.id) : null;
 }
 
 /**
@@ -155,7 +136,7 @@ export async function commitARInvoice(
   `) as Row[];
   if (dupe.length) return { invoiceId: String(dupe[0]!.id), created: false };
 
-  const customerId = await resolveCustomerId(companyId, inv.customerName);
+  const customerId = await findSageCustomer(companyId, { name: inv.customerName, sageId: inv.customerSageId });
   if (!customerId) throw new Error(`Customer not found: ${inv.customerName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
@@ -213,7 +194,7 @@ export async function commitAPInvoice(
   const open = Number(inv.amountPaid ?? 0) < Number(inv.totalAmount);
   if (open) await assertMayImportOpenBills(companyId, userId);
 
-  const supplierId = await resolveSupplierId(companyId, inv.supplierName);
+  const supplierId = await findSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
   if (!supplierId) throw new Error(`Supplier not found: ${inv.supplierName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
