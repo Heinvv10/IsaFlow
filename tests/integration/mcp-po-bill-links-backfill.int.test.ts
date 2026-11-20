@@ -1,9 +1,10 @@
 /**
  * purchase_order_bill_links_backfill() over hostile data (review round 4), real PostgreSQL. It runs in the migration and again after
  * the release, so it must never throw and never link what the table's own guard refuses:
- *   - adversarial shapes: a header naming another company's PO, a PO with no company, another supplier's PO, a legacy
- *     supplier_purchase_orders id, a cancelled / draft / submitted PO, lines naming po_items of such POs, a cancelled or soft-deleted
- *     bill, a bill with nothing to link: no error, no link, while a valid bill beside them is linked;
+ *   - adversarial shapes: a header naming another company's PO, a PO with no company, another supplier's PO, an id naming no PO
+ *     (a former supplier_purchase_orders id names its canonical copy since migration 1022), a cancelled / draft / submitted PO,
+ *     lines naming po_items of such POs, a cancelled or soft-deleted bill, a bill with nothing to link: no error, no link, while a
+ *     valid bill beside them is linked;
  *   - a row that changes UNDER the run: the guard and the FK read other snapshots than the statement that chose the row, so a PO deleted
  *     by a transaction that commits mid-run used to abort the whole call with the guard's / the FK's error; now that row alone is
  *     skipped (a WARNING) and the rest are still linked;
@@ -46,15 +47,12 @@ describe('the backfill over adversarial data', () => {
     const orphanItem = crypto.randomUUID();
     await pool.query(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, status, subtotal, total) VALUES ($1, NULL, $2, $3, 'approved', 100, 100)`, [orphanPo, `ORPHAN-${orphanPo.slice(0, 6)}`, f.supplier]);
     await pool.query(`INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, line_total) VALUES ($1, $2, 'x', 1, 100, 100)`, [orphanItem, orphanPo]);
-    const legacy = crypto.randomUUID();
-    await pool.query(`INSERT INTO supplier_purchase_orders (id, company_id, order_number, supplier_id, status) VALUES ($1, $2, 'LEGACY-1', $3, 'sent')`, [legacy, f.co, f.supplier]);
 
     const valid = await seedRawBill(pool, f, { items: [{ total: 100 }], subtotal: 100, total: 115, header: good.po });
     const hostile = {
       foreignHeader: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: theirs.po }),
       orphanHeader: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: orphanPo }),
       strangerHeader: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: strangers.po }),
-      legacyHeader: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: legacy }),
       unknownHeader: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: crypto.randomUUID() }),
       cancelledPo: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: cancelled.po }),
       draftPo: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: draftPo.po }),
@@ -81,7 +79,6 @@ describe('the backfill over adversarial data', () => {
     expect(await linkRows(pool, other)).toEqual([]);
     await pool.query('DELETE FROM po_items WHERE id = $1', [orphanItem]);
     await pool.query('DELETE FROM purchase_orders WHERE id = $1', [orphanPo]);
-    await pool.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [legacy]);
   });
 
   it('with a company it touches that company only', async () => {

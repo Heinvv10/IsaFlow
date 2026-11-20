@@ -86,7 +86,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
-      // 3. Re-parent supplier_invoices — AFTER the payments, as every payment
+      // 3. Re-parent purchase_orders (the one PO table since migration 1022 retired supplier_purchase_orders) — BEFORE
+      // the bills: the link tool takes a PO and then its bills, so this order cannot cycle with it; a bill create holds
+      // its bill and takes the PO only FOR KEY SHARE, which this UPDATE (no key column) does not conflict with.
+      await tx`
+        UPDATE purchase_orders
+        SET supplier_id = ${target_id}, updated_at = NOW()
+        WHERE supplier_id = ${source_id}
+          AND company_id = ${companyId}
+      `;
+
+      // 4. Re-parent supplier_invoices — AFTER the payments, as every payment
       // writer takes a payment and then its bills (bank/.claude.md lock order;
       // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
       // approval content (R-035): the merging user becomes an author of every
@@ -95,14 +105,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         UPDATE supplier_invoices
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
-        WHERE supplier_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 4. Re-parent supplier_purchase_orders
-      await tx`
-        UPDATE supplier_purchase_orders
-        SET supplier_id = ${target_id}
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;

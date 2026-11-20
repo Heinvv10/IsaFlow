@@ -114,6 +114,13 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   count += r1.length;
   await stampBatchesOfMovedPayments(companyId, batchIds, userId);
 
+  // Purchase orders BEFORE the bills (the link tool's PO -> bill order; migration 1022 made purchase_orders the one table).
+  const r3 = await sql`
+    UPDATE purchase_orders SET supplier_id = ${primaryId}::UUID, updated_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
+    RETURNING id
+  `;
+
   // supplier_id is approval content (R-035): the merging user becomes an author of every moved bill.
   const r2 = await sql`
     UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID,
@@ -122,12 +129,6 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
     RETURNING id
   `;
   count += r2.length;
-
-  const r3 = await sql`
-    UPDATE supplier_purchase_orders SET supplier_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
-  `;
   count += r3.length;
 
   await sql`
@@ -161,16 +162,6 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     RETURNING cii.id
   `;
   count += r1.length;
-
-  const r2 = await sql`
-    UPDATE supplier_purchase_order_items spoi SET item_id = ${primaryId}::UUID
-    FROM supplier_purchase_orders spo
-    WHERE spoi.purchase_order_id = spo.id
-      AND spo.company_id = ${companyId}::UUID
-      AND spoi.item_id = ${duplicateId}::UUID
-    RETURNING spoi.id
-  `;
-  count += r2.length;
 
   const r3 = await sql`
     UPDATE customer_sales_order_items csoi SET item_id = ${primaryId}::UUID
