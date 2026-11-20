@@ -91,7 +91,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/taxDirectivePaymentService.ts`]: {
     94: 'createdBy: r.created_by != null ? String(r.created_by) : null,',
-    209: 'bank_account_id, created_by',
+    210: 'bank_account_id, created_by',
   },
   [`${S}payroll/taxDirectiveService.ts`]: {
     91: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
@@ -144,7 +144,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 129: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
-  [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
+  [`${S}payroll/taxDirectivePaymentService.ts`]: { 214: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
