@@ -179,4 +179,33 @@ describe('merged-away suppliers of one name (#1655)', () => {
     // Sage 301 still follows its own merge by id.
     expect((await syncSuppliers([party(301, 'Acme Bolts Ltd')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
   });
+
+  it('an alias another Sage party claimed still counts when its chain passes a third Sage party\'s row (#1699 review)', async () => {
+    // A ('Oak Co', Sage 311) -> M (Sage 399) -> S; B ('Oak Co', unstamped) -> S. Sage 312 must not take B.
+    const s = await insPlain('Oak Co Survivor');
+    const m = await insPlain('Oak Co Middle', 'sage', '399');
+    const a = await insPlain('Oak Co', 'sage', '311');
+    const b = await insPlain('Oak Co');
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = ANY($1)', [[m, b], s]);
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [a, m]);
+    expect((await syncSuppliers([party(312, 'Oak Co')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    expect((await byRef('312'))[0]).toMatchObject({ deleted: false, merged_into_id: null });
+    expect((await pool.query('SELECT external_ref FROM suppliers WHERE id = $1', [b])).rows[0].external_ref).toBeNull();
+  });
+
+  it('a merged-away alias marked sage with no external_ref is unstamped, not another party\'s (#1699 review)', async () => {
+    const survivor = await insPlain('Elm Co Survivor');
+    const gone = await insPlain('Elm Co');
+    await pool.query("UPDATE suppliers SET external_system = 'sage', deleted_at = now(), merged_into_id = $2 WHERE id = $1", [gone, survivor]);
+    expect((await syncSuppliers([party(321, 'Elm Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await byRef('321')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
+  });
+
+  it('a survivor carrying an external_ref with no external_system does not block the chain (#1699 review)', async () => {
+    const survivor = await insPlain('Hazel Co Survivor', null, 'LEGACY-1');
+    const gone = await insPlain('Hazel Co');
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [gone, survivor]);
+    expect((await syncSuppliers([party(331, 'Hazel Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await byRef('331')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
+  });
 });

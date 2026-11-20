@@ -123,7 +123,7 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     const target = await seedSupplier(fx, 'R Doc Target');
     const po = String(((await sql`
       INSERT INTO purchase_orders (company_id, po_number, supplier_id, status)
-      VALUES (${fx.companyId}::UUID, 'SMR-PO-1', ${source}::UUID, 'approved') RETURNING id`) as { id: string }[])[0]!.id);
+      VALUES (${fx.companyId}::UUID, 'SMR-PO-1', ${source}::UUID, 'submitted') RETURNING id`) as { id: string }[])[0]!.id);
     const cn = String(((await sql`
       INSERT INTO credit_notes (company_id, type, supplier_id, credit_date, created_by, status)
       VALUES (${fx.companyId}::UUID, 'supplier', ${source}::UUID, '2026-05-02', ${fx.userId}::UUID, 'draft') RETURNING id`) as { id: string }[])[0]!.id);
@@ -134,6 +134,22 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     expect(String(cn2[0]!.supplier_id)).toBe(target);
     // The fixture teardown does not know these tables, and both reference the supplier.
     await sql`DELETE FROM credit_notes WHERE id = ${cn}::UUID`;
+    await sql`DELETE FROM purchase_orders WHERE id = ${po}::UUID`;
+  });
+
+  it('refuses with a 400, moving nothing, a source with an approved purchase order (#1699 review)', async () => {
+    const source = await seedSupplier(fx, 'R Approved Source');
+    const target = await seedSupplier(fx, 'R Approved Target');
+    const po = String(((await sql`
+      INSERT INTO purchase_orders (company_id, po_number, supplier_id, status)
+      VALUES (${fx.companyId}::UUID, 'SMR-PO-2', ${source}::UUID, 'approved') RETURNING id`) as { id: string }[])[0]!.id);
+    const bill = await seedBill(fx, { number: 'SMR-3', date: '2026-05-01', total: 100, supplierId: source });
+    const r = await merge(source, target);
+    expect(r.status).toBe(400);
+    expect(r.body?.error?.message).toContain('approved purchase orders');
+    const po2 = (await sql`SELECT supplier_id FROM purchase_orders WHERE id = ${po}::UUID`) as { supplier_id: string }[];
+    expect(String(po2[0]!.supplier_id)).toBe(source);
+    expect(await billSupplier(bill)).toBe(source);
     await sql`DELETE FROM purchase_orders WHERE id = ${po}::UUID`;
   });
 });

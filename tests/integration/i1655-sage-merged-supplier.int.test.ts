@@ -168,9 +168,20 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
   });
 
-  const seedPo = async (supplierId: string, number: string) => String((await pool.query(
-    "INSERT INTO purchase_orders (company_id, po_number, supplier_id, status) VALUES ($1, $2, $3, 'approved') RETURNING id",
-    [companyId, `${number}-${tag}`, supplierId])).rows[0].id);
+  it('restoring a supplier merged by the route brings it back active and without the [MERGED] suffix (#1699 review)', async () => {
+    const survivor = await insPlain('Rush Co Survivor');
+    const gone = await insPlain('Rush Co');
+    // As the supplier-merge route leaves it.
+    await pool.query("UPDATE suppliers SET is_active = false, name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1",
+      [gone, survivor]);
+    expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
+    const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
+    expect(rows[0]).toEqual({ name: 'Rush Co', is_active: true, deleted_at: null, merged_into_id: null });
+  });
+
+  const seedPo = async (supplierId: string, number: string, status = 'submitted') => String((await pool.query(
+    'INSERT INTO purchase_orders (company_id, po_number, supplier_id, status) VALUES ($1, $2, $3, $4) RETURNING id',
+    [companyId, `${number}-${tag}`, supplierId, status])).rows[0].id);
   const seedCreditNote = async (supplierId: string) => String((await pool.query(
     "INSERT INTO credit_notes (company_id, type, supplier_id, credit_date, created_by, status) VALUES ($1, 'supplier', $2, '2026-04-03', $3, 'draft') RETURNING id",
     [companyId, supplierId, userId])).rows[0].id);
@@ -205,5 +216,16 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(await ownerOf('purchase_orders', po)).toBe(gone);
     expect(await ownerOf('credit_notes', cn)).toBe(gone);
     expect(await billSupplier('AP-LINK-1')).toBe(gone);
+  });
+
+  it('a merge refuses, before moving anything, a supplier with an approved purchase order (#1699 review)', async () => {
+    const survivor = await insPlain('Approved Keeper Survivor');
+    const gone = await insPlain('Approved Keeper');
+    const po = await seedPo(gone, 'PO-APPR', 'approved');
+    const cn = await seedCreditNote(gone);
+    await expect(inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId))).rejects.toThrow('approved purchase orders');
+    expect(await ownerOf('purchase_orders', po)).toBe(gone);
+    expect(await ownerOf('credit_notes', cn)).toBe(gone);
+    expect((await pool.query('SELECT deleted_at FROM suppliers WHERE id = $1', [gone])).rows[0].deleted_at).toBeNull();
   });
 });
