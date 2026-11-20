@@ -8,8 +8,9 @@
  * (already_cancelled), a PO that is not approved / partially_received / received / closed (po_not_receivable: in practice a
  * cancelled one, which carries only cancelled notes because every way to cancel a PO refuses a live one, so a live note on it was put
  * there by hand and has no exit in the tools), a note a bill that is neither deleted nor cancelled carries in
- * `supplier_invoices.grn_id` (grn_on_bill, naming them; cancelling or deleting those bills frees it), and a PO line holding less
- * received quantity than the note took, or than the PO's other live notes still account for once it is off (receipts_disagree, naming the lines). Billed quantity above received quantity after a
+ * `supplier_invoices.grn_id` (grn_on_bill, naming them; cancelling or deleting those bills frees it), and a PO line that would keep
+ * less than the PO's other live notes still account for once this note is off, which includes falling below zero (receipts_disagree,
+ * naming the lines). Billed quantity above received quantity after a
  * cancel is allowed, as when a bill arrives first.
  *
  * A note on a CLOSED PO cancels: the PO stays closed (closing is a decision, and nothing else reopens it), the quantities come back,

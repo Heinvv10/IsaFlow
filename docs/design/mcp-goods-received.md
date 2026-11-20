@@ -27,8 +27,8 @@ Both writes are free flows (`purchaseOrderFlow.ts`), like the PO tools. No new s
 - It refuses when:
   - the GRN is already cancelled (`already_cancelled`);
   - the PO is `cancelled` (`po_not_receivable`). A cancelled PO carries only cancelled notes (`cancel_purchase_order` and `set_purchase_order_status` refuse a PO with a live one), so a live note there was put by hand, and no tool mends it: the refusal says so and points to IsaFlow support rather than to a status change that does not exist;
-  - a PO line holds less received quantity than the note took (`receipts_disagree`, naming the lines; the PO's totals were changed outside the notes). Nothing is written;
-  - a bill that is neither deleted nor cancelled carries this GRN in `supplier_invoices.grn_id` (`grn_on_bill`, naming the bills). The exit is to cancel or delete those bills (a paid bill needs its payment reversed before it can be cancelled), then cancel the note. Nothing edits a bill's `grn_id`.
+  - taking the note off would leave a PO line with less received quantity than the PO's other live notes still account for (`receipts_disagree`, naming the lines with `line_received`, `note_received` and `other_notes_received`; the line's total was not written with the notes). This also covers a line that would fall below zero. Nothing is written;
+  - a bill that is neither deleted nor cancelled (a NULL status counts as live: `IS DISTINCT FROM 'cancelled'`) carries this GRN in `supplier_invoices.grn_id` (`grn_on_bill`, naming the bills). The exit is to cancel or delete those bills (a paid bill needs its payment reversed before it can be cancelled), then cancel the note. Nothing edits a bill's `grn_id`.
 - A note on a **closed** PO cancels. The PO stays closed (closing is a decision, and no tool reopens a PO that has receipts), the quantities come back as usual, and the answer carries `receipt_status`: what the receipts now give (`received` / `partially_received` / `approved`). The records of the status the PO was closed from follow it, so a later reopen lands right: `purchase_orders.closed_from_status` (1007, set when closed by hand) and `purchase_order_bill_links.closed_po_from_status` (1006, set when a link closed it; a closing record is moved, not rewritten, so it is cleared and set again).
 - Billed quantity above received quantity is allowed after a cancel, as it already is when a bill arrives before the goods do.
 - Managers and above may cancel. The commitment is unchanged, because `approved`, `partially_received` and `received` all count as committed.
@@ -62,6 +62,7 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 - A partial unique index on `(company_id, external_system, external_ref)` covers non-cancelled notes that have an `external_ref`.
 - A trigger refuses moving a note out of `cancelled`, refuses editing a cancelled note's items, and refuses inserting items into a cancelled note.
 - A trigger (`grn_items_same_transaction_guard`) refuses inserting an item onto a note that was not created in the same transaction (the note's `created_at` is not `now()`, the transaction's start; not `xmin`, which a savepoint changes). Create writes a note, its items and the PO lines' `quantity_received` together; an item added later would leave that total disagreeing with the notes.
+- Two more triggers keep a note on one company and one PO: `goods_received_notes_po_guard` (the PO named is a PO of the note's company) and `grn_items_po_line_guard` (an item names a line of its note's PO). A foreign key checks neither.
 - `idx_supplier_invoices_grn` on `supplier_invoices (company_id, grn_id) WHERE grn_id IS NOT NULL`: the cancel's check for a live bill scans bills under the PO and note locks.
 
 ## Database rules (review M3, L1)
@@ -72,7 +73,9 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 
 ## Attachments
 
-A bill that carries the note (`supplier_invoices.grn_id`) gets the note's documents linked onto it, and its own documents linked onto the note (`autoLinkSupplierInvoice`, entity type `goods_received`; links are written with `linked_entity_type = 'goods_received'`, and the legacy `goods_receipt_note` document type is still read).
+The app's goods received list (`/accounting/goods-received`) shows each note's status as a pill, and a cancelled note's reason under it.
+
+A bill that carries the note (`supplier_invoices.grn_id`) gets the note's documents linked onto it, and its own documents linked onto the note (`autoLinkSupplierInvoice`, entity type `goods_received`; every id read from the bill (its PO, its note) is fenced to the bill's company, since neither carries a foreign key and row security admits every company a user belongs to; links are written with `linked_entity_type = 'goods_received'`, and the legacy `goods_receipt_note` document type is still read).
 
 `goods_received` becomes an entity-store kind: it is added to `AccountingEntityType`, to the ownership check, to `ENTITY_TARGET_KINDS` (create_upload_urls / finalize_uploads), and to `attach_entity_document`, with the default document type `delivery_note`. If that type is not in `VALID_DOCUMENT_TYPES`, it is added there. `find_by_external_ref` gains the kind `goods_received`.
 
