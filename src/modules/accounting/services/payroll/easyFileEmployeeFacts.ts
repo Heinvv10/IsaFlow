@@ -1,7 +1,7 @@
 /**
  * Employee facts for the e@syFile employee record, from the payroll employee
  * row (moved out of pages/api/payroll/irp5/easyfile-export.ts, 300-line cap):
- * names, dates in CCYYMMDD, periods in the year of assessment, the age on the
+ * names, dates in CCYYMMDD, pay periods worked (3210), the age on the
  * year's last day and the tax threshold that follows from it.
  */
 
@@ -31,13 +31,24 @@ export function toCCYYMMDD(value: unknown): string | null {
   return `${y}${m}${day}`;
 }
 
-export function monthsBetween(start: string, endInclusive: string): number {
-  // Inputs are CCYYMMDD. Count full months the employee was active within
-  // the year-of-assessment window, max 12.
-  const s = new Date(`${start.slice(0, 4)}-${start.slice(4, 6)}-${start.slice(6, 8)}`);
-  const e = new Date(`${endInclusive.slice(0, 4)}-${endInclusive.slice(4, 6)}-${endInclusive.slice(6, 8)}`);
-  const months = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + (e.getUTCMonth() - s.getUTCMonth()) + 1;
-  return Math.min(12, Math.max(0, months));
+/**
+ * Code 3210, pay periods worked (BRS V25.3.0 p. 33), for MONTHLY pay: each calendar month from `start` to
+ * `endInclusive` (CCYYMMDD, both inside the period) counts 1, and a month worked in part counts the fraction of its
+ * calendar days employed ("pay periods worked which are shorter than a full pay period must be indicated as a decimal
+ * fraction of such pay period"), to 4 decimals. Named assumption: calendar days, not working days; the BRS names no basis.
+ */
+export function monthlyPayPeriodsWorked(start: string, endInclusive: string): number {
+  const ymd = (v: string) => [Number(v.slice(0, 4)), Number(v.slice(4, 6)), Number(v.slice(6, 8))] as const;
+  const [sy, sm, sd] = ymd(start);
+  const [ey, em, ed] = ymd(endInclusive);
+  let total = 0;
+  for (let y = sy, m = sm; y < ey || (y === ey && m <= em); m === 12 ? (y += 1, m = 1) : (m += 1)) {
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = y === sy && m === sm ? sd : 1;
+    const to = y === ey && m === em ? ed : days;
+    total += Math.max(0, to - from + 1) / days;
+  }
+  return Math.round(total * 10000) / 10000;
 }
 
 /**
