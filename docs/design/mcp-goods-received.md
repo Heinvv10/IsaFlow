@@ -8,8 +8,8 @@ Status: design, 2026-11-20. Builds on the PO bill links (#1627) and PO maintenan
 |---|---|---|
 | `create_goods_received` | write | write:invoices |
 | `cancel_goods_received` | write | write:invoices |
-| `list_goods_received` | read | read |
-| `get_goods_received` | read | read |
+| `list_goods_received` | read | read:invoices |
+| `get_goods_received` | read | read:invoices |
 
 Both writes are free flows (`purchaseOrderFlow.ts`), like the PO tools. No new scope, so no connector re-consent.
 
@@ -23,13 +23,14 @@ Both writes are free flows (`purchaseOrderFlow.ts`), like the PO tools. No new s
 
 `cancel_goods_received(grn_id, reason, idempotency_key, dry_run?)`
 
-- It sets the GRN to `cancelled` (with `cancelled_at`, `cancelled_by` and `cancel_reason`), subtracts each item's `quantity_received` from its `po_items.quantity_received`, and recomputes the PO status (`received` → `partially_received` / `approved`).
+- It sets the GRN to `cancelled` (with `cancelled_at`, `cancelled_by` and `cancel_reason`), subtracts each item's `quantity_received` from its `po_items.quantity_received`, and recomputes the PO status (`received` → `partially_received` / `approved`). These three happen in one SECURITY DEFINER function, `goods_received_note_cancel` (see Database rules); the service keeps the guards that name things, the locks and the audit row.
 - It refuses when:
   - the GRN is already cancelled (`already_cancelled`);
   - the PO is `closed` or `cancelled` (`po_not_receivable`; set the PO status back first);
-  - a bill that is not deleted carries this GRN in `supplier_invoices.grn_id` (`grn_on_bill`, naming the bills). The exit is to edit those bills' GRN link, then cancel.
+  - a bill that is neither deleted nor cancelled carries this GRN in `supplier_invoices.grn_id` (`grn_on_bill`, naming the bills). The exit is to cancel or delete those bills (a paid bill needs its payment reversed before it can be cancelled), then cancel the note. Nothing edits a bill's `grn_id`.
 - Billed quantity above received quantity is allowed after a cancel, as it already is when a bill arrives before the goods do.
 - Managers and above may cancel. The commitment is unchanged, because `approved`, `partially_received` and `received` all count as committed.
+- A PO whose notes are all cancelled has no receipt: `cancel_purchase_order` and `update_purchase_order` (header) work again (review M2). A cancelled note keeps its items, which reference the PO's lines, so replacing those lines and setting an imported PO back to draft (where the PUT replaces lines and the DELETE removes the PO) stay refused, naming the cancelled note.
 
 `list_goods_received(po_id?, supplier_id?, date_from?, date_to?, external_ref?, status?, limit, offset)` returns notes with their PO number, supplier, line count and document count. `get_goods_received(grn_id)` returns the note, its items (with the PO line description, ordered and received quantities), its attachments, and the bills that carry its `grn_id`. Cancelled notes are listed with `status: cancelled`.
 
@@ -37,9 +38,19 @@ Both writes are free flows (`purchaseOrderFlow.ts`), like the PO tools. No new s
 
 A GRN does not post to the general ledger. It records quantities only: there is no GRNI accrual and no stock movement journal. The ledger moves when the bill is approved. Both tools' descriptions say so, and an integration test asserts that create and cancel leave `gl_journal_entries` and `gl_journal_lines` unchanged.
 
+## A bill's GRN (review M1)
+
+`supplier_invoices.grn_id` has NO foreign key (migration 201 created it without one; 246b's `ADD COLUMN ... REFERENCES` was skipped because the column existed), so the database ties nothing. The one writer is `createSupplierInvoice` (the REST create; MCP, bulk, import, recurring and capture creates never set it; no update writes it), plus the undo of a soft-deleted bill, which makes a bill live again. Both go through `ap/billGoodsReceivedLink.ts`:
+
+- the create refuses a malformed id, a note that is not this company's (or does not exist) and a cancelled note (`SUPPLIER_INVOICE_GRN_REFUSED`, 400; the REST route checks ahead of its number reservation too);
+- the undo refuses a bill whose note (of this company) was cancelled while the bill was deleted;
+- both hold the note `FOR SHARE` (`goods_received_note_hold`) and judge it under that lock. The cancel takes the note `FOR UPDATE` and then looks for live bills, so exactly one wins: never a cancelled note with a live bill.
+
+Decided: a typed check under a row lock, not a foreign key. Adding the FK means validating whatever production holds (dangling ids are possible after 201) and still would not see the note's status.
+
 ## Lock order
 
-Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_items FOR UPDATE`, then the GRN row (cancel only). That is the same order the app's POST uses, and it fits the census in `mcp-po-bill-links.md`: lock 620 sits before the PO rows, and nothing takes 620 after a PO lock.
+Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_items FOR UPDATE`, then the GRN row (cancel only, inside the function). That is the same order the app's POST uses, and it fits the census in `mcp-po-bill-links.md`: lock 620 sits before the PO rows, and nothing takes 620 after a PO lock. A bill takes the note LAST: the create after every PO row it locks (`assertBillPoLinks`, `recordBillLinks`), the undo after the bill row. Taking it before `recordBillLinks` deadlocked against a cancel when the bill named the note's PO (reproduced in `mcp-goods-received-bills.int.test.ts`); the ranks are bill < PO < note for everyone.
 
 ## Migration
 
@@ -48,6 +59,12 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 - A CHECK keeps the cancel columns consistent: they are set if and only if the status is `cancelled`, and a reason is required.
 - A partial unique index on `(company_id, external_system, external_ref)` covers non-cancelled notes that have an `external_ref`.
 - A trigger refuses moving a note out of `cancelled`, refuses editing a cancelled note's items, and refuses inserting items into a cancelled note.
+
+## Database rules (review M3, L1)
+
+- **Only the cancel changes a note.** No app path UPDATEs or DELETEs `goods_received_notes` or `grn_items` except the cancel, and a trigger keyed on the caller's role can be steered, so app_user loses UPDATE and DELETE on both (a privilege holds). The cancel's state change, quantity reversal and PO recompute run in `goods_received_note_cancel(note, reason)`: SECURITY DEFINER, owner `migration_admin`, `search_path = pg_catalog, public, pg_temp`, EXECUTE for app_user / app_service only, registered in `app_definer_reviews` (930). Inside it: the caller must be a member (`company_users`, `auth.uid()`) of the session company (`app.current_company_id()`), else `not_found`; it takes the create's locks itself and re-decides `already_cancelled`, `po_not_receivable` and `grn_on_bill` under the note lock, answering them as an outcome (nothing written) rather than raising. `cancelled_by` is `auth.uid()`.
+- **The hold.** A row lock needs UPDATE privilege, so a bill cannot take `FOR SHARE` on a note itself any more: `goods_received_note_hold(note)` (same definer rules; reads one row of the session company for a member, writes nothing) takes it and returns the status.
+- **grn_items row security.** `grn_items` has no `company_id`; it gets row security (FORCE, like its note) with a policy through the note: visible when the note is (the note's own policy), written only onto a note of the session company (WITH CHECK). Create, cancel, get / list, the three-way match and the item-movement report read through it unchanged.
 
 ## Attachments
 
@@ -58,10 +75,13 @@ Create and cancel both take number lock 620, then the PO `FOR UPDATE`, then `po_
 1. On a PO for 10, receiving 6 makes it `partially_received`; receiving 4 more makes it `received`; GRN numbers go up by one.
 2. Receiving 1 more after that is refused with `over_receipt`, and nothing is written.
 3. Cancelling the second GRN restores `quantity_received` to 6 and the status to `partially_received`. Cancelling the first restores 0 and `approved`.
-4. Cancel is refused for a GRN on a bill, for an already-cancelled GRN, and for a GRN on a closed PO.
+4. Cancel is refused for a GRN on a bill, for an already-cancelled GRN, and for a GRN on a closed PO. A cancelled or deleted bill frees the note.
 5. A GRN PDF attaches through create_upload_urls → finalize_uploads, and get_goods_received lists it.
 6. Another company's PO or GRN is refused as `not_found`. Lists never show another company's notes.
 7. A repeated `external_ref` is refused and names the first GRN. After that GRN is cancelled, the ref can be used again.
 8. dry_run writes nothing, and a live call with the same key then succeeds.
 9. The GL is unchanged by create and by cancel.
 10. Racing two creates for the same remaining quantity: one succeeds and the other is refused as `over_receipt`.
+11. A bill create refuses a cancelled, foreign, unknown or malformed note; the undo of a deleted bill refuses a note cancelled meanwhile; a bill create and a cancel of its note, interleaved both ways and raced, end in one outcome (`mcp-goods-received-bills`).
+12. As app_user a forged cancel UPDATE, an item edit and DELETEs of notes or items are refused; no item goes onto another company's note (`mcp-goods-received-db`).
+13. After every note is cancelled, the PO can be cancelled and its header edited (`mcp-goods-received-po-loop`).

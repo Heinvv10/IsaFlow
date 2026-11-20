@@ -44,6 +44,13 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - Approved edit restricted to owner/admin with restamp; `set_status` clears link closing records and closes from approved only; REST draft edit returns 503 on a held PO
 - `purchase_orders.closed_from_status` for short-close and set-status reopen (migration 1007)
 
+**MCP / AP — Goods Received Notes**
+
+- New MCP tools: `create_goods_received`, `cancel_goods_received`, `list_goods_received`, `get_goods_received`; `goods_received` as an upload / attach / `find_by_external_ref` kind; optional `external_system` + `external_ref` per note (#1697, migration 1021)
+- Cancel keeps the note (status `cancelled`), takes its quantities back off the PO lines and recomputes the PO status, through the definer `goods_received_note_cancel`; app_user can no longer UPDATE or DELETE notes or their items, and `grn_items` is under row security through its note
+- A bill names only a live goods received note of its company (create and undo of a deleted bill), held `FOR SHARE` while it commits; a cancelled or deleted bill frees its note for cancel
+- A PO whose notes are all cancelled can be cancelled and its header edited; its lines stay fixed (the cancelled notes keep their items) and an imported one cannot go back to draft
+
 **Intercompany — P1 Connections**
 
 - P1 merged: statement-level changers, bounded wait and attempt cap with exponential backoff, narrowed lock set, group-table grants, backfills as `migration_admin`, company-delete test (#1594)
