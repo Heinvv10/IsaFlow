@@ -100,6 +100,19 @@ describe('as app_user, only the cancel changes a note (M3)', () => {
     expect(await poState(pool, theirs.po)).toEqual({ status: 'partially_received', received: [3] });
   });
 
+  it('the function itself, called directly, refuses a note on a cancelled PO and writes nothing; a closed PO stays closed', async () => {
+    const call = 'SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel($1, $2)';
+    const dead = await received(f, 4, 3);
+    await pool.query("UPDATE purchase_orders SET status = 'cancelled' WHERE id = $1", [dead.po.po]);
+    expect((await asApp(f, call, [dead.grn, 'x'])).rows).toEqual([{ outcome: 'po_not_receivable', po_status: 'cancelled', receipt_status: null }]);
+    expect(await poState(pool, dead.po)).toEqual({ status: 'cancelled', received: [3] });
+    expect((await grnRows(pool, f)).find((n) => n.id === dead.grn)).toMatchObject({ status: 'received' });
+    const shut = await received(f, 4, 3);
+    await pool.query("UPDATE purchase_orders SET status = 'closed' WHERE id = $1", [shut.po.po]);
+    expect((await asApp(f, call, [shut.grn, 'x'])).rows).toEqual([{ outcome: 'cancelled', po_status: 'closed', receipt_status: 'approved' }]);
+    expect(await poState(pool, shut.po)).toEqual({ status: 'closed', received: [0] });
+  });
+
   it('the triggers hold for migration_admin: a cancelled note and its items never change; app_user adds no item to it', async () => {
     const { po, grn } = await received(f, 5, 1);
     expect(await asAdmin("UPDATE goods_received_notes SET cancel_reason = 'x' WHERE id = $1", [grn])).toBe('23514');
