@@ -256,6 +256,7 @@ export const postPayrollJournalTool: McpTool = {
           net_pay: plan.totals.net,
           paye: plan.totals.paye,
           other_deductions: plan.totals.otherDeductions,
+          garnishee_deductions: plan.totals.garnishee,
         },
       };
       return { ...ok(preview), wroteNothing: true };

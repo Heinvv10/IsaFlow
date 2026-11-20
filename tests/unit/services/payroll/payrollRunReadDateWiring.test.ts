@@ -5,6 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/pspComponentGuard', async (orig) => ({
+  ...(await orig<object>()), assertPspRunComponents: vi.fn(async () => undefined), assertReopenedRunKeepsPspTreatment: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
@@ -42,6 +45,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveUses', () => (
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(() => Promise.resolve([]))),
+}));
+// GA: the run's garnishee orders are read and recorded by payrollGarnisheeRun (proven in w6-garnishee.int.test.ts).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({
+  loadRunGarnisheeOrders: vi.fn(async () => new Map()), replaceRunGarnisheeDeductions: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

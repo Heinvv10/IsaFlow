@@ -21,6 +21,7 @@ import {
 } from '@/components/accounting/bank-transaction-new/newBankTxForm';
 import { useNewBankTxReferenceData } from '@/components/accounting/bank-transaction-new/useNewBankTxReferenceData';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 export default function NewBankTransactionPage() {
   const router = useRouter();
@@ -71,6 +72,7 @@ export default function NewBankTransactionPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (blockOnInvalidAmount()) return; // noValidate form: a refused paste must not submit the old amount
     if (inFlight.current) return; // state alone lets a second click in before the re-render that disables the button
     const err = validate();
     if (err) { notify.error(err); return; }

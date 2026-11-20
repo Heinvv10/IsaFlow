@@ -139,6 +139,9 @@ export async function createSupplierInvoice(
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
+      // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
+      // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
+      await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,

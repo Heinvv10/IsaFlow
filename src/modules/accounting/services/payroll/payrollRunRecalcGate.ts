@@ -5,6 +5,7 @@
  *     than PAYROLL_CALCULATION_VERSION: its lines were read under other rules.
  *   - components_changed_after_calculation: an employee on the run had an assignment's dates changed (Edit dates,
  *     End, cancel, the pay-run grid: audit_log entity payroll_employee_component; a removal by its metadata) after calculation.
+ *   - db_fund_unsettled (DBF): a line carries DB_FUND_MEMBER_CONTRIBUTION_UNMARKED, _MULTIPLE or DB_FUND_FACTOR_WRONG_CODE;
  *   - fringe_benefit_not_applied: a line carries FRINGE_BENEFIT_NOT_APPLIED or MEDICAL_BENEFIT_NOT_TAXABLE (wave 5 FB), or
  *     RETIREMENT_BENEFIT_NOT_TAXABLE (wave 5 RF: a non-taxable 3817 / 3825 / 3828) as an error.
  *   - components_changed_after_calculation also covers a component's counts_as_rfi switched after calculation (audit entity
@@ -89,14 +90,15 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[]));
-  // A counts_as_rfi switch, after calculation, of a component ON the line (RF): that line's percent rows may now be costed wrong.
+  // A counts_as_rfi switch, after calculation, of a component ON the line (RF): that line's percent rows (and DBF's defined-benefit
+  // rows, valued on the same RFI) may now be costed wrong.
   changed.push(...((await sql`
     SELECT DISTINCT e.employee_number
     FROM payroll_run_headers h
     JOIN payroll_run_lines l ON l.run_id = h.id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND jsonb_path_exists(COALESCE(l.component_breakdown, '[]'::jsonb), '$[*] ? (exists(@.percentOfRfi))')
+      AND jsonb_path_exists(COALESCE(l.component_breakdown, '[]'::jsonb), '$[*] ? (exists(@.percentOfRfi) || exists(@.dbMemberCategoryFactor))')
       AND EXISTS (SELECT 1 FROM audit_log a WHERE a.company_id = h.company_id AND a.entity_type = 'payroll_component'
                     AND a.created_at > h.calculated_at AND a.changes->'fields' @> '[{"field": "counts_as_rfi"}]'::jsonb
                     AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array' THEN l.component_breakdown ELSE '[]'::jsonb END) i
@@ -175,6 +177,23 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       code: 'fringe_benefit_not_applied',
       detail: `${untaxed.map((r) => String(r.employee_number)).join(', ')}: a fringe benefit (company vehicle, or an employer medical or retirement fund contribution coded 3810, 3817, 3825 or 3828) is not on the payslip `
         + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
+    };
+  }
+  // DBF: a defined-benefit fund valued on an unknown C (no 4001 / 4003 marked as the fund contribution) or on the wrong code.
+  const dbUnsettled = (await sql`
+    SELECT e.employee_number
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND jsonb_path_exists(l.validation_results, '$[*] ? (@.severity == "error" && (@.code == "DB_FUND_MEMBER_CONTRIBUTION_UNMARKED" || @.code == "DB_FUND_MEMBER_CONTRIBUTION_MULTIPLE" || @.code == "DB_FUND_FACTOR_WRONG_CODE"))')
+    ORDER BY 1
+  `) as DbRow[];
+  if (dbUnsettled.length > 0) {
+    return {
+      code: 'db_fund_unsettled',
+      detail: `${dbUnsettled.map((r) => String(r.employee_number)).join(', ')}: a defined-benefit fund contribution cannot be valued: mark the employee's `
+        + 'one compulsory contribution to this fund (employee profile, Defined-benefit fund contributions), or move the factor to the 3817 / 3825 component, then recalculate.',
     };
   }
   // An employee's first run at a new frequency that pays days twice or leaves days unpaid, not acknowledged (wave 6 FQd).

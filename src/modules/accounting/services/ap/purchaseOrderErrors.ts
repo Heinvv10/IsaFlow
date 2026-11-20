@@ -1,5 +1,5 @@
 /**
- * The purchase-order actions' typed refusals and their shared row lock (budgets P5-3: Approve, Cancel). Every code
+ * The purchase-order actions' typed refusals and their shared row lock (budgets P5-3: Approve, Cancel; MCP maintenance). Every code
  * is in the MCP `REFUSAL_CODES` (fixed wording, at most the PO's own status); each is raised before any write.
  */
 import { sql } from '@/lib/neon';
@@ -31,6 +31,18 @@ export class PurchaseOrderNotCancellableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PurchaseOrderNotCancellableError';
+  }
+}
+
+/**
+ * 400: an MCP maintenance call (update / cancel / close / set status) the PO's state or the caller's role does not allow. The
+ * wording is the refusal itself (the PO's status, a goods receipt, linked bills, an owner / admin rule); raised before any write.
+ */
+export class PurchaseOrderMaintenanceRefusal extends Error {
+  readonly code = 'PURCHASE_ORDER_MAINTENANCE_REFUSED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'PurchaseOrderMaintenanceRefusal';
   }
 }
 

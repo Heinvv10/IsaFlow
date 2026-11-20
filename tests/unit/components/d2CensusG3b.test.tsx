@@ -45,7 +45,7 @@ describe('customer allocations: invoices for the selected receipt', () => {
     expectNoRawJsonError();
   });
   it('200: lists the outstanding invoices', async () => {
-    await mount(() => ok({ items: [{ id: 'i1', invoiceNumber: 'D2-INV-777', date: '2026-09-01', total: 100, outstanding: 100 }] }));
+    await mount(() => ok({ invoices: [{ id: 'i1', invoice_number: 'D2-INV-777', invoice_date: '2026-09-01', total_amount: '100.00', amount_paid: '0.00', status: 'sent' }] }));
     expect(await screen.findByText(/D2-INV-777/)).toBeTruthy();
     expect(screen.queryByText(MSG)).toBeNull();
   });

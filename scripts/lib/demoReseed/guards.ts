@@ -8,7 +8,7 @@
 
 import { Refusal } from './cli';
 import type { Tx } from './db';
-import { censusUnclassified, crossTenantChildren, intercompanyCount, missingWipeTables } from './wipe';
+import { censusUnclassified, crossTenantChildren, intercompanyCount, intercompanyRelationRows, missingWipeTables } from './wipe';
 
 export async function describeSession(tx: Tx, companyId: string, out: (s: string) => void): Promise<{ dbToday: string }> {
   const [s] = await tx.query<{ db: string; cu: string; su: string; bypass: boolean; today: string }>(`
@@ -27,6 +27,10 @@ export async function describeSession(tx: Tx, companyId: string, out: (s: string
 export async function refuseUnsafe(tx: Tx, companyId: string, out: (s: string) => void): Promise<void> {
   const missing = await missingWipeTables(tx);
   if (missing.length > 0) throw new Refusal(`wipe plan names tables this database lacks: ${missing.join(', ')}`);
+  const relations = await intercompanyRelationRows(tx, companyId);
+  if (relations.length > 0) {
+    throw new Refusal(`intercompany rows name the Demo company: ${relations.map((r) => `${r.table} (${r.n})`).join(', ')}: not handled, resolve them first`);
+  }
   const unclassified = await censusUnclassified(tx, companyId);
   if (unclassified.length > 0) {
     throw new Refusal(`tables hold Demo rows but are in neither the wipe nor the keep list: ${unclassified.map((u) => `${u.table} (${u.n})`).join(', ')}`);

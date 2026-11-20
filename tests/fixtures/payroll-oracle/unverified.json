@@ -6,8 +6,33 @@
   },
   {
     "case": "db-fund-12d-category-factor",
-    "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page; under the s11F cap the fringe and its deemed contribution cancel, so the engine already gives the hand figure.",
+    "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page. DBF (wave 6) values the fringe from the factor; under the s11F cap it and its deemed contribution cancel, so the engine gives the hand figure.",
     "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  },
+  {
+    "case": "db-fund-12d-s11f-cap-binds",
+    "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page. DBF (wave 6) values the R6 500 fringe from the 0.40 factor and deems it into s11F, where the 27.5% cap binds; the engine equals the hand computation in notes.",
+    "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  },
+  {
+    "case": "psp-company-27pct",
+    "reason": "The engine gives the hand figure (27% x R50 000 = R13 500.00, UIF nil) from SARS PAYE-GEN-01-G01-A06 row 6 (a company including a close corporation) and UIC Act s1 \"remuneration\" (b) (gross income para (cA)), but the A06 read is the 2025 edition (PAYE-GEN-01-G01-A06-2025); no 2026 or 2027 edition is published (tables page read 2026-11-16).",
+    "wouldVerify": "A 2026 or 2027 edition of PAYE-GEN-01-G01-A06 with the personal service provider row, or a Sage or SimplePay payslip for a personal service company or trust."
+  },
+  {
+    "case": "psp-trust-45pct",
+    "reason": "The engine gives the hand figure (45% x R50 000 = R22 500.00, UIF nil) from SARS PAYE-GEN-01-G01-A06 row 6 (a trust) and UIC Act s1 \"remuneration\" (b) (gross income para (cA)), but the A06 read is the 2025 edition (PAYE-GEN-01-G01-A06-2025); no 2026 or 2027 edition is published (tables page read 2026-11-16).",
+    "wouldVerify": "A 2026 or 2027 edition of PAYE-GEN-01-G01-A06 with the personal service provider row, or a Sage or SimplePay payslip for a personal service company or trust."
+  },
+  {
+    "case": "ga-emolument-attachment-capped-25pct",
+    "reason": "The 25% limit is the Magistrates' Courts Act s65J(1A)(a) (read 2026-11-17, Juta consolidation of the Act as substituted by Act 7 of 2017); there is no SARS guide page or vendor payslip for a garnishee, so the oracle rules leave it UNVERIFIED. The engine gives the hand figure.",
+    "wouldVerify": "A Sage or SimplePay payslip for an employee with an emoluments attachment order above 25% of basic salary."
+  },
+  {
+    "case": "ga-maintenance-outside-cap",
+    "reason": "Maintenance Act s28(1) sets no percentage limit and s29(3) gives a maintenance order priority over any other court order (read 2026-11-17); with no SARS guide page or vendor payslip the case stays UNVERIFIED. The engine gives the hand figure.",
+    "wouldVerify": "A Sage or SimplePay payslip carrying a maintenance order beside an emoluments attachment order at the 25% limit."
   },
   {
     "case": "weekly-week-53-pay-sunday",
@@ -18,5 +43,20 @@
     "case": "weekly-week-53-medical-retirement",
     "reason": "As weekly-week-53-pay-sunday: no SARS page covers a 53rd pay day (x52 over n = 53, SimplePay's averaging). The period ratios (s11F cap, s6A credit) are bounded at a year, min(n, P) / P (AN, review #1578), so week 53 takes no credit: the hand figure in the case notes. The fixture's 52 priors were written by a script from the hand figures, not taken from the engine: each prior's PAYE is (35 580 - 9 024) / 52 = 510.69 (51 of them, and 510.81 so the 52 sum to 26 556.00), its s6A credit 9 024 / 52 = 173.54 (51, and 173.46 so they sum to 9 024.00), its pension 600 and pay 6 000; the expected 684.23 and UIF 0 are hand-derived in the case notes.",
     "wouldVerify": "A SARS ruling or guide page on 53 weekly pay days in one year of assessment with medical scheme fees, or a SimplePay or Sage week-53 payslip with a medical credit."
+  },
+  {
+    "case": "ri-overtime-10h-at-1-5x",
+    "reason": "The BCEA s10(2) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18): the multiplier is an input to the case, and the PAYE and UIF arithmetic was checked against the 2027 tables; kept here because no current consolidation of the BCEA was read.",
+    "wouldVerify": "The consolidated BCEA 75 of 1997 s10(2) as currently in force, or a Sage or SimplePay payslip with the same overtime."
+  },
+  {
+    "case": "ri-sunday-8h-at-2x",
+    "reason": "The BCEA s16(1) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18): the multiplier is an input to the case, and the PAYE and UIF arithmetic was checked against the 2027 tables; kept here because no current consolidation of the BCEA was read.",
+    "wouldVerify": "The consolidated BCEA 75 of 1997 s16(1) as currently in force, or a Sage or SimplePay payslip with the same overtime."
+  },
+  {
+    "case": "ri-eti-hourly-overtime-counted-once",
+    "reason": "The overtime amount uses the BCEA s10(2) multiplier, read only in the Act as gazetted (GG 18491, 5 Dec 1997); the ETI figures (hours, minimum wage, band) are from the SARS ETI page and do not turn on it. Engine equals the hand figure.",
+    "wouldVerify": "The consolidated BCEA 75 of 1997 s10(2) as currently in force, or a Sage or SimplePay payslip with ETI and overtime."
   }
 ]

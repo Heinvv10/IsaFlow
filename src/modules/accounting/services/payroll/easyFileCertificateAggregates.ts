@@ -5,7 +5,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { contractorLineFlag } from './payrollOutsideTables';
+import { contractorLineFlag, pspLineFlag } from './payrollOutsideTables';
 import { payRunFinalSql } from './payRunFinalSql';
 
 /** FINAL runs only (payRunFinalSql, wave 6 EF): the runs the IRP5 dataset, the EMP201 and every sub-reader this file is netted with count. */
@@ -21,6 +21,10 @@ export function loadCertificateAggregates(
       SUM(prl.uif_employee) AS total_uif_emp,
       SUM(prl.uif_employer) AS total_uif_empr,
       SUM(prl.sdl)          AS total_sdl,
+      -- The first and last day paid in the period (the run date, else its month's last day): the certificate tax period of a
+      -- leaver paid after leaving (3170 / 3180, easyFileInput), whose employment dates are outside it.
+      MIN(COALESCE(prh.run_date, (make_date(prh.period_year, prh.period_month, 1) + INTERVAL '1 month - 1 day')::date)) AS first_paid,
+      MAX(COALESCE(prh.run_date, (make_date(prh.period_year, prh.period_month, 1) + INTERVAL '1 month - 1 day')::date)) AS last_paid,
       -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
       COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
       -- Inside those lines: the taxable 3605 and the non-cash benefits, each floored at nil per line (the 3605 leaves the employee's 3605 and is
@@ -48,6 +52,8 @@ export function loadCertificateAggregates(
     JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('prh'))}
+      -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): decided per line.
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
       -- One range, not "start year from startMonth OR end year to endMonth": for the interim (both in one year) that OR is the whole year.
       AND prh.period_year * 100 + prh.period_month BETWEEN ${startYear * 100 + startMonth} AND ${endYear * 100 + endMonth}
     GROUP BY prl.employee_id

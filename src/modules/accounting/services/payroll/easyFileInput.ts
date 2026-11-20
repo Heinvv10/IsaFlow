@@ -20,7 +20,7 @@ import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/d
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
-  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
+  ageAtYearEnd, certificateTaxPeriod, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
@@ -35,6 +35,9 @@ import { loadRetirementContributions } from '@/modules/accounting/services/payro
 import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -77,11 +80,9 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 
-  // Lump sums paid under a directive, in a run or outside payroll (own code,
-  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
-  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
-  // follow-ups G1). The stand-alone payments are in no run line, so their
-  // gross and PAYE are added to the run totals.
+  // Lump sums paid under a directive, in a run or outside payroll (own code, PAYE under 4115 or 4102 by code), and annual payments
+  // (3605): reported apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a follow-ups G1). The stand-alone payments
+  // are in no run line, so their gross and PAYE are added to the run totals.
   const bounds = { start: period.start, end: period.end };
   const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee, regularDirectives] = await Promise.all([
     sql`
@@ -91,7 +92,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
         sars_contact_first_name, sars_contact_last_name,
         sars_contact_telephone, sars_contact_number,
         email,
-        physical_address_line1, physical_city, physical_province, physical_postal_code
+        physical_address_line1, physical_city, physical_postal_code
       FROM companies
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
@@ -127,6 +128,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   if (!company.sars_contact_last_name) missing.push('SARS contact surname');
   if (!company.physical_address_line1) missing.push('Physical address line 1');
   if (!company.physical_postal_code) missing.push('Physical postal code');
+  // 2066: with no suburb held (2065), the city is the one the BRS needs ("either the Suburb / District or the City / Town").
+  if (!company.physical_city) missing.push('Physical city');
   if (!(company.sars_contact_telephone || company.sars_contact_number)) {
     missing.push('SARS contact telephone or cell number');
   }
@@ -148,7 +151,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
 
   const employees: EmployeeInput[] = [];
   const certificateEmployees: EasyFileInput['certificateEmployees'] = [];
-  const warnings: string[] = [];
+  // A PSP's months are on no natural-person certificate (loadCertificateAggregates and every reader leave them out): named (wave 6 PSP).
+  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).map((t) => pspFilingWarning(t, 'e@syFile file'));
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
@@ -200,12 +204,19 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const inCash = unflaggedFringe.get(String(row.id));
     if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
-    const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
-    const endDate = toCCYYMMDD(row.end_date);
-    // An interim certificate does not know a leaving date after August (the employee was employed at its end).
-    const certEndDate = endDate && (kind === 'annual' || endDate <= yoaEndInclusive) ? endDate : null;
-    const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
-    const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
+    // 3170 / 3180: the period cut to the employment (an interim certificate does not know a leaving date after August);
+    // a leaver paid after leaving has the first and last payment dates in the period (certificateTaxPeriod).
+    const paid = [toCCYYMMDD(agg.first_paid), toCCYYMMDD(agg.last_paid), standalone.firstPaid?.replaceAll('-', ''), standalone.lastPaid?.replaceAll('-', '')]
+      .filter((d): d is string => !!d).sort();
+    const taxPeriod = certificateTaxPeriod({
+      first: yoaStart, last: yoaEndInclusive, employmentStart: toCCYYMMDD(row.start_date), employmentEnd: toCCYYMMDD(row.end_date),
+      firstPaid: paid[0], lastPaid: paid[paid.length - 1],
+    });
+    if (!taxPeriod) {
+      throw new EasyFileInputRefusal('validation', `${who}: employed at no point of the period and no payment date is known, `
+        + 'so no certificate tax period (codes 3170 / 3180) can be stated. Check the employee\'s start and end dates.');
+    }
+    const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
@@ -217,9 +228,12 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       initials: initialsFromName(String(row.first_name ?? '')),
       idNumber: String(row.id_number ?? ''),
       taxNumber: row.tax_number ? String(row.tax_number) : null,
-      employmentStartDate: certStartDate,
-      employmentEndDate: certEndDate,
-      periodsInYoA: monthsBetween(periodStart, periodEnd),
+      // 3170 / 3180 / 3200 / 3210 (BRS V25.3.0 p. 32-33). 12 pay periods: only monthly runs are certified
+      // (assertRunKindSupported 'irp5' refuses any other frequency above); an interim year is still divided into 12.
+      taxPeriodStart: periodStart,
+      taxPeriodEnd: periodEnd,
+      payPeriodsInYear: 12,
+      payPeriodsWorked: monthlyPayPeriodsWorked(periodStart, periodEnd),
       ...split,
       cashAllowances: allowance.cashAllowances,
       ...(allowance.paye4582 !== undefined ? { paye4582: allowance.paye4582 } : {}),
@@ -264,23 +278,26 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     reconciliationPeriod: reconciliationPeriodCode(period),
     sic7Code: company.sic7_code ? String(company.sic7_code) : null,
     physicalStreet: String(company.physical_address_line1),
-    physicalSuburb: company.physical_province ? String(company.physical_province) : null,
+    // 2065 is the suburb / district (BRS V25.3.0 p. 14); the company holds no suburb, and a province is neither.
+    physicalSuburb: null,
     physicalCity: company.physical_city ? String(company.physical_city) : null,
     physicalPostalCode: String(company.physical_postal_code),
   };
 
-  // A directive with no issued date files its effective date as 3231, and a
-  // payment under a directive linked to no employee is on no certificate
-  // (applyTaxDirective now refuses those): both said, naming the directive,
-  // and shown by the IRP5 page.
+  // A directive with no issued date files its effective date as 3231, and a payment under a directive linked to no employee is
+  // on no certificate (applyTaxDirective now refuses those): both said, naming the directive, and shown by the IRP5 page.
   // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
   warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
   warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
     + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
   // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
   if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
-  const warningsTotal = warnings.length;
-  warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
+  // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
+  // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
+  const early = filingDateWarning(employees, new Date());
+  const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
+  const warningsTotal = warnings.length + notices.length;
+  warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 
   return {
     employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,

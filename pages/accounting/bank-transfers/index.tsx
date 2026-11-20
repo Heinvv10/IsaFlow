@@ -15,6 +15,7 @@ import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 /** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
 interface HeldTransfer { journalId: string; message: string }
@@ -69,6 +70,7 @@ export default function BankTransfersPage() {
 
   const handleTransfer = async (confirmDuplicate = false) => {
     if (inFlight.current) return;
+    if (blockOnInvalidAmount()) return;
     if (dates.blocked) {
       setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
       return;

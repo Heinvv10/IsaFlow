@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { sql } from '@/lib/neon';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
@@ -78,6 +79,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updated = await getSupplierInvoiceById(companyId, id);
       return apiResponse.success(res, updated);
     } catch (err) {
+      // A PO held by another request (the draft edit's link sync takes it FOR KEY SHARE): 503 + Retry-After, which withAuth rolls back.
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to update supplier invoice', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, 'Failed to update');
     }

@@ -178,10 +178,11 @@ describe('business units', () => {
 });
 
 const PAY = { id: 'p1', paymentNumber: 'D2-RCPT-1', clientName: 'D2 Client', clientId: 'c1', date: '2026-01-01', totalAmount: 100, allocatedAmount: 0 };
-const INV = { id: 'i1', invoiceNumber: 'D2-INV-1', date: '2026-01-01', total: 100, outstanding: 100 };
+// the real /customer-invoices-list row shape (snake_case, string amounts)
+const INV = { id: 'i1', invoice_number: 'D2-INV-1', invoice_date: '2026-01-01', total_amount: '100.00', amount_paid: '0.00', status: 'sent' };
 const allocApi = (write: () => Response, reload?: () => Response) => (u: string, m: string) => {
   if (m !== 'GET') return write();
-  if (u.includes('customer-invoices')) return ok({ items: [INV] });
+  if (u.includes('customer-invoices')) return ok({ invoices: [INV] });
   return reload ? reload() : ok([PAY]);
 };
 const allocate = async () => {

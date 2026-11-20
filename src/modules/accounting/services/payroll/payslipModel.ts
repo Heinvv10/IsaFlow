@@ -20,8 +20,10 @@ import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core
 import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
+import { pspTaxBasis } from './pspLineRules';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
+import { runGarnisheePayslipItems } from './payrollGarnisheeRun';
 
 export class PayslipNotFound extends Error {
   constructor(what: 'run' | 'employee') {
@@ -53,6 +55,8 @@ export interface Payslip extends PayslipLines {
   hourlyRate: number | null;
   dailyRate: number | null;
   yearToDate: PayslipYearToDate;
+  /** A PSP's line only (wave 6 PSP, L1): the basis PAYE was taken on, from the line's own flag (pspLineRules.pspTaxBasis). */
+  taxBasis?: string | null;
 }
 
 export interface PayslipRun {
@@ -81,6 +85,7 @@ interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
   sdl: string | number;
   net_pay: string | number;
   component_breakdown: unknown;
+  validation_results: unknown;
   run_final: boolean;
 }
 
@@ -102,7 +107,7 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            pe.occupation, pe.pay_basis, pe.hours_per_week, pe.hours_per_day, pe.hourly_rate, pe.daily_rate,
            RIGHT(btrim(bd.account_number), 4) AS bank_last_four, char_length(btrim(bd.account_number)) AS bank_length, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
-           prl.component_breakdown,
+           prl.component_breakdown, prl.validation_results,
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final,
            prl.payslip_snapshot,
            -- PS3 (F8): judged in TS (snapshotIsThisApproval), never by a cast that a malformed value would make throw.
@@ -149,6 +154,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   // One after another: they share the request's transaction connection.
   const final = lines[0]!.run_final === true; // read in the lines' own statement: the figures and their final state cannot tear
   const types = await componentTypes(companyId, lines);
+  const garnishees = await runGarnisheePayslipItems(companyId, runId); // GA: itemised, not "Not itemised"
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
   // PS3: all of the run's slips print one approval's details, or all print live ones.
@@ -164,7 +170,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       ...itemisePayslip({
         grossPay: Number(l.gross_pay), paye: Number(l.paye), uifEmployee: Number(l.uif_employee),
         uifEmployer: Number(l.uif_employer), sdl: Number(l.sdl), netPay: Number(l.net_pay), breakdown: l.component_breakdown,
-      }, types),
+      }, types, garnishees.get(l.employee_id)),
       employeeId: l.employee_id,
       employeeNumber: String(d.employee_number),
       employeeName: `${d.first_name} ${d.last_name}`.trim(),
@@ -181,6 +187,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       hoursPerDay: numOrNull(d.hours_per_day),
       hourlyRate: numOrNull(d.hourly_rate),
       dailyRate: numOrNull(d.daily_rate),
+      taxBasis: pspTaxBasis(l.validation_results),
       yearToDate: frozenYtd ?? ytd.get(l.employee_id)!, // PS3 (B1): the year to date as issued at approval
     })),
   };

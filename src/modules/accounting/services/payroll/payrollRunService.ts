@@ -3,6 +3,7 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
+import { assertPspRunComponents, assertReopenedRunKeepsPspTreatment, pspGuardWindow } from './pspComponentGuard';
 import { applySdlToLines, estimateAnnualRemuneration, sdlCatchUp } from './sdlLeviabilityService';
 import { isSdlExempt } from './sdlEngine';
 import { isContractorLine } from './payrollOutsideTables';
@@ -12,7 +13,7 @@ import {
   isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, PayrollRunNotFoundError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
-import type { LineCadence, PayrollEmployee, PayrollPeriod } from './payrollTypes';
+import type { LineCadence, PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
@@ -31,6 +32,7 @@ import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
 import { assertPreparerSupported } from './payrollPreparerGuard';
+import { loadRunGarnisheeOrders, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -77,6 +79,10 @@ export async function calculatePayrollRun(
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
   const frequencyRun = frequencyRunOf(run);
   if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
+  // Wave 6 PSP (M3/M4): a PSP with a retirement fund, s18A, fringe-benefit or loan item is refused (409) before any write.
+  await assertPspRunComponents(companyId, pspGuardWindow(period), employees.map((e) => e.id)); // the run's own dates (FQc)
+  // M2: a reopened month is not re-costed under a different PSP treatment than it was approved with (409).
+  await assertReopenedRunKeepsPspTreatment(companyId, runId, employees.map((e) => e.id));
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -88,6 +94,7 @@ export async function calculatePayrollRun(
   let totalNet = 0;
 
   const lineInserts: LineInsert[] = [];
+  const garnisheeLines: Array<{ employeeId: string; garnishees: PayrollLineResult['garnishees'] }> = [];
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -108,6 +115,9 @@ export async function calculatePayrollRun(
 
   const prepared = await prepareRunComponents({ companyId, runId, period, readDate, population });
 
+  // GA: each employee's garnishee orders in force for the period (a severance-only leaver's line takes none).
+  const garnishees = await loadRunGarnisheeOrders(companyId, employees.map(e => e.id), run.period_start, run.period_end);
+
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);
   const withheld: WithheldLoan[] = [];
@@ -121,7 +131,7 @@ export async function calculatePayrollRun(
     onWithheld: (w) => withheld.push(w),
     judgePay: (employeeId, applications) => judgeLoanApplications({
       basis: preparedByEmployee.get(employeeId), applications, loanComponents, period, taxYear,
-      ytd: ytdByEmployee.get(employeeId), cadence: cadences.get(employeeId),
+      ytd: ytdByEmployee.get(employeeId), cadence: cadences.get(employeeId), garnisheeOrders: garnishees.get(employeeId),
     }),
     onPayBlocked: (employeeId, applications, rawNet) => blockedLoans.set(employeeId, { applications, rawNet }),
   });
@@ -142,7 +152,9 @@ export async function calculatePayrollRun(
       notEmployedInPeriod: onlySeverance,
       regularPayDirective,
       cadence: cadences.get(employee.id),
+      garnisheeOrders: onlySeverance ? undefined : garnishees.get(employee.id),
     });
+    garnisheeLines.push({ employeeId: employee.id, garnishees: line.garnishees });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
     const empValidation = validateEmployee(employee, otherTaxNumbers);
@@ -214,6 +226,7 @@ export async function calculatePayrollRun(
     await sdlCatchUp(companyId, runId, !isSdlExempt(annualRemuneration, taxYear)));
 
   await replaceRunLines(runId, companyId, lineInserts);
+  await replaceRunGarnisheeDeductions(companyId, runId, garnisheeLines); // GA: recorded here; balances move only at approval
 
   const updated = await saveCalculatedRunTotals(runId, companyId, {
     gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
