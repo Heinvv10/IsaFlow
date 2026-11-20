@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, runOn, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, runOn, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import { billWithJournal, dropStepExtras, postedJournal, seedStepAccounts, type StepAccounts } from './helpers/shareUndoFixture';
 import { text, undoShareKit } from './helpers/undoShareKit';
 
@@ -40,6 +40,7 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
   beforeAll(async () => {
     assertNotProductionDb('This test posts journals and voids payments.');
     fx = await seedFixture('UNDOR', DATABASE_URL!);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
     a = await seedStepAccounts(fx);
   }, 120000);
 
@@ -47,7 +48,7 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
     await sql`DELETE FROM approval_rules WHERE company_id = ${fx.companyId}::UUID AND name = 'step6 big journals'`;
     await sql`DELETE FROM approval_enforcement WHERE company_id = ${fx.companyId}::UUID AND document_type = 'manual_journal'`;
     await dropStepExtras(fx);
-    await dropFixture(fx);
+    await dropFixtureMember(fx); await dropFixture(fx);
   }, 120000);
 
   it('a share journal that is not the share, one that misses a bill account, and an unknown id', async () => {

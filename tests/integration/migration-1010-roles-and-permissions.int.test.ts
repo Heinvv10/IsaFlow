@@ -124,7 +124,7 @@ describe('migration 1010: the legacy mapping', () => {
     const legacy = recorded.filter((r) => r.source_table === 'company_user_permissions_legacy');
     // The old row as JSON (restorable, the 1010 header's rollback), or 'no row' (the rollback deletes it).
     expect(legacy.map((r) => r.old_role).sort()).toEqual([
-      '{"can_read" : true, "can_write" : false, "can_delete" : false, "can_export" : false, "can_approve" : true}', 'no row', 'no row']);
+      'no row', 'no row', '{"can_read" : true, "can_write" : false, "can_delete" : false, "can_export" : false, "can_approve" : true}']);
     expect(legacy.map((r) => r.new_role).sort()).toEqual(['can_approve=false', 'can_approve=false', 'no access']);
     expect(recorded.filter((r) => r.source_table === 'company_invitations')).toEqual(
       [{ source_table: 'company_invitations', old_role: 'technician', new_role: 'viewer' }]);

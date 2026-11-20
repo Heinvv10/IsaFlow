@@ -148,8 +148,10 @@ END $$;
 -- Accountant / bookkeeper memberships: manager without approve, written before the role changes.
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
 SELECT 'company_user_permissions_legacy', cu.company_id::text || ':' || cu.user_id || ':' || pm.module_key,
-       COALESCE(json_build_object('can_read', p.can_read, 'can_write', p.can_write, 'can_delete', p.can_delete,
-                                  'can_export', p.can_export, 'can_approve', p.can_approve)::text, 'no row'),
+       -- json_build_object of a missing row is an object of nulls, never NULL: test the row itself.
+       CASE WHEN p.module_key IS NULL THEN 'no row'
+            ELSE json_build_object('can_read', p.can_read, 'can_write', p.can_write, 'can_delete', p.can_delete,
+                                   'can_export', p.can_export, 'can_approve', p.can_approve)::text END,
        CASE WHEN pm.module_key = 'payroll' THEN 'no access' ELSE 'can_approve=false' END
 FROM public.company_users cu
 CROSS JOIN public.permission_modules pm
