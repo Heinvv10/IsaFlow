@@ -21,6 +21,7 @@ import type { DbRow } from '@/lib/neon';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals } from '@/modules/accounting/services/payroll/pspFiling';
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { conflictsOutsideReturn, monthName, monthsName, rowName } from './emp501LegacyConflicts';
 import { mapVersion } from './returnVersionStore';
@@ -72,7 +73,7 @@ export interface Emp501Filings {
   legacyRows: LegacyEmp201[];
   /** Certificate totals per YYYY-MM: PSP lines left out, as the e@syFile leaves them out (wave 6 PSP). */
   certificates: Map<string, MonthTotals>;
-  /** PSP lines' totals per YYYY-MM: declared on the EMP201, on no certificate until PSP-H (coordinator ruling 2026-11-19). */
+  /** PSP lines' totals per YYYY-MM: declared on the EMP201, on no certificate because the PSP has no particulars (coordinator ruling 2026-11-19; PSP-H). */
   psp: Map<string, MonthTotals>;
   /**
    * Months of the return (no current version) filed by more than one legacy row: 'March 2025 to April 2025 (reference
@@ -86,9 +87,14 @@ export const cents = (n: number): number => Math.round(n * 100) / 100;
 const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.paye + b.paye), uif: cents(a.uif + b.uif), sdl: cents(a.sdl + b.sdl) });
 /**
  * YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee;
- * a PSP's line (pspLineFlag) is on no certificate, so it is summed apart (`psp`) and never in `certs` (wave 6 PSP).
+ * a PSP's line (pspLineFlag) is on its own H certificate when the PSP has its particulars (trading name and tax reference)
+ * and PAYE on its PSP lines in the period (easyFilePspCertificate: wave 6 PSP-H), and so counts in `certs`; without them it is on no certificate, so it is summed
+ * apart (`psp`) and never in `certs` (wave 6 PSP).
  */
 async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<{ certs: Map<string, MonthTotals>; psp: Map<string, MonthTotals> }> {
+  // Certified = what easyFilePspCertificate files for the same period: listPspFilingTotals' certifiedAs (particulars held and
+  // fileable, PAYE above nil), the one decision the file, the warnings and readiness share (review of #1689 L3).
+  const certified = (await listPspFilingTotals(companyId, p)).filter((t) => t.certifiedAs !== null).map((t) => t.employeeId);
   const rows = (await sql`
     SELECT to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') AS month,
            COALESCE(SUM(l.paye) FILTER (WHERE NOT x.psp), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer) FILTER (WHERE NOT x.psp), 0) AS uif,
@@ -97,7 +103,10 @@ async function monthTotals(companyId: string, p: { start: string; end: string })
            COALESCE(SUM(l.sdl) FILTER (WHERE x.psp), 0) AS psp_sdl
     FROM payroll_run_headers h
     LEFT JOIN payroll_run_lines l ON l.run_id = h.id
-    CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) AS psp) x
+    LEFT JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
+                               AND NOT (e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
+                                        AND e.id::text = ANY(${certified}::text[])) AS psp) x
     WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
     GROUP BY 1

@@ -154,7 +154,11 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
     // No rate and nothing stored: one line, as the hours cell's "Set the hourly rate first". A disabled input and its
     // wrapped helper made every salaried row taller and pushed the last rows' Saved status below the fold (z6).
     if (kind === 'overtime' && hourlyRate == null && !held) {
-      return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">No hourly rate: set it on the employee page</Link>;
+      // One line (whitespace-nowrap), named per employee: every such row has one (post-merge review of #1580, L2/L3).
+      return (
+        <Link href={`/payroll/employees/${l.employeeId}`} aria-label={`No hourly rate: set it on the employee page, ${l.employeeName}`}
+          className="whitespace-nowrap text-xs text-teal-700 dark:text-teal-300 underline">No hourly rate: set it on the employee page</Link>
+      );
     }
     const label = kind === 'overtime' ? `Overtime hours at ${multiplier}x, ${l.employeeName}` : `Travel km, ${l.employeeName}`;
     return (

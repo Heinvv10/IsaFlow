@@ -53,7 +53,24 @@ describe('overtime hours', () => {
     expect(body(0)).toMatchObject({ units: { kind: 'overtime', multiplier: 2, quantity: 8, expectedQuantity: null } });
     // No rate: no input at all, only the way to set one.
     expect(screen.queryByLabelText('Overtime hours at 2x, Thandi Nkosi')).toBeNull();
-    expect(screen.getByRole('link', { name: 'No hourly rate: set it on the employee page' }).getAttribute('href')).toBe('/payroll/employees/e-2');
+    const link = screen.getByRole('link', { name: 'No hourly rate: set it on the employee page, Thandi Nkosi' });
+    expect(link.getAttribute('href')).toBe('/payroll/employees/e-2');
+    expect(link.className).toContain('whitespace-nowrap');
+  });
+
+  it('a stored overtime row whose employee has no hourly rate shows its value and can be cleared (post-merge review of #1580)', async () => {
+    const held = { employeeId: 'e-2', kind: 'overtime', multiplier: 1.5, quantity: 10, amount: 1730.7 };
+    serve(() => ok(inputsBody(run, units([held]))), { run, inputs: units([held]) });
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Thandi Nkosi', 'Overtime hours at 1.5x');
+    expect(input.value).toBe('10');
+    expect(input.disabled).toBe(false);
+    expect(screen.getByText(/paid; no hourly rate: empty to remove, or set the rate to change it$/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /No hourly rate: set it on the employee page, Thandi Nkosi/ })).toBeNull();
+    type(input, '');
+    fireEvent.blur(input);
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(body(0)).toEqual({ employeeId: 'e-2', units: { kind: 'overtime', multiplier: 1.5, quantity: null, ratePerKm: null, expectedQuantity: 10 } });
   });
 });
 
