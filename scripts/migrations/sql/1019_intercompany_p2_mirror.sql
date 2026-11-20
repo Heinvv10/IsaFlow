@@ -196,7 +196,8 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 -- Walked level by level with an index lookup per level (reversal_of_id = ANY(the level)), not as a recursive CTE: the planner cannot size a
--- recursive work table and hashed it against the whole journal table, so each call cost a scan of every tenant's journals.
+-- recursive work table and hashed it against the whole journal table, so each call cost a scan of every tenant's journals. The walk has no
+-- depth cap (1018's cap on chains is not relied on): every level adds journals not seen before, so it ends, and the count is never truncated.
 DECLARE
   v_level uuid[];
   v_seen uuid[];
@@ -207,7 +208,7 @@ BEGIN
   IF v_level IS NULL THEN RETURN 0; END IF;
   v_seen := v_level;
   v_n := 1;
-  FOR i IN 1..1000 LOOP
+  LOOP   -- no cap: a capped walk would return a truncated count (a parity that fails open); v_seen ends a cycle, so it ends
     SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
      WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
        AND (p_asat IS NULL OR r.entry_date <= p_asat) AND public.intercompany_lines_negate(r.id, r.reversal_of_id);
@@ -663,7 +664,7 @@ BEGIN
   IF v_level IS NULL THEN RETURN; END IF;
   RETURN QUERY SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = p_je;
   v_seen := v_level;
-  FOR i IN 1..1000 LOOP
+  LOOP   -- no cap: a capped walk would return a truncated count (a parity that fails open); v_seen ends a cycle, so it ends
     SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
      WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
        AND public.intercompany_lines_negate(r.id, r.reversal_of_id);

@@ -5,6 +5,7 @@
  *        amount and date);
  *  B-L2  a session with no signed-in user (the service login) cannot name a target journal on a new row (the claimed-journal check answers
  *        only for a user's groups);
+ *  S10   a reversal chain is walked to its end, however deep (a capped walk would return a truncated count, a parity that fails open);
  *  B-L3  the derivation's chain work follows the period's rows (a row with no journal dated in the period is never walked), and the
  *        cumulative windows derive only when a derived line can land on a balance-sheet line.
  */
@@ -145,4 +146,38 @@ describe('B-L3: the chain work follows the period', () => {
       await pool.query('DELETE FROM group_accounts WHERE id = $1', [eq]);
     }
   });
+});
+
+describe('S10: a reversal chain past any depth cap is counted to its end', () => {
+  it('the sender\'s journal reversed 1001 times (an even chain of 1002): its parity is even and nothing is eliminated', async () => {
+    const m = await bookedOn('2026-01-15');
+    const j = m.message.source_journal_entry_id as string;
+    expect(await derived()).toHaveLength(1);
+    // a fixture's chain: each journal the exact negation of the one before, linked once posted (no service, no hook; the ordinary ledger
+    // triggers are skipped for the 4004 fixture writes, replica mode, as only the chain's shape is under test)
+    const c = await pool.connect();
+    try {
+      await c.query("SET session_replication_role = replica");
+      await c.query(`DO $$
+      DECLARE prev uuid := '${j}'; nxt uuid;
+      BEGIN
+        FOR i IN 1..1001 LOOP
+          INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
+            SELECT entry_date, 'deep chain', 'manual', 'draft', created_by, company_id FROM gl_journal_entries WHERE id = prev RETURNING id INTO nxt;
+          INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
+            SELECT nxt, gl_account_id, credit, debit, company_id, 'deep chain' FROM gl_journal_lines WHERE journal_entry_id = prev;
+          UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = nxt;
+          UPDATE gl_journal_entries SET reversal_of_id = prev WHERE id = nxt;
+          prev := nxt;
+        END LOOP;
+      END $$`);
+    } finally {
+      await c.query('RESET session_replication_role');
+      c.release();
+    }
+    expect(Number((await pool.query('SELECT public.intercompany_journal_chain_length($1, $2) AS n', [j, co.A])).rows[0].n)).toBe(1002);
+    const t0 = Date.now();
+    expect(await derived()).toHaveLength(0);
+    process.stderr.write(`[round10 S10] derived over a 1002-journal chain: ${Date.now() - t0} ms\n`);
+  }, 300000);
 });
