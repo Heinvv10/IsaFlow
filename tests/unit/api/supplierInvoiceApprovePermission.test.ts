@@ -29,7 +29,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', async (orig) =
 }));
 
 import { sql } from '@/lib/neon';
-import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import {
   approveSupplierInvoice as approveViaWorkflow,
 } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -111,9 +111,21 @@ describe('a manager whose Suppliers & AP approve is unticked cannot approve a bi
     expect(approveViaWorkflow).not.toHaveBeenCalled();
   });
 
-  it('cancel is not an approval: the same manager still cancels', async () => {
+  // #1656 (Hein: gate everything): cancelling an approved bill reverses its journal, so it asks Approve like approving does.
+  it('cancel asks the same Approve: refused, the bill is never cancelled', async () => {
     const res = await call(actionRoute, { action: 'cancel', invoiceId: BILL });
-    expect(res.statusCode).not.toBe(403);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.stringify(res.sent)).toMatch(/permission to approve supplier invoices/);
+    expect(cancelSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it('cancel goes through for a manager whose Approve is not unticked', async () => {
+    db.rows.clear();
+    member('manager');
+    vi.mocked(cancelSupplierInvoice).mockResolvedValue({ id: BILL, status: 'cancelled' } as never);
+    const res = await call(actionRoute, { action: 'cancel', invoiceId: BILL });
+    expect(res.statusCode).toBe(200);
+    expect(cancelSupplierInvoice).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -84,7 +84,8 @@ describe.each(routes)('$name asks $module Approve', ({ module, handler, body, qu
     const refused = await call(handler(), body, query);
     expect(refused.statusCode).toBe(403);
     expect(service()).not.toHaveBeenCalled();
-    expect(db.reads.map((r) => r.moduleKey)).toEqual([module]);
+    // A payroll route is first behind withPayrollModule (Payroll write), then asks Payroll Approve: two reads, both 'payroll'.
+    expect(db.reads.map((r) => r.moduleKey)).toEqual(module === 'payroll' ? [module, module] : [module]);
     defaultManager();
     await call(handler(), body, query);
     expect(service()).toHaveBeenCalledTimes(1);

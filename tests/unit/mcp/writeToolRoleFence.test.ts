@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: this file is the ROLE fence; the module fence reads company_users and is proven in approvePermissionPaths / mcp moduleFence tests
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(async () => []), { transaction: vi.fn() });
   return { sql: sqlFn, withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()), withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)) };
