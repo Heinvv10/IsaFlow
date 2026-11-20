@@ -103,7 +103,8 @@ export const MANAGER_APPROVES_BY_DEFAULT = true;
  * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
  * (never delete); viewer read, export. A manager whose membership carries `approveWithheld`
  * (company_users.approve_withheld, backfilled by 1010c for the former accountants / bookkeepers) has no
- * Approve and nothing on Payroll (`moduleKey`); clearing the flag restores the manager defaults. A STORED legacy
+ * Approve and nothing on Payroll (`moduleKey`); clearing the flag restores the manager defaults. The flag also keeps Payroll
+ * off for the same member demoted to viewer (it is not cleared on demotion: Payroll stays off for a former accountant). A STORED legacy
  * accountant / bookkeeper is denied both too (the backstop above).
  */
 export function roleDefaultPermission(
@@ -120,7 +121,11 @@ export function roleDefaultPermission(
     if (action === 'approve') return MANAGER_APPROVES_BY_DEFAULT;
     return action === 'read' || action === 'write' || action === 'export';
   }
-  if (effective === 'viewer') return action === 'read' || action === 'export';
+  if (effective === 'viewer') {
+    // A former accountant / bookkeeper demoted to viewer keeps Payroll off (the flag says so: round 7), as the manager's default does.
+    if (approveWithheld && moduleKey === LEGACY_DENIED_MODULE) return false;
+    return action === 'read' || action === 'export';
+  }
   return false;
 }
 

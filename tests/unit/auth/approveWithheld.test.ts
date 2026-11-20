@@ -164,3 +164,16 @@ describe('checkGroupPermission needs a write role only for write, delete and app
     expect(await checkGroupPermission(U, G, 'group', 'approve')).toBe(false);
   });
 });
+
+describe('round 7 (LOW): a withheld member demoted to viewer keeps Payroll off', () => {
+  it('the viewer default grants every module read and export, but Payroll read / export only without the withhold flag', () => {
+    expect(roleDefaultPermission('viewer', 'read', 'suppliers', true)).toBe(true);
+    expect(roleDefaultPermission('viewer', 'read', 'payroll', false)).toBe(true);
+    expect(roleDefaultPermission('viewer', 'read', 'payroll', true)).toBe(false);
+    expect(roleDefaultPermission('viewer', 'export', 'payroll', true)).toBe(false);
+    expect(roleDefaultPermission('viewer', 'approve', 'payroll', true)).toBe(false);
+  });
+  it('a stored legacy accountant / bookkeeper that arrives as a viewer-mapped role is not the flag: only the flag withholds a viewer', () => {
+    expect(roleDefaultPermission('viewer', 'read', 'payroll')).toBe(true);
+  });
+});
