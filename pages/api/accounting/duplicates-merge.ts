@@ -69,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       primaryId,
       duplicateId,
       userId,
+      companyRole,
     );
 
     log.info('Entity merge complete', {

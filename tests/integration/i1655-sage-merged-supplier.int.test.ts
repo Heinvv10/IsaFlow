@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { commitAPInvoice } from '@/modules/admin/services/sageMigrationCommitService';
-import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { restoreRow } from '@/modules/accounting/services/core/softDeleteRowOps';
 import { MAX_MERGE_HOPS } from '@/modules/admin/services/sagePartyMatch';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -166,44 +166,5 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
     const { rows } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
-  });
-
-  const seedPo = async (supplierId: string, number: string) => String((await pool.query(
-    "INSERT INTO purchase_orders (company_id, po_number, supplier_id, status) VALUES ($1, $2, $3, 'approved') RETURNING id",
-    [companyId, `${number}-${tag}`, supplierId])).rows[0].id);
-  const seedCreditNote = async (supplierId: string) => String((await pool.query(
-    "INSERT INTO credit_notes (company_id, type, supplier_id, credit_date, created_by, status) VALUES ($1, 'supplier', $2, '2026-04-03', $3, 'draft') RETURNING id",
-    [companyId, supplierId, userId])).rows[0].id);
-  const ownerOf = async (table: 'purchase_orders' | 'credit_notes', id: string) =>
-    String((await pool.query(`SELECT supplier_id FROM ${table} WHERE id = $1`, [id])).rows[0].supplier_id);
-
-  it('a merge moves the canonical purchase orders and supplier credit notes to the survivor (#1699 review)', async () => {
-    const survivor = await insPlain('Doc Mover Survivor');
-    const gone = await insPlain('Doc Mover');
-    const po = await seedPo(gone, 'PO-MOVE');
-    const cn = await seedCreditNote(gone);
-    const otherPo = await seedPo(survivor, 'PO-STAY');
-    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId));
-    expect(await ownerOf('purchase_orders', po)).toBe(survivor);
-    expect(await ownerOf('credit_notes', cn)).toBe(survivor);
-    expect(await ownerOf('purchase_orders', otherPo)).toBe(survivor);
-    const { rows } = await pool.query('SELECT $2::uuid = ANY(content_authors) AS authored FROM credit_notes WHERE id = $1', [cn, userId]);
-    expect(rows[0].authored).toBe(true);
-  });
-
-  it('a merge refuses, before moving anything, a supplier whose purchase order has a bill linked to it', async () => {
-    const survivor = await insPlain('Link Keeper Survivor');
-    const gone = await insPlain('Link Keeper', 'sage', '981');
-    const po = await seedPo(gone, 'PO-LINK');
-    const cn = await seedCreditNote(gone);
-    await bill('AP-LINK-1', 'Link Keeper', 981);
-    const billId = String((await pool.query('SELECT id FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2',
-      [companyId, `AP-LINK-1-${tag}`])).rows[0].id);
-    await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 10, 'app')",
-      [companyId, po, billId]);
-    await expect(inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId))).rejects.toBeInstanceOf(SupplierMergeRefusal);
-    expect(await ownerOf('purchase_orders', po)).toBe(gone);
-    expect(await ownerOf('credit_notes', cn)).toBe(gone);
-    expect(await billSupplier('AP-LINK-1')).toBe(gone);
   });
 });

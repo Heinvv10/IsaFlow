@@ -18,6 +18,8 @@ import { log } from '@/lib/logger';
 import {
   SupplierMergeRefusal, PO_BILL_LINKS_REFUSAL, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
+import { lockSupplierPurchaseOrders, movePurchaseOrders, purchaseOrderMoveRefusal } from '@/modules/accounting/services/core/supplierMergePurchaseOrders';
+import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from '@/modules/accounting/services/core/supplierMergeOpenWork';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
 
@@ -34,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const parsed = MergeBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
@@ -58,8 +60,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
-      // Migration 1006: a purchase order <-> bill link joins one supplier's documents; moving only some of them would leave
-      // a cross-supplier link (the database refuses it). The smaller safe option: refuse while the source has links.
+      // The source's purchase orders are locked first, so a bill link made meanwhile cannot slip past the check below (a link
+      // maker locks the PO too). Migration 1006: a purchase order <-> bill link joins one supplier's documents; moving only some
+      // would leave a cross-supplier link (the database refuses it). The smaller safe option: refuse while the source has links.
+      const pos = await lockSupplierPurchaseOrders(companyId, source_id);
       const linked = await tx`
         SELECT 1 FROM purchase_order_bill_links l
           JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
@@ -68,6 +72,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if ((linked as unknown[]).length > 0) {
         throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
       }
+      // Approved (or later) purchase orders move only for a role that may edit them, as updatePurchaseOrder demands.
+      const poRefusal = purchaseOrderMoveRefusal(pos, companyRole);
+      if (poRefusal) throw new SupplierMergeRefusal(poRefusal);
+      const sideBlock = await sideRefusal(companyId, source_id, target_id);
+      if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
 
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
@@ -105,15 +114,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
 
-      // 5. Re-parent purchase_orders (the canonical PO table, mig 246b) and supplier credit notes (credit_notes,
-      // mig 202: one table for both customer and supplier notes). supplier_id is approval content on a credit
-      // note, as on a bill. The supplier_id tables that stay behind, and why: the comment below PO_BILL_LINKS_REFUSAL in duplicateMergeService.
-      await tx`
-        UPDATE purchase_orders
-        SET supplier_id = ${target_id}
-        WHERE supplier_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
+      // 5. Re-parent purchase_orders (the canonical PO table, mig 246b) under updatePurchaseOrder's supplier-change controls
+      // (an audit row per PO; supplierMergePurchaseOrders), and supplier credit notes (credit_notes, mig 202: one table for both
+      // customer and supplier notes; supplier_id is approval content, as on a bill). Then the intercompany side and the open
+      // expectations / alerts. The supplier_id tables that stay behind, and why: the comment in supplierMergeOpenWork.
+      await movePurchaseOrders(companyId, pos, source_id, target_id, { userId: user.id, role: companyRole, via: 'supplier-merge' });
       await tx`
         UPDATE credit_notes
         SET supplier_id = ${target_id},
@@ -121,6 +126,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;
+      await moveIntercompanySide(companyId, source_id, target_id);
+      await moveExpectationsAndAlerts(companyId, source_id, target_id);
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
       // the Sage import follows a merged-away supplier to it, so a re-sync's bills land on the

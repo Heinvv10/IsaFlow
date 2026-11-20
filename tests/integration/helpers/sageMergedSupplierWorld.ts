@@ -20,10 +20,12 @@ export function sageMergedWorld(label: string) {
   const applicationName = `i1655-${label}-${tag}`;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4, application_name: applicationName });
 
-  async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
+  /** One committed request transaction; `asMember` also sets the session user's claims, as withAuth does (auth.uid() reads them). */
+  async function inRequestTx<T>(fn: () => Promise<T>, asMember = false): Promise<T> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      if (asMember) await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: userId })]);
       const out = await als.run({ client, userId, companyId, claims: {} } as never, fn);
       await client.query('COMMIT');
       return out;
@@ -65,6 +67,7 @@ export function sageMergedWorld(label: string) {
     await pool.query(
       `INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
        VALUES ($1, 'FY26', 1, 2026, '2026-01-01', '2026-12-31', 'open')`, [companyId]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [companyId, userId]);
     clearSystemAccountCache(companyId);
   }
 
@@ -72,6 +75,10 @@ export function sageMergedWorld(label: string) {
     try {
       clearSystemAccountCache(companyId);
       const c = [companyId];
+      await pool.query('DELETE FROM intercompany_connection_sides WHERE company_id = $1', c);
+      await pool.query('DELETE FROM intercompany_connections WHERE company_low_id = $1 OR company_high_id = $1', c);
+      await pool.query('DELETE FROM supplier_expectations WHERE company_id = $1', c);
+      await pool.query('DELETE FROM expected_invoice_alerts WHERE company_id = $1', c);
       await pool.query('DELETE FROM credit_notes WHERE company_id = $1', c);
       await pool.query('DELETE FROM purchase_orders WHERE company_id = $1', c);
       await pool.query('UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = $1', c);
@@ -83,6 +90,8 @@ export function sageMergedWorld(label: string) {
       await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', c);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', c);
       await pool.query('DELETE FROM suppliers WHERE company_id = $1', c);
+      await pool.query('DELETE FROM company_users WHERE company_id = $1', c);
+      await pool.query('DELETE FROM audit_log WHERE company_id = $1', c);
       await pool.query('DELETE FROM users WHERE id = $1', [userId]);
       await pool.query('DELETE FROM companies WHERE id = $1', c);
     } finally { await pool.end(); }
