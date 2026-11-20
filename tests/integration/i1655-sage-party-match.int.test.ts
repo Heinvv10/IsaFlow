@@ -76,7 +76,28 @@ describe('the Sage commit brings every Sage supplier across (#1655)', () => {
     await pool.query("INSERT INTO suppliers(company_id, name) VALUES($1, 'Delta Fuel')", [c]);
     expect((await commit(c, { suppliers: { records: [party(401, 'delta fuel')] } })).suppliers)
       .toEqual({ created: 0, skipped: 1, failed: [] });
-    expect((await live('suppliers', c)).map((r) => r.name)).toEqual(['Delta Fuel']);
+    // ...and claimed: it now carries the Sage id, so the next sync finds it by id.
+    expect(await live('suppliers', c)).toEqual([{ name: 'Delta Fuel', external_system: 'sage', external_ref: '401' }]);
+  });
+
+  it('a hand-keyed row is claimed by the first Sage party of its name; a case twin gets its own row', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO suppliers(company_id, name) VALUES($1, 'Fern Logistics')", [c]);
+    const pulled = { suppliers: { records: [party(451, 'Fern Logistics'), party(452, 'FERN LOGISTICS')] } };
+    expect((await commit(c, pulled)).suppliers).toEqual({ created: 1, skipped: 1, failed: [] });
+    expect((await commit(c, pulled)).suppliers).toEqual({ created: 0, skipped: 2, failed: [] });
+    expect(await live('suppliers', c)).toEqual([
+      { name: 'Fern Logistics', external_system: 'sage', external_ref: '451' },
+      { name: 'FERN LOGISTICS', external_system: 'sage', external_ref: '452' },
+    ]);
+  });
+
+  it('a row already carrying another reference is matched by name but not re-stamped', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO suppliers(company_id, name, external_system, external_ref) VALUES($1, 'Glen Paper', 'xero', 'X-9')", [c]);
+    expect((await commit(c, { suppliers: { records: [party(461, 'Glen Paper')] } })).suppliers)
+      .toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await live('suppliers', c)).toEqual([{ name: 'Glen Paper', external_system: 'xero', external_ref: 'X-9' }]);
   });
 
   it('customers take the same rule: a deleted twin and a case twin do not swallow a Sage customer', async () => {

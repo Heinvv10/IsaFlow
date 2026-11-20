@@ -39,13 +39,13 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { findSageCustomer, findSageSupplier, sageRef } from './sagePartyMatch';
+import { claimSageCustomer, claimSageSupplier, findSageCustomer, findSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<string> {
   const existing = await findSageCustomer(companyId, c);
-  if (existing) return existing;
+  if (existing) { await claimSageCustomer(companyId, existing, c.sageId); return existing; }
   const ref = sageRef(c.sageId);
   const inserted = (await sql`
     INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type, external_system, external_ref)
@@ -61,7 +61,7 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
 
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<string> {
   const existing = await findSageSupplier(companyId, s);
-  if (existing) return existing;
+  if (existing) { await claimSageSupplier(companyId, existing, s.sageId); return existing; }
   const ref = sageRef(s.sageId);
   const inserted = (await sql`
     INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type, external_system, external_ref)
