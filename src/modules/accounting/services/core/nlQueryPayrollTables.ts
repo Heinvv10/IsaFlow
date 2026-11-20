@@ -5,18 +5,27 @@
  */
 import type { SchemaTable } from './nlQueryService';
 
-/** SCHEMA_TABLES that carry per-employee pay. */
-export const PAYROLL_NL_TABLES: ReadonlySet<string> = new Set(['employees', 'payslips', 'leave_balances', 'leave_applications']);
+/**
+ * Every table on the NL allowlist (nlQueryValidationService ALLOWED_TABLES) that carries one person's pay or HR data: employees, their
+ * payslips and leave, the payroll runs, and the time entries (project_time_entries: hourly_rate, billable_amount; time_entries: rate).
+ * Decided by TABLE, never by column: a `*`, a whole-row reference (`SELECT t FROM ...`), `row_to_json(t)` or `to_jsonb(t)` returns
+ * every column whatever the query names, so a column match would miss them. Anyone adding an allowlisted table that holds a rate, a
+ * salary or an employee's details adds it here (tests/unit/services/core/nlQueryPayrollTables.test.ts pins every allowlisted table
+ * to a decision).
+ */
+export const PAYROLL_NL_TABLES: ReadonlySet<string> = new Set([
+  'employees', 'payslips', 'payroll_runs', 'leave_balances', 'leave_applications', 'project_time_entries', 'time_entries',
+]);
 
 export const withoutPayrollTables = (tables: SchemaTable[]): SchemaTable[] => tables.filter((t) => !PAYROLL_NL_TABLES.has(t.name));
 
+/** Tables named by a prefix (payroll_*, irp5*, emp201*): not on the allowlist today, refused should one ever be. */
+const PAYROLL_NL_PATTERN = new RegExp(`\\b(?:${[...PAYROLL_NL_TABLES].join('|')}|payroll_[a-z_]+|irp5[a-z_]*|emp201[a-z_]*)\\b`, 'i');
+
 /**
- * Does this (validated) SQL name a payroll-detail table, as a word, in any clause? Over-matches on purpose: it only ever refuses.
- * Round 7: the leave tables (one person's balance and absence), and project_time_entries when it names a pay field or selects every
- * column (`*`, which returns hourly_rate and billable_amount); its hours, dates and projects stay queryable.
+ * Does this (validated) SQL name a table that carries employee pay or HR data, as a word, in any clause (a schema prefix, quotes, an
+ * alias, a CTE, a subquery included)? Over-matches on purpose: it only ever refuses.
  */
 export function sqlTouchesPayrollTables(sql: string): boolean {
-  if (/\b(employees|payslips|leave_balances|leave_applications|payroll_[a-z_]+|irp5[a-z_]*|emp201[a-z_]*)\b/i.test(sql)) return true;
-  if (!/\bproject_time_entries\b/i.test(sql)) return false;
-  return /\b(hourly_rate|billable_amount)\b/i.test(sql) || /\*/.test(sql.replace(/count\(\s*\*\s*\)/gi, ''));
+  return PAYROLL_NL_PATTERN.test(sql);
 }
