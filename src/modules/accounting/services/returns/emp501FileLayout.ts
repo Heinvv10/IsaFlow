@@ -12,8 +12,11 @@ export const EMP501_EASYFILE_KIND = 'emp501_easyfile@2';
 export function emp501LayoutNote(v: { formType: string; status: string; filingFileKind: string | null }): string | null {
   if (v.formType !== 'EMP501' || v.filingFileKind === null || v.filingFileKind === EMP501_EASYFILE_KIND) return null;
   if (v.status === 'filed') {
-    return `This return was filed with a file in an earlier e@syFile layout (${v.filingFileKind}). That stored file is kept as the record, and it is what downloads.`;
+    return `This return was filed with a file in an earlier e@syFile layout (${v.filingFileKind}), which put fields under the wrong `
+      + 'SARS codes, so e@syFile may have rejected that submission: check its status on SARS eFiling. The stored file is kept as '
+      + 'the record, and it is what downloads; amend the return to file a correction.';
   }
-  return `This version's stored file uses an earlier e@syFile layout (${v.filingFileKind}), with fields under the wrong SARS codes. `
-    + 'The download is rebuilt in the current layout, but the version\'s stamp still names the old file: amend the return and finalise it again before you file it.';
+  return `This version's stored file uses an earlier e@syFile layout (${v.filingFileKind}), with fields under the wrong SARS codes, `
+    + 'so it cannot be marked filed. The download is rebuilt in the current layout; amend the return and finalise it again, '
+    + 'then download and file the new version.';
 }

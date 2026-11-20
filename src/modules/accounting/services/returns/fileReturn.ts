@@ -23,6 +23,7 @@ import { assertFilingReferenceIsTheCompanys, parseFilingReference, type FilingWa
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
+import { EMP501_EASYFILE_KIND } from './emp501FileLayout';
 
 export interface FiledReturn {
   version: ReturnVersion;
@@ -85,6 +86,13 @@ export async function markReturnFiled(
   if (!v.filingFileSha256 && await finalisedAfterFilingFileCutoff(companyId, v)) {
     throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
       'FILING_FILE_REQUIRED');
+  }
+  // Wave 6 EZF: an EMP501 stamped in an earlier e@syFile layout names a file with fields under the wrong SARS codes, and
+  // what was downloaded since is a rebuilt file the stamp does not name: never recorded as filed (emp501LayoutNote).
+  if (v.formType === 'EMP501' && v.filingFileKind !== null && v.filingFileKind !== EMP501_EASYFILE_KIND) {
+    throw new ReturnRefusal(409, `Version ${v.versionNo}'s stored filing file uses an earlier e@syFile layout (${v.filingFileKind}), `
+      + 'with fields under the wrong SARS codes, so it cannot be marked filed. Amend the return and finalise it again, then '
+      + 'download the new file and file that one.', 'FILING_FILE_OLD_LAYOUT');
   }
   const prnWarning = await assertFilingReferenceIsTheCompanys(companyId, v, ref);
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {

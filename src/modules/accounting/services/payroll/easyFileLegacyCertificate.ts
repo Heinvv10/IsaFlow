@@ -48,3 +48,24 @@ export function currentCertificate<T extends object>(stored: T, taxYear: number,
 export function currentEmployer<T extends Pick<EmployerInput, 'physicalSuburb'>>(stored: T, legacy: boolean): T {
   return legacy && stored.physicalSuburb !== null ? { ...stored, physicalSuburb: null } : stored;
 }
+
+/**
+ * For DISPLAY only (the employee portal, wave 6 EZF review): today's shape without applying any file rule, never
+ * throwing. A certificate currentCertificate cannot rebuild (a leaver paid after leaving: no payment date stored) shows
+ * its stored employment dates clamped to the period, the end never before the start.
+ */
+export function displayCertificate<T extends object>(stored: T, taxYear: number, kind: Emp501Kind): T {
+  try {
+    return currentCertificate(stored, taxYear, kind);
+  } catch (err) {
+    if (!(err instanceof UsageError)) throw err;
+    const { employmentStartDate, employmentEndDate, periodsInYoA: _months, ...rest } = stored as T & LegacyFields;
+    const p = emp501Period(taxYear, kind);
+    const [first, last] = [p.start.replaceAll('-', ''), p.end.replaceAll('-', '')];
+    const clamp = (d: string) => (d < first ? first : d > last ? last : d);
+    const start = clamp(employmentStartDate ?? first);
+    const end = clamp(employmentEndDate ?? last);
+    const taxPeriodEnd = end < start ? start : end;
+    return { ...rest, taxPeriodStart: start, taxPeriodEnd, payPeriodsInYear: 12, payPeriodsWorked: monthlyPayPeriodsWorked(start, taxPeriodEnd) } as T;
+  }
+}

@@ -131,7 +131,7 @@ describeIfDb('EZF: EMP501 versions from before the BRS code fix, and the employe
     expect((await emp501Drift(c(), P, changed)).changed).toEqual(['certificates']);
   });
 
-  it('a version stamped @1 and not filed downloads a rebuilt current file; once filed, its stored @1 bytes', async () => {
+  it('a version stamped @1 and not filed downloads a rebuilt current file and cannot be marked filed; one filed at @1 serves its stored bytes', async () => {
     expect((await callRoute(returns, c(), rf.admin.token, 'POST', {}, { action: 'finalise', ...INTERIM })).status).toBe(200);
     const v = ((await sql`SELECT * FROM tax_return_versions WHERE company_id = ${c()}::UUID AND form_type = 'EMP501'`) as Row[])[0]!;
     const versionId = String(v.id);
@@ -152,7 +152,16 @@ describeIfDb('EZF: EMP501 versions from before the BRS code fix, and the employe
     expect(((await sql`SELECT filing_file_content, filing_file_sha256, filing_file_kind FROM tax_return_versions WHERE id = ${versionId}::UUID`) as Row[])[0])
       .toEqual({ filing_file_content: oldBody, filing_file_sha256: oldSha, filing_file_kind: 'emp501_easyfile@1' });
 
-    expect((await callRoute(returns, c(), rf.admin.token, 'POST', {}, { action: 'file', versionId, reference: '1234567890' })).status).toBe(200);
+    // It cannot be marked filed: its stamp names the @1 file, and what was downloaded is a rebuilt one (review M2).
+    const refused = await callRoute(returns, c(), rf.admin.token, 'POST', {}, { action: 'file', versionId, reference: '1234567890' });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(refused.body)).toMatch(/earlier e@syFile layout \(emp501_easyfile@1\).*cannot be marked filed.*Amend the return/);
+    expect(((await sql`SELECT status FROM tax_return_versions WHERE id = ${versionId}::UUID`) as Row[])[0]!.status).toBe('finalised');
+    expect(((await sql`SELECT count(*)::int AS n FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP501'`) as Row[])[0]!.n).toBe(0);
+
+    // A version the release before the fix FILED with its @1 file serves those stored bytes, as the record.
+    await asSuperuser([[`UPDATE tax_return_versions SET status = 'filed', filed_at = now(), filed_by = $2, filed_reference = 'OLD-1'
+      WHERE id = $1`, [versionId, rf.admin.userId]]]);
     const filed = await callRoute(filingFile, c(), rf.admin.token, 'POST', {}, { versionId });
     expect(filed.status).toBe(200);
     expect(String(filed.body)).toBe(oldBody);
