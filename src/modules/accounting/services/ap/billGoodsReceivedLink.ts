@@ -3,8 +3,9 @@
  * key (migration 201 created it bare; 246b's ADD COLUMN ... REFERENCES was skipped), so nothing in the database ties a bill to a note:
  * a bill could name a cancelled note, another company's note or no note at all, and a bill written while a cancel ran could end on a
  * cancelled note. Writers of the column (census): `createSupplierInvoice` (the REST create, which also checks ahead of its number
- * reservation) and nothing else; MCP, bulk, import, recurring and capture creates never set it, and no update writes it. A
- * soft-deleted bill brought back by undo becomes live again with its grn_id, so the restore checks too.
+ * reservation) and the draft edit (`update_supplier_invoice`'s grn_id, gate finding 3); MCP, bulk, import, recurring and capture
+ * creates never set it. A soft-deleted bill brought back by undo becomes live again with its grn_id, so the restore checks too, and a
+ * draft edit that changes the supplier keeps a note that must still agree (`assertEditedBillGrn`).
  *
  * The note must also AGREE with the bill (merge-gate finding 1, decided for Hein): its PO is a PO of the bill's supplier, and when the
  * bill names POs (its header `purchase_order_id`, the POs its lines' `po_item_id`s belong to, and on a restore its link rows) the note's
@@ -107,6 +108,39 @@ export async function assertBillGrn(
  * the cancel PO -> note, so no cycle; a cancel cannot slip between this check and the restore. A grn_id naming no note of this company
  * is left as it was (the cancel never sees it).
  */
+/** The POs a stored bill names: its header PO, its lines' PO lines' POs and its link rows (this company's), lower case. */
+async function storedBillNamedPos(db: Db, companyId: string, billId: string, headerPo: unknown): Promise<Set<string>> {
+  const lines = (await db`SELECT po_item_id::text AS po_item_id FROM supplier_invoice_items WHERE supplier_invoice_id = ${billId}::uuid AND po_item_id IS NOT NULL`) as DbRow[];
+  const named = await namedPurchaseOrders(db, companyId, headerPo, lines.map((l) => l.po_item_id));
+  const links = (await db`
+    SELECT purchase_order_id::text AS po FROM purchase_order_bill_links WHERE company_id = ${companyId}::uuid AND supplier_invoice_id = ${billId}::uuid
+  `) as DbRow[];
+  for (const l of links) named.add(String(l.po).toLowerCase());
+  return named;
+}
+
+/**
+ * A draft edit (update_supplier_invoice) that changes the bill's supplier or its grn_id: the note it will carry (`grnId`, lower
+ * case; not null) must be this company's, live, and agree with the bill as it will stand (the new `supplierId`, the POs it names:
+ * its header, its lines' PO lines and its link rows, none of which this edit changes). Refused (`SupplierInvoiceGrnRefusal`) with the
+ * exit: in the same edit, grn_id null takes the note off, or the id of a live note that agrees. The edit's plan calls it unlocked
+ * (before any write, on the locked bill row); its apply calls it again with `lock: true` AFTER the links refresh (bill -> PO -> note,
+ * the create's order), so a cancel cannot slip between the check and the commit.
+ */
+export async function assertEditedBillGrn(
+  companyId: string, billId: string, grnId: string, supplierId: string, opts: { db?: Db; lock?: boolean } = {},
+): Promise<void> {
+  const db = opts.db ?? sql;
+  const exit = 'send grn_id: null in this edit to take the note off the bill, or the id of a live goods received note on a purchase order of the bill\'s supplier that the bill names';
+  if (!UUID_RE.test(grnId)) throw new SupplierInvoiceGrnRefusal(`The bill would name a goods received note that is not a valid id; ${exit}`);
+  const note = await noteFacts(db, companyId, grnId.toLowerCase(), opts.lock === true);
+  if (note === null) throw new SupplierInvoiceGrnRefusal(`The bill would name a goods received note that is not one of this company's; ${exit}`);
+  if (note.status === 'cancelled') throw new SupplierInvoiceGrnRefusal(`The bill would name a goods received note that is cancelled; ${exit}`);
+  const bill = ((await db`SELECT purchase_order_id::text AS purchase_order_id FROM supplier_invoices WHERE id = ${billId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];
+  const why = disagreement(note, supplierId, await storedBillNamedPos(db, companyId, billId, bill?.purchase_order_id));
+  if (why) throw new SupplierInvoiceGrnRefusal(`The bill's goods received note ${why} after this edit; ${exit}`);
+}
+
 export async function assertBillRestorableGrn(companyId: string, billId: string): Promise<void> {
   const bill = (await withRowLockBudget(async () => (await sql`
     SELECT grn_id::text AS grn_id, supplier_id::text AS supplier_id, purchase_order_id::text AS purchase_order_id FROM supplier_invoices
@@ -119,12 +153,7 @@ export async function assertBillRestorableGrn(companyId: string, billId: string)
   if (note.status === 'cancelled') {
     throw new SoftDeleteRefusalError('This bill names a goods received note that has since been cancelled, so it cannot be restored; enter the bill again as a new one (naming a live note, or none)');
   }
-  const lines = (await sql`SELECT po_item_id::text AS po_item_id FROM supplier_invoice_items WHERE supplier_invoice_id = ${billId}::uuid AND po_item_id IS NOT NULL`) as DbRow[];
-  const named = await namedPurchaseOrders(sql, companyId, bill.purchase_order_id, lines.map((l) => l.po_item_id));
-  const links = (await sql`
-    SELECT purchase_order_id::text AS po FROM purchase_order_bill_links WHERE company_id = ${companyId}::uuid AND supplier_invoice_id = ${billId}::uuid
-  `) as DbRow[];
-  for (const l of links) named.add(String(l.po).toLowerCase());
+  const named = await storedBillNamedPos(sql, companyId, billId, bill.purchase_order_id);
   const why = disagreement(note, bill.supplier_id == null ? null : String(bill.supplier_id), named);
   if (why) throw new SoftDeleteRefusalError(`This bill names a goods received note that ${why}, so it cannot be restored; enter the bill again as a new one (naming a note of its supplier's purchase order, or none)`);
 }
