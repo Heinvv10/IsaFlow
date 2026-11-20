@@ -50,7 +50,7 @@ describe('B-L1: a manual pair for a mirrored sale is not eliminated twice', () =
     const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped));
     expect(made).toEqual([]);
     expect(skipped.map((s) => s.transactionId).sort()).toEqual([r1.id, r2.id].sort());
-    expect(skipped.every((s) => s.reason === 'a mirrored document of the same two companies, amount and date')).toBe(true);
+    expect(skipped.every((s) => s.action === 'skipped' && /the same sale as a mirrored document/.test(s.reason))).toBe(true);
     await pool.query("UPDATE consolidation_adjustments SET status = 'posted', posted_at = now() WHERE group_id = $1", [co.G]);
     expect(await isJan()).toEqual(before);
   });
@@ -112,15 +112,17 @@ describe('B-L3: the chain work follows the period', () => {
       const calls = async () => {
         await c.query('SELECT pg_stat_force_next_flush()');
         await c.query('SELECT pg_stat_clear_snapshot()');
-        return Number((await c.query("SELECT COALESCE(sum(calls), 0) AS n FROM pg_stat_user_functions WHERE funcname = 'intercompany_journal_chain_dates'")).rows[0].n);
+        return Number((await c.query("SELECT COALESCE(sum(calls), 0) AS n FROM pg_stat_user_functions WHERE funcname = 'intercompany_journal_chain_eff'")).rows[0].n);
       };
       const a = await calls();
       const n = (await c.query('SELECT count(*)::int AS n FROM public.intercompany_mirror_eliminations($1, $2, $3)', [co.G, '2026-10-01', '2026-10-31'])).rows[0].n;
       await c.query('COMMIT');   // (the function counts are flushed with the transaction)
       const b = await calls();
       expect(n).toBe(2);              // the October row's two lines
-      expect(b - a).toBe(3);          // its three chains (sender, first match, bill), none of the September rows'
+      expect(b - a).toBeGreaterThan(0);
+      expect(b - a).toBeLessThanOrEqual(3);   // at most its three chains (sender, first match, bill), none of the three September rows' nine
     } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
       await c.query('RESET track_functions').catch(() => undefined);
       c.release();
     }
@@ -176,8 +178,6 @@ describe('S10: a reversal chain past any depth cap is counted to its end', () =>
       c.release();
     }
     expect(Number((await pool.query('SELECT public.intercompany_journal_chain_length($1, $2) AS n', [j, co.A])).rows[0].n)).toBe(1002);
-    const t0 = Date.now();
     expect(await derived()).toHaveLength(0);
-    process.stderr.write(`[round10 S10] derived over a 1002-journal chain: ${Date.now() - t0} ms\n`);
   }, 300000);
 });

@@ -17,6 +17,7 @@ import {
 } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
+import { EliminationsSkippedNotice, parseSkipped, type SkippedRow } from '@/components/accounting/group/EliminationsSkippedNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui/DateField';
 
@@ -51,6 +52,7 @@ export default function EliminationsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [generateNotes, setGenerateNotes] = useState<SkippedRow[]>([]);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formType, setFormType] = useState<EliminationType>('interco_revenue');
@@ -89,7 +91,7 @@ export default function EliminationsPage() {
   useEffect(() => { void loadData(); }, [loadData]);
 
   /* Shared action helper — avoids triple-duplicating fetch + error handling */
-  const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string) => {
+  const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string, onResult?: (json: unknown) => void) => {
     setActionLoading(loadingKey);
     try {
       const res = await apiFetch(
@@ -97,14 +99,19 @@ export default function EliminationsPage() {
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
       await assertOk(res, errMsg);
+      if (onResult) onResult(await res.json());
       await loadData();
     } catch (err) {
       setError(apiErrorMessage(err, errMsg));
     } finally { setActionLoading(null); }
   }, [selectedGroupId, loadData]);
 
-  const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again');
+  // the rows the generator left out (the same sale as a mirrored document) or drafted with a flag are shown, with why
+  const handleAutoGenerate = () => {
+    setGenerateNotes([]);
+    return postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again',
+      (json) => setGenerateNotes(parseSkipped(json)));
+  };
 
   const handlePost = (id: string) =>
     postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Could not post the elimination - try again');
@@ -210,6 +217,7 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
+          <EliminationsSkippedNotice rows={generateNotes} onDismiss={() => setGenerateNotes([])} />
           {/* a failed load must not also say "none found" */}
           {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>

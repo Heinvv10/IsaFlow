@@ -42,10 +42,13 @@ async function createUnlessStanding(created: ConsolidationAdjustment[], groupId:
   }
 }
 
-/** A manual row the generator did not eliminate because it is the same sale as a mirrored document (whose elimination is derived). */
-export interface SkippedEliminationRow { transactionId: string; reason: string }
+/**
+ * A manual row the generator did not eliminate ('skipped': the same sale as a mirrored document, whose elimination is derived), or drafted with a
+ * flag for a person to check before posting ('flagged': possibly the same sale; the match was not certain).
+ */
+export interface SkippedEliminationRow { transactionId: string; action: 'skipped' | 'flagged'; reason: string }
 
-/** `skipped`, when given, receives the manual rows left out as duplicates of a mirrored document, with why. */
+/** `skipped`, when given, receives the manual rows left out as duplicates of a mirrored document, and the ones drafted with a flag, with why. */
 export async function autoGenerateEliminations(
   groupId: string, periodStart: string, periodEnd: string, skipped: SkippedEliminationRow[] = [],
 ): Promise<ConsolidationAdjustment[]> {
@@ -61,9 +64,9 @@ export async function autoGenerateEliminations(
     if (held.length === 0) throw new Error('autoGenerateEliminations must run inside a transaction (its per-group advisory lock is transaction-scoped)');
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description,
-             public.intercompany_mirrored_duplicate(ict.id) AS mirrored_duplicate
+             ict.transaction_type, ict.amount, ict.description, dup.action AS dup_action, dup.reason AS dup_reason
       FROM intercompany_transactions ict
+      LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ict.id, ${periodStart}::DATE, ${periodEnd}::DATE) dup ON true
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND NOT public.intercompany_is_mirrored_row(ict.id) -- a mirrored document's elimination is derived from the ledgers (mirrorEliminations.ts), never stored
         AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
@@ -72,13 +75,16 @@ export async function autoGenerateEliminations(
     const created: ConsolidationAdjustment[] = [];
 
     for (const tx of icTxRows) {
-      // A manual (P1) row for a sale that is also mirrored: the mirrored document's elimination is derived from the ledgers, so storing one for
-      // this row would eliminate the sale twice once posted. Left out, and said why.
-      if (tx.mirrored_duplicate) {
-        skipped.push({ transactionId: String(tx.id), reason: String(tx.mirrored_duplicate) });
-        log.warn('Manual intercompany row not eliminated: it is the same sale as a mirrored document', { groupId, transactionId: String(tx.id), reason: String(tx.mirrored_duplicate) }, 'accounting');
+      // A manual (P1) row for a sale that is also mirrored and stands: the mirrored document's elimination is derived from the ledgers, so storing
+      // one for this row would eliminate the sale twice once posted. Left out, and said why. A possible but uncertain match is drafted, flagged.
+      const reason = tx.dup_reason ? String(tx.dup_reason) : '';
+      if (tx.dup_action === 'skip') {
+        skipped.push({ transactionId: String(tx.id), action: 'skipped', reason });
+        log.warn('Manual intercompany row not eliminated: it is the same sale as a mirrored document', { groupId, transactionId: String(tx.id), reason }, 'accounting');
         continue;
       }
+      const flagged = tx.dup_action === 'flag';
+      if (flagged) skipped.push({ transactionId: String(tx.id), action: 'flagged', reason });
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are serialised by
       // the lock above; where 1019 could build the partial unique index on consolidation_adjustments(source_intercompany_id), a duplicate insert
       // is also refused there (23505, mapped to EliminationAlreadyStandsError) and skipped.
@@ -90,7 +96,7 @@ export async function autoGenerateEliminations(
       const amount = Number(tx.amount);
       const srcId = String(tx.source_company_id);
       const tgtId = String(tx.target_company_id);
-      const desc = tx.description ?? '';
+      const desc = `${flagged ? 'CHECK BEFORE POSTING (possibly a mirrored document) ' : ''}${String(tx.description ?? '')}`;
 
       if (txType === 'sale' || txType === 'purchase' || txType === 'mgmt_fee') {
         const revGaId = await findGroupAccountByType(groupId, srcId, 'revenue');

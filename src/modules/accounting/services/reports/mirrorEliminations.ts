@@ -97,8 +97,9 @@ export async function getMirroredEliminations(groupId: string, periodStart: stri
 
 /**
  * Whether a derived line can land on a BALANCE-SHEET line: only when some company revenue / expense account (the accounts the derived lines
- * are read from) is mapped to a balance-sheet group account, or to a group account a company balance-sheet account is also mapped to. The cumulative (inception) windows of the trial balance and the balance sheet use balance-sheet
- * accounts only, so when this is false they need not derive at all: the same answer without walking the group's whole mirrored history.
+ * are read from) is mapped to a balance-sheet group account, or to a group account a company balance-sheet account is also mapped to.
+ * The cumulative (inception) windows of the trial balance and the balance sheet use balance-sheet accounts only, so when this is false
+ * they need not derive at all: the same answer without walking the group's whole mirrored history.
  */
 export async function mirroredLinesReachBalanceSheet(groupId: string): Promise<boolean> {
   const rows = (await sql`

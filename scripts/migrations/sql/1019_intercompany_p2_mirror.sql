@@ -38,12 +38,12 @@
 
 --   DROP FUNCTION IF EXISTS public.intercompany_sync_core(uuid, text, uuid, uuid), public.intercompany_withdraw_message(uuid), public.intercompany_revive_message(uuid),
 --     public.intercompany_release_group_row(uuid), public.intercompany_build_payload(text, uuid, uuid), public.intercompany_clean_text(text, integer),
---     public.intercompany_journal_chain_length(uuid, uuid, date), public.intercompany_lines_negate(uuid, uuid), public.intercompany_document_live(text, uuid, uuid, uuid),
+--     public.intercompany_journal_chain_length(uuid, uuid, date, date[]), public.intercompany_journal_chain_eff(uuid, uuid), public.intercompany_lines_negate(uuid, uuid), public.intercompany_document_live(text, uuid, uuid, uuid),
 --     public.intercompany_group_row_ok(uuid, uuid, uuid, uuid), public.intercompany_own_posting_problem(text, uuid, uuid, uuid),
---     public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_fiscal_year(uuid, date), public.intercompany_receiver_je(uuid, date), public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date),
+--     public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_fiscal_year(uuid, date), public.intercompany_receiver_je(uuid, date, date[], date[]), public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]),
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
---     public.intercompany_journal_chain_dates(uuid, uuid), public.intercompany_mirror_pair_at(uuid, date), public.intercompany_journal_bound_elsewhere(uuid, uuid),
---     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid);
+--     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
+--     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid, date, date);
 
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
@@ -59,7 +59,7 @@
 --   DELETE FROM app_definer_reviews WHERE signature LIKE 'intercompany\_%' AND signature IN ('intercompany_auto_accept_queue(integer,boolean)',
 --     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
 --     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
---     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid)');
+--     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid,date,date)');
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -183,44 +183,68 @@ $$;
 REVOKE ALL ON FUNCTION public.intercompany_lines_negate(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_lines_negate(uuid, uuid) TO migration_admin;
 
--- The number of POSTED journals in the reversal chain that starts at p_je (the journal, its reversal, the reversal's reversal, ...), 0 when
--- p_je is not a posted journal of p_company. A link counts only if it is posted, of the same company AND the exact negation of the journal it
--- reverses (a forged, empty or re-pointed link ends the chain). With p_asat, only journals DATED on or before it count (the ledger as it stood
--- at the end of a period: a reversal booked later does not change an earlier period). ODD = the ledger carries the document, EVEN = it is out.
-DROP FUNCTION IF EXISTS public.intercompany_journal_chain_length(uuid, uuid, date);
-CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_length(p_je uuid, p_company uuid, p_asat date DEFAULT NULL)
-RETURNS integer
+-- The reversal chain that starts at p_je, walked ONCE: for each POSTED journal in it (the journal, its reversal, the reversal's reversal, ...),
+-- the date from which it counts, its EFFECTIVE date: the latest date on its path from p_je (a link counts as at a date only if it and every
+-- journal above it are dated on or before it). Sorted ascending; empty when p_je is not a posted journal of p_company. A link counts only if
+-- it is posted, of the same company AND the exact negation of the journal it reverses (a forged, empty or re-pointed link ends the chain).
+-- Walked level by level with an index lookup per level (reversal_of_id = ANY(the level)), not as a recursive CTE: the planner cannot size a
+-- recursive work table and hashed it against the whole journal table. No depth cap (1018's cap on chains is not relied on): every level adds
+-- journals not seen before, so it ends, and nothing is truncated. SECURITY INVOKER, migration_admin only.
+CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_eff(p_je uuid, p_company uuid)
+RETURNS date[]
 LANGUAGE plpgsql
 STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
--- Walked level by level with an index lookup per level (reversal_of_id = ANY(the level)), not as a recursive CTE: the planner cannot size a
--- recursive work table and hashed it against the whole journal table, so each call cost a scan of every tenant's journals. The walk has no
--- depth cap (1018's cap on chains is not relied on): every level adds journals not seen before, so it ends, and the count is never truncated.
 DECLARE
-  v_level uuid[];
+  v_ids uuid[];
+  v_eff date[];
   v_seen uuid[];
-  v_n integer;
+  v_all date[];
 BEGIN
-  SELECT ARRAY[je.id] INTO v_level FROM public.gl_journal_entries je
-   WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted' AND (p_asat IS NULL OR je.entry_date <= p_asat);
-  IF v_level IS NULL THEN RETURN 0; END IF;
-  v_seen := v_level;
-  v_n := 1;
-  LOOP   -- no cap: a capped walk would return a truncated count (a parity that fails open); v_seen ends a cycle, so it ends
-    SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
-     WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
-       AND (p_asat IS NULL OR r.entry_date <= p_asat) AND public.intercompany_lines_negate(r.id, r.reversal_of_id);
-    EXIT WHEN v_level IS NULL;
-    v_seen := v_seen || v_level;
-    v_n := v_n + cardinality(v_level);
+  SELECT ARRAY[je.id], ARRAY[je.entry_date] INTO v_ids, v_eff FROM public.gl_journal_entries je
+   WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted';
+  IF v_ids IS NULL THEN RETURN '{}'::date[]; END IF;
+  v_seen := v_ids;
+  v_all := v_eff;
+  LOOP
+    -- the level's children found by the index first (OFFSET 0 keeps the planner from testing the negation on every journal of the company
+    -- before the join), then the value test on those few
+    SELECT array_agg(c.id ORDER BY c.id), array_agg(c.eff ORDER BY c.id) INTO v_ids, v_eff
+      FROM (SELECT r.id, r.reversal_of_id AS parent, GREATEST(r.entry_date, p.eff) AS eff
+              FROM unnest(v_ids, v_eff) AS p(id, eff)
+              JOIN public.gl_journal_entries r ON r.reversal_of_id = p.id
+             WHERE NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
+            OFFSET 0) c
+     WHERE public.intercompany_lines_negate(c.id, c.parent);
+    EXIT WHEN v_ids IS NULL;
+    v_seen := v_seen || v_ids;
+    v_all := v_all || v_eff;
   END LOOP;
-  RETURN v_n;
+  RETURN ARRAY(SELECT e FROM unnest(v_all) AS e ORDER BY e);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_journal_chain_eff(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_eff(uuid, uuid) TO migration_admin;
+
+-- The number of journals of that chain counting as at p_asat (all of them when NULL): ODD = the ledger carries the document, EVEN = it is out.
+-- p_eff, when given, is the chain's intercompany_journal_chain_eff, so a caller judging one chain at many dates walks it once: the count at a
+-- date is a binary search of the sorted effective dates (width_bucket), not another walk.
+DROP FUNCTION IF EXISTS public.intercompany_journal_chain_length(uuid, uuid, date);
+DROP FUNCTION IF EXISTS public.intercompany_journal_chain_length(uuid, uuid, date, date[]);
+CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_length(p_je uuid, p_company uuid, p_asat date DEFAULT NULL, p_eff date[] DEFAULT NULL)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT CASE WHEN p_asat IS NULL THEN cardinality(x.e) WHEN cardinality(x.e) = 0 THEN 0 ELSE pg_catalog.width_bucket(p_asat, x.e) END
+    FROM (SELECT COALESCE(p_eff, public.intercompany_journal_chain_eff(p_je, p_company)) AS e) x
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date, date[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date, date[]) TO migration_admin;
 
 -- Whether a document is LIVE in its books: approved (status) and linked to the journal that is its posting (a cancel clears an invoice's link).
 -- A cancelled document is not revived by a reversal chain that looks alive again. SECURITY INVOKER, migration_admin only.
@@ -540,7 +564,10 @@ GRANT EXECUTE ON FUNCTION public.intercompany_journal_bound_elsewhere(uuid, uuid
 -- posting and no other row's, for the connection's supplier, and in the same financial year of the company's calendar as the sender's date. The
 -- document's link to its journal is a column a writer can point anywhere, and the journal's text is a writer's too: hence each check.
 -- SECURITY INVOKER, migration_admin only.
-CREATE OR REPLACE FUNCTION public.intercompany_receiver_journal_problem(p_row uuid, p_co uuid, p_doc_type text, p_doc_id uuid, p_je uuid, p_asat date)
+DROP FUNCTION IF EXISTS public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date);
+DROP FUNCTION IF EXISTS public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]);
+CREATE OR REPLACE FUNCTION public.intercompany_receiver_journal_problem(p_row uuid, p_co uuid, p_doc_type text, p_doc_id uuid, p_je uuid, p_asat date,
+                                                                         p_eff date[] DEFAULT NULL)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
@@ -576,7 +603,7 @@ BEGIN
     RETURN 'the bill''s journal is not a posted journal of this company';
   ELSIF j.source IS DISTINCT FROM d.src OR j.description IS DISTINCT FROM d.descr THEN
     RETURN 'the journal is not the one that posting this document wrote';
-  ELSIF public.intercompany_journal_chain_length(p_je, p_co, p_asat) % 2 = 0 THEN
+  ELSIF public.intercompany_journal_chain_length(p_je, p_co, p_asat, p_eff) % 2 = 0 THEN   -- (p_eff: p_je's chain, walked once by the caller)
     RETURN 'the bill''s journal has been reversed';
   ELSIF EXISTS (SELECT 1 FROM public.supplier_invoices x WHERE x.company_id = p_co AND x.gl_journal_entry_id = p_je AND x.id <> p_doc_id)
      OR EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.company_id = p_co AND x.gl_journal_entry_id = p_je AND x.id <> p_doc_id) THEN
@@ -593,14 +620,17 @@ BEGIN
   RETURN NULL;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]) TO migration_admin;
 
 -- The receiver's journal for a mirrored group row AS AT p_asat, from the ledgers and the documents, or NULL. No hook is needed: the journal the
 -- row was first matched to, while it still stands in the same financial year with the sender's figures and no other row holds it
 -- (a bound row is moved by nothing the bill's columns say), else the journal the accepted message's bill / credit note links to, when it passes every structural and value check above.
 -- SECURITY INVOKER, migration_admin only.
-CREATE OR REPLACE FUNCTION public.intercompany_receiver_je(p_row uuid, p_asat date)
+-- p_first_eff / p_doc_eff: the chains of the row's first journal and of the document's journal, walked once by a caller judging many dates.
+DROP FUNCTION IF EXISTS public.intercompany_receiver_je(uuid, date);
+DROP FUNCTION IF EXISTS public.intercompany_receiver_je(uuid, date, date[], date[]);
+CREATE OR REPLACE FUNCTION public.intercompany_receiver_je(p_row uuid, p_asat date, p_first_eff date[] DEFAULT NULL, p_doc_eff date[] DEFAULT NULL)
 RETURNS uuid
 LANGUAGE plpgsql
 STABLE
@@ -618,7 +648,7 @@ BEGIN
   IF NOT FOUND OR m.did IS NULL THEN RETURN NULL; END IF;
   SELECT it.amount, it.transaction_date AS td, it.first_target_journal_entry_id AS first_je INTO t FROM public.intercompany_transactions it WHERE it.id = p_row;
   IF t.first_je IS NOT NULL
-     AND public.intercompany_journal_chain_length(t.first_je, m.co, p_asat) % 2 = 1
+     AND public.intercompany_journal_chain_length(t.first_je, m.co, p_asat, p_first_eff) % 2 = 1
      AND public.intercompany_fiscal_year(m.co, t.td) IS NOT NULL
      AND public.intercompany_fiscal_year(m.co, t.td) IS NOT DISTINCT FROM
          public.intercompany_fiscal_year(m.co, (SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = t.first_je))
@@ -635,68 +665,42 @@ BEGIN
     SELECT cn.gl_journal_entry_id INTO v_je FROM public.credit_notes cn WHERE cn.id = m.did AND cn.company_id = m.co AND cn.type = 'supplier';
   END IF;
   IF v_je IS NULL THEN RETURN NULL; END IF;
-  IF public.intercompany_receiver_journal_problem(p_row, m.co, m.dtype, m.did, v_je, p_asat) IS NULL
+  IF public.intercompany_receiver_journal_problem(p_row, m.co, m.dtype, m.did, v_je, p_asat, p_doc_eff) IS NULL
      AND public.intercompany_receiver_journal_value_problem(m.kind, v_je, t.amount, m.tax, m.total) IS NULL THEN
     RETURN v_je;
   END IF;
   RETURN NULL;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_receiver_je(uuid, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_receiver_je(uuid, date) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_receiver_je(uuid, date, date[], date[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_receiver_je(uuid, date, date[], date[]) TO migration_admin;
 
--- The dates on which p_je's reversal chain can change (its journal and every value-negating posted link below it, of p_company), whatever
--- the date: the only dates on which a pair resting on that chain can start or stop standing. SECURITY INVOKER, migration_admin only.
-CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_dates(p_je uuid, p_company uuid)
-RETURNS SETOF date
-LANGUAGE plpgsql
-STABLE
-ROWS 3   -- (a journal and its reversals: the planner's default of 1000 rows per call inflated every estimate above it)
-SECURITY INVOKER
-SET search_path = pg_catalog, public, pg_temp
-AS $$
--- (level by level with an index lookup per level, as intercompany_journal_chain_length)
-DECLARE
-  v_level uuid[];
-  v_seen uuid[];
-BEGIN
-  SELECT ARRAY[je.id] INTO v_level FROM public.gl_journal_entries je WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted';
-  IF v_level IS NULL THEN RETURN; END IF;
-  RETURN QUERY SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = p_je;
-  v_seen := v_level;
-  LOOP   -- no cap: a capped walk would return a truncated count (a parity that fails open); v_seen ends a cycle, so it ends
-    SELECT array_agg(r.id) INTO v_level FROM public.gl_journal_entries r
-     WHERE r.reversal_of_id = ANY (v_level) AND NOT (r.id = ANY (v_seen)) AND r.company_id = p_company AND r.status = 'posted'
-       AND public.intercompany_lines_negate(r.id, r.reversal_of_id);
-    EXIT WHEN v_level IS NULL;
-    RETURN QUERY SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = ANY (v_level);
-    v_seen := v_seen || v_level;
-  END LOOP;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.intercompany_journal_chain_dates(uuid, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_dates(uuid, uuid) TO migration_admin;
+-- (an earlier shape of this migration walked each chain again for its dates: intercompany_journal_chain_eff gives them, walked once)
+DROP FUNCTION IF EXISTS public.intercompany_journal_chain_dates(uuid, uuid);
 
 -- The receiver's journal of a mirrored row when the PAIR stands as at p_asat, or NULL: the sender's journal stands (an odd chain counting only
 -- links dated on or before p_asat) and carries the document's figures by value, and the receiver's journal is intercompany_receiver_je's as at
--- p_asat. SECURITY INVOKER, migration_admin only.
-CREATE OR REPLACE FUNCTION public.intercompany_mirror_pair_at(p_row uuid, p_asat date)
+-- p_asat. p_se / p_fe / p_de: the chains (intercompany_journal_chain_eff) of the sender's, the first-matched and the document's journals, walked
+-- once by the derivation, so judging a row at each of its dates costs a binary search per chain, not a walk. SECURITY INVOKER, migration_admin only.
+DROP FUNCTION IF EXISTS public.intercompany_mirror_pair_at(uuid, date);
+DROP FUNCTION IF EXISTS public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]);
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_pair_at(p_row uuid, p_asat date, p_se date[] DEFAULT NULL, p_fe date[] DEFAULT NULL, p_de date[] DEFAULT NULL)
 RETURNS uuid
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT public.intercompany_receiver_je(m.group_transaction_id, p_asat)
+  SELECT public.intercompany_receiver_je(m.group_transaction_id, p_asat, p_fe, p_de)
     FROM public.intercompany_messages m
    WHERE m.group_transaction_id = p_row AND m.kind IN ('invoice', 'credit_note') AND m.source_journal_entry_id IS NOT NULL
-     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_asat) % 2 = 1
+     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_asat, p_se) % 2 = 1
      AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
            (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
    LIMIT 1
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_mirror_pair_at(uuid, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_mirror_pair_at(uuid, date) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]) TO migration_admin;
 
 -- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored, as dated EVENTS. For a group the caller is a member of,
 -- and a mirrored row whose two companies are both CURRENT members of it (the reports' member set): the pair STANDS on a date d when, with the
@@ -756,7 +760,8 @@ AS $$
      WHERE je.status = 'posted' AND je.entry_date BETWEEN p_start AND p_end
        AND je.company_id = ANY (ARRAY(SELECT rws.sc FROM rws UNION SELECT rws.tc FROM rws))
     UNION
-    SELECT up.id FROM up WHERE up.parent IS NULL
+    -- EVERY journal the up-walk passed (not its roots only): a row whose own journal carries a reversal_of_id (or sits in a cycle) is found too
+    SELECT up.id FROM up
   ), touched AS (
     -- the rows with a chain date in the period: one of their three journals is one of those
     SELECT r.id FROM rws r JOIN pj ON pj.id = r.sje
@@ -766,12 +771,14 @@ AS $$
     SELECT r.* FROM rws r JOIN touched ON touched.id = r.id
   ), ok AS (
     SELECT t.* FROM t WHERE public.intercompany_group_row_ok(t.id, t.fc, t.toc, t.sje)
+  ), ch AS MATERIALIZED (
+    -- each touched row's three chains, walked ONCE: their journals' effective dates (sorted), reused for every date the row is judged at
+    SELECT r.id, public.intercompany_journal_chain_eff(r.sje, r.sc) AS se, public.intercompany_journal_chain_eff(r.fje, r.tc) AS fe,
+           public.intercompany_journal_chain_eff(r.dje, r.tc) AS de
+      FROM ok r
   ), cand AS (
-    -- the dates on or before p_end on which a touched row's pair can start or stop standing (its chains' own journal dates)
-    SELECT DISTINCT r.id, x.d FROM ok r
-      CROSS JOIN LATERAL (SELECT public.intercompany_journal_chain_dates(r.sje, r.sc) AS d
-                          UNION SELECT public.intercompany_journal_chain_dates(r.fje, r.tc)
-                          UNION SELECT public.intercompany_journal_chain_dates(r.dje, r.tc)) x
+    -- the dates on or before p_end on which a touched row's pair can start or stop standing (its chains' effective dates)
+    SELECT DISTINCT h.id, x.d FROM ch h CROSS JOIN LATERAL unnest(h.se || h.fe || h.de) AS x(d)
      WHERE x.d <= p_end
   ), live AS (
     -- only a row with a chain date in the period can have an event in it. It is judged on those dates, and once just before p_start (only when
@@ -779,9 +786,10 @@ AS $$
     SELECT c.id, bool_or(c.d < p_start) AS earlier FROM cand c GROUP BY c.id HAVING bool_or(c.d >= p_start)
   ), seq AS (
     SELECT s.id, s.d, s.rje, lag(s.rje) OVER (PARTITION BY s.id ORDER BY s.d) AS prev
-      FROM (SELECT c.id, c.d, public.intercompany_mirror_pair_at(c.id, c.d) AS rje FROM cand c WHERE c.d >= p_start AND c.id IN (SELECT live.id FROM live)
+      FROM (SELECT c.id, c.d, public.intercompany_mirror_pair_at(c.id, c.d, h.se, h.fe, h.de) AS rje
+              FROM cand c JOIN ch h ON h.id = c.id WHERE c.d >= p_start AND c.id IN (SELECT live.id FROM live)
             UNION ALL
-            SELECT l.id, p_start - 1, public.intercompany_mirror_pair_at(l.id, p_start - 1) FROM live l WHERE l.earlier) s
+            SELECT l.id, p_start - 1, public.intercompany_mirror_pair_at(l.id, p_start - 1, h.se, h.fe, h.de) FROM live l JOIN ch h ON h.id = l.id WHERE l.earlier) s
   ), ev AS (
     SELECT seq.id, seq.d, seq.prev AS rje, -1 AS sgn FROM seq WHERE seq.prev IS NOT NULL AND seq.prev IS DISTINCT FROM seq.rje
     UNION ALL
@@ -1442,40 +1450,67 @@ ALTER FUNCTION public.intercompany_journal_claimed(uuid) OWNER TO migration_admi
 REVOKE ALL ON FUNCTION public.intercompany_journal_claimed(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_claimed(uuid) TO app_user, app_service, migration_admin;
 
--- Why a MANUAL (non-mirrored) group row is the same sale as a mirrored document, or NULL: its source or target journal is a mirrored message's
--- sent-with journal, a mirrored row's bound journal or the journal of a document an accepted mirror message created; or a mirrored row of the
--- same group joins the same two companies (either way round) for the same amount on the same date. The mirrored document's elimination is
--- derived, so the generator must not store a second one for that row. A definer (the caller may not read the messages); it answers only for a
--- row of a group the caller is a current member of, NULL otherwise.
-CREATE OR REPLACE FUNCTION public.intercompany_mirrored_duplicate(p_row uuid)
-RETURNS text
-LANGUAGE sql
+-- Whether a MANUAL (non-mirrored) group row is the same sale as a mirrored document whose elimination is DERIVED for the period p_start..p_end,
+-- and so must not be stored a second time: (action, reason), or no row. action 'skip':
+--   (a) the row's source or target journal is a mirrored message's sent-with journal, a mirrored row's bound journal or the journal of a
+--       document an accepted mirror message created (the same journal: certain); or
+--   (b) the row is of a SALE type (sale / purchase / mgmt_fee: never a loan or transfer) and exactly ONE mirrored sale of the same group joins
+--       the same two companies (either way round) for the same amount on the same date, its message accepted with a target document and not
+--       withdrawn by the sender, and its pair STANDING at p_end (it has a derived elimination); and no other manual row of the same direction,
+--       amount and date competes for it.
+-- action 'flag': (b) with more than one candidate either side: possibly the same sale, not certainly; the generator drafts the adjustment and
+-- flags it for a person. A rejected, withdrawn, cancelled or reversed mirror, or a loan, is never a reason. A definer (the caller may not read
+-- the messages); it answers only for a row of a group the caller is a current member of.
+DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
+CREATE OR REPLACE FUNCTION public.intercompany_mirrored_duplicate(p_row uuid, p_start date, p_end date)
+RETURNS TABLE (action text, reason text)
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT CASE
-    WHEN EXISTS (SELECT 1 FROM unnest(ARRAY[r.source_journal_entry_id, r.target_journal_entry_id]) j(je) WHERE j.je IS NOT NULL AND (
-                   EXISTS (SELECT 1 FROM public.intercompany_messages x WHERE x.source_journal_entry_id = j.je AND x.kind IN ('invoice', 'credit_note'))
-                OR EXISTS (SELECT 1 FROM public.intercompany_transactions o JOIN public.intercompany_messages x ON x.group_transaction_id = o.id
-                            WHERE o.first_target_journal_entry_id = j.je OR o.target_journal_entry_id = j.je)
-                OR EXISTS (SELECT 1 FROM public.supplier_invoices si JOIN public.intercompany_messages x
-                             ON x.target_doc_type = 'supplier_invoice' AND x.target_doc_id = si.id AND x.status = 'accepted' WHERE si.gl_journal_entry_id = j.je)
-                OR EXISTS (SELECT 1 FROM public.credit_notes cn JOIN public.intercompany_messages x
-                             ON x.target_doc_type = 'credit_note' AND x.target_doc_id = cn.id AND x.status = 'accepted' WHERE cn.gl_journal_entry_id = j.je)))
-      THEN 'its journal is a mirrored document''s'
-    WHEN EXISTS (SELECT 1 FROM public.intercompany_transactions o JOIN public.intercompany_messages x ON x.group_transaction_id = o.id
-                  WHERE o.group_id = r.group_id AND o.id <> r.id AND o.transaction_date = r.transaction_date AND abs(o.amount) = abs(r.amount)
-                    AND ((o.source_company_id = r.source_company_id AND o.target_company_id = r.target_company_id)
-                      OR (o.source_company_id = r.target_company_id AND o.target_company_id = r.source_company_id)))
-      THEN 'a mirrored document of the same two companies, amount and date'
-  END
-  FROM public.intercompany_transactions r
-  WHERE r.id = p_row AND r.group_id IN (SELECT public.rls_user_group_ids()) AND NOT public.intercompany_is_mirrored_row(r.id)
+DECLARE
+  r RECORD;
+  v_mirrors integer;
+  v_manuals integer;
+BEGIN
+  SELECT it.* INTO r FROM public.intercompany_transactions it
+   WHERE it.id = p_row AND it.group_id IN (SELECT public.rls_user_group_ids()) AND NOT public.intercompany_is_mirrored_row(it.id);
+  IF NOT FOUND THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM unnest(ARRAY[r.source_journal_entry_id, r.target_journal_entry_id]) j(je) WHERE j.je IS NOT NULL AND (
+               EXISTS (SELECT 1 FROM public.intercompany_messages x WHERE x.source_journal_entry_id = j.je AND x.kind IN ('invoice', 'credit_note'))
+            OR EXISTS (SELECT 1 FROM public.intercompany_transactions o JOIN public.intercompany_messages x ON x.group_transaction_id = o.id
+                        WHERE o.first_target_journal_entry_id = j.je OR o.target_journal_entry_id = j.je)
+            OR EXISTS (SELECT 1 FROM public.supplier_invoices si JOIN public.intercompany_messages x
+                         ON x.target_doc_type = 'supplier_invoice' AND x.target_doc_id = si.id AND x.status = 'accepted' WHERE si.gl_journal_entry_id = j.je)
+            OR EXISTS (SELECT 1 FROM public.credit_notes cn JOIN public.intercompany_messages x
+                         ON x.target_doc_type = 'credit_note' AND x.target_doc_id = cn.id AND x.status = 'accepted' WHERE cn.gl_journal_entry_id = j.je))) THEN
+    RETURN QUERY SELECT 'skip'::text, 'its journal is a mirrored document''s'::text;
+    RETURN;
+  END IF;
+  IF r.transaction_type NOT IN ('sale', 'purchase', 'mgmt_fee') THEN RETURN; END IF;
+  SELECT count(*) INTO v_mirrors
+    FROM public.intercompany_transactions o JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
+   WHERE o.group_id = r.group_id AND o.id <> r.id AND o.transaction_date = r.transaction_date AND abs(o.amount) = abs(r.amount)
+     AND ((o.source_company_id = r.source_company_id AND o.target_company_id = r.target_company_id)
+       OR (o.source_company_id = r.target_company_id AND o.target_company_id = r.source_company_id))
+     AND x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL
+     AND public.intercompany_mirror_pair_at(o.id, p_end) IS NOT NULL;
+  IF v_mirrors = 0 THEN RETURN; END IF;
+  SELECT count(*) INTO v_manuals FROM public.intercompany_transactions m2
+   WHERE m2.group_id = r.group_id AND m2.transaction_date = r.transaction_date AND abs(m2.amount) = abs(r.amount)
+     AND m2.source_company_id = r.source_company_id AND m2.target_company_id = r.target_company_id
+     AND m2.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND NOT public.intercompany_is_mirrored_row(m2.id);
+  IF v_mirrors = 1 AND v_manuals = 1 THEN
+    RETURN QUERY SELECT 'skip'::text, 'the same sale as a mirrored document (same two companies, amount and date), whose elimination is derived'::text;
+  ELSE
+    RETURN QUERY SELECT 'flag'::text, format('possibly the same sale as a mirrored document: %s mirrored and %s manual rows share the two companies, amount and date; check before posting', v_mirrors, v_manuals);
+  END IF;
+END;
 $$;
-ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid) OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid) TO app_user, app_service, migration_admin;
+ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid, date, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date, date) TO app_user, app_service, migration_admin;
 
 -- A request's new row names no match and no reason (the 999r body, plus the two columns of 1019).
 CREATE OR REPLACE FUNCTION public.intercompany_transaction_recorded_fresh()
@@ -1771,7 +1806,7 @@ END $$;
 
 -- ── 7. The definer registry (930) ───────────────────────────────────────────
 
-DELETE FROM public.app_definer_reviews WHERE signature = 'intercompany_auto_accept_queue(integer)';
+DELETE FROM public.app_definer_reviews WHERE signature IN ('intercompany_auto_accept_queue(integer)', 'intercompany_mirrored_duplicate(uuid)');
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
@@ -1785,8 +1820,8 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'intercompany_messages (one invoice / credit_note message, its payload built from the session company''s approved customer invoice or customer credit note with a posted, standing approval journal, and recording that journal and the group row) and intercompany_transactions (the sender''s one ''sale'' group row, for a group connection, ZAR) for the session company (a write-role user) and a document of that company whose customer is the partner on an active connection past its cut-over; nothing for any other company or an unapproved document'),
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
-    ('intercompany_mirrored_duplicate(uuid)', 'public.intercompany_mirrored_duplicate(uuid)',
-     'nothing: why a manual group row of a group the caller is a current member of is the same sale as a mirrored document (its journal is a mirrored document''s, or a mirrored row of the same pair, amount and date), for the elimination generator to skip it; NULL otherwise'),
+    ('intercompany_mirrored_duplicate(uuid,date,date)', 'public.intercompany_mirrored_duplicate(uuid, date, date)',
+     'nothing: for a manual group row of a group the caller is a current member of, whether it is the same sale as a mirrored document whose elimination is derived for the period (skip: its journal is the mirrored document''s, or exactly one standing accepted mirrored sale of the same pair, amount and date and no competing manual row; flag: more than one candidate), for the elimination generator'),
     ('intercompany_journal_claimed(uuid)', 'public.intercompany_journal_claimed(uuid)',
      'nothing: whether a journal of a company in a group the caller is a current member of (false for any other journal) is already the target or first match of an intercompany row, or the journal of a document an accepted mirror message created (a boolean, for the intercompany_transactions INSERT trigger of a writer who may not read those rows)'),
     ('intercompany_is_mirrored_row(uuid)', 'public.intercompany_is_mirrored_row(uuid)',
@@ -1811,15 +1846,15 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_send_for_source(text, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_source_changed(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_source_out(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_je(uuid, date)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_je(uuid, date, date[], date[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_build_payload(text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_service', 'public.intercompany_build_payload(text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_mirrored_row(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_claimed(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid, date, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_bound_elsewhere(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_eliminations(uuid, date, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric)', 'EXECUTE')
@@ -1834,9 +1869,9 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_row_ok(uuid, uuid, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_own_posting_problem(text, uuid, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_release_group_row(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid, date)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_dates(uuid, uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_mirror_pair_at(uuid, date)', 'EXECUTE') THEN
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid, date, date[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_eff(uuid, uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[])', 'EXECUTE') THEN
     RAISE EXCEPTION '1019: a role it must not reach can execute an intercompany P2 definer function';
   END IF;
 END $$;
