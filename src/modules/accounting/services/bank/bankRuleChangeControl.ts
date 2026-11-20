@@ -234,15 +234,21 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
  * — re-pointing where it posts needs approval, and the table would otherwise
  * refuse it mid-merge. Called before the merge's first write.
  */
-export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId: string, targetId: string): Promise<void> {
+export async function moveRulesToCustomer(
+  tx: TxSql, companyId: string, sourceId: string, targetId: string, guard: RuleWriteGuard,
+): Promise<void> {
   await lockForRuleWrite(companyId);
   const rules = (await tx`
-    SELECT r.rule_name, public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
+    SELECT r.rule_name, public.bank_rule_projection(to_jsonb(r)) AS before,
+           public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
     FROM bank_categorisation_rules r
     WHERE r.company_id = ${companyId}::UUID AND r.client_id = ${sourceId}::UUID
     ORDER BY r.id FOR UPDATE
-  `) as { rule_name: string; auto_posts: boolean }[];
+  `) as { rule_name: string; before: RuleProjection; auto_posts: boolean }[];
   if (rules.length === 0) return;
+  // Re-pointing a posting rule changes where its journals go: the caller's guard (Banking Approve) decides, for each rule as it would
+  // stand, before any write (#1656 round 7). Approval is asked before the enforcement hold below, so a non-approver learns nothing of it.
+  for (const r of rules) await guard({ ...r.before, client_id: targetId }, r.auto_posts, r.before, r.auto_posts);
   const posting = rules.filter((r) => r.auto_posts).map((r) => `"${r.rule_name}"`);
   if (posting.length > 0 && await isEnforced(companyId, BANK_RULE)) {
     throw new BankControlError('RULE_MERGE_HELD', `Bank rule ${posting.join(', ')} posts money for this customer unattended, and `
