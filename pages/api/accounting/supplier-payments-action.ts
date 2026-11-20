@@ -28,6 +28,7 @@ import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/ser
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -46,6 +47,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
+        // #1656: Suppliers & AP Approve, before the payment is read or locked.
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments')) return;
         const payment = await approveSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }

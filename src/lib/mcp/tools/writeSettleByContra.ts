@@ -34,6 +34,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const TOOL = 'settle_by_contra';
 const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
@@ -120,6 +121,10 @@ export const settleByContraTool: McpTool = {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());
+    // #1656: a payable settles through a supplier payment this tool approves: the token owner's Suppliers & AP Approve.
+    if (subledger === 'ap' && !(await mayApprove(ctx.companyId, ctx.userId, 'suppliers'))) {
+      return toolError(approveRefusedMessage('suppliers', 'supplier payments'));
+    }
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has

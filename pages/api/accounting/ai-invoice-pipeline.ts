@@ -14,27 +14,21 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
-  validatePipelineInput,
-  matchSupplierFromExtraction,
-  buildInvoiceFromExtraction,
-  determineApprovalRoute,
-  computePipelineConfidence,
-  type PipelineThresholds,
+  validatePipelineInput, matchSupplierFromExtraction, buildInvoiceFromExtraction, determineApprovalRoute,
+  computePipelineConfidence, type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
+import { recordApproveWithheld } from '@/modules/accounting/services/core/approvePermission';
+import { APPROVE_WITHHELD_WARNING } from '@/modules/accounting/services/capture/capturePostResponse';
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  claimCapturedDocumentForPosting,
-  lockCapturedDocumentForUpdate,
-  lockPostableCaptureEventIds,
-  markCaptureEventsDuplicate,
-  markCaptureEventsPosted,
-  refusalForPosting,
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE, claimCapturedDocumentForPosting, lockCapturedDocumentForUpdate,
+  lockPostableCaptureEventIds, markCaptureEventsDuplicate, markCaptureEventsPosted, refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -134,9 +128,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // R230.00 against a payable of R253.00 — a WORSE figure than the reader this
   // branch replaced produced. Neither may be approved with nobody looking, and
   // nor may figures the regex/OCR fallback recovered (K-072 round 14 policy).
-  const approvalRoute = refusesUnattendedApproval(extracted)
-    ? 'manual_review'
-    : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
+  // #1656 (breaker R2-D, the twin of capture/[id]/post): nor a bill this person may not approve: manual review, said, audited.
+  const unattendedRefused = refusesUnattendedApproval(extracted);
+  const pipelineRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
+  const approveWithheld = !unattendedRefused && pipelineRoute === 'auto_approve' && !(await mayApproveSupplierInvoices(companyId, userId));
+  const approvalRoute = unattendedRefused || approveWithheld ? 'manual_review' : pipelineRoute;
 
   // Fetch supplier VAT number (needed for fingerprint + duplicate detection)
   const [supplierRow] = (await sql`
@@ -221,6 +217,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   `) as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
+  if (approveWithheld) {
+    await recordApproveWithheld({ companyId, userId, module: 'suppliers', entityType: 'supplier_invoice', entityId: String(invoice.id),
+      entityRef: invoice.invoice_number == null ? null : String(invoice.invoice_number), path: 'ai_invoice_pipeline' });
+  }
 
   const slip = await insertCaptureBillLines(invoice.id as string, linePlan.lines);
   // Link document to invoice
@@ -290,7 +290,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
     approvalRoute: provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute,
-    warnings: validation.warnings,
+    warnings: approveWithheld ? [...validation.warnings, APPROVE_WITHHELD_WARNING] : validation.warnings,
     threeWayMatch,
     provisionalAttach, approvalRequired: approval.gated, approvalRequest,
   });
