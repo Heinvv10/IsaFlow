@@ -116,9 +116,9 @@ const validEmployee: EmployeeInput = {
   initials: 'TM',
   idNumber: '9001015009087',
   taxNumber: '0123456789',
-  employmentStartDate: '20250301',
-  employmentEndDate: null,
-  periodsInYoA: 12,
+  taxPeriodStart: '20250301',
+  taxPeriodEnd: '20260228',
+  payPeriodsInYear: 12, payPeriodsWorked: 12,
   grossSalary3601: 360000,
   paye4102: 54000,
   uifEmployee: 177.12,
@@ -167,11 +167,6 @@ describe('buildEmployeeRecord', () => {
     const lines = buildEmployeeRecord(validEmployee);
     expect(lines[0]?.startsWith('3010,')).toBe(true);
     expect(lines[lines.length - 1]).toBe('9999,9999');
-  });
-
-  it('renders periods-in-YoA as 4-decimal field 3215', () => {
-    const lines = buildEmployeeRecord(validEmployee);
-    expect(lines.find((l) => l.startsWith('3215,'))).toBe('3215,12.0000');
   });
 
   it('formats PAYE with cents and gross without', () => {

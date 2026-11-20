@@ -6,8 +6,8 @@ import type { StoredEmployee } from '@/modules/accounting/services/returns/emp50
 
 const cert: StoredEmployee = {
   certificateNumber: '7000000000202602000000000000001', yearOfAssessment: 2026, surname: 'Dlamini', firstNames: 'Thandi Grace',
-  initials: 'TG', idNumber: '8001015009087', taxNumber: '0123456789', employmentStartDate: '20200101', employmentEndDate: null,
-  periodsInYoA: 12, grossSalary3601: 240000, paye4102: 30000.5, uifEmployee: 2125.44, uifEmployer: 2125.44, sdl4142: 2400,
+  initials: 'TG', idNumber: '8001015009087', taxNumber: '0123456789', taxPeriodStart: '20250301', taxPeriodEnd: '20260228',
+  payPeriodsInYear: 12, payPeriodsWorked: 12, grossSalary3601: 240000, paye4102: 30000.5, uifEmployee: 2125.44, uifEmployer: 2125.44, sdl4142: 2400,
   annualPayments3605: 20000, cashAllowances: [{ sourceCode: '3701', amount: 12000 }],
   lumpSums: [{ sourceCode: '3901', directiveNumber: 'D1', directiveIssuedDate: '20260110', amount: 50000, paye: 9000 }],
   retirementFund: { pension4001: 18000, provident4003: 0, annuity4006: 0, donations4030: 0 },
@@ -27,7 +27,23 @@ describe('certificateView', () => {
       { code: '4001', label: 'Pension fund contributions', amount: 18000 }, { code: '4005', label: 'Medical scheme fees', amount: 24000 },
     ]);
     expect(v.tax.map((t) => [t.code, t.amount])).toEqual([['4102', 30000.5], ['4115', 9000], ['4116', 4392], ['4141', 4250.88], ['4142', 2400]]);
-    expect([v.idNumberLast4, v.taxNumberLast4, v.employee, v.periodFrom, v.periodTo]).toEqual(['9087', '6789', 'Thandi Grace Dlamini', '2020-01-01', null]);
+    expect([v.idNumberLast4, v.taxNumberLast4, v.employee, v.periodFrom, v.periodTo]).toEqual(['9087', '6789', 'Thandi Grace Dlamini', '2025-03-01', '2026-02-28']);
+  });
+
+  it('a certificate filed before the BRS code fix shows its tax period, from the stored employment dates (wave 6 EZF)', () => {
+    const { taxPeriodStart: _s, taxPeriodEnd: _e, payPeriodsInYear: _y, payPeriodsWorked: _w, ...rest } = cert;
+    const legacy = { ...rest, employmentStartDate: '20200101', employmentEndDate: '20251015', periodsInYoA: 8 } as unknown as StoredEmployee;
+    const v = certificateView(version, employer, legacy);
+    expect([v.periodFrom, v.periodTo]).toEqual(['2025-03-01', '2025-10-15']);
+  });
+
+  it('a filed pre-fix certificate of a leaver paid after leaving still shows (display never applies file rules; review M1)', () => {
+    const { taxPeriodStart: _s, taxPeriodEnd: _e, payPeriodsInYear: _y, payPeriodsWorked: _w, ...rest } = cert;
+    // Left in January 2025, before the 2026 year (1 March 2025): currentCertificate refuses this; the portal must not.
+    const legacy = { ...rest, employmentStartDate: '20200101', employmentEndDate: '20250131', periodsInYoA: 12 } as unknown as StoredEmployee;
+    const v = certificateView(version, employer, legacy);
+    expect([v.periodFrom, v.periodTo]).toEqual(['2025-03-01', '2025-03-01']);
+    expect(v.income.length).toBeGreaterThan(0);
   });
 
   it('has no ID line when the certificate carries none', () => {
