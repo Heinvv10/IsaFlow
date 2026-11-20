@@ -89,7 +89,7 @@ export async function markReturnFiled(
   }
   // Wave 6 EZF: an EMP501 stamped in an earlier e@syFile layout names a file with fields under the wrong SARS codes, and
   // what was downloaded since is a rebuilt file the stamp does not name: never recorded as filed (emp501LayoutNote).
-  if (v.formType === 'EMP501' && v.filingFileKind !== null && v.filingFileKind !== EMP501_EASYFILE_KIND) {
+  if (v.formType === 'EMP501' && v.filingFileKind && v.filingFileKind !== EMP501_EASYFILE_KIND) {
     throw new ReturnRefusal(409, `Version ${v.versionNo}'s stored filing file uses an earlier e@syFile layout (${v.filingFileKind}), `
       + 'with fields under the wrong SARS codes, so it cannot be marked filed. Amend the return and finalise it again, then '
       + 'download the new file and file that one.', 'FILING_FILE_OLD_LAYOUT');
