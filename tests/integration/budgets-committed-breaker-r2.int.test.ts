@@ -10,6 +10,7 @@
  *   held   the app writer and the 1006 backfill do not subtract a line-named PO's link as well as its lines.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -112,6 +113,16 @@ describe('BRK-E: a negative bill line naming a PO line', () => {
     expect(await openOf(y)).toEqual([50000]);
     expect(await openOf(z)).toEqual([100000]);
   });
+
+  it('a negative line does not shrink what the bill attributes to its other POs (positive lines only)', async () => {
+    const a = await seedPo(pool, f, { lines: [300] });
+    const b = await seedPo(pool, f, { lines: [500] });
+    const z = await seedPo(pool, f, { lines: [2000] });
+    // R1000 bill: R300 on A, a R-200 line naming B, R900 unnamed, header Z: Z nets 1000 - 300 = 700 (not 1000 - 300 + 200).
+    await seedRawBill(pool, f, { items: [{ total: 300, poItem: a.items[0] }, { total: -200, poItem: b.items[0] }, { total: 900 }],
+      subtotal: 1000, total: 1150, header: z.po });
+    expect(await openOf(z)).toEqual([130000]);
+  });
 });
 
 describe('c8: one attribution for billed and committed', () => {
@@ -138,6 +149,18 @@ describe('c8: one attribution for billed and committed', () => {
   });
 });
 
+describe('c8: the link tool\'s close decision reads a stale link as its lines', () => {
+  it('a PO fully billed by lines (its stored link says less) closes when the last bill is linked with close_when_fully_billed', async () => {
+    const x = await seedPo(pool, f, { lines: [900, 100] });
+    const first = await seedRawBill(pool, f, { items: [{ total: 900, poItem: x.items[0] }], subtotal: 900, total: 1035 });
+    await mcpLink(x.po, first.id, 100); // stored R100, its lines R900
+    const last = await seedRawBill(pool, f, { items: [{ total: 100 }], subtotal: 100, total: 115 });
+    const r = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: last.id }], close_when_fully_billed: true });
+    expect(r.isError, r.text).toBe(false);
+    expect((await pool.query('SELECT status FROM purchase_orders WHERE id = $1', [x.po])).rows[0].status).toBe('closed');
+  });
+});
+
 describe('the writers of ref-less links subtract a line-named PO once', () => {
   const shape = async () => {
     const x = await seedPo(pool, f, { lines: [300] });
@@ -156,8 +179,11 @@ describe('the writers of ref-less links subtract a line-named PO once', () => {
     expect(await zLink(bill.id, z.po)).toEqual(['700.00']);
   });
 
-  it('the 1006 backfill links Z at 700, not 400', async () => {
+  it('the 1006 backfill (as 1022 redefines it) links Z at 700, not 400', async () => {
     const { z, bill } = await shape();
+    // The definition in the 1022 file, not whatever an earlier suite left in this database.
+    const file = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8');
+    await pool.query(file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'), file.indexOf('-- ── 1c.')));
     await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     expect(await zLink(bill.id, z.po)).toEqual(['700.00']);
   });
