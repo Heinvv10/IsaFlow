@@ -123,6 +123,36 @@ describe('creating or switching on an autoPost supplier-invoice template', () =>
     expect(updateRecurringTemplate).not.toHaveBeenCalled();
   });
 
+  // Breaker R2-C + security review: an update is judged on the STORED template, never on the body's entityType.
+  it('PUT with entityType spoofed to a journal is still judged as the stored supplier-invoice template (403)', async () => {
+    manager(false);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: false };
+    expect((await call('PUT', { id: T, entityType: 'journal_entry', autoPost: true })).statusCode).toBe(403);
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('PUT without autoPost on a stored autoPost supplier template is refused too (the stored flag counts)', async () => {
+    manager(false);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: true };
+    expect((await call('PUT', { id: T, name: 'Rent 2' })).statusCode).toBe(403);
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('PUT: a non-UUID id, or a template this company does not have, is 404 before the gate', async () => {
+    manager(false);
+    expect((await call('PUT', { id: 'not-a-uuid', autoPost: true })).statusCode).toBe(404);
+    storedTemplate = null;
+    expect((await call('PUT', { id: T, autoPost: true })).statusCode).toBe(404);
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('PUT passes the update on without the body entityType (never changed, never trusted)', async () => {
+    manager(true);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: false };
+    expect((await call('PUT', { id: T, entityType: 'journal_entry', name: 'x' })).statusCode).toBe(200);
+    expect(vi.mocked(updateRecurringTemplate).mock.calls[0]![2]).toEqual({ name: 'x' });
+  });
+
   it('an entity type outside the three is refused (400)', async () => {
     manager(false);
     expect((await call('POST', { name: 'X', entityType: 'Supplier_Invoice', templateData: {}, frequency: 'monthly', autoPost: true })).statusCode).toBe(400);

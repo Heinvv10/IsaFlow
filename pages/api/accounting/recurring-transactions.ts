@@ -39,23 +39,24 @@ const FlagFields = z.object({
   autoPost: z.boolean().nullable().optional(),
 }).passthrough();
 
-async function refusesAutoPostBills(
-  companyId: string, userId: string, entityType: unknown, autoPost: unknown, templateId?: string,
-): Promise<boolean> {
-  let type = entityType;
-  let post = autoPost;
-  // A malformed id names no template: left to the update service, which answers it as before.
-  if (templateId && isUuidParam(templateId) && (type === undefined || post === undefined)) {
-    const rows = await sql`
-      SELECT entity_type, auto_post FROM recurring_transaction_templates
-      WHERE id = ${templateId}::UUID AND company_id = ${companyId}::UUID
-    ` as Array<{ entity_type: string; auto_post: boolean }>;
-    type ??= rows[0]?.entity_type;
-    post ??= rows[0]?.auto_post;
-  }
+/** Would a template of this type with this autoPost approve bills, for someone who may not approve them? */
+async function refusesAutoPostBills(companyId: string, userId: string, type: unknown, autoPost: unknown): Promise<boolean> {
   // Belt and braces: anything but an explicit false / absent counts as on, as the column would store it.
-  if (type !== 'supplier_invoice' || post === undefined || post === null || post === false) return false;
+  if (type !== 'supplier_invoice' || autoPost === undefined || autoPost === null || autoPost === false) return false;
   return !(await mayApproveSupplierInvoices(companyId, userId));
+}
+
+/**
+ * An update is judged on the STORED template (breaker R2-C): its entity type always (the update
+ * service never changes it, so a body's entityType decides nothing), and its auto_post unless the
+ * body sets one. null when this company has no such template.
+ */
+async function storedTemplateFlags(companyId: string, id: string): Promise<{ type: string; autoPost: boolean } | null> {
+  const rows = await sql`
+    SELECT entity_type, auto_post FROM recurring_transaction_templates
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  ` as Array<{ entity_type: string; auto_post: boolean }>;
+  return rows[0] ? { type: rows[0].entity_type, autoPost: rows[0].auto_post } : null;
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -111,11 +112,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body as { id?: string; [key: string]: unknown };
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    // Only a change that touches either field can newly make the template approve bills.
-    if ((updates.autoPost !== undefined || updates.entityType !== undefined)
-      && await refusesAutoPostBills(companyId, req.user.id, updates.entityType, updates.autoPost, id)) {
+    if (!isUuidParam(id)) return apiResponse.notFound(res, 'Recurring template');
+    const stored = await storedTemplateFlags(companyId, id);
+    if (!stored) return apiResponse.notFound(res, 'Recurring template');
+    // Any edit of a template that will approve bills (stored type; the body's autoPost, else the stored one).
+    if (await refusesAutoPostBills(companyId, req.user.id, stored.type, updates.autoPost ?? stored.autoPost)) {
       return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
     }
+    delete updates.entityType; // never changed by the update (the service ignores it); not trusted either
     try {
       const item = await updateRecurringTemplate(
         companyId, id,
