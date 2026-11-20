@@ -716,16 +716,26 @@ AS $$
     -- journal each one reverses, so a row whose chain changes in the period is found from the period's journals, not by walking every row
     SELECT je.id, je.reversal_of_id FROM public.gl_journal_entries je
      WHERE je.reversal_of_id IS NOT NULL AND je.status = 'posted' AND je.entry_date BETWEEN p_start AND p_end
-       AND je.company_id IN (SELECT rws.sc FROM rws UNION SELECT rws.tc FROM rws)
+       AND je.company_id = ANY (ARRAY(SELECT rws.sc FROM rws UNION SELECT rws.tc FROM rws))   -- (an array: the (company, date) index serves it)
     UNION
     SELECT p.id, p.reversal_of_id FROM public.gl_journal_entries p JOIN up ON p.id = up.parent
+  ), pj AS (
+    -- the journals that can be a chain's journal dated in the period: the rows' companies' posted journals dated in it, and the root each
+    -- reversal dated in it leads up to (an index range each; then the rows are matched to them by hash, never row by row)
+    SELECT je.id FROM public.gl_journal_entries je
+     WHERE je.status = 'posted' AND je.entry_date BETWEEN p_start AND p_end
+       AND je.company_id = ANY (ARRAY(SELECT rws.sc FROM rws UNION SELECT rws.tc FROM rws))
+    UNION
+    SELECT up.id FROM up WHERE up.parent IS NULL
   ), touched AS (
-    -- the rows with a chain date in the period: one of their journals is dated in it, or a reversal dated in it leads up to one of them
-    SELECT r.id FROM rws r
-     WHERE EXISTS (SELECT 1 FROM public.gl_journal_entries je WHERE je.id IN (r.sje, r.fje, r.dje) AND je.entry_date BETWEEN p_start AND p_end)
-        OR EXISTS (SELECT 1 FROM up WHERE up.parent IS NULL AND up.id IN (r.sje, r.fje, r.dje))
+    -- the rows with a chain date in the period: one of their three journals is one of those
+    SELECT r.id FROM rws r JOIN pj ON pj.id = r.sje
+    UNION SELECT r.id FROM rws r JOIN pj ON pj.id = r.fje
+    UNION SELECT r.id FROM rws r JOIN pj ON pj.id = r.dje
+  ), t AS MATERIALIZED (
+    SELECT r.* FROM rws r JOIN touched ON touched.id = r.id
   ), ok AS (
-    SELECT r.* FROM rws r WHERE r.id IN (SELECT touched.id FROM touched) AND public.intercompany_group_row_ok(r.id, r.fc, r.toc, r.sje)
+    SELECT t.* FROM t WHERE public.intercompany_group_row_ok(t.id, t.fc, t.toc, t.sje)
   ), cand AS (
     -- the dates on or before p_end on which a touched row's pair can start or stop standing (its chains' own journal dates)
     SELECT DISTINCT r.id, x.d FROM ok r
