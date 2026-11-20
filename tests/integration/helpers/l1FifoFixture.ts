@@ -101,8 +101,10 @@ export async function seedFixture(prefix: string, databaseUrl: string): Promise<
  * company_users (#1656), and a bearer token's user is always a member. Remove with dropFixtureMember.
  */
 export async function seedFixtureMember(fx: Fixture): Promise<void> {
-  await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`${fx.userId}@test.local`}, 'viewer', true)`;
-  await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'owner')`;
+  await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`${fx.userId}@test.local`}, 'viewer', true)
+    ON CONFLICT (id) DO NOTHING`;
+  await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'owner')
+    ON CONFLICT (user_id, company_id) DO NOTHING`;
 }
 
 export async function dropFixtureMember(fx: Fixture): Promise<void> {
