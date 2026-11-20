@@ -33,6 +33,7 @@ import {
   invalidPeriodDate,
   DepreciationRunBlockedError,
 } from '@/modules/accounting/services/items/depreciationRunService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -56,6 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (badDate) return apiResponse.badRequest(res, badDate.detail);
 
   try {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'depreciation')) return; // #1656 (Hein: gate everything), before any write
     return apiResponse.success(res, await runDepreciation(companyId, userId, periodDate));
   } catch (err) {
     if (err instanceof DepreciationRunBlockedError) {

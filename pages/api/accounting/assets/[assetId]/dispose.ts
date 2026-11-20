@@ -24,6 +24,7 @@ import {
   missingAssetAccountMessage,
   resolveAssetAccountId,
 } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 type Row = Record<string, unknown>;
 
@@ -36,6 +37,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
   const userId = String(req.user.id);
+  if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'asset disposals')) return; // #1656 (Hein: gate everything), before any write
   const { assetId } = req.query as { assetId: string };
 
   const { proceeds = 0, disposalDate, disposalType, notes } = (req.body ?? {}) as {

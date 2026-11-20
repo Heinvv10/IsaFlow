@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { checkCapitalizationThreshold } from '@/modules/accounting/services/items/farDepreciationService';
 import { postCapitalizationExpenseToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 type Row = Record<string, unknown>;
 
@@ -22,6 +23,7 @@ const LOCK_NOT_AVAILABLE = '55P03';
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
   const userId = String(req.user.id);
+  if (req.method !== 'GET' && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'asset write-offs')) return; // #1656 (Hein: gate everything), before any write
 
   if (req.method === 'GET') {
     // Return all assets flagged as below threshold (or auto-detect from category threshold)

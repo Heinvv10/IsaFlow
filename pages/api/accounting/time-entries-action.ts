@@ -15,6 +15,7 @@ import {
   markAsInvoiced,
 } from '@/modules/accounting/services/core/timeTrackingService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -35,6 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { action: 'submit', count });
       }
       case 'approve': {
+        if (await refuseWithoutApprove(res, companyId, req.user.id, 'accountant', 'time entries')) return; // #1656 (Hein: gate everything), before any write
         const count = await approveEntries(companyId, ids);
         return apiResponse.success(res, { action: 'approve', count });
       }

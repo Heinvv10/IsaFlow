@@ -50,6 +50,7 @@ import {
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -65,6 +66,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId = req.user?.id ?? '';
+  if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense receipts')) return; // #1656 (Hein: gate everything), before any write
   const eventId = req.query.id as string;
 
   if (!eventId) return apiResponse.badRequest(res, 'eventId is required');

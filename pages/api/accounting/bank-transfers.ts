@@ -30,6 +30,7 @@ import {
 } from '@/modules/accounting/services/bank/bankTransferService';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { log } from '@/lib/logger';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 /** gl_journal_lines.debit / credit are numeric(15,2). */
 const MAX_AMOUNT = 9_999_999_999_999.99;
@@ -56,6 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank transfers')) return; // #1656 (Hein: gate everything), before any write
   const parsed = TransferSchema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);

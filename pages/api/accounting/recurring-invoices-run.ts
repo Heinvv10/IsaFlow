@@ -28,6 +28,7 @@ import { sql } from '@/lib/neon';
 import { assertTxUsable } from '@/lib/als';
 import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import type { DbRow } from '@/lib/neon';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 interface RunResult {
   generated: number;
@@ -55,6 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const result: RunResult = { generated: 0, invoice_ids: [], held_for_approval: [], errors: [] };
 
+  if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'recurring invoices')) return; // #1656 (Hein: gate everything), before any write
   if (recurring_invoice_id) {
     // Run a single recurring invoice
     try {

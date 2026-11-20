@@ -30,13 +30,13 @@ import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDef
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { UUID_RE } from '@/lib/validation';
 import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '../ap/billApprovePermission';
-import { recordApproveWithheld } from './approvePermission';
+import { approveRefusedMessage, mayApprove, recordApproveWithheld } from './approvePermission';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
   template: RecurringTemplate,
   userId: string,
-): Promise<{ entityId: string; posted: boolean }> {
+): Promise<{ entityId: string; posted: boolean; warnings?: string[] }> {
   // BL-56: populate invoice_number, customer_id, created_by (all NOT-NULL)
   const data = template.templateData;
   // THE NUMBER COMES FROM THE COMPANY SEQUENCE. It used to be
@@ -131,6 +131,12 @@ export async function mintRecurringCustomerInvoice(
     if (await evaluateApprovalGate(companyId, 'customer_invoice', entityId)) {
       await raiseUnattendedApproval(companyId, 'customer_invoice', entityId, userId);
       return { entityId, posted: false };
+    }
+    // #1656: the person running the template approves the invoice, so it takes their Customers & AR Approve.
+    if (!(await mayApprove(companyId, userId, 'customers'))) {
+      await recordApproveWithheld({ companyId, userId, module: 'customers', entityType: 'customer_invoice', entityId,
+        entityRef: template.name ?? null, path: 'recurring_run' });
+      return { entityId, posted: false, warnings: [`Left as a draft: ${approveRefusedMessage('customers', 'customer invoices')}`] };
     }
     const { approveCustomerInvoice } = await import('../ar/customerInvoiceApprovalService');
     await approveCustomerInvoice(companyId, entityId, userId);

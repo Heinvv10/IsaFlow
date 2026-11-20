@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { respondIfBackstopRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -35,11 +36,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'confirm': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer receipts')) return; // #1656 (Hein: gate everything), before any write
         const payment = await withJournalDateRefusal(res, () => confirmCustomerPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
       }
       case 'cancel': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer receipts')) return; // #1656: reverses the receipt's journal
         const cancelled = await withJournalDateRefusal(res, () => cancelCustomerPayment(companyId, paymentId, userId, reason));
         if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);

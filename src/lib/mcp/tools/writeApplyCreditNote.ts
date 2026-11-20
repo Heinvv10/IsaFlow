@@ -31,7 +31,6 @@ const TOOL = 'apply_credit_note';
 
 export const applyCreditNoteTool: McpTool = {
   name: TOOL,
-  approveModule: 'credit_note_by_id', // #1656: moduleFence asks this Approve before the handler
   description:
     "Apply an APPROVED credit note's unused credit to ONE document you name: a customer invoice "
     + 'for a customer credit note, a supplier bill for a supplier credit note. Use it when the note '

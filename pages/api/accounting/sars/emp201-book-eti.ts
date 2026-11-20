@@ -15,6 +15,7 @@ import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type Compa
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { bookEtiForMonthLocked } from '@/modules/accounting/services/payroll/etiRebook';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const BodySchema = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM') });
 
@@ -22,6 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (await refuseWithoutApprove(res, companyId, userId, 'payroll', 'ETI bookings')) return; // #1656 (Hein: gate everything), before any write
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
   const ym = { year: Number(parsed.data.month.slice(0, 4)), month: Number(parsed.data.month.slice(5, 7)) };

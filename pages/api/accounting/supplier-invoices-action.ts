@@ -88,6 +88,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
+        // #1656 (Hein: gate everything): cancelling an approved bill reverses its journal, so it asks Approve too.
+        if (!(await mayApproveSupplierInvoices(companyId, userId))) return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
         const invoice = await withJournalDateRefusal(res, () => cancelSupplierInvoice(companyId, invoiceId, userId));
         if (invoice === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, invoice);

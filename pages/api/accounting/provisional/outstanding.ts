@@ -18,6 +18,7 @@ import { isLineSkipRefusal } from '@/modules/accounting/services/bank/bankAlloca
 import { InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 type Row = DbRow;
 
@@ -80,6 +81,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const body = req.body as { bankTxIds?: unknown };
+    if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank-first provisional postings')) return; // #1656 (Hein: gate everything), before any write
     if (!Array.isArray(body.bankTxIds) || body.bankTxIds.length === 0) {
       return apiResponse.badRequest(res, 'bankTxIds must be a non-empty array');
     }

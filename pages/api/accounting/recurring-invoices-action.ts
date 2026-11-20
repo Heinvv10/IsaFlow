@@ -16,6 +16,7 @@ import {
   updateRecurringStatus,
   runRecurringInvoice,
 } from '@/modules/accounting/services/ar/recurringInvoiceService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -41,6 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
         // R-035 PR4: a gated invoice is generated as a draft awaiting approval, and says so.
+        if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'recurring invoices')) return; // #1656 (Hein: gate everything), before any write
         const posted = await withJournalDateRefusal(res, () => runRecurringInvoice(companyId, id, userId));
         if (posted === JOURNAL_DATE_REFUSED) return;
         const { invoiceId, heldForApproval } = posted;

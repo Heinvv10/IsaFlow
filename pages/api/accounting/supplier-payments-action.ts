@@ -53,6 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, payment);
       }
       case 'process': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments (process)')) return; // #1656 (Hein: gate everything), before any write
         const payment = await withJournalDateRefusal(res, () => processSupplierPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
@@ -65,6 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
       }
       case 'void': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments')) return; // #1656: reverses the journal
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
         const payment = await withJournalDateRefusal(res, () => voidSupplierPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;

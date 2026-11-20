@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { approvePracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -25,6 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    if (await refuseWithoutApprove(res, companyId, req.user.id, 'accountant', 'time entries')) return; // #1656 (Hein: gate everything), before any write
     const count = await approvePracticeEntries(companyId, ids as string[], req.user.id);
     return apiResponse.success(res, { count });
   } catch (err) {

@@ -15,10 +15,12 @@ import {
   getLoanGlPostings,
   postPeriodJournals,
 } from '@/modules/accounting/services/loans/loanGlPostingService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (req.method !== 'GET' && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'loan journals')) return; // #1656 (Hein: gate everything), before any write
   const loanId = String(req.query.id);
 
   if (req.method === 'GET') {

@@ -41,6 +41,7 @@ import {
 import { runBulkPeriodAction, type BulkPeriodAction } from '@/modules/accounting/services/gl/fiscalPeriodBulk';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { closeRefusalDetails, isCloseRefusal } from '@/modules/accounting/services/gl/periodCloseErrors';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const CONFIRM_REQUIRED = new Set(['close', 'lock', 'bulk_close', 'bulk_lock', 'close_year']);
 const BULK = new Set<string>(['bulk_close', 'bulk_lock', 'bulk_reopen']);
@@ -72,6 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Use authenticated user ID — never trust userId from request body
     const userId = (req as AuthenticatedNextApiRequest).user.id;
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'fiscal period controls')) return; // #1656 (Hein: gate everything), before any write
 
     if (BULK.has(action)) {
       if (!Array.isArray(ids) || ids.length === 0 || !ids.every((v): v is string => typeof v === 'string' && v.length > 0)) {

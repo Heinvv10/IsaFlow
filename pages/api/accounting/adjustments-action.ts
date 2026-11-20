@@ -15,6 +15,7 @@ import {
   approveAdjustment,
   cancelAdjustment,
 } from '@/modules/accounting/services/items/adjustmentService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -30,6 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'items', 'inventory adjustments')) return; // #1656 (Hein: gate everything), before any write
         const item = await withJournalDateRefusal(res, () => approveAdjustment(companyId, id, userId));
         if (item === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, item);

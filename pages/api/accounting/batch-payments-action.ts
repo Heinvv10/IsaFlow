@@ -28,6 +28,7 @@ import {
   isSupplierPaymentRefusal,
 } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -57,6 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: await approveBatch(companyId, id, userId, expectedDigest) });
       }
       case 'process': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'payment batches (process)')) return; // #1656 (Hein: gate everything), before any write
         if (await withJournalDateRefusal(res, () => processBatch(companyId, id, userId)) === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { status: 'processed' });
       }

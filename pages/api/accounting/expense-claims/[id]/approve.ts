@@ -9,6 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { approveClaim, rejectClaim } from '@/modules/accounting/services/expense/expenseClaimService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,6 +24,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const body = (req.body ?? {}) as { decision?: 'approve' | 'reject'; reason?: string };
 
   try {
+    if (body.decision !== 'reject' && await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense claims')) return; // #1656 (Hein: gate everything), before any write
     const claim = body.decision === 'reject'
       ? await rejectClaim(id, companyId, userId, body.reason ?? 'Rejected')
       : await approveClaim(id, companyId, userId);

@@ -44,6 +44,7 @@ import {
   type AllocationType,
   type SplitLine,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('match'), bankTransactionId: UUID, journalLineId: UUID, reconciliationId: UUID.optional() }),
@@ -126,13 +127,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
   }
-
   const { companyId } = req;
-
   const body = parsed.data;
   try {
     const userId: string = req.user?.id || 'system';
-
+    // #1656 (Hein: gate everything): the actions that post or reverse a journal ask Banking Approve, before any write.
+    if (['allocate', 'split_allocate', 'bulk_accept', 'reverse'].includes(body.action) && await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return;
     switch (body.action) {
       case 'match': {
         await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write

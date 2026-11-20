@@ -13,6 +13,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -24,6 +25,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   try {
     const { invoiceId } = req.body;
     const userId = req.user.id;
+    if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return; // #1656 (Hein: gate everything), before any write
 
     if (!invoiceId) return apiResponse.badRequest(res, 'invoiceId is required');
 

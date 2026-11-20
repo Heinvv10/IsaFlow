@@ -21,6 +21,7 @@ import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/a
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { yearEndCloseRefusal, type YearEndCloseRefusal } from '@/lib/yearEndCloseRefusal';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -116,6 +117,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'year-end closes')) return; // #1656 (Hein: gate everything), before any write
     const result = await withJournalDateRefusal(res, () => closeFiscalYear(companyId, String(yearLabel), userId));
     if (result === JOURNAL_DATE_REFUSED) return;
 

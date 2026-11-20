@@ -88,6 +88,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'cancel': {
         const { creditNoteId, reason } = parsed.data;
+        await assertMayApproveCreditNote(companyId, userId, creditNoteId); // #1656: cancelling reverses the note's journal (403)
         const cancelled = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, creditNoteId, userId, reason));
         if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);

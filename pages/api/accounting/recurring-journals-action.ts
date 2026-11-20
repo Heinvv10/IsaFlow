@@ -19,6 +19,7 @@ import {
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 /** The page's status actions: the status each moves to, and how a refused move is worded. */
 const STATUS_ACTIONS = {
@@ -62,6 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'generate': {
         // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing. posted false (a
         // draft-only template, migration 994, or a hold): the page says the journal is a draft and names it.
+        if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'recurring journals')) return; // #1656 (Hein: gate everything), before any write
         const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
         if (run === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, {
