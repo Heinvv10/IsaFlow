@@ -98,6 +98,17 @@ describe('a bill create names a live note of its company only (M1)', () => {
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
     expect(JSON.stringify(r.body)).toContain('is cancelled');
     expect(await counter()).toBe(before);
+    // A user of both companies, working in this one: the other company's note is visible to row security, and still refused first.
+    const theirs = await note(other);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
+    try {
+      const foreign = await callRoute(billsRoute as never, f, f.owner, '/api/accounting/supplier-invoices', { ...billInput(theirs), invoiceNumber: undefined, useSequence: true });
+      expect(foreign.statusCode, JSON.stringify(foreign.body)).toBe(400);
+      expect(JSON.stringify(foreign.body)).toContain('not one of this company');
+      expect(await counter()).toBe(before);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
+    }
   });
 });
 
@@ -122,9 +133,10 @@ describe('restore and the exits (M1, L3)', () => {
   it('a cancelled bill frees the note as a deleted one does; the refusal names the way out', async () => {
     const grn = await note(f);
     const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
-    await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, grn]);
+    const done = await seedBill(pool, f, { status: 'cancelled', lines: [40] });
+    await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = ANY($1::UUID[])', [[bill.id, done.id], grn]);
     const refused = refusal((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).text);
-    expect(refused).toMatchObject({ code: 'grn_on_bill', bills_total: 1 });
+    expect(refused).toMatchObject({ code: 'grn_on_bill', bills_total: 1, bills: [expect.objectContaining({ id: bill.id })] });
     expect(refused.message).toContain('Cancel or delete that bill first');
     await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bill.id]);
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
