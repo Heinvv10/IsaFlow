@@ -131,12 +131,12 @@ export default function SupplierStatementsPage() {
                 placeholder="Search supplier..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="pl-9 pr-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm placeholder:text-[var(--ff-text-tertiary)] w-48"
+                className="pl-9 pr-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm placeholder:text-[var(--ff-text-tertiary)] w-48"
               />
             </div>
             {suppliers.length > 0 && (
               <button onClick={handleExportAll} disabled={isLoading || Boolean(error)}
-                className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium">
+                className="ml-auto flex items-center gap-2 px-4 py-2 max-lg:min-h-11 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             )}
@@ -160,7 +160,7 @@ export default function SupplierStatementsPage() {
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
@@ -171,27 +171,27 @@ export default function SupplierStatementsPage() {
                     <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-purple-400 uppercase">90+</th>
                     <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Credits on account</th>
                     <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Net balance</th>
-                    <th className="text-center px-4 py-3 w-16"></th>
+                    <th className="text-center px-4 py-3 w-16"><span className="sr-only">View</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSuppliers.map(s => (
                     <tr key={s.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`} className="hover:text-orange-400 transition-colors">
+                        <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`} className="inline-flex items-center max-lg:min-h-11 hover:text-orange-400 transition-colors">
                           {s.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(s.current)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(s.days30)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(s.days60)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(s.days90)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(s.days120Plus)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(s.onAccount)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(s.netBalance)}</td>
+                      <td data-label="Current" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(s.current)}</td>
+                      <td data-label="1-30" className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(s.days30)}</td>
+                      <td data-label="31-60" className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(s.days60)}</td>
+                      <td data-label="61-90" className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(s.days90)}</td>
+                      <td data-label="90+" className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(s.days120Plus)}</td>
+                      <td data-label="Credits on account" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(s.onAccount)}</td>
+                      <td data-label="Net balance" className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(s.netBalance)}</td>
                       <td className="px-4 py-3 text-center">
                         <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`}
-                          className="inline-flex items-center justify-center px-4 py-3 rounded-lg text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"
+                          className="inline-flex items-center justify-center px-4 py-3 max-lg:min-h-11 max-lg:min-w-11 rounded-lg text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"
                           title={`View ${s.entityName} statement`}>
                           <ChevronRight className="h-5 w-5" />
                           <span className="sr-only">View details</span>
@@ -201,14 +201,14 @@ export default function SupplierStatementsPage() {
                   ))}
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.current)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.days30)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.onAccount)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.netBalance)}</td>
-                    <td></td>
+                    <td data-label="Current" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.current)}</td>
+                    <td data-label="1-30" className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.days30)}</td>
+                    <td data-label="31-60" className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
+                    <td data-label="61-90" className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
+                    <td data-label="90+" className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
+                    <td data-label="Credits on account" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.onAccount)}</td>
+                    <td data-label="Net balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.netBalance)}</td>
+                    <td className="max-lg:!hidden"></td>
                   </tr>
                 </tbody>
               </table>
