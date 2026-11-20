@@ -27,6 +27,10 @@
  * are created again, live (customers: Hein's K-061 decision 4). That includes a survivor that is
  * itself plainly deleted: it ends the chain, so a re-sync re-creates the party (accepted, #1655).
  *
+ * The supplier-merge route renames the merged-away row to `<name> [MERGED]`, so a merged-away row also
+ * matches by its name without that suffix; otherwise a hand-keyed supplier merged into a differently
+ * named survivor would be re-created by the next sync.
+ *
  * A merged-away row carries no Sage id of its own unless the merge left one, so one that matched by
  * name alone would match every later Sage party of that name. upsertSupplier therefore stamps the
  * pull's Sage id on that merged-away row (claimMatchedSupplier); the survivor is never stamped. For
@@ -84,7 +88,8 @@ export async function matchSageSupplier(
         AND (deleted_at IS NULL OR merged_into_id IS NOT NULL)
         AND (
           (external_system = 'sage' AND external_ref = ${ref}::TEXT)
-          OR (LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
+          OR ((LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
+               OR (deleted_at IS NOT NULL AND LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name})) || ' [merged]'))
               AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL)
               AND (${ref}::TEXT IS NULL OR deleted_at IS NULL OR external_ref IS NULL))
         )

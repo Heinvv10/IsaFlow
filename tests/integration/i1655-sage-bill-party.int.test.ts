@@ -113,4 +113,24 @@ describe('a Sage document lands on the party Sage names by id (#1655 L4)', () =>
       [companyId, number]);
     expect(rows.map((r) => String(r.who))).toEqual([await idOf('customers', '702')]);
   });
+
+  it('an invoice matching a hand-keyed customer by name claims it, so a later same-name Sage customer gets its own row', async () => {
+    const keyed = String((await pool.query(
+      "INSERT INTO customers (company_id, name) VALUES ($1, 'Heron Foods') RETURNING id", [companyId])).rows[0].id);
+    const number = `AR-1655-K-${tag}`;
+    await inRequestTx(() => commitARInvoice(companyId, userId, {
+      invoiceNumber: number, customerName: 'Heron Foods', customerSageId: 711, invoiceDate: '2026-03-12',
+      subtotal: 100, taxAmount: 15, totalAmount: 115, amountPaid: 115,
+    }));
+    expect(await idOf('customers', '711')).toBe(keyed);
+    await inRequestTx(() => commitSageMigration({
+      companyId, userId, pulled: { customers: { records: [party(712, 'Heron Foods'), party(711, 'Heron Foods')] } },
+    }));
+    expect(await idOf('customers', '711')).toBe(keyed);
+    expect(await idOf('customers', '712')).not.toBe(keyed);
+    const { rows } = await pool.query(
+      'SELECT COALESCE(client_id, customer_id) AS who FROM customer_invoices WHERE company_id = $1 AND invoice_number = $2',
+      [companyId, number]);
+    expect(rows.map((r) => String(r.who))).toEqual([keyed]);
+  });
 });

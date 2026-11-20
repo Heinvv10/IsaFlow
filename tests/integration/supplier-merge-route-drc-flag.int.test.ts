@@ -107,4 +107,15 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     const match = await matchSageSupplier(fx.companyId, { name: 'R Sage Source', sageId: 'SMR-S1' });
     expect(match).toMatchObject({ id: target, viaMerge: true, byRef: true, mergedAwayId: source });
   });
+
+  it('a hand-keyed source merged into a differently named survivor still reaches it by its own name (#1655)', async () => {
+    const source = await seedSupplier(fx, 'R Keyed Source');
+    const target = await seedSupplier(fx, 'R Keyed Survivor');
+    const nameOf = async () => ((await sql`SELECT name FROM suppliers WHERE id = ${source}::UUID`) as { name: string }[])[0]!.name;
+    const name = await nameOf();
+    expect((await merge(source, target)).status).toBe(200);
+    expect(await nameOf()).toBe(`${name} [MERGED]`);
+    const match = await matchSageSupplier(fx.companyId, { name, sageId: 'SMR-K1' });
+    expect(match).toMatchObject({ id: target, viaMerge: true, byRef: false, mergedAwayId: source });
+  });
 });

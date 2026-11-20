@@ -39,7 +39,7 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { findSageCustomer, resolveSageCustomer, resolveSageSupplier, sageRef } from './sagePartyMatch';
+import { resolveSageCustomer, resolveSageSupplier, sageRef } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -140,7 +140,9 @@ export async function commitARInvoice(
   `) as Row[];
   if (dupe.length) return { invoiceId: String(dupe[0]!.id), created: false };
 
-  const customerId = await findSageCustomer(companyId, { name: inv.customerName, sageId: inv.customerSageId });
+  // Claimed like the customer sync (upsertCustomer), so a name match is stamped with this Sage id and a
+  // later same-name Sage customer cannot take the row that holds this invoice.
+  const customerId = await resolveSageCustomer(companyId, { name: inv.customerName, sageId: inv.customerSageId });
   if (!customerId) throw new Error(`Customer not found: ${inv.customerName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
