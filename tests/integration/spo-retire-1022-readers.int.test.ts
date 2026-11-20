@@ -3,7 +3,8 @@
  * Legacy POs are seeded and copied by the migration file; then:
  *   - reports-supplier-pos gives the figures the legacy table held (per order and per supplier), with the canonical statuses;
  *   - the purchase order PDF is built from the copy (number, line);
- *   - supplier merge (the route) and the duplicate merge (mergeEntities) move the copied orders to the surviving supplier;
+ *   - supplier merge (the route) and the duplicate merge (mergeEntities) move the copied orders to the surviving supplier, and
+ *     both refuse (400, nothing moved) a supplier whose purchase order has a linked bill;
  *   - the Demo reseed's wipe steps, in their own order, still delete the (copied) legacy rows past the retirement trigger.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -11,10 +12,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
-import { seedSupplier } from './helpers/poBillLinkHarness';
+import { linkRows, seedRawBill, seedSupplier } from './helpers/poBillLinkHarness';
 import { asBeforeRetirement, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 import reportRoute from '../../pages/api/accounting/reports-supplier-pos';
 import supplierMergeRoute from '../../pages/api/accounting/supplier-merge';
+import duplicatesMergeRoute from '../../pages/api/accounting/duplicates-merge';
 import { generatePurchaseOrderPdf } from '@/modules/accounting/services/ap/purchaseOrderPdfBuilder';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { WIPE_STEPS } from '../../scripts/lib/demoReseed/wipePlan';
@@ -26,6 +28,9 @@ let f: BillFixture;
 let sup2 = '';
 let sup3 = '';
 let sup4 = '';
+let sup5 = '';
+let linkedBill = '';
+let sup5Payment = '';
 const S: Record<string, SeededSpo> = {};
 
 interface ReportPo { id: string; orderNumber: string; orderDate: string; deliveryDate: string | null; reference: string | null;
@@ -48,6 +53,7 @@ beforeAll(async () => {
   sup2 = await seedSupplier(pool, f, 'Readers second supplier');
   sup3 = await seedSupplier(pool, f, 'Readers merged by route');
   sup4 = await seedSupplier(pool, f, 'Readers merged by service');
+  sup5 = await seedSupplier(pool, f, 'Readers linked supplier');
   const base = { co: f.co, supplier: f.supplier };
   await asBeforeRetirement(pool, async (c) => {
     S.a = await seedSpo(c, { ...base, number: 'RD-1', status: 'sent', deliveryDate: '2026-07-15',
@@ -56,7 +62,12 @@ beforeAll(async () => {
     S.c = await seedSpo(c, { ...base, supplier: sup2, number: 'RD-3', status: 'draft', lines: [{ qty: 4, price: 2.5 }] });
     S.d = await seedSpo(c, { ...base, supplier: sup3, number: 'RD-4', status: 'received', lines: [{ qty: 1, price: 10, received: 1 }] });
     S.e = await seedSpo(c, { ...base, supplier: sup4, number: 'RD-5', status: 'draft', lines: [{ qty: 1, price: 20 }] });
+    S.linked = await seedSpo(c, { ...base, supplier: sup5, number: 'RD-6', status: 'sent', lines: [{ qty: 1, price: 40 }] });
   });
+  // A bill of sup5 naming the legacy RD-6: the migration's backfill links it to the copy.
+  linkedBill = (await seedRawBill(pool, f, { items: [{ total: 40 }], subtotal: 40, total: 46, header: S.linked!.id, supplier: sup5 })).id;
+  sup5Payment = String((await pool.query(`INSERT INTO supplier_payments (company_id, payment_number, supplier_id, payment_date, total_amount,
+    status, created_by) VALUES ($1, 'RD-PAY-1', $2, '2026-06-20', 5, 'draft', $3) RETURNING id`, [f.co, sup5, f.owner])).rows[0].id);
   await runMigration(pool);
 }, 120_000);
 
@@ -83,7 +94,7 @@ describe('reports-supplier-pos reads the canonical table', () => {
     expect(mine.totalValue).toBe(Math.round((Number(S.a!.total) + Number(S.b!.total)) * 100) / 100);
     const second = r.suppliers.find((g) => g.supplierId === sup2)!;
     expect(second.pos.map((p) => [p.orderNumber, p.status, p.totalAmount])).toEqual([['RD-3', 'draft', Number(S.c!.total)]]);
-    expect(r.grandPoCount).toBe(5);
+    expect(r.grandPoCount).toBe(6);
   });
 
   it('filters on a canonical status', async () => {
@@ -117,6 +128,33 @@ describe('supplier merges move the copied orders', () => {
       expect(res.reassignedTransactions).toBe(1);
     } catch (e) { await req.rollback(); throw e; }
     expect(await poSupplier(S.e!.id)).toBe(f.supplier);
+  });
+});
+
+describe('a supplier whose purchase order has a linked bill', () => {
+  const moved = async () => (await pool.query(
+    `SELECT (SELECT supplier_id FROM purchase_orders WHERE id = $1) AS po, (SELECT supplier_id FROM supplier_invoices WHERE id = $2) AS bill,
+            (SELECT supplier_id FROM supplier_payments WHERE id = $3) AS payment,
+            (SELECT is_active FROM suppliers WHERE id = $4) AS active, (SELECT deleted_at FROM suppliers WHERE id = $4) AS deleted`,
+    [S.linked!.id, linkedBill, sup5Payment, sup5])).rows[0];
+  const untouched = () => ({ po: sup5, bill: sup5, payment: sup5, active: true, deleted: null });
+
+  it('is linked after the copy (the precondition)', async () => {
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${linkedBill}'`)).map((l) => l.po)).toEqual([S.linked!.id]);
+  });
+
+  it('the supplier-merge route refuses it with a 400 and moves nothing', async () => {
+    const out = await callRoute(supplierMergeRoute as never, f, f.owner, '/api/accounting/supplier-merge', { source_id: sup5, target_id: f.supplier });
+    expect(out.statusCode).toBe(400);
+    expect(await moved()).toEqual(untouched());
+  });
+
+  it('the duplicates-merge route (mergeEntities) refuses it with a 400 and moves nothing', async () => {
+    const out = await callRoute(duplicatesMergeRoute as never, f, f.owner, '/api/accounting/duplicates-merge',
+      { entityType: 'supplier', primaryId: f.supplier, duplicateId: sup5 });
+    expect(out.statusCode).toBe(400);
+    expect(String(out.body.error?.message ?? '')).toMatch(/linked to purchase orders/);
+    expect(await moved()).toEqual(untouched());
   });
 });
 

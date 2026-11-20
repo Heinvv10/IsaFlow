@@ -23,6 +23,7 @@ const S: Record<string, SeededSpo> = {};
 let itemMine = '';
 let itemTheirs = '';
 let bill = '';
+const piBills: Record<string, string> = {};
 let notices: string[] = [];
 
 const head = async (id: string) => (await pool.query(
@@ -57,6 +58,12 @@ beforeAll(async () => {
       lines: [{ qty: 2, price: 10, received: 2, invoiced: 1 }, { qty: 1, price: 10, received: 1 }] });
     S.piPart = await seedSpo(c, { ...base, number: 'SPO-PI2', status: 'partially_invoiced',
       lines: [{ qty: 2, price: 10, received: 2, invoiced: 2 }, { qty: 3, price: 10, received: 1 }] });
+    // partially_invoiced WITH a live bill of the same supplier naming it: stays committing (received / partially_received).
+    S.piBilledFull = await seedSpo(c, { ...base, number: 'SPO-PI3', status: 'partially_invoiced', lines: [{ qty: 2, price: 10, received: 2, invoiced: 1 }] });
+    S.piBilledPart = await seedSpo(c, { ...base, number: 'SPO-PI4', status: 'partially_invoiced', lines: [{ qty: 3, price: 10, received: 1, invoiced: 1 }] });
+    // Named only by another supplier's bill, or only by a cancelled bill: no bill can net it, so it closes.
+    S.piStrangerBill = await seedSpo(c, { ...base, number: 'SPO-PI5', status: 'partially_invoiced', lines: [{ qty: 1, price: 10, received: 1 }] });
+    S.piCancelledBill = await seedSpo(c, { ...base, number: 'SPO-PI6', status: 'partially_invoiced', lines: [{ qty: 1, price: 10 }] });
     S.invoiced = await seedSpo(c, { ...base, number: 'SPO-I1', status: 'invoiced', lines: [{ qty: 1, price: 99.99, received: 1, invoiced: 1 }] });
     S.cancelled = await seedSpo(c, { ...base, number: 'SPO-C1', status: 'cancelled', lines: [{ qty: 1, price: 1 }] });
     S.collide = await seedSpo(c, { ...base, number: 'SPO-COL-1', status: 'draft', lines: [{ qty: 1, price: 7 }] });
@@ -67,6 +74,11 @@ beforeAll(async () => {
   });
   // A posted bill of the same supplier whose header names the legacy SPO-S1 id.
   bill = (await seedRawBill(pool, f, { items: [{ total: 100 }], subtotal: 100, total: 115, header: S.sent!.id })).id;
+  piBills.full = (await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: S.piBilledFull!.id })).id;
+  piBills.part = (await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: S.piBilledPart!.id })).id;
+  const otherSupplier = await seedSupplier(pool, f, 'PI stranger');
+  piBills.stranger = (await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: S.piStrangerBill!.id, supplier: otherSupplier })).id;
+  piBills.cancelled = (await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: S.piCancelledBill!.id, status: 'cancelled' })).id;
   notices = await runMigration(pool);
 }, 120_000);
 
@@ -108,8 +120,20 @@ describe('the copy', () => {
     expect(await got('sent')).toEqual(['approved', null]);
     expect(await got('partRecv')).toEqual(['partially_received', null]);
     expect(await got('received')).toEqual(['received', null]);
+    // partially_invoiced with no live bill of its supplier naming it: closed, from the quantity test, with a NOTICE each.
     expect(await got('piFull')).toEqual(['closed', 'received']);
     expect(await got('piPart')).toEqual(['closed', 'partially_received']);
+    expect(await got('piStrangerBill')).toEqual(['closed', 'received']);
+    expect(await got('piCancelledBill')).toEqual(['closed', 'partially_received']);
+    for (const k of ['piFull', 'piPart', 'piStrangerBill', 'piCancelledBill']) {
+      expect(notices.some((n) => n.includes(S[k]!.id) && n.includes('no bill naming it')), k).toBe(true);
+    }
+    // ... and with one: it stays committing, and its bill is linked by the backfill.
+    expect(await got('piBilledFull')).toEqual(['received', null]);
+    expect(await got('piBilledPart')).toEqual(['partially_received', null]);
+    for (const k of ['piBilledFull', 'piBilledPart']) expect(notices.some((n) => n.includes(S[k]!.id) && n.includes('no bill naming it')), k).toBe(false);
+    const linked = (await linkRows(pool, f)).filter((l) => Object.values(piBills).includes(l.bill)).map((l) => [l.bill, l.po]);
+    expect(linked.sort()).toEqual([[piBills.full, S.piBilledFull!.id], [piBills.part, S.piBilledPart!.id]].sort());
     expect(await got('invoiced')).toEqual(['closed', 'received']);
     expect(await got('cancelled')).toEqual(['cancelled', null]);
   });
@@ -123,10 +147,16 @@ describe('the copy', () => {
     expect((await head(S.nullStatus!.id)).order_date).toBe('2026-05-01');
   });
 
-  it('renames a number the canonical table already holds, keeps the original as its reference and says so', async () => {
-    expect(await head(S.collide!.id)).toMatchObject({ po_number: 'SPO-COL-1-SPO2', external_system: 'supplier_purchase_orders',
-      external_ref: S.collide!.id, external_document_number: 'SPO-COL-1' });
+  it('renames a number the canonical table already holds, keeps the original in its notes (no external reference) and says so', async () => {
+    const h = await head(S.collide!.id);
+    expect(h).toMatchObject({ po_number: 'SPO-COL-1-SPO2', external_system: null, external_ref: null, external_document_number: null });
+    expect(h.notes).toContain('was SPO SPO-COL-1');
     expect(notices.some((n) => n.includes('SPO-COL-1') && n.includes('SPO-COL-1-SPO2'))).toBe(true);
+    // No copy carries an external reference, renamed or not.
+    const refs = (await pool.query(`SELECT count(*)::INT AS n FROM purchase_orders WHERE id = ANY($1::UUID[]) AND
+      (external_ref IS NOT NULL OR external_system IS NOT NULL OR external_document_number IS NOT NULL)`, [Object.values(S).map((x) => x.id)])).rows[0].n;
+    expect(refs).toBe(0);
+    expect((await head(S.sent!.id)).notes).toBeNull();
   });
 
   it('skips, with a warning, an order the canonical CHECKs or the supplier fence refuse, and leaves it in the legacy table', async () => {
@@ -136,6 +166,7 @@ describe('the copy', () => {
     expect(notices.some((n) => n.includes(S.foreignSupplier!.id))).toBe(true);
     expect(Number((await pool.query('SELECT count(*) FROM supplier_purchase_orders WHERE id = ANY($1::UUID[])',
       [[S.zeroQty!.id, S.foreignSupplier!.id]])).rows[0].count)).toBe(2);
+    expect(notices.some((n) => /skipped per reason: 1 supplier of another company, 1 line refused by po_items .*, 0 line id already in po_items/.test(n))).toBe(true);
   });
 
   it('links the posted bill that named the legacy id, and raises the counter past a copied number of its form', async () => {

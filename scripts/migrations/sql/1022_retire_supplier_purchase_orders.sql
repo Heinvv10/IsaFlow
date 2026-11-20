@@ -16,21 +16,27 @@
 --          notes + "Internal notes: ..." + the project id (purchase_orders has neither column) + a cost centre that is not
 --          a CC1 / CC2 of the company. A CC1 / CC2 cost centre goes onto every line (po_items.cc1_id / cc2_id).
 --        status: draft (or none) -> draft, sent -> approved, partially_received, received, cancelled as they are;
---          invoiced -> closed from received; partially_invoiced -> closed from received when every line is fully received,
---          else from partially_received (1007's CHECK).
+--          invoiced -> closed from received. partially_invoiced depends on its bills: a live bill (not cancelled, not
+--          deleted; the population purchase_order_bill_links_backfill links) of the same company and supplier whose
+--          header names the legacy id -> received when every line is fully received, else partially_received (it stays
+--          committing; the backfill links that bill); no such bill -> closed from received / partially_received by the
+--          same quantity test (nothing could net the billed part off, so committing the whole order would overstate), with
+--          a NOTICE per order (1007's CHECK).
 --        number: a (company, po_number) the canonical table already holds is NOT a failure (a failed production migration
---          blocks every release): the copy takes order_number || '-SPO', then '-SPO2', ... until free, keeps the original in
---          external_system 'supplier_purchase_orders' / external_ref <legacy id> / external_document_number, and a NOTICE
---          names it.
+--          blocks every release): the copy takes order_number || '-SPO', then '-SPO2', ... until free, its notes say
+--          "was SPO <number>", and a NOTICE names it. No copy carries external_ref (it would make the copy eligible for
+--          set_purchase_order_status, which is for imported orders).
 --        line: quantity to 2 dp (po_items), line_total and tax_amount exactly as stored, unit_price = line_total / quantity
 --          to 6 dp (1001's effective ex-VAT unit price: the discount the legacy line_total applied is in it), so
 --          round(quantity x unit_price, 2) = line_total. item_id only when it is the company's item, gl_account_id only when
 --          it is the company's account (else NULL; the description is kept). quantity_received / quantity_invoiced from
---          qty_received / qty_invoiced. sort_order by the legacy created_at.
+--          qty_received / qty_invoiced. sort_order by the legacy created_at. The legacy line_total is NET: the SPO writer
+--          (purchaseOrderService, deleted here) stored round(quantity x unit_price, 2) with tax_amount beside it and the
+--          header subtotal = the sum of those, total = subtotal + tax.
 --      SKIPPED, with a WARNING naming the legacy id, and left in the legacy table: a header whose supplier is another
 --      company's, or with a line po_items' CHECKs refuse (quantity <= 0 at 2 dp, a negative line_total), or a line id
 --      po_items already holds. A header whose id is already in purchase_orders was copied by an earlier run: skipped
---      silently, which keeps a re-run a no-op.
+--      silently, which keeps a re-run a no-op. A NOTICE gives the skipped count per reason.
 --   3. Per company copied: the purchase_order counter moves past the highest copied number of its own form (prefix +
 --      1-9 digits, as the PO import does), and purchase_order_bill_links_backfill(company) (1006) links the bills that
 --      named a legacy id. NOTICEs: per legacy status, headers and lines copied; skipped; renamed; links written.
@@ -102,6 +108,10 @@ DECLARE
   v_notes TEXT;
   v_copied UUID[] := '{}';
   v_skipped INT := 0;
+  v_skip_supplier INT := 0;
+  v_skip_line INT := 0;
+  v_skip_item_id INT := 0;
+  v_received BOOLEAN;
   v_renamed INT := 0;
   v_links BIGINT := 0;
   v_prefix TEXT;
@@ -118,6 +128,7 @@ BEGIN
     IF h.supplier_company IS DISTINCT FROM h.company_id THEN
       RAISE WARNING '1022: skipped supplier_purchase_orders % (%): its supplier is not its company''s', h.id, h.order_number;
       v_skipped := v_skipped + 1;
+      v_skip_supplier := v_skip_supplier + 1;
       CONTINUE;
     END IF;
     IF EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i
@@ -125,11 +136,13 @@ BEGIN
       RAISE WARNING '1022: skipped supplier_purchase_orders % (%): a line has a quantity of 0 or less at 2 dp, or a negative total',
         h.id, h.order_number;
       v_skipped := v_skipped + 1;
+      v_skip_line := v_skip_line + 1;
       CONTINUE;
     END IF;
     IF EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i JOIN public.po_items x ON x.id = i.id WHERE i.purchase_order_id = h.id) THEN
       RAISE WARNING '1022: skipped supplier_purchase_orders % (%): a line id is already a po_items row', h.id, h.order_number;
       v_skipped := v_skipped + 1;
+      v_skip_item_id := v_skip_item_id + 1;
       CONTINUE;
     END IF;
 
@@ -144,17 +157,24 @@ BEGIN
       v_renamed := v_renamed + 1;
     END IF;
 
+    v_received := NOT EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i
+                               WHERE i.purchase_order_id = h.id AND COALESCE(i.qty_received, 0) < i.quantity);
     v_status := CASE COALESCE(h.status, 'draft')
       WHEN 'draft' THEN 'draft' WHEN 'sent' THEN 'approved' WHEN 'partially_received' THEN 'partially_received'
-      WHEN 'received' THEN 'received' WHEN 'cancelled' THEN 'cancelled'
-      WHEN 'invoiced' THEN 'closed' WHEN 'partially_invoiced' THEN 'closed' END;
-    v_from := CASE h.status
-      WHEN 'invoiced' THEN 'received'
-      WHEN 'partially_invoiced' THEN CASE WHEN EXISTS (
-          SELECT 1 FROM public.supplier_purchase_order_items i
-           WHERE i.purchase_order_id = h.id AND COALESCE(i.qty_received, 0) < i.quantity)
-        THEN 'partially_received' ELSE 'received' END
-      END;
+      WHEN 'received' THEN 'received' WHEN 'cancelled' THEN 'cancelled' WHEN 'invoiced' THEN 'closed' END;
+    v_from := CASE WHEN h.status = 'invoiced' THEN 'received' END;
+    IF h.status = 'partially_invoiced' THEN
+      IF EXISTS (SELECT 1 FROM public.supplier_invoices si
+                  WHERE si.company_id = h.company_id AND si.supplier_id = h.supplier_id AND si.purchase_order_id = h.id
+                    AND si.status <> 'cancelled' AND si.deleted_at IS NULL) THEN
+        v_status := CASE WHEN v_received THEN 'received' ELSE 'partially_received' END;
+      ELSE
+        v_status := 'closed';
+        v_from := CASE WHEN v_received THEN 'received' ELSE 'partially_received' END;
+        RAISE NOTICE '1022: company % supplier_purchase_orders % (%) is partially_invoiced with no bill naming it: copied as closed from %',
+          h.company_id, h.id, h.order_number, v_from;
+      END IF;
+    END IF;
 
     v_cc_type := NULL;
     IF h.cost_center_id IS NOT NULL THEN
@@ -164,6 +184,7 @@ BEGIN
     v_cc2 := CASE WHEN v_cc_type = 'cc2' THEN h.cost_center_id END;
     v_notes := NULLIF(concat_ws(E'\n\n',
       NULLIF(h.notes, ''),
+      CASE WHEN v_try > 0 THEN 'was SPO ' || h.order_number END,
       CASE WHEN NULLIF(btrim(h.internal_notes), '') IS NOT NULL THEN 'Internal notes: ' || h.internal_notes END,
       CASE WHEN h.project_id IS NOT NULL THEN 'Project (from the retired supplier purchase order): ' || h.project_id::TEXT END,
       CASE WHEN h.cost_center_id IS NOT NULL AND v_cc1 IS NULL AND v_cc2 IS NULL
@@ -172,14 +193,11 @@ BEGIN
 
     INSERT INTO public.purchase_orders (
       id, company_id, po_number, supplier_id, order_date, expected_delivery_date, status, closed_from_status,
-      subtotal, tax_amount, total, notes, reference, created_by, created_at, updated_at,
-      external_system, external_ref, external_document_number
+      subtotal, tax_amount, total, notes, reference, created_by, created_at, updated_at
     ) VALUES (
       h.id, h.company_id, v_number, h.supplier_id, COALESCE(h.order_date, (h.created_at AT TIME ZONE 'UTC')::DATE, CURRENT_DATE),
       h.delivery_date, v_status, v_from, h.subtotal, h.tax_amount, h.total_amount, v_notes, h.reference, h.created_by::TEXT,
-      h.created_at, h.updated_at,
-      CASE WHEN v_try > 0 THEN 'supplier_purchase_orders' END, CASE WHEN v_try > 0 THEN h.id::TEXT END,
-      CASE WHEN v_try > 0 THEN h.order_number END
+      h.created_at, h.updated_at
     );
 
     INSERT INTO public.po_items (
@@ -213,6 +231,8 @@ BEGIN
     END IF;
   END LOOP;
   RAISE NOTICE '1022: copied % order(s) in all, % skipped, % renamed', cardinality(v_copied), v_skipped, v_renamed;
+  RAISE NOTICE '1022: skipped per reason: % supplier of another company, % line refused by po_items (quantity <= 0 at 2 dp or a negative total), % line id already in po_items',
+    v_skip_supplier, v_skip_line, v_skip_item_id;
 
   FOR c IN SELECT DISTINCT p.company_id FROM public.purchase_orders p WHERE p.id = ANY(v_copied) ORDER BY p.company_id LOOP
     v_prefix := NULL;

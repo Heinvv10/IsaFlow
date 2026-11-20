@@ -96,6 +96,18 @@ export async function mergeEntities(
 async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
+  // Migration 1006: a purchase order <-> bill link joins one supplier's documents, and the database refuses moving either
+  // side alone. Refused before anything moves (a 400), as the supplier-merge route does.
+  const linked = await sql`
+    SELECT 1 FROM purchase_order_bill_links l
+      JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+     WHERE l.company_id = ${companyId}::UUID AND po.supplier_id = ${duplicateId}::UUID LIMIT 1
+  `;
+  if ((linked as unknown[]).length > 0) {
+    throw new SupplierMergeRefusal(
+      'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.',
+    );
+  }
 
   let count = 0;
 
