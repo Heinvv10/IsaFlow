@@ -160,6 +160,27 @@ describeIfDisposable('per-line VAT writers (create and the draft edit)', () => {
   });
 
   describe('the draft edit', () => {
+    it.each([
+      ['exclusive, legacy header rate', { taxRate: 15 }],
+      ['mixed types', {}],
+      ['inclusive', { amountsAre: 'inclusive' }],
+    ])('an identical resend of a draft made by create moves nothing, the approval digest included (%s)', async (_l, hdr) => {
+      const items = [{ description: 'One', quantity: 2, unitPrice: 300 }, { description: 'Two', quantity: 1, unitPrice: 400 }];
+      const typed = 'taxRate' in hdr ? items : [{ ...items[0]!, vatType: 'standard' }, { ...items[1]!, vatType: 'exempt' }];
+      const id = created(await create(f.fx.companyId, { invoiceDate: '2026-07-26', ...hdr, items: typed }));
+      const digest = async () => String(((await sql`
+        SELECT approval_document_digest(${f.fx.companyId}::UUID, 'customer_invoice', ${id}::UUID) AS d`) as { d: string }[])[0]!.d);
+      const before = { digest: await digest(), rows: await rows(id), header: await header(id) };
+      // As an API caller resends it (no vatType, no rate: each line keeps the identical stored line's type) ...
+      const api = await put({ id, items, ...('amountsAre' in hdr ? { amountsAre: hdr.amountsAre } : {}) });
+      expect(api.state.statusCode, JSON.stringify(api.state.body)).toBe(200);
+      expect({ digest: await digest(), rows: await rows(id), header: await header(id) }).toEqual(before);
+      // ... and as the edit page's unchanged Save sends it.
+      const page = await saveUnchanged(id);
+      expect(page.state.statusCode, JSON.stringify(page.state.body)).toBe(200);
+      expect({ digest: await digest(), rows: await rows(id), header: await header(id) }).toEqual(before);
+    });
+
     it('a line resent without a type keeps its stored type; a new line takes the default chain', async () => {
       const id = created(await create(f.fx.companyId, { invoiceDate: '2026-07-24',
         items: [{ description: 'Rent', quantity: 1, unitPrice: 1000, vatType: 'exempt' }] }));
