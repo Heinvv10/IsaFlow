@@ -6,7 +6,9 @@
  *  - B (rev1620-brk-sdl-deadlock): a bonus paid and approved on the 17th, then a termination run that tips the month:
  *    it carries the earlier runs' 1%, nobody is sent back to reopen a final run, every run ends final;
  *  - C: a month that stays exempt levies nothing on any of its runs.
- *  - D: only the month's FINAL earlier runs are caught up (the loader, read directly);
+ *  - D: only the month's other FINAL runs are caught up, whatever their pay order (sdlCatchUp, read directly);
+ *  - F (where FQd's model differs from an earlier-in-order one): a run costed while a LATER off-cycle bonus is final
+ *    counts that bonus, so the month stays at exactly 1%;
  *  - E (FQd delta 2): a bonus caught up by a later termination run, then corrected down (termination reopened, bonus
  *    reopened, edited, both approved again): the month ends at exactly 1% of its leviable pay.
  * In every case the month's EMP201 SDL equals 1% of the month's leviable lines (each rounded to the cent).
@@ -16,13 +18,13 @@ import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
-import { sdlCatchUp } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { lineSdlShares, sdlCatchUp } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
 
 // 23:15 SAST on 17 November: the minted sessions stay valid across the move to the 18th below.
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
 type Rig = Awaited<ReturnType<typeof rig>>;
-const r: Record<'a' | 'b' | 'c' | 'd' | 'e', Rig> = {} as never;
+const r: Record<'a' | 'b' | 'c' | 'd' | 'e' | 'f', Rig> = {} as never;
 const bonusOf: Record<string, string> = {};
 const regular: Record<string, string> = {};
 const mid: Record<string, string> = {};
@@ -49,7 +51,7 @@ async function month(t: Rig) {
 const sdlOf = async (t: Rig, id: string) => Number((await t.pool.query('SELECT COALESCE(SUM(sdl), 0)::float8 AS s FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0].s);
 
 beforeAll(async () => {
-  for (const k of ['a', 'b', 'c', 'd', 'e'] as const) {
+  for (const k of ['a', 'b', 'c', 'd', 'e', 'f'] as const) {
     r[k] = await rig(`w6-oc-sdl-${k}`);
     const t = r[k];
     await t.setup();
@@ -122,7 +124,7 @@ describe('SDL settled for the month to date', () => {
     expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBe(0);
   });
 
-  it('D: only FINAL earlier runs count toward the catch-up (a calculated run paid earlier in the month carries nothing)', async () => {
+  it('D: only the month\'s other FINAL runs count toward the catch-up (a calculated run of the month carries nothing)', async () => {
     const t = r.d;
     expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
     const made = await bonus(t, 600_000, '2026-11-27');
@@ -177,5 +179,34 @@ describe('SDL settled for the month to date', () => {
     }
     const after = await exactly1pct();
     expect(after).toBeLessThan(before);
+  });
+
+  it('F: a run costed while a LATER off-cycle bonus is final counts it (FQd\'s every-other-final-run model): the month stays at 1%', async () => {
+    const t = r.f;
+    const made = await bonus(t, 600_000, '2026-11-27');
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await t.api.calculate(id)).statusCode).toBe(200);
+    expect((await t.api.approve(id)).statusCode).toBe(200);
+    expect(await sdlOf(t, id)).toBe(6_203);
+    // A weekly regular run of the month that sorts BEFORE the bonus in pay order (period start 1 Nov, a regular run),
+    // not final, costed now: seeded by the fixture's superuser, its line R1 000 leviable.
+    const weekly = String((await t.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date,
+        run_kind, pay_frequency, period_start, period_end, employee_count)
+      VALUES ($1, 11, 2026, 'calculated', '2026-11-06', 'regular', 'weekly', '2026-11-01', '2026-11-07', 1) RETURNING id`, [t.company])).rows[0].id);
+    try {
+      await t.pool.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, sdl, sdl_leviable, sdl_exempt)
+        VALUES ($1, $2, 1000, 1000, 0, 1000, 0, 1000, true)`, [weekly, mid[t.company]]);
+      const up = await sdlCatchUp(t.company, weekly, false);
+      // The later final bonus counts (an earlier-in-order model would leave it out and levy nothing): the month is liable.
+      expect(up).toEqual({ liable: true, earlierLeviable: 620_300, earlierSdl: 6_203 });
+      const share = lineSdlShares([1_000], up);
+      expect(share).toEqual([10]);
+      // The month: 1% of 620 300 + 1 000 = 6 213 = the bonus's 6 203 + the weekly run's 10.
+      expect(6_203 + share[0]!).toBe(Math.round(621_300) / 100);
+    } finally {
+      await t.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [weekly]);
+      await t.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [weekly]);
+    }
   });
 });

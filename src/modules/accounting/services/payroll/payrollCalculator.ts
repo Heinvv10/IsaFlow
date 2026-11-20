@@ -195,10 +195,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const etiPending = input.cadence && cadence.frequency !== 'monthly' && !input.cadence.etiMonthToDate && !input.notEmployedInPeriod
     ? pendingEti(lineEti.eti, etiMonthPartsOf(employee, input.cadence, hours, components)) : null;
   // An off-cycle line (OC; monthly only): the month's ETI on everything the month paid, less the earlier lines' claim.
-  const etiCosted: EtiResult = input.monthEarlier
+  // A PSP claims no ETI, and its off-cycle line does not reverse an earlier run's claim either: that claim stands with its
+  // run (review #1679 merge L1).
+  const etiCosted: EtiResult = input.monthEarlier && !psp
     ? { ...lineEti.eti, monthlyEti: offCycleEti(lineEti.eti.monthlyEti, input.monthEarlier) }
     : etiPending?.eti ?? lineEti.eti;
-  const eti: EtiResult = psp ? { ...etiCosted, ineligibilityReason: PSP_NO_ETI } : etiCosted;
+  const eti: EtiResult = psp ? { ...etiCosted, monthlyEti: 0, ineligibilityReason: PSP_NO_ETI } : etiCosted;
   warnings.push(...(etiPending?.warnings ?? lineEti.warnings));
 
   const netPay = Math.round(
@@ -253,8 +255,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
     // The ETI base takes a taxable cash 3701 at its PAYE share and no 38xx or non-cash item (etiHours.etiRemunerationOf).
-    ...(input.monthEarlier ? { offCycle: { earlier: input.monthEarlier, monthEti: lineEti.eti.monthlyEti, eti: eti.monthlyEti } } : {}),
-    eti: { eti: input.monthEarlier ? lineEti.eti : eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
+    ...(input.monthEarlier && !psp ? { offCycle: { earlier: input.monthEarlier, monthEti: lineEti.eti.monthlyEti, eti: eti.monthlyEti } } : {}),
+    eti: { eti: input.monthEarlier && !psp ? lineEti.eti : eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
   });
 
   return {

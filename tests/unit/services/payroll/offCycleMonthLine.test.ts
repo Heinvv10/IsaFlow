@@ -144,4 +144,12 @@ describe('an off-cycle bonus for a personal service provider', () => {
       expect(line.eti.monthlyEti).toBe(0);
     }
   });
+
+  it('reverses no earlier ETI claim (review #1679 merge L1): the month\'s earlier R750 stands with its run, the PSP line has nil', () => {
+    const psp = employee({ taxStatus: 'personal_service_provider', pspEntityType: 'company' } as Partial<PayrollEmployee>);
+    const line = bonusLine(10_000, { uifRemuneration: 5_300, eti: 750, etiComponents: [earning('basic', '3601', 5_300)] }, undefined, psp);
+    expect(line.eti.monthlyEti).toBe(0);
+    expect(line.eti.ineligibilityReason).toMatch(/personal service provider/i);
+    expectRecomputes(line);
+  });
 });

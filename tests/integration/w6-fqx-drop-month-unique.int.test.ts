@@ -3,10 +3,9 @@
  * weekly run and an off-cycle run insert in a month that already holds its monthly regular run. 999a's
  * regular-period key still allows one regular run per (company, frequency, period start).
  *
- * Old colour: the code on this branch outside the migration is the FQb release's createPayrollRun and
- * payrollRunKindGuard, unchanged in behaviour (the removed catch only handled this constraint's 23505). It runs
- * against the new schema here: create still names a second regular run of the month as the duplicate, and the guard
- * now costs every run this schema admits: the weekly one since FQd, the monthly off-cycle one since OC.
+ * Against the 999y schema, today's createPayrollRun and payrollRunKindGuard: create still names a second regular run of
+ * the month as the duplicate (beside an off-cycle and a weekly run), and the guard costs every run this schema admits:
+ * the monthly regular run, the weekly one (since FQd) and the monthly off-cycle one (since OC).
  * Every case runs in its own rolled-back transaction. Disposable fixture DB only.
  */
 import { readFileSync } from 'node:fs';
@@ -129,7 +128,7 @@ describe('999y schema', () => {
   });
 });
 
-describe('old colour (the FQb release) against the 999y schema', () => {
+describe('createPayrollRun and the run-kind guard against the 999y schema', () => {
   it('create: the monthly run is created beside an off-cycle and a weekly run, and a second one is the named duplicate', async () => {
     const got = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, BONUS);
