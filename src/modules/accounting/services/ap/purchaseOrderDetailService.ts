@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { toCents } from '../budgets/grid/cents';
 import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+import { billTies } from '../budgets/billAttribution';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
 
@@ -100,6 +101,9 @@ export async function readPurchaseOrderDetail(
   `) as DbRow[];
 
   const billedCents = (await billedCentsByPo(companyId, [poId])).get(poId.toLowerCase()) ?? 0;
+  // What each tying bill holds on this PO by the one attribution billed_total sums (review r3 L4); linked_amount stays the row's
+  // stored amount, which a link written before the lines check can disagree with.
+  const attributed = new Map((await billTies(companyId, [poId], { statuses: null })).map((t) => [t.billId, t.cents]));
   const subtotalCents = toCents(Number(head.subtotal ?? 0));
   const closedByLink = head.status === 'closed' && (((await sql`
     SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID
@@ -121,6 +125,7 @@ export async function readPurchaseOrderDetail(
     bills: billRows.map((r) => ({
       tie: String(r.tie), deleted: r.deleted === true, link_id: r.link_id == null ? null : String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
       invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: r.amount == null ? 0 : Number(r.amount),
+      attributed_amount: rand(attributed.get(String(r.bill_id).toLowerCase()) ?? 0),
       counts_as_billed: counted(r.status) && r.deleted !== true, source: r.source == null ? null : String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
     })),
     bills_total: ties.total,

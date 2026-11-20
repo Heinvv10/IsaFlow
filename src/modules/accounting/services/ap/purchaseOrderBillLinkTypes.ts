@@ -67,7 +67,10 @@ export interface ExistingLink {
   poId: string;
   billId: string;
   billStatus: string;
+  /** What the pair holds by the one attribution (`budgets/billAttribution`): the lines' posted amount when lines name the PO. */
   amountCents: number;
+  /** The amount stored on the row, as the link tool wrote it: what an idempotent replay is compared against (review r3 L1). */
+  storedAmountCents: number;
   refSystem: string | null;
   refRef: string | null;
   closedFrom: string | null;

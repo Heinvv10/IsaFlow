@@ -2,8 +2,10 @@
  * How much of a bill each purchase order it ties holds: the ONE attribution committed netting (`remainingHeaderBilled`), billed
  * (`ap/purchaseOrderBilled`: fully_billed, the close and reopen rules) and the unlink read (PR #1703: review M2, ledger breaker
  * BRK-A/B/C/E, isaflow-c8). One rand of a bill is attributed to at most one PO. Per (bill, PO), decided once:
- *   - `lines`: the bill has a line naming a line of that PO: the posted ex-VAT of those lines (`postedExpenseLines`), whatever a
- *     link row of the pair says (a stored amount written beside lines before the link tool checked it is ignored, c8);
+ *   - `lines`: the bill has a line naming a line of that PO: the posted ex-VAT of those lines (`postedExpenseLines`), floored at 0
+ *     (a negative line, a discount naming a PO line, never makes a PO hold less than nothing; review r3 L2, the same clamp the
+ *     other-PO sum below uses), whatever a link row of the pair says (a stored amount written beside lines before the link tool
+ *     checked it is ignored, c8);
  *   - `link`: else a `purchase_order_bill_links` row: its amount;
  *   - `header`: else only `purchase_order_id`: the subtotal less what the bill attributes to every OTHER PO it ties, by the same
  *     rule (lines when its lines name that PO, counted only when positive; else that PO's link amount), kept between 0 and the
@@ -98,7 +100,7 @@ export async function billTies(
     const po = lower(r.po);
     let via: BillTie['via'];
     let cents: number;
-    if (r.by_lines === true) { via = 'lines'; cents = f.posted.get(po) ?? 0; } else if (r.link_amount != null) {
+    if (r.by_lines === true) { via = 'lines'; cents = Math.max(0, f.posted.get(po) ?? 0); } else if (r.link_amount != null) {
       via = 'link'; cents = toCents(Number(r.link_amount));
     } else {
       via = 'header';

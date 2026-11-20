@@ -123,6 +123,27 @@ describe('re-runs and the per-order guard', () => {
   });
 });
 
+describe('lock order against the old colour (review r3 M1)', () => {
+  // The old colour's SPO create (purchaseOrderService.createPurchaseOrder on master) takes the purchase_order counter row, then
+  // INSERTs into supplier_purchase_orders. 1022 takes the counters before any lock on the legacy tables, so a session holding a
+  // counter and then writing the legacy table never deadlocks with it: the migration waits, the session's write goes ahead.
+  it('a session holding the counter row and then writing supplier_purchase_orders does not deadlock the migration', async () => {
+    const old = await pool.connect();
+    try {
+      await old.query('BEGIN');
+      await old.query(`SELECT 1 FROM company_document_numbers WHERE company_id = $1 AND document_type = 'purchase_order' FOR UPDATE`, [f.co]);
+      const migration = runMigration(pool).then(() => 'ok', (e: { code?: string; message?: string }) => `${e.code}: ${e.message}`);
+      await new Promise((r) => setTimeout(r, 700));
+      const write = await old.query(`INSERT INTO supplier_purchase_orders (company_id, order_number, supplier_id) VALUES ($1, 'OLD-COLOUR-1', $2)`,
+        [f.co, f.supplier]).then(() => 'inserted', (e: { code?: string }) => String(e.code));
+      await old.query('ROLLBACK');
+      // The legacy table refuses the write (1022 is already in this database), and it is that refusal, not a deadlock (40P01).
+      expect(write).toBe('0A000');
+      expect(await migration).toBe('ok');
+    } finally { old.release(); }
+  });
+});
+
 describe('the retired tables\' write rules', () => {
   const asApp = async (sqlText: string, params: unknown[]) => {
     const req = await openRequest(pool, f, f.owner);

@@ -17,8 +17,9 @@
  *     other POs (lines when its lines name that PO, else that PO's link: one rand to one PO, BRK-B). It must be above zero
  *     and take the bill no further than its subtotal (+1 c);
  *   - close_when_fully_billed: an approved / partially_received / received PO that the call leaves fully billed
- *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that name the PO
- *     only in their header, as `budgets/billAttribution` and committed count them, >= subtotal - 1 c) becomes closed; the
+ *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that tie the PO
+ *     with no link row, by header or by lines, as `budgets/billAttribution` and get_purchase_order count them, >= subtotal - 1 c)
+ *     becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
 import {
@@ -40,8 +41,8 @@ export interface PlanInput {
   /** The existing links carrying a reference some request names, keyed `system\u0000ref`. */
   refOwners: ReadonlyMap<string, ExistingLink>;
   closeWhenFullyBilled: boolean;
-  /** Per PO, the approved / paid / partially_paid bills that name it only in their header (no link row): what each holds. */
-  headerBilled?: ReadonlyMap<string, ReadonlyArray<{ billId: string; cents: number }>>;
+  /** Per PO, the approved / paid / partially_paid bills that tie it with NO link row (by header, or by lines): what each holds. */
+  unlinkedBilled?: ReadonlyMap<string, ReadonlyArray<{ billId: string; cents: number }>>;
 }
 
 const refKey = (r: { system: string; ref: string }) => `${r.system}\u0000${r.ref}`;
@@ -154,8 +155,9 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
 
 /** What a re-sent call says that the stored link does not (explicit amount, named lines); null when they agree. */
 function payloadDifference(r: LinkRequest, existing: ExistingLink, po: PoFacts, bill: BillFacts): string | null {
-  if (r.amountCents !== null && r.amountCents !== existing.amountCents) {
-    return `amount ${fmt(r.amountCents)} against ${fmt(existing.amountCents)} stored`;
+  // The STORED amount (review r3 L1): a link written before the lines check, re-sent exactly as it was, still replays.
+  if (r.amountCents !== null && r.amountCents !== existing.storedAmountCents) {
+    return `amount ${fmt(r.amountCents)} against ${fmt(existing.storedAmountCents)} stored`;
   }
   if (r.lines.length > 0) {
     const stored = bill.lines.filter((l) => l.poItemPoId === po.id && l.poItemId).map((l) => `${l.poItemId}|${l.id}`).sort();
@@ -194,7 +196,7 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
       if (p.poId === poId && !p.existing && counted(input.bills.get(p.billId)?.status)) billed += p.amountCents;
     }
     const linkedNow = new Set(planned.filter((p) => p.poId === poId).map((p) => p.billId));
-    for (const h of input.headerBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += h.cents;
+    for (const h of input.unlinkedBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += h.cents;
     let statusAfter = po.status;
     const fully = isFullyBilled(billed, po.subtotalCents);
     if (touched.has(poId) && input.closeWhenFullyBilled && fully && (CLOSABLE_PO_STATUSES as readonly string[]).includes(po.status)) {

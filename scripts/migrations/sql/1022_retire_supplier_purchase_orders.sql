@@ -71,9 +71,11 @@
 --      (company) (1006) links the bills that named a legacy id; then the close step above; then a NOTICE per order-date month
 --      gives the committing copies, their ex-VAT line total and the billing that nets it (what entered committed spend).
 --
--- LOCKS. First the purchase_order counter rows of every company with legacy orders (FOR UPDATE), the order an app PO create takes
---   them in (counter, then purchase_orders), so the two cannot deadlock. ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes
---   it; reads of them wait too), SHARE ROW EXCLUSIVE on
+-- LOCKS. First (0b) the purchase_order counter rows of every company with legacy orders (FOR UPDATE), the row both writers it can
+--   meet take first: the app's PO create (counter, then purchase_orders) and the old colour's SPO create during the switch
+--   (counter, then supplier_purchase_orders); so the order is counter -> supplier_purchase_orders -> purchase_orders and neither
+--   can deadlock with it. Then ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes it; reads of them wait too), SHARE ROW
+--   EXCLUSIVE on
 --   purchase_orders (LOCK TABLE: no app PO insert can take a number between the free-number check and the copy's insert); ROW
 --   EXCLUSIVE on po_items,
 --   company_document_numbers and purchase_order_bill_links. All held to commit; lock_timeout bounds each wait. The legacy
@@ -112,6 +114,17 @@ BEGIN
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 END $$;
+
+-- ── 0b. Lock order: the purchase_order counters FIRST ────────────────────────────────────────────────────────────
+-- Both writers this migration can meet take a company's purchase_order counter row before anything else: the app's PO create
+-- (reserveNextDocumentNumber, then INSERT INTO purchase_orders) and the OLD colour's SPO create during the switch
+-- (purchaseOrderService.createPurchaseOrder: generateOrderNumber, then INSERT INTO supplier_purchase_orders). Taking the counters
+-- of every company with legacy orders here, before the legacy tables' trigger DDL (section 1, ACCESS EXCLUSIVE) and before
+-- purchase_orders (1c), keeps this migration in their order: counter -> supplier_purchase_orders -> purchase_orders (review r3 M1;
+-- tested with a session that holds a counter and then writes the legacy table).
+SELECT 1 FROM public.company_document_numbers n
+ WHERE n.document_type = 'purchase_order' AND n.company_id IN (SELECT DISTINCT s.company_id FROM public.supplier_purchase_orders s)
+ ORDER BY n.company_id FOR UPDATE;
 
 -- ── 1. The legacy tables refuse writes ──────────────────────────────────────────────────────────────────────────
 
@@ -223,12 +236,7 @@ BEGIN
 END;
 $$;
 
--- ── 1c. Lock order: the purchase_order counters BEFORE purchase_orders ─────────────────────────────────────────────
--- An app PO create reserves its number (company_document_numbers row) and then inserts into purchase_orders; taking the
--- counters of every company with legacy orders first, then the table, keeps this migration in that order (no deadlock with it).
-SELECT 1 FROM public.company_document_numbers n
- WHERE n.document_type = 'purchase_order' AND n.company_id IN (SELECT DISTINCT s.company_id FROM public.supplier_purchase_orders s)
- ORDER BY n.company_id FOR UPDATE;
+-- ── 1c. The canonical table, after the counters (0b) ─────────────────────────────────────────────────────────────
 LOCK TABLE public.purchase_orders IN SHARE ROW EXCLUSIVE MODE;
 
 -- ── 2 + 3. The copy, the counter, the bill links, the close step, the committed record ──────────────────────────
@@ -414,7 +422,7 @@ BEGIN
 
   -- The billing committed nets per copied PO (budgets/remainingHeaderBilled + billedLinesByPoItem, in SQL): bills approved / paid /
   -- partially_paid, not soft-deleted, of the PO's company and supplier; a bill with a line naming a line of the PO nets by those
-  -- lines' posted cents, else by its link's amount, else by its subtotal less what it attributes to each OTHER PO (its lines' posted
+  -- lines' posted cents (floored at 0, review r3 L2), else by its link's amount, else by its subtotal less what it attributes to each OTHER PO (its lines' posted
   -- cents, positive only, when its lines name that PO, else its link amount there: one rand to one PO; review M2, breaker BRK-B/E),
   -- kept between 0 and the subtotal (budgets/billAttribution, the TS twin). The backfill
   -- above has linked every header-only bill it could, so that last branch is reached only for a bill it skipped.
@@ -429,7 +437,7 @@ BEGIN
      WHERE pi.purchase_order_id = ANY(v_copied)
   ), tie AS (
     SELECT cd.po, cd.bill, si.subtotal, l.amount AS link_amount,
-           (SELECT COALESCE(SUM(p.cents), 0) FROM public.po_bill_posted_cents(cd.bill) p
+           (SELECT GREATEST(0, COALESCE(SUM(p.cents), 0)) FROM public.po_bill_posted_cents(cd.bill) p
               JOIN public.supplier_invoice_items x ON x.id = p.item_id JOIN public.po_items pi ON pi.id = x.po_item_id
              WHERE pi.purchase_order_id = cd.po) AS line_c,
            (SELECT COALESCE(SUM(CASE WHEN lc.p IS NOT NULL THEN GREATEST(0, lc.c) ELSE lk.c END), 0)

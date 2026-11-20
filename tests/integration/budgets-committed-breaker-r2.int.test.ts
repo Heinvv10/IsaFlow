@@ -58,6 +58,7 @@ describe('BRK-A: one R1000 bill releases at most R1000', () => {
     expect(bad.text).toContain('is not what the bill lines named for purchase order');
     const dry = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: bill.id, amount: 100, lines }], dry_run: true });
     expect(dry.isError).toBe(true);
+    expect(dry.text).toContain('is not what the bill lines named for purchase order');
     expect(await linkRows(pool, f, `l.supplier_invoice_id = '${bill.id}'`)).toEqual([]);
     expect((await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: bill.id, lines }] })).isError).toBe(false);
     expect((await callTool(pool, f, link, { links: [{ po_id: y.po, bill_id: bill.id }] })).isError).toBe(false);
@@ -88,6 +89,8 @@ describe('BRK-C: lines that post R0', () => {
     const r = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: bill.id, lines: [{ po_item_id: x.items[0], bill_line_id: bill.lines[0] }] }] });
     expect(r.isError).toBe(true);
     expect(r.text).toContain('post 0.00');
+    const dry = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: bill.id, lines: [{ po_item_id: x.items[0], bill_line_id: bill.lines[0] }] }], dry_run: true });
+    expect([dry.isError, dry.text.includes('post 0.00')]).toEqual([true, true]);
     expect([await billed(x), await openOf(x)]).toEqual([0, [50000]]);
   });
 });
@@ -112,6 +115,8 @@ describe('BRK-E: a negative bill line naming a PO line', () => {
     await seedRawBill(pool, f, { items: [{ total: 1200 }, { total: -200, poItem: y.items[0] }], subtotal: 1000, total: 1150, header: z.po });
     expect(await openOf(y)).toEqual([50000]);
     expect(await openOf(z)).toEqual([100000]);
+    // Review r3 L2: the lines tie itself holds max(0, posted): billed reads 0 for Y, never -200.
+    expect(await billed(y)).toBe(0);
   });
 
   it('a negative line does not shrink what the bill attributes to its other POs (positive lines only)', async () => {
@@ -186,5 +191,42 @@ describe('the writers of ref-less links subtract a line-named PO once', () => {
     await pool.query(file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'), file.indexOf('-- ── 1c.')));
     await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     expect(await zLink(bill.id, z.po)).toEqual(['700.00']);
+  });
+});
+
+describe('review r3: the link tool agrees with get_purchase_order on lines ties, and replays what it stored', () => {
+  it('M2: a bill whose lines name the PO but has no link row counts in close_when_fully_billed, dry run too', async () => {
+    const x = await seedPo(pool, f, { lines: [300, 200] });
+    // Saved while the PO was a draft: lines name it, no link row was written.
+    await seedRawBill(pool, f, { items: [{ total: 300, poItem: x.items[0] }], subtotal: 300, total: 345 });
+    const last = await seedRawBill(pool, f, { items: [{ total: 200 }], subtotal: 200, total: 230 });
+    const args = { links: [{ po_id: x.po, bill_id: last.id }], close_when_fully_billed: true };
+    const dry = await callTool(pool, f, link, { ...args, dry_run: true });
+    expect(dry.isError, dry.text).toBe(false);
+    expect(JSON.stringify(dry.body)).toContain('"fully_billed":true');
+    const r = await callTool(pool, f, link, args);
+    expect(r.isError, r.text).toBe(false);
+    expect((await pool.query('SELECT status FROM purchase_orders WHERE id = $1', [x.po])).rows[0].status).toBe('closed');
+    expect((await callTool(pool, f, getPo, { po_id: x.po })).body).toMatchObject({ fully_billed: true });
+  });
+
+  it('L1: a link stored with an amount beside lines (before the check) re-sent identically is already_existed', async () => {
+    const x = await seedPo(pool, f, { lines: [900] });
+    const bill = await seedRawBill(pool, f, { items: [{ total: 900, poItem: x.items[0] }, { total: 100 }], subtotal: 1000, total: 1150 });
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref)
+                      VALUES ($1, $2, $3, 100, 'mcp', 'sage', $4)`, [f.co, x.po, bill.id, `OLD-${bill.id.slice(0, 8)}`]);
+    const r = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: bill.id, amount: 100, lines: [{ po_item_id: x.items[0], bill_line_id: bill.lines[0] }],
+      external_system: 'sage', external_ref: `OLD-${bill.id.slice(0, 8)}` }] });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.body).toMatchObject({ linked: 0, already_existed: 1 });
+    expect(await billed(x)).toBe(90000);
+  });
+
+  it('L4: get_purchase_order shows each bill\'s attributed amount beside the stored link amount', async () => {
+    const x = await seedPo(pool, f, { lines: [900] });
+    const bill = await seedRawBill(pool, f, { items: [{ total: 900, poItem: x.items[0] }, { total: 100 }], subtotal: 1000, total: 1150 });
+    await mcpLink(x.po, bill.id, 100);
+    const row = ((await callTool(pool, f, getPo, { po_id: x.po })).body.bills as Array<Record<string, unknown>>)[0];
+    expect(row).toMatchObject({ bill_id: bill.id, linked_amount: 100, attributed_amount: 900 });
   });
 });

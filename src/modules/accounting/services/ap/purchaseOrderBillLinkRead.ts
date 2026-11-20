@@ -23,7 +23,7 @@ export interface LinkFacts {
   poItemOwner: Map<string, string>;
   existing: ExistingLink[];
   refOwners: Map<string, ExistingLink>;
-  headerBilled: Map<string, Array<{ billId: string; cents: number }>>;
+  unlinkedBilled: Map<string, Array<{ billId: string; cents: number }>>;
 }
 
 const low = (v: unknown) => String(v).toLowerCase();
@@ -31,7 +31,7 @@ const low = (v: unknown) => String(v).toLowerCase();
 export function existingLinkOf(r: DbRow): ExistingLink {
   return {
     id: low(r.id), poId: low(r.purchase_order_id), billId: low(r.supplier_invoice_id),
-    billStatus: r.bill_deleted === true ? 'deleted' : String(r.bill_status), amountCents: toCents(Number(r.amount)),
+    billStatus: r.bill_deleted === true ? 'deleted' : String(r.bill_status), amountCents: toCents(Number(r.amount)), storedAmountCents: toCents(Number(r.amount)),
     refSystem: r.external_system == null ? null : String(r.external_system),
     refRef: r.external_ref == null ? null : String(r.external_ref), closedFrom: r.closed_po_from_status == null ? null : String(r.closed_po_from_status),
   };
@@ -143,10 +143,14 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   const ties = await billTies(companyId, [...new Set([...linkPos, ...poIds])], { statuses: null });
   const byLines = new Map(ties.filter((t) => t.via === 'lines').map((t) => [`${t.billId}|${t.poId}`, t.cents]));
   for (const l of existing) { const c = byLines.get(`${l.billId}|${l.poId}`); if (c !== undefined) l.amountCents = c; }
-  const headerBilled = new Map<string, Array<{ billId: string; cents: number }>>();
+  // The billed ties of the call's POs with NO link row (by header, or by lines saved while the PO was not linkable; review r3 M2):
+  // billed counts them as get_purchase_order does, so the close decision and its dry run agree with it.
+  const pairLinked = new Set(existing.map((l) => `${l.billId}|${l.poId}`));
+  const unlinkedBilled = new Map<string, Array<{ billId: string; cents: number }>>();
   for (const t of ties) {
-    if (t.via !== 'header' || t.deleted || !(BILLED_STATUSES as readonly string[]).includes(t.status) || !poIds.includes(t.poId)) continue;
-    headerBilled.set(t.poId, [...(headerBilled.get(t.poId) ?? []), { billId: t.billId, cents: t.cents }]);
+    if (t.via === 'link' || pairLinked.has(`${t.billId}|${t.poId}`) || t.deleted || !(BILLED_STATUSES as readonly string[]).includes(t.status)
+      || !poIds.includes(t.poId)) continue;
+    unlinkedBilled.set(t.poId, [...(unlinkedBilled.get(t.poId) ?? []), { billId: t.billId, cents: t.cents }]);
   }
   return {
     resolvedPo,
@@ -157,6 +161,6 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     poItemOwner: new Map(owners.map((r) => [low(r.id), low(r.po)])),
     existing,
     refOwners,
-    headerBilled,
+    unlinkedBilled,
   };
 }

@@ -258,8 +258,7 @@ describe('unlink', () => {
 });
 
 describe('budget committed', () => {
-  // PR #1703 (Hein's ruling): a header-only link now nets committed too (its link amount, pro rata over the PO's lines); a bill
-  // that also line-links the PO nets it once, by its lines.
+  // PR #1703: a header-only link nets committed too (its amount, pro rata over the PO's lines); a line-linked bill nets once.
   it('line links and header-only links both reduce committed, each bill once', async () => {
     const po = await seedPo(pool, f, { lines: [400, 600], status: 'approved' });
     const bill = await seedBill(pool, f, { lines: [400] });
@@ -270,7 +269,8 @@ describe('budget committed', () => {
     const headerOnly = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     expect(headerOnly.isError, headerOnly.text).toBe(false);
     expect(await committed()).toBe(600);
-    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' }); expect(await committed()).toBe(1000);
+    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' });
+    expect(await committed()).toBe(1000);
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo with lines' });
     const withLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });

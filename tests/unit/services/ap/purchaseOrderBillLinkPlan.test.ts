@@ -14,7 +14,8 @@ const bill = (id: string, over: Partial<BillFacts> = {}): BillFacts => ({
 const req = (index: number, poId: string, billId: string, over: Partial<LinkRequest> = {}): LinkRequest =>
   ({ index, poId, poNumber: null, billId, amountCents: null, lines: [], ref: null, ...over });
 const existing = (over: Partial<ExistingLink> = {}): ExistingLink => ({
-  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null, closedFrom: null, ...over,
+  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null, closedFrom: null,
+  storedAmountCents: over.amountCents ?? 10000, ...over,
 });
 
 function plan(requests: LinkRequest[], over: Partial<PlanInput> = {}) {
@@ -108,13 +109,24 @@ describe('amount (decision 4)', () => {
   });
 });
 
-describe('billed counts a header-only bill (no link row) as committed nets it', () => {
+describe('billed counts a bill tied with no link row (by its header, or by its lines) as committed nets it', () => {
   it('a bill naming the PO only in its header adds its netted amount, unless this call links it', () => {
-    const headerBilled = new Map([['p1', [{ billId: 'b2', cents: 20000 }]]]);
-    const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { headerBilled, closeWhenFullyBilled: true });
+    const unlinkedBilled = new Map([['p1', [{ billId: 'b2', cents: 20000 }]]]);
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { unlinkedBilled, closeWhenFullyBilled: true });
     expect(r.plan!.poAfter.get('p1')).toMatchObject({ billedCents: 30000, fullyBilled: true, statusAfter: 'closed' });
-    const relinked = plan([req(0, 'p1', 'b2', { amountCents: 20000 })], { headerBilled });
+    const relinked = plan([req(0, 'p1', 'b2', { amountCents: 20000 })], { unlinkedBilled });
     expect(relinked.plan!.poAfter.get('p1')!.billedCents).toBe(20000);
+  });
+});
+
+describe('a replay compares the STORED amount (review r3 L1)', () => {
+  it('a link stored before the lines check (R100 beside R200 of lines) re-sent identically is already_existed', () => {
+    const lines = [{ id: 'b1-l1', poItemId: 'i1', poItemPoId: 'p1', postedCents: 20000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 10000 }];
+    const e = existing({ amountCents: 20000, storedAmountCents: 10000, refSystem: 'sage', refRef: 'OLD-1' });
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 10000, lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }], ref: { system: 'sage', ref: 'OLD-1' } })],
+      { bills: new Map([['b1', bill('b1', { lines })]]), existing: [e], refOwners: new Map([['sage\u0000OLD-1', e]]) });
+    expect(r.refusals).toEqual([]);
+    expect(r.plan!.planned[0]).toMatchObject({ existing: e, amountCents: 20000 });
   });
 });
 
