@@ -143,6 +143,7 @@ raised before anything is written. Orders, first lock first:
 | PO approve | budget gate (block) -> PO row |
 | PO cancel (approved) | PO row `FOR UPDATE` (refuses while links exist) |
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
+| goods receipt cancel (`cancel_goods_received`, `mcp-goods-received.md`) | number lock 620 -> PO row -> its `po_items` rows -> the note row `FOR UPDATE` (no bill row; a bill naming the note takes KEY SHARE on it through the `grn_id` foreign key and holds no PO row) |
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
 | `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows it names `FOR KEY SHARE` (id order; ALWAYS taken when the bill names a PO, whether or not a link is then written; also what the link FK takes) -> link inserts / deletes. |
 | supplier merge | batches -> payments -> bills -> supplier_purchase_orders (unchanged); refuses first when linked |
