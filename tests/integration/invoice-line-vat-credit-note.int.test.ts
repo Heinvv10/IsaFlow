@@ -18,7 +18,7 @@ import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx, runOn } from './helpers/l1FifoFixture';
 import { sql } from '@/lib/neon';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
-import { journalLegs, L, typeLines } from './helpers/lineVatFixture';
+import { journalLegs, L, typeLines, untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -32,7 +32,8 @@ async function approvedInvoice(date: string, items: { description: string; unitP
   const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
     clientId: f.fx.customerId, invoiceDate: date, taxRate: 15, items,
   }))).id;
-  if (types) await typeLines(id, types, { tax });
+  // No types named: a LEGACY invoice, the shape the legacy writers store (create types its lines since the writer PR).
+  if (types) await typeLines(id, types, { tax }); else await untypeLines(id);
   await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
   return id;
 }
