@@ -51,7 +51,7 @@ export async function createRule(
   companyId: string,
   input: RuleCreateInput,
   userId: string,
-  guard?: RuleWriteGuard,
+  guard: RuleWriteGuard,
 ): Promise<RuleOutcome> {
   await validateCreateRuleTargets(companyId, input);
   const vatCode = input.vatCode || 'none';
@@ -105,7 +105,7 @@ export async function updateRule(
   id: string,
   input: Partial<RuleCreateInput> & { isActive?: boolean },
   userId: string,
-  guard?: RuleWriteGuard,
+  guard: RuleWriteGuard,
 ): Promise<RuleOutcome> {
   // Use ?? not || so legitimately-zero priorities and false booleans are not
   // dropped. Fields with min(1) (ruleName, matchPattern) and enums can't be
@@ -171,17 +171,17 @@ function assertAutoApply(value: AutoApplyMode | undefined): AutoApplyMode | unde
 }
 
 /** Deleting is always applied (a deleted rule posts nothing); recorded by the rules table. 404 when the rule is not here. */
-export async function deleteRule(companyId: string, id: string, guard?: RuleDeleteGuard): Promise<void> {
+export async function deleteRule(companyId: string, id: string, guard: RuleDeleteGuard): Promise<void> {
   await removeRules(companyId, [id], guard);
 }
 
 /** All or nothing: a missing or foreign id refuses the whole batch (404) before any delete. */
-export async function deleteRules(companyId: string, ids: string[], guard?: RuleDeleteGuard): Promise<number> {
+export async function deleteRules(companyId: string, ids: string[], guard: RuleDeleteGuard): Promise<number> {
   return removeRules(companyId, ids, guard);
 }
 
 export async function toggleRule(
-  companyId: string, id: string, isActive: boolean, userId: string, guard?: RuleWriteGuard,
+  companyId: string, id: string, isActive: boolean, userId: string, guard: RuleWriteGuard,
 ): Promise<RuleOutcome> {
   // Re-enabling an account rule that points at AP/AR control (written before the guard, or left there when its
   // supplier was deleted) is refused like a create; the sweep skips it anyway, but it should not read as working.
