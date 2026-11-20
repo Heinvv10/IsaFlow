@@ -9,8 +9,8 @@ import type { Pool, PoolClient } from 'pg';
 
 export const MIGRATION = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8');
 const LEGACY = [
-  ['supplier_purchase_orders', 'trg_supplier_purchase_orders_retired'],
-  ['supplier_purchase_order_items', 'trg_supplier_purchase_order_items_retired'],
+  ['supplier_purchase_orders', ['trg_supplier_purchase_orders_retired', 'trg_supplier_purchase_orders_retired_truncate']],
+  ['supplier_purchase_order_items', ['trg_supplier_purchase_order_items_retired', 'trg_supplier_purchase_order_items_retired_truncate']],
 ] as const;
 
 /** Runs `fn` with the legacy tables' user triggers off (the pre-1022 state), committed. */
@@ -20,7 +20,7 @@ export async function asBeforeRetirement<T>(pool: Pool, fn: (c: PoolClient) => P
     await c.query('BEGIN');
     for (const [t] of LEGACY) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
     const out = await fn(c);
-    for (const [t, trg] of LEGACY) await c.query(`ALTER TABLE ${t} ENABLE ALWAYS TRIGGER ${trg}`);
+    for (const [t, trgs] of LEGACY) for (const trg of trgs) await c.query(`ALTER TABLE ${t} ENABLE ALWAYS TRIGGER ${trg}`);
     await c.query('COMMIT');
     return out;
   } catch (err) {
@@ -33,7 +33,7 @@ export async function asBeforeRetirement<T>(pool: Pool, fn: (c: PoolClient) => P
 
 export interface SpoLine {
   qty: number; price: number; discount?: number; taxRate?: number; lineTotal?: number; tax?: number;
-  received?: number; invoiced?: number; item?: string | null; gl?: string | null; description?: string;
+  received?: number; invoiced?: number; item?: string | null; gl?: string | null; description?: string; id?: string;
 }
 export interface SpoSeed {
   co: string; number: string; supplier: string; status: string | null; lines: SpoLine[];
@@ -62,7 +62,7 @@ export async function seedSpo(c: PoolClient, s: SpoSeed): Promise<SeededSpo> {
       s.costCentre ?? null, s.createdBy === undefined ? crypto.randomUUID() : s.createdBy]);
   const items: string[] = [];
   for (const [i, l] of lines.entries()) {
-    const item = crypto.randomUUID();
+    const item = l.id ?? crypto.randomUUID();
     await c.query(
       `INSERT INTO supplier_purchase_order_items (id, purchase_order_id, description, quantity, unit_price, discount_percent, tax_rate,
          tax_amount, line_total, item_id, gl_account_id, qty_received, qty_invoiced, created_at)
@@ -110,10 +110,18 @@ export async function canonicalSnapshot(pool: Pool, companies: readonly string[]
   return JSON.stringify({ heads, lines, links, counters });
 }
 
-/** The legacy rows of the companies (triggers off), so the fixture can be dropped. */
+/** The po_items of the companies' purchase orders, then their items (call before dropBillFixture). */
+export async function dropCanonical(pool: Pool, companies: readonly string[]): Promise<void> {
+  await pool.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = ANY($1::UUID[]))', [[...companies]]);
+  await pool.query('DELETE FROM items WHERE company_id = ANY($1::UUID[])', [[...companies]]);
+}
+
+/** The legacy rows of the companies (triggers off), and their skip records, so the fixture can be dropped. */
 export async function dropLegacy(pool: Pool, companies: readonly string[]): Promise<void> {
   await asBeforeRetirement(pool, async (c) => {
     await c.query(`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id IN
+                     (SELECT id FROM supplier_purchase_orders WHERE company_id = ANY($1::UUID[]))`, [[...companies]]);
+    await c.query(`DELETE FROM supplier_purchase_orders_retired_skips WHERE id IN
                      (SELECT id FROM supplier_purchase_orders WHERE company_id = ANY($1::UUID[]))`, [[...companies]]);
     await c.query('DELETE FROM supplier_purchase_orders WHERE company_id = ANY($1::UUID[])', [[...companies]]);
   });

@@ -5,7 +5,9 @@
  *   - the purchase order PDF is built from the copy (number, line);
  *   - supplier merge (the route) and the duplicate merge (mergeEntities) move the copied orders to the surviving supplier, and
  *     both refuse (400, nothing moved) a supplier whose purchase order has a linked bill;
- *   - the Demo reseed's wipe steps, in their own order, still delete the (copied) legacy rows past the retirement trigger.
+ *   - the bill PDF's "PO #" names a copied order its header names, and never another company's;
+ *   - the Demo reseed's wipe steps, in their own order, delete every legacy row past the retirement trigger: copied ones, one
+ *     whose copy's lines the PO PUT replaced (new po_items ids), and a skipped one.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,10 +15,12 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { linkRows, seedRawBill, seedSupplier } from './helpers/poBillLinkHarness';
-import { asBeforeRetirement, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
+import { asBeforeRetirement, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 import reportRoute from '../../pages/api/accounting/reports-supplier-pos';
 import supplierMergeRoute from '../../pages/api/accounting/supplier-merge';
 import duplicatesMergeRoute from '../../pages/api/accounting/duplicates-merge';
+import purchaseOrderDetailRoute from '../../pages/api/accounting/purchase-orders/[id]';
+import { generateSupplierInvoicePdf } from '@/modules/accounting/services/ap/supplierInvoicePdfBuilder';
 import { generatePurchaseOrderPdf } from '@/modules/accounting/services/ap/purchaseOrderPdfBuilder';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { WIPE_STEPS } from '../../scripts/lib/demoReseed/wipePlan';
@@ -25,6 +29,9 @@ import { deleteSql } from '../../scripts/lib/demoReseed/wipeSql';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 let f: BillFixture;
+let other: BillFixture;
+let pdfBill = '';
+let foreignPdfBill = '';
 let sup2 = '';
 let sup3 = '';
 let sup4 = '';
@@ -50,6 +57,7 @@ const poSupplier = async (id: string) => String((await pool.query('SELECT suppli
 
 beforeAll(async () => {
   f = await seedBillFixture(pool, 'spo-retire-readers');
+  other = await seedBillFixture(pool, 'spo-retire-readers-other');
   sup2 = await seedSupplier(pool, f, 'Readers second supplier');
   sup3 = await seedSupplier(pool, f, 'Readers merged by route');
   sup4 = await seedSupplier(pool, f, 'Readers merged by service');
@@ -63,7 +71,12 @@ beforeAll(async () => {
     S.d = await seedSpo(c, { ...base, supplier: sup3, number: 'RD-4', status: 'received', lines: [{ qty: 1, price: 10, received: 1 }] });
     S.e = await seedSpo(c, { ...base, supplier: sup4, number: 'RD-5', status: 'draft', lines: [{ qty: 1, price: 20 }] });
     S.linked = await seedSpo(c, { ...base, supplier: sup5, number: 'RD-6', status: 'sent', lines: [{ qty: 1, price: 40 }] });
+    S.pdf = await seedSpo(c, { ...base, number: 'RD-PDF', status: 'draft', lines: [{ qty: 1, price: 5 }] });
+    S.skipped = await seedSpo(c, { ...base, number: 'RD-NEG', status: 'draft', lines: [{ qty: 1, price: 0, lineTotal: -1 }] });
+    S.theirs = await seedSpo(c, { co: other.co, supplier: other.supplier, number: 'THEIR-PDF', status: 'draft', lines: [{ qty: 1, price: 5 }] });
   });
+  pdfBill = (await seedRawBill(pool, f, { items: [{ total: 5 }], subtotal: 5, total: 5.75, header: S.pdf!.id, status: 'draft' })).id;
+  foreignPdfBill = (await seedRawBill(pool, f, { items: [{ total: 5 }], subtotal: 5, total: 5.75, header: S.theirs!.id, status: 'draft' })).id;
   // A bill of sup5 naming the legacy RD-6: the migration's backfill links it to the copy.
   linkedBill = (await seedRawBill(pool, f, { items: [{ total: 40 }], subtotal: 40, total: 46, header: S.linked!.id, supplier: sup5 })).id;
   sup5Payment = String((await pool.query(`INSERT INTO supplier_payments (company_id, payment_number, supplier_id, payment_date, total_amount,
@@ -73,12 +86,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    if (f) {
-      await dropLegacy(pool, [f.co]);
-      await pool.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)', [f.co]);
+    if (f && other) {
+      await dropLegacy(pool, [f.co, other.co]);
+      await dropCanonical(pool, [f.co, other.co]);
       await pool.query('DELETE FROM supplier_payments WHERE company_id = $1', [f.co]);
     }
-    await dropBillFixture(pool, f);
+    for (const x of [f, other]) await dropBillFixture(pool, x);
   } finally { await pool.end(); }
 }, 60_000);
 
@@ -90,16 +103,17 @@ describe('reports-supplier-pos reads the canonical table', () => {
     expect(pos[S.a!.id]).toEqual({ id: S.a!.id, orderNumber: 'RD-1', orderDate: '2026-05-01', deliveryDate: '2026-07-15',
       reference: 'REF-RD-1', status: 'approved', subtotal: Number(S.a!.subtotal), taxAmount: Number(S.a!.tax), totalAmount: Number(S.a!.total) });
     expect(pos[S.b!.id]).toMatchObject({ orderNumber: 'RD-2', orderDate: '2026-04-20', status: 'closed', totalAmount: Number(S.b!.total) });
-    expect(mine.poCount).toBe(2);
-    expect(mine.totalValue).toBe(Math.round((Number(S.a!.total) + Number(S.b!.total)) * 100) / 100);
+    expect(mine.poCount).toBe(3);
+    expect(mine.totalValue).toBe(Math.round((Number(S.a!.total) + Number(S.b!.total) + Number(S.pdf!.total)) * 100) / 100);
     const second = r.suppliers.find((g) => g.supplierId === sup2)!;
     expect(second.pos.map((p) => [p.orderNumber, p.status, p.totalAmount])).toEqual([['RD-3', 'draft', Number(S.c!.total)]]);
-    expect(r.grandPoCount).toBe(6);
+    expect(r.grandPoCount).toBe(7);
   });
 
   it('filters on a canonical status', async () => {
     const r = await report('closed');
-    expect(r.suppliers.flatMap((g) => g.pos.map((p) => p.id))).toEqual([S.b!.id]);
+    // RD-2 (invoiced) and RD-6 (sent, a bill names it): closed for billing evidence.
+    expect(r.suppliers.flatMap((g) => g.pos.map((p) => p.id)).sort()).toEqual([S.b!.id, S.linked!.id].sort());
   });
 });
 
@@ -158,8 +172,22 @@ describe('a supplier whose purchase order has a linked bill', () => {
   });
 });
 
+describe('the supplier invoice PDF', () => {
+  it('names the copied order its header names, and never another company\'s order', async () => {
+    expect((await generateSupplierInvoicePdf(f.co, pdfBill)).toString('latin1')).toContain('RD-PDF');
+    expect((await generateSupplierInvoicePdf(f.co, foreignPdfBill)).toString('latin1')).not.toContain('THEIR-PDF');
+  });
+});
+
 describe('the Demo reseed wipe', () => {
-  it('deletes the copied legacy rows (before the canonical ones, in WIPE_STEPS order) past the retirement trigger', async () => {
+  it('deletes every legacy row past the retirement trigger: copied, edited through the PO PUT, and skipped', async () => {
+    // The PO PUT replaces a copy's lines with new po_items ids: the legacy lines' own copies are gone.
+    const put = await callRoute(purchaseOrderDetailRoute as never, f, f.owner, `/api/accounting/purchase-orders/${S.c!.id}`,
+      { items: [{ description: 'Edited', quantity: 2, unit_price: 3 }] }, { method: 'PUT', id: S.c!.id });
+    expect(put.statusCode).toBe(200);
+    expect((await pool.query('SELECT count(*)::INT AS n FROM po_items WHERE id = ANY($1::UUID[])', [S.c!.items])).rows[0].n).toBe(0);
+    expect((await pool.query('SELECT reason FROM supplier_purchase_orders_retired_skips WHERE id = $1', [S.skipped!.id])).rows[0]?.reason)
+      .toBe('negative line total');
     const tables = ['supplier_purchase_order_items', 'po_items', 'supplier_purchase_orders', 'purchase_orders'];
     const steps = WIPE_STEPS.filter((st) => tables.includes(st.table));
     expect(steps.map((st) => st.table)).toEqual(tables);
@@ -168,8 +196,9 @@ describe('the Demo reseed wipe', () => {
       await c.query('BEGIN');
       for (const st of steps) await c.query(deleteSql(st), [f.co]);
       const left = (await c.query('SELECT (SELECT count(*) FROM supplier_purchase_orders WHERE company_id = $1)::INT AS spo, '
+        + '(SELECT count(*) FROM supplier_purchase_order_items i JOIN supplier_purchase_orders h ON h.id = i.purchase_order_id WHERE h.company_id = $1)::INT AS lines, '
         + '(SELECT count(*) FROM purchase_orders WHERE company_id = $1)::INT AS po', [f.co])).rows[0];
-      expect(left).toEqual({ spo: 0, po: 0 });
+      expect(left).toEqual({ spo: 0, lines: 0, po: 0 });
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
 });
