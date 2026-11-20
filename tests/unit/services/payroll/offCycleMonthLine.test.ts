@@ -130,3 +130,18 @@ describe('a weekly line before its month\'s last run (no off-cycle): the ETI exp
     expect(JSON.stringify(explained.steps)).toContain('ETI is monthly');
   });
 });
+
+// Wave 6 OC x PSP (master's PSP, merged at OC's queue turn): an off-cycle bonus paid to a personal service provider is
+// treated, not refused. The PSP flat rate applies to the payment (pspPayeBase counts the annual payment), with no UIF
+// and no ETI, whatever the month's earlier lines say.
+describe('an off-cycle bonus for a personal service provider', () => {
+  it('pays the PSP flat rate on the bonus (27% company, 45% trust), no UIF, no ETI', () => {
+    for (const [entity, rate] of [['company', 0.27], ['trust', 0.45]] as const) {
+      const psp = employee({ taxStatus: 'personal_service_provider', pspEntityType: entity } as Partial<PayrollEmployee>);
+      const line = bonusLine(10_000, { uifRemuneration: 20_000, eti: 0, etiComponents: [earning('basic', '3601', 20_000)] }, undefined, psp);
+      expect(line.paye.monthlyPaye).toBeCloseTo(10_000 * rate, 2);
+      expect(line.uif.employeeContribution).toBe(0);
+      expect(line.eti.monthlyEti).toBe(0);
+    }
+  });
+});
