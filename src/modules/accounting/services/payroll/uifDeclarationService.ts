@@ -6,7 +6,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { contractorLineFlag } from './payrollOutsideTables';
+import { contractorLineFlag, pspLineFlag } from './payrollOutsideTables';
 import { payRunFinalSql } from './payRunFinalSql';
 import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
 import {
@@ -152,6 +152,8 @@ export async function getUifDeclaration(
       AND ${sql.unsafe(payRunFinalSql('prh'))}
       -- An independent contractor is no UIF contributor (G21 p. 26): not on the UI-19.
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
+      -- A personal service provider's line: no UIF (UIC Act s1 "remuneration" (b)), so not declared (wave 6 PSP).
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
     ORDER BY pe.employee_number
   `) as Row[];
 
@@ -206,6 +208,8 @@ export async function generateUifDeclaration(
       AND prh.period_month = ${month}
       AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
+      -- A personal service provider's line: no UIF (UIC Act s1 "remuneration" (b)), so not declared (wave 6 PSP).
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
   `) as Row[];
 
   const agg = aggRows[0];

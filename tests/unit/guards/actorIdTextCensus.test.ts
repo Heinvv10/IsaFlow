@@ -48,7 +48,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
   // wave 6 EFa: a tax return version's row id
   'v.id',
-  // wave 6 FQc: a payroll component (the frequency refusal) and the run whose payslip year to date is read
+  // wave 6 FQc: a payroll component (the frequency refusal; also wave 6 PSP's pspComponentGuard) and the run whose payslip year to date is read
   'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 OC: the month's regular run, the bonus components, the new off-cycle run and its employees
   'regularId', 'componentIds', 'String(run.id)', 'e.employeeId', 'e.componentId ?? null',
@@ -112,8 +112,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
     93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
-    229: 'status, submitted_by, updated_at',
-    269: 'submitted_by = ${submittedByUserId},',
+    233: 'status, submitted_by, updated_at',
+    273: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     48: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -163,7 +163,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollRunHeaders.ts`]: { 125: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
-  [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },
+  [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },

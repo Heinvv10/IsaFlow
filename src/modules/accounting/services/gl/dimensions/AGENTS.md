@@ -45,6 +45,7 @@ assertDocumentDimensions(companyId, lines)           // tenant / slot / active c
 planDimensionTags / applyDimensionTags               // tag_journal_lines (dimensionTagPlan / dimensionTagApply)
 planTagBatchReversal / applyTagBatchReversal         // reverse_dimension_tag_batch
 withBoundedStatements(fn, ms?, words?)             // boundedStatements: tighten-only statement_timeout + jit off around a read / lock wait; 57014 -> BankDimensionSyncRefusal
+withJitOff(fn)                                     // boundedStatements: jit off alone (transaction-local, restored), no timeout, errors untouched; a no-op outside a request transaction (ALS); the Banking list
 list/planCreate/applyCreateDimensionCostCentre       // CC master with parents + aliases (dimensionMasterService)
 plan/applyUpdate | plan/applyDelete DimensionCostCentre // edit / delete under the same ladder rules (dimensionMasterEdit)
 plan/apply CustomerDefaultFno | BankAccountDefaults | ReportingAttributes   // dimensionDefaultsService

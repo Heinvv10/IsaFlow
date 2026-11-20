@@ -7,6 +7,9 @@
  */
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { explainPaye, type PayeExplainInput } from './payeExplain';
+import { withDefinedBenefitCaution } from './definedBenefitExplain';
+import { explainPspPaye } from './pspExplain';
+import type { PspFacts } from './taxStatusTreatment';
 import { explainEti, explainSdl, explainUif } from './statutoryExplain';
 import { explainOffCycleEti, type OffCycleExplainInput } from './offCycleExplain';
 import type { SdlLeviableTrace } from './sdlLeviableCumulative';
@@ -17,6 +20,9 @@ import type { EarningPart } from './payrollLineAccumulate';
 export interface LineExplainParts {
   taxYear: number;
   periodDate: Date;
+  /** A personal service provider's entity and rate (wave 6 PSP), else null. */
+  /** A PSP's entity and rate, with the flat rate's base (pspLineRules.pspPayeBase). */
+  psp: (PspFacts & { base: number }) | null;
   paye: Omit<PayeExplainInput, 'taxYear'>;
   uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number };
   sdl: {
@@ -36,7 +42,7 @@ export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
     schema: 1,
     taxYear,
     calculationVersion: PAYROLL_CALCULATION_VERSION,
-    paye: explainPaye({ taxYear, ...parts.paye }),
+    paye: withDefinedBenefitCaution(parts.psp ? explainPspPaye({ taxYear, ...parts.paye }, parts.psp) : explainPaye({ taxYear, ...parts.paye }), parts.paye.earningParts),
     uif: explainUif({ taxYear, ...parts.uif }),
     sdl: explainSdl({ taxYear, ...parts.sdl }),
     eti: ((e) => (parts.offCycle ? explainOffCycleEti(e, parts.offCycle, parts.offCycle.eti) : e))(explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti })),

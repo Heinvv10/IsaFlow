@@ -7,7 +7,9 @@ import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
-export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+/** A personal service provider's entity (migration 1013): it picks the rate (taxTables personalServiceProviderRates). */
+export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
@@ -38,6 +40,8 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
+  /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
+  pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
@@ -101,6 +105,16 @@ export interface EmployeeComponent {
   rfiBase?: number;
   /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
   employerFundAsCash?: boolean;
+  /** DBF (migration 1014): a defined-benefit fund member category factor; the run values `amount` from it (definedBenefitFund.ts). */
+  dbMemberCategoryFactor?: number | null;
+  /** Set by costDefinedBenefitFund: C, the employee's own contributions to that fund the value was reduced by. */
+  dbEmployeeContribution?: number;
+  /** DBF: on a factor row, para 12D(6) (retired / a deceased member's dependant or nominee): no value, reported as 4585 / 4586. */
+  dbMemberRetired?: boolean;
+  /** DBF: on a 4001 / 4003 deduction, the compulsory contribution to the defined-benefit fund (C counts these rows only). */
+  dbFundMemberContribution?: boolean;
+  /** Set by costDefinedBenefitFund: what the employer pays the fund (the row's stored amount); `amount` becomes the fringe X. */
+  dbEmployerContribution?: number;
 }
 
 import type { MonthEarlierLines } from './payrollOffCycleMonth';
@@ -148,7 +162,9 @@ export interface ValidationResult {
   /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
   etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none' | 'directive';
+  treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
+  psp?: { entity: PspEntityType; rate: number };
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
@@ -229,6 +245,12 @@ export interface ComponentBreakdownItem {
   /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
   percentOfRfi?: number;
   rfiBase?: number;
+  /** DBF (migration 1014): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
+  dbMemberCategoryFactor?: number;
+  dbEmployeeContribution?: number;
+  /** DBF: the contribution the employer pays the fund (GL 2175, IRP5 4472 / 4473, or 4585 / 4586 when dbMemberRetired). */
+  dbEmployerContribution?: number;
+  dbMemberRetired?: true;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';
