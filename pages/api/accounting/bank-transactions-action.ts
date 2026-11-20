@@ -131,8 +131,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const body = parsed.data;
   try {
     const userId: string = req.user?.id || 'system';
-    // #1656 (Hein: gate everything): the actions that post or reverse a journal ask Banking Approve, before any write.
-    if (['allocate', 'split_allocate', 'bulk_accept', 'reverse'].includes(body.action) && await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return;
+    // #1656 (Hein: gate everything): the actions that post or reverse a journal (allocate, split_allocate, bulk_accept, reverse) ask Banking
+    // Approve at the top of their own case, before any write.
     switch (body.action) {
       case 'match': {
         await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write
@@ -155,6 +155,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, result);
       }
       case 'allocate': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the case that posts
         const aType: AllocationType = body.allocationType || 'account';
         if (aType === 'account' && !body.contraAccountId) {
           return apiResponse.badRequest(res, 'contraAccountId is required for account allocation');
@@ -179,6 +180,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, result);
       }
       case 'split_allocate': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the case that posts
         const splitLines = body.lines as SplitLine[];
         const splitResult = await withJournalDateRefusal(res, () => splitAllocateTransaction(
           companyId, body.bankTransactionId, splitLines, userId, { allowLateInputClaim: true }));
@@ -193,6 +195,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { deleted });
       }
       case 'bulk_accept': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the case that posts
         await refuseLinesInCompletedSession(companyId, body.bankTransactionIds); // D12: as delete
         const accepted = await bulkAcceptTransactions(companyId, body.bankTransactionIds, userId);
         return apiResponse.success(res, { accepted });
@@ -243,6 +246,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the case that posts
         const { expectedJournalEntryId } = body;
         const reversed = await withJournalDateRefusal(res, () => (expectedJournalEntryId
           ? reverseReconciledTransaction(companyId, body.bankTransactionId, userId, { expectedJournalEntryId })

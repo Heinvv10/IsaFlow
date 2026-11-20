@@ -140,21 +140,21 @@ describeIfDb('K-053 close-readiness tie survives a soft-delete', () => {
   it('AR ties before the delete, after it, and after the undo', async () => {
     expect((await arSubLedgerCheck(COMPANY, PERIOD)).status).toBe('pass');
 
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
     const deleted = await arSubLedgerCheck(COMPANY, PERIOD);
     expect(deleted.status).toBe('pass');
     // The remaining live invoice, not zero: the check still sees real money.
     expect(deleted.reason).toContain(GROSS.toFixed(2));
 
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
     expect((await arSubLedgerCheck(COMPANY, PERIOD)).status).toBe('pass');
   });
 
   it('AP ties before the delete, after it, and after the undo', async () => {
     expect((await apSubLedgerCheck(COMPANY, PERIOD)).status).toBe('pass');
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
     expect((await apSubLedgerCheck(COMPANY, PERIOD)).status).toBe('pass');
-    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }))).toBe(true);
     expect((await apSubLedgerCheck(COMPANY, PERIOD)).status).toBe('pass');
   });
 

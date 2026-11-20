@@ -69,7 +69,7 @@ describeIfDb('D7 reversal-chain walks: cycle guard and tenant scope', () => {
     await arInvoice(co, '-live', '2026-07-10', 300, 45);
     const del = await arInvoice(co, '-del', '2026-07-12', 1000, 150);
     const o = await journalOf(co, del);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user, { allowReversal: true }));
     await forgeLink(co, o, await reversalOf(co, o)); // O <-> R
 
     const recon = await finishes('VAT recon', () => getVatReconciliation(co.id, '2026-07-01', '2026-07-31'));
@@ -104,7 +104,7 @@ describeIfDb('D7 reversal-chain walks: cycle guard and tenant scope', () => {
     const a = await makeCompany('D7S2A'); cos.push(a);
     const b = await makeCompany('D7S2B'); cos.push(b);
     const inv = await arInvoice(a, '-del', '2026-07-12', 1000, 150);
-    await inTx(a, () => softDelete(a.id, 'customer_invoice', inv, a.user));
+    await inTx(a, () => softDelete(a.id, 'customer_invoice', inv, a.user, { allowReversal: true }));
     const r = await reversalOf(a, await journalOf(a, inv));
     const snapshot = async () => JSON.stringify([
       await getVatReconciliation(a.id, '2026-07-01', '2026-07-31'),

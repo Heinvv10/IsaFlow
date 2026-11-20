@@ -143,7 +143,7 @@ describeIfDb('K-053 the supplier statement variance measures our ledger as it st
     }
     await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', deleted, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', deleted, USER, { allowReversal: true }));
     await sql`UPDATE supplier_invoices SET deleted_at = NOW()
               WHERE id = ${legacy}::UUID AND company_id = ${COMPANY}::UUID`;
   }, 180000);

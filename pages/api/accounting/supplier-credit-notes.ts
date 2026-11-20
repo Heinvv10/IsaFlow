@@ -161,6 +161,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // Auto-post if requested
       if (submitAction === 'post') {
+        // The same Approve as the pre-write refusal above, asked again where the approval happens (the census sees only this one dominate).
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes');
         let posted: CreditNote;
         try {
           // Not wrapped: the note was created above, so a window refusal stays the 500 that rolls both back.

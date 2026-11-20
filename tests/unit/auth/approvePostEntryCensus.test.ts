@@ -20,7 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
 import { analyse } from '../helpers/approveCensusGraph';
-import { GATES, POSTING_SERVICES, ROUTE_WRAPPERS } from '../helpers/approveCensusConfig';
+import { GATES, ROUTE_WRAPPERS, SINK_MODULES, SITE_EXEMPTIONS, SQL_PRIMITIVES } from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
 /** Routes that call a posting service without a route-level gate, and why that is right. */
@@ -64,7 +64,7 @@ let memo: ReturnType<typeof analyse> | undefined;
 const census = () => (memo ??= analyse({
   routeFiles: apiFiles, programFiles: execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
     .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts')),
-  sinks: POSTING_SERVICES, gates: GATES, routeWrappers: ROUTE_WRAPPERS,
+  sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, siteExemptions: SITE_EXEMPTIONS,
 }));
 
 describe('approve / post entry-point census (#1656)', () => {
@@ -76,6 +76,12 @@ describe('approve / post entry-point census (#1656)', () => {
     const ungated = census().bad.filter((b) => !EXEMPT_ROUTES[b.file]);
     expect(ungated.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
       'Gate these with refuseWithoutApprove before the call (on every action branch), or exempt them with a reason').toEqual([]);
+  }, 180_000);
+
+  it('every site exemption is still used (no stale pin)', () => {
+    const used = new Set(census().exemptionsUsed);
+    const stale = Object.entries(SITE_EXEMPTIONS).flatMap(([file, callees]) => Object.keys(callees).map((c) => `${file}::${c}`)).filter((k) => !used.has(k));
+    expect(stale).toEqual([]);
   }, 180_000);
 
   it('every exempt route is still flagged without its exemption (no stale pin)', () => {

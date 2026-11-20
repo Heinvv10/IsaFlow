@@ -29,7 +29,6 @@ import journalAction from '../../../pages/api/accounting/journal-entries-action'
 import supplierCreditNotes from '../../../pages/api/accounting/supplier-credit-notes';
 import closeRunDecide from '../../../pages/api/accounting/close-run/decide';
 import glImport from '../../../pages/api/accounting/gl-import';
-import softDelete from '../../../pages/api/accounting/soft-delete';
 import bankAutoPost from '../../../pages/api/accounting/bank-auto-post';
 import bankRecon from '../../../pages/api/accounting/bank-reconciliations-action';
 import loanPayments from '../../../pages/api/accounting/loans/[id]/payments';
@@ -65,10 +64,6 @@ const CASES: Case[] = [
   ['journal-entries-action reverse', journalAction, 'POST', { action: 'reverse', id: ID }, {}, 'accounts'],
   ['close-run/decide approve', closeRunDecide, 'POST', { runId: ID, proposalId: ID, decision: 'approve' }, {}, 'accounts'],
   ['gl-import postImmediately', glImport, 'POST', { rows: [{}], postImmediately: true }, {}, 'accounts'],
-  ['soft-delete delete customer invoice', softDelete, 'POST', { entityType: 'customer_invoice', entityId: ID }, {}, 'customers'],
-  ['soft-delete delete supplier invoice', softDelete, 'POST', { entityType: 'supplier_invoice', entityId: ID }, {}, 'suppliers'],
-  ['soft-delete undo customer invoice', softDelete, 'PUT', { entityType: 'customer_invoice', entityId: ID }, {}, 'customers'],
-  ['soft-delete undo supplier invoice', softDelete, 'PUT', { entityType: 'supplier_invoice', entityId: ID }, {}, 'suppliers'],
   ['bank-auto-post undo', bankAutoPost, 'POST', { action: 'undo', runId: ID }, {}, 'banking'],
   ['bank-auto-post undoAnyway', bankAutoPost, 'POST', { action: 'undoAnyway', runId: ID, transactionId: ID, offsetJournalId: ID }, {}, 'banking'],
   ['bank-auto-post confirmHandCorrection', bankAutoPost, 'POST', { action: 'confirmHandCorrection', runId: ID, transactionId: ID, offsetJournalId: ID }, {}, 'banking'],

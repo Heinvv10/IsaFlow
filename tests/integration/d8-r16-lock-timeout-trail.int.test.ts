@@ -114,12 +114,12 @@ const flows: [string, () => Promise<() => Promise<unknown>>][] = [
       VALUES (${co()}::UUID, ${`d8r16-${c.seq}.pdf`}, 'application/pdf', 'reviewed', 'supplier_invoice') RETURNING id`);
     return () => attachEvidenceToProvisional(co(), String(doc.id), c.fx.supplierId, amount, '2026-05-15');
   }],
-  ['soft delete (customer invoice)', async () => { const i = await postedInvoice(c); return () => softDelete(co(), 'customer_invoice', i.id, u()); }],
-  ['soft delete (supplier bill)', async () => { const b = await postedBill(c); return () => softDelete(co(), 'supplier_invoice', b.id, u()); }],
+  ['soft delete (customer invoice)', async () => { const i = await postedInvoice(c); return () => softDelete(co(), 'customer_invoice', i.id, u(), { allowReversal: true }); }],
+  ['soft delete (supplier bill)', async () => { const b = await postedBill(c); return () => softDelete(co(), 'supplier_invoice', b.id, u(), { allowReversal: true }); }],
   ['undo soft delete (customer invoice)', async () => {
     const i = await postedInvoice(c);
-    await inTx(c.fx, () => softDelete(co(), 'customer_invoice', i.id, u()));
-    return () => undoDelete(co(), 'customer_invoice', i.id, u());
+    await inTx(c.fx, () => softDelete(co(), 'customer_invoice', i.id, u(), { allowReversal: true }));
+    return () => undoDelete(co(), 'customer_invoice', i.id, u(), { allowReversal: true });
   }],
 ];
 

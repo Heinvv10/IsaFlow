@@ -23,7 +23,6 @@ const LOCK_NOT_AVAILABLE = '55P03';
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
   const userId = String(req.user.id);
-  if (req.method !== 'GET' && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'asset write-offs')) return; // #1656 (Hein: gate everything), before any write
 
   if (req.method === 'GET') {
     // Return all assets flagged as below threshold (or auto-detect from category threshold)
@@ -53,6 +52,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'asset write-offs')) return; // #1656 (Hein: gate everything), before any write
     // Expense a specific below-threshold asset to GL
     const { assetId } = req.body as { assetId?: string };
     if (!assetId) return apiResponse.badRequest(res, 'assetId is required');

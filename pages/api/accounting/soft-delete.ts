@@ -22,7 +22,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -71,9 +72,11 @@ function isUserFixable(err: unknown): err is Error {
   );
 }
 
-/** The module whose Approve an invoice delete / undo asks (the invoice's own journal is reversed / re-instated); null for the rest. */
-function invoiceApproveModule(entityType: string): 'customers' | 'suppliers' | null {
-  return entityType === 'customer_invoice' ? 'customers' : entityType === 'supplier_invoice' ? 'suppliers' : null;
+/** What the person may do for an invoice delete / undo: their Approve on the invoice's module (anything but an invoice reverses nothing, so true). */
+async function mayApproveInvoiceDelete(entityType: string, companyId: string, userId: string): Promise<boolean> {
+  if (entityType === 'customer_invoice') return mayApprove(companyId, userId, 'customers');
+  if (entityType === 'supplier_invoice') return mayApprove(companyId, userId, 'suppliers');
+  return true;
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -96,13 +99,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    // #1656 (round 3): deleting an approved invoice reverses its journal, so an invoice delete asks its module's Approve (decided from the
-    // entity type, not from a status read taken before the lock).
-    const deleteModule = invoiceApproveModule(entityType);
-    if (deleteModule && await refuseWithoutApprove(res, companyId, user.id, deleteModule, 'invoice deletions')) return;
+    // #1656 (round 4): deleting an invoice that is approved or later, or has a journal, reverses it: an approval act, decided by the
+    // service under the invoice's row lock from what the person may do. A draft delete needs nothing.
+    const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
 
     try {
-      const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id));
+      const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
       return apiResponse.success(res, {
@@ -112,6 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         expiresIn: null,
       });
     } catch (err) {
+      if (respondIfApprovePermissionRefused(res, err)) return; // approved or journalled, and no Approve: 403 under the row lock, nothing written
       if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       if (isUserFixable(err)) {
         return apiResponse.badRequest(res, (err as Error).message);
@@ -140,16 +143,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    // #1656 (round 3): the undo re-instates (re-posts) the invoice's journal: the same Approve as the delete.
-    const undoModule = invoiceApproveModule(entityType);
-    if (undoModule && await refuseWithoutApprove(res, companyId, user.id, undoModule, 'invoice deletions')) return;
+    // The undo re-instates (re-posts) the invoice's journal when the delete reversed one: the same Approve, decided under the lock.
+    const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
 
     try {
-      const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id));
+      const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (restored === JOURNAL_DATE_REFUSED) return;
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');
       return apiResponse.success(res, { restored });
     } catch (err) {
+      if (respondIfApprovePermissionRefused(res, err)) return; // approved or journalled, and no Approve: 403 under the row lock, nothing written
       if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       // Same mapping as the delete path: the undo re-instates the journal
       // through the same reverseJournalEntry, so a period closed between the

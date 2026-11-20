@@ -212,7 +212,7 @@ describeIfDb('D8 round 2: a re-reversed journal is taken out of the ledger at it
 
     await expect(inTx(fx, async () => {
       await sql`SET LOCAL statement_timeout = '5s'`;
-      return softDelete(fx.companyId, 'customer_invoice', invoice, fx.userId);
+      return softDelete(fx.companyId, 'customer_invoice', invoice, fx.userId, { allowReversal: true });
     })).rejects.toThrow(SoftDeleteRefusalError);
 
     expect(Date.now() - started).toBeLessThan(4000);

@@ -127,9 +127,9 @@ describe('MCP settle_by_contra (Suppliers & AP on a payable)', () => {
     expect(out.content[0]!.text).toMatch(/permission to approve supplier payments/);
     expect(db.reads.map((r) => r.moduleKey)).toEqual(['suppliers']);
   });
-  it('a receivable (no approval) is not asked', async () => {
+  it('a receivable asks Customers & AR (round 4), never Suppliers & AP', async () => {
     unticked('suppliers');
     await settleByContraTool.handler({ ...args, subledger: 'ar' }, ctx());
-    expect(db.reads).toEqual([]);
+    expect(db.reads.map((r) => r.moduleKey)).toEqual(['customers']);
   });
 });

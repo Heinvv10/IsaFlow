@@ -32,6 +32,10 @@ import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { findJournalChainHead } from '../shared/journalChainHead';
 import { withRowLockBudget } from './rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { ApprovePermissionError } from './approvePermission';
+
+/** Statuses of an invoice that was never approved (a cancelled one has had its journal taken back already): nothing on the books. */
+const NEVER_APPROVED = ['draft', 'pending_approval', 'cancelled'];
 
 /**
  * Lock the document's journal entry and report whether it is still live.
@@ -165,8 +169,13 @@ export async function prepareInvoiceDelete(
   entityId: string,
   companyId: string,
   userId: string,
+  options: { allowReversal: boolean },
 ): Promise<{ reversalJournalEntryId: string | null }> {
   const row = await assertInvoiceDeletable(entityType, entityId, companyId);
+  // Under the row lock just taken: an invoice approved or later, or carrying a journal, is on the books, and deleting it takes it off.
+  if (!options.allowReversal && (row.gl_journal_entry_id || !NEVER_APPROVED.includes(String(row.status)))) {
+    throw new ApprovePermissionError(entityType === 'customer_invoice' ? 'customers' : 'suppliers', 'invoice deletions');
+  }
 
   const reversalJournalEntryId = await reverseDocumentJournalForDelete(
     companyId,
@@ -202,6 +211,7 @@ export async function reinstateInvoiceJournal(
   entityId: string,
   companyId: string,
   userId: string,
+  options: { allowReversal: boolean },
 ): Promise<string | null> {
   const rows = (await sql`
     DELETE FROM soft_delete_journal_reversals
@@ -211,6 +221,10 @@ export async function reinstateInvoiceJournal(
     RETURNING reversal_journal_entry_id
   `) as DbRow[];
   if (rows.length === 0) return null;
+  // A recorded reversal means this undo re-posts the invoice's journal: an approval act (the savepoint rolls the restore back).
+  if (!options.allowReversal) {
+    throw new ApprovePermissionError(entityType === 'customer_invoice' ? 'customers' : 'suppliers', 'invoice deletions');
+  }
 
   const reversalId = String(rows[0]!.reversal_journal_entry_id);
   const entry = await lockJournalEntry(companyId, reversalId);

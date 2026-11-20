@@ -1,73 +1,121 @@
 /**
- * The approve / post census's analyser (tests/unit/helpers/approveCensusGraph.ts) on synthetic projects: it must flag
- * what the old per-file regex let through (a helper chain, one gated action of several, a gate after the call) and stay
- * quiet on a gated route. The census over the real tree is approvePostEntryCensus.test.ts.
+ * The approve / post census's analyser (tests/unit/helpers/approveCensusGraph.ts) on synthetic projects: it must flag what a
+ * per-file regex let through (a helper chain, one gated action of several, a gate after the call), what a looser analyser let
+ * through (a CONDITIONAL refusal, a dropped gate result, a gate for the wrong module), and stay quiet on a gated route.
+ * The census over the real tree is approvePostEntryCensus.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { analyse } from '../helpers/approveCensusGraph';
+import type { GateSpec } from '../helpers/approveCensusGraph';
 
 const SERVICE = `export async function postJournalEntry(c: string, id: string) { return id; }
-export async function reverseJournalEntry(c: string, id: string, o?: { dryRun?: boolean }) { return id; }
+export async function reverseJournalEntry(c: string, id: string, o?: { dryRun?: boolean; allowReversal?: boolean }) { return id; }
+export async function postPayrollRun(c: string, id: string) { return id; }
 export async function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string) { return false; }
+export async function mayApprove(c: string, u: string, m: string) { return true; }
+export async function assertMayApprove(c: string, u: string, m: string, w: string) { return; }
 export async function postVia(c: string, id: string) { return postJournalEntry(c, id); }
 export async function postViaGated(res: unknown, c: string, id: string) {
   if (await refuseWithoutApprove(res, c, 'u', 'accounts', 'x')) return null;
   return postJournalEntry(c, id);
 }
+export async function postsSql(c: string) { return sql\`UPDATE gl_journal_entries SET status = 'posted' WHERE company_id = \${c}\`; }
+declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
 `;
+const GATES: Record<string, GateSpec> = {
+  refuseWithoutApprove: { kind: 'refuse', moduleArg: 3 },
+  mayApprove: { kind: 'allow', moduleArg: 2 },
+  assertMayApprove: { kind: 'assert', moduleArg: 2 },
+};
 
 function run(route: string, extra: Record<string, string> = {}) {
   const files = { '/v/svc.ts': SERVICE, '/v/barrel.ts': "export { postVia as renamedPost } from './svc';", '/v/route.ts': route, ...extra };
   return analyse({
     virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/v/route.ts'],
-    sinks: ['postJournalEntry', 'reverseJournalEntry'], gates: new Set(['refuseWithoutApprove']), routeWrappers: ['withPayrollModule'],
+    sinks: { postJournalEntry: 'accounts', reverseJournalEntry: 'accounts', postPayrollRun: 'payroll' }, gates: GATES,
+    routeWrappers: { withPayrollModule: 'payroll' }, sqlPrimitives: [/UPDATE\s+gl_journal_entries[^;]*status\s*=\s*'posted'/i],
   }).bad;
 }
-const HEAD = "import { postJournalEntry, reverseJournalEntry, refuseWithoutApprove, postVia, postViaGated } from './svc';\nimport { renamedPost } from './barrel';\ndeclare function withPayrollModule<T>(h: T): T;\ndeclare const res: unknown;\n";
+const HEAD = "import { postJournalEntry, reverseJournalEntry, postPayrollRun, refuseWithoutApprove, mayApprove, assertMayApprove, postVia, postViaGated, postsSql } from './svc';\nimport { renamedPost } from './barrel';\ndeclare function withPayrollModule<T>(h: T): T;\ndeclare const res: unknown;\n";
+const GATE = "if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return;";
+const h = (body: string, exp = 'export default handler;') => `${HEAD}async function handler(x: boolean, action: string) { ${body} }\n${exp}`;
 
-describe('approve census analyser', () => {
-  it('flags an ungated direct call, and passes it once a gate precedes it', () => {
-    expect(run(`${HEAD}async function handler() { await postJournalEntry('c', 'i'); }\nexport default handler;`)).toHaveLength(1);
-    expect(run(`${HEAD}async function handler() { if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return; await postJournalEntry('c', 'i'); }\nexport default handler;`)).toEqual([]);
+describe('approve census analyser: dominance', () => {
+  it('flags an ungated direct call, and passes it once a refusing gate precedes it', () => {
+    expect(run(h("await postJournalEntry('c', 'i');"))).toHaveLength(1);
+    expect(run(h(`${GATE} await postJournalEntry('c', 'i');`))).toEqual([]);
   });
 
   it('flags a gate that only follows the call, or sits in an unrelated if body', () => {
-    expect(run(`${HEAD}async function handler() { await postJournalEntry('c', 'i'); await refuseWithoutApprove(res, 'c', 'u', 'a', 'x'); }\nexport default handler;`)).toHaveLength(1);
-    expect(run(`${HEAD}async function handler(x: boolean) { if (x) { await refuseWithoutApprove(res, 'c', 'u', 'a', 'x'); } await postJournalEntry('c', 'i'); }\nexport default handler;`)).toHaveLength(1);
+    expect(run(h("await postJournalEntry('c', 'i'); await assertMayApprove('c', 'u', 'accounts', 'x');"))).toHaveLength(1);
+    expect(run(h(`if (x) { ${GATE} } await postJournalEntry('c', 'i');`))).toHaveLength(1);
   });
 
   it('judges each action branch: a gate on one case does not cover a sibling', () => {
-    const route = (gateReverse: boolean) => `${HEAD}async function handler(action: string) {
-  switch (action) {
-    case 'post': { if (await refuseWithoutApprove(res, 'c', 'u', 'a', 'x')) return; await postJournalEntry('c', 'i'); break; }
-    case 'reverse': { ${gateReverse ? "if (await refuseWithoutApprove(res, 'c', 'u', 'a', 'x')) return;" : ''} await reverseJournalEntry('c', 'i'); break; }
-  }
-}
-export default handler;`;
+    const route = (gateReverse: boolean) => h(`switch (action) {
+      case 'post': { ${GATE} await postJournalEntry('c', 'i'); break; }
+      case 'reverse': { ${gateReverse ? GATE : ''} await reverseJournalEntry('c', 'i'); break; }
+    }`);
     const bad = run(route(false));
     expect(bad).toHaveLength(1);
     expect(bad[0]!.sites.join()).toContain('reverseJournalEntry');
     expect(run(route(true))).toEqual([]);
   });
 
-  it('follows a helper chain, through an aliased barrel re-export', () => {
-    expect(run(`${HEAD}async function handler() { await postVia('c', 'i'); }\nexport default handler;`)).toHaveLength(1);
-    expect(run(`${HEAD}async function handler() { await renamedPost('c', 'i'); }\nexport default handler;`)).toHaveLength(1);
+  it('follows a helper chain, through an aliased barrel re-export, and a unit that runs posting SQL', () => {
+    expect(run(h("await postVia('c', 'i');"))).toHaveLength(1);
+    expect(run(h("await renamedPost('c', 'i');"))).toHaveLength(1);
     expect(run(`${HEAD}async function helper() { await postVia('c', 'i'); }\nasync function handler() { await helper(); }\nexport default handler;`)).toHaveLength(1);
+    expect(run(h("await postsSql('c');"))).toHaveLength(1); // not named anywhere: found by its SQL
   });
 
   it('a helper that asks the Approve itself, or a gate before the helper call, passes', () => {
-    expect(run(`${HEAD}async function handler() { await postViaGated(res, 'c', 'i'); }\nexport default handler;`)).toEqual([]);
-    expect(run(`${HEAD}async function helper() { await postVia('c', 'i'); }\nasync function handler() { if (await refuseWithoutApprove(res, 'c', 'u', 'a', 'x')) return; await helper(); }\nexport default handler;`)).toEqual([]);
+    expect(run(h("await postViaGated(res, 'c', 'i');"))).toEqual([]);
+    expect(run(`${HEAD}async function helper() { await postVia('c', 'i'); }\nasync function handler() { ${GATE} await helper(); }\nexport default handler;`)).toEqual([]);
   });
 
-  it('a route wrapped by withPayrollModule is gated for the whole file; a dry run is not a write', () => {
-    expect(run(`${HEAD}async function handler() { await postJournalEntry('c', 'i'); }\nexport default withPayrollModule(handler);`)).toEqual([]);
-    expect(run(`${HEAD}async function handler() { await reverseJournalEntry('c', 'i', { dryRun: true }); }\nexport default handler;`)).toEqual([]);
+  it('a route wrapped by withPayrollModule is gated for Payroll for the whole file; a dry run and a non-literal allowReversal are not writes', () => {
+    expect(run(h("await postPayrollRun('c', 'i');", 'export default withPayrollModule(handler);'))).toEqual([]);
+    expect(run(h("await postJournalEntry('c', 'i');", 'export default withPayrollModule(handler);'))).toHaveLength(1); // the wrapper is Payroll, the sink is accounts
+    expect(run(h("await reverseJournalEntry('c', 'i', { dryRun: true });"))).toEqual([]);
+    expect(run(h("const allowReversal = await mayApprove('c', 'u', 'accounts'); await reverseJournalEntry('c', 'i', { allowReversal });"))).toEqual([]);
+    expect(run(h("await reverseJournalEntry('c', 'i', { allowReversal: true });"))).toHaveLength(1); // the literal true is no decision
+  });
+});
+
+describe('approve census analyser: round 4 (B-M2 / F-M1)', () => {
+  it('FALSE NEGATIVE 1: `if (x && await gate()) return;` is a conditional refusal and does not dominate a call reachable when x is false', () => {
+    expect(run(h("if (x && await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return; await postJournalEntry('c', 'i');"))).toHaveLength(1);
+    expect(run(h("if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x') || x) return; await postJournalEntry('c', 'i');"))).toEqual([]); // || short-circuits only after the gate
   });
 
-  it('a gate in a condition covers the call in its branch, and in the right side of &&', () => {
-    expect(run(`${HEAD}async function handler(x: boolean) { if (x && await refuseWithoutApprove(res, 'c', 'u', 'a', 'x')) return; await postJournalEntry('c', 'i'); }\nexport default handler;`)).toEqual([]);
-    expect(run(`${HEAD}async function handler(x: boolean) { x && await refuseWithoutApprove(res, 'c', 'u', 'a', 'x') && await postJournalEntry('c', 'i'); }\nexport default handler;`)).toEqual([]);
+  it('FALSE NEGATIVE 2: a bare `await mayApprove()` whose result is dropped is no gate; an assert, and a used result, are', () => {
+    expect(run(h("await mayApprove('c', 'u', 'accounts'); await postJournalEntry('c', 'i');"))).toHaveLength(1);
+    expect(run(h("await assertMayApprove('c', 'u', 'accounts', 'x'); await postJournalEntry('c', 'i');"))).toEqual([]);
+    expect(run(h("if (!(await mayApprove('c', 'u', 'accounts'))) return; await postJournalEntry('c', 'i');"))).toEqual([]);
+    expect(run(h("const ok = await mayApprove('c', 'u', 'accounts'); if (!ok) throw new Error('no'); await postJournalEntry('c', 'i');"))).toEqual([]);
+  });
+
+  it('a gate whose refusal does NOT exit does not dominate', () => {
+    expect(run(h("if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) { console.warn('refused'); } await postJournalEntry('c', 'i');"))).toHaveLength(1);
+  });
+
+  it('the call inside the gate\'s own positive branch is covered (`if (a && await mayApprove()) { call }`)', () => {
+    expect(run(h("if (x && await mayApprove('c', 'u', 'accounts')) { await postJournalEntry('c', 'i'); }"))).toEqual([]);
+    expect(run(h("const posted = x && await mayApprove('c', 'u', 'accounts'); if (posted) { await postJournalEntry('c', 'i'); }"))).toEqual([]);
+    expect(run(h("if (x || await mayApprove('c', 'u', 'accounts')) { await postJournalEntry('c', 'i'); }"))).toHaveLength(1);
+  });
+
+  it('FALSE NEGATIVE 3: a gate for the WRONG module does not cover the sink', () => {
+    expect(run(h("if (await refuseWithoutApprove(res, 'c', 'u', 'banking', 'x')) return; await postJournalEntry('c', 'i');"))).toHaveLength(1);
+    expect(run(h("if (await refuseWithoutApprove(res, 'c', 'u', 'payroll', 'x')) return; await postPayrollRun('c', 'i');"))).toEqual([]);
+    expect(run(h("if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return; await postPayrollRun('c', 'i');"))).toHaveLength(1);
+  });
+
+  it('a call with two modules needs both gates', () => {
+    const body = (g1: boolean, g2: boolean) => `${g1 ? "if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return;" : ''} ${g2 ? "if (await refuseWithoutApprove(res, 'c', 'u', 'payroll', 'x')) return;" : ''} await postJournalEntry('c', 'i'); await postPayrollRun('c', 'i');`;
+    expect(run(h(body(true, false)))).toHaveLength(1);
+    expect(run(h(body(false, true)))).toHaveLength(1);
+    expect(run(h(body(true, true)))).toEqual([]);
   });
 });

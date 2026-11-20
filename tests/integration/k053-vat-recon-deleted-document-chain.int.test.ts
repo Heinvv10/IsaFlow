@@ -179,8 +179,8 @@ describeIfDb('D7 the VAT reconciliation\'s revenue arm excludes a deleted docume
     supplier = ((await sql`INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'supp ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
 
     const { ar, ap } = await postPair('', SUB, VAT);
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', ar, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', ar, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER, { allowReversal: true }));
     const recorded = (await sql`
       SELECT entity_type, reversal_journal_entry_id AS id FROM soft_delete_journal_reversals
       WHERE company_id = ${COMPANY}::UUID`) as { entity_type: string; id: string }[];
@@ -227,8 +227,8 @@ describeIfDb('D7 the VAT reconciliation\'s revenue arm excludes a deleted docume
     const apJournal = await journalOf(ap);
     await inTx(() => reverseJournalEntry(COMPANY, arJournal, USER, { reversalDate: LATER }));
     await inTx(() => reverseJournalEntry(COMPANY, apJournal, USER, { reversalDate: LATER }));
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', ar, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', ar, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER, { allowReversal: true }));
     await assertArms(SUB + SUB_M);
   });
 

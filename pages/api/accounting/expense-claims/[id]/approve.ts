@@ -24,10 +24,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const body = (req.body ?? {}) as { decision?: 'approve' | 'reject'; reason?: string };
 
   try {
-    if (body.decision !== 'reject' && await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense claims')) return; // #1656 (Hein: gate everything), before any write
-    const claim = body.decision === 'reject'
-      ? await rejectClaim(id, companyId, userId, body.reason ?? 'Rejected')
-      : await approveClaim(id, companyId, userId);
+    let claim;
+    if (body.decision === 'reject') {
+      claim = await rejectClaim(id, companyId, userId, body.reason ?? 'Rejected'); // posts nothing: not gated
+    } else {
+      if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense claims')) return; // #1656 (Hein: gate everything), before any write
+      claim = await approveClaim(id, companyId, userId);
+    }
     if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
     // The approver is the last person who sees the claim before `postClaim`
     // debits VAT Input with the sum of the line vatAmounts. Read the advice
