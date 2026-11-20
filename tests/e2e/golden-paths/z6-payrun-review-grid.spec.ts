@@ -176,8 +176,9 @@ test('hours: an hourly employee has an Hours cell, the server prices it, a month
     // Layout guard (#1580 / #1692): a salaried row with no hourly rate stays as tall as master's (57 px at 1280x720). RI's disabled
     // overtime field and wrapped helper made it 89 px and pushed the hourly row's Saved status below the fold.
     const zanele = page.getByRole('row').filter({ hasText: 'Z6-1' });
-    await expect(zanele.getByRole('link', { name: /No hourly rate: set it on the employee page, Zanele Grid/ })).toBeVisible();
+    await expect(zanele).toBeVisible();
     expect((await zanele.boundingBox())!.height).toBeLessThanOrEqual(60);
+    await expect(zanele.getByRole('link', { name: /No hourly rate: set it on the employee page, Zanele Grid/ })).toBeVisible();
     const hours = page.getByLabel('Hours, Hanna Grid');
     await expect(hours).toHaveValue(String(HOURLY.baseline));
     await hours.click();
