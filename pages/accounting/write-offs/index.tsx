@@ -16,7 +16,7 @@ interface WriteOff {
   invoiceId: string; invoiceNumber?: string; amount: number; reason: string;
   writeOffDate: string; status: string;
 }
-interface Client { id: string; company_name: string }
+interface Client { id: string; name: string }
 interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number }
 
 const fmt = (n: number) => formatMoney(n);
@@ -135,7 +135,7 @@ export default function WriteOffsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <select value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value, invoiceId: '', amount: '' }))} className="ff-select" required>
                   <option value="">Select Client *</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <select value={form.invoiceId} onChange={e => { setForm(f => ({ ...f, invoiceId: e.target.value })); const inv = invoices.find(i => i.id === e.target.value); if (inv) setForm(f => ({ ...f, invoiceId: e.target.value, amount: String(Number(inv.total_amount) - Number(inv.amount_paid)) })); }} className="ff-select" required>
                   <option value="">Select Invoice *</option>

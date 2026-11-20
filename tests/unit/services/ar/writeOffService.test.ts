@@ -61,6 +61,7 @@ const WO_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
 const INVOICE_ID = '55555555-5555-5555-5555-555555555555';
+const OWNER_ID = '66666666-6666-6666-6666-666666666666';
 
 /**
  * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
@@ -105,7 +106,7 @@ function writeOffRow(overrides: Record<string, unknown> = {}) {
 function lockedInvoice(overrides: Record<string, unknown> = {}) {
   return {
     invoice_number: 'INV-001', total_amount: 1000, tax_amount: 130.43, amount_paid: 0,
-    status: 'approved', deleted_at: null, owner_id: '66666666-6666-6666-6666-666666666666', ...overrides,
+    status: 'approved', deleted_at: null, owner_id: OWNER_ID, ...overrides,
   };
 }
 
@@ -137,7 +138,7 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
     mockSql
       .mockResolvedValueOnce([writeOffRow()]) // SELECT customer_write_offs JOIN customer_invoices
       .mockResolvedValueOnce([lockedInvoice()]) // SELECT customer_invoices ... FOR UPDATE
-      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }]) // SELECT customer_write_offs ... FOR UPDATE
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500, client_id: OWNER_ID }]) // SELECT customer_write_offs ... FOR UPDATE
       .mockResolvedValueOnce([{ id: WO_ID }]) // the status-predicated CLAIM, one row = won
       .mockResolvedValueOnce([{ id: INVOICE_ID }]) // UPDATE customer_invoices (amount_paid), one row = moved
       .mockResolvedValueOnce([]) // recomputeInvoiceStatus
@@ -154,7 +155,7 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
     mockSql
       .mockResolvedValueOnce([writeOffRow()])
       .mockResolvedValueOnce([lockedInvoice()])
-      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }])
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500, client_id: OWNER_ID }])
       .mockResolvedValueOnce([{ id: WO_ID }]) // CLAIM
       .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([])
@@ -171,7 +172,7 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
 describe('approveWriteOff — judged against the locked invoice, before any write', () => {
   const approve = () => inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
   /** read, invoice lock, write-off lock: the only statements a refusal may issue. */
-  const refusedAt3 = async (invoice: Record<string, unknown> | null, locked = { status: 'draft', amount: 500 }) => {
+  const refusedAt3 = async (invoice: Record<string, unknown> | null, locked = { status: 'draft', amount: 500, client_id: OWNER_ID }) => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()])
       .mockResolvedValueOnce(invoice ? [invoice] : [])
@@ -196,16 +197,26 @@ describe('approveWriteOff — judged against the locked invoice, before any writ
     expect(mockCreateJournalEntry).not.toHaveBeenCalled();
   });
 
+  it('refuses a draft whose client is not the locked invoice\'s owner (drafted before the create-time check)', async () => {
+    await refusedAt3(lockedInvoice(), { status: 'draft', amount: 500, client_id: '99999999-9999-9999-9999-999999999999' });
+  });
+  it('reads the locked invoice owner as COALESCE(client_id, customer_id) and the client from the locked write-off', async () => {
+    await refusedAt3(lockedInvoice({ owner_id: null }));
+    const text = (i: number) => (mockSql.mock.calls[i]![0] as readonly string[]).join('').replace(/\s+/g, ' ');
+    expect(text(1)).toMatch(/COALESCE\(client_id, customer_id\) AS owner_id FROM customer_invoices .*FOR UPDATE/);
+    expect(text(2)).toMatch(/SELECT status, amount, client_id FROM customer_write_offs .*FOR UPDATE/);
+  });
+
   it('judges the amount on the LOCKED write-off row, not the unlocked read', async () => {
     // The unlocked read says 500; the locked row says 900 against 800 owing.
-    await refusedAt3(lockedInvoice({ total_amount: 1000, amount_paid: 200 }), { status: 'draft', amount: 900 });
+    await refusedAt3(lockedInvoice({ total_amount: 1000, amount_paid: 200 }), { status: 'draft', amount: 900, client_id: OWNER_ID });
   });
 
   it('a guarded amount_paid UPDATE that moves no row throws and writes nothing after it', async () => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()])
       .mockResolvedValueOnce([lockedInvoice()]) // the re-check passes
-      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }])
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500, client_id: OWNER_ID }])
       .mockResolvedValueOnce([{ id: WO_ID }]) // CLAIM
       .mockResolvedValueOnce([]); // UPDATE customer_invoices ... amount_paid + x <= total: 0 rows
 

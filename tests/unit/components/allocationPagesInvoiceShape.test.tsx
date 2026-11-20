@@ -184,7 +184,7 @@ describe('fetchAllPages', () => {
 describe('write-offs: the invoice picker', () => {
   it('reads customer-invoices-list (the old /api/customer-invoices is a 404) and lists the open invoice', async () => {
     serve(
-      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', company_name: 'Cust One' }])),
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', name: 'Cust One' }])),
       on('GET', '/api/accounting/write-offs', () => ok([])),
       on('GET', '/api/accounting/customer-invoices-list', () => ok({ invoices: CUSTOMER_INVOICES, total: 2 })),
     );
@@ -257,7 +257,7 @@ describe('stale responses: the last pick wins', () => {
   it('write-offs: pick client A then B, A answers last: only B\'s invoices are offered', async () => {
     const gA = gate(); const gB = gate();
     serve(
-      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', company_name: 'Client A' }, { id: 'k2', company_name: 'Client B' }])),
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', name: 'Client A' }, { id: 'k2', name: 'Client B' }])),
       on('GET', '/api/accounting/write-offs', () => ok([])),
       async (u, m) => {
         if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
@@ -312,7 +312,7 @@ describe('truncation and paging on the pages', () => {
 
   it('write-offs: an endless list shows the note in its own status line, not as an error', async () => {
     serve(
-      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', company_name: 'Client A' }])),
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', name: 'Client A' }])),
       on('GET', '/api/accounting/write-offs', () => ok([])),
       (u, m) => {
         if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;

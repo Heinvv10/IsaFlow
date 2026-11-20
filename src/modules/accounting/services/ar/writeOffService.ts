@@ -145,7 +145,8 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   // before write-offs, so this is the order nothing inverts). Every refusal
   // below is raised before the first write: `withAuth` COMMITs a 4xx.
   const invRows = (await withCustomerInvoiceLock('approveWriteOff', 'The invoice', async () => (await sql`
-    SELECT invoice_number, total_amount, tax_amount, amount_paid, status, deleted_at
+    SELECT invoice_number, total_amount, tax_amount, amount_paid, status, deleted_at,
+           COALESCE(client_id, customer_id) AS owner_id
     FROM customer_invoices
     WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
     FOR UPDATE
@@ -157,10 +158,16 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   // queued on the invoice finds it already approved and is told so, not that
   // the balance has gone.
   const locked = await claimUnderLockTimeout('write-off', async () => (await sql`
-    SELECT status, amount FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE
+    SELECT status, amount, client_id FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE
   `) as Row[]);
   if (locked[0]?.status !== 'draft') {
     throw new WriteOffNotApprovableError(locked[0] ? String(locked[0].status) : 'missing');
+  }
+  // A draft saved before createWriteOff checked ownership may name client A
+  // against client B's invoice: judge the locked invoice's owner against the
+  // locked write-off's client before anything posts.
+  if (String(inv.owner_id ?? '').toLowerCase() !== String(locked[0].client_id ?? '').toLowerCase()) {
+    throw new WriteOffInvoiceRefusedError('Invoice does not belong to this client');
   }
   // From the locked row, not the unlocked read above: it is what is judged and what posts.
   const amount = Number(locked[0].amount);
