@@ -15,7 +15,7 @@ import { mapPayrollEmployeeRow } from '@/modules/accounting/services/payroll/pay
 
 const ALL: RunKindAction[] = ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'irp5', 'bank_file'];
 const OK = {
-  pay_frequency: 'monthly', run_kind: 'regular', unknown_status: null, other_frequency: null, odd_assignments: null,
+  pay_frequency: 'monthly', run_kind: 'regular', unknown_status: null, other_frequency: null,
 };
 const refusedBy = (row: Record<string, unknown>) =>
   ALL.filter((a) => judgeRunKind({ ...OK, ...row }, a).length > 0);
@@ -45,13 +45,13 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ other_frequency: ['E1'] })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
   });
 
-  it('refuses odd assignments only where the run is costed', () => {
-    expect(refusedBy({ odd_assignments: ['E1'] })).toEqual(['calculate', 'approve', 'post']);
+  it('RI lifted the assignment clause: overtime multipliers and travel km refuse nothing', () => {
+    expect(refusedBy({ odd_assignments: ['E1'] })).toEqual([]);
   });
 
   it('reports every clause that holds, in order', () => {
-    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle', odd_assignments: ['E1'] }, 'approve')
-      .map((r) => r.clause)).toEqual(['frequency', 'run_kind', 'assignment']);
+    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle', other_frequency: ['E1'] }, 'approve')
+      .map((r) => r.clause)).toEqual(['frequency', 'run_kind', 'employee_frequency']);
   });
 });
 

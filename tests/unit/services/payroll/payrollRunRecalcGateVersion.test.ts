@@ -19,12 +19,12 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 17: defined-benefit fund values (DBF) on top of personal service providers (PSP, 16), garnishee orders (GA, 15), weekly and fortnightly (FQc, 14), days-based annualisation (AN, 13), UIF floored at nil (UF, 12), regular-pay directives (DR, 11), RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
+describe('calculation version 18: overtime and travel km (RI) on top of defined-benefit fund values (DBF, 17), personal service providers (PSP, 16), garnishee orders (GA, 15), weekly and fortnightly (FQc, 14), days-based annualisation (AN, 13), UIF floored at nil (UF, 12), regular-pay directives (DR, 11), RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
   it('is the current version', () => {
-    expect(PAYROLL_CALCULATION_VERSION).toBe(17);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(18);
   });
 
-  it('refuses a run calculated by version 16 or unstamped, approves one calculated by version 17', async () => {
-    expect([await refusal(16), await refusal(null), await refusal(17)]).toEqual(['recalculate_required', 'recalculate_required', null]);
+  it('refuses a run calculated by version 17 or unstamped, approves one calculated by version 18', async () => {
+    expect([await refusal(17), await refusal(null), await refusal(18)]).toEqual(['recalculate_required', 'recalculate_required', null]);
   });
 });

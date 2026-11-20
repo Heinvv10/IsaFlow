@@ -37,7 +37,7 @@ describe('e@syFile: a non-cash benefit under its own income code', () => {
       lumpSums: [{ sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '20260505', amount: 30_000, paye: 3_000 }],
     });
     const at = (f: string) => lines.indexOf(f);
-    expect(lines.filter(l => /^3[6-9]\d\d,/.test(l))).toEqual(['3601,360000', '3605,10000', '3801,9000', '3901,30000']);
+    expect(lines.filter(l => /^3[6-9]\d\d,/.test(l))).toEqual(['3601,360000', '3605,10000', '3801,9000', '3901,30000', '3699,409000']);
     expect(at('3605,10000')).toBeLessThan(at('3801,9000'));
     expect(at('3801,9000')).toBeLessThan(at('3901,30000'));
     expect(at('3901,30000')).toBeLessThan(at('4102,54000.00'));

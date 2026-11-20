@@ -24,12 +24,12 @@ describe('pspRefusedKind', () => {
     ['3828', 'earning', 'retirement fund contribution'], ['4030', 'deduction', 's18A donation'],
     ['LOAN', 'deduction', 'loan'], ['3801', 'earning', 'loan'], ['3802', 'earning', 'fringe benefit'],
     ['3810', 'earning', 'fringe benefit'], [' 4001 ', 'deduction', 'retirement fund contribution'],
-    ['3701', 'earning', 'travel allowance'], ['IRP3(c)', 'directive', 'IRP3(c) directive'],
+    ['3701', 'earning', 'travel allowance'], ['3702', 'earning', 'travel allowance'], ['3703', 'earning', 'travel allowance'], ['3722', 'earning', 'travel allowance'], ['IRP3(c)', 'directive', 'IRP3(c) directive'],
   ])('%s (%s) is refused as a %s', (code, type, kind) => {
     expect(pspRefusedKind({ sarsSourceCode: code, componentType: type })).toBe(kind);
   });
 
-  it.each([['3601', 'earning'], ['3605', 'earning'], ['3702', 'earning'], ['4005', 'deduction'], ['4474', 'deduction']])('%s (%s) is allowed', (code, type) => {
+  it.each([['3601', 'earning'], ['3605', 'earning'], ['3607', 'earning'], ['4005', 'deduction'], ['4474', 'deduction']])('%s (%s) is allowed', (code, type) => {
     expect(pspRefusedKind({ sarsSourceCode: code, componentType: type })).toBeNull();
   });
 

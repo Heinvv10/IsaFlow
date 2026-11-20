@@ -232,25 +232,16 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     });
   });
 
-  it('a km assignment and a rate multiplier are refused for costing, not for payslips', async () => {
+  it('RI lifted the km and rate-multiplier clause (migration 1017): a km row or an overtime multiplier is refused nothing', async () => {
     const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     for (const prepare of [
+      async (c: PoolClient) => { await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`); },
       async (c: PoolClient) => {
-        for (const r of (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'payroll_employee_components'::regclass
-          AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity_unit%'`)).rows) {
-          await c.query(`ALTER TABLE payroll_employee_components DROP CONSTRAINT ${String(r.conname)}`);
-        }
-        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN rate_multiplier numeric');
-        await c.query(`UPDATE payroll_employee_components SET rate_multiplier = 1.5 WHERE id IN (${assignment})`);
+        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'hour', rate_multiplier = 1.5 WHERE id IN (${assignment})`);
       },
     ]) {
       await inRolledBackTx(prepare, async () => {
-        expect(clauses(await refusal('calculate'))).toEqual(['assignment']);
-        expect(clauses(await refusal('approve'))).toEqual(['assignment']);
-        expect(await refusal('payslip')).toBeNull();
+        for (const action of ['calculate', 'approve', 'post', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
       });
     }
   });
