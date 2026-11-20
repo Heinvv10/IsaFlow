@@ -35,6 +35,7 @@ import { loadRetirementContributions } from '@/modules/accounting/services/payro
 import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -287,6 +288,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
   warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
     + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+  warnings.push(UNWRITTEN_FIELDS_WARNING); // BRS mandatory fields with no data in IsaFlow (easyFileCertificateCodes)
   // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
   if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
   const warningsTotal = warnings.length;

@@ -117,10 +117,12 @@ describe('G1 edges', () => {
     // Capped by encoded size: the header stays within 2 000 bytes, and the rest is counted.
     const raw = encodeURIComponent(JSON.stringify(out.warnings));
     expect(raw.length).toBeLessThanOrEqual(2_000);
-    expect(out.warnings.length).toBeLessThan(13);
+    // 13 warnings: the orphan payment and twelve 3231 fallbacks, plus the unwritten-fields notice every file carries
+    // (wave 6 EZF, UNWRITTEN_FIELDS_WARNING): 14.
+    expect(out.warnings.length).toBeLessThan(14);
     // The payment on no certificate comes first, so the cap never hides it.
     expect(out.warnings[0]).toMatch(/9990001112.*linked to no employee/);
-    expect(out.warnings.at(-1)).toMatch(new RegExp(`and ${13 - (out.warnings.length - 1)} more`));
+    expect(out.warnings.at(-1)).toMatch(new RegExp(`and ${14 - (out.warnings.length - 1)} more`));
   });
 });
 

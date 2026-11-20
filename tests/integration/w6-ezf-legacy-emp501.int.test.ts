@@ -16,6 +16,7 @@ import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } f
 import { refreshCache } from '../../src/modules/accounting/services/payroll/sarsCodesService';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '../../src/modules/accounting/services/payroll/easyFileInput';
 import { emp501Period } from '../../src/modules/accounting/services/payroll/emp501Period';
+import { UNWRITTEN_FIELDS_WARNING } from '../../src/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { buildEmp501Figures, emp501Drift } from '../../src/modules/accounting/services/returns/emp501Figures';
 import returns from '../../pages/api/payroll/emp501/returns/index';
 import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
@@ -102,6 +103,8 @@ describeIfDb('EZF: EMP501 versions from before the BRS code fix, and the employe
     const input = await assembleEasyFileInput(c(), 2026, 'interim');
     expect(input.employer.physicalSuburb).toBeNull();
     expect(input.employer.physicalCity).toBe('Pretoria');
+    // Hein 2026-11-20: the mandatory fields IsaFlow holds no data for are warned about, never refused.
+    expect(input.warnings).toContain(UNWRITTEN_FIELDS_WARNING);
   });
 
   it('a company with no city is refused, naming "Physical city" (2066 is the field the BRS then needs)', async () => {

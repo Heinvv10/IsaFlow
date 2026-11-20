@@ -29,6 +29,7 @@ import emp201Route from '../../pages/api/accounting/sars/sars-emp201';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { createTaxDirective } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import {
   applyStandalone, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee,
@@ -188,7 +189,8 @@ describe('G1: directive PAYE paid outside payroll reaches EMP201, the IRP5 data 
     }
     expect(fields.filter(l => l.startsWith('3230,'))).toHaveLength(2);
     expect(fields.some(l => l.startsWith('4150,'))).toBe(false);
-    expect(out.warnings).toEqual([expect.stringContaining('AB12345')]);
+    // Plus the unwritten-fields notice every file carries (wave 6 EZF).
+    expect(out.warnings).toEqual([expect.stringContaining('AB12345'), UNWRITTEN_FIELDS_WARNING]);
     expect(validateCertificateTaxFields(fields)).toEqual([]);
   });
 
@@ -248,6 +250,6 @@ describe('G3: the directive issued date', () => {
     expect(bad.statusCode).toBe(400);
     const out = await exportFile(f);
     expect(employeeRecord(out.file)).toContain('3231,20260509');
-    expect(out.warnings).toEqual([]);
+    expect(out.warnings).toEqual([UNWRITTEN_FIELDS_WARNING]); // no 3231 fallback; the notice every file carries (wave 6 EZF)
   });
 });
