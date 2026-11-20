@@ -13,8 +13,13 @@
  *   that arrives later waits for the merge, then finds the PO on the other supplier and links nothing. The lock comes BEFORE the
  *   bill-link check for the same reason. Cost: a contention window against bill creates, answered, never faulted: waited at most
  *   5 s (`withRowLockBudget`, `PurchaseOrderLockTimeoutError`) and a deadlock victim (40P01) is the same retryable 503 on both
- *   routes (`respondIfLockTimeout`). Both sides take POs in id order, so two POs cannot cycle; the bill row a creator holds is
- *   uncommitted, which the merge never waits on. The order is PO, then bills, as in link / unlink.
+ *   routes (`respondIfLockTimeout`). Both sides take POs in id order, so two POs cannot cycle. KNOWN CYCLE, ACCEPTED: a draft
+ *   bill edit takes the bill row (UPDATE) and then the PO FOR KEY SHARE (`refreshAppBillLinks`); the merge takes the PO FOR
+ *   UPDATE and then updates the bills. When both touch the same bill and PO each waits for the other, and Postgres kills one with
+ *   40P01: a retryable 503 for the merge (or the edit), nothing written, no corruption (the link guard and the lock both hold).
+ *   It is rare (a merge of that supplier at the instant of an edit of one of its bills) and a merge is retried by hand. The
+ *   alternative orders were weighed and rejected: bills first lets a link made meanwhile reach a bill the merge already moved
+ *   (23514 from the database guard instead of the clean refusal), and FOR NO KEY UPDATE lets a bill edit link to a PO being moved.
  * - a PO past draft / submitted (approved, partially received, received, closed) moves only for a role that passes
  *   `canCancelApprovedPo`; otherwise the merge is refused (`purchaseOrderMoveRefusal`, thrown by the caller as a
  *   SupplierMergeRefusal) before anything moves. A cancelled PO commits nothing and moves for anyone. Unlike

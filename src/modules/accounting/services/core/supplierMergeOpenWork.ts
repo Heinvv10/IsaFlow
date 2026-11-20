@@ -46,18 +46,28 @@ export const SIDE_GUARD_REFUSAL =
   'The intercompany connection of this supplier cannot be changed right now: it needs a user with a write role in this company, on a connection that is not revoked. Fix that first, then merge.';
 
 /**
- * The intercompany sides guard's own refusals (migration 1002, intercompany_sides_guard): its SQLSTATE AND its message. Anything
- * else (a unique violation, a deadlock, a driver fault) is not the guard and is rethrown.
+ * The intercompany sides guard's own refusals (migration 1002, intercompany_sides_guard): its SQLSTATE AND its exact message.
+ * Anything else (a unique violation, a deadlock, a driver fault, the read-committed 40001) is not the guard and is rethrown.
+ * `supplierMergeSideGuard.test.ts` reads the guard's SQL and fails when a RAISE is not listed here, so this cannot drift.
  */
-const SIDE_GUARD_ERRORS: ReadonlyArray<{ code: string; message: RegExp }> = [
-  { code: '23514', message: /^(a revoked connection's sides cannot change|a side keeps its connection|a side belongs to one of the connection's two companies|auto-accept|a default dimension is not)/ },
-  { code: '42501', message: /^a side is changed by a user with a write role in its company/ },
-  { code: '23503', message: /^(no such connection|the supplier is not this company's|the customer is not this company's)/ },
+export const SIDE_GUARD_ERRORS: ReadonlyArray<{ code: string; message: string }> = [
+  { code: '23503', message: 'no such connection' },
+  { code: '23514', message: 'a side keeps its connection and its company' },
+  { code: '23514', message: "a revoked connection's sides cannot change" },
+  { code: '23514', message: "a side belongs to one of the connection's two companies, facing the other" },
+  { code: '42501', message: 'a side is changed by a user with a write role in its company' },
+  { code: '23514', message: 'auto-accept is only for a group connection' },
+  { code: '23514', message: 'auto-accept needs both companies to be current members of one group' },
+  { code: '23503', message: "the customer is not this company's" },
+  { code: '23503', message: "the supplier is not this company's" },
+  { code: '23503', message: "the loan account is not this company's" },
+  { code: '23503', message: "the default expense account is not this company's" },
+  { code: '23503', message: "a default dimension is not this company's" },
 ];
 
 const isSideGuardError = (err: unknown): boolean => {
   const { code, message } = err as { code?: unknown; message?: unknown };
-  return typeof code === 'string' && typeof message === 'string' && SIDE_GUARD_ERRORS.some((g) => g.code === code && g.message.test(message));
+  return typeof code === 'string' && typeof message === 'string' && SIDE_GUARD_ERRORS.some((g) => g.code === code && g.message === message);
 };
 
 /**
