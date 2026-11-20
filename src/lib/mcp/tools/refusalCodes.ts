@@ -164,6 +164,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // export_gl_lines table=counterparties without read:contacts (tools/exportGlLines):
   // names the missing scope and how to grant it; raised before any query.
   'GL_EXPORT_SCOPE_REFUSED',
+  // ap/goodsReceivedValidation (create_goods_received / cancel_goods_received and the app's goods receipt POST): a receipt
+  // refused before any write (PO status, over-receipt per line, a line not on the PO, a repeated delivery reference, a note
+  // already cancelled or on a bill). Names only the caller's own documents and quantities.
+  'GOODS_RECEIVED_REFUSED',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.

@@ -20,7 +20,7 @@ import type { DbRow } from '@/lib/neon';
 
 export const EXTERNAL_REF_KINDS = [
   'supplier_invoice', 'customer_invoice', 'credit_note', 'journal', 'bank_transaction', 'supplier', 'customer', 'item',
-  'purchase_order', 'po_bill_link',
+  'purchase_order', 'po_bill_link', 'goods_received',
 ] as const;
 export type ExternalRefKind = (typeof EXTERNAL_REF_KINDS)[number];
 
@@ -114,6 +114,13 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
         JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
         WHERE l.company_id = ${companyId}::UUID AND l.external_system = lower(${system}) AND l.external_ref = ${ref}`) as DbRow[]; // stored lower case (CHECK): the (company, system, ref) index serves it
+    case 'goods_received':
+      // A cancelled note is superseded (its reference is free again); every other status is the live copy. Stored lower case (1021).
+      return (await sql`
+        SELECT id, grn_number AS number, status, received_date AS date, NULL::NUMERIC AS total_amount, NULL::TEXT AS external_document_number,
+               (status IS DISTINCT FROM 'cancelled') AS live
+        FROM goods_received_notes
+        WHERE company_id = ${companyId}::UUID AND external_system = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'supplier':
       return (await sql`
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,

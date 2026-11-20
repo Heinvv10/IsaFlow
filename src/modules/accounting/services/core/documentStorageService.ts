@@ -25,6 +25,7 @@ export const VALID_ENTITY_TYPES = [
   'customer_payment',
   'credit_note',
   'purchase_order',
+  'goods_received',
 ] as const;
 
 export const VALID_DOCUMENT_TYPES = [
@@ -35,6 +36,7 @@ export const VALID_DOCUMENT_TYPES = [
   'invoice',
   'receipt',
   'purchase_order',
+  'delivery_note',
   'other',
 ] as const;
 
@@ -92,6 +94,7 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
     UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM goods_received_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     LIMIT 1
   `;
   return !!owner;
@@ -127,6 +130,9 @@ export async function verifyEntityOwnershipTyped(
       break;
     case 'purchase_order':
       rows = await sql`SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'goods_received':
+      rows = await sql`SELECT 1 FROM goods_received_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
       break;
     default:
       return false;
@@ -318,7 +324,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
  * the UPDATE must fence itself. procurement_documents carries NO company_id:
  * its tenancy lives in (entity_type, entity_id) -> parent row. The predicate
  * below is the table's own `tenant_isolation_via_parent` policy with the
- * membership subquery replaced by this request's company — all six entity
+ * membership subquery replaced by this request's company — all seven entity
  * types, so a row whose parent belongs to another tenant matches nothing.
  */
 export async function extractAndStoreDocMetadata(
@@ -345,6 +351,7 @@ export async function extractAndStoreDocMetadata(
           OR (d.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'credit_note' AND EXISTS (SELECT 1 FROM credit_notes p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'purchase_order' AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'goods_received' AND EXISTS (SELECT 1 FROM goods_received_notes p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
         )
       RETURNING d.id
     `;

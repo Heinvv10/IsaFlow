@@ -735,6 +735,9 @@ describe('write-tool manifest invariants', () => {
       cancel_purchase_order: { ...KEY },
       close_purchase_order: { ...KEY },
       set_purchase_order_status: { ...KEY },
+      // Refuse the missing po_id / grn_id before any query; behaviour in goodsReceivedTools.test.ts.
+      create_goods_received: { ...KEY },
+      cancel_goods_received: { ...KEY },
       // Voids refuse the missing document id before any query; behaviour in
       // voidPaymentTools.test.ts.
       // Refuses on the missing subledger before reading anything; behaviour in
