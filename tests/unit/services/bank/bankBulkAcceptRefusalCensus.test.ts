@@ -42,7 +42,7 @@ const NOT_ON_PATH = [
   'FinancialYearStartLoadedMissingError', 'FinancialYearStartLockedError', 'FinancialYearStartScopeError', 'FiscalPeriodsInUseError',
   'FiscalYearLabelUnknownError',
   'GlAccountLockTimeoutError', 'HandCorrectionRefusedError', 'ImportValidationError', 'InvalidCursorError',
-  'InvalidFinancialYearStartError', 'JournalDocumentLinkRefusal', 'JournalHasLiveBankLineError', 'JournalReinstatesCancelledDocumentError', 'JournalReversalLockTimeoutError',
+  'InvalidFinancialYearStartError', 'JournalDocumentLinkRefusal', 'JournalHasLiveBankLineError', 'JournalReinstatesCancelledDocumentError', 'JournalReversalChainFullError', 'JournalReversalLockTimeoutError',
   'LedgerAccountNotFoundError', 'LineRefused', 'MissingAssetAccountError', 'OffsetTooLargeError', 'OpeningBalanceValidationError',
   'ParentAccountError', 'PeriodCloseBlockedError', 'PeriodNotCloseableError', 'PossibleDuplicateTransferError', 'ProbeDone', 'ProposalDecisionError',
   'ReclassLineLockTimeoutError', 'ReclassifyError', 'ReconciliationNotBalancedError', 'ReconciliationNotCancellableError',

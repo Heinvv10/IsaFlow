@@ -60,6 +60,12 @@
 --      removed from it, and a line's account may move only if the two journals are still exact negations at COMMIT
 --      (an account merge moves both sides in one transaction; one side alone is refused). The Demo company's wipe and
 --      the cascade of an entry delete are exempt as in 999n; a superuser is exempt as everywhere.
+--   7. (round 4) Every rule above that takes a lock and then reads another session's rows (the reversal link, a document's
+--      link, unlink, cancel and delete) runs only at READ COMMITTED for a non-superuser (40001 otherwise: at REPEATABLE
+--      READ or SERIALIZABLE the read is older than the lock). A linked or non-draft document keeps its company_id, and
+--      the cancel stamps its journal by the journal's id alone. A document whose journal is in force is not deleted;
+--      a linked document deleted with its journal out of force stamps that journal as a cancel does (the Demo
+--      company's wipe is exempt as in 999n). document_cancelled_at is written only from those document triggers.
 --
 -- BOUNDARY (stated, not oversold). A state rule cannot know WHO wrote a row. Still open, and logged for the planner
 -- tier because only a privilege split (a posting role distinct from the request role) closes them: an INSERT of a
@@ -86,6 +92,7 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_at_release ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_status ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_document_cancel_kept ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_je_document_cancel_no_insert ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_set_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
 --   DROP INDEX IF EXISTS public.ix_gl_je_reversal_of_lookup;
@@ -94,12 +101,15 @@
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_upd ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_cancel_in_force ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_cancelled_final ON public.<table>;
+--   DROP TRIGGER IF EXISTS trg_doc_company_frozen ON public.<table>;
+--   DROP TRIGGER IF EXISTS trg_doc_delete_in_force ON public.<table>;
 --   DROP FUNCTION IF EXISTS public.gl_je_reversal_no_insert(), public.gl_je_reversal_link(),
 --     public.gl_je_posted_header_frozen(), public.gl_je_reversed_status(), public.gl_je_reversed_at_release(), public.doc_journal_link_guard(),
 --     public.doc_cancel_in_force(), public.gl_journal_in_force(uuid), public.gl_lines_are_negation(uuid, uuid),
 --     public.gl_journal_is_linked(uuid), public.gl_jl_linked_set_frozen(), public.gl_jl_linked_account_check(),
 --     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_cancel_kept(),
---     public.doc_cancelled_final();
+--     public.doc_cancelled_final(), public.doc_company_frozen(), public.doc_delete_in_force(),
+--     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -200,6 +210,26 @@ AS $$
   SELECT up.id, up.dist, up.rid IS NULL FROM up;
 $$;
 
+-- The rules below take an advisory lock and THEN read what other sessions committed. At READ COMMITTED each statement
+-- after the lock reads a fresh snapshot; at REPEATABLE READ or SERIALIZABLE it reads the transaction's first snapshot,
+-- older than the lock, so the lock would serialise nothing (round 4 H1). So a non-superuser writing what these rules
+-- judge must be at READ COMMITTED (40001, retry there), as 886 and 1002 refuse for their tables. Census: every app
+-- write runs at READ COMMITTED (withAuth, sql.transaction's default, the scripts and the Demo reseed); the only other
+-- level in the code is the audit snapshot's REPEATABLE READ, which writes none of these tables.
+CREATE OR REPLACE FUNCTION public.ledger_require_read_committed(p_table text)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed', 'read uncommitted') THEN
+    RAISE EXCEPTION '%: ledger links are written at READ COMMITTED only: retry the transaction at READ COMMITTED', p_table
+      USING ERRCODE = '40001';
+  END IF;
+END
+$$;
+
 -- ── 1. reversal_of_id ───────────────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.gl_je_reversal_no_insert()
@@ -241,6 +271,7 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   IF OLD.reversal_of_id IS NOT NULL THEN
     RAISE EXCEPTION 'gl_journal_entries: a journal''s reversal link is fixed once set' USING ERRCODE = '23514';
   END IF;
@@ -296,7 +327,8 @@ BEGIN
   -- chain below it (v_below journals, itself included: 1 unless it was reversed before it was linked).
   SELECT a.id, a.dist INTO v_root_now, v_root_dist FROM public.gl_journal_ancestors(NEW.reversal_of_id) a WHERE a.is_root;
   IF v_root_now IS NULL THEN
-    RAISE EXCEPTION 'gl_journal_entries: that reversal chain is full (64 journals) and takes no further reversal' USING ERRCODE = '23514';
+    RAISE EXCEPTION 'gl_journal_entries: that reversal chain is full (64 journals) and takes no further reversal'
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_chain_full';
   END IF;
   IF v_root_now IS DISTINCT FROM v_root THEN
     RAISE EXCEPTION 'gl_journal_entries: the reversal chain changed while it was being linked (retry)' USING ERRCODE = '23514';
@@ -310,7 +342,7 @@ BEGIN
   SELECT max(depth), count(*) INTO v_below, v_below_nodes FROM down;
   IF v_below_nodes <> v_below OR v_root_dist + v_below >= 64 OR NOT public.gl_journal_chain_sound(v_root_now) THEN
     RAISE EXCEPTION 'gl_journal_entries: a reversal chain stays one line of fewer than 64 journals (that one is branched or full)'
-      USING ERRCODE = '23514';
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_chain_full';
   END IF;
   -- After the link, a journal dist journals above the contra's place heads a chain of dist + v_below journals: in force
   -- when that is odd. None whose document was cancelled comes back in force.
@@ -408,9 +440,10 @@ CREATE OR REPLACE TRIGGER trg_gl_je_reversed_at_release
   EXECUTE FUNCTION public.gl_je_reversed_at_release();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_reversed_at_release;
 
--- document_cancelled_at is set once (a document's cancel, rules 4 and 5) and kept: clearing it would let rule 1 re-instate the chain. A
--- caller setting it on a journal of its own only refuses that journal's re-instatement (fail closed), so NULL -> value
--- is left open.
+-- document_cancelled_at is written only by a document's cancel (rules 4 and 5: the stamp UPDATE runs inside the
+-- document's trigger, so this one fires nested, pg_trigger_depth() > 1) and then kept: clearing it would let rule 1
+-- re-instate the chain, and a caller pre-stamping a journal would make a legitimate re-reversal (the soft-delete undo)
+-- fail with a misleading message (round 4 L1). No INSERT carries one.
 CREATE OR REPLACE FUNCTION public.gl_je_document_cancel_kept()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -420,16 +453,29 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  RAISE EXCEPTION 'gl_journal_entries: the journal of a cancelled document stays marked so' USING ERRCODE = '23514';
+  IF TG_OP = 'UPDATE' AND OLD.document_cancelled_at IS NOT NULL THEN
+    RAISE EXCEPTION 'gl_journal_entries: the journal of a cancelled document stays marked so' USING ERRCODE = '23514';
+  END IF;
+  IF TG_OP = 'INSERT' OR pg_catalog.pg_trigger_depth() < 2 THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal is marked as a cancelled document''s only by that document''s cancel'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
 END
 $$;
 
 CREATE OR REPLACE TRIGGER trg_gl_je_document_cancel_kept
   BEFORE UPDATE OF document_cancelled_at ON public.gl_journal_entries
   FOR EACH ROW
-  WHEN (OLD.document_cancelled_at IS NOT NULL AND NEW.document_cancelled_at IS DISTINCT FROM OLD.document_cancelled_at)
+  WHEN (NEW.document_cancelled_at IS DISTINCT FROM OLD.document_cancelled_at)
+  EXECUTE FUNCTION public.gl_je_document_cancel_kept();
+CREATE OR REPLACE TRIGGER trg_gl_je_document_cancel_no_insert
+  BEFORE INSERT ON public.gl_journal_entries
+  FOR EACH ROW
+  WHEN (NEW.document_cancelled_at IS NOT NULL)
   EXECUTE FUNCTION public.gl_je_document_cancel_kept();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_cancel_kept;
+ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_cancel_no_insert;
 
 -- ── 6. the line set of a linked journal ────────────────────────────────────────────────────────────────────────
 
@@ -546,6 +592,25 @@ BEGIN
 END
 $$;
 
+-- The cancel's stamp, by journal id alone (never by the document's company, which the cancel UPDATE could rewrite: round
+-- 4 H2). Fails closed when no row takes it: a journal the caller cannot see (RLS) is not left unstamped silently.
+CREATE OR REPLACE FUNCTION public.gl_je_stamp_document_cancel(p_table text, p_entry uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_rows bigint;
+BEGIN
+  UPDATE public.gl_journal_entries SET document_cancelled_at = COALESCE(document_cancelled_at, now()) WHERE id = p_entry;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows = 0 THEN
+    RAISE EXCEPTION '%: the cancelled document''s journal could not be marked (not visible to this session)', p_table
+      USING ERRCODE = '23514';
+  END IF;
+END
+$$;
+
 -- ── 4. a document's journal link ────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.doc_journal_link_guard()
@@ -560,6 +625,7 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   IF TG_OP = 'INSERT' THEN
     RAISE EXCEPTION '%: a document is created unlinked; its journal is linked when it is approved', TG_TABLE_NAME
       USING ERRCODE = '23514';
@@ -578,8 +644,7 @@ BEGIN
       RAISE EXCEPTION '%: a document''s journal is unlinked only by its cancel', TG_TABLE_NAME USING ERRCODE = '23514';
     END IF;
     -- The cancel's journal is never put back in force (rule 1 reads this).
-    UPDATE public.gl_journal_entries SET document_cancelled_at = now()
-     WHERE id = OLD.gl_journal_entry_id AND company_id = NEW.company_id AND document_cancelled_at IS NULL;
+    PERFORM public.gl_je_stamp_document_cancel(TG_TABLE_NAME, OLD.gl_journal_entry_id);
     RETURN NEW;
   END IF;
   -- NULL -> X. One session at a time per journal, so two cannot both pass the "linked by no other document" test.
@@ -615,6 +680,7 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this cancel, or this for it.
   PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.gl_journal_entry_id::text, 0));
   IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
@@ -624,8 +690,7 @@ BEGIN
   -- A cancel that keeps its link (the credit note): its journal is never put back in force (rule 1 reads this), even
   -- once the document row is gone.
   IF NEW.status = 'cancelled' THEN
-    UPDATE public.gl_journal_entries SET document_cancelled_at = now()
-     WHERE id = NEW.gl_journal_entry_id AND company_id = NEW.company_id AND document_cancelled_at IS NULL;
+    PERFORM public.gl_je_stamp_document_cancel(TG_TABLE_NAME, NEW.gl_journal_entry_id);
   END IF;
   RETURN NEW;
 END
@@ -643,6 +708,48 @@ BEGIN
     RETURN NEW;
   END IF;
   RAISE EXCEPTION '%: a cancelled document stays cancelled (cancelling is final)', TG_TABLE_NAME USING ERRCODE = '23514';
+END
+$$;
+
+-- A linked or non-draft document keeps its company (round 4 H2: a member of two companies moved one to the other in the
+-- cancel's UPDATE, so the journal and the document no longer shared a company). Census: no application path writes a
+-- document's company_id after insert.
+CREATE OR REPLACE FUNCTION public.doc_company_frozen()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION '%: a linked or non-draft document keeps its company', TG_TABLE_NAME USING ERRCODE = '23514';
+END
+$$;
+
+-- A document is not deleted while its journal is in force (round 4 M1): the delete would have the cancel's effect on
+-- the sub-ledger with the journal still in the GL. A document linking a journal out of force (a cancelled credit note)
+-- may go, and stamps that journal as a cancel does. The Demo company's wipe is exempt as in 999n; the purge deletes only unlinked
+-- rows, which this never sees.
+CREATE OR REPLACE FUNCTION public.doc_delete_in_force()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' OR OLD.company_id = '00000000-0000-0000-0000-000000000001'::uuid THEN
+    RETURN OLD;
+  END IF;
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
+  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || OLD.gl_journal_entry_id::text, 0));
+  IF public.gl_journal_in_force(OLD.gl_journal_entry_id) THEN
+    RAISE EXCEPTION '%: a document whose journal is in force is not deleted (cancel it, or reverse the journal first)', TG_TABLE_NAME
+      USING ERRCODE = '23514';
+  END IF;
+  -- Gone is as final as cancelled: the journal it held is never put back in force (rule 1 reads the stamp), or an
+  -- approved document whose journal was reversed could be deleted and its chain then re-instated with no document.
+  PERFORM public.gl_je_stamp_document_cancel(TG_TABLE_NAME, OLD.gl_journal_entry_id);
+  RETURN OLD;
 END
 $$;
 
@@ -671,6 +778,19 @@ CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
   EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
 ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
+CREATE OR REPLACE TRIGGER trg_doc_company_frozen
+  BEFORE UPDATE OF company_id ON public.customer_invoices
+  FOR EACH ROW
+  WHEN (NEW.company_id IS DISTINCT FROM OLD.company_id
+        AND (OLD.gl_journal_entry_id IS NOT NULL OR NEW.gl_journal_entry_id IS NOT NULL OR OLD.status IS DISTINCT FROM 'draft'))
+  EXECUTE FUNCTION public.doc_company_frozen();
+CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
+  BEFORE DELETE ON public.customer_invoices
+  FOR EACH ROW
+  WHEN (OLD.gl_journal_entry_id IS NOT NULL)
+  EXECUTE FUNCTION public.doc_delete_in_force();
+ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
+ALTER TABLE public.customer_invoices ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.supplier_invoices
@@ -697,6 +817,19 @@ CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
   EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
+CREATE OR REPLACE TRIGGER trg_doc_company_frozen
+  BEFORE UPDATE OF company_id ON public.supplier_invoices
+  FOR EACH ROW
+  WHEN (NEW.company_id IS DISTINCT FROM OLD.company_id
+        AND (OLD.gl_journal_entry_id IS NOT NULL OR NEW.gl_journal_entry_id IS NOT NULL OR OLD.status IS DISTINCT FROM 'draft'))
+  EXECUTE FUNCTION public.doc_company_frozen();
+CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
+  BEFORE DELETE ON public.supplier_invoices
+  FOR EACH ROW
+  WHEN (OLD.gl_journal_entry_id IS NOT NULL)
+  EXECUTE FUNCTION public.doc_delete_in_force();
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
 
 CREATE OR REPLACE TRIGGER trg_doc_journal_link_ins
   BEFORE INSERT ON public.credit_notes
@@ -723,3 +856,16 @@ CREATE OR REPLACE TRIGGER trg_doc_cancelled_final
   EXECUTE FUNCTION public.doc_cancelled_final();
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_cancel_in_force;
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_cancelled_final;
+CREATE OR REPLACE TRIGGER trg_doc_company_frozen
+  BEFORE UPDATE OF company_id ON public.credit_notes
+  FOR EACH ROW
+  WHEN (NEW.company_id IS DISTINCT FROM OLD.company_id
+        AND (OLD.gl_journal_entry_id IS NOT NULL OR NEW.gl_journal_entry_id IS NOT NULL OR OLD.status IS DISTINCT FROM 'draft'))
+  EXECUTE FUNCTION public.doc_company_frozen();
+CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
+  BEFORE DELETE ON public.credit_notes
+  FOR EACH ROW
+  WHEN (OLD.gl_journal_entry_id IS NOT NULL)
+  EXECUTE FUNCTION public.doc_delete_in_force();
+ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
+ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
