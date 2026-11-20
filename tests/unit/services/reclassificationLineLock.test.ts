@@ -67,6 +67,12 @@ interface Lines {
  * them. Cleaned up by id at the end — they cannot live in the test's own
  * rolled-back transaction, because the whole point is cross-connection
  * visibility.
+ *
+ * The journal is a DRAFT. The lock is a row lock on gl_journal_lines and reads
+ * no status, so a draft contends exactly as a posted journal does. A posted one
+ * cannot be seeded this way any more: migration 999n refuses a line added to a
+ * journal posted in an earlier transaction, and refuses deleting a posted
+ * journal at cleanup, for every non-superuser (isaflow_dev's DATABASE_URL role).
  */
 async function makeCommittedLines(client: PoolClient): Promise<Lines | null> {
   // Its own company, for the reason the other DB-gated reclassification files
@@ -94,8 +100,8 @@ async function makeCommittedLines(client: PoolClient): Promise<Lines | null> {
   );
   const { rows: entry } = await client.query<{ id: string }>(
     `INSERT INTO gl_journal_entries
-       (company_id, entry_date, fiscal_period_id, description, source, status, created_by, posted_at)
-     SELECT $1, CURRENT_DATE, fp.id, 'line lock fixture', 'manual', 'posted', $2, now()
+       (company_id, entry_date, fiscal_period_id, description, source, status, created_by)
+     SELECT $1, CURRENT_DATE, fp.id, 'line lock fixture', 'manual', 'draft', $2
        FROM fiscal_periods fp
       WHERE fp.company_id = $1 AND fp.start_date <= CURRENT_DATE AND fp.end_date >= CURRENT_DATE
       LIMIT 1
