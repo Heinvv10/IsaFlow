@@ -142,6 +142,7 @@ describe('RI (review of #1580 M1): a PSP takes no reimbursive travel on MCP, the
     const f = await seedEmployee(pool, fixtures, 'psp grid km', 30_000);
     const psp = await addEmployee(pool, f, 'psp-grid-km', PAY);
     await toPsp(f, psp, 'trust');
+    await component(f, '3703', 'earning'); // the company's travel earning exists: only the PSP rule refuses
     const run = await newRun(pool, f, 3);
     const out = await f.call(runInputsRoute as Route, 'PUT', `/api/payroll/runs/${run}/inputs`, run,
       { body: { employeeId: psp, units: { kind: 'travel', multiplier: null, quantity: 1000, ratePerKm: 6, expectedQuantity: null } } });
