@@ -86,6 +86,20 @@ export const exits = (s: ts.Statement | undefined): boolean => {
   return ts.isBlock(s) && s.statements.length > 0 && exits(s.statements[s.statements.length - 1]);
 };
 
+/**
+ * The static SQL text of a node: a tagged template (the parts joined by ?), and, when `queryCalls`, a `<x>.query('...')` / `<x>.query(`...`)` call
+ * whose first argument is a string or template without substitutions (the pg client and pool style, which a tagged-template-only census misses).
+ */
+export function sqlTextOf(n: ts.Node, queryCalls: boolean): string | null {
+  if (ts.isTaggedTemplateExpression(n)) return templateText(n);
+  if (queryCalls && ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'query') {
+    const a = n.arguments[0];
+    if (a && ts.isStringLiteralLike(a)) return a.text;
+    if (a && ts.isTemplateExpression(a)) return `${a.head.text}?${a.templateSpans.map((x) => x.literal.text).join('?')}`;
+  }
+  return null;
+}
+
 /** The static text of a tagged template (the parts joined by ?). */
 export const templateText = (t: ts.TaggedTemplateExpression): string =>
   ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text

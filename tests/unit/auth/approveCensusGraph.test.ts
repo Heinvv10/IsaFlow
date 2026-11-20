@@ -226,3 +226,28 @@ describe('approve census analyser: a marker binds to the outermost call of its s
     expect(run(h(`${marker}    await postJournalEntry('c', 'i');`))).toEqual([]);
   });
 });
+
+describe('approve census analyser: pg client calls and quoted identifiers (round 8)', () => {
+  const run = (route: string, queryCalls: boolean) => analyse({
+    virtualFiles: { '/v/route.ts': route }, programFiles: ['/v/route.ts'], routeFiles: ['/v/route.ts'], sinks: {}, gates: {}, routeWrappers: {},
+    sqlPrimitives: [/FROM\s+"?payslips"?/i], flagPrimitiveRoots: true, queryCalls,
+  }).bad;
+  const route = (body: string) => `declare const client: { query(t: string, v?: unknown[]): Promise<unknown> };\nasync function handler() { ${body} }\nexport default handler;`;
+
+  it('a client.query(\'...\') with a static string or template is a primitive read when asked (queryCalls); not otherwise', () => {
+    expect(run(route("await client.query('SELECT gross FROM payslips WHERE id = $1', ['1']);"), true)).toHaveLength(1);
+    expect(run(route('await client.query(`SELECT gross FROM payslips`);'), true)).toHaveLength(1);
+    expect(run(route("await client.query('SELECT gross FROM payslips');"), false)).toEqual([]);
+    expect(run(route("await client.query('SELECT 1 FROM customers');"), true)).toEqual([]);
+  });
+
+  it('a census-exempt(sql) marker binds to the one query call, like a tagged template', () => {
+    const marker = "\n// census-exempt(sql): a total\n";
+    expect(run(route(`${marker}await client.query('SELECT sum(gross) FROM payslips');`), true)).toEqual([]);
+    expect(run(route(`${marker}await client.query('SELECT sum(gross) FROM payslips');\nawait client.query('SELECT gross FROM payslips');`), true)).toHaveLength(1);
+  });
+
+  it('a quoted table name is read as the table', () => {
+    expect(run(route("await client.query('SELECT gross FROM \"payslips\"');"), true)).toHaveLength(1);
+  });
+});

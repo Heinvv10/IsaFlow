@@ -64,7 +64,7 @@ const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payrol
 let payrollMemo: ReturnType<typeof analyse> | undefined;
 const payrollCensus = () => (payrollMemo ??= analyse({
   routeFiles: payrollReadRoutes, programFiles, sinks: {}, gates: PAYROLL_READ_GATES, routeWrappers: PAYROLL_READ_WRAPPERS,
-  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true,
+  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, queryCalls: true,
 }));
 
 describe('approve / post entry-point census (#1656)', () => {
@@ -91,6 +91,9 @@ describe('approve / post entry-point census (#1656)', () => {
       expect(reads(`SELECT x FROM ${t} WHERE company_id = ?`), t).toBe(true);
       expect(reads(`SELECT x FROM a JOIN public.${t} b ON b.id = a.id`), `JOIN ${t}`).toBe(true);
     }
+    // quoted and schema-qualified spellings (round 8)
+    expect(reads('SELECT 1 FROM "public"."payslips" p')).toBe(true);
+    expect(reads('SELECT 1 FROM public."payroll_bank_details"')).toBe(true);
     expect(reads("SELECT * FROM entity_changes WHERE entity_type = 'payroll_employee'")).toBe(true);
     expect(reads("SELECT * FROM entity_changes WHERE entity_type = 'supplier'")).toBe(false);
     expect(reads('SELECT 1 FROM payroll_company_settings')).toBe(false);

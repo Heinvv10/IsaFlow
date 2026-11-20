@@ -25,7 +25,7 @@
  */
 import ts from 'typescript';
 import { resolve } from 'path';
-import { calleeName, callAncestors, exits, markersAbove, markersIn, objectProp, programFor, ROOT, templateText, unwrap } from './approveCensusProgram';
+import { calleeName, callAncestors, exits, markersAbove, markersIn, objectProp, programFor, ROOT, sqlTextOf, unwrap } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -42,11 +42,12 @@ export interface CensusConfig {
   sqlPrimitives?: readonly RegExp[];
   /** A route unit running primitive SQL is dangerous unless wrapped, or a gate dominates the statement, or a marker sits above it (the payroll-read census). */
   flagPrimitiveRoots?: boolean;
+  queryCalls?: boolean; // also read `<x>.query('...')` (a static string) as SQL: the payroll-read census
 }
 
 export interface BadRoute { file: string; unit: string; sites: string[] }
 export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; markersUsed: string[]; staleMarkers: string[] }
-interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primitive: boolean; primSites: ts.TaggedTemplateExpression[]; needs: Set<string> }
+interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primitive: boolean; primSites: ts.Node[]; needs: Set<string> }
 interface Call { node: ts.CallExpression; callee: string; target: Unit | null; sinkModule: string | null; gates: Set<string>; exempt: { line: number } | null }
 
 export function analyse(cfg: CensusConfig): Census {
@@ -197,13 +198,11 @@ export function analyse(cfg: CensusConfig): Census {
       if (new RegExp(`export default[^;]*\\b${w}\\(`).test(sf.text)) wrapped.set(rel(sf.fileName), cfg.routeWrappers[w]!);
     }
     const visit = (n: ts.Node) => {
-      if (cfg.sqlPrimitives && ts.isTaggedTemplateExpression(n)) {
-        const text = templateText(n);
-        if (cfg.sqlPrimitives.some((re) => re.test(text))) {
-          const u = enclosing(n) ?? unitOfFile(sf);
-          u.primitive = true;
-          u.primSites.push(n);
-        }
+      const text = cfg.sqlPrimitives ? sqlTextOf(n, cfg.queryCalls === true) : null;
+      if (text !== null && cfg.sqlPrimitives!.some((re) => re.test(text))) {
+        const u = enclosing(n) ?? unitOfFile(sf);
+        u.primitive = true;
+        u.primSites.push(n);
       }
       if (ts.isCallExpression(n)) {
         const name = calleeName(n);
