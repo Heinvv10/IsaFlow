@@ -15,6 +15,12 @@ let z: Freeze;
 let legs: Leg[];
 const setLink = (kind: Kind, id: string, je: string | null) => (c: import('pg').PoolClient) =>
   c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]);
+/** A posted contra linked to `original`: the ledger's own reversal (written as the superuser). */
+async function reverse(original: string): Promise<string> {
+  const contra = await journal(z, negate(legs));
+  await sql`UPDATE gl_journal_entries SET reversal_of_id = ${original}::UUID, reversed_at = now() WHERE id = ${contra}::UUID`;
+  return contra;
+}
 const linkOf = async (kind: Kind, id: string) => String((await z.pool.query(`SELECT gl_journal_entry_id AS j FROM ${kind} WHERE id = $1`, [id])).rows[0]?.j ?? null);
 
 describeIfDisposable('ledger column immutability: a document\'s journal link and cancel (migration 1018)', () => {
@@ -105,9 +111,37 @@ describeIfDisposable('ledger column immutability: a document\'s journal link and
     await refused(asApp(z, setLink(kind, doc, await journal(z, legs))), /cannot be swapped/);
     await refused(asApp(z, setLink(kind, doc, null)), /in force cannot be unlinked/);
     await refused(asRole(z, 'migration_admin', setLink(kind, doc, null)), /in force cannot be unlinked/);
-    await sql`UPDATE gl_journal_entries SET reversed_at = now() WHERE id = ${original}::UUID`;
+    await reverse(original);
     await asApp(z, setLink(kind, doc, null), { commit: true });
     expect(await linkOf(kind, doc)).toBe('null');
+  });
+
+  it.each(KINDS)('%s: neither the reversed_at stamp nor a status flip takes a journal out of force', async (kind) => {
+    const original = await journal(z, legs);
+    const doc = await document(z, kind, { link: original });
+    const cancel = (c: import('pg').PoolClient) => c.query(`UPDATE ${kind} SET status = 'cancelled' WHERE id = $1`, [doc]);
+    await asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversed_at = now(), reversed_by = $2 WHERE id = $1', [original, z.f.fx.userId]), { commit: true });
+    await refused(asApp(z, setLink(kind, doc, null)), /in force cannot be unlinked/);
+    await refused(asApp(z, cancel), /journal is in force/);
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
+    const legacyContra = await journal(z, negate(legs), { status: 'reversed' });
+    const reversedBy = await journal(z, legs);
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${reversedBy}::UUID WHERE id = ${legacyContra}::UUID`;
+    const byLegacy = await document(z, kind, { link: reversedBy });
+    await asApp(z, setLink(kind, byLegacy, null)); // a legacy 'reversed' contra takes its original out of force too
+    const legacy = await journal(z, legs, { status: 'reversed' });
+    const legacyDoc = await document(z, kind, { link: legacy });
+    await refused(asApp(z, setLink(kind, legacyDoc, null)), /in force cannot be unlinked/);
+    await refused(asApp(z, (c) => c.query(`UPDATE ${kind} SET status = 'cancelled' WHERE id = $1`, [legacyDoc])), /journal is in force/);
+    expect(await linkOf(kind, doc)).toBe(original);
+  });
+
+  it('a journal reached status reversed only through a posted reversal: the flip then goes through, as the ledger already says', async () => {
+    const original = await journal(z, legs);
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
+    await refused(asRole(z, 'platform_admin', (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
+    await reverse(original);
+    await asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original]));
   });
 
   it.each(KINDS)('%s: cancelled only once its journal is out of force', async (kind) => {
@@ -116,7 +150,7 @@ describeIfDisposable('ledger column immutability: a document\'s journal link and
     const cancel = (c: import('pg').PoolClient) => c.query(`UPDATE ${kind} SET status = 'cancelled' WHERE id = $1`, [doc]);
     await refused(asApp(z, cancel), /journal is in force/);
     await refused(asRole(z, 'platform_admin', cancel), /journal is in force/);
-    await sql`UPDATE gl_journal_entries SET reversed_at = now() WHERE id = ${original}::UUID`;
+    await reverse(original);
     await asApp(z, cancel, { commit: true });
     const unlinked = await document(z, kind, { status: 'approved' });
     await asApp(z, (c) => c.query(`UPDATE ${kind} SET status = 'cancelled' WHERE id = $1`, [unlinked]));

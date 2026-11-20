@@ -16,20 +16,25 @@
 -- row the caller cannot see (another tenant, under RLS) never satisfies a condition.
 --   1. gl_journal_entries.reversal_of_id. No INSERT carries one (the reversal service links the contra AFTER it
 --      posted it: journalEntryPostingService, the one writer). An UPDATE may set it once, NULL -> X, only on a POSTED
---      journal, and only when X is a posted journal of the same company that the claim already stamped reversed, is not
---      itself, has no cycle through its own chain, and the two journals' lines are exact negations (same account,
---      debit and credit swapped, none left over on either side; at least one line). It is never changed or cleared
+--      journal that no document holds, and only when X is a posted journal of the same company, is not itself, has no
+--      cycle through its own chain, and the two journals' lines are exact negations (same account, debit and credit
+--      swapped, none left over on either side; at least one line). The check takes the same per-journal advisory lock
+--      as rule 4, so a link racing a document's link of that journal waits for it. It is never changed or cleared
 --      once set. A forged "reversal" that is not a real contra therefore cannot revive, hide or re-point a chain.
+--      reversed_at / reversed_by are a STAMP the caller may write (the claim sets it before the contra exists), so no
+--      rule below trusts them: "in force" is decided by the ledger alone (see gl_journal_in_force).
 --   2. gl_journal_entries of a POSTED or reversed journal keep source, description and entry_date. No application path
 --      writes them after posting (census: docs/plans/2026-11-20-ledger-column-immutability-census.md). 999n already
 --      freezes status, company_id, created_at, amounts and the line set.
---   3. gl_journal_entries.reversed_at / reversed_by are cleared only while no journal reverses it (the release of a
---      failed claim runs before any contra exists); a claim that outlived its contra is a posted reversal, not a claim.
+--   3. A journal moves to status 'reversed' only when a posted contra already links to it (no application path writes
+--      it: reversal is metadata). reversed_at / reversed_by are cleared only while no journal reverses it (the release
+--      of a failed claim runs before any contra exists); that is consistency for the readers of the stamp, not a rule
+--      the others lean on.
 --   4. customer_invoices / supplier_invoices / credit_notes gl_journal_entry_id. No INSERT carries one. An UPDATE sets
 --      it NULL -> X only when X is a posted, unreversed journal of the document's own company, itself no reversal
 --      contra and linked by no other document (the check holds a per-journal advisory lock so two sessions cannot both
---      take it). It is not swapped X -> Y, and cleared X -> NULL only when X is no longer in force (reversed, or a
---      posted contra links to it): exactly what approve, the take-on imports and cancel do.
+--      take it). It is not swapped X -> Y, and cleared X -> NULL only when X is no longer in force (a posted contra links
+--      to it): exactly what approve, the take-on imports and cancel do.
 --   5. A document moves to 'cancelled' only when the journal it still links is no longer in force: cancel reverses the
 --      chain head first, and the credit-note cancel keeps its link.
 --
@@ -44,7 +49,7 @@
 --
 -- OLD COLOUR (the release before this one, against this schema). Every writer above is unchanged: reverseJournalEntry
 -- claims (reversed_at), creates and posts the contra, then links it; approve posts then links; cancel reverses then
--- clears. A legacy document whose linked journal is reversed but whose own link was never cleared still clears.
+-- clears. A legacy document whose linked journal has a posted contra but whose own link was never cleared still clears.
 --
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the four
 -- tables for an instant, bounded by lock_timeout.
@@ -54,19 +59,21 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_link ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_header_frozen ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_at_release ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_je_reversed_status ON public.gl_journal_entries;
 --   and, on each of public.customer_invoices, public.supplier_invoices, public.credit_notes:
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_ins ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_upd ON public.<table>;
 --   DROP TRIGGER IF EXISTS trg_doc_cancel_in_force ON public.<table>;
 --   DROP FUNCTION IF EXISTS public.gl_je_reversal_no_insert(), public.gl_je_reversal_link(),
---     public.gl_je_posted_header_frozen(), public.gl_je_reversed_at_release(), public.doc_journal_link_guard(),
+--     public.gl_je_posted_header_frozen(), public.gl_je_reversed_status(), public.gl_je_reversed_at_release(), public.doc_journal_link_guard(),
 --     public.doc_cancel_in_force(), public.gl_journal_in_force(uuid), public.gl_lines_are_negation(uuid, uuid);
 
 SET LOCAL lock_timeout = '5s';
 
 -- ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
 
--- A journal is in force while it is posted, not stamped reversed and no posted journal of its company reverses it.
+-- A journal is in force while it is posted (or legacy 'reversed') and no posted journal of its company reverses it: the
+-- LEDGER decides, never the reversed_at stamp (writable by the caller) and never a status flip (guarded below).
 -- Read as the caller: a journal the caller cannot see is not in force for it (fails towards "no longer holds a
 -- document"; the link and cancel rules below are about the caller's own company, which it sees whole).
 CREATE OR REPLACE FUNCTION public.gl_journal_in_force(p_entry uuid)
@@ -77,9 +84,9 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.gl_journal_entries e
-     WHERE e.id = p_entry AND e.status = 'posted' AND e.reversed_at IS NULL
+     WHERE e.id = p_entry AND e.status IN ('posted', 'reversed')
        AND NOT EXISTS (SELECT 1 FROM public.gl_journal_entries c
-                        WHERE c.company_id = e.company_id AND c.reversal_of_id = e.id AND c.status = 'posted'));
+                        WHERE c.company_id = e.company_id AND c.reversal_of_id = e.id AND c.status IN ('posted', 'reversed')));
 $$;
 
 -- The two journals' lines are exact negations: one multiset of (account, debit, credit) equals the other with debit and
@@ -132,7 +139,6 @@ AS $$
 DECLARE
   v_company uuid;
   v_status text;
-  v_reversed timestamptz;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
@@ -146,10 +152,18 @@ BEGIN
   IF NEW.reversal_of_id = NEW.id THEN
     RAISE EXCEPTION 'gl_journal_entries: a journal cannot reverse itself' USING ERRCODE = '23514';
   END IF;
-  SELECT p.company_id, p.status, p.reversed_at INTO v_company, v_status, v_reversed
+  -- Serialised with a document linking this journal (doc_journal_link_guard takes the same lock), so a document's journal
+  -- cannot become a contra while a document is linking it, nor be linked as it becomes one.
+  PERFORM pg_advisory_xact_lock(pg_catalog.hashtextextended('doc_journal_link:' || NEW.id::text, 0));
+  IF EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = NEW.id)
+     OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = NEW.id)
+     OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = NEW.id) THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal a document holds is not itself linked as a reversal' USING ERRCODE = '23514';
+  END IF;
+  SELECT p.company_id, p.status INTO v_company, v_status
     FROM public.gl_journal_entries p WHERE p.id = NEW.reversal_of_id;
-  IF NOT FOUND OR v_company IS DISTINCT FROM NEW.company_id OR v_status IS DISTINCT FROM 'posted' OR v_reversed IS NULL THEN
-    RAISE EXCEPTION 'gl_journal_entries: a reversal links a posted journal of its own company that has been claimed as reversed'
+  IF NOT FOUND OR v_company IS DISTINCT FROM NEW.company_id OR v_status IS DISTINCT FROM 'posted' THEN
+    RAISE EXCEPTION 'gl_journal_entries: a reversal links a posted journal of its own company'
       USING ERRCODE = '23514';
   END IF;
   -- No cycle: the reversed journal's own chain upwards never reaches this one (depth-capped).
@@ -200,6 +214,30 @@ CREATE OR REPLACE TRIGGER trg_gl_je_posted_header_frozen
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_posted_header_frozen;
 
 -- ── 3. the reversal claim ───────────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.gl_je_reversed_status()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries c
+                  WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id AND c.status IN ('posted', 'reversed')) THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal is marked reversed only when a posted reversal links to it' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_je_reversed_status
+  BEFORE UPDATE OF status ON public.gl_journal_entries
+  FOR EACH ROW
+  WHEN (NEW.status = 'reversed' AND OLD.status IS DISTINCT FROM 'reversed')
+  EXECUTE FUNCTION public.gl_je_reversed_status();
+ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_reversed_status;
 
 CREATE OR REPLACE FUNCTION public.gl_je_reversed_at_release()
 RETURNS trigger

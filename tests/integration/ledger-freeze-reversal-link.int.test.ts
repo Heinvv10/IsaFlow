@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, asRole, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, asRole, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
 import { inAppUserTx } from './helpers/appUserTx';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -62,9 +62,7 @@ describeIfDisposable('ledger column immutability: the reversal link (migration 1
     expect(await linkOf(contra)).toBeNull();
   });
 
-  it('refuses an original that was never claimed, a draft contra, itself, a loop and another company\'s journal', async () => {
-    const unclaimed = await journal(z, legs);
-    await refused(asApp(z, link(await journal(z, negate(legs)), unclaimed)), /claimed as reversed/);
+  it('refuses a draft contra, itself, a loop and another company\'s journal', async () => {
     const { original } = await pair();
     await refused(asApp(z, link(await journal(z, negate(legs), { status: 'draft' }), original)), /only a posted journal/);
     const self = await journal(z, legs, { claimed: true });
@@ -74,18 +72,18 @@ describeIfDisposable('ledger column immutability: the reversal link (migration 1
     await asApp(z, link(b, a), { commit: true });
     await refused(asApp(z, link(a, b)), /cannot loop/);
     const foreign = await journal(z, [[z.f.acct.foreign, 100, 0], [z.f.acct.foreign, 0, 100]], { claimed: true, company: z.f.other.companyId });
-    await refused(asApp(z, link(await journal(z, negate(legs)), foreign)), /claimed as reversed/);
+    await refused(asApp(z, link(await journal(z, negate(legs)), foreign)), /posted journal of its own company/);
   });
 
   it('refuses an original that is not posted, an empty pair, and (to a role that sees every tenant) another company\'s journal', async () => {
     for (const status of ['draft', 'reversed']) {
       const original = await journal(z, legs, { status, claimed: true });
-      await refused(asApp(z, link(await journal(z, negate(legs)), original)), /claimed as reversed/);
+      await refused(asApp(z, link(await journal(z, negate(legs)), original)), /posted journal of its own company/);
     }
     await refused(asApp(z, link(await journal(z, []), await journal(z, [], { claimed: true }))), /exact negation/);
     // A legacy shape: the original's journal row is company B's, its lines carry A's accounts and company, so only the company test can refuse it.
     const original = await journal(z, legs, { claimed: true, company: z.f.other.companyId, lineCompany: z.f.fx.companyId });
-    await refused(asRole(z, 'platform_admin', link(await journal(z, negate(legs)), original)), /claimed as reversed/);
+    await refused(asRole(z, 'platform_admin', link(await journal(z, negate(legs)), original)), /posted journal of its own company/);
   });
 
   it('migration_admin and platform_admin are refused the same forgery', async () => {
@@ -93,6 +91,51 @@ describeIfDisposable('ledger column immutability: the reversal link (migration 1
       const { original, contra } = await pair([[z.revenue, 0, 100], [z.ap, 100, 0]]);
       await refused(asRole(z, role, link(contra, original)), /exact negation/);
     }
+  });
+
+  it('the reversed_at stamp is not what makes a link: an unstamped original links, a stamped one is not enough', async () => {
+    const unstamped = await journal(z, legs);
+    const contra = await journal(z, negate(legs));
+    await asApp(z, link(contra, unstamped), { commit: true });
+    expect(await linkOf(contra)).toBe(unstamped);
+    const stamped = await journal(z, legs, { claimed: true });
+    await refused(asApp(z, link(await journal(z, legs), stamped)), /exact negation/);
+  });
+
+  it('a journal a document holds is never itself linked as a reversal (and the check waits for a document linking it)', async () => {
+    const original = await journal(z, legs);
+    const doc = original;
+    for (const kind of ['customer_invoices', 'supplier_invoices', 'credit_notes'] as const) {
+      const held = await journal(z, negate(legs));
+      await document(z, kind, { link: held });
+      await refused(asApp(z, link(held, original)), /a document holds/);
+      expect(await linkOf(held), kind).toBeNull();
+    }
+    // Race: session 1 links a free journal to a document and has not committed; session 2 turns that journal into a contra.
+    const free = await journal(z, negate(legs));
+    const other = await document(z, 'customer_invoices', { status: 'draft' });
+    const open = async () => {
+      const c = await z.pool.connect();
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: z.f.fx.userId, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.fx.companyId]);
+      return c;
+    };
+    const [first, second] = [await open(), await open()];
+    try {
+      await first.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [free, other]);
+      const racing = link(free, original)(second).then(() => 'linked', (e: { message: string }) => e.message);
+      await new Promise((r) => setTimeout(r, 400));
+      await first.query('COMMIT');
+      expect(await racing).toMatch(/a document holds/);
+    } finally {
+      await first.query('ROLLBACK').catch(() => undefined);
+      await second.query('ROLLBACK').catch(() => undefined);
+      first.release(); second.release();
+    }
+    expect(await linkOf(free)).toBeNull();
+    expect(doc).toBeTruthy();
   });
 
   it('reverseJournalEntry as app_user still reverses, links the contra, and reverses a reversal', async () => {
