@@ -20,8 +20,12 @@
 -- for ADD CONSTRAINT ... NOT VALID (no scan: it checks new writes only). 1020b takes the scans: VALIDATE CONSTRAINT
 -- (SHARE UPDATE EXCLUSIVE, writes continue) and CREATE INDEX (SHARE: blocks writes to suppliers for the build; the
 -- column is NULL on every row and the index is partial, so it holds nothing; CONCURRENTLY cannot run inside the
--- runner's transaction). Code deployed between the two files is safe: nothing reads merged_into_id before the
--- constraint is validated, and an unvalidated FK is enforced for new rows already.
+-- runner's transaction). The new code DOES read and write merged_into_id (the merge records it, the Sage match follows
+-- it), so the deploy applies both files before the new colour takes traffic: the deploy runs pending migrations first,
+-- in order, so 1020b has validated the constraint before any code that uses the column runs. Old code never touches the
+-- column. Between the two files an unvalidated (NOT VALID) FK still checks every new write, so a merge recorded then
+-- is already held to the same-company survivor; only rows that existed before the constraint are unchecked, and there
+-- are none (the column is new and NULL).
 --
 -- lock_timeout: a held lock on suppliers fails the file after 5 s and nothing is recorded: rerun it. Every step is
 -- skipped when already done.

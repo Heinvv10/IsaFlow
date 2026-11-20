@@ -56,8 +56,12 @@ export interface SageSupplierMatch { id: string; viaMerge: boolean; mergedAwayId
  * and merged-away rows (deleted with a survivor); each is followed to the live row at the end of its
  * merge chain. A Sage-id hit outranks a name hit, and a live hit outranks a merged one.
  */
+/** What a same-name refusal refused: the supplier the name matched, and the Sage ids already merged into it. */
+export interface SameNameRefusal { supplierId: string; otherSageIds: string[] }
+export interface MatchOptions { onSameNameRefusal?: (refusal: SameNameRefusal) => void }
+
 export async function matchSageSupplier(
-  companyId: string, party: { name: string; sageId?: number | string | null },
+  companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
 ): Promise<SageSupplierMatch | null> {
   const ref = sageRef(party.sageId);
   const rows = (await sql`
@@ -68,7 +72,7 @@ export async function matchSageSupplier(
       WHERE company_id = ${companyId}::UUID
         AND (deleted_at IS NULL OR merged_into_id IS NOT NULL)
     ), hit AS (
-      SELECT id, deleted_at, merged_into_id, created_at,
+      SELECT id, deleted_at, merged_into_id, created_at, external_ref AS hit_ref,
              (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE AS by_ref,
              (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
               AND external_system = 'sage' AND external_ref IS NOT NULL AND external_ref <> ${ref}::TEXT) IS TRUE AS conflict
@@ -89,7 +93,7 @@ export async function matchSageSupplier(
       JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
       WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
     )
-    SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
+    SELECT c.id, h.id AS hit_id, h.hit_ref, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
     FROM chain c JOIN hit h ON h.id = c.start_id
     WHERE c.deleted_at IS NULL AND (h.by_ref OR h.conflict OR NOT c.blocked)
     ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
@@ -107,7 +111,11 @@ export async function matchSageSupplier(
   // Another Sage party already has a same-name row that was merged into this supplier: the remaining name
   // match (an unstamped alias, or the live survivor itself) could be either party's, so it is not this one's
   // (two Sage parties never share one supplier by name). A Sage-id hit is never refused.
-  if (!byRef && conflicts.some((r) => String(r.id) === String(first.id))) return null;
+  const sameName = conflicts.filter((r) => String(r.id) === String(first.id));
+  if (!byRef && sameName.length > 0) {
+    opts.onSameNameRefusal?.({ supplierId: String(first.id), otherSageIds: [...new Set(sameName.map((r) => String(r.hit_ref)))] });
+    return null;
+  }
   return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
 }
 
@@ -124,12 +132,12 @@ const sameMatch = (a: SageSupplierMatch, b: SageSupplierMatch) =>
  * same, and stands). Null: no supplier matches.
  */
 export async function resolveSageSupplier(
-  companyId: string, party: { name: string; sageId?: number | string | null },
+  companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
 ): Promise<SageSupplierMatch | null> {
-  let match = await matchSageSupplier(companyId, party);
+  let match = await matchSageSupplier(companyId, party, opts);
   for (let attempt = 0; match && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     if (await claimMatchedSupplier(companyId, match, party.sageId)) return match;
-    const again = await matchSageSupplier(companyId, party);
+    const again = await matchSageSupplier(companyId, party, opts);
     if (!again || sameMatch(again, match)) return again;
     match = again;
   }

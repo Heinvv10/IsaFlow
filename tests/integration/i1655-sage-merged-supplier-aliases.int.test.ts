@@ -4,7 +4,8 @@
  * bills and suppliers, and a claim lost to a concurrent import. The basic merge-and-follow cases are in
  * i1655-sage-merged-supplier.int.test.ts.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { resolveSageSupplier } from '@/modules/admin/services/sagePartyMatch';
@@ -217,7 +218,16 @@ describe('merged-away suppliers of one name (#1655)', () => {
     const merged101 = await insPlain('Hex Co', 'sage', '1101');
     await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [merged101, survivor]);
     // Sage 1102, another supplier of that name, must not take the survivor (both parties' bills would land on one row).
-    expect((await syncSuppliers([party(1102, 'Hex Co')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    const warn = vi.spyOn(log, 'warn');
+    const summary = await syncSuppliers([party(1102, 'Hex Co')]);
+    expect(summary.suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    // Logged with both supplier ids and both Sage ids, and reported in the sync summary.
+    const created = String((await byRef('1102'))[0].id);
+    expect(warn).toHaveBeenCalledWith('Sage supplier created alongside a same-name supplier', expect.objectContaining({
+      companyId, newSupplierId: created, existingSupplierId: survivor, newSageId: '1102', existingSageIds: ['1101'],
+    }), 'sage-migration');
+    expect(summary.warnings).toEqual([expect.stringContaining('created alongside a same-name supplier')]);
+    warn.mockRestore();
     const own = await byRef('1102');
     expect(own).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
     expect(own[0].id).not.toBe(survivor);

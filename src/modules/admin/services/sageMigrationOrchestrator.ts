@@ -90,8 +90,12 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const s of pulled.suppliers?.records ?? []) {
     await sp(`supp_${i++}`, async () => {
       try {
-        const { created } = await upsertSupplier(companyId, s);
+        const { created, alongside } = await upsertSupplier(companyId, s);
         if (created) summary.suppliers.created += 1; else summary.suppliers.skipped += 1;
+        if (alongside) {
+          summary.warnings.push(`Supplier "${s.name}" (Sage ${String(s.sageId ?? '')}) was created alongside a same-name supplier `
+            + `that Sage ${alongside.otherSageIds.join(', ')} was merged into; check they are different suppliers.`);
+        }
       } catch (err) {
         summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;

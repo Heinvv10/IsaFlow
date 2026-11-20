@@ -61,11 +61,16 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
 }
 
 /** The supplier row a Sage party is, and whether this call created it (false: it matched an existing one). */
-export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<{ id: string; created: boolean }> {
+export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<{
+  id: string; created: boolean;
+  /** Set when the same-name refusal made this call create a second live supplier next to `supplierId`. */
+  alongside?: { supplierId: string; otherSageIds: string[] };
+}> {
   // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
   // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
   // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
-  const existing = await resolveSageSupplier(companyId, s);
+  let refused: { supplierId: string; otherSageIds: string[] } | undefined;
+  const existing = await resolveSageSupplier(companyId, s, { onSameNameRefusal: (r) => { refused = r; } });
   if (existing) return { id: existing.id, created: false };
   const ref = sageRef(s.sageId);
   const inserted = (await sql`
@@ -77,7 +82,15 @@ export async function upsertSupplier(companyId: string, s: MappedSupplier): Prom
       TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
-  return { id: String(inserted[0]!.id), created: true };
+  const id = String(inserted[0]!.id);
+  if (refused) {
+    // The name matched a supplier that another Sage party was merged into: this party got its own row beside it.
+    log.warn('Sage supplier created alongside a same-name supplier', {
+      companyId, newSupplierId: id, existingSupplierId: refused.supplierId, newSageId: ref, existingSageIds: refused.otherSageIds,
+    }, 'sage-migration');
+    return { id, created: true, alongside: refused };
+  }
+  return { id, created: true };
 }
 
 /**
