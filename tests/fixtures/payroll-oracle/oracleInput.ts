@@ -11,6 +11,8 @@ import { addEtiMonthParts, NO_ETI_PARTS } from '@/modules/accounting/services/pa
 import { withFringeBenefits } from './fringeInput';
 import type { OracleCase, OraclePriorPeriod } from './oracle';
 import { costRfi, withEmployerRetirement } from './rfiInput';
+import { hoursAmountCents } from '@/modules/accounting/services/payroll/payrollRunHours';
+import { overtimeAmountCents, overtimeHourlyRate } from '@/modules/accounting/services/payroll/payrollRunInputUnits';
 
 /** A valid 13-digit SA ID number for a date of birth (YYMMDD 5009 0 8 + the Luhn check digit). */
 export function saIdFor(dob: string): string {
@@ -122,7 +124,8 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
   }));
   // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
-  const components = costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled);
+  const components = [...costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
+    ...runInputUnitRows(c, employee, basic[0]?.amount ?? 0)];
   const cadence = caseCadence(c, employee);
   return {
     // The run kind does not reach the calculator yet (OC). A weekly or fortnightly case's frequency and dates do (FQc).
@@ -170,6 +173,30 @@ function caseCadence(c: OracleCase, employee: PayrollEmployee): LineCadence | un
       }), NO_ETI_PARTS)
       : null,
   };
+}
+
+/**
+ * RI: overtime (`overtimeHours` at `overtimeMultiplier`) and reimbursive travel (`businessKm` at `reimbursiveRatePerKm`) as the
+ * run stores them: a 3607 hours row priced on the server (payrollRunInputUnits.overtimeAmountCents) and a km row on a 3702 earning.
+ */
+function runInputUnitRows(c: OracleCase, employee: PayrollEmployee, monthlyBasic: number): EmployeeComponent[] {
+  const u = c.input.unmodelled;
+  const rows: EmployeeComponent[] = [];
+  const hours = numberOf(u?.overtimeHours);
+  const multiplier = numberOf(u?.overtimeMultiplier);
+  if (hours != null && multiplier != null) {
+    const rate = overtimeHourlyRate(employee, monthlyBasic);
+    if (rate == null) throw new Error(`${c.id}: overtime needs an hourly rate`);
+    rows.push({ component: { id: `${c.id}-overtime`, name: 'Overtime', sarsSourceCode: '3607', componentType: 'earning', isTaxable: true, isUifApplicable: true, isSdlApplicable: true },
+      amount: overtimeAmountCents(hours, rate, multiplier) / 100, quantity: hours, quantityUnit: 'hour', rateMultiplier: multiplier });
+  }
+  const km = numberOf(u?.businessKm);
+  const perKm = numberOf(u?.reimbursiveRatePerKm);
+  if (km != null && perKm != null) {
+    rows.push({ component: { id: `${c.id}-travel`, name: 'Travel reimbursement', sarsSourceCode: '3702', componentType: 'earning', isTaxable: false, isUifApplicable: false, isSdlApplicable: false },
+      amount: hoursAmountCents(km, perKm) / 100, quantity: km, quantityUnit: 'km' });
+  }
+  return rows;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;

@@ -14,6 +14,8 @@ import { impersonationToken } from './r035-pr2.helpers';
 import { SignJWT } from 'jose';
 import employeeRoute from '../../pages/api/payroll/employees/[id]';
 import componentsRoute from '../../pages/api/payroll/employees/[id]/components';
+import runInputsRoute from '../../pages/api/payroll/runs/[id]/inputs';
+import { assignEmployeeComponentTool } from '@/lib/mcp/tools/writeEmployees';
 import reconciliationRoute from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -103,7 +105,9 @@ async function expectViewerSeesNoPspSplit(f: SeveranceFixture): Promise<void> {
 }
 
 describe('M3/M4 at assignment: the real route answers 409, no row written', () => {
-  it.each([['4001', 'deduction', 'company'], ['4030', 'deduction', 'trust'], ['3802', 'earning', 'trust'], ['LOAN', 'deduction', 'company'], ['3701', 'earning', 'trust']] as const)(
+  it.each([['4001', 'deduction', 'company'], ['4030', 'deduction', 'trust'], ['3802', 'earning', 'trust'], ['LOAN', 'deduction', 'company'], ['3701', 'earning', 'trust'],
+    // RI (review of #1580 M1): reimbursive travel is s8(1)(b)'s, refused as 3701 is.
+    ['3702', 'earning', 'company'], ['3703', 'earning', 'trust'], ['3722', 'earning', 'company']] as const)(
     '%s (%s) on a PSP %s', async (code, type, entity) => {
       const f = await seedEmployee(pool, fixtures, `psp assign ${code}`, 30_000);
       const psp = await addEmployee(pool, f, `psp-as-${code}`, PAY);
@@ -119,6 +123,47 @@ describe('M3/M4 at assignment: the real route answers 409, no row written', () =
         { body: { componentId: comp, amount: 1_000, effectiveFrom: '2026-03-01' } });
       expect(ok.statusCode).toBe(201);
     });
+});
+
+describe('RI (review of #1580 M1): a PSP takes no reimbursive travel on MCP, the run grid or calculate', () => {
+  it('assign_employee_component refuses a 3703 for a PSP, no row written', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp mcp travel', 30_000);
+    const psp = await addEmployee(pool, f, 'psp-mcp-tr', PAY);
+    await toPsp(f, psp, 'company');
+    const comp = await component(f, '3703', 'earning');
+    const r = await assignEmployeeComponentTool.handler({ employee_id: psp, component_id: comp, amount: 1000, effective_from: '2026-03-01',
+      idempotency_key: crypto.randomUUID() }, { companyId: f.company, userId: f.admin, scopes: ['write:payroll'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as never) as
+      { isError?: boolean; content: Array<{ text: string }> };
+    expect([r.isError, r.content[0]!.text]).toEqual([true, expect.stringMatching(/personal service provider.*travel allowance/)]);
+    expect(await assignments(psp, comp)).toBe(0);
+  });
+
+  it('the run grid refuses travel km for a PSP (409 PSP_COMPONENT_REFUSED), no row written', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp grid km', 30_000);
+    const psp = await addEmployee(pool, f, 'psp-grid-km', PAY);
+    await toPsp(f, psp, 'trust');
+    await component(f, '3703', 'earning'); // the company's travel earning exists: only the PSP rule refuses
+    const run = await newRun(pool, f, 3);
+    const out = await f.call(runInputsRoute as Route, 'PUT', `/api/payroll/runs/${run}/inputs`, run,
+      { body: { employeeId: psp, units: { kind: 'travel', multiplier: null, quantity: 1000, ratePerKm: 6, expectedQuantity: null } } });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(409);
+    expect(JSON.stringify(out.body)).toContain('PSP_COMPONENT_REFUSED');
+    expect(Number((await pool.query("SELECT count(*) FROM payroll_employee_components WHERE employee_id = $1 AND quantity_unit = 'km'", [psp])).rows[0]!.count)).toBe(0);
+  });
+
+  it('calculate refuses a PSP whose row carries travel km, whatever its code (written directly)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp calc km', 30_000);
+    const who = await addEmployee(pool, f, 'psp-calc-km', PAY);
+    const fee = await component(f, '3601', 'earning');
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring)
+      VALUES ($1, $2, 6000, 1000, 'km', '2026-03-01', '2026-03-31', FALSE)`, [who, fee]);
+    await toPsp(f, who, 'company');
+    const run = await newRun(pool, f, 3);
+    const err = await calculatePayrollRun(run, f.company).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(PspComponentRefused);
+    expect((err as Error).message).toContain('Item 3601 (travel allowance)');
+    expect(Number((await pool.query('SELECT count(*) FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0]!.count)).toBe(0);
+  });
 });
 
 describe('M3/M4 at calculate: refused before any line is written', () => {

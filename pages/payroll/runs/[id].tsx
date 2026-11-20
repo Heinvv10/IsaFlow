@@ -155,7 +155,7 @@ export default function PayrollRunDetailPage() {
                   </p>
                 )}
                 <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resets={grid.resets}
-                  commit={grid.commit} commitHours={grid.commitHours} refuse={grid.refuse} forgetRefused={grid.forgetRefused} onPayslip={openPayslip} onExplain={explain} />
+                  commit={grid.commit} commitHours={grid.commitHours} commitUnits={grid.commitUnits} refuse={grid.refuse} forgetRefused={grid.forgetRefused} onPayslip={openPayslip} onExplain={explain} />
               </>
             ) : (
               <>

@@ -367,8 +367,7 @@
    {"line":46,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunKindGuard.ts": [
-   {"line":78,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":98,"text":"JOIN payroll_employee_components c ON c.employee_id = p.id","class":"S","owner":"FQb1","why":"assignments overlapping the run's period_start/period_end"}
+   {"line":78,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunLineRows.ts": [
    {"line":70,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id"}
@@ -430,8 +429,13 @@
   ],
   "src/modules/accounting/services/payroll/payrollRunRowWrite.ts": [
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
-   {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}","class":"S","owner":"FQb1","why":"assignment write by id"},
-   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"S","owner":"FQc","why":"FQc converted (R, F2): a run input is a once-off over the run's own dates (monthBounds of runPeriodOf)"}
+   {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}, rate_multiplier = ${multiplier}::numeric","class":"S","owner":"FQb1","why":"assignment write by id"},
+   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, rate_multiplier, effective_from, effective_to, is_recurring, supersede_inferred)","class":"S","owner":"FQc","why":"FQc converted (R, F2): a run input is a once-off over the run's own dates (monthBounds of runPeriodOf)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunUnitsRead.ts": [
+   {"line":49,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (F2): RI's overtime and km rows are keyed by monthBounds of runPeriodOf, the run's own dates"},
+   {"line":57,"text":"await db`SELECT id FROM payroll_employee_components WHERE id = ANY(${rows.map((r) => String(r.id))}::uuid[]) ORDER BY id FOR UPDATE`;","class":"S","owner":"FQb1","why":"row lock by id"},
+   {"line":68,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"a sum of the tax year's km rows to the month's end, shown only (tax never reads it)"}
   ],
   "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
    {"line":31,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"this run, by id"},

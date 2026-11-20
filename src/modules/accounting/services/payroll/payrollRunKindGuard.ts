@@ -12,8 +12,9 @@
  * Columns and tables that do not exist yet are read without naming them, so this file runs on today's schema and on
  * every later one: a column through `to_jsonb(row) ->> 'name'` (NULL while absent), a table through
  * `to_regclass` with a CASE that never plans the query while the table is absent (query_to_xml runs it only then).
- * Each later PR lifts exactly its own clause, in its own release. Contract for those PRs (the names read here):
- *   payroll_employee_components.rate_multiplier (RI), quantity_unit 'km' (RI).
+ * Each later PR lifts exactly its own clause, in its own release.
+ * Lifted: the rate_multiplier and quantity_unit 'km' clause, by RI (migration 1017; payrollRunInputUnits prices and splits
+ * those rows). With DBF's lift it was the last assignment clause, so the `assignment` clause is gone.
  * Lifted: the db_member_category_factor clause, by DBF (migration 1014; definedBenefitFund.ts values those rows).
  * Lifted: the garnishee clauses (an active order refused costing; a deduction on the run refused every action), by GA
  * (migration 999z), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
@@ -40,7 +41,7 @@ export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'paysl
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor', 'personal_service_provider'] as const;
 
 export type RunKindClause =
-  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_frequency'
+  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'garnishee_frequency'
   // Wave 6 FQc (payrollFrequencyGuard): terms a weekly or fortnightly run cannot cost, the EMP201 month, a mid-year change.
   | 'frequency_terms' | 'emp201_month' | 'frequency_change' | 'pay_period_overlap';
 
@@ -106,12 +107,6 @@ export async function assertRunKindSupported(
       (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
         WHERE p.on_line AND p.pay_frequency IS DISTINCT FROM r.pay_frequency) AS other_frequency,
       (SELECT array_agg(DISTINCT p.employee_number) FROM people p
-         JOIN payroll_employee_components c ON c.employee_id = p.id
-        WHERE c.superseded_at IS NULL
-          AND c.effective_from <= r.period_end AND (c.effective_to IS NULL OR c.effective_to >= r.period_start)
-          AND (to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
-               OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments,
-      (SELECT array_agg(DISTINCT p.employee_number) FROM people p
          JOIN payroll_garnishee_orders g ON g.employee_id = p.id AND g.company_id = r.company_id
         WHERE r.pay_frequency IS DISTINCT FROM 'monthly'
           AND g.status IN ('active', 'ended') AND g.start_date <= r.period_end
@@ -140,9 +135,6 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   }
   if (action !== 'reopen' && action !== 'calculate' && names(row.other_frequency)) {
     reasons.push({ clause: 'employee_frequency', detail: `employees ${names(row.other_frequency)} are not paid at the run's frequency` });
-  }
-  if (COSTING.has(action) && names(row.odd_assignments)) {
-    reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with an overtime multiplier or travel km` });
   }
   if (COSTING.has(action) && names(row.garnishee_off_month)) {
     reasons.push({ clause: 'garnishee_frequency', detail: `employees ${names(row.garnishee_off_month)} have garnishee orders, whose monthly instalments are not yet pro-rated for a ${String(row.pay_frequency)} run` });

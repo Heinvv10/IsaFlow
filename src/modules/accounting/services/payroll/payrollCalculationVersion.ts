@@ -27,5 +27,7 @@
  * 16: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 1013).
  * 17: a defined-benefit fund row (db_member_category_factor, migration 1014) is valued X = factor x RFI - the marked compulsory contributions
  *    (para 12D(3)), non-cash and deemed paid into s11F; its amount is the employer's payment (GL 2175, 4472) (DBF).
+ * 18: overtime hours at 1.5x / 2x priced on the server (ETI counts their hours once, as 3607, etiHours); a km row splits at the prescribed
+ *    rate a km into 3702 / 3703 (not taxed) and 3722 (taxed, UIF, SDL); OVERTIME_ABOVE_BCEA_THRESHOLD (RI, migration 1017).
  */
-export const PAYROLL_CALCULATION_VERSION = 17;
+export const PAYROLL_CALCULATION_VERSION = 18;
