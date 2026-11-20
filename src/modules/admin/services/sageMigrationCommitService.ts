@@ -59,14 +59,15 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
   return String(inserted[0]!.id);
 }
 
-export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<string> {
+/** The supplier row a Sage party is, and whether this call created it (false: it matched an existing one). */
+export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<{ id: string; created: boolean }> {
   const existing = await matchSageSupplier(companyId, s);
   // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
   // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
   // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
   if (existing) {
     await claimMatchedSupplier(companyId, existing, s.sageId);
-    return existing.id;
+    return { id: existing.id, created: false };
   }
   const ref = sageRef(s.sageId);
   const inserted = (await sql`
@@ -78,7 +79,7 @@ export async function upsertSupplier(companyId: string, s: MappedSupplier): Prom
       TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
-  return String(inserted[0]!.id);
+  return { id: String(inserted[0]!.id), created: true };
 }
 
 /**
