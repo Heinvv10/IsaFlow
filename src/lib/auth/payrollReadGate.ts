@@ -20,3 +20,10 @@ export async function refuseWithoutPayrollRead(res: NextApiResponse, companyId: 
   apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
   return true;
 }
+
+/** Answers 403 and returns true when the person may not WRITE Payroll (the same answer withPayrollModule gives a non-read request). */
+export async function refuseWithoutPayrollWrite(res: NextApiResponse, companyId: string, userId: string): Promise<boolean> {
+  if (await checkPermission(companyId, userId, 'payroll', 'write')) return false;
+  apiResponse.forbidden(res, 'Your permissions do not include Payroll write. An owner or admin can grant it in User Access.');
+  return true;
+}

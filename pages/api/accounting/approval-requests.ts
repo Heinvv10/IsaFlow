@@ -30,6 +30,7 @@ import { isUuidParam } from '@/lib/validation';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { sql } from '@/lib/neon';
 import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
+import { mayReadPayroll, refuseWithoutPayrollRead, refuseWithoutPayrollWrite } from '@/lib/auth/payrollReadGate';
 import { refuseApprovalRequestWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
@@ -58,6 +59,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(documentId)) {
         return apiResponse.badRequest(res, 'documentId must be a UUID');
       }
+      // A pay run's amount is Payroll's: reading it here needs Payroll read (#1656, round 7).
+      if (documentType === 'pay_run' && await refuseWithoutPayrollRead(res, companyId, userId)) return;
       // The amount is NOT read from the query. The advisory answer has to be the
       // same rule the request path would bind, and that one is resolved from the
       // stored document — otherwise this endpoint reports the rule a caller-chosen
@@ -79,8 +82,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { count });
     }
 
+    // The pay_run requests carry a run's amount: left out for a person without Payroll read (#1656, round 7).
     const requests = await listRequests(companyId, status);
-    return apiResponse.success(res, { items: requests });
+    const items = (await mayReadPayroll(companyId, userId)) ? requests : requests.filter((r) => r.documentType !== 'pay_run');
+    return apiResponse.success(res, { items });
   }
 
   if (req.method === 'POST') {
@@ -102,8 +107,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Cast `::UUID` downstream. Unchecked, a malformed id is a 22P02 from
       // inside the transaction — a 500 and a logged stack for a bad request.
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
+      // Raising a pay-run request is a Payroll write (#1656, round 7), before the plan is read or anything is written.
+      if (documentType === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
       try {
         let payRunPlanHash: string | null = null;
+        // census-exempt(preparePayRunApprovalRequest): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
         if (documentType === 'pay_run') payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         const request = await requestApproval(companyId, {
           documentType, documentId, requestedBy: userId,
@@ -161,7 +169,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // #1656: approving a request approves its document, so it takes that document's module Approve, before
         // any write. Fails closed: a type with no module, not resolvable and not listed as ungated, is refused.
         if (decision === 'approved' && requestRow && await refuseApprovalRequestWithoutApprove(res, companyId, userId, requestRow)) return;
+        // Deciding a pay-run request is Payroll's too: a rejection needs Payroll write (an approval asked the Approve gate above).
+        if (decision === 'rejected' && requestRow?.document_type === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
         if (requestRow?.document_type === 'pay_run') {
+          // census-exempt(preparePayRunApprovalRequest): Payroll Approve (an approval) or Payroll write (a rejection) is asked just above; it reads the run's kind and plan hash only
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }
         // census-exempt(decideRequest): approving asks the document type's Approve first (refuseApprovalRequestWithoutApprove, above); a rejection posts nothing. approveGateEverything / approvePermissionPaths
