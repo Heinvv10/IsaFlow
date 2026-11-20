@@ -143,7 +143,7 @@ export default function BureauClientsPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
-            <Link href="/bureau" aria-label="Back to bureau" className="p-2 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/bureau" aria-label="Back to bureau" className="p-2 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:shrink-0 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-purple-500/10">
@@ -206,8 +206,8 @@ export default function BureauClientsPage() {
                         </Link>
                       </td>
                       <td data-label="Linked" className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt)}</td>
-                      <td className="py-2 px-4 text-right">
-                        {isOwner && (
+                      {isOwner && (
+                        <td className="py-2 px-4 text-right">
                           <button
                             onClick={() => void unlink(c.companyId)}
                             disabled={working}
@@ -215,8 +215,8 @@ export default function BureauClientsPage() {
                           >
                             <Trash2 className="h-3 w-3" /> Unlink
                           </button>
-                        )}
-                      </td>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
