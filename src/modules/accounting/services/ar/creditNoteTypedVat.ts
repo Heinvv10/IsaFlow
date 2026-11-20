@@ -13,9 +13,16 @@
  * What approve would refuse whatever the VAT (more than the invoice has left, nothing left, VAT already over-reversed)
  * is refused here too, before any write, in approve's words. An unlinked note, a supplier note and a note against a
  * legacy invoice (any uncoded leg) or one with no journal yet: null, the existing rule. Reads only.
+ *
+ * `storedCreditNoteRate`: the tax_rate a note given only a VAT FIGURE is stored at (credit_notes.tax_rate is read by
+ * the note PDF's VAT label, the API and the delete audit, none of which re-derives the VAT from it): 0 when the figure is
+ * 0, else the linked document's header rate, else the standard rate on the note's date. It used to be 15 whatever the
+ * figure (VAT 0 at 15%).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
+import { parseDecimal, roundTo } from '../shared/functionalAmounts';
 import type { CreditNoteCreateInput } from '../../types/ar.types';
 import { CreditNoteVatSplitRefusal, requiredCreditNoteVat } from './creditNoteTypedSplit';
 import { typedInvoiceCreditState } from './invoiceRevenuePosting';
@@ -23,6 +30,14 @@ import { typedInvoiceCreditState } from './invoiceRevenuePosting';
 const cents = (n: number): number => Math.round(n * 100);
 const money = (c: number): string => (c / 100).toFixed(2);
 const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
+
+/** ROUND(subtotal x rate / 100, 2) in exact decimal, half away from zero (33.30 at 15% is 5.00; the float product gave 4.99). */
+export function vatAtRateCents(subtotal: number, rate: number): number {
+  const s = parseDecimal(subtotal);
+  const r = parseDecimal(rate);
+  const d = roundTo({ digits: s.digits * r.digits, scale: s.scale + r.scale + 2 }, 2);
+  return Number(d.digits * 10n ** BigInt(2 - d.scale));
+}
 
 export async function typedCreditNoteVat(
   companyId: string,
@@ -43,7 +58,7 @@ export async function typedCreditNoteVat(
   if (cents(state.remainingVat) < 0) refuse(`A credit note cannot be raised against invoice ${number}: its VAT is already fully reversed. Correct it with a journal.`);
   const required = cents(requiredCreditNoteVat({ remainingNet: state.remainingNet, remainingVat: state.remainingVat, subtotal: input.subtotal }));
   if (input.taxRate != null) {
-    const given = cents(Math.round(input.subtotal * input.taxRate / 100 * 100) / 100); // createCreditNote's own rounding
+    const given = vatAtRateCents(input.subtotal, input.taxRate);
     if (given !== required) {
       refuse(`A credit note crediting ${money(s)} of invoice ${number} (${money(r)} left to credit) must carry VAT of ${money(required)}, `
         + `its remaining VAT in proportion; taxRate ${input.taxRate} gives ${money(given)}. Leave taxRate out (the VAT then defaults to `
@@ -52,4 +67,21 @@ export async function typedCreditNoteVat(
     return { taxAmount: required / 100, taxRate: input.taxRate };
   }
   return { taxAmount: required / 100, taxRate: Number(inv?.tax_rate ?? 0) };
+}
+
+export async function storedCreditNoteRate(
+  companyId: string,
+  input: Pick<CreditNoteCreateInput, 'customerInvoiceId' | 'supplierInvoiceId' | 'creditDate' | 'taxRate' | 'taxAmount'>,
+  taxAmount: number,
+): Promise<number> {
+  if (input.taxRate != null) return input.taxRate;
+  if (input.taxAmount == null) return 15; // the rate the VAT was computed at (createCreditNote's default)
+  if (cents(taxAmount) === 0) return 0;
+  const linked = input.customerInvoiceId
+    ? (await sql`SELECT tax_rate FROM customer_invoices WHERE id = ${input.customerInvoiceId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
+    : input.supplierInvoiceId
+      ? (await sql`SELECT tax_rate FROM supplier_invoices WHERE id = ${input.supplierInvoiceId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
+      : [];
+  if (linked[0]?.tax_rate != null) return Number(linked[0].tax_rate);
+  return isRatedDate(input.creditDate) ? standardVatRatePctOn(input.creditDate) : 15;
 }

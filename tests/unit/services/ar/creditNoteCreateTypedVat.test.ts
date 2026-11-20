@@ -7,7 +7,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { mockSql, COMPANY_ID, USER_ID, creditNoteRow } from './creditNoteService.harness';
 
 const typed = vi.hoisted(() => vi.fn());
-vi.mock('@/modules/accounting/services/ar/creditNoteTypedVat', () => ({ typedCreditNoteVat: typed }));
+vi.mock('@/modules/accounting/services/ar/creditNoteTypedVat', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteTypedVat')>()), typedCreditNoteVat: typed,
+}));
 vi.mock('@/modules/accounting/services/ar/creditNoteLinkService', () => ({ validateCreditNoteLinks: vi.fn(async () => null) }));
 vi.mock('@/modules/accounting/services/ar/creditNoteHeaderTags', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteHeaderTags')>()),
@@ -40,6 +42,13 @@ describe('createCreditNote and a typed invoice', () => {
     typed.mockResolvedValueOnce(null);
     await createCreditNote(COMPANY_ID, note({ taxRate: 15 }), USER_ID);
     expect(inserted()).toEqual({ subtotal: 150, taxRate: 15, taxAmount: 22.5, total: 172.5 });
+  });
+
+  it('given only a figure of 0, the note is stored at rate 0 (it was 15 with VAT 0; #1701)', async () => {
+    mockSql.mockResolvedValue([creditNoteRow()]);
+    typed.mockResolvedValueOnce(null);
+    await createCreditNote(COMPANY_ID, note({ taxAmount: 0 }), USER_ID);
+    expect(inserted()).toEqual({ subtotal: 150, taxRate: 0, taxAmount: 0, total: 150 });
   });
 
   it('a refusal is raised before the INSERT', async () => {

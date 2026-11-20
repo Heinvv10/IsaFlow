@@ -13,11 +13,15 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('@/modules/accounting/services/ar/invoiceRevenuePosting', () => ({ typedInvoiceCreditState: vi.fn(async () => h.state) }));
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('FROM customer_invoices')
-    ? (h.rate === null ? [] : [{ tax_rate: h.rate, invoice_number: 'INV-9' }]) : [])),
+  sql: vi.fn(async (strings: TemplateStringsArray) => {
+    const t = strings.join('?');
+    if (t.includes('FROM customer_invoices')) return h.rate === null ? [] : [{ tax_rate: h.rate, invoice_number: 'INV-9' }];
+    if (t.includes('FROM supplier_invoices')) return [{ tax_rate: '0.00' }];
+    return [];
+  }),
 }));
 
-import { typedCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedVat';
+import { storedCreditNoteRate, typedCreditNoteVat, vatAtRateCents } from '@/modules/accounting/services/ar/creditNoteTypedVat';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 
@@ -80,5 +84,34 @@ describe('left to the existing rule (null)', () => {
   it('a note against a legacy invoice (or one not posted)', async () => {
     h.state = null;
     expect(await typedCreditNoteVat(CO, note({ taxRate: 15 }))).toBeNull();
+  });
+});
+
+describe('the rate check is exact cents (#1701 round 1)', () => {
+  it('33.30 at 15% is 5.00 (the float product rounded it to 4.99)', () => {
+    expect(vatAtRateCents(33.3, 15)).toBe(500);
+    expect(Math.round(33.3 * 15 / 100 * 100)).toBe(499); // what the float compare did
+    expect(vatAtRateCents(1.005, 100)).toBe(101);
+    expect(vatAtRateCents(100, 14.5)).toBe(1450);
+  });
+  it('so a full credit of 33.30 with VAT 5.00 left is accepted at taxRate 15', async () => {
+    h.state = { remainingNet: 33.3, remainingVat: 5 };
+    expect(await typedCreditNoteVat(CO, note({ subtotal: 33.3, taxRate: 15 }))).toEqual({ taxAmount: 5, taxRate: 15 });
+  });
+});
+
+describe('storedCreditNoteRate: the tax_rate a note given only a VAT figure is stored at', () => {
+  const base = { creditDate: '2026-11-20' };
+  it('the caller\'s rate stands; no figure is the 15% the VAT was computed at', async () => {
+    expect(await storedCreditNoteRate(CO, { ...base, taxRate: 14 }, 14)).toBe(14);
+    expect(await storedCreditNoteRate(CO, base, 15)).toBe(15);
+  });
+  it('a figure of 0 is stored at 0, not 15', async () => {
+    expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 0, customerInvoiceId: INV }, 0)).toBe(0);
+  });
+  it('a figure on a linked document: its header rate; unlinked: the standard rate on the note\'s date', async () => {
+    expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 15, customerInvoiceId: INV }, 15)).toBe(15);
+    expect(await storedCreditNoteRate(CO, { ...base, taxAmount: 15, supplierInvoiceId: INV }, 15)).toBe(0);
+    expect(await storedCreditNoteRate(CO, { creditDate: '2018-03-31', taxAmount: 14 }, 14)).toBe(14);
   });
 });

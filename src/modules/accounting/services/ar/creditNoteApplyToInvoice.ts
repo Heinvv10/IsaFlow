@@ -24,7 +24,8 @@ import { CreditNoteApplicationDriftError, assertApplicationRecorded } from '../s
 import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { lockInvoiceCreditNotes } from './creditNotePostingChecks';
-import { recordLateLinkExcess } from './invoiceRevenuePosting';
+import { recordLateLinkExcess, typedInvoiceCreditState } from './invoiceRevenuePosting';
+import { CreditNoteVatSplitRefusal } from './creditNoteTypedSplit';
 
 export async function applyCreditNoteToInvoice(
   companyId: string,
@@ -86,6 +87,15 @@ export async function applyCreditNoteToInvoice(
   const invStatus = String(inv.status ?? '');
   if (UNAPPLICABLE_STATUSES.customer.includes(invStatus)) {
     throw new Error(`Cannot apply a credit note to an invoice with status: ${invStatus}`);
+  }
+
+  // A note approved UNLINKED debited default_revenue, none of the invoice's legs: linked late to a TYPED invoice it would
+  // count in that invoice's reversed VAT (invoiceCreditBasis sums tax_amount by link) while its net stayed on every leg,
+  // so the invoice could be credited its full net again on less VAT. Equal VAT does not mend that: refused outright.
+  if (!cn.customer_invoice_id && (await typedInvoiceCreditState(companyId, invoiceId))) {
+    throw new CreditNoteVatSplitRefusal(`Credit note ${String(cn.credit_note_number)} was approved without a link to an invoice, so it `
+      + `reversed none of invoice ${String(inv.invoice_number)}'s lines. An invoice with a VAT type per line is credited in proportion by `
+      + 'notes linked to it when they are raised: raise a note linked to the invoice (and cancel this one if it was meant for it).');
   }
 
   // FX PR0: neither a foreign note nor a foreign invoice can be settled, whatever the switch.

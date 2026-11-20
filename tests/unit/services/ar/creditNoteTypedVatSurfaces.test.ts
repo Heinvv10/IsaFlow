@@ -33,6 +33,7 @@ vi.mock('@/lib/mcp/tools/externalRef', async (orig) => ({
 
 import routeHandler from '../../../../pages/api/accounting/credit-notes';
 import { createCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotesCreate';
+import { createReplayOrLock } from '@/lib/mcp/tools/externalRef';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -58,6 +59,17 @@ describe('REST credit-notes POST', () => {
 
   it.each([-1, '15', Number.NaN])('refuses taxAmount %s before any write', async (v) => {
     expect(await post({ ...base, taxAmount: v })).toMatchObject({ kind: 'badRequest', error: 'taxAmount must be a number of zero or more' });
+    expect(m.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a subtotal not in whole cents', { subtotal: 1.234 }, 'subtotal must be in whole cents'],
+    ['a taxRate that is not a number', { taxRate: 'abc' }, 'taxRate must be a number from 0 to 100'],
+    ['a taxRate above 100', { taxRate: 150 }, 'taxRate must be a number from 0 to 100'],
+    ['a taxAmount not in whole cents', { taxAmount: 1.005 }, 'taxAmount must be in whole cents'],
+    ['a taxAmount above the subtotal', { subtotal: 0.01, taxAmount: 50000 }, 'taxAmount cannot be more than the subtotal'],
+  ])('refuses %s, 400 before any write (#1701)', async (_l, over, error) => {
+    expect(await post({ ...base, ...over })).toMatchObject({ kind: 'badRequest', error });
     expect(m.create).not.toHaveBeenCalled();
   });
 
@@ -95,6 +107,32 @@ describe('MCP create_credit_note', () => {
     m.typed.mockRejectedValueOnce(new CreditNoteVatSplitRefusal('… taxRate 15 gives 22.50 …'));
     await expect(createCreditNoteTool.handler({ ...args, tax_rate: 15 }, ctx)).rejects.toBeInstanceOf(CreditNoteVatSplitRefusal);
     expect(m.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ subtotal: 0.295 }, 'subtotal must be in whole cents'],
+    [{ subtotal: 0.01, tax_amount: 50000 }, 'tax_amount cannot be more than the subtotal'],
+  ])('refuses %j before any read or write (#1701)', async (over, msg) => {
+    const r = await createCreditNoteTool.handler({ ...args, ...over }, ctx);
+    expect(r.content[0]!.text).toBe(msg);
+    expect(m.typed).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
+  });
+
+  it('the replay runs BEFORE the typed VAT is read: a replay returns the note and never recomputes it (#1701)', async () => {
+    const replayed = { content: [{ type: 'text', text: '{"already_existed":true}' }] };
+    vi.mocked(createReplayOrLock).mockResolvedValueOnce(replayed as never);
+    const r = await createCreditNoteTool.handler({ ...args, external_system: 'sage', external_ref: 'CRET-1' }, ctx);
+    expect(r).toBe(replayed);
+    expect(m.typed).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
+    // A note that may be typed and names no figure is compared by date only: its VAT is the invoice's remaining VAT.
+    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { date: '2026-09-20', totalAmount: null } });
+  });
+
+  it('a replay of a note with a figure still compares the total', async () => {
+    await createCreditNoteTool.handler({ ...args, tax_amount: 15, external_system: 'sage', external_ref: 'CRET-2' }, ctx);
+    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toMatchObject({ expect: { date: '2026-09-20', totalAmount: 165 } });
   });
 
   it('refuses tax_amount with mirror_bill', async () => {

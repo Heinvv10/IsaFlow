@@ -20,7 +20,7 @@ import { CreditNoteDimensionRefusal, creditNoteHeaderTags } from './creditNoteHe
 import { readCodingId } from './invoiceLineCoding';
 import { assertBillLineAccounts } from '../ap/billLineAccountGuard';
 import { assertSupplierNoteHeaderTags } from '../ap/supplierCreditNoteExpenseLines';
-import { typedCreditNoteVat } from './creditNoteTypedVat';
+import { storedCreditNoteRate, typedCreditNoteVat } from './creditNoteTypedVat';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -142,10 +142,11 @@ export async function createCreditNote(companyId: string,
     // A customer note LINKED to a TYPED invoice and given no VAT figure: the invoice's remaining VAT in proportion, the
     // only figure approve accepts (creditNoteTypedVat; a taxRate missing it is refused here). Otherwise as before.
     const typed = await typedCreditNoteVat(companyId, input);
-    const taxRate = typed?.taxRate ?? input.taxRate ?? 15;
     const taxAmount = typed ? typed.taxAmount : input.taxAmount != null
       ? Math.round(input.taxAmount * 100) / 100
-      : Math.round(input.subtotal * taxRate / 100 * 100) / 100;
+      : Math.round(input.subtotal * (input.taxRate ?? 15) / 100 * 100) / 100;
+    // Given only a figure, the rate stored does not contradict it (storedCreditNoteRate).
+    const taxRate = typed?.taxRate ?? await storedCreditNoteRate(companyId, input, taxAmount);
     const totalAmount = Math.round((input.subtotal + taxAmount) * 100) / 100;
 
     // supplier_id is a UUID column (migration 202) referencing suppliers(id),
