@@ -24,3 +24,14 @@ export class EliminationStateError extends Error {
     this.name = 'EliminationStateError';
   }
 }
+
+/**
+ * An elimination for this intercompany row already stands (draft or posted): the partial unique index on
+ * consolidation_adjustments(source_intercompany_id) refused a second. The generator treats it as a skip.
+ */
+export class EliminationAlreadyStandsError extends Error {
+  constructor(readonly sourceIntercompanyId: string) {
+    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands.`);
+    this.name = 'EliminationAlreadyStandsError';
+  }
+}

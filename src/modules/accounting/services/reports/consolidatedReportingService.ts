@@ -14,7 +14,7 @@ import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -194,8 +194,10 @@ export async function createEliminationAdjustment(
         ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
         ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
         ${input.sourceIntercompanyId ?? null}::UUID
-      ) RETURNING *
+      ) ON CONFLICT (source_intercompany_id) WHERE status IN ('draft', 'posted') DO NOTHING
+      RETURNING *
     `) as DbRow[];
+    if (rows.length === 0) throw new EliminationAlreadyStandsError(input.sourceIntercompanyId ?? '');
     log.info('Created elimination adjustment', { groupId, id: rows[0]!.id }, 'accounting');
     return mapAdjustmentRow(rows[0]!);
   } catch (err) {
@@ -261,6 +263,15 @@ export async function getEliminationAdjustments(
 
 // ── Auto-generation ───────────────────────────────────────────────────────────
 
+/** Creates the elimination of a row unless one already stands (a concurrent run won): that is a skip, not an error. */
+async function createUnlessStanding(created: ConsolidationAdjustment[], groupId: string, input: CreateEliminationInput): Promise<void> {
+  try {
+    created.push(await createEliminationAdjustment(groupId, input));
+  } catch (err) {
+    if (!(err instanceof EliminationAlreadyStandsError)) throw err;
+  }
+}
+
 export async function autoGenerateEliminations(
   groupId: string, periodStart: string, periodEnd: string
 ): Promise<ConsolidationAdjustment[]> {
@@ -277,6 +288,12 @@ export async function autoGenerateEliminations(
     const created: ConsolidationAdjustment[] = [];
 
     for (const tx of icTxRows) {
+      // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are stopped by the
+      // partial unique index on consolidation_adjustments(source_intercompany_id) (1013): the loser's insert does nothing (ON CONFLICT) and is skipped.
+      const standing = (await sql`
+        SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
+      `) as DbRow[];
+      if (standing.length > 0) continue;
       const txType = String(tx.transaction_type);
       const amount = Number(tx.amount);
       const srcId = String(tx.source_company_id);
@@ -291,7 +308,7 @@ export async function autoGenerateEliminations(
             { groupAccountId: revGaId, debit: amount, credit: 0, description: `Eliminate intercompany ${txType} revenue` },
             { groupAccountId: expGaId, debit: 0, credit: amount, description: `Eliminate intercompany ${txType} expense` },
           ];
-          created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_revenue', description: `Auto-elimination: intercompany ${txType} - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
+          await createUnlessStanding(created, groupId, { adjustmentType: 'interco_revenue', description: `Auto-elimination: intercompany ${txType} - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) });
         }
       } else if (txType === 'loan' || txType === 'transfer') {
         const recGaId = await findGroupAccountBySubtype(groupId, srcId, 'receivable');
@@ -301,7 +318,7 @@ export async function autoGenerateEliminations(
             { groupAccountId: payGaId, debit: amount, credit: 0, description: `Eliminate intercompany payable` },
             { groupAccountId: recGaId, debit: 0, credit: amount, description: `Eliminate intercompany receivable` },
           ];
-          created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_balance', description: `Auto-elimination: intercompany ${txType} balance - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
+          await createUnlessStanding(created, groupId, { adjustmentType: 'interco_balance', description: `Auto-elimination: intercompany ${txType} balance - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) });
         }
       }
     }

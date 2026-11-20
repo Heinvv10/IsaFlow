@@ -227,6 +227,47 @@ describe('the reports read the derived lines beside the stored manual ones; the 
     expect(made[0]!.lines).toEqual(expect.arrayContaining([expect.objectContaining({ groupAccountId: ga.rev, debit: 70 })]));
   });
 
+  const manualRow = async () => {
+    await pool.query(
+      `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date)
+       VALUES ($1, $2, $3, 'sale', 70, 'ZAR', 'manual row', '2026-09-01')`, [co.G, co.A, co.B]);
+    await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      "UPDATE intercompany_transactions SET match_status = 'matched' WHERE group_id = $1 AND description = 'manual row'", [co.G]));
+  };
+
+  it('manual rows stay idempotent: a rerun adds nothing; two runs at once make ONE adjustment per row (the unique index, with the loser skipped)', async () => {
+    await manualRow();
+    expect(await asService(pool, U.ab, co.A, () => eliminate())).toHaveLength(1);
+    expect(await asService(pool, U.ab, co.A, () => eliminate())).toHaveLength(0);
+    expect(await adjustments()).toHaveLength(1);
+    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let written!: () => void;
+    const wrote = new Promise<void>((r) => { written = r; });
+    const first = asService(pool, U.ab, co.A, async () => { const out = await eliminate(); written(); await held; return out; });
+    await wrote;
+    const second = asService(pool, U.ab, co.A, () => eliminate());   // waits on the first's uncommitted insert, then does nothing
+    await new Promise((r) => setTimeout(r, 500));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect([a.length, b.length]).toEqual([1, 0]);
+    expect(await adjustments()).toHaveLength(1);
+  });
+
+  it('the database refuses a second standing elimination of one row, and allows another once the first is reversed', async () => {
+    await manualRow();
+    const [made] = await asService(pool, U.ab, co.A, () => eliminate());
+    const row = made!.sourceIntercompanyId;
+    const insert = () => pool.query(
+      `INSERT INTO consolidation_adjustments(group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id)
+       VALUES ($1, 'interco_revenue', 'dup', '2026-01-01', '2026-12-31', '[]'::jsonb, $2)`, [co.G, row]);
+    await expect(insert()).rejects.toMatchObject({ code: '23505' });
+    await pool.query("UPDATE consolidation_adjustments SET status = 'reversed' WHERE id = $1", [made!.id]);
+    await insert();
+    expect(await adjustments()).toHaveLength(2);
+  });
+
   it('a user who is not a member of the group reads nothing (the definer\'s own membership check)', async () => {
     const m = await accepted();
     await approveBill(m.bill);

@@ -48,6 +48,7 @@
 --     DROP COLUMN IF EXISTS auto_next_attempt_at, DROP COLUMN IF EXISTS source_journal_entry_id, DROP COLUMN IF EXISTS group_transaction_id;
 --   ALTER TABLE intercompany_transactions DROP COLUMN IF EXISTS variance_reason, DROP COLUMN IF EXISTS first_target_journal_entry_id;
 --   ALTER TABLE intercompany_connection_sides DROP COLUMN IF EXISTS auto_accept_since;
+--   DROP INDEX IF EXISTS uq_consolidation_adjustments_standing_source;  (the duplicates it reversed stay reversed)
 --   (the indexes idx_ic_messages_group_transaction, idx_ic_messages_source_journal, idx_ic_transactions_first_journal drop with their columns)
 
 --   DELETE FROM app_definer_reviews WHERE signature LIKE 'intercompany\_%' AND signature IN ('intercompany_auto_accept_queue(integer,boolean)',
@@ -77,6 +78,22 @@ CREATE INDEX IF NOT EXISTS idx_ic_messages_group_transaction ON intercompany_mes
 CREATE INDEX IF NOT EXISTS idx_ic_messages_source_journal ON intercompany_messages (source_journal_entry_id) WHERE source_journal_entry_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ic_transactions_first_journal ON intercompany_transactions (first_target_journal_entry_id) WHERE first_target_journal_entry_id IS NOT NULL;
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_since TIMESTAMPTZ;
+
+-- One standing (draft or posted) elimination per intercompany row: the generator's per-row skip is a check-then-insert, and two runs at once would
+-- both insert. An existing duplicate is a double elimination: all but the earliest are reversed first (counted in a NOTICE), so the index can be built.
+DO $$
+DECLARE
+  v_n integer;
+BEGIN
+  UPDATE consolidation_adjustments ca SET status = 'reversed', updated_at = now()
+   WHERE ca.source_intercompany_id IS NOT NULL AND ca.status IN ('draft', 'posted')
+     AND EXISTS (SELECT 1 FROM consolidation_adjustments o WHERE o.source_intercompany_id = ca.source_intercompany_id AND o.status IN ('draft', 'posted')
+                    AND (o.created_at, o.id) < (ca.created_at, ca.id));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n > 0 THEN RAISE NOTICE '1013: % duplicate standing eliminations reversed before the unique index', v_n; END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
+  WHERE status IN ('draft', 'posted');   -- (NULLs never collide: a manual adjustment has no source row)
 
 DO $$
 BEGIN
