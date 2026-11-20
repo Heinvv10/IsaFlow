@@ -50,6 +50,10 @@
  *     not cover. A PR that changes package.json/bun.lock controls that code at
  *     gate time anyway (the tests import it), so this adds no capability.
  *   - It does not pin golden-chunks' steps or golden-lane's runs-on.
+ *   - It cannot keep the advisory prod-schema job's dump out of its log: that
+ *     job runs the branch's own phase-a.sh with the private dump on disk, so a
+ *     PR from this repo that edits the script can print it. What is pinned is
+ *     the job's shape (ADVISORY_JOB below); the script is a code-review matter.
  *   - It cannot protect the runner. The self-hosted runner persists between
  *     jobs and its user owns ~/.bun/bin, so any job (golden-chunks, another
  *     workflow) could replace bun for every later run. A bunfig.toml preload
@@ -97,7 +101,30 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * running at once. It must stay clear of the `ci-` prefix and never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-chunks', 'golden-paths'];
+const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-chunks', 'golden-paths', 'prod-schema'];
+/**
+ * The ONE job allowed to fail without failing the run: "Migrations on prod
+ * schema (advisory)" (scripts/ci/prod-baseline/phase-a.sh). It is advisory
+ * until made blocking, so it must keep `continue-on-error: true`, and the
+ * required jobs' `needs` (pinned exactly, above and in workflowGateJobs.ts)
+ * do not name it. It reads a private dump of production's schema with the
+ * deploy key PROD_SCHEMA_READ_KEY in a public repo's run, so its shape is
+ * pinned too: GitHub-hosted only (the key and the dump never reach velo's
+ * persistent runners), no `permissions` of its own (it keeps the workflow's
+ * contents: read), and its only actions are checkout without persisted
+ * credentials, the pinned setup-bun, and caches of bun's download cache and
+ * the apt .debs; no artifact upload, and no cache of anything else (the dump).
+ * Any other job with continue-on-error, or this one under another id, name or
+ * shape, is refused.
+ */
+const ADVISORY_JOB = 'prod-schema';
+const ADVISORY_NAME = 'Migrations on prod schema (advisory)';
+const ADVISORY_KEYS = ['name', 'runs-on', 'timeout-minutes', 'continue-on-error', 'steps'];
+const ADVISORY_RUNS_ON = 'ubuntu-24.04';
+const MAX_ADVISORY_TIMEOUT = 30;
+const ADVISORY_CACHE_PATHS = ['~/.bun/install/cache', '~/apt-debs/*.deb'];
+const SETUP_BUN = 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6';
+const PROD_SCHEMA_REPO = 'Heinvv10/isaflow-prod-schema';
 /**
  * On velo (CI_HOSTED=off) the slot companies need the per-ref groups; on a
  * hosted runner the run has a database of its own and takes a group of its own
@@ -142,6 +169,7 @@ const JOB_NAMES: Record<string, string> = {
   'golden-lane': 'Golden Paths lane',
   'golden-chunks': GOLDEN_CHUNKS_NAME,
   'golden-paths': 'Golden Paths E2E (blocking)',
+  [ADVISORY_JOB]: ADVISORY_NAME,
 };
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
@@ -194,6 +222,39 @@ function checkGoldenAggregate(gp: unknown, errors: string[]): void {
     || step.run.trim() !== GOLDEN_AGG_RUN || !sameMap(step.env, GOLDEN_AGG_ENV)) {
     errors.push(`jobs.golden-paths.steps must be exactly one step: env ${JSON.stringify(GOLDEN_AGG_ENV)}, run:\n${GOLDEN_AGG_RUN}`);
   }
+}
+
+/** One `uses:` step of the advisory job: only the actions ADVISORY_JOB names, with those inputs. */
+function advisoryUseOk(step: Obj): boolean {
+  const uses = step.uses;
+  const w = isObj(step.with) ? step.with : {};
+  if (typeof uses !== 'string') return false;
+  if (CHECKOUT.test(uses)) return w['persist-credentials'] === false;
+  if (uses === SETUP_BUN) return sameMap(w, { 'bun-version': '1.3.9' });
+  if (uses === 'actions/cache@v4') return typeof w.path === 'string' && ADVISORY_CACHE_PATHS.includes(w.path);
+  return false;
+}
+
+function checkAdvisory(adv: unknown, errors: string[]): void {
+  const job = isObj(adv) ? adv : {};
+  const extra = extraKeys(job, ADVISORY_KEYS);
+  if (extra.length) errors.push(`jobs.${ADVISORY_JOB} sets ${extra.join(', ')}; it may set only ${ADVISORY_KEYS.join(', ')} (no needs/if/permissions/concurrency/env)`);
+  if (job['continue-on-error'] !== true) errors.push(`jobs.${ADVISORY_JOB}.continue-on-error must be exactly true; it is advisory, and a red result must not fail the run`);
+  if (job['runs-on'] !== ADVISORY_RUNS_ON) errors.push(`jobs.${ADVISORY_JOB}.runs-on must be exactly ${ADVISORY_RUNS_ON}; production's schema and its deploy key stay off velo's persistent runners`);
+  const t = job['timeout-minutes'];
+  if (!Number.isInteger(t) || (t as number) < 1 || (t as number) > MAX_ADVISORY_TIMEOUT) {
+    errors.push(`jobs.${ADVISORY_JOB}.timeout-minutes must be an integer from 1 to ${MAX_ADVISORY_TIMEOUT}`);
+  }
+  const steps = Array.isArray(job.steps) ? job.steps : [];
+  if (!steps.length) errors.push(`jobs.${ADVISORY_JOB}.steps must be a non-empty list`);
+  const bad = steps.map((s, i) => [s, i + 1] as const)
+    .filter(([s]) => !isObj(s) || ('uses' in s && !advisoryUseOk(s)))
+    .map(([, n]) => n);
+  if (bad.length) {
+    errors.push(`jobs.${ADVISORY_JOB} steps ${bad.join(', ')} use an action it may not: only actions/checkout@vN with persist-credentials: false, ${SETUP_BUN} (bun 1.3.9), and actions/cache@v4 of ${ADVISORY_CACHE_PATHS.join(' or ')} (nothing may upload or cache production's schema)`);
+  }
+  const fetches = steps.filter((s) => isObj(s) && isObj(s.with) && s.with.repository === PROD_SCHEMA_REPO).length;
+  if (fetches !== 1) errors.push(`jobs.${ADVISORY_JOB} must check out ${PROD_SCHEMA_REPO} exactly once (it checks it out ${fetches} times)`);
 }
 
 /**
@@ -253,6 +314,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (persisting.length) errors.push(`jobs ${persisting.join(', ')} set permissions but check out without \`persist-credentials: false\`; the token would sit in .git/config for every later step`);
     checkGoldenChunks(jobs['golden-chunks'], errors);
     checkGoldenAggregate(jobs['golden-paths'], errors);
+    checkAdvisory(jobs[ADVISORY_JOB], errors);
+    const advisory = Object.entries(jobs)
+      .filter(([name, j]) => name !== ADVISORY_JOB && isObj(j) && 'continue-on-error' in j).map(([name]) => name);
+    if (advisory.length) errors.push(`jobs ${advisory.join(', ')} set continue-on-error; only ${ADVISORY_JOB} is advisory`);
     for (const [id, j] of Object.entries(jobs)) {
       const want = JOB_NAMES[id];
       if (want !== undefined && !(isObj(j) && j.name === want)) {

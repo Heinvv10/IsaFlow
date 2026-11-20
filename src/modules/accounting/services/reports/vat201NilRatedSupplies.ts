@@ -24,12 +24,23 @@
  *
  * POSTED ONLY, matching the ledger fields. A draft invoice on a draft journal
  * used to reach field 2 while every ledger field ignored it.
+ *
+ * CANCELLED DOCUMENTS: the box basis's K-032 pair rule, from the same fragment
+ * (vatCancelledPairSql), so field 1 and fields 2/3 hide the same journals:
+ *   - a cancelled document's journal and its reversal chain are hidden only
+ *     when the original AND the reversal fall in the period: the pair adds 0;
+ *   - when the reversal falls in a later period (the original's was closed or
+ *     VAT-locked), both count: the original's period reads what it was filed
+ *     with, the later one the equal and opposite, and the two sum to 0;
+ *   - an uncoded leg follows the same rule: it counts on a live zero-tax
+ *     document's journal and along a cancelled zero-tax document's whole
+ *     reversal chain, and the pair rule then decides it as it decides a coded
+ *     leg. A reversal carries its parent's VAT legs (reversed), so it lands in
+ *     `taxed_entries` exactly when its parent does.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-
-/** Both spellings of a killed document are in use across AR and the credit notes. */
-const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
+import { cancelledEntriesCteSql, uncodedLegCountsSql, untaxedJournalsCteSql } from './vatCancelledPairSql';
 
 const EXPORT_TYPE = 'export';
 const ZERO_RATED_TYPES: readonly string[] = ['zero_rated', EXPORT_TYPE];
@@ -83,7 +94,7 @@ export async function getNilRatedSupplies(
   periodEnd: string,
 ): Promise<NilRatedSupplies> {
   const rows = (await sql`
-    WITH taxed_entries AS (
+    WITH RECURSIVE taxed_entries AS (
       -- Journals whose base deriveVatBoxes puts on a TAXED output box, which
       -- is the only case where field 1 must give the nil-rated share back.
       -- The test is the OUTPUT control leg's own VAT code, not its amount:
@@ -108,31 +119,8 @@ export async function getNilRatedSupplies(
         AND (jl.vat_type IS NULL OR jl.vat_type <> ALL(${NIL_RATED_TYPES as string[]}::TEXT[]))
       GROUP BY jl.journal_entry_id
     ),
-    cancelled_entries AS (
-      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND ci.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND ci.gl_journal_entry_id IS NOT NULL
-      UNION
-      SELECT cn.gl_journal_entry_id FROM credit_notes cn
-        WHERE cn.company_id = ${companyId}::UUID
-          AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND cn.gl_journal_entry_id IS NOT NULL
-    ),
-    untaxed_documents AS (
-      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND COALESCE(ci.tax_amount, 0) = 0
-          AND ci.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND ci.gl_journal_entry_id IS NOT NULL
-      UNION
-      SELECT cn.gl_journal_entry_id FROM credit_notes cn
-        WHERE cn.company_id = ${companyId}::UUID
-          AND cn.type = 'customer'
-          AND COALESCE(cn.tax_amount, 0) = 0
-          AND cn.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
-          AND cn.gl_journal_entry_id IS NOT NULL
-    )
+    ${cancelledEntriesCteSql(companyId, periodStart, periodEnd)},
+    ${untaxedJournalsCteSql(companyId)}
     SELECT
       jl.vat_type AS raw_vat_type,
       COALESCE(jl.vat_type, 'zero_rated') AS vat_type,
@@ -154,7 +142,7 @@ export async function getNilRatedSupplies(
       AND je.id NOT IN (SELECT id FROM cancelled_entries)
       AND (
         jl.vat_type = ANY(${NIL_RATED_TYPES as string[]}::TEXT[])
-        OR (jl.vat_type IS NULL AND je.id IN (SELECT id FROM untaxed_documents))
+        OR ${uncodedLegCountsSql()}
       )
     GROUP BY jl.vat_type
   `) as DbRow[];

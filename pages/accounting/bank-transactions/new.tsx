@@ -68,11 +68,12 @@ export default function NewBankTransactionPage() {
   };
 
   const idempotency = useIdempotencyKey();
+  const formRef = useRef<HTMLFormElement>(null);
   const inFlight = useRef(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (blockOnInvalidAmount()) return; // noValidate form: a refused paste must not submit the old amount
+    if (blockOnInvalidAmount(formRef.current)) return; // noValidate form: a refused paste must not submit the old amount
     if (inFlight.current) return; // state alone lets a second click in before the re-render that disables the button
     const err = validate();
     if (err) { notify.error(err); return; }
@@ -140,7 +141,7 @@ export default function NewBankTransactionPage() {
                   <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
                 </div>
               ) : (
-                <form onSubmit={handleSubmit} noValidate className="space-y-5">
+                <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-5">
                   {/* Bank & Transaction */}
                   <div className={`${card} p-5`}>
                     <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
