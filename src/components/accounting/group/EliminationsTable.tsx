@@ -72,7 +72,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               </td>
               <td className="px-4 py-3">
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[adj.status]}`}>
-                  {adj.status}
+                  {adj.automatic ? 'automatic' : adj.status}
                 </span>
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
@@ -80,7 +80,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-1">
-                  {adj.status === 'draft' && (
+                  {!adj.automatic && adj.status === 'draft' && (
                     <button
                       onClick={() => onPost(adj.id)}
                       disabled={actionLoading === adj.id}
@@ -93,7 +93,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                       Post
                     </button>
                   )}
-                  {adj.status === 'posted' && (
+                  {!adj.automatic && adj.status === 'posted' && (
                     <button
                       onClick={() => onReverse(adj.id)}
                       disabled={actionLoading === adj.id}

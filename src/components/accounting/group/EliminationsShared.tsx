@@ -37,6 +37,8 @@ export interface EliminationAdjustment {
   status: EliminationStatus;
   amount: number;
   lines?: EliminationLine[];
+  /** Derived from the ledgers at read time (mirrored intercompany documents): nothing to post or reverse. */
+  automatic?: boolean;
 }
 
 export const ELIMINATION_TYPE_LABELS: Record<EliminationType, string> = {
@@ -76,5 +78,6 @@ export function toEliminationRow(raw: unknown): EliminationAdjustment {
     period: start && end && start !== end ? `${start} – ${end}` : start || end,
     status: text(r.status) as EliminationStatus,
     amount: Math.round(amount * 100) / 100,
+    automatic: r.automatic === true,
   };
 }

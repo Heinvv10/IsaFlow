@@ -5,6 +5,7 @@ import { approveSupplierInvoice } from '../../../src/modules/accounting/services
 import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/ar/customerInvoiceCancelService';
 import { autoGenerateEliminations } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
+import { getMirroredEliminations } from '../../../src/modules/accounting/services/reports/mirrorEliminations';
 import { asAppUser, withoutTrigger } from './intercompany.helpers';
 import { asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, inbox, mirrorCleanup, mirrorSetup, sentInvoice, U } from './mirror.helpers';
 
@@ -12,9 +13,13 @@ export function makeLedger(pool: Pool) {
   const extra = { supplier: crypto.randomUUID(), asset: crypto.randomUUID() };
   const rows = async () => (await pool.query('SELECT * FROM intercompany_transactions WHERE group_id = $1 ORDER BY created_at', [co.G])).rows;
   const groupRow = async () => (await rows())[0];
-  const adjustments = async () => (await pool.query('SELECT id, status, reversed_at, reversed_reason FROM consolidation_adjustments WHERE group_id = $1 ORDER BY created_at', [co.G])).rows as
-    Array<{ id: string; status: string; reversed_at: Date | null; reversed_reason: string | null }>;
+  const adjustments = async () => (await pool.query('SELECT id, status FROM consolidation_adjustments WHERE group_id = $1 ORDER BY created_at', [co.G])).rows as
+    Array<{ id: string; status: string }>;
+  /** The manual generator (it takes no mirrored row). */
   const eliminate = () => autoGenerateEliminations(co.G, '2026-01-01', '2026-12-31');
+  /** The mirrored documents' eliminations as the reports read them: derived from the ledgers as at `to`, for a group writer's session. */
+  const derived = (from = '2026-01-01', to = '2026-12-31', user: string = U.ab, company: string = co.A) =>
+    asService(pool, user, company, () => getMirroredEliminations(co.G, from, to));
   const approveBill = (bill: string, user = U.b) => asService(pool, user, co.B, () => approveSupplierInvoice(co.B, bill, user));
   const cancelSender = (inv: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, inv, U.a));
   /** The sender's cancel in the LEDGER only (no hook, no service): the approval journal reversed by a direct reversal, the link cleared, the status cancelled. */
@@ -69,5 +74,5 @@ export function makeLedger(pool: Pool) {
     await clearMirrorRows(pool);
     await connect(pool);
   };
-  return { extra, rows, groupRow, adjustments, eliminate, approveBill, cancelSender, senderReverse, sync, accepted, unbind, monthly, setup, cleanup, reset };
+  return { extra, rows, groupRow, adjustments, eliminate, derived, approveBill, cancelSender, senderReverse, sync, accepted, unbind, monthly, setup, cleanup, reset };
 }

@@ -3,13 +3,12 @@
  * booked by the receiver on 2 Dec eliminates; one on 30 Dec booked on 2 Jan does not: variance, "cut-off: different financial years"), with
  * the monthly periods real companies have (the single yearly period the fixtures start with hid month-end); a capitalised cost stays a
  * variance whose reason the receiver sees on its inbox row; a credit note's elimination is the invoice's with the sides swapped in positive
- * amounts; and a group writer of only a THIRD member company still sees every row when it generates eliminations.
+ * amounts; and a group writer of only a THIRD member company reads the same derived eliminations.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { approveCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteApproveService';
-import { postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { getPostedEliminations } from '../../../src/modules/accounting/services/reports/consolidatedTrialBalanceService';
 import { asService, co, dataOf, inbox, plantArCreditNote, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
@@ -17,7 +16,7 @@ import { makeLedger } from './ledger.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const L = makeLedger(pool);
-const { extra, groupRow, adjustments, eliminate, approveBill, accepted } = L;
+const { extra, groupRow, adjustments, derived, approveBill, accepted } = L;
 beforeAll(async () => { await L.setup(); await L.monthly(co.B, 2026); await L.monthly(co.B, 2027); }, 60000);
 afterAll(L.cleanup, 60000);
 beforeEach(L.reset);
@@ -30,7 +29,7 @@ describe('cut-off by financial year, with monthly periods', () => {
     await redate(m.bill, '2026-12-02');
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'matched', variance_reason: null });
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
   });
 
   it('the sender sells on 30 Dec and the receiver books it on 2 Jan: different financial years, a variance with that reason, nothing eliminated', async () => {
@@ -38,7 +37,7 @@ describe('cut-off by financial year, with monthly periods', () => {
     await redate(m.bill, '2027-01-02');
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: 'cut-off: different financial years' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });
 
@@ -51,7 +50,7 @@ describe('a capitalised cost: a variance the receiver can read', () => {
     expect(reason).toMatch(/capitalised cost needs an unrealised-profit entry/);
     const handled = dataOf<{ items: Array<{ id: string; groupMatch: string; varianceReason: string }> }>(await inbox.list(U.b, co.B, { filter: 'handled' }));
     expect(handled.items.find((i) => i.id === m.id)).toMatchObject({ groupMatch: 'variance', varianceReason: reason });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });
 
@@ -65,26 +64,24 @@ describe('a credit note\'s elimination is the invoice\'s with the sides swapped,
     await asService(pool, U.b, co.B, () => approveCreditNote(co.B, note, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
     expect(Number((await groupRow()).amount)).toBe(-200);
-    const [made] = await eliminate();
-    const lines = made!.lines as Array<{ groupAccountId: string; debit: number; credit: number }>;
-    expect(lines.every((l) => l.debit >= 0 && l.credit >= 0)).toBe(true);
-    await postEliminationAdjustment(made!.id, co.G);
-    const net = Object.fromEntries((await getPostedEliminations(co.G, '2026-01-01', '2026-12-31')).map((l) => [l.groupAccountType, l.debit - l.credit]));
+    const [made] = await derived();
+    expect(made!.lines.every((l) => l.debit >= 0 && l.credit >= 0)).toBe(true);
+    const net = Object.fromEntries((await asService(pool, U.ab, co.A, () => getPostedEliminations(co.G, '2026-01-01', '2026-12-31'))).map((l) => [l.groupAccountType, l.debit - l.credit]));
     expect(net).toEqual({ revenue: -200, expense: 200 });   // the negative form was revenue debit -200 / expense credit -200: the same nets
   });
 });
 
 describe('a group writer whose own company is only a THIRD member of the group', () => {
-  it('generates the same eliminations: the generator does not lock rows through the UPDATE policy (which would drop the rows its user may not update)', async () => {
+  it('reads the same derived eliminations: the function judges the group rows, not the rows a session UPDATE policy would let it write', async () => {
     const m = await accepted();
     await approveBill(m.bill);
     // x: an owner of C (a member of the group, party to no row) and a VIEWER of A and B (so it reads their chart mappings, and updates none of their rows)
     await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [co.G, co.C]);
     await pool.query("INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $4, 'owner'), ($2, $4, 'viewer'), ($3, $4, 'viewer')", [co.C, co.A, co.B, U.x]);
     try {
-      const made = await asService(pool, U.x, co.C, () => eliminate());
+      const made = await derived('2026-01-01', '2026-12-31', U.x, co.C);
       expect(made).toHaveLength(1);
-      expect(await adjustments()).toHaveLength(1);
+      expect(await adjustments()).toHaveLength(0);
     } finally {
       await pool.query('DELETE FROM company_users WHERE user_id = $1 AND company_id = ANY($2)', [U.x, [co.A, co.B, co.C]]);
       await pool.query('DELETE FROM company_group_members WHERE group_id = $1 AND company_id = $2', [co.G, co.C]);

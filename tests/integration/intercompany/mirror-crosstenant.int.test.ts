@@ -16,7 +16,7 @@ import { makeLedger } from './ledger.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const L = makeLedger(pool);
-const { rows, groupRow, adjustments, eliminate, approveBill, accepted } = L;
+const { rows, groupRow, derived, approveBill, accepted } = L;
 const other = { customer: crypto.randomUUID() };
 beforeAll(async () => {
   await L.setup();
@@ -42,7 +42,7 @@ describe('B1: a row the mirror recorded is matched by the database only', () => 
       });
     }
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('the service logins (app_service, isaflow_service) cannot either', async () => {
@@ -60,29 +60,24 @@ describe('B1: a row the mirror recorded is matched by the database only', () => 
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
   });
 
-  it('the generator takes a mirrored row only when it names its target journal and BOTH journals it rests on still stand, whatever match_status says', async () => {
+  it('a mirrored row is eliminated only while BOTH journals it rests on stand in the ledger, whatever match_status or target_journal_entry_id say', async () => {
     const m = await accepted();
     await L.approveBill(m.bill);
     const tx = await groupRow();
-    expect(await eliminate()).toHaveLength(1);
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
-    // (planted: matched by hand with no target journal)
-    const plant = (set: string) => withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(`UPDATE intercompany_transactions SET ${set} WHERE id = $1`, [tx.id]));
-    await plant('target_journal_entry_id = NULL');
-    expect(await eliminate()).toHaveLength(0);
-    await plant(`target_journal_entry_id = '${tx.first_target_journal_entry_id}'`);
-    expect(await eliminate()).toHaveLength(1);
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
+    expect(await derived()).toHaveLength(1);
+    // (planted: the display columns say nothing matched; the ledgers still carry the document, so the figure stands)
+    await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      "UPDATE intercompany_transactions SET match_status = 'unmatched', target_journal_entry_id = NULL WHERE id = $1", [tx.id]));
+    expect(await derived()).toHaveLength(1);
     // the sender's journal reversed straight in the ledger (no service, no hook): the row still says matched, the ledger does not carry it
     await rawReverseJournal(pool, tx.source_journal_entry_id);
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
     // the sender's reversal is itself reversed (its journal stands again) and the row is eliminated once more ...
     await rawReverseJournal(pool, (await reversalOf(pool, tx.source_journal_entry_id))!, 'raw re-reversal');
-    expect(await eliminate()).toHaveLength(1);
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
+    expect(await derived()).toHaveLength(1);
     // ... and now the RECEIVER's journal reversed straight in the ledger: the row still says matched, the ledger does not carry the expense
     await rawReverseJournal(pool, tx.first_target_journal_entry_id);
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });
 
@@ -99,7 +94,7 @@ describe('B2: a mirrored row is not matched by hand, with a forged counterpart o
       expect(await outcome(q, "UPDATE intercompany_transactions SET match_status = 'matched', matched_by = $3, matched_at = now() WHERE id IN ($1, $2)", [p2, forged, U.b])).toMatch(/^23514/);
     });
     expect((await rows()).map((r) => r.match_status)).toEqual(['unmatched', 'unmatched']);
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });
 
@@ -199,16 +194,15 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
   it('an accepted and approved row: withdrawn and released by the hand cancel, matched and eliminated again once the reversal is reversed', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
     const { rev } = await handCancel(m.inv.id);
     expect(await withdraw(m.inv.id)).toBe(1);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect((await adjustments())[0]).toMatchObject({ status: 'reversed', reversed_reason: expect.stringMatching(/sender cancelled/) });
     await restoreInvoice(m.inv.id, m.message.source_journal_entry_id);
     await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));
     expect(await msg(m.id)).toMatchObject({ status: 'accepted', source_cancelled_at: null });
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
   });
 
   it('the sync judges the sender\'s cancel by the ledger\'s parity now, not by the stamp left behind: with the journal live again a stamped message does not unmatch the row', async () => {
@@ -233,17 +227,13 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
 });
 
 describe('Ledger 4d: a DIRECT reversal of the sender\'s journal (the reversal service, no cancel) is a cancel to the mirror', () => {
-  it('the message is withdrawn / stamped, the row released and the elimination reversed with when and why', async () => {
+  it('the message is withdrawn / stamped, the row released and the derived elimination gone', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, m.message.source_journal_entry_id, U.a));
     expect((await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0]).toMatchObject({ status: 'accepted' });
     expect((await pool.query('SELECT source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0].source_cancelled_at).not.toBeNull();
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null });
-    const [a] = await adjustments();
-    expect(a).toMatchObject({ status: 'reversed', reversed_reason: expect.stringMatching(/sender's journal was reversed/) });
-    expect(a!.reversed_at).not.toBeNull();
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Intercompany P2, the group's elimination feed (consolidatedReportingService.autoGenerateEliminations reads rows that are `matched`).
+ * Intercompany P2, the group's elimination feed: a mirrored document's elimination is DERIVED from the two ledgers at read time (mirrorEliminations.ts).
  * Accepting a message creates a DRAFT, which books nothing in the receiver: eliminating the sender's revenue against an expense
  * that was never booked would be wrong. So the sender's `intercompany_transactions` row is matched only when the receiver's bill /
  * supplier credit note is APPROVED (target journal set, variance computed from the receiver's own subtotal), and goes back to
@@ -10,7 +10,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { approveSupplierInvoice, cancelSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteApproveService';
-import { autoGenerateEliminations } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
+import { getMirroredEliminations } from '../../../src/modules/accounting/services/reports/mirrorEliminations';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { asAppUser, outcome } from './intercompany.helpers';
 import {
@@ -37,7 +37,7 @@ beforeEach(async () => {
 });
 
 const groupRow = async () => (await pool.query('SELECT * FROM intercompany_transactions WHERE group_id = $1', [co.G])).rows[0];
-const eliminate = () => autoGenerateEliminations(co.G, '2026-01-01', '2026-12-31');
+const derived = () => asService(pool, U.ab, co.A, () => getMirroredEliminations(co.G, "2026-01-01", "2026-12-31"));
 const acceptBill = async () => {
   const { id } = await sentInvoice(pool);
   const res = await inbox.accept(U.b, co.B, id);
@@ -46,10 +46,10 @@ const acceptBill = async () => {
 };
 
 describe('an accepted DRAFT eliminates nothing; an APPROVED bill eliminates once, at the right amounts', () => {
-  it('accept, leave the draft: the elimination generator yields 0; approve: 1, with the sender\'s revenue against the receiver\'s expense; cancel: back to 0', async () => {
+  it('accept, leave the draft: the derived elimination is 0; approve: 1, with the sender\'s revenue against the receiver\'s expense; cancel: back to 0', async () => {
     const bill = await acceptBill();
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
 
     await asService(pool, U.b, co.B, () => approveSupplierInvoice(co.B, bill, U.b));
     const matched = await groupRow();
@@ -57,23 +57,23 @@ describe('an accepted DRAFT eliminates nothing; an APPROVED bill eliminates once
     expect(journal).not.toBeNull();
     expect(matched).toMatchObject({ match_status: 'matched', matched_by: U.b, target_journal_entry_id: journal });
     expect(Number(matched.variance_amount)).toBe(0);
-    const adjustments = await eliminate();
-    expect(adjustments).toHaveLength(1);
-    const lines = adjustments[0]!.lines as Array<{ groupAccountId: string; debit: number; credit: number }>;
+    const derivedNow = await derived();
+    expect(derivedNow).toHaveLength(1);
+    expect(derivedNow[0]!.description).toMatch(/^Automatic: mirrored intercompany documents/);
+    const lines = derivedNow[0]!.lines;
     expect(lines.find((l) => l.groupAccountId === ga.rev)).toMatchObject({ debit: 1000, credit: 0 });
     expect(lines.find((l) => l.groupAccountId === ga.exp)).toMatchObject({ debit: 0, credit: 1000 });
-
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
+    expect((await pool.query('SELECT 1 FROM consolidation_adjustments WHERE group_id = $1', [co.G])).rowCount, 'nothing is stored').toBe(0);
     await asService(pool, U.b, co.B, () => cancelSupplierInvoice(co.B, bill, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', matched_by: null, matched_at: null, target_journal_entry_id: null });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a draft that is deleted stays unmatched and eliminates nothing', async () => {
     const bill = await acceptBill();
     await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bill]);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a bill the receiver changed before approving: matched as a VARIANCE with the difference, and eliminated for no amount', async () => {
@@ -84,7 +84,7 @@ describe('an accepted DRAFT eliminates nothing; an APPROVED bill eliminates once
     await asService(pool, U.b, co.B, () => approveSupplierInvoice(co.B, bill, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'variance' });
     expect(Number((await groupRow()).variance_amount)).toBe(100);
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('the sync touches only the pair\'s own row: a third company\'s bill, and an unrelated bill of the receiver, change nothing', async () => {

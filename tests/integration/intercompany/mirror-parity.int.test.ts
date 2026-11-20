@@ -17,7 +17,7 @@ import { makeLedger } from './ledger.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const L = makeLedger(pool);
-const { groupRow, adjustments, eliminate, approveBill, accepted } = L;
+const { groupRow, derived, approveBill, accepted } = L;
 beforeAll(L.setup, 60000);
 afterAll(L.cleanup, 60000);
 beforeEach(L.reset);
@@ -68,10 +68,10 @@ describe('a link counts as a reversal only by value', () => {
 });
 
 describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
-  it('R1: after a real cancel, a forged EMPTY "reversal of the reversal" does not revive the stamp, re-match the row or restore the elimination', async () => {
+  it('R1: after a real cancel, a forged EMPTY "reversal of the reversal" does not revive the stamp, re-match the row or restore the derived elimination', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
     const je = (await jeOf(m.inv.id))!;
     await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
     const r1 = (await reversalOf(pool, je))!;
@@ -80,14 +80,12 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     await chainChanged(U.a, co.A, forged);
     expect((await msg(m.id)).source_cancelled_at).not.toBeNull();
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
-    expect((await adjustments())[0]).toMatchObject({ status: 'reversed' });
+    expect(await derived()).toHaveLength(0);
   });
 
   it('R1b: an existing posted journal re-pointed at the reversal (UPDATE reversal_of_id) is no link either', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     const je = (await jeOf(m.inv.id))!;
     await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
     const r1 = (await reversalOf(pool, je))!;
@@ -100,21 +98,22 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     await chainChanged(U.a, co.A, old);
     expect(await chain(je, co.A)).toBe(2);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
-  it('a TRUE reversal of the reversal on a CANCELLED invoice (the chain looks alive) revives nothing: the document is not live in its books', async () => {
+  it('a TRUE reversal of the reversal on a CANCELLED invoice: the inbox state is not revived (the document is not live in its books); the figure follows the ledgers, which carry the revenue again', async () => {
     const m = await accepted();
     await approveBill(m.bill);
     const je = (await jeOf(m.inv.id))!;
     await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+    expect(await derived()).toHaveLength(0);
     const r1 = (await reversalOf(pool, je))!;
     await rawReverseJournal(pool, r1, 'valid re-reversal');          // by value a real reversal: the chain is odd again
     expect(await chain(je, co.A)).toBe(3);
     await chainChanged(U.a, co.A, (await reversalOf(pool, r1))!);
     expect((await msg(m.id)).source_cancelled_at).not.toBeNull();   // the invoice is cancelled and unlinked: not revived
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(1);   // (A's ledger carries the revenue again and B's the expense: the elimination is what both books show)
   });
 
   it('R3: the send does not re-pend a withdrawn message of a cancelled invoice (forged re-reversal, or a true one)', async () => {
@@ -136,37 +135,34 @@ describe('receiver: forged links, true revivals, and an insider\'s forged "rever
   it('R2: after the bill\'s journal is reversed, a forged empty re-reversal does not re-match the row (zero expense stays out of the eliminations)', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     const bj = (await groupRow()).target_journal_entry_id as string;
     await asService(pool, U.b, co.B, () => reverseJournalEntry(co.B, bj, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
     const forged = await forgedEmpty(co.B, U.b, 'payable', (await reversalOf(pool, bj))!);
     await chainChanged(U.b, co.B, forged);
     expect(await L.sync(U.b, co.B, m.bill)).not.toBe('matched');   // (its bill is still approved on a reversed journal: a variance, never a match)
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('R6: a forged empty "reversal" of the receiver\'s own journal releases nothing (B cannot un-eliminate a real expense by hand)', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     const bj = (await groupRow()).target_journal_entry_id as string;
     const forged = await forgedEmpty(co.B, U.b, 'payable', bj);
     await chainChanged(U.b, co.B, forged);
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
-    expect((await adjustments())[0]).toMatchObject({ status: 'draft' });
+    expect(await derived()).toHaveLength(1);
   });
 
   it('the receiver\'s reversal that is itself reversed (a TRUE re-reversal, its bill still approved on that journal) matches the row again', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     const bj = (await groupRow()).target_journal_entry_id as string;
     await asService(pool, U.b, co.B, () => reverseJournalEntry(co.B, bj, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
     await asService(pool, U.b, co.B, async () => reverseJournalEntry(co.B, (await reversalOf(pool, bj))!, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'matched', target_journal_entry_id: bj });
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
   });
 
   it('a VARIANCE is judged afresh when the sender\'s cancel is undone: the row comes back a variance with its reason, never a match', async () => {
@@ -181,6 +177,6 @@ describe('receiver: forged links, true revivals, and an insider\'s forged "rever
     await pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [m.inv.id, je]);
     await asService(pool, U.a, co.A, async () => reverseJournalEntry(co.A, (await reversalOf(pool, je))!, U.a));
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/not the sender's amount/) });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });

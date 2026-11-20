@@ -1,61 +1,59 @@
 -- 1013: Intercompany P2 (invoice + credit-note mirror). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md (P2).
 -- Applies on top of 1000 / 1002; idempotent (CREATE OR REPLACE, IF NOT EXISTS, DROP ... IF EXISTS). Adds columns and indexes and replaces
--- function bodies; drops only functions this migration's own earlier shapes defined (payload_problem, the one-argument queue / release).
+-- function bodies; drops only functions this migration's own earlier shapes defined (payload_problem, the one-argument queue / chain length).
 
--- THE RULE: the P2 feed does not trust what a writer can write. app_user can set a document's status and its journal link and can post a
--- journal with any source and text (a wider class, fixed elsewhere), so a message, its group row and their eliminations rest on the LEDGERS
--- (journal lines by value, reversal chains by parity) and on what the database itself recorded, never on those columns or that text.
+-- THE RULE: the P2 feed does not trust what a writer can write, and stores no figure it can derive. app_user can set a document's status and
+-- its journal link and can post a journal with any source and text (a wider class, fixed elsewhere), so a message, its group row and their
+-- eliminations rest on the LEDGERS (journal lines by value, reversal chains by parity, dated) and on what the database itself recorded.
 
 -- WHAT
 --   1. The DATABASE writes a document message: intercompany_send_for_source(doc type, doc id) builds the payload and the sender's group row from
---      the session company's approved document, and records on the message the journal it was sent with and the group row. The messages guard
---      refuses a session's own INSERT of a message that carries or names a document. The journal must be the document's OWN posting
---      (intercompany_own_posting_problem) and carry its figures by value (intercompany_sender_journal_value_problem).
+--      the session company's approved document and records on the message the journal it was sent with and the group row. The messages guard
+--      refuses a session's own INSERT of a message that carries or names a document (it allow-lists migration_admin). The journal must be the
+--      document's OWN posting (intercompany_own_posting_problem) and carry its figures by value (intercompany_sender_journal_value_problem).
 
+--   2. THE ELIMINATIONS OF MIRRORED DOCUMENTS ARE DERIVED AT READ TIME, never stored: intercompany_mirror_eliminations(group, start, end) returns
+--      the mirrored rows the two ledgers support AS AT the period end (reversal chains counting only value-negating links dated on or before
+--      it; the receiver's financial-year cut-off; both journals' figures by value). No hook, lock or repair stands between a ledger and a figure.
 
---   2. The sender's cancel reaches the message and the row by the LEDGER's parity: intercompany_withdraw_for_source (a cancel through the
---      services), intercompany_journal_chain_changed (any reversal, and its reversal: withdraws, or revives when the journal is live again).
---      A message that records no journal proves nothing (fail closed).
-
---   3. intercompany_sync_group_row matches the sender's row on the receiver's LEDGER (identity, period by financial year, supplier, figures by
---      value), keeps a bound row on its first journal, and records a variance reason. A mirrored row is matched by the database only
---      (intercompany_transaction_parties_immutable); the elimination generator re-checks it (intercompany_row_eliminable).
+--   3. Hooks maintain INBOX and DISPLAY state only: intercompany_withdraw_for_source / intercompany_journal_chain_changed withdraw or revive a
+--      message by the ledger's parity, and intercompany_sync_group_row (best effort) binds a group row to the receiver's journal the first time it
+--      matches (identity, supplier, period, figures) and shows its status and variance reason. A mirrored row's match columns are written by
+--      migration_admin only (intercompany_transaction_parties_immutable).
 
 --   4. The auto-accept worker's definer path (queue and exhausted list), the receiver's source-changed check, and the 6b backfill of what
 --      older messages did not record.
 
 -- DEFINER REGISTRY (930): the SECURITY DEFINER functions below are registered in app_definer_reviews (owner migration_admin, search_path
--- pinned, pg_temp last). The builder, the value / posting checks and the withdraw / revive / release helpers are SECURITY INVOKER and
--- executable by migration_admin only. OLD COLOUR: nothing in the previous release reads these columns or calls these functions.
+-- pinned, pg_temp last). The builder, the value / posting / chain checks and the withdraw / revive / release / sync-core helpers are SECURITY
+-- INVOKER and executable by migration_admin only. OLD COLOUR: nothing in the previous release reads these columns or calls these functions.
 
 -- Rollback (code first):
 --   DROP FUNCTION IF EXISTS public.intercompany_auto_accept_queue(integer, boolean), public.intercompany_withdraw_for_source(text, uuid),
 --     public.intercompany_sync_group_row(text, uuid), public.intercompany_send_for_source(text, uuid), public.intercompany_message_source_changed(uuid),
---     public.intercompany_build_payload(text, uuid, uuid), public.intercompany_release_group_row(uuid, text), public.intercompany_journal_chain_length(uuid, uuid);
+--     public.intercompany_journal_chain_changed(uuid), public.intercompany_mirror_eliminations(uuid, date, date), public.intercompany_is_mirrored_row(uuid),
+--     public.intercompany_auto_accept_exhausted();
 
---   DROP FUNCTION IF EXISTS public.intercompany_clean_text(text, integer), public.intercompany_auto_accept_exhausted(), public.intercompany_is_mirrored_row(uuid), public.intercompany_release_stale_rows(uuid),
---     public.intercompany_row_eliminable(uuid), public.intercompany_journal_chain_changed(uuid), public.intercompany_withdraw_message(uuid, text);
+--   DROP FUNCTION IF EXISTS public.intercompany_sync_core(uuid, text, uuid, uuid), public.intercompany_withdraw_message(uuid), public.intercompany_revive_message(uuid),
+--     public.intercompany_release_group_row(uuid), public.intercompany_build_payload(text, uuid, uuid), public.intercompany_clean_text(text, integer),
+--     public.intercompany_journal_chain_length(uuid, uuid, date), public.intercompany_lines_negate(uuid, uuid), public.intercompany_document_live(text, uuid, uuid, uuid),
+--     public.intercompany_group_row_ok(uuid, uuid, uuid, uuid), public.intercompany_own_posting_problem(text, uuid, uuid, uuid),
+--     public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_fiscal_year(uuid, date),
+--     public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric);
 
---   DROP FUNCTION IF EXISTS public.intercompany_sync_core(uuid, text, uuid, uuid), public.intercompany_lines_negate(uuid, uuid),
---     public.intercompany_lock_eliminations(uuid), public.intercompany_document_live(text, uuid, uuid, uuid),
---     public.intercompany_revive_message(uuid), public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_group_row_ok(uuid, uuid, uuid, uuid), public.intercompany_own_posting_problem(text, uuid, uuid, uuid);
-
---   DROP TRIGGER IF EXISTS trg_intercompany_elimination_carried ON consolidation_adjustments; DROP FUNCTION IF EXISTS public.intercompany_elimination_carried_check();
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
---   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable return by re-applying them)
+--   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
 
---   ALTER TABLE intercompany_messages DROP COLUMN IF EXISTS source_cancelled_at, DROP COLUMN IF EXISTS manual_only,
---     DROP COLUMN IF EXISTS auto_attempts, DROP COLUMN IF EXISTS auto_next_attempt_at, DROP COLUMN IF EXISTS source_journal_entry_id, DROP COLUMN IF EXISTS group_transaction_id;
+--   ALTER TABLE intercompany_messages DROP COLUMN IF EXISTS source_cancelled_at, DROP COLUMN IF EXISTS manual_only, DROP COLUMN IF EXISTS auto_attempts,
+--     DROP COLUMN IF EXISTS auto_next_attempt_at, DROP COLUMN IF EXISTS source_journal_entry_id, DROP COLUMN IF EXISTS group_transaction_id;
 --   ALTER TABLE intercompany_transactions DROP COLUMN IF EXISTS variance_reason, DROP COLUMN IF EXISTS first_target_journal_entry_id;
-
 --   ALTER TABLE intercompany_connection_sides DROP COLUMN IF EXISTS auto_accept_since;
---   ALTER TABLE consolidation_adjustments DROP COLUMN IF EXISTS reversed_at, DROP COLUMN IF EXISTS reversed_reason;
 --   (the indexes idx_ic_messages_group_transaction, idx_ic_messages_source_journal, idx_ic_transactions_first_journal drop with their columns)
 
-
---   DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_auto_accept_queue(integer,boolean)', 'intercompany_withdraw_for_source(text,uuid)',
---     'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)', 'intercompany_message_source_changed(uuid)',
---     'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)', 'intercompany_row_eliminable(uuid)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_release_stale_rows(uuid)');
+--   DELETE FROM app_definer_reviews WHERE signature LIKE 'intercompany\_%' AND signature IN ('intercompany_auto_accept_queue(integer,boolean)',
+--     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
+--     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
+--     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)');
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -74,8 +72,6 @@ ALTER TABLE intercompany_messages
 ALTER TABLE intercompany_transactions ADD COLUMN IF NOT EXISTS variance_reason TEXT;
 -- The first journal a row was matched to: written by intercompany_sync_group_row only and never cleared by a release (the target above is).
 ALTER TABLE intercompany_transactions ADD COLUMN IF NOT EXISTS first_target_journal_entry_id UUID;
--- When and why an elimination was reversed by the mirror (a release); NULL for one a person reversed.
-ALTER TABLE consolidation_adjustments ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS reversed_reason TEXT;
 -- The lookups the mirror makes by the database's own references (a trigger asks "is this row a message's" on every update of a row).
 CREATE INDEX IF NOT EXISTS idx_ic_messages_group_transaction ON intercompany_messages (group_transaction_id) WHERE group_transaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ic_messages_source_journal ON intercompany_messages (source_journal_entry_id) WHERE source_journal_entry_id IS NOT NULL;
@@ -158,8 +154,10 @@ GRANT EXECUTE ON FUNCTION public.intercompany_lines_negate(uuid, uuid) TO migrat
 
 -- The number of POSTED journals in the reversal chain that starts at p_je (the journal, its reversal, the reversal's reversal, ...), 0 when
 -- p_je is not a posted journal of p_company. A link counts only if it is posted, of the same company AND the exact negation of the journal it
--- reverses (a forged link, an empty one, a re-pointed one, ends the chain). ODD = the ledger carries the document, EVEN = the chain is out.
-CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_length(p_je uuid, p_company uuid)
+-- reverses (a forged, empty or re-pointed link ends the chain). With p_asat, only journals DATED on or before it count (the ledger as it stood
+-- at the end of a period: a reversal booked later does not change an earlier period). ODD = the ledger carries the document, EVEN = it is out.
+DROP FUNCTION IF EXISTS public.intercompany_journal_chain_length(uuid, uuid, date);
+CREATE OR REPLACE FUNCTION public.intercompany_journal_chain_length(p_je uuid, p_company uuid, p_asat date DEFAULT NULL)
 RETURNS integer
 LANGUAGE sql
 STABLE
@@ -167,29 +165,16 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   WITH RECURSIVE chain(id) AS (
-    SELECT je.id FROM public.gl_journal_entries je WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted'
+    SELECT je.id FROM public.gl_journal_entries je
+     WHERE je.id = p_je AND je.company_id = p_company AND je.status = 'posted' AND (p_asat IS NULL OR je.entry_date <= p_asat)
     UNION
     SELECT r.id FROM public.gl_journal_entries r JOIN chain ON r.reversal_of_id = chain.id
-     WHERE r.company_id = p_company AND r.status = 'posted' AND public.intercompany_lines_negate(r.id, chain.id)
+     WHERE r.company_id = p_company AND r.status = 'posted' AND (p_asat IS NULL OR r.entry_date <= p_asat) AND public.intercompany_lines_negate(r.id, chain.id)
   )
   SELECT count(*)::integer FROM chain
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid) TO migration_admin;
-
--- One writer of the elimination feed of a group at a time: the generator (consolidatedReportingService) and every definer that changes a
--- mirrored row's match state take THIS lock first (then any row lock), so a release cannot slip between the generator's eligibility check and its
--- insert. Transaction-scoped; the key is the one the generator computes.
-CREATE OR REPLACE FUNCTION public.intercompany_lock_eliminations(p_group uuid)
-RETURNS void
-LANGUAGE sql
-VOLATILE
-SECURITY INVOKER
-SET search_path = pg_catalog, public, pg_temp
-AS $$ SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('intercompany-eliminations:' || p_group::text, 0)) $$;
-REVOKE ALL ON FUNCTION public.intercompany_lock_eliminations(uuid) FROM PUBLIC;
--- (the generator and a post run as the session's user and take it too; it only takes a lock any session can take on any key)
-GRANT EXECUTE ON FUNCTION public.intercompany_lock_eliminations(uuid) TO app_user, app_service, migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid, date) TO migration_admin;
 
 -- Whether a document is LIVE in its books: approved (status) and linked to the journal that is its posting (a cancel clears an invoice's link).
 -- A cancelled document is not revived by a reversal chain that looks alive again. SECURITY INVOKER, migration_admin only.
@@ -223,32 +208,84 @@ ALTER FUNCTION public.intercompany_is_mirrored_row(uuid) OWNER TO migration_admi
 REVOKE ALL ON FUNCTION public.intercompany_is_mirrored_row(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_is_mirrored_row(uuid) TO app_user, app_service, migration_admin;
 
--- Whether the elimination generator may take a group row: a row that is no message's always (the manual feed), a mirrored one only when it is
--- matched AND both journals it rests on still stand (the sender's revenue and the receiver's expense: odd reversal chains) and it names its
--- target journal, whatever its match_status column says. Answers a boolean about a row id and nothing else.
-CREATE OR REPLACE FUNCTION public.intercompany_row_eliminable(p_row uuid)
-RETURNS boolean
+-- Why the journal p_je does not CARRY the sender's figures on the RECEIVER's side (expense lines net to the sender's amount, input VAT to its VAT,
+-- the payable to its total, and no other kind of line), or NULL: judged by VALUE, as the sender's side is (intercompany_sender_journal_value_problem).
+-- p_amount is the sender's amount in its own sign (a credit note's is negative). SECURITY INVOKER, migration_admin only.
+CREATE OR REPLACE FUNCTION public.intercompany_receiver_journal_value_problem(p_kind text, p_je uuid, p_amount numeric, p_tax numeric, p_total numeric)
+RETURNS text
 LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_sign integer := CASE p_kind WHEN 'credit_note' THEN -1 ELSE 1 END;
+  v_expense numeric;
+  v_vat numeric;
+  v_payable numeric;
+  v_other bigint;
+BEGIN
+  SELECT COALESCE(sum(jl.debit - jl.credit) FILTER (WHERE ga.account_type = 'expense'), 0),
+         COALESCE(sum(jl.debit - jl.credit) FILTER (WHERE ga.account_subtype IN ('vat_input', 'vat_input_late_claim')), 0),
+         COALESCE(sum(jl.credit - jl.debit) FILTER (WHERE ga.account_subtype = 'payable'), 0),
+         count(*) FILTER (WHERE NOT (ga.account_type = 'expense' OR COALESCE(ga.account_subtype, '') IN ('payable', 'vat_input', 'vat_input_late_claim')))
+    INTO v_expense, v_vat, v_payable, v_other
+    FROM public.gl_journal_lines jl JOIN public.gl_accounts ga ON ga.id = jl.gl_account_id WHERE jl.journal_entry_id = p_je;
+  IF v_other > 0 THEN RETURN 'the journal has lines that are not expense, payable or input VAT (a capitalised cost needs an unrealised-profit entry)'; END IF;
+  IF abs(p_amount - v_expense) <> 0 THEN RETURN 'the expense in the journal is not the sender''s amount'; END IF;
+  IF round(v_vat * 100) <> round(v_sign * p_tax * 100) OR round(v_payable * 100) <> round(v_sign * p_total * 100) THEN
+    RETURN 'the journal''s input VAT or payable is not the sender''s VAT and total';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric) TO migration_admin;
+
+-- The fiscal year of p_company's calendar that contains p_date, or NULL. SECURITY INVOKER, migration_admin only.
+CREATE OR REPLACE FUNCTION public.intercompany_fiscal_year(p_company uuid, p_date date)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$ SELECT fp.fiscal_year FROM public.fiscal_periods fp WHERE fp.company_id = p_company AND p_date BETWEEN fp.start_date AND fp.end_date ORDER BY fp.start_date DESC LIMIT 1 $$;
+REVOKE ALL ON FUNCTION public.intercompany_fiscal_year(uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_fiscal_year(uuid, date) TO migration_admin;
+
+-- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored: for a group the caller is a member of, the sender's group
+-- rows (dated within p_start..p_end) that the two ledgers support AS AT p_end. A row is eliminated when the receiver's
+-- journal is the one the definer bound it to, both journals stand at p_end (odd reversal chains counting only value-negating links DATED on or
+-- before p_end), the receiver booked it in the same financial year of its calendar as the sender's date, and both journals carry the document's
+-- figures by value. A pure function of ledger state: a hook that never ran, a lock that timed out or a reversal booked in a later period cannot
+-- leave a wrong figure, because there is no stored figure. (Returns the row, signed as the sender wrote it: a credit note is negative.)
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_eliminations(p_group uuid, p_start date, p_end date)
+RETURNS TABLE (transaction_id uuid, source_company_id uuid, target_company_id uuid, amount numeric, transaction_date date, description text)
+LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-DECLARE
-  t RECORD;
-BEGIN
-  SELECT it.group_id, it.match_status, it.source_company_id, it.target_company_id, it.source_journal_entry_id AS sje, it.target_journal_entry_id AS tje INTO t
-    FROM public.intercompany_transactions it WHERE it.id = p_row;
-  IF NOT FOUND THEN RETURN false; END IF;
-  IF NOT public.intercompany_is_mirrored_row(p_row) THEN RETURN true; END IF;
-  -- (a row with no target journal has chain length 0, which is not odd: it is not eliminable)
-  RETURN t.match_status = 'matched' AND t.sje IS NOT NULL
-     AND public.intercompany_journal_chain_length(t.sje, t.source_company_id) % 2 = 1
-     AND public.intercompany_journal_chain_length(t.tje, t.target_company_id) % 2 = 1;
-END;
+  SELECT it.id, it.source_company_id, it.target_company_id, it.amount, it.transaction_date, it.description
+    FROM public.intercompany_transactions it
+    JOIN public.intercompany_messages m ON m.group_transaction_id = it.id
+   WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
+     AND it.transaction_date BETWEEN p_start AND p_end
+     AND it.first_target_journal_entry_id IS NOT NULL AND m.source_journal_entry_id IS NOT NULL
+     AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
+     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
+     AND public.intercompany_journal_chain_length(it.first_target_journal_entry_id, m.to_company_id, p_end) % 2 = 1
+     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT NULL
+     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT DISTINCT FROM
+         public.intercompany_fiscal_year(m.to_company_id, (SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = it.first_target_journal_entry_id))
+     AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
+           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
+     AND public.intercompany_receiver_journal_value_problem(m.kind, it.first_target_journal_entry_id, it.amount,
+           (m.payload->>'taxAmount')::numeric, (m.payload->>'total')::numeric) IS NULL
 $$;
-ALTER FUNCTION public.intercompany_row_eliminable(uuid) OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.intercompany_row_eliminable(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_row_eliminable(uuid) TO app_user, app_service, migration_admin;
+ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
 
 -- Why p_je is NOT the approval posting of p_doc (a customer invoice / customer credit note of p_company), or NULL when it is: the company's own,
 -- an ORIGINAL posted entry (not a reversal), the one the approval writes (source and description name this document), referenced by no other
@@ -798,33 +835,28 @@ REVOKE ALL ON FUNCTION public.intercompany_messages_guard() FROM PUBLIC;
 
 -- ── 4. The sender's cancellation reaches its message and its group row ──────
 
--- Puts a group row back to what a document that is not (or no longer) eliminable is: unmatched, nothing matched, no target journal (the FIRST
--- journal it was matched to stays: only the definer writes it), and the elimination (draft or posted) generated from it reversed, with when and
--- why, because it no longer stands. SECURITY INVOKER, executable by migration_admin only: the definers below call it.
+-- Puts a group row back to what a document that is not (or no longer) eliminable shows: unmatched, nothing matched, no target journal (the FIRST
+-- journal it was matched to stays: only the definer writes it). A DISPLAY state: the eliminations are derived from the ledgers, not from this.
+-- SECURITY INVOKER, executable by migration_admin only: the definers below call it.
 DROP FUNCTION IF EXISTS public.intercompany_release_group_row(uuid);
-CREATE OR REPLACE FUNCTION public.intercompany_release_group_row(p_row uuid, p_reason text)
+CREATE OR REPLACE FUNCTION public.intercompany_release_group_row(p_row uuid)
 RETURNS void
-LANGUAGE plpgsql
+LANGUAGE sql
 VOLATILE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-BEGIN
-  PERFORM public.intercompany_lock_eliminations((SELECT it.group_id FROM public.intercompany_transactions it WHERE it.id = p_row));
   UPDATE public.intercompany_transactions
      SET match_status = 'unmatched', variance_amount = 0, variance_reason = NULL, matched_at = NULL, matched_by = NULL, target_journal_entry_id = NULL
    WHERE id = p_row AND (match_status <> 'unmatched' OR variance_amount <> 0 OR variance_reason IS NOT NULL OR matched_at IS NOT NULL
-                         OR matched_by IS NOT NULL OR target_journal_entry_id IS NOT NULL);
-  UPDATE public.consolidation_adjustments SET status = 'reversed', updated_at = clock_timestamp(), reversed_at = clock_timestamp(), reversed_reason = p_reason
-   WHERE source_intercompany_id = p_row AND status IN ('draft', 'posted');
-END;
+                         OR matched_by IS NOT NULL OR target_journal_entry_id IS NOT NULL)
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_release_group_row(uuid, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_release_group_row(uuid, text) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_release_group_row(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_release_group_row(uuid) TO migration_admin;
 
 -- Withdraws (a message not yet handled) or stamps (an accepted one) the message, and releases the group row the database recorded for it. The
 -- caller has proved the cancel against the ledger. False when the message is gone, already stamped or already handled otherwise.
-CREATE OR REPLACE FUNCTION public.intercompany_withdraw_message(p_message uuid, p_reason text)
+CREATE OR REPLACE FUNCTION public.intercompany_withdraw_message(p_message uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 VOLATILE
@@ -834,8 +866,6 @@ AS $$
 DECLARE
   m RECORD;
 BEGIN
-  -- the group's elimination lock first, then the message row (one order everywhere)
-  PERFORM public.intercompany_lock_eliminations((SELECT it.group_id FROM public.intercompany_messages x JOIN public.intercompany_transactions it ON it.id = x.group_transaction_id WHERE x.id = p_message));
   SELECT x.id, x.status, x.from_company_id, x.to_company_id, x.source_journal_entry_id AS je, x.group_transaction_id AS gtx INTO m
     FROM public.intercompany_messages x
    WHERE x.id = p_message AND x.source_cancelled_at IS NULL AND x.status IN ('pending', 'failed', 'dismissed', 'accepted') FOR UPDATE;
@@ -846,13 +876,13 @@ BEGIN
    WHERE id = m.id;
   PERFORM pg_catalog.set_config('app.intercompany_system_update', '', true);
   IF m.gtx IS NOT NULL AND public.intercompany_group_row_ok(m.gtx, m.from_company_id, m.to_company_id, m.je) THEN
-    PERFORM public.intercompany_release_group_row(m.gtx, p_reason);
+    PERFORM public.intercompany_release_group_row(m.gtx);
   END IF;
   RETURN true;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_withdraw_message(uuid, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_withdraw_message(uuid, text) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_withdraw_message(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_withdraw_message(uuid) TO migration_admin;
 
 -- The other way: the journal a message records is LIVE again (the reversal was itself reversed, by value), AND its document is live in the
 -- sender's books (approved, linked to that journal: a cancelled document is not revived by a chain that looks alive). Then a withdrawn message is
@@ -868,7 +898,6 @@ AS $$
 DECLARE
   m RECORD;
 BEGIN
-  PERFORM public.intercompany_lock_eliminations((SELECT it.group_id FROM public.intercompany_messages x JOIN public.intercompany_transactions it ON it.id = x.group_transaction_id WHERE x.id = p_message));
   SELECT x.id, x.kind, x.status, x.from_company_id, x.to_company_id, x.source_doc_id, x.source_journal_entry_id AS je, x.group_transaction_id AS gtx, x.target_doc_type, x.target_doc_id INTO m
     FROM public.intercompany_messages x
    WHERE x.id = p_message AND x.source_cancelled_at IS NOT NULL AND x.status IN ('withdrawn', 'accepted') FOR UPDATE;
@@ -902,6 +931,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
+SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
@@ -921,7 +951,7 @@ BEGIN
             WHERE x.from_company_id = v_co AND x.source_doc_type = p_source_type AND x.source_doc_id = p_source_id AND x.kind IN ('invoice', 'credit_note')
   LOOP
     v_chain := CASE WHEN m.je IS NULL THEN 0 ELSE public.intercompany_journal_chain_length(m.je, v_co) END;
-    IF v_chain > 0 AND v_chain % 2 = 0 AND public.intercompany_withdraw_message(m.id, 'the sender cancelled the document') THEN n := n + 1; END IF;
+    IF v_chain > 0 AND v_chain % 2 = 0 AND public.intercompany_withdraw_message(m.id) THEN n := n + 1; END IF;
   END LOOP;
   RETURN n;
 END;
@@ -940,6 +970,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
+SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
@@ -961,7 +992,7 @@ BEGIN
   FOR r IN SELECT x.id FROM public.intercompany_messages x
             WHERE x.from_company_id = v_co AND x.source_journal_entry_id = v_root AND x.kind IN ('invoice', 'credit_note') LOOP
     IF v_len % 2 = 0 THEN
-      IF public.intercompany_withdraw_message(r.id, 'the sender''s journal was reversed') THEN n := n + 1; END IF;
+      IF public.intercompany_withdraw_message(r.id) THEN n := n + 1; END IF;
     ELSIF public.intercompany_revive_message(r.id) THEN
       n := n + 1;
     END IF;
@@ -971,7 +1002,7 @@ BEGIN
              JOIN public.intercompany_messages x ON x.group_transaction_id = it.id AND x.status = 'accepted'
             WHERE it.target_company_id = v_co AND it.first_target_journal_entry_id = v_root LOOP
     IF v_len % 2 = 0 THEN
-      PERFORM public.intercompany_release_group_row(r.id, 'the receiver''s journal was reversed');
+      PERFORM public.intercompany_release_group_row(r.id);
     ELSE
       PERFORM public.intercompany_sync_core(v_co, r.target_doc_type, r.target_doc_id, NULL);
     END IF;
@@ -1005,7 +1036,7 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
   -- A row a message records (a mirrored row) is matched by the database only: no session of any party, third-company group writer or service
-  -- login marks it matched (the generator eliminates what is matched), unmatched, signed or with a variance.
+  -- login marks it matched, unmatched, signed or with a variance (the inbox shows these columns).
   IF (NEW.match_status IS DISTINCT FROM OLD.match_status OR NEW.matched_by IS DISTINCT FROM OLD.matched_by OR NEW.matched_at IS DISTINCT FROM OLD.matched_at
       OR NEW.variance_amount IS DISTINCT FROM OLD.variance_amount)
      AND current_user <> 'migration_admin' AND public.intercompany_is_mirrored_row(OLD.id) THEN
@@ -1080,7 +1111,7 @@ $$;
 --               total, and no other kind of line;
 --   variance  : any of those fails, with variance_reason saying which.
 
--- Anything but matched reverses (with when and why) the eliminations generated from the row. Returns the row's status, or NULL.
+-- The row's status is a display value (nothing reads a figure from it). Returns the row's status, or NULL.
 CREATE OR REPLACE FUNCTION public.intercompany_sync_core(p_co uuid, p_doc_type text, p_doc_id uuid, p_actor uuid)
 RETURNS text
 LANGUAGE plpgsql
@@ -1100,11 +1131,6 @@ DECLARE
   v_sender_out boolean;
   v_fy_sender integer;
   v_fy_journal integer;
-  v_sign integer;
-  v_expense numeric := 0;
-  v_vat numeric := 0;
-  v_payable numeric := 0;
-  v_other bigint := 0;
   v_status text;
   v_reason text;
   v_variance numeric := 0;
@@ -1131,8 +1157,6 @@ BEGIN
   IF NOT FOUND THEN RETURN NULL; END IF;
   -- The row is the one the DATABASE recorded for this message (never a payload field): the sender's row to this company for the journal it was sent with.
   IF NOT public.intercompany_group_row_ok(m.gtx, m.from_company_id, v_co, m.source_je) THEN RETURN NULL; END IF;
-  -- the group's elimination lock first (the generator holds it while it checks and inserts), then the row
-  PERFORM public.intercompany_lock_eliminations((SELECT it.group_id FROM public.intercompany_transactions it WHERE it.id = m.gtx));
   SELECT it.amount, it.transaction_date, it.match_status, it.target_journal_entry_id, it.first_target_journal_entry_id AS first_je INTO t
     FROM public.intercompany_transactions it WHERE it.id = m.gtx FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -1144,7 +1168,7 @@ BEGIN
   v_sender_out := CASE WHEN m.source_je IS NULL THEN m.source_cancelled_at IS NOT NULL ELSE v_chain > 0 AND v_chain % 2 = 0 END;
 
   IF v_sender_out THEN
-    PERFORM public.intercompany_release_group_row(m.gtx, 'the sender''s document is cancelled');
+    PERFORM public.intercompany_release_group_row(m.gtx);
     RETURN 'unmatched';
   ELSIF v_first_stands THEN
     -- A bound row is moved by its first journal's fate or the sender's cancel, never by the bill's own columns. A row released by the sender's
@@ -1156,7 +1180,7 @@ BEGIN
     END IF;
     RETURN t.match_status;
   ELSIF NOT (COALESCE(d.ok, false) AND d.je IS NOT NULL) THEN
-    PERFORM public.intercompany_release_group_row(m.gtx, 'the receiver''s document is not approved');
+    PERFORM public.intercompany_release_group_row(m.gtx);
     RETURN 'unmatched';
   END IF;
 
@@ -1187,21 +1211,9 @@ BEGIN
     v_reason := 'cut-off: different financial years';
   END IF;
   IF v_reason IS NULL THEN
-    v_sign := CASE m.kind WHEN 'credit_note' THEN -1 ELSE 1 END;
-    SELECT COALESCE(sum(jl.debit - jl.credit) FILTER (WHERE ga.account_type = 'expense'), 0),
-           COALESCE(sum(jl.debit - jl.credit) FILTER (WHERE ga.account_subtype IN ('vat_input', 'vat_input_late_claim')), 0),
-           COALESCE(sum(jl.credit - jl.debit) FILTER (WHERE ga.account_subtype = 'payable'), 0),
-           count(*) FILTER (WHERE NOT (ga.account_type = 'expense' OR COALESCE(ga.account_subtype, '') IN ('payable', 'vat_input', 'vat_input_late_claim')))
-      INTO v_expense, v_vat, v_payable, v_other
-      FROM public.gl_journal_lines jl JOIN public.gl_accounts ga ON ga.id = jl.gl_account_id WHERE jl.journal_entry_id = d.je;
-    v_variance := abs(t.amount - v_expense);
-    IF v_other > 0 THEN
-      v_reason := 'the journal has lines that are not expense, payable or input VAT (a capitalised cost needs an unrealised-profit entry)';
-    ELSIF v_variance <> 0 THEN
-      v_reason := 'the expense in the journal is not the sender''s amount';
-    ELSIF round(v_vat * 100) <> round(v_sign * m.tax * 100) OR round(v_payable * 100) <> round(v_sign * m.total * 100) THEN
-      v_reason := 'the journal''s input VAT or payable is not the sender''s VAT and total';
-    END IF;
+    v_variance := abs(t.amount - COALESCE((SELECT sum(jl.debit - jl.credit) FROM public.gl_journal_lines jl JOIN public.gl_accounts ga ON ga.id = jl.gl_account_id
+                                            WHERE jl.journal_entry_id = d.je AND ga.account_type = 'expense'), 0));
+    v_reason := public.intercompany_receiver_journal_value_problem(m.kind, d.je, t.amount, m.tax, m.total);
   END IF;
   v_status := CASE WHEN v_reason IS NULL THEN 'matched' ELSE 'variance' END;
 
@@ -1216,10 +1228,6 @@ BEGIN
          target_journal_entry_id = CASE WHEN v_status = 'matched' THEN COALESCE(target_journal_entry_id, d.je) ELSE target_journal_entry_id END,
          first_target_journal_entry_id = CASE WHEN v_status = 'matched' THEN d.je ELSE first_target_journal_entry_id END
    WHERE id = m.gtx;
-  IF v_status <> 'matched' THEN
-    UPDATE public.consolidation_adjustments SET status = 'reversed', updated_at = clock_timestamp(), reversed_at = clock_timestamp(), reversed_reason = v_reason
-     WHERE source_intercompany_id = m.gtx AND status IN ('draft', 'posted');
-  END IF;
   RETURN v_status;
 END;
 $$;
@@ -1234,6 +1242,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
+SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
@@ -1245,58 +1254,6 @@ $$;
 ALTER FUNCTION public.intercompany_sync_group_row(text, uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_sync_group_row(text, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_sync_group_row(text, uuid) TO app_user, app_service;
-
--- The repair for a release that was missed (a failed hook, a reversal made some other way): the mirrored rows of a group that still say matched
--- although the ledgers no longer carry them are released (unmatched, their eliminations reversed with the reason). For a write-role user of the
--- group only; the elimination generator calls it under the group's lock. Returns how many rows it released.
-CREATE OR REPLACE FUNCTION public.intercompany_release_stale_rows(p_group uuid)
-RETURNS integer
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-DECLARE
-  r RECORD;
-  n integer := 0;
-BEGIN
-  IF p_group IS NULL OR NOT (p_group IN (SELECT public.rls_user_write_group_ids())) THEN RETURN 0; END IF;
-  PERFORM public.intercompany_lock_eliminations(p_group);
-  FOR r IN SELECT it.id FROM public.intercompany_transactions it
-            WHERE it.group_id = p_group AND it.match_status = 'matched' AND public.intercompany_is_mirrored_row(it.id) AND NOT public.intercompany_row_eliminable(it.id) LOOP
-    PERFORM public.intercompany_release_group_row(r.id, 'the row is no longer carried by both ledgers');
-    n := n + 1;
-  END LOOP;
-  RETURN n;
-END;
-$$;
-ALTER FUNCTION public.intercompany_release_stale_rows(uuid) OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.intercompany_release_stale_rows(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_release_stale_rows(uuid) TO app_user, app_service;
-
--- An elimination written from a mirrored row is checked AGAIN when its transaction commits, with the world as committed by then: a cancel or a
--- reversal that committed after the generator checked the row (and that never took the group's lock: a failed hook, a statement) leaves the
--- elimination REVERSED, not standing for a person to post. A row that is no message's is untouched (intercompany_row_eliminable is true for it).
-CREATE OR REPLACE FUNCTION public.intercompany_elimination_carried_check()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-BEGIN
-  IF NEW.source_intercompany_id IS NOT NULL AND NOT public.intercompany_row_eliminable(NEW.source_intercompany_id) THEN
-    UPDATE public.consolidation_adjustments SET status = 'reversed', updated_at = pg_catalog.clock_timestamp(), reversed_at = pg_catalog.clock_timestamp(),
-           reversed_reason = 'the intercompany row stopped being carried by both ledgers before this was committed'
-     WHERE id = NEW.id AND status IN ('draft', 'posted');
-  END IF;
-  RETURN NULL;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.intercompany_elimination_carried_check() FROM PUBLIC;
-DROP TRIGGER IF EXISTS trg_intercompany_elimination_carried ON consolidation_adjustments;
--- (WHEN: a manual adjustment queues no deferred event, so DDL on the table in the same transaction is not blocked by "pending trigger events")
-CREATE CONSTRAINT TRIGGER trg_intercompany_elimination_carried AFTER INSERT ON consolidation_adjustments
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.source_intercompany_id IS NOT NULL) EXECUTE FUNCTION public.intercompany_elimination_carried_check();
 
 -- ── 6. The auto-accept queue ────────────────────────────────────────────────
 
@@ -1437,12 +1394,10 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'intercompany_messages (one invoice / credit_note message, its payload built from the session company''s approved customer invoice or customer credit note with a posted, standing approval journal, and recording that journal and the group row) and intercompany_transactions (the sender''s one ''sale'' group row, for a group connection, ZAR) for the session company (a write-role user) and a document of that company whose customer is the partner on an active connection past its cut-over; nothing for any other company or an unapproved document'),
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
-    ('intercompany_release_stale_rows(uuid)', 'public.intercompany_release_stale_rows(uuid)',
-     'intercompany_transactions (released: unmatched, target journal cleared) and consolidation_adjustments (reversed with when and why) for the mirrored rows of a group the caller is a write-role member of that still say matched although the ledgers no longer carry them; nothing for any other group'),
     ('intercompany_is_mirrored_row(uuid)', 'public.intercompany_is_mirrored_row(uuid)',
      'nothing: whether a group row is the one a message records (a read of intercompany_messages for a trigger of a writer who is no party of the message)'),
-    ('intercompany_row_eliminable(uuid)', 'public.intercompany_row_eliminable(uuid)',
-     'nothing: whether the elimination generator may take a group row of a group the caller belongs to (a mirrored row: matched, and both journals it rests on stand)'),
+    ('intercompany_mirror_eliminations(uuid,date,date)', 'public.intercompany_mirror_eliminations(uuid, date, date)',
+     'nothing: a read of the mirrored group rows of a group the caller is a member of that the two ledgers support at the end of a period (derived, never stored)'),
     ('intercompany_journal_chain_changed(uuid)', 'public.intercompany_journal_chain_changed(uuid)',
      'intercompany_messages.status / source_cancelled_at (withdrawn or stamped when a journal the session company sent a message for is reversed, revived when it is live again, through the messages guard system path), intercompany_transactions (released: unmatched, target journal cleared; or matched again on the journal first matched to) and consolidation_adjustments (reversed with when and why) for rows the session company (a write-role user) sent or received against that journal; nothing for any other company'),
     ('intercompany_message_source_changed(uuid)', 'public.intercompany_message_source_changed(uuid)',
@@ -1463,19 +1418,20 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_mirrored_row(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_row_eliminable(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_release_stale_rows(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_eliminations(uuid, date, date)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_fiscal_year(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_chain_changed(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_sync_core(uuid, text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_lines_negate(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_document_live(text, uuid, uuid, uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_withdraw_message(uuid, text)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_withdraw_message(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_revive_message(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_row_ok(uuid, uuid, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_own_posting_problem(text, uuid, uuid, uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_release_group_row(uuid, text)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid)', 'EXECUTE') THEN
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_release_group_row(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid, date)', 'EXECUTE') THEN
     RAISE EXCEPTION '1013: a role it must not reach can execute an intercompany P2 definer function';
   END IF;
 END $$;

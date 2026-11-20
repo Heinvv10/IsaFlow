@@ -3,10 +3,13 @@
  * SAVEPOINT on the caller's transaction and never throw: a failure is logged at ERROR (with the SQLSTATE only) and the caller's change
  * stands. Both are registered definers (migration 1013) that act for the session company only.
  *
+ * Hooks keep INBOX state and the group row's DISPLAY columns only; they never block (each definer has lock_timeout = 2 s) and no figure
+ * depends on them: the eliminations of mirrored documents are derived from the ledgers at read time (mirrorEliminations.ts).
+ *
  * - `withdrawForCancelledDocument` (the SENDER cancelled a customer invoice / customer credit note): a message the receiver has not
  *   handled is withdrawn (not acceptable, never auto-accepted); one already accepted is stamped `source_cancelled_at` so the receiver's
- *   inbox says "Sender cancelled this document". The receiver's own data is never changed. The sender's group row goes back to unmatched
- *   and the eliminations generated from it are reversed. The database acts only when the ledger agrees (the document's journal was reversed).
+ *   inbox says "Sender cancelled this document". The receiver's own data is never changed. The sender's group row goes back to unmatched.
+ *   The database acts only when the ledger agrees (the document's journal was reversed).
  * - `syncGroupRowFor` (the RECEIVER approved, cancelled or deleted the bill / supplier credit note an accepted message created): the
  *   sender's elimination row is matched only while the receiver's own posted journal for that document nets to the sender's amount (a
  *   variance with a reason otherwise), and unmatched when the document is not approved or the sender's document is cancelled.

@@ -8,7 +8,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { cancelSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asAppUser, outcome, withoutTrigger } from './intercompany.helpers';
 import { asService, co, inbox, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
@@ -16,7 +15,7 @@ import { makeLedger } from './ledger.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const L = makeLedger(pool);
-const { extra, rows, groupRow, adjustments, eliminate, approveBill, cancelSender, senderReverse, sync, accepted, unbind } = L;
+const { extra, rows, groupRow, adjustments, derived, approveBill, cancelSender, senderReverse, sync, accepted, unbind } = L;
 beforeAll(L.setup, 60000);
 afterAll(L.cleanup, 60000);
 beforeEach(L.reset);
@@ -26,28 +25,25 @@ describe('the sender cancels AFTER the receiver approved (the reviewer\'s ledger
     const m = await accepted();
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
-    expect(await eliminate()).toHaveLength(1);
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'draft' })]);
+    expect(await derived()).toHaveLength(1);
 
     await cancelSender(m.inv.id);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', matched_by: null, matched_at: null, target_journal_entry_id: null });
     expect(Number((await groupRow()).variance_amount)).toBe(0);
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'reversed' })]);
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
     // the receiver's own bill is untouched (it is theirs): it stays approved, and its inbox row says the sender cancelled
     expect((await pool.query('SELECT status FROM supplier_invoices WHERE id = $1', [m.bill])).rows[0].status).toBe('approved');
     const handled = (inbox.list(U.b, co.B, { filter: 'handled' }));
     expect(((await handled).state.body as { data: { items: Array<{ sourceCancelled: boolean }> } }).data.items[0]).toMatchObject({ sourceCancelled: true });
   });
 
-  it('an elimination already POSTED is reversed too (it no longer stands)', async () => {
+  it('the derived elimination (what the reports read) is there while the ledgers carry it and gone once the sender cancels; nothing is stored either way', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    const [made] = await eliminate();
-    await postEliminationAdjustment(made!.id, co.G);
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'posted' })]);
+    expect(await derived()).toHaveLength(1);
     await cancelSender(m.inv.id);
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'reversed' })]);
+    expect(await derived()).toHaveLength(0);
+    expect(await adjustments()).toHaveLength(0);
   });
 
   it('the other order: cancelled (the message stamped) BEFORE the receiver approves, the approval never matches the row', async () => {
@@ -56,7 +52,7 @@ describe('the sender cancels AFTER the receiver approved (the reviewer\'s ledger
     expect((await pool.query('SELECT source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0].source_cancelled_at).not.toBeNull();
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('the sender\'s document cancelled in the LEDGER without the hook (its journal reversed): the receiver\'s approval does not match it', async () => {
@@ -64,7 +60,7 @@ describe('the sender cancels AFTER the receiver approved (the reviewer\'s ledger
     await senderReverse(m.inv.id);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a sender\'s status flipped by hand is not a cancel: the row stays matched (the ledger carries the revenue)', async () => {
@@ -73,7 +69,7 @@ describe('the sender cancels AFTER the receiver approved (the reviewer\'s ledger
     await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [m.inv.id]);
     expect(await sync(U.b, co.B, m.bill)).toBe('matched');
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
   });
 });
 
@@ -81,13 +77,12 @@ describe('a bill\'s status is not the ledger (the third security scan, 2)', () =
   it('a bill flipped back to draft while its journal stands releases nothing: the row stays matched, its first journal and eliminations stand', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
     const before = await groupRow();
     await pool.query("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [m.bill]);
     expect(await sync(U.b, co.B, m.bill)).toBe('matched');
     expect(await groupRow()).toEqual(before);
     expect(before.first_target_journal_entry_id).toBe(before.target_journal_entry_id);
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'draft' })]);
+    expect(await derived()).toHaveLength(1);
   });
 
   it('a real cancel (the journal reversed) releases the row but keeps the first journal; no request can clear or set it', async () => {
@@ -118,7 +113,7 @@ describe('the receiver\'s journal must be the expense for it (the reviewer\'s le
     await pool.query("UPDATE supplier_invoices SET invoice_date = '2027-01-05' WHERE id = $1", [m.bill]);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/financial years/) });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a bill moved to another supplier: a variance, and no elimination', async () => {
@@ -126,7 +121,7 @@ describe('the receiver\'s journal must be the expense for it (the reviewer\'s le
     await pool.query('UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [m.bill, extra.supplier]);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/supplier/) });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a line re-coded to an ASSET account, the same subtotal: a variance, and no elimination (nothing was expensed)', async () => {
@@ -134,7 +129,7 @@ describe('the receiver\'s journal must be the expense for it (the reviewer\'s le
     await pool.query('UPDATE supplier_invoice_items SET gl_account_id = $2 WHERE supplier_invoice_id = $1', [m.bill, extra.asset]);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/not expense/), target_journal_entry_id: null }); // a variance names no journal
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('the honest case still matches: the bill as accepted, approved in the same period, for the connection\'s supplier', async () => {
@@ -174,44 +169,27 @@ describe('the receiver approves a bill that already carried a journal (the revie
   });
 });
 
-describe('eliminations are idempotent per row and follow the row (the reviewer\'s ledger C)', () => {
-  it('generating twice yields one adjustment; generating at the same moment yields one', async () => {
+describe('derived eliminations follow the ledgers (the reviewer\'s ledger C)', () => {
+  it('reading twice (or at the same moment) yields the same figures and writes nothing: there is no generator to race', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    expect(await eliminate()).toHaveLength(1);
-    expect(await eliminate()).toHaveLength(0);
-    expect(await adjustments()).toHaveLength(1);
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
-    // two requests (each its own transaction, as a route runs it): the first has generated its elimination and not yet committed when the
-    // second starts; the second waits on the first's row locks, then finds the elimination there and adds none
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    let firstMade!: () => void;
-    const made = new Promise<void>((resolve) => { firstMade = resolve; });
-    const first = asService(pool, U.ab, co.A, async () => { const out = await eliminate(); firstMade(); await held; return out; });
-    await made;
-    const second = asService(pool, U.ab, co.A, () => eliminate());
-    await new Promise((resolve) => setTimeout(resolve, 400)); // the second is waiting for the lock (without it, it has already written its own)
-    release();
-    const [a, b] = await Promise.all([first, second]);
-    expect([a.length, b.length]).toEqual([1, 0]);
-    expect(await adjustments()).toHaveLength(1);
+    const [a, b, c] = await Promise.all([derived(), derived(), derived()]);
+    expect([a.length, b.length, c.length]).toEqual([1, 1, 1]);
+    expect(b).toEqual(a);
+    expect(await adjustments()).toHaveLength(0);
   });
 
-  it('an unmatch (the receiver cancels its bill) reverses the elimination; a row matched again is eliminated again', async () => {
+  it('an unmatch (the receiver cancels its bill) removes the elimination; a bill approved again through a fresh journal brings it back', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    await eliminate();
+    expect(await derived()).toHaveLength(1);
     await asService(pool, U.b, co.B, () => cancelSupplierInvoice(co.B, m.bill, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
-    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'reversed' })]);
+    expect(await derived()).toHaveLength(0);
     // the receiver's bill is approved again through a fresh journal (the cancel cleared the link): the row is matched, and eliminated once more
     await pool.query("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [m.bill]);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
-    expect(await eliminate()).toHaveLength(1);
-    expect((await adjustments()).map((a) => a.status).sort()).toEqual(['draft', 'reversed']);
+    expect(await derived()).toHaveLength(1);
   });
 });
-
-

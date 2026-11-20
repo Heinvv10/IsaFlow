@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { getMirroredEliminations } from './mirrorEliminations';
 
 type Row = DbRow;
 
@@ -143,6 +144,13 @@ export async function getPostedEliminations(
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
         });
       }
+    }
+  }
+  // The mirrored documents' eliminations are not stored: derived from the two ledgers as at periodEnd (mirrorEliminations.ts).
+  for (const m of await getMirroredEliminations(groupId, periodStart, periodEnd)) {
+    for (const l of m.lines) {
+      allLines.push({ groupAccountId: l.groupAccountId, groupAccountCode: l.groupAccountCode, groupAccountName: l.groupAccountName,
+                      groupAccountType: l.groupAccountType, debit: l.debit, credit: l.credit });
     }
   }
   return allLines;

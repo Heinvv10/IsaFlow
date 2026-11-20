@@ -16,7 +16,7 @@ import { makeLedger } from './ledger.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const L = makeLedger(pool);
-const { extra, rows, groupRow, adjustments, eliminate, approveBill, cancelSender, senderReverse, sync, accepted, unbind } = L;
+const { extra, rows, groupRow, adjustments, derived, approveBill, cancelSender, senderReverse, sync, accepted, unbind } = L;
 beforeAll(L.setup, 60000);
 afterAll(L.cleanup, 60000);
 beforeEach(L.reset);
@@ -62,8 +62,7 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     await pool.query("UPDATE supplier_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [forged.bill, otherJournal]);
     expect(await sync(U.b, co.B, forged.bill)).toBe('variance');
     expect((await rows()).find((r) => r.id === forgedRow)).toMatchObject({ match_status: 'variance' });
-    await eliminate();
-    expect((await pool.query('SELECT source_intercompany_id AS s FROM consolidation_adjustments WHERE group_id = $1', [co.G])).rows.map((r) => r.s)).toEqual([real.message.payload.groupTransactionId]);
+    expect((await derived()).map((e) => e.transactionId)).toEqual([real.message.payload.groupTransactionId]);
   });
 
   it('a bill pointed at a journal that is not a POSTED journal of its own company is a variance with that reason (draft clone; another company\'s clone)', async () => {
@@ -129,7 +128,7 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     await pool.query('UPDATE supplier_invoices SET gl_journal_entry_id = $2, supplier_id = $3 WHERE id = $1', [m.bill, clone, extra.supplier]);
     expect(await sync(U.b, co.B, m.bill)).toBe('matched');
     expect(await groupRow()).toEqual(before);
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
   });
 
   it('B4: a journal a writer posted with the bill\'s posting text and the right expense but no VAT and a short payable is a variance (the sender\'s figures are judged by value)', async () => {
@@ -146,7 +145,7 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     }, true);
     expect(await sync(U.b, co.B, m.bill)).toBe('variance');
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/input VAT or payable is not the sender's VAT and total/) });
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 
   it('a journal that is already another row\'s target is not matched to this one', async () => {
@@ -192,16 +191,13 @@ describe('the reason a row is a variance is the database\'s to write', () => {
 
 
 describe('a row that stops being matched stops being eliminated', () => {
-  it('a DIRECT reversal of the bill\'s journal (no cancel, no hook of the bill): the row is released, the elimination reversed with when and why', async () => {
+  it('a DIRECT reversal of the bill\'s journal (no cancel, no hook of the bill): the row is released, and its derived elimination is gone', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    expect(await eliminate()).toHaveLength(1);
+    expect(await derived()).toHaveLength(1);
     const je = (await groupRow()).target_journal_entry_id as string;
     await asService(pool, U.b, co.B, () => reverseJournalEntry(co.B, je, U.b));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null, first_target_journal_entry_id: je });
-    const [a] = await adjustments();
-    expect(a).toMatchObject({ status: 'reversed', reversed_reason: expect.stringMatching(/receiver's journal was reversed/) });
-    expect(a!.reversed_at).not.toBeNull();
-    expect(await eliminate()).toHaveLength(0);
+    expect(await derived()).toHaveLength(0);
   });
 });
