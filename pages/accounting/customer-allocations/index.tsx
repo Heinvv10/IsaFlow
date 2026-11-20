@@ -3,14 +3,14 @@
  * Sage Parity: Transactions > Allocate Receipts
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { fetchCustomerOpenInvoices } from '@/components/accounting/allocations/openInvoiceFetch';
+import { fetchAllPayments, fetchCustomerOpenInvoices } from '@/components/accounting/allocations/openInvoiceFetch';
 import { customerOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
@@ -30,22 +30,19 @@ export default function CustomerAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [paymentCut, setPaymentCut] = useState<{ shown: number; total: number } | null>(null);
+  const loadSeq = useRef(0); // the latest invoice load wins; an older one that finishes later is ignored
   const [cutOff, setCutOff] = useState<{ shown: number; total: number } | null>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
-      await assertOk(res, 'Could not load receipts - try again');
-      const json = await res.json();
-      const d = json.data;
-      const raw: (Payment & { totalAmount?: number; paymentDate?: string })[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
-      // API mapper returns `totalAmount` (camelCase of total_amount), not `amount`.
-      // Filter unallocated client-side because the `?unallocated=true` query param
-      // is not yet honoured by the customer-payments service.
-      const mapped = raw.map(p => ({
-        ...p,
+      const all = await fetchAllPayments('customer', 'Could not load receipts - try again');
+      setPaymentCut(all.truncated ? { shown: all.rows.length, total: all.total } : null);
+      // API mapper returns `totalAmount` / `paymentDate`; `?unallocated=true` is not honoured server-side, so filter here.
+      const mapped: Payment[] = all.rows.map(p => ({
+        id: String(p.id), paymentNumber: String(p.paymentNumber ?? ''), clientName: String(p.clientName ?? ''), clientId: String(p.clientId ?? ''),
         date: String(p.paymentDate ?? p.date ?? ''),
         amount: Number(p.totalAmount ?? p.amount ?? 0),
         allocatedAmount: Number(p.allocatedAmount ?? 0),
@@ -63,15 +60,18 @@ export default function CustomerAllocationsPage() {
 
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setError(''); setCutOff(null); setLoadingInv(true);
+    const seq = ++loadSeq.current;
     try {
       const all = await fetchCustomerOpenInvoices(p.clientId);
+      if (seq !== loadSeq.current) return;
       setInvoices(customerOpenRows(all.rows));
       setCutOff(all.truncated ? { shown: all.rows.length, total: all.total } : null);
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load invoices for this receipt - try again'));
     } finally {
-      setLoadingInv(false);
+      if (seq === loadSeq.current) setLoadingInv(false);
     }
   };
 
@@ -134,6 +134,7 @@ export default function CustomerAllocationsPage() {
             {/* Unallocated Receipts */}
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">Unallocated Receipts</div>
+              {paymentCut && <div role="status" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {paymentCut.shown} of {paymentCut.total} receipts. The rest are not listed here.</div>}
               {loading ? (
                 <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
               ) : payments.length === 0 ? (

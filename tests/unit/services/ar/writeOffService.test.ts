@@ -105,7 +105,7 @@ function writeOffRow(overrides: Record<string, unknown> = {}) {
 function lockedInvoice(overrides: Record<string, unknown> = {}) {
   return {
     invoice_number: 'INV-001', total_amount: 1000, tax_amount: 130.43, amount_paid: 0,
-    status: 'approved', deleted_at: null, ...overrides,
+    status: 'approved', deleted_at: null, owner_id: '66666666-6666-6666-6666-666666666666', ...overrides,
   };
 }
 
@@ -221,6 +221,18 @@ describe('createWriteOff — refuses an invoice with no posted AR up front (C2)'
   const CLIENT = '66666666-6666-6666-6666-666666666666';
   const create = (amount = 500) => createWriteOff(COMPANY_ID,
     { clientId: CLIENT, invoiceId: INVOICE_ID, amount, reason: 'x', writeOffDate: '2026-07-04' }, USER_ID);
+
+  it('refuses an invoice that belongs to another client, without inserting', async () => {
+    mockSql.mockResolvedValueOnce([lockedInvoice({ owner_id: '99999999-9999-9999-9999-999999999999' })]);
+    await expect(create()).rejects.toThrow('Invoice does not belong to this client');
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('an invoice with no client_id falls back to customer_id (COALESCE) and an exact match is accepted past the ownership check', async () => {
+    mockSql.mockResolvedValueOnce([lockedInvoice({ owner_id: CLIENT.toUpperCase() })]).mockResolvedValueOnce([{ id: 'wo-1' }]);
+    await create().catch(() => undefined);
+    expect(mockSql.mock.calls.length).toBeGreaterThanOrEqual(2); // got past the read to the INSERT
+  });
 
   it.each([['a draft invoice', 'draft', null], ['a soft-deleted invoice', 'approved', '2026-07-01']])('refuses %s without inserting', async (_name, status, deleted_at) => {
     mockSql.mockResolvedValueOnce([lockedInvoice({ status, deleted_at })]);

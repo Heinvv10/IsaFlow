@@ -85,10 +85,15 @@ export async function createWriteOff(companyId: string,
   // C2: only an invoice that has posted AR can be written off. This is the early
   // refusal; approval re-judges it under the invoice's row lock.
   const invRows = (await sql`
-    SELECT invoice_number, total_amount, amount_paid, status, deleted_at FROM customer_invoices
+    SELECT invoice_number, total_amount, amount_paid, status, deleted_at,
+           COALESCE(client_id, customer_id) AS owner_id FROM customer_invoices
     WHERE id = ${input.invoiceId}::UUID AND company_id = ${companyId}
   `) as Row[];
   if (!invRows[0]) throw new Error('Invoice not found');
+  // The invoice must be this client's: company scope alone let a write-off name client A against client B's invoice.
+  if (String(invRows[0].owner_id ?? '').toLowerCase() !== String(input.clientId).toLowerCase()) {
+    throw new WriteOffInvoiceRefusedError('Invoice does not belong to this client');
+  }
   const refusal = writeOffInvoiceRefusal(invRows[0], input.amount);
   if (refusal) throw new WriteOffInvoiceRefusedError(refusal);
 

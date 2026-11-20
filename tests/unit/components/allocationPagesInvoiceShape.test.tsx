@@ -96,7 +96,7 @@ describe('openInvoiceRows', () => {
 });
 
 // ---- #1685 follow-up: every open status, every page, no silent drop ----
-import { fetchAllPages } from '@/components/accounting/allocations/openInvoiceFetch';
+import { fetchAllPages, MAX_PAGES, CUSTOMER_PAGE_SIZE, SUPPLIER_PAGE_SIZE, PAYMENT_PAGE_SIZE } from '@/components/accounting/allocations/openInvoiceFetch';
 
 const calls = () => vi.mocked(apiFetch).mock.calls.map(([u]) => String(u));
 const supplierPayment = on('GET', '/api/accounting/supplier-payments', () => ok({ payments: [{ id: 'p1', paymentNumber: 'PAY-1', supplierName: 'Sup', supplierId: 's1', paymentDate: '2026-11-01', totalAmount: 500, allocatedAmount: 0 }] }));
@@ -148,7 +148,7 @@ describe('supplier-allocations: statuses and paging', () => {
     });
     render(<SupplierAllocationsPage />);
     fireEvent.click(await screen.findByText('PAY-1'));
-    expect((await screen.findByRole('alert')).textContent).toMatch(/Showing 5000 of 1000000/);
+    expect((await screen.findByRole('alert')).textContent).toContain(`Showing ${MAX_PAGES * SUPPLIER_PAGE_SIZE} of 1000000`);
   });
 });
 
@@ -174,10 +174,10 @@ describe('customer-allocations: paging', () => {
 
 describe('fetchAllPages', () => {
   it('stops at total, at an empty page, and flags a cut-off at the cap', async () => {
-    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i) }));
-    expect(await fetchAllPages(async i => ({ rows: mk(i === 0 ? 2 : 1), total: 3 }))).toMatchObject({ total: 3, truncated: false });
-    expect((await fetchAllPages(async i => ({ rows: i === 0 ? mk(2) : [], total: 9 }))).truncated).toBe(false);
-    expect((await fetchAllPages(async () => ({ rows: mk(2), total: 99 }), 3))).toMatchObject({ truncated: true });
+    const mk = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: String(from + i) }));
+    expect(await fetchAllPages(async i => ({ rows: i === 0 ? mk(0, 2) : mk(2, 1), total: 3 }))).toMatchObject({ total: 3, truncated: false });
+    expect((await fetchAllPages(async i => ({ rows: i === 0 ? mk(0, 2) : [], total: 9 }))).truncated).toBe(false);
+    expect((await fetchAllPages(async i => ({ rows: mk(i * 2, 2), total: 99 }), 3))).toMatchObject({ truncated: true });
   });
 });
 
@@ -197,5 +197,180 @@ describe('write-offs: the invoice picker', () => {
     const urls = calls().filter(u => u.includes('customer-invoices'));
     expect(urls.every(u => u.startsWith('/api/accounting/customer-invoices-list?'))).toBe(true);
     expect(urls.some(u => u.includes('client_id=k1'))).toBe(true);
+  });
+});
+
+// ---- #1685 review follow-ups: stale responses, dedupe, truncation, payment paging ----
+const gate = () => { let open!: () => void; const wait = new Promise<void>(r => { open = r; }); return { wait, open }; };
+const flush = () => new Promise<void>(r => setTimeout(r, 30));
+
+describe('stale responses: the last pick wins', () => {
+  it('supplier-allocations: pick A then B, A answers last: B\'s bills stay, A\'s never show', async () => {
+    const gA = gate(); const gB = gate();
+    serve(
+      on('GET', '/api/accounting/supplier-payments', () => ok({ payments: [
+        { id: 'p1', paymentNumber: 'PAY-A', supplierName: 'A', supplierId: 's1', paymentDate: '2026-11-01', totalAmount: 500, allocatedAmount: 0 },
+        { id: 'p2', paymentNumber: 'PAY-B', supplierName: 'B', supplierId: 's2', paymentDate: '2026-11-01', totalAmount: 500, allocatedAmount: 0 }] })),
+      async (u, m) => {
+        if (m !== 'GET' || !u.includes('/api/accounting/supplier-invoices')) return undefined;
+        const a = urlParam(u, 'supplier_id') === 's1';
+        await (a ? gA : gB).wait;
+        return ok({ invoices: urlParam(u, 'status') === 'approved' ? [{ ...bill(a ? 1 : 2), invoiceNumber: a ? 'A-BILL' : 'B-BILL' }] : [], total: urlParam(u, 'status') === 'approved' ? 1 : 0 });
+      },
+    );
+    render(<SupplierAllocationsPage />);
+    fireEvent.click(await screen.findByText('PAY-A'));
+    fireEvent.click(await screen.findByText('PAY-B'));
+    gB.open();
+    await screen.findByText('B-BILL');
+    gA.open();
+    await flush();
+    expect(screen.queryByText('A-BILL')).toBeNull();
+    expect(screen.getByText('B-BILL')).toBeTruthy();
+    expect(screen.getByText(/Invoices for B/)).toBeTruthy();
+  });
+
+  it('customer-allocations: pick A then B, A answers last: B\'s invoices stay', async () => {
+    const gA = gate(); const gB = gate();
+    serve(
+      on('GET', '/api/accounting/customer-payments', () => ok({ payments: [
+        { id: 'r1', paymentNumber: 'REC-A', clientName: 'A', clientId: 'k1', paymentDate: '2026-11-01', totalAmount: 500, allocatedAmount: 0 },
+        { id: 'r2', paymentNumber: 'REC-B', clientName: 'B', clientId: 'k2', paymentDate: '2026-11-01', totalAmount: 500, allocatedAmount: 0 }] })),
+      async (u, m) => {
+        if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
+        const a = urlParam(u, 'client_id') === 'k1';
+        await (a ? gA : gB).wait;
+        return ok({ invoices: [{ ...CUSTOMER_INVOICES[0]!, id: a ? 'ca' : 'cb', invoice_number: a ? 'A-INV' : 'B-INV' }], total: 1 });
+      },
+    );
+    render(<CustomerAllocationsPage />);
+    fireEvent.click(await screen.findByText('REC-A'));
+    fireEvent.click(await screen.findByText('REC-B'));
+    gB.open();
+    await screen.findByText('B-INV');
+    gA.open();
+    await flush();
+    expect(screen.queryByText('A-INV')).toBeNull();
+    expect(screen.getByText('B-INV')).toBeTruthy();
+  });
+
+  it('write-offs: pick client A then B, A answers last: only B\'s invoices are offered', async () => {
+    const gA = gate(); const gB = gate();
+    serve(
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', company_name: 'Client A' }, { id: 'k2', company_name: 'Client B' }])),
+      on('GET', '/api/accounting/write-offs', () => ok([])),
+      async (u, m) => {
+        if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
+        const a = urlParam(u, 'client_id') === 'k1';
+        await (a ? gA : gB).wait;
+        return ok({ invoices: [{ ...CUSTOMER_INVOICES[0]!, id: a ? 'ca' : 'cb', invoice_number: a ? 'A-INV' : 'B-INV' }], total: 1 });
+      },
+    );
+    render(<WriteOffsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /new|add|write.?off/i }));
+    const clientSelect = (await screen.findAllByRole('combobox'))[0] as HTMLSelectElement;
+    await screen.findByRole('option', { name: /Client B/ });
+    fireEvent.change(clientSelect, { target: { value: 'k1' } });
+    fireEvent.change(clientSelect, { target: { value: 'k2' } });
+    gB.open();
+    await screen.findByRole('option', { name: /B-INV/ });
+    gA.open();
+    await flush();
+    expect(screen.queryByRole('option', { name: /A-INV/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /B-INV/ })).toBeTruthy();
+  });
+});
+
+describe('fetchAllPages: distinct rows', () => {
+  const mk = (...ids: string[]) => ids.map(id => ({ id }));
+  it('a row repeated at a page boundary is listed once, and paging stops when the distinct ids reach total', async () => {
+    const pages = [mk('a', 'b'), mk('b', 'c')];
+    let calls = 0;
+    const out = await fetchAllPages(async i => { calls++; return { rows: pages[i] ?? [], total: 3 }; });
+    expect(out.rows.map(r => r.id)).toEqual(['a', 'b', 'c']);
+    expect(out).toMatchObject({ total: 3, truncated: false });
+    expect(calls).toBe(2);
+  });
+  it('a server that keeps repeating the same rows ends truncated at the cap, with the distinct count', async () => {
+    const out = await fetchAllPages(async () => ({ rows: mk('a', 'b'), total: 99 }), 3);
+    expect(out.rows).toHaveLength(2);
+    expect(out.truncated).toBe(true);
+  });
+});
+
+describe('truncation and paging on the pages', () => {
+  it('customer-allocations: an endless list shows "Showing N of M" from MAX_PAGES', async () => {
+    serve(customerPayment, (u, m) => {
+      if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
+      const page = Number(urlParam(u, 'page'));
+      return ok({ invoices: Array.from({ length: CUSTOMER_PAGE_SIZE }, (_, i) => ({ ...CUSTOMER_INVOICES[0]!, id: `c${page}-${i}`, invoice_number: `CI-${page}-${i}` })), total: 1_000_000 });
+    });
+    render(<CustomerAllocationsPage />);
+    fireEvent.click(await screen.findByText('REC-1'));
+    expect((await screen.findByRole('alert')).textContent).toContain(`Showing ${MAX_PAGES * CUSTOMER_PAGE_SIZE} of 1000000`);
+  });
+
+  it('write-offs: an endless list shows the note in its own status line, not as an error', async () => {
+    serve(
+      on('GET', '/api/accounting/customers', () => ok([{ id: 'k1', company_name: 'Client A' }])),
+      on('GET', '/api/accounting/write-offs', () => ok([])),
+      (u, m) => {
+        if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
+        const page = Number(urlParam(u, 'page'));
+        return ok({ invoices: Array.from({ length: CUSTOMER_PAGE_SIZE }, (_, i) => ({ ...CUSTOMER_INVOICES[0]!, id: `w${page}-${i}`, invoice_number: `W-${page}-${i}` })), total: 1_000_000 });
+      },
+    );
+    render(<WriteOffsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /new|add|write.?off/i }));
+    const clientSelect = (await screen.findAllByRole('combobox'))[0] as HTMLSelectElement;
+    await screen.findByRole('option', { name: /Client A/ });
+    fireEvent.change(clientSelect, { target: { value: 'k1' } });
+    const note = await screen.findByRole('status');
+    expect(note.textContent).toContain(`Showing ${MAX_PAGES * CUSTOMER_PAGE_SIZE} of 1000000`);
+    expect(document.body.textContent).not.toMatch(/Could not load/);
+  });
+
+  const payment = (kind: 'supplier' | 'customer', i: number) => kind === 'supplier'
+    ? { id: `p${i}`, paymentNumber: `PAY-${i}`, supplierName: 'S', supplierId: 's1', paymentDate: '2026-11-01', totalAmount: 10, allocatedAmount: 0 }
+    : { id: `r${i}`, paymentNumber: `REC-${i}`, clientName: 'C', clientId: 'k1', paymentDate: '2026-11-01', totalAmount: 10, allocatedAmount: 0 };
+
+  it.each([['supplier', SupplierAllocationsPage], ['customer', CustomerAllocationsPage]] as const)(
+    '%s payments: 201 payments take two requests (offset 0, 200) and all 201 are counted', async (kind, Page) => {
+      const all = Array.from({ length: 201 }, (_, i) => payment(kind, i));
+      serve((u, m) => {
+        if (m !== 'GET' || !u.includes(`/api/accounting/${kind}-payments`)) return undefined;
+        const off = Number(urlParam(u, 'offset'));
+        return ok({ payments: all.slice(off, off + PAYMENT_PAGE_SIZE), total: 201 });
+      });
+      render(<Page />);
+      await screen.findByText(/201 (payment|receipt)\(s\)/);
+      const reqs = calls().filter(u => u.includes(`/api/accounting/${kind}-payments`));
+      expect(reqs.map(u => urlParam(u, 'offset'))).toEqual(['0', '200']);
+      expect(reqs.every(u => urlParam(u, 'limit') === '200')).toBe(true);
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+  it.each([['supplier', SupplierAllocationsPage], ['customer', CustomerAllocationsPage]] as const)(
+    '%s payments: an endless list says "Showing N of M" rather than hiding the rest', async (kind, Page) => {
+      serve((u, m) => {
+        if (m !== 'GET' || !u.includes(`/api/accounting/${kind}-payments`)) return undefined;
+        const off = Number(urlParam(u, 'offset'));
+        return ok({ payments: Array.from({ length: PAYMENT_PAGE_SIZE }, (_, i) => payment(kind, off + i)), total: 1_000_000 });
+      });
+      render(<Page />);
+      expect((await screen.findByRole('status')).textContent).toContain(`Showing ${MAX_PAGES * PAYMENT_PAGE_SIZE} of 1000000`);
+    });
+
+  it('customer-allocations: a row repeated across the page boundary is listed once', async () => {
+    const all = Array.from({ length: 101 }, (_, i) => ({ ...CUSTOMER_INVOICES[0]!, id: `c${i}`, invoice_number: `CI-${i}` }));
+    serve(customerPayment, (u, m) => {
+      if (m !== 'GET' || !u.includes('/api/accounting/customer-invoices-list')) return undefined;
+      const page = Number(urlParam(u, 'page'));
+      return ok({ invoices: page === 1 ? all.slice(0, 100) : all.slice(99), total: 101 }); // page 2 repeats c99
+    });
+    render(<CustomerAllocationsPage />);
+    fireEvent.click(await screen.findByText('REC-1'));
+    await screen.findByText('CI-100');
+    expect(screen.getAllByRole('checkbox')).toHaveLength(101);
   });
 });
