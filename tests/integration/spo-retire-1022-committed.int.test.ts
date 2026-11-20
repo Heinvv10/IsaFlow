@@ -43,10 +43,14 @@ beforeAll(async () => {
     await at('C', 'sent', ten(0, 0));
     await at('D', 'sent', [{ qty: 12345.6789, price: 1.23, lineTotal: 15185.18, gl }, { qty: 0.125, price: 9.99, lineTotal: 1.25, gl }]);
     await at('E', 'sent', [{ qty: 1, price: 500, gl }, { qty: 0.004, price: 10, lineTotal: 0.04, gl }]);
+    await at('N', 'sent', [{ qty: 1, price: 100, gl }]);
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
   bills.A = (await bill('A', 1000, 'approved')).id;
+  // Review r3 L2: a R-50 bill line naming N's (legacy) line holds 0, never -50, so N's R100 header bill still bills it fully.
+  await seedRawBill(pool, f, { items: [{ total: 150 }, { total: -50, poItem: S.N!.items[0] }], subtotal: 100, total: 115 });
+  await bill('N', 100, 'approved');
   await bill('B1', 400, 'approved');
   await bill('B3', 1, 'draft');
   await bill('C', 1500, 'paid');
@@ -82,6 +86,7 @@ describe('committed spend after the copy', () => {
     expect(await st('B3')).toEqual({ status: 'received', closed_from_status: null });
     expect(await st('C')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('D')).toEqual({ status: 'approved', closed_from_status: null });
+    expect(await st('N')).toEqual({ status: 'closed', closed_from_status: 'approved' });
   });
 });
 
