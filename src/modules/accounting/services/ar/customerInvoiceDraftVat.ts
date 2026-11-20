@@ -11,7 +11,9 @@
  *   becomes an author and an approval request raised on the old content no longer matches.
  * - No lines sent, the date moved, the invoice typed: its stored lines are re-taxed at the new date (a standard line
  *   across 1 April 2018 moves from 14% to 15%): an exclusive line keeps its net, an inclusive one its gross.
- * - Otherwise nothing is re-priced.
+ *   A company no longer registered for VAT cannot re-tax a rated line: refused (INVOICE_VAT_NOT_REGISTERED).
+ * - `amountsAre` with no lines is refused: how the stored unit prices read cannot change without them.
+ * - Otherwise nothing is re-priced. What is priced is held to the poster's own check (assertPricedPostable).
  * The mode (`amountsAre`) is the edit's, else the stored one, else exclusive; an inclusive line's unit price is its
  * VAT-inclusive price as entered (invoiceLineVatPricing).
  */
@@ -20,7 +22,8 @@ import type { VatType } from '../../types/gl.types';
 import { identicalLineKey } from '../items/itemEditLines';
 import { vatDocumentTotals, vatLineAmounts, type AmountsAre } from '../shared/vatLineAmounts';
 import { lineVatShape, storedVatType } from './invoiceVatLegs';
-import { resolveInvoiceVat } from './invoiceLineVatDefaults';
+import { RATED_VAT_TYPES } from '../shared/vatTypes';
+import { assertPricedPostable, invoiceVatParties, resolveInvoiceVat } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
 import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal, storedLineVatType } from './invoiceLineVatTypes';
 
@@ -105,23 +108,37 @@ export async function draftEditVat(tx: Tx, companyId: string, invoiceId: string,
       const vat = await resolveInvoiceVat(companyId, args.customerId, {
         invoiceDate: date, headerTaxRate: args.headerTaxRate, lines: args.items, kept: keptTypes(args.items, stored),
       });
-      return { kind: 'priced', ...priceInvoiceVat(args.items, vat, date, amountsAre) };
+      const priced = priceInvoiceVat(args.items, vat, date, amountsAre);
+      assertPricedPostable(priced, date);
+      return { kind: 'priced', ...priced };
+    }
+    if (args.amountsAre !== undefined) {
+      throw new InvoiceLineVatRefusal('amountsAre needs items: how the unit prices read cannot change without the lines they price.');
     }
     if (!args.invoiceDate || args.invoiceDate === day(args.stored.invoice_date)) return { kind: 'unchanged' };
     const stored = await storedLines(tx, companyId, invoiceId);
     const shape = lineVatShape(stored.map((r) => ({ vatType: r.vat_type as string | null, taxAmount: r.tax_amount == null ? null : Number(r.tax_amount) })));
     if (shape !== 'typed' || stored.some((r) => storedVatType(r.vat_type) === null)) return { kind: 'unchanged' };
-    return { kind: 'retaxed', ...retax(stored, date, amountsAre) };
+    if (stored.some((r) => (RATED_VAT_TYPES as readonly string[]).includes(String(r.vat_type)))
+      && !(await invoiceVatParties(companyId, null)).registered) {
+      throw new InvoiceVatNotRegisteredRefusal('This company is not registered for VAT, so its standard-rated lines cannot be re-taxed at a new date: '
+        + 'send the lines (items) to save them without VAT.');
+    }
+    const retaxed = retax(stored, date, amountsAre);
+    assertPricedPostable({ header: retaxed.header, lines: retaxed.lines.map((l, i) => ({ qty: 0, price: 0, ...l,
+      vatType: storedVatType(stored[i]!.vat_type) as VatPricedLine['vatType'] })) }, date);
+    return { kind: 'retaxed', ...retaxed };
   } catch (err) {
     return refused(err);
   }
 }
 
-/** Writes the re-taxed lines (the caller has written the header). */
-export async function applyRetaxedLines(tx: Tx, invoiceId: string, vat: DraftVat): Promise<void> {
+/** Writes the re-taxed lines (the caller has written the header), through the company's own invoice. */
+export async function applyRetaxedLines(tx: Tx, companyId: string, invoiceId: string, vat: DraftVat): Promise<void> {
   if (vat.kind !== 'retaxed') return;
   for (const l of vat.lines) {
     await tx`UPDATE customer_invoice_items SET amount = ${l.amount}, tax_amount = ${l.taxAmount}, tax_rate = ${l.taxRate}
-             WHERE id = ${l.id}::UUID AND invoice_id = ${invoiceId}::UUID`;
+             WHERE id = ${l.id}::UUID AND invoice_id = ${invoiceId}::UUID
+               AND invoice_id IN (SELECT ci.id FROM customer_invoices ci WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID)`;
   }
 }

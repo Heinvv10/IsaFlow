@@ -8,7 +8,7 @@ import {
   storedLineVatType, type ResolveLineVatInput,
 } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
-const NONE = { customer: null, item: null, account: null };
+const NONE = { customer: null, item: null };
 const base = (over: Partial<ResolveLineVatInput> = {}): ResolveLineVatInput => ({
   registered: true, invoiceDate: '2026-11-20', headerTaxRate: undefined,
   lines: [{}], defaults: [NONE], ...over,
@@ -35,7 +35,7 @@ describe('a line that names its VAT type', () => {
     expect(types({ lines: [{ vatType: 'zero' }] })).toEqual(['zero_rated']);
   });
   it('beats every default', () => {
-    expect(types({ lines: [{ vatType: 'standard' }], defaults: [{ customer: 'exempt', item: 'zero', account: 'exempt' }] }))
+    expect(types({ lines: [{ vatType: 'standard' }], defaults: [{ customer: 'exempt', item: 'zero' }] }))
       .toEqual(['standard']);
   });
   it.each([
@@ -86,15 +86,13 @@ describe('the legacy header taxRate', () => {
 
 describe('the default chain (no type, no header rate)', () => {
   it.each([
-    ['the customer zero-rated beats the item and the account', { customer: 'zero', item: 'exempt', account: 'exempt' }, 'zero_rated'],
-    ['the customer exempt', { customer: 'Exempt ', item: 'standard', account: 'standard' }, 'exempt'],
-    ['a standard customer is no opinion: the item decides', { customer: 'standard', item: 'exempt', account: 'zero_rated' }, 'exempt'],
-    ['the item zero', { customer: null, item: 'zero', account: 'exempt' }, 'zero_rated'],
-    ['the item standard beats the account', { customer: null, item: 'standard', account: 'exempt' }, 'standard'],
-    ['no item: the account exempt', { customer: null, item: null, account: 'exempt' }, 'exempt'],
-    ['the account "none" (the chart default) is no opinion', { customer: null, item: null, account: 'none' }, 'standard'],
-    ['an account type no document line takes is no opinion', { customer: null, item: null, account: 'capital_goods' }, 'standard'],
-    ['an unknown customer text is no opinion', { customer: 'weird', item: null, account: null }, 'standard'],
+    ['the customer zero-rated beats the item', { customer: 'zero', item: 'exempt' }, 'zero_rated'],
+    ['the customer exempt', { customer: 'Exempt ', item: 'standard' }, 'exempt'],
+    ['a standard customer is no opinion: the item decides', { customer: 'standard', item: 'exempt' }, 'exempt'],
+    ['the item zero', { customer: null, item: 'zero' }, 'zero_rated'],
+    ['the item standard', { customer: null, item: 'standard' }, 'standard'],
+    ['an item type no document line takes is no opinion', { customer: null, item: 'capital_goods' }, 'standard'],
+    ['an unknown customer text is no opinion', { customer: 'weird', item: null }, 'standard'],
     ['nothing at all: standard', NONE, 'standard'],
   ])('%s', (_l, opinions, expected) => {
     expect(defaultLineVatType(opinions)).toBe(expected);

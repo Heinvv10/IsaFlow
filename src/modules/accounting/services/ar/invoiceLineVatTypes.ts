@@ -11,8 +11,9 @@
  *        again at 0 stays exempt).
  *   else the identical stored line's type (draft edit only; storedLineVatType)
  *   else the default chain (defaultLineVatType): the customer's default_vat_type when zero-rated or exempt; else the
- *        item's vat_on_sales; else the line's revenue account's default_vat_code when it is a document line type
- *        ('none' / NULL are the chart default: no opinion); else standard.
+ *        item's vat_on_sales; else standard. The line's GL account is NOT read (decided, review round 1 of #1701):
+ *        gl_accounts.default_vat_code is a bank-allocation hint (migration 283 set 'exempt' on other-income revenue
+ *        accounts), so a line coded there with no type would have stored exempt where it was 15%.
  *   a per-line `taxRate` (the edit schema's legacy field) must be the resolved type's rate on the date, else refused.
  *
  * A company NOT registered for VAT: every line is written UNTYPED (vat_type / tax_amount NULL, rate 0, no VAT), the
@@ -44,8 +45,8 @@ export class InvoiceVatNotRegisteredRefusal extends Error {
   }
 }
 
-/** What the customer, the line's item and its revenue account say about its VAT (raw column values). */
-export interface LineVatOpinions { customer: unknown; item: unknown; account: unknown }
+/** What the customer and the line's item say about its VAT (raw column values). */
+export interface LineVatOpinions { customer: unknown; item: unknown }
 
 export interface LineVatRequest { vatType?: unknown; taxRate?: unknown }
 
@@ -76,8 +77,6 @@ export function defaultLineVatType(o: LineVatOpinions): DocumentLineVatType {
   if (customer === 'zero_rated' || customer === 'exempt') return customer;
   const item = opinion(o.item);
   if (isDocumentType(item)) return item;
-  const account = opinion(o.account);
-  if (isDocumentType(account)) return account;
   return 'standard';
 }
 
@@ -99,7 +98,9 @@ function finiteRate(v: unknown, name: string): number {
 function lineType(v: unknown, label: string): DocumentLineVatType {
   const t = normaliseVatType(v);
   if (t === null) {
-    throw new InvoiceLineVatRefusal(`${label}: ${JSON.stringify(v)} is not a VAT type; a line is standard, zero_rated or exempt`);
+    // Echoed bounded: the value is the caller's, of any length.
+    const shown = JSON.stringify(v) ?? String(v);
+    throw new InvoiceLineVatRefusal(`${label}: ${shown.length > 48 ? `${shown.slice(0, 48)}…` : shown} is not a VAT type; a line is standard, zero_rated or exempt`);
   }
   if (!isDocumentType(t)) {
     throw new InvoiceLineVatRefusal(`${label} cannot be ${t}: a customer invoice line is standard, zero_rated or exempt`);
@@ -156,7 +157,7 @@ export function resolveInvoiceLineVat(input: ResolveLineVatInput): ResolvedLineV
     const kept = input.kept?.[i] ?? null;
     if (named[i]) return named[i]!;
     if (fromHeader) return kept && vatRatePctOn(kept, input.invoiceDate) === header ? kept : fromHeader;
-    return kept ?? defaultLineVatType(input.defaults[i] ?? { customer: null, item: null, account: null });
+    return kept ?? defaultLineVatType(input.defaults[i] ?? { customer: null, item: null });
   });
   types.forEach((t, i) => {
     const r = lineRates[i];

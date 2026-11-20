@@ -55,7 +55,7 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     vat_type: {
       type: 'string', enum: ['standard', 'zero_rated', 'exempt'],
       description: 'The line\'s VAT type; its rate comes from the type and the invoice date, never from the caller. '
-        + 'Omitted: the customer\'s default VAT type if zero-rated or exempt, else the item\'s, else the revenue account\'s, else standard (never together with tax_rate).',
+        + 'Omitted: the customer\'s default VAT type if zero-rated or exempt, else the item\'s, else standard; the GL account is not read (never together with tax_rate).',
     },
     project_id: {
       type: 'string',
@@ -92,6 +92,10 @@ export function parseCustomerInvoiceInput(
     date: ['invoice_date', 'due_date'],
   });
   if (bad) return bad;
+  // strArg reads a non-string as absent: a number or array date would silently become today (castableArgError skips it).
+  for (const key of ['invoice_date', 'due_date']) {
+    if (args[key] !== undefined && args[key] !== null && typeof args[key] !== 'string') return `${key} must be a date (YYYY-MM-DD)`;
+  }
 
   const customerId = strArg(args, 'customer_id');
   if (!customerId) return 'customer_id is required';
@@ -132,7 +136,8 @@ export function parseCustomerInvoiceInput(
     // the line, before the first INSERT; left to the service it surfaces
     // mid-batch, after a bulk create has already written the elements above it
     // and has to discard them.
-    const unitPrice = Number(o.unit_price);
+    // A number, not anything Number() reads as one: null, "" and [] are 0, true is 1.
+    const unitPrice = typeof o.unit_price === 'number' ? o.unit_price : Number.NaN;
     // The columns' bounds (unit_price numeric(15,2); quantity numeric(10,2), at least 0.01 once stored), as the service checks them.
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       return `items[${i}].unit_price must be a non-negative number`;
@@ -140,7 +145,7 @@ export function parseCustomerInvoiceInput(
     if (unitPrice >= 1e13) {
       return `items[${i}].unit_price must be below 10 000 000 000 000`;
     }
-    const quantity = o.quantity === undefined ? 1 : Number(o.quantity);
+    const quantity = o.quantity === undefined ? 1 : typeof o.quantity === 'number' ? o.quantity : Number.NaN;
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return `items[${i}].quantity must be a positive number`;
     }
@@ -161,7 +166,8 @@ export function parseCustomerInvoiceInput(
 
   let taxRate: number | undefined;
   if (args.tax_rate !== undefined && args.tax_rate !== null) {
-    taxRate = Number(args.tax_rate);
+    // A number only: false, "", "  " and [] read as 0 and would zero-rate the invoice.
+    taxRate = typeof args.tax_rate === 'number' ? args.tax_rate : Number.NaN;
     if (!Number.isFinite(taxRate) || taxRate < 0) return 'tax_rate must be a non-negative number';
   }
 

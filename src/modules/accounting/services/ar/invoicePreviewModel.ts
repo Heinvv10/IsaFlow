@@ -19,7 +19,7 @@ import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault 
 import { checkDocumentCurrency } from '../shared/documentCurrency';
 import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
 import { assertDraftTotalFits, draftAmountsAre, priceDraftLines } from './customerInvoiceCreateService';
-import { resolveInvoiceVatFor } from './invoiceLineVatDefaults';
+import { assertPricedPostable, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat } from './invoiceLineVatPricing';
 import { companyOf, printedTerms, settingsCompany, type InvoicePdfHeader, type InvoicePdfModel } from './invoicePdfModel';
 import type { PreviewBody } from './invoicePreviewBody';
@@ -71,6 +71,7 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
   const { subtotal, tax, total, taxRate: rate } = vatPriced.header;
   // Create's totals cap too (1e13, on the total and its functional amount): a 400 here as there.
   assertDraftTotalFits(total, currency.exchangeRate);
+  assertPricedPostable(vatPriced, invoiceDate); // create's refusal of what approve would refuse
 
   const dueDate = body.dueDate ?? dueDateWithDefault(invoiceDate,
     r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,

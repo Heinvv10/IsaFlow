@@ -248,7 +248,7 @@ export async function editDraftCustomerInvoice(
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;
 
-    await applyRetaxedLines(tx, id, vat); // a date-only edit of a typed invoice: its lines at the new date's rate
+    await applyRetaxedLines(tx, companyId, id, vat); // a date-only edit of a typed invoice: its lines at the new date's rate
     if (lines && vat.kind === 'priced') {
       // Tenant ownership is already enforced by the FOR UPDATE select above,
       // so a plain delete by invoice_id is sufficient here.

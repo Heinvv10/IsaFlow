@@ -126,8 +126,9 @@ describe('no lines sent', () => {
     expect(v).toEqual({ kind: 'retaxed', header: { subtotal: 150, tax: 15, total: 165, taxRate: 15, amountsAre: 'exclusive' }, lines: [
       { id: 'l1', amount: 100, taxAmount: 15, taxRate: 15 }, { id: 'l2', amount: 50, taxAmount: 0, taxRate: 0 },
     ] });
-    await applyRetaxedLines(tx, INV, v);
-    expect(db.updates).toEqual([[100, 15, 15, 'l1', INV], [50, 0, 0, 'l2', INV]]);
+    await applyRetaxedLines(tx, CO, INV, v);
+    // Through the company's own invoice (#1701): the line, its invoice, and that invoice scoped to the company.
+    expect(db.updates).toEqual([[100, 15, 15, 'l1', INV, INV, CO], [50, 0, 0, 'l2', INV, INV, CO]]);
   });
 
   it('a legacy invoice whose date moved stays as it is', async () => {
@@ -144,5 +145,42 @@ describe('no lines sent', () => {
   it('a date no rate is known for is refused', async () => {
     db.stored = [stored('A', 1, 100, 'standard', 15, 100, 15)];
     expect(await edit({ invoiceDate: '1990-01-01' })).toMatchObject({ kind: 'refused', code: 'INVOICE_LINE_VAT_REFUSED' });
+  });
+});
+
+describe('#1701 round 1', () => {
+  it('amountsAre with no lines is refused, whether or not the date moves (the route refuses it too)', async () => {
+    db.stored = [stored('A', 1, 100, 'standard', 15, 100, 15)];
+    for (const over of [{ amountsAre: 'inclusive' as const }, { amountsAre: 'inclusive' as const, invoiceDate: '2026-12-01' },
+      { amountsAre: 'exclusive' as const }]) {
+      expect(await edit(over)).toMatchObject({ kind: 'refused', code: 'INVOICE_LINE_VAT_REFUSED',
+        message: 'amountsAre needs items: how the unit prices read cannot change without the lines they price.' });
+    }
+  });
+
+  it('a date-only re-tax by a company no longer registered for VAT is refused for a rated line', async () => {
+    db.company = { vat_period: 'none', vat_system_type: 'none', customer_vat: null };
+    db.stored = [stored('A', 1, 100, 'standard', 14, 100, 14)];
+    expect(await edit({ invoiceDate: '2018-04-01', stored: { invoice_date: '2018-03-31' } }))
+      .toMatchObject({ kind: 'refused', code: 'INVOICE_VAT_NOT_REGISTERED' });
+    db.stored = [stored('R', 1, 100, 'exempt', 0, 100, 0)];
+    expect(await edit({ invoiceDate: '2018-04-01', stored: { invoice_date: '2018-03-31' } })).toMatchObject({ kind: 'retaxed' });
+  });
+
+  it('writer / poster parity on the edit: 1 x R0.03 standard is refused before the first write', async () => {
+    expect(await edit({ items: [sent('Tiny', 1, 0.03, { vatType: 'standard' })] }))
+      .toMatchObject({ kind: 'refused', code: 'INVOICE_LINE_VAT_REFUSED', message: expect.stringMatching(/rounds to nothing/) });
+  });
+
+  it('lines dated before VAT began are refused', async () => {
+    expect(await edit({ invoiceDate: '1991-09-29', items: [sent('A', 1, 100)] }))
+      .toMatchObject({ kind: 'refused', code: 'INVOICE_LINE_VAT_REFUSED', message: expect.stringMatching(/before VAT began/) });
+  });
+
+  it('a new line takes the default chain of the customer it is given (the edit passes the NEW customer)', async () => {
+    db.stored = [stored('Kept', 1, 100, 'standard', 15, 100, 15)];
+    db.company = { ...db.company, customer_vat: 'exempt' };
+    const v = await edit({ items: [sent('Kept', 1, 100), sent('New', 1, 50)] });
+    expect(v.kind === 'priced' && v.lines.map((l) => l.vatType)).toEqual(['standard', 'exempt']);
   });
 });

@@ -86,8 +86,8 @@ describe('untyped (a company not registered for VAT)', () => {
     expect(p.lines.map((x) => [x.amount, x.taxAmount, x.vatType, x.taxRate])).toEqual([[100, null, null, 0], [9, null, null, 0]]);
     expect(p.header).toEqual({ subtotal: 109, tax: 0, total: 109, taxRate: 0, amountsAre: 'exclusive' });
   });
-  it('inclusive changes nothing: there is no VAT to back out', () => {
-    expect(priceInvoiceVat([l(2, 50)], { typed: false }, DATE, 'inclusive').header).toMatchObject({ subtotal: 100, tax: 0, total: 100 });
+  it('inclusive changes nothing: there is no VAT to back out, and it is stored exclusive (#1701)', () => {
+    expect(priceInvoiceVat([l(2, 50)], { typed: false }, DATE, 'inclusive').header).toEqual({ subtotal: 100, tax: 0, total: 100, taxRate: 0, amountsAre: 'exclusive' });
   });
 });
 
@@ -103,5 +103,13 @@ describe('the page preview (previewInvoiceVat)', () => {
     const p = priceInvoiceVat(lines, { typed: true, types: ['standard', 'exempt'] }, DATE, 'inclusive');
     expect(previewInvoiceVat(lines, ['standard', 'exempt'], DATE, 'inclusive'))
       .toEqual({ subtotal: p.header.subtotal, tax: p.header.tax, total: p.header.total });
+  });
+});
+
+describe('an inclusive back-out never lands on an exact half cent at the South African rates (10, 14, 15%)', () => {
+  it('no gross from 0.01 to 2000.00 is a tie (gross x r / (100 + r) is never n + 0.5 cents)', () => {
+    // c cents x r / (100 + r) = n + 0.5  <=>  2cr = (2n + 1)(100 + r)  <=>  2cr mod 2(100 + r) = 100 + r
+    const ties = [10, 14, 15].flatMap((r) => Array.from({ length: 200000 }, (_, i) => i + 1).filter((c) => (2 * c * r) % (2 * (100 + r)) === 100 + r));
+    expect(ties).toEqual([]);
   });
 });

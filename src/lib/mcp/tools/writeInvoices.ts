@@ -70,7 +70,8 @@ export const createDraftInvoiceTool: McpTool = {
   description:
     'Create a customer invoice in DRAFT status (an invoice number is reserved). Does not post to the GL or send — use finalize_invoice (needs write:post) to approve. '
     + 'VAT is set per line by items[].vat_type (standard, zero_rated or exempt), its rate taken from the type and the invoice date; tax_rate is a legacy input (the standard rate or 0 only, never with a line vat_type), and a company not registered for VAT gets no VAT on any line. '
-    + 'Pass external_system + external_ref (e.g. the Sage tax invoice id) to make the create idempotent: a live invoice already carrying them is returned instead (already_existed: true).',
+    + 'Pass external_system + external_ref (e.g. the Sage tax invoice id) to make the create idempotent: a live invoice already carrying them is returned instead (already_existed: true). '
+    + 'Such a replay compares the invoice date only, as the bill tools do: its lines, VAT types and amounts_are are not compared.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {

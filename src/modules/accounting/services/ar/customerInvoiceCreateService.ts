@@ -2,10 +2,10 @@
  * Customer Invoice Create Service
  *
  * Draft-invoice creation for standalone (not project-linked) customer
- * invoices. Extracted verbatim from pages/api/accounting/customer-invoices-create.ts
- * so the MCP write-tool layer calls the SAME code the HTTP route uses — no
- * parallel duplicate of the totals math, number-reservation retry, or the
- * savepointed INSERT.
+ * invoices, shared by the HTTP route (customer-invoices-create) and the MCP
+ * write tools, so both run the SAME code: no parallel duplicate of the per-line
+ * VAT (invoiceLineVatTypes / invoiceLineVatPricing), the number-reservation
+ * retry, or the savepointed INSERT.
  */
 
 import { sql } from '@/lib/neon';
@@ -21,7 +21,7 @@ import {
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
-import { invoiceLineAmount, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
+import { isDiscountPercent, toColumnCents } from './invoiceLineAmount';
 import { NotADecimalError, toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
@@ -29,7 +29,7 @@ import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { dueDateSourceOf } from '../shared/dueDateSource';
 import { applyItemLineDefaults } from '../items/itemLineDefaults';
-import { resolveInvoiceVat } from './invoiceLineVatDefaults';
+import { assertPricedPostable, resolveInvoiceVat } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre } from './invoiceLineVatPricing';
 
 type Row = DbRow;
@@ -84,11 +84,11 @@ export class InvoiceLineValidationError extends Error {
   }
 }
 
-export interface PricedDraftLine { qty: number; price: number; amount: number }
+export interface PricedDraftLine { qty: number; price: number }
 
 /**
- * Each line priced as create stores it (invoiceLineAmount.ts), refused as create refuses it. Shared with the unsaved
- * preview (invoicePreviewModel.ts), so the preview's figures are create's by construction.
+ * Each line's quantity and price as their columns store them, refused as create refuses them (the pricing itself is
+ * invoiceLineVatPricing's). Shared with the unsaved preview (invoicePreviewModel.ts), so it refuses what create refuses.
  */
 export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?: unknown; discount?: unknown }[]): PricedDraftLine[] {
   // W1 (P2.1): server-side line validation — the July-4 audit created a
@@ -113,7 +113,7 @@ export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?
     const qty = toColumnCents(qtyIn);
     if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
     const price = toColumnCents(priceIn);
-    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
+    priced.push({ qty, price });
   }
   return priced;
 }
@@ -225,6 +225,7 @@ export async function createDraftCustomerInvoice(
     vat, invDate, amountsAre);
   const { subtotal, tax: taxAmount, total: totalAmount, taxRate: rate } = vatPriced.header;
   assertDraftTotalFits(totalAmount, invExchangeRate);
+  assertPricedPostable(vatPriced, invDate); // what approve would refuse is refused here, before the first write
   // No due date named: the customer's terms give it, else the company default (migration 960). A named date equal to
   // what the terms give (the new-invoice page prefills it) is recorded as the terms' (migration 962).
   const termsDueDate = await dueDateForContact(companyId, 'customer', clientId, invDate);
@@ -262,7 +263,7 @@ export async function createDraftCustomerInvoice(
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
           ${resolvedDueDate}, ${dueDateSource}, ${notes || null}, 'draft', ${userId},
           ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
-          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${amountsAre}
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${vatPriced.header.amountsAre}
         ) RETURNING id
       `) as Row[];
       return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };

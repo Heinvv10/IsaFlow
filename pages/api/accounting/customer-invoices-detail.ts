@@ -91,9 +91,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     const { id, items, taxRate, currencyCode, exchangeRate, amountsAre } = putParsed.data;
 
-    // taxRate / currencyCode / exchangeRate only affect computed totals, which are
-    // only recomputed when `items` is supplied. Reject the misleading combination
-    // rather than silently dropping the value.
+    // taxRate / amountsAre / currencyCode / exchangeRate only affect the lines' pricing, which is only
+    // redone when `items` is supplied (a date-only edit re-taxes the stored lines itself). Reject the
+    // misleading combination rather than silently dropping the value; the service refuses amountsAre too.
     if (!items && (taxRate !== undefined || currencyCode !== undefined || exchangeRate !== undefined || amountsAre !== undefined)) {
       return apiResponse.badRequest(res, 'taxRate, amountsAre, currencyCode and exchangeRate require items[] to recompute totals');
     }

@@ -11,7 +11,8 @@
  *
  * VAT is rounded on the line and the header is the sum of its lines (shared/vatLineAmounts): a multi-line standard
  * invoice can total a few cents differently from VAT on the subtotal (seven lines of 14.29: VAT 14.98, was 15.00).
- * UNTYPED (a company not registered for VAT, invoiceLineVatTypes): the legacy shape, no VAT, every rate 0.
+ * UNTYPED (a company not registered for VAT, invoiceLineVatTypes): the legacy shape, no VAT, every rate 0, and
+ * amounts_are 'exclusive' whatever was asked (the price as entered is the net: there is no VAT to include).
  *
  * Pure: safe in a client bundle.
  */
@@ -58,7 +59,8 @@ export function priceInvoiceVat(
     lines: out,
     header: {
       subtotal: totals.subtotal, tax: totals.vat, total: totals.total,
-      taxRate: out.reduce((m, l) => Math.max(m, l.taxRate), 0), amountsAre,
+      // An untyped invoice (a company not registered for VAT) has no VAT to include: it is stored exclusive.
+      taxRate: out.reduce((m, l) => Math.max(m, l.taxRate), 0), amountsAre: vat.typed ? amountsAre : 'exclusive',
     },
   };
 }

@@ -1,18 +1,22 @@
 /**
  * The reads behind a customer invoice's per-line VAT (invoiceLineVatTypes): whether the company is registered for VAT
  * (`companies.vat_period` / `vat_system_type`, vatPeriodHelper.isVatRegistered, as quoteLineTax and withVatVendor read
- * it), and, for the lines the default chain decides, the customer's `default_vat_type`, the line item's `vat_on_sales`
- * and the line's revenue account's `default_vat_code` (its own account, else the item's sales account). Every read is
- * scoped to the company; an id that is not a UUID, or not this company's, gives no opinion (create and the edit refuse
- * such an item or account themselves, before the first write; the preview never looks the coding up otherwise).
+ * it), and, for the lines the default chain decides, the customer's `default_vat_type` and the line item's
+ * `vat_on_sales`. The line's GL account is not read (invoiceLineVatTypes). Every read is scoped to the company; an id
+ * that is not a UUID, or not this company's, gives no opinion (create and the edit refuse such an item themselves,
+ * before the first write; the preview never looks the coding up otherwise).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
-import { resolveInvoiceLineVat, type LineVatOpinions, type ResolvedLineVat, type ResolveLineVatInput } from './invoiceLineVatTypes';
+import {
+  InvoiceLineVatRefusal, resolveInvoiceLineVat, type LineVatOpinions, type ResolvedLineVat, type ResolveLineVatInput,
+} from './invoiceLineVatTypes';
+import { typedLinesProblem } from './invoiceVatLegs';
+import type { VatPricedHeader, VatPricedLine } from './invoiceLineVatPricing';
 
-export interface VatCodedLine { vatType?: unknown; taxRate?: unknown; itemId?: unknown; glAccountId?: unknown }
+export interface VatCodedLine { vatType?: unknown; taxRate?: unknown; itemId?: unknown }
 
 const uuid = (v: unknown): string | null => (typeof v === 'string' && UUID_RE.test(v) ? v.toLowerCase() : null);
 
@@ -29,26 +33,15 @@ export async function invoiceVatParties(companyId: string, customerId: string | 
   };
 }
 
-/** Per line, what its item and account say; read only for the lines in `need`. */
+/** Per line, what its item says; read only for the lines in `need`. */
 async function lineOpinions(companyId: string, lines: readonly VatCodedLine[], need: readonly boolean[], customerVat: unknown): Promise<LineVatOpinions[]> {
   const itemIds = [...new Set(lines.flatMap((l, i) => (need[i] && uuid(l.itemId) ? [uuid(l.itemId)!] : [])))];
   const items = itemIds.length === 0 ? [] : (await sql`
-    SELECT id, vat_on_sales, sales_account_id FROM items
+    SELECT id, vat_on_sales FROM items
     WHERE company_id = ${companyId}::UUID AND id = ANY(${itemIds}::UUID[]) AND deleted_at IS NULL
   `) as DbRow[];
   const itemById = new Map(items.map((r) => [String(r.id).toLowerCase(), r]));
-  const itemOf = (l: VatCodedLine): DbRow | undefined => itemById.get(uuid(l.itemId) ?? '');
-  const accountOf = (l: VatCodedLine): string | null => uuid(l.glAccountId) ?? uuid(itemOf(l)?.sales_account_id);
-  const accountIds = [...new Set(lines.flatMap((l, i) => (need[i] && accountOf(l) ? [accountOf(l)!] : [])))];
-  const accounts = accountIds.length === 0 ? [] : (await sql`
-    SELECT id, default_vat_code FROM gl_accounts WHERE company_id = ${companyId}::UUID AND id = ANY(${accountIds}::UUID[])
-  `) as DbRow[];
-  const codeById = new Map(accounts.map((r) => [String(r.id).toLowerCase(), r.default_vat_code]));
-  return lines.map((l) => ({
-    customer: customerVat,
-    item: itemOf(l)?.vat_on_sales ?? null,
-    account: codeById.get(accountOf(l) ?? '') ?? null,
-  }));
+  return lines.map((l) => ({ customer: customerVat, item: itemById.get(uuid(l.itemId) ?? '')?.vat_on_sales ?? null }));
 }
 
 export type VatRequest = Omit<ResolveLineVatInput, 'registered' | 'defaults' | 'lines'> & { lines: readonly VatCodedLine[] };
@@ -69,6 +62,19 @@ export async function resolveInvoiceVatFor(
   const need = req.lines.map((l, i) => parties.registered && !headerGiven && (l.vatType === undefined || l.vatType === null) && !req.kept?.[i]);
   const defaults = need.some(Boolean)
     ? await lineOpinions(companyId, req.lines, need, parties.customerVat)
-    : req.lines.map(() => ({ customer: null, item: null, account: null }));
+    : req.lines.map(() => ({ customer: null, item: null }));
   return resolveInvoiceLineVat({ ...req, registered: parties.registered, defaults, lines: req.lines });
+}
+
+/**
+ * Writer / poster parity: the priced lines held to the poster's own check (invoiceVatLegs.typedLinesProblem) before the
+ * first write, so nothing is stored that approve would refuse (1 x R0.03 standard: VAT rounds to nothing). Create, the
+ * draft edit (and its re-tax) and the preview call it. An untyped (legacy) invoice always passes.
+ */
+export function assertPricedPostable(p: { lines: readonly VatPricedLine[]; header: VatPricedHeader }, invoiceDate: string | Date): void {
+  const problem = typedLinesProblem(
+    p.lines.map((l) => ({ amount: l.amount, taxAmount: l.taxAmount, vatType: l.vatType, glAccountId: null, projectId: null })),
+    { subtotal: p.header.subtotal, taxAmount: p.header.tax, totalAmount: p.header.total, invoiceDate, amountsAre: p.header.amountsAre },
+  );
+  if (problem) throw new InvoiceLineVatRefusal(`This invoice could not be approved as priced: ${problem}`);
 }

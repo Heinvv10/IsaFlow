@@ -131,7 +131,7 @@ describe('the legacy header taxRate', () => {
   });
 });
 
-describe('the default chain reads the customer, the item and the account', () => {
+describe('the default chain reads the customer and the item, never the account', () => {
   it('the customer zero-rated: every line zero_rated', async () => {
     db.company = { ...db.company, customer_vat: 'zero' };
     await create({ items: [{ description: 'A', unitPrice: 100 }] });
@@ -143,13 +143,12 @@ describe('the default chain reads the customer, the item and the account', () =>
     await create({ items: [{ description: 'A', unitPrice: 100, itemId: ITEM }] });
     expect(lines()[0]).toMatchObject({ vatType: 'exempt', tax: 0 });
   });
-  it('no item: the account exempt gives exempt; "none" is no opinion', async () => {
-    db.accounts = [{ id: ACCOUNT, default_vat_code: 'exempt' }];
-    await create({ items: [{ description: 'A', unitPrice: 100, glAccountId: ACCOUNT }] });
-    expect(lines()[0]).toMatchObject({ vatType: 'exempt' });
-    db.lines = []; db.accounts = [{ id: ACCOUNT, default_vat_code: 'none' }];
+  it('a line on an account whose default_vat_code is exempt, no type: standard (the account is not read; decided, #1701 round 1)', async () => {
+    db.accounts = [{ id: ACCOUNT, is_active: true, default_vat_code: 'exempt' }];
     await create({ items: [{ description: 'A', unitPrice: 100, glAccountId: ACCOUNT }] });
     expect(lines()[0]).toMatchObject({ vatType: 'standard', tax: 15 });
+    const sqlCalls = (await import('@/lib/neon')).sql as unknown as { mock: { calls: [readonly string[]][] } };
+    expect(sqlCalls.mock.calls.some(([s]) => s.join('?').includes('default_vat_code'))).toBe(false);
   });
   it('nothing says otherwise: standard at the rate on the invoice date (14% on 2018-03-31)', async () => {
     await create({ invoiceDate: '2018-03-31', items: [{ description: 'A', unitPrice: 100 }] });
@@ -175,5 +174,39 @@ describe('a company not registered for VAT', () => {
   ])('refuses %s before the first write', async (_l, over) => {
     await expect(create(over as Parameters<typeof create>[0])).rejects.toBeInstanceOf(InvoiceVatNotRegisteredRefusal);
     expect(db.writes).toBe(0);
+  });
+});
+
+describe('#1701 round 1', () => {
+  it('writer / poster parity: 1 x R0.03 standard (VAT rounds to nothing) is refused before the first write', async () => {
+    const err = await create({ items: [{ description: 'Tiny', unitPrice: 0.03, vatType: 'standard' }] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineVatRefusal);
+    expect((err as Error).message).toMatch(/^This invoice could not be approved as priced: its standard lines come to 0\.03 but the VAT on them rounds to nothing/);
+    expect(db.writes).toBe(0);
+  });
+
+  it('a company not registered for VAT stores amounts_are exclusive whatever was asked', async () => {
+    db.company = { vat_period: 'none', vat_system_type: 'none', customer_vat: null };
+    await create({ amountsAre: 'inclusive', items: [{ description: 'A', unitPrice: 115 }] });
+    expect(db.header[22]).toBe('exclusive');
+    expect(header()).toEqual({ subtotal: 115, taxRate: 0, tax: 0, total: 115 });
+  });
+
+  it.each([
+    ['1993-04-06', 10], ['1993-04-07', 14], ['2018-03-31', 14], ['2018-04-01', 15],
+  ])('a standard line on %s carries %s%%', async (invoiceDate, rate) => {
+    await create({ invoiceDate, items: [{ description: 'A', unitPrice: 100, vatType: 'standard' }] });
+    expect(lines()[0]).toMatchObject({ taxRate: rate, tax: rate });
+  });
+
+  it('a date before VAT began (1991-09-30) is refused before the first write', async () => {
+    await expect(create({ invoiceDate: '1991-09-29', items: [{ description: 'A', unitPrice: 100 }] }))
+      .rejects.toThrow('The invoice date has no VAT rate: 1991-09-29 is before VAT began (1991-09-30)');
+    expect(db.writes).toBe(0);
+  });
+
+  it('an exact half cent of VAT rounds away from zero: 0.10 standard carries 0.02', async () => {
+    await create({ items: [{ description: 'A', unitPrice: 0.1, quantity: 1, vatType: 'standard' }, { description: 'B', unitPrice: 100 }] });
+    expect(lines()[0]).toMatchObject({ amount: 0.1, tax: 0.02 });
   });
 });

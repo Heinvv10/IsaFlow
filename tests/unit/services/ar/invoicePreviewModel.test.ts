@@ -18,6 +18,7 @@ import { effectiveTaxRate, type TaxMode } from '@/components/accounting/customer
 import { formTotals } from '@/components/accounting/customer-invoices/formVat';
 import { parsePreviewBody, PREVIEW_MAX_BYTES, PREVIEW_MAX_LINES, PreviewBodyError } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { buildInvoicePreviewModel, JOB_NOT_RECOGNISED } from '@/modules/accounting/services/ar/invoicePreviewModel';
+import { priceInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 const CO = '00000000-0000-4000-8000-0000000000c0';
 const CLIENT = '00000000-0000-4000-8000-0000000000c1';
@@ -142,9 +143,50 @@ describe('the body\'s caps and shape', () => {
     expect(() => parsePreviewBody(raw)).toThrow(message);
   });
 
-  it('does not carry a line\'s job or dimensions; its VAT type, item and account only for its VAT type', () => {
+  it('does not carry a line\'s account, job or dimensions; its VAT type and item only for its VAT type', () => {
     const parsed = parsePreviewBody({ clientId: CLIENT, items: [{ description: 'x', unitPrice: 1, glAccountId: JOB, projectId: JOB, itemId: JOB, cc2Id: JOB }] });
     expect(parsed.items).toEqual([{ description: 'x', quantity: undefined, unitPrice: 1, discount: undefined,
-      vatType: undefined, itemId: JOB, glAccountId: JOB }]);
+      vatType: undefined, itemId: JOB }]);
+  });
+});
+
+describe('#1701 round 1: the preview prices and refuses as create does', () => {
+  const body = (over: Record<string, unknown>) => parsePreviewBody({ clientId: CLIENT, invoiceDate: '2026-11-20', ...over });
+  const printed = async (over: Record<string, unknown>) => {
+    const p = (await buildInvoicePreviewModel(CO, body(over)))!;
+    return { header: { subtotal: p.model.invoice.subtotal, tax: p.model.invoice.tax_amount, total: p.model.invoice.total_amount,
+      rate: p.model.invoice.tax_rate, amountsAre: p.model.invoice.amounts_are }, lines: p.model.items.map((i) => [i.vat_type, i.tax_amount]) };
+  };
+
+  it('a company not registered for VAT: untyped, no VAT, stored exclusive, whatever the body asks', async () => {
+    m.sql.mockResolvedValue([{ ...ROW, vat_period: 'none', vat_system_type: 'none' }]);
+    expect(await printed({ amountsAre: 'inclusive', items: [{ description: 'A', quantity: 1, unitPrice: 115 }] })).toEqual({
+      header: { subtotal: 115, tax: 0, total: 115, rate: 0, amountsAre: 'exclusive' }, lines: [[null, null]],
+    });
+    await expect(buildInvoicePreviewModel(CO, body({ items: [{ description: 'A', quantity: 1, unitPrice: 1, vatType: 'standard' }] })))
+      .rejects.toThrow(/not registered for VAT/);
+  });
+
+  it('the customer\'s default (exempt) types a line with none, as create does', async () => {
+    m.sql.mockResolvedValue([{ ...ROW, customer_vat: 'exempt' }]);
+    expect((await printed({ items: [{ description: 'A', quantity: 1, unitPrice: 100 }] })).lines).toEqual([['exempt', 0]]);
+  });
+
+  it('mixed types, inclusive: the figures create stores (priceInvoiceVat on the same lines)', async () => {
+    const items = [{ description: 'S', quantity: 100, unitPrice: 9.99, vatType: 'standard' }, { description: 'Z', quantity: 1, unitPrice: 300, vatType: 'zero_rated' },
+      { description: 'E', quantity: 3, unitPrice: 33.33, discount: 12.5, vatType: 'exempt' }];
+    const created = priceInvoiceVat(items, { typed: true, types: ['standard', 'zero_rated', 'exempt'] }, '2026-11-20', 'inclusive');
+    expect(await printed({ amountsAre: 'inclusive', items })).toEqual({
+      header: { subtotal: created.header.subtotal, tax: created.header.tax, total: created.header.total, rate: 15, amountsAre: 'inclusive' },
+      lines: created.lines.map((l) => [l.vatType, l.taxAmount]),
+    });
+  });
+
+  it.each([
+    ['1 x R0.03 standard (approve would refuse it)', { items: [{ description: 'T', quantity: 1, unitPrice: 0.03, vatType: 'standard' }] }, /rounds to nothing/],
+    ['a date before VAT began', { invoiceDate: '1991-09-29', items: [{ description: 'A', quantity: 1, unitPrice: 1 }] }, /before VAT began/],
+    ['a header rate of 14', { taxRate: 14, items: [{ description: 'A', quantity: 1, unitPrice: 1 }] }, /neither the VAT rate/],
+  ])('refuses %s, as create does', async (_l, over, msg) => {
+    await expect(buildInvoicePreviewModel(CO, body(over))).rejects.toThrow(msg);
   });
 });

@@ -32,7 +32,7 @@ import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
-import { InvoiceLineVatRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 
@@ -75,5 +75,6 @@ describe('createDraftCustomerInvoice — R-119 tax rate', () => {
     const err = await createDraftCustomerInvoice(COMPANY, USER, input(rate)).then(() => null, (e: unknown) => e);
     expect(err).not.toBeInstanceOf(InvoiceLineValidationError);
     expect(err).not.toBeInstanceOf(InvoiceLineVatRefusal);
+    expect(err).not.toBeInstanceOf(InvoiceVatNotRegisteredRefusal); // the sibling refusal (a company not registered for VAT)
   });
 });
