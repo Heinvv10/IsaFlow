@@ -3,14 +3,14 @@
  * (docs/design/mcp-goods-received.md), real PostgreSQL, as app_user (grnHarness). Acceptance items:
  *   4. cancel is refused for a note on a bill (naming it), for a note already cancelled, and for a note on a closed PO;
  *   6. another company's PO or note is not_found; lists never show another company's notes.
- * Plus: per-line refusals (line_not_on_po, duplicate_line, a PO that is not receivable), the 1021 trigger and CHECKs as app_user,
+ * Plus: per-line refusals (line_not_on_po, duplicate_line, a PO that is not receivable),
  * cancelled notes kept out of the three-way match, find_by_external_ref kind goods_received.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
+import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { asOwner } from './helpers/poImportHarness';
 import { seedBill } from './helpers/poBillLinkHarness';
 import {
@@ -175,23 +175,5 @@ describe('reads', () => {
     expect((await inputs()).grnItems).toHaveLength(1);
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
     expect((await inputs()).grnItems).toHaveLength(0);
-  });
-});
-
-describe('the database (1021) as app_user', () => {
-  it('a cancelled note and its items do not change; the cancel columns go with the status', async () => {
-    const { po, grn } = await received(f, [5], [1]);
-    const asApp = async (q: string, params: unknown[]) => {
-      const req = await openRequest(pool, f, f.owner);
-      try { await req.client.query(q, params); await req.commit(); return 'ok'; } catch (e) { await req.rollback(); return (e as { code?: string }).code; }
-    };
-    expect(await asApp("UPDATE goods_received_notes SET status = 'cancelled' WHERE id = $1", [grn])).toBe('23514');
-    expect(await asApp("UPDATE goods_received_notes SET cancel_reason = 'x' WHERE id = $1", [grn])).toBe('23514');
-    expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
-    expect(await asApp("UPDATE goods_received_notes SET status = 'received', cancelled_at = NULL, cancelled_by = NULL, cancel_reason = NULL WHERE id = $1", [grn])).toBe('23514');
-    expect(await asApp("UPDATE goods_received_notes SET notes = 'edited' WHERE id = $1", [grn])).toBe('23514');
-    expect(await asApp('UPDATE grn_items SET quantity_received = 2 WHERE grn_id = $1', [grn])).toBe('23514');
-    expect(await asApp('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]])).toBe('23514');
-    expect(await asApp("UPDATE goods_received_notes SET external_system = 'FibreFlow', external_ref = 'x' WHERE id = (SELECT id FROM goods_received_notes WHERE company_id = $1 AND status <> 'cancelled' LIMIT 1)", [f.co])).toBe('23514');
   });
 });

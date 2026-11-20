@@ -1,8 +1,8 @@
 /**
  * MCP write tool: cancel_goods_received — cancel a goods received note with a reason (design: docs/design/mcp-goods-received.md).
  * The note becomes cancelled (kept, never deleted), its quantities come back off the PO lines and the PO status is recomputed.
- * POSTS NOTHING. Refused: already_cancelled, po_not_receivable (the PO is closed or cancelled), grn_on_bill (a bill that is not
- * deleted carries the note; the bills are named), not_found. Managers and above (the write fence). dry_run runs the real service in
+ * POSTS NOTHING. Refused: already_cancelled, po_not_receivable (the PO is closed or cancelled), grn_on_bill (a bill that is neither
+ * deleted nor cancelled carries the note; the bills are named; cancelling or deleting them frees it), not_found. Managers and above (the write fence). dry_run runs the real service in
  * a rolled-back savepoint and leaves the key free. Free (purchaseOrderFlow).
  */
 import type { McpTool } from '../types';
@@ -21,7 +21,7 @@ export const cancelGoodsReceivedTool: McpTool = {
     + 'each of its quantity_received comes back off its purchase order line, and the PO status is recomputed (received -> partially_received or approved). '
     + 'Posts NOTHING to the general ledger (a goods received note never posts). Committed spend is unchanged. '
     + 'Refused (JSON {refused, code, message}): already_cancelled; po_not_receivable when the PO is closed or cancelled (set its status back first); '
-    + 'grn_on_bill when a bill that is not deleted carries this note (the bills are named: remove the note from those bills first); not_found. '
+    + 'grn_on_bill when a bill that is neither deleted nor cancelled carries this note (the bills are named: cancel or delete those bills first); not_found. '
     + 'Billed quantity above received quantity is allowed after a cancel, as when a bill arrives before the goods. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,
