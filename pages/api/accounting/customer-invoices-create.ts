@@ -30,7 +30,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const {
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, notes, items, currencyCode, exchangeRate, projectId,
+    taxRate, notes, items, currencyCode, exchangeRate, projectId, amountsAre,
   } = req.body;
   if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
   if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
@@ -39,7 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const userId = String(req.user?.id || 'system');
     const { id: invoiceId, invoiceNumber } = await createDraftCustomerInvoice(companyId, userId, {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-      taxRate, notes, items, currencyCode, exchangeRate, projectId,
+      taxRate, notes, items, currencyCode, exchangeRate, projectId, amountsAre,
     });
     // What Approve (shownDigest) and the edit page's PUTs (draftDigest) send back for this invoice (invoicePdfModel).
     const digests = await invoiceDigests(companyId, invoiceId);

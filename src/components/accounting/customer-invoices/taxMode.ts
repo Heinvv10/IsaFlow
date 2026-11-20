@@ -1,21 +1,19 @@
 /**
- * What the invoice form's "Amounts are" choice does to a typed price. An invoice stores only `tax_rate` and 2-dp ex-VAT
- * unit prices (invoiceLineAmount.ts), so the choice never reaches the API: it is a rate and a price by the time it is sent.
+ * What the invoice form's "Amounts are" choice does to a typed price. The price typed is the price sent and stored, in
+ * every mode; the mode is sent with it (`amountsAre`, per-line VAT writer PR) and the server prices each line from it
+ * (invoiceLineVatPricing). (The quote form still sends an ex-VAT price: storedUnitPrice, lineTotalForMode.)
  *
- *   exclusive  the price typed is the price stored.
+ *   exclusive  the price typed is before VAT.
  *   none       as exclusive, at rate 0. The form keeps its rate, so leaving "none" brings it back.
- *   inclusive  the price typed is gross; the form sends exVatUnitPrice(gross, rate).
+ *   inclusive  the price typed is VAT-inclusive; the server backs each line's VAT out of its gross, so the stored total
+ *              is exactly what was typed (it used to be sent as exVatUnitPrice(gross, rate), which drifted: 1 @ R10 incl
+ *              stored R10.01, 3 @ R10 incl R30.02).
  *
  * Changing the mode changes how the prices read, not what they are: the shown price converts with the mode
  * (linesForModeChange), so it never reprices at the same rate and an untouched line saves as it was. A rate changed while
- * inclusive holds the gross and moves the ex-VAT price. A 2-dp price always comes back exact at a rate of 0 or more:
- * grossing up moves it at most R0.005, and dividing by 1 + rate shrinks that below the half cent the way back rounds on.
- * Below 0 the way back is not exact, so nothing converts.
- *
- * A converted price is rounded to the cent, the line is priced from it, and the VAT is rounded on the subtotal, so an
- * inclusive total can land off what was typed by up to about qty x R0.00575 at 15%, plus a cent of VAT rounding
- * (1 @ R10 incl stores R10.01; 3 @ R10 incl stores R30.02). The stored total is the invoice; the form shows both figures
- * whenever they differ (spec decision 2).
+ * inclusive holds the gross. A 2-dp price always comes back exact at a rate of 0 or more: grossing up moves it at most
+ * R0.005, and dividing by 1 + rate shrinks that below the half cent the way back rounds on. Below 0 the way back is not
+ * exact, so nothing converts.
  *
  * Pure: safe in a client bundle.
  */
@@ -74,19 +72,21 @@ export function linesForModeChange<L extends { unitPrice: number }>(lines: reado
   return lines.map((l) => (readable(l.unitPrice) ? { ...l, unitPrice: convert(l.unitPrice, formRate) } : l));
 }
 
-/** The unit price the API receives for what was typed, at the invoice's effective rate. */
+/**
+ * The ex-VAT unit price for what was typed, at the effective rate: what the QUOTE form sends (quoteVat; a quote line
+ * stores ex-VAT prices). The invoice forms send the price as typed, with the mode.
+ */
 export const storedUnitPrice = (mode: TaxMode, typed: number, rate: number): number =>
   (mode === 'inclusive' ? exVatUnitPrice(typed, rate) : typed);
 
-/** A price typed above zero that its numeric(…, 2) column would store as nothing, in any mode. */
-export const pricesToNothing = (mode: TaxMode, typed: number, rate: number): boolean =>
-  readable(typed) && typed > 0 && toColumnCents(storedUnitPrice(mode, typed, rate)) === 0;
+/** A price typed above zero that its numeric(…, 2) column would store as nothing (an invoice sends it as typed in every mode). */
+export const pricesToNothing = (typed: number): boolean => readable(typed) && typed > 0 && toColumnCents(typed) === 0;
 
 /** The refusal for such a line. */
 export const pricesToNothingMessage = (description: string): string =>
   `"${description}" comes to under a cent - enter a higher price`;
 
-/** The line's stored ex-VAT amount for what was typed; a half-typed field previews as 0. */
+/** A quote line's stored ex-VAT amount for what was typed (quoteVat); a half-typed field previews as 0. */
 export const lineTotalForMode = (mode: TaxMode, rate: number, l: PricedLine): number =>
   previewLineAmount(l.quantity, storedUnitPrice(mode, l.unitPrice, rate), l.discount || 0);
 

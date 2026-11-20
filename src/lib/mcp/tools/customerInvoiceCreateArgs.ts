@@ -31,6 +31,8 @@ export interface ParsedCustomerInvoice {
   invoiceDate: string | undefined;
   dueDate: string | undefined;
   taxRate: number | undefined;
+  /** How unit_price reads (`amounts_are`); undefined = exclusive. */
+  amountsAre: 'exclusive' | 'inclusive' | undefined;
   notes: string | undefined;
   projectId: string | null;
   /** Per item, the cc1/cc2/bu as typed (undefined where none). */
@@ -64,6 +66,13 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
   },
   required: ['description', 'unit_price'],
   additionalProperties: false,
+} as const;
+
+/** The header `amounts_are` both tools declare. */
+export const AMOUNTS_ARE_SCHEMA = {
+  type: 'string', enum: ['exclusive', 'inclusive'],
+  description: 'How items[].unit_price reads: exclusive (default, before VAT) or inclusive (VAT-inclusive, stored as sent; '
+    + 'each line\'s VAT is backed out of its gross).',
 } as const;
 
 /** The keys CUSTOMER_INVOICE_LINE_SCHEMA declares — and the only ones a line may carry. */
@@ -156,9 +165,15 @@ export function parseCustomerInvoiceInput(
     if (!Number.isFinite(taxRate) || taxRate < 0) return 'tax_rate must be a non-negative number';
   }
 
+  const amountsAre = args.amounts_are ?? undefined;
+  if (amountsAre !== undefined && amountsAre !== 'exclusive' && amountsAre !== 'inclusive') {
+    return 'amounts_are must be "exclusive" or "inclusive"';
+  }
+
   return {
     customerId,
     items,
+    amountsAre,
     invoiceDate: strArg(args, 'invoice_date'),
     dueDate: strArg(args, 'due_date'),
     taxRate,

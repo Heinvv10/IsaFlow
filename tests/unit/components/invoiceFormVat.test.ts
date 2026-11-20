@@ -22,15 +22,15 @@ describe('formLineType', () => {
 describe('formTotals', () => {
   it('is the per-line pricing create stores: seven lines of 14.29 carry VAT 14.98', () => {
     const lines = Array.from({ length: 7 }, () => l(1, 14.29));
-    expect(formTotals(lines, 15, '2026-11-20')).toEqual({ subtotal: 100.03, tax: 14.98, total: 115.01 });
+    expect(formTotals(lines, 15, 'exclusive', '2026-11-20')).toEqual({ subtotal: 100.03, tax: 14.98, total: 115.01 });
     const stored = priceInvoiceVat(lines, { typed: true, types: Array(7).fill('standard') }, '2026-11-20', 'exclusive').header;
-    expect(formTotals(lines, 15, '2026-11-20')).toEqual({ subtotal: stored.subtotal, tax: stored.tax, total: stored.total });
+    expect(formTotals(lines, 15, 'exclusive', '2026-11-20')).toEqual({ subtotal: stored.subtotal, tax: stored.tax, total: stored.total });
   });
   it('a rate the server refuses is shown as typed, VAT on the subtotal', () => {
-    expect(formTotals([l(1, 100)], 14, '2026-11-20')).toEqual({ subtotal: 100, tax: 14, total: 114 });
+    expect(formTotals([l(1, 100)], 14, 'exclusive', '2026-11-20')).toEqual({ subtotal: 100, tax: 14, total: 114 });
   });
   it('a field mid-edit prices as 0', () => {
-    expect(formTotals([l(Number.NaN, 5), l(2, 50)], 15, '2026-11-20')).toEqual({ subtotal: 100, tax: 15, total: 115 });
+    expect(formTotals([l(Number.NaN, 5), l(2, 50)], 15, 'exclusive', '2026-11-20')).toEqual({ subtotal: 100, tax: 15, total: 115 });
   });
 });
 

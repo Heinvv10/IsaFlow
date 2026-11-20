@@ -68,7 +68,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
+      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id, amounts_are,
              to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(due_date, 'YYYY-MM-DD') AS due_date, due_date_source,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
@@ -205,7 +205,7 @@ export async function editDraftCustomerInvoice(
 
     // Per-line VAT, priced as create prices it (customerInvoiceDraftVat): the new lines by their types, or a typed
     // invoice's stored lines re-taxed when only its date moved.
-    const vat = await draftEditVat(tx, companyId, id, { items, invoiceDate, headerTaxRate: taxRate, customerId: clientId ?? String(ownedRows[0]!.customer_id), stored: ownedRows[0]! });
+    const vat = await draftEditVat(tx, companyId, id, { items, invoiceDate, headerTaxRate: taxRate, amountsAre: edit.amountsAre, customerId: clientId ?? String(ownedRows[0]!.customer_id), stored: ownedRows[0]! });
     if (vat.kind === 'refused') return { kind: 'vat_refused' as const, message: vat.message, code: vat.code };
     const computed = vat.kind === 'unchanged' ? null : { ...vat.header, rate: vat.header.taxRate };
     // numeric(15,2), as create checks it: the total, and functional_total = fx_functional(total, rate) when
@@ -233,6 +233,7 @@ export async function editDraftCustomerInvoice(
              billing_period_start = COALESCE(${billingPeriodStart ?? null}, billing_period_start),
              billing_period_end = COALESCE(${billingPeriodEnd ?? null}, billing_period_end),
              tax_rate = COALESCE(${computed?.rate ?? null}, tax_rate),
+             amounts_are = COALESCE(${computed?.amountsAre ?? null}, amounts_are),
              subtotal = COALESCE(${computed?.subtotal ?? null}, subtotal),
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),

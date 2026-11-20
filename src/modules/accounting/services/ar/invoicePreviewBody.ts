@@ -39,6 +39,8 @@ export interface PreviewBody {
   invoiceDate: string | null;
   dueDate: string | null;
   taxRate: number | undefined;
+  /** As sent; create's rule refuses anything but 'exclusive' / 'inclusive' (draftAmountsAre). */
+  amountsAre: unknown;
   notes: string | null;
   items: PreviewLine[];
   currencyCode: unknown;
@@ -135,6 +137,7 @@ export function parsePreviewBody(raw: unknown): PreviewBody {
     invoiceDate: optionalDate(raw.invoiceDate, 'invoiceDate'),
     dueDate: optionalDate(raw.dueDate, 'dueDate'),
     taxRate: taxRate ?? undefined,
+    amountsAre: raw.amountsAre,
     notes: typeof notes === 'string' && notes !== '' ? notes : null,
     items: lines,
     currencyCode: raw.currencyCode,

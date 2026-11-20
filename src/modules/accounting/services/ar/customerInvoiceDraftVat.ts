@@ -12,6 +12,8 @@
  * - No lines sent, the date moved, the invoice typed: its stored lines are re-taxed at the new date (a standard line
  *   across 1 April 2018 moves from 14% to 15%): an exclusive line keeps its net, an inclusive one its gross.
  * - Otherwise nothing is re-priced.
+ * The mode (`amountsAre`) is the edit's, else the stored one, else exclusive; an inclusive line's unit price is its
+ * VAT-inclusive price as entered (invoiceLineVatPricing).
  */
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import type { VatType } from '../../types/gl.types';
@@ -89,13 +91,14 @@ export async function draftEditVat(tx: Tx, companyId: string, invoiceId: string,
   /** The edit's invoiceDate, when it sends one. */
   invoiceDate: string | undefined;
   headerTaxRate: number | undefined;
+  amountsAre: AmountsAre | undefined;
   /** The customer the invoice has after the edit. */
   customerId: string;
-  /** The row as read under the lock: its invoice_date ('YYYY-MM-DD'). */
+  /** The row as read under the lock: its invoice_date ('YYYY-MM-DD') and amounts_are. */
   stored: Row;
 }): Promise<DraftVat> {
   const date = args.invoiceDate ?? day(args.stored.invoice_date);
-  const amountsAre: AmountsAre = 'exclusive';
+  const amountsAre: AmountsAre = args.amountsAre ?? (args.stored.amounts_are === 'inclusive' ? 'inclusive' : 'exclusive');
   try {
     if (args.items) {
       const stored = await storedLines(tx, companyId, invoiceId);

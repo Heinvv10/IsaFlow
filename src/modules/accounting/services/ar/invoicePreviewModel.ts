@@ -18,7 +18,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 import { checkDocumentCurrency } from '../shared/documentCurrency';
 import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
-import { assertDraftTotalFits, priceDraftLines } from './customerInvoiceCreateService';
+import { assertDraftTotalFits, draftAmountsAre, priceDraftLines } from './customerInvoiceCreateService';
 import { resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat } from './invoiceLineVatPricing';
 import { companyOf, printedTerms, settingsCompany, type InvoicePdfHeader, type InvoicePdfModel } from './invoicePdfModel';
@@ -34,6 +34,7 @@ type Row = Record<string, unknown>;
 export async function buildInvoicePreviewModel(companyId: string, body: PreviewBody): Promise<InvoicePreview | null> {
   // Create's validation, in create's order where it can be: the lines (pure, before the read), then their VAT.
   const priced = priceDraftLines(body.items);
+  const amountsAre = draftAmountsAre(body.amountsAre);
 
   const rows = (await sql`
     SELECT c.name AS client_name, c.billing_address AS client_address, c.contact_person AS client_contact,
@@ -66,7 +67,7 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
   );
   const vatPriced = priceInvoiceVat(body.items.map((item, i) => ({
     quantity: priced[i]!.qty, unitPrice: priced[i]!.price, discount: Number(item.discount ?? 0),
-  })), vat, invoiceDate, 'exclusive');
+  })), vat, invoiceDate, amountsAre);
   const { subtotal, tax, total, taxRate: rate } = vatPriced.header;
   // Create's totals cap too (1e13, on the total and its functional amount): a 400 here as there.
   assertDraftTotalFits(total, currency.exchangeRate);

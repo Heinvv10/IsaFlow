@@ -14,7 +14,8 @@ import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { formTotals, useVatMode } from '@/components/accounting/customer-invoices/formVat';
+import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { useVatMode } from '@/components/accounting/customer-invoices/useVatMode';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
@@ -23,7 +24,7 @@ import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/In
 import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
@@ -77,8 +78,8 @@ export default function NewCustomerInvoicePage() {
   // registered for VAT prices and sends no VAT, as the server forces it.
   const vatMode = useVatMode(taxMode);
   const taxRate = effectiveTaxRate(vatMode, form.taxRate);
-  const lineTotal = (l: LineItem) => lineTotalForMode(vatMode, taxRate, l);
-  const { subtotal, tax, total } = formTotals(lines.map(l => ({ ...l, unitPrice: storedUnitPrice(vatMode, l.unitPrice, taxRate) })), taxRate, form.invoiceDate);
+  const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
+  const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;

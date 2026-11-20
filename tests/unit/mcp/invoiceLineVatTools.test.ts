@@ -43,6 +43,17 @@ describe('the line schema and its parse', () => {
     expect('vatType' in p.items[1]!).toBe(false);
   });
 
+  it('header amounts_are: exclusive / inclusive carried, anything else refused; both tools declare it', () => {
+    const one = (v: unknown) => parseCustomerInvoiceInput({ customer_id: CUSTOMER, amounts_are: v, items: [{ description: 'A', unit_price: 1 }] });
+    expect((one('inclusive') as { amountsAre: string }).amountsAre).toBe('inclusive');
+    expect((one(undefined) as { amountsAre?: string }).amountsAre).toBeUndefined();
+    expect(one('gross')).toBe('amounts_are must be "exclusive" or "inclusive"');
+    const single = createDraftInvoiceTool.inputSchema as { properties: Record<string, { enum?: string[] }> };
+    expect(single.properties.amounts_are!.enum).toEqual(['exclusive', 'inclusive']);
+    const bulk = bulkCreateCustomerInvoicesTool.inputSchema as { properties: { invoices: { items: { properties: Record<string, { enum?: string[] }> } } } };
+    expect(bulk.properties.invoices.items.properties.amounts_are!.enum).toEqual(['exclusive', 'inclusive']);
+  });
+
   it('a camelCase vatType is still an unknown key', () => {
     expect(parseCustomerInvoiceInput({ customer_id: CUSTOMER, items: [{ description: 'A', unit_price: 1, vatType: 'exempt' }] }))
       .toMatch(/^items\[0\] has "vatType", which is not a line field/);

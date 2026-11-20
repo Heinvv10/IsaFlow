@@ -1,36 +1,63 @@
 /**
- * The new and edit invoice pages' VAT, until the line-level VAT screen: the form's one rate types every line as the
- * server's legacy header contract does (invoiceLineVatTypes): the standard rate on the invoice date -> standard, 0 ->
- * zero_rated. The totals are the shared per-line pricing (invoiceLineVatPricing), so the summary shows the figure create
- * and the draft edit store. A rate that is neither (the server refuses it, saying why) is shown as VAT on the subtotal at
- * that rate, as typed. A company not registered for VAT prices at no VAT ('none'), as the server forces it.
+ * The new and edit invoice pages' VAT, until the line-level VAT screen. The form keeps one rate and one "Amounts are"
+ * mode; each line's VAT type is:
+ *   - on the edit page, the type the line LOADED with, while the form's rate is still the one it loaded at (a mixed
+ *     invoice made through the API round-trips: its exempt line is not re-typed by the header's 15%);
+ *   - otherwise the one the form's rate gives, as the server's legacy header contract does (invoiceLineVatTypes): the
+ *     standard rate on the invoice date -> standard, 0 -> zero_rated.
+ * Prices are sent AS ENTERED with the mode (inclusive: VAT-inclusive), and the totals are the shared per-line pricing
+ * (invoiceLineVatPricing), so the summary shows the figure create and the draft edit store. A rate that gives no type
+ * (neither the standard rate nor 0: the server refuses it, saying why) is shown as VAT on the subtotal at that rate. A
+ * company not registered for VAT prices at no VAT ('none'), as the server forces it.
  *
- * Pure but for `useVatMode` (the active company's registration): safe in a client bundle.
+ * Pure: safe in a client bundle (useVatMode reads the active company's registration).
  */
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { previewInvoiceVat, type AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 import type { DocumentLineVatType } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
-import { useVatRegistrationOrDefault } from '@/hooks/useVatRegistration';
-import type { TaxMode } from './taxMode';
+import { DOCUMENT_LINE_VAT_TYPES } from '@/modules/accounting/services/shared/vatTypes';
+import { exVatUnitPrice, type TaxMode } from './taxMode';
 
-interface FormLine { quantity: number; unitPrice: number; discount?: number }
+export interface FormVatLine {
+  quantity: number; unitPrice: number; discount?: number;
+  /** The edit page: the type the line loaded with, and the form's effective rate then. */
+  vatType?: string | null; vatRateAtLoad?: number;
+}
 
 /** The mode the form prices and sends in: 'none' for a company not registered for VAT, whatever is picked. */
 export const vatModeFor = (registered: boolean, picked: TaxMode): TaxMode => (registered ? picked : 'none');
 
-/** vatModeFor for the active company (a registered vendor outside a CompanyProvider, useVatRegistrationOrDefault). */
-export const useVatMode = (picked: TaxMode): TaxMode => vatModeFor(useVatRegistrationOrDefault().isRegistered, picked);
+/** What the server stores the prices as, for the form's mode. */
+export const amountsAreFor = (mode: TaxMode): AmountsAre => (mode === 'inclusive' ? 'inclusive' : 'exclusive');
 
-/** The one type the form's rate gives every line on `date`, or null for a rate that is neither the standard rate nor 0. */
+/** The one type the form's rate gives a line on `date`, or null for a rate that is neither the standard rate nor 0. */
 export function formLineType(rate: number, date: string): DocumentLineVatType | null {
   if (rate === 0) return 'zero_rated';
   return isRatedDate(date) && rate === standardVatRatePctOn(date) ? 'standard' : null;
 }
 
-/** The summary's totals over lines whose `unitPrice` is the one sent (see the header). */
-export function formTotals(lines: readonly FormLine[], rate: number, date: string, amountsAre: AmountsAre = 'exclusive'): { subtotal: number; tax: number; total: number } {
-  const type = formLineType(rate, date);
-  if (type === null) return previewTotals(lines.map((l) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0)), rate);
-  return previewInvoiceVat(lines, lines.map(() => type), date, amountsAre);
+/** Each line's type (see the header), or null where the form's rate gives none. */
+export function formLineTypes(lines: readonly FormVatLine[], rate: number, date: string): (DocumentLineVatType | null)[] {
+  const fromRate = formLineType(rate, date);
+  return lines.map((l) => {
+    const loaded = (DOCUMENT_LINE_VAT_TYPES as readonly string[]).includes(l.vatType ?? '') ? l.vatType as DocumentLineVatType : null;
+    return loaded && l.vatRateAtLoad === rate ? loaded : fromRate;
+  });
 }
+
+function typedTotals(lines: readonly FormVatLine[], rate: number, mode: TaxMode, date: string): { subtotal: number; tax: number; total: number } {
+  const types = formLineTypes(lines, rate, date);
+  if (types.some((t) => t === null)) {
+    const ex = (p: number) => (mode === 'inclusive' ? exVatUnitPrice(p, rate) : p);
+    return previewTotals(lines.map((l) => previewLineAmount(l.quantity, ex(l.unitPrice), l.discount || 0)), rate);
+  }
+  return previewInvoiceVat(lines, types as DocumentLineVatType[], date, amountsAreFor(mode));
+}
+
+/** The summary's totals, `unitPrice` as entered in `mode` (see the header). */
+export const formTotals = (lines: readonly FormVatLine[], rate: number, mode: TaxMode, date: string): { subtotal: number; tax: number; total: number } =>
+  typedTotals(lines, rate, mode, date);
+
+/** One line's amount as stored: its net (an inclusive line's VAT backed out of its gross). */
+export const formLineNet = (line: FormVatLine, rate: number, mode: TaxMode, date: string): number => typedTotals([line], rate, mode, date).subtotal;

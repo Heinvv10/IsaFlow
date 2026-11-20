@@ -1,6 +1,9 @@
 /**
  * Master plan wave 3, PR D review, F1: "Amounts are" is a way of reading the prices, not a repricing. Changing it shows
- * the same invoice, so 1000 + 500 at 15% (total 1725) still saves as 1000 + 500 from any mode, on the new and edit pages.
+ * the same invoice, so 1000 + 500 at 15% (total 1725) is the same invoice from any mode, on the new and edit pages.
+ * Since the per-line VAT writer PR the price goes AS SHOWN with its mode (`amountsAre`), and the server backs an
+ * inclusive line's VAT out (1150 + 575 incl. stores net 1000 + 500, VAT 150 + 75, total 1725); the edit page sends a VAT
+ * type per line instead of a rate.
  */
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -50,12 +53,13 @@ describe('edit page: 1000 + 500 at 15%', () => {
     expect(screen.queryByText(/these prices come to/i)).toBeNull();
   });
 
-  it('saved while inclusive, the stored prices and rate are unchanged', async () => {
+  it('saved while inclusive, the gross prices go as shown with the mode, each line standard', async () => {
     await load();
     await pickMode(/Including VAT/);
     await save();
-    expect(sentPrices('PUT')).toEqual([1000, 500]);
-    expect(sentBody('PUT').taxRate).toBe(15);
+    expect(sentPrices('PUT')).toEqual([1150, 575]);
+    expect(sentBody('PUT').amountsAre).toBe('inclusive');
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['standard', 'standard']);
   });
 
   it('switched to inclusive and back, the prices are the stored ones and save unchanged', async () => {
@@ -75,7 +79,8 @@ describe('edit page: 1000 + 500 at 15%', () => {
     expect(prices()).toEqual(['1000', '500']);
     await save();
     expect(sentPrices('PUT')).toEqual([1000, 500]);
-    expect(sentBody('PUT').taxRate).toBe(0);
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['zero_rated', 'zero_rated']);
+    expect(sentBody('PUT').amountsAre).toBe('exclusive');
   });
 
   it('a discounted line keeps its discount and its price through inclusive', async () => {
@@ -83,7 +88,8 @@ describe('edit page: 1000 + 500 at 15%', () => {
     await pickMode(/Including VAT/);
     expect(prices()).toEqual(['1150']);
     await save();
-    expect(sentBody('PUT').items[0]).toMatchObject({ unitPrice: 1000, discount: 10 });
+    expect(sentBody('PUT').items[0]).toMatchObject({ unitPrice: 1150, discount: 10 });
+    expect(sentBody('PUT').amountsAre).toBe('inclusive');
   });
 
   it('a rate below 0 converts nothing: the prices stay as they are', async () => {
@@ -103,7 +109,8 @@ describe('edit page: 1000 + 500 at 15%', () => {
     await pickMode(/Including VAT/);
     fireEvent.change(price(0), { target: { value: '2300' } });
     await save();
-    expect(sentPrices('PUT')).toEqual([2000, 500]);
+    expect(sentPrices('PUT')).toEqual([2300, 575]);
+    expect(sentBody('PUT').amountsAre).toBe('inclusive');
   });
 
   it('a rate changed while inclusive holds the gross and moves the VAT inside it', async () => {
@@ -124,7 +131,8 @@ describe('new page', () => {
     await pickMode(/Including VAT/);
     expect(prices()).toEqual(['1150']);
     await submitAndWait(push);
-    expect(sentPrices('POST')).toEqual([1000]);
+    expect(sentPrices('POST')).toEqual([1150]);
+    expect(sentBody('POST').amountsAre).toBe('inclusive');
   });
 
   it('typed inclusive, then switched to exclusive, shows the ex-VAT price and saves it', async () => {
@@ -165,7 +173,9 @@ describe('new page', () => {
       expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('14');
       expect(prices()).toEqual(['115']);
       await submitAndWait(push);
-      expect(sentPrices('POST')).toEqual([100.88]);
+      // As shown, with its mode; the server refuses 14% on this date (not the standard rate), saying the rate comes from the type.
+      expect(sentPrices('POST')).toEqual([115]);
+      expect(sentBody('POST').amountsAre).toBe('inclusive');
       expect(sentBody('POST').taxRate).toBe(14);
     });
 
@@ -204,7 +214,7 @@ describe('edit page: a stored invoice at rate 0', () => {
     expect(summaryOf().getByText('VAT (0%)').parentElement!.textContent).toMatch(/0\.00/);
     expectTotal(/1[ ,\u00a0]?500\.00/);
     await save();
-    expect(sentBody('PUT').taxRate).toBe(0);
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['zero_rated', 'zero_rated']);
     expect(sentPrices('PUT')).toEqual([1000, 500]);
   });
 
@@ -214,7 +224,7 @@ describe('edit page: a stored invoice at rate 0', () => {
     expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('15');
     expect(prices()).toEqual(['1000', '500']);
     await save();
-    expect(sentBody('PUT').taxRate).toBe(15);
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['standard', 'standard']);
     expect(sentPrices('PUT')).toEqual([1000, 500]);
   });
 

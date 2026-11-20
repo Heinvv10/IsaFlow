@@ -70,7 +70,9 @@ describe('the mode changes while a scan reads', () => {
     expect(summaryTotal()).toMatch(/Total\s*R?\s*1[ , ]?150\.00/);
     await submitAndWait(push);
     const create = vi.mocked(apiFetch).mock.calls.find((c) => String(c[0]).includes('customer-invoices-create'))!;
-    expect((JSON.parse(String((create[1] as RequestInit).body)) as { items: { unitPrice: number }[] }).items[0]!.unitPrice).toBe(1000);
+    // The price goes as shown, VAT-inclusive, with its mode: the server backs the VAT out (per-line VAT writer PR; it was sent as 1000).
+    const sent = JSON.parse(String((create[1] as RequestInit).body)) as { amountsAre: string; items: { unitPrice: number }[] };
+    expect([sent.amountsAre, sent.items[0]!.unitPrice]).toEqual(['inclusive', 1150]);
   });
 
   it('Excluding when the scan starts, R100 shown as 115 before it lands: it stays R115', async () => {

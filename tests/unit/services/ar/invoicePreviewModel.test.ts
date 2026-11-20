@@ -1,6 +1,6 @@
 /**
  * Master plan wave 4, PR PV: the unsaved invoice's PDF model. Built from the body the new page's Create sends
- * (createBody), its totals are the page's own (previewTotals over lineTotalForMode) for amounts excluding VAT,
+ * (createBody), its totals are the page's own (formVat.formTotals, per-line VAT) for amounts excluding VAT,
  * including VAT and with no VAT, and in a foreign currency; the body's caps; no number, status preview; the one read is
  * scoped to the company, and a customer or job it does not find is a 404 or an unrecognised job, never a lookup
  * elsewhere.
@@ -14,8 +14,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
 import type { InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
-import { effectiveTaxRate, lineTotalForMode, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { effectiveTaxRate, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { formTotals } from '@/components/accounting/customer-invoices/formVat';
 import { parsePreviewBody, PREVIEW_MAX_BYTES, PREVIEW_MAX_LINES, PreviewBodyError } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { buildInvoicePreviewModel, JOB_NOT_RECOGNISED } from '@/modules/accounting/services/ar/invoicePreviewModel';
 
@@ -37,7 +37,7 @@ const line = (key: string, quantity: number, unitPrice: number, discount = 0): I
 /** What the page shows and what the preview prints, for one form. */
 async function both(mode: TaxMode, lines: InvoiceLine[], form: InvoiceHeaderForm = FORM) {
   const rate = effectiveTaxRate(mode, form.taxRate);
-  const page = previewTotals(lines.map((l) => lineTotalForMode(mode, rate, l)), rate);
+  const page = formTotals(lines, rate, mode, form.invoiceDate);
   const built = createBody(form, lines, mode, rate, {});
   if (!('body' in built)) throw new Error(built.problem);
   const preview = await buildInvoicePreviewModel(CO, parsePreviewBody(JSON.parse(JSON.stringify(built.body))));
@@ -50,7 +50,7 @@ beforeEach(() => { m.sql.mockReset(); m.sql.mockResolvedValue([ROW]); });
 describe('the preview prints the totals the page shows (create\'s pricing)', () => {
   it.each<[TaxMode, InvoiceLine[]]>([
     ['exclusive', [line('1', 3, 10), line('2', 1.5, 99.99, 12.5)]],
-    ['inclusive', [line('1', 3, 10)]], // 3 × R10 incl.: R8.70 a unit stored, R26.10 + R3.92 = R30.02
+    ['inclusive', [line('1', 3, 10)]], // 3 × R10 incl.: stored as entered, R26.09 + R3.91 = R30.00 (it was R30.02)
     ['inclusive', [line('1', 7, 33.33, 5), line('2', 2, 0.07)]],
     ['none', [line('1', 3, 10), line('2', 2, 49.995)]],
   ])('%s', async (mode, lines) => {
@@ -58,11 +58,12 @@ describe('the preview prints the totals the page shows (create\'s pricing)', () 
     expect(printed).toEqual(page);
   });
 
-  it('pins the inclusive 3 × R10 case to the cent', async () => {
+  it('pins the inclusive 3 × R10 case to the cent: the price prints as entered, the amount its net', async () => {
     const { printed, preview } = await both('inclusive', [line('1', 3, 10)]);
-    expect(printed).toEqual({ subtotal: 26.1, tax: 3.92, total: 30.02 });
-    expect(preview.model.items).toEqual([{ description: 'Line 1', quantity: 3, unit_price: 8.7, amount: 26.1, tax_rate: 15,
-      tax_amount: 3.92, vat_type: 'standard' }]);
+    expect(printed).toEqual({ subtotal: 26.09, tax: 3.91, total: 30 });
+    expect(preview.model.invoice.amounts_are).toBe('inclusive');
+    expect(preview.model.items).toEqual([{ description: 'Line 1', quantity: 3, unit_price: 10, amount: 26.09, tax_rate: 15,
+      tax_amount: 3.91, vat_type: 'standard' }]);
   });
 
   it('in a foreign currency: the document figures, and its currency and rate', async () => {

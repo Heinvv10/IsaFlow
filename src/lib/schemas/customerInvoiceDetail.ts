@@ -48,6 +48,8 @@ export const PutBodySchema = z.object({
   billingPeriodEnd: ISODate.optional(),
   // LEGACY header rate: the standard rate on the invoice date (every line standard) or 0 (zero_rated); never with a line vatType.
   taxRate: z.number().min(0).max(100).optional(),
+  // How each unitPrice reads: inclusive = VAT-inclusive, stored as entered, the VAT backed out per line. Left out: as stored.
+  amountsAre: z.enum(['exclusive', 'inclusive']).optional(),
   currencyCode: z.string().min(1).max(8).optional(),
   exchangeRate: z.number().positive().optional(),
   items: z.array(PutItemSchema).min(1).optional(),

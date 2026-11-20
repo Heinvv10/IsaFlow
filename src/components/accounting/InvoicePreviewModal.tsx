@@ -35,6 +35,8 @@ export interface InvoicePreviewData {
   tax_amount: number;
   total_amount: number;
   amount_paid: number;
+  /** 'inclusive': unit prices incl. VAT as entered, amounts their net (per-line VAT). */
+  amounts_are?: string | null;
   notes?: string;
   items: InvoiceLineItem[];
   company_name?: string;
@@ -112,7 +114,7 @@ function InvoiceDocument({ inv }: { inv: InvoicePreviewData }) {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b-2 border-gray-300 dark:border-gray-600">
-              {['Description', 'Qty', 'Unit Price', 'Amount'].map((h, i) => (
+              {['Description', 'Qty', inv.amounts_are === 'inclusive' ? 'Unit Price (incl. VAT)' : 'Unit Price', inv.amounts_are === 'inclusive' ? 'Amount (excl. VAT)' : 'Amount'].map((h, i) => (
                 <th key={h} className={`py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide ${i === 0 ? 'text-left pr-4 w-1/2' : 'text-right px-2'}`}>{h}</th>
               ))}
             </tr>

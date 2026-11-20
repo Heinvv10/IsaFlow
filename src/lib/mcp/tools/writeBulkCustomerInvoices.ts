@@ -23,7 +23,7 @@ import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules
 import { mcpPostingOpts } from '../mcpActor';
 import { MAX_LINES } from './invoiceCreateArgs';
 import {
-  CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput, type ParsedCustomerInvoice,
+  AMOUNTS_ARE_SCHEMA, CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput, type ParsedCustomerInvoice,
 } from './customerInvoiceCreateArgs';
 import { MAX_INVOICES, elementError, parseBatch } from './writeBulkInvoices';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -57,6 +57,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
             invoice_date: { type: 'string', format: 'date' },
             due_date: { type: 'string', format: 'date' },
             tax_rate: { type: 'number', minimum: 0, description: 'LEGACY, instead of items[].vat_type: the standard VAT rate on the invoice date (every line standard) or 0 (every line zero-rated); any other rate is refused, as is tax_rate together with a line vat_type. A company not registered for VAT writes every line with no VAT and refuses a standard line or a rate above 0.' },
+            amounts_are: AMOUNTS_ARE_SCHEMA,
             notes: { type: 'string' },
           },
           required: ['customer_id', 'items'],
@@ -103,6 +104,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
           invoiceDate: p.invoiceDate,
           dueDate: p.dueDate,
           taxRate: p.taxRate,
+          amountsAre: p.amountsAre,
           notes: p.notes,
           projectId: p.projectId,
         }, mcpPostingOpts(ctx, 'bulk_create_customer_invoices'));

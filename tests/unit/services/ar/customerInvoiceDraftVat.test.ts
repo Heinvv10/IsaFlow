@@ -33,7 +33,7 @@ const CUST = '33333333-3333-4333-8333-333333333333';
 const stored = (description: string, qty: number, price: number, vatType: string | null, taxRate: number, amount = qty * price, tax: number | null = null, id = description) =>
   ({ id, description, quantity: String(qty), unit_price: String(price), amount: String(amount), tax_amount: tax == null ? null : String(tax), tax_rate: String(taxRate), vat_type: vatType });
 const edit = (over: Partial<Parameters<typeof draftEditVat>[3]> = {}) => draftEditVat(tx, CO, INV, {
-  items: undefined, invoiceDate: undefined, headerTaxRate: undefined, customerId: CUST, stored: { invoice_date: '2026-11-20' }, ...over,
+  items: undefined, invoiceDate: undefined, headerTaxRate: undefined, amountsAre: undefined, customerId: CUST, stored: { invoice_date: '2026-11-20' }, ...over,
 });
 const sent = (description: string, quantity: number, unitPrice: number, extra: Record<string, unknown> = {}) => ({ description, quantity, unitPrice, ...extra });
 
@@ -97,6 +97,25 @@ describe('lines sent', () => {
     db.stored = [stored('A', 1, 100, null, 15)];
     expect(await edit({ items: [sent('A', 1, 100)] })).toMatchObject({ kind: 'priced', header: { tax: 0, taxRate: 0 } });
     expect(await edit({ items: [sent('A', 1, 100, { vatType: 'standard' })] })).toMatchObject({ kind: 'refused', code: 'INVOICE_VAT_NOT_REGISTERED' });
+  });
+});
+
+describe('amountsAre', () => {
+  it('the edit\'s mode, else the stored one: an inclusive line stores its net, its price as entered', async () => {
+    db.stored = [stored('Ten', 100, 9.99, 'standard', 15, 868.7, 130.3)];
+    const kept = await edit({ items: [sent('Ten', 100, 9.99)], stored: { invoice_date: '2026-11-20', amounts_are: 'inclusive' } });
+    expect(kept).toMatchObject({ kind: 'priced', header: { subtotal: 868.7, tax: 130.3, total: 999, amountsAre: 'inclusive' } });
+    expect(kept.kind === 'priced' && kept.lines[0]).toMatchObject({ price: 9.99, amount: 868.7, taxAmount: 130.3, vatType: 'standard' });
+    const ex = await edit({ amountsAre: 'exclusive', items: [sent('Ten', 100, 9.99)], stored: { invoice_date: '2026-11-20', amounts_are: 'inclusive' } });
+    expect(ex).toMatchObject({ kind: 'priced', header: { subtotal: 999, tax: 149.85, total: 1148.85, amountsAre: 'exclusive' } });
+  });
+
+  it('an inclusive invoice re-taxed at a new date keeps each line\'s gross', async () => {
+    db.stored = [stored('A', 1, 114, 'standard', 14, 100, 14, 'l1')];
+    expect(await edit({ invoiceDate: '2018-04-01', stored: { invoice_date: '2018-03-31', amounts_are: 'inclusive' } })).toEqual({
+      kind: 'retaxed', header: { subtotal: 99.13, tax: 14.87, total: 114, taxRate: 15, amountsAre: 'inclusive' },
+      lines: [{ id: 'l1', amount: 99.13, taxAmount: 14.87, taxRate: 15 }],
+    });
   });
 });
 

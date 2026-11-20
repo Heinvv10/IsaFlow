@@ -92,6 +92,24 @@ describe('typed lines', () => {
   });
 });
 
+describe('amountsAre', () => {
+  // customer_invoices VALUES: ... 22 amounts_are (the last)
+  it('inclusive: unit_price stored as entered, amount the NET, VAT backed out per line; the total is what was entered', async () => {
+    await create({ amountsAre: 'inclusive', items: [{ description: 'Ten', quantity: 100, unitPrice: 9.99, vatType: 'standard' }] });
+    expect(lines()).toEqual([{ description: 'Ten', price: 9.99, amount: 868.7, taxRate: 15, tax: 130.3, vatType: 'standard' }]);
+    expect(header()).toEqual({ subtotal: 868.7, taxRate: 15, tax: 130.3, total: 999 });
+    expect(db.header[22]).toBe('inclusive');
+  });
+  it('absent is exclusive, and stored so', async () => {
+    await create({ items: [{ description: 'A', unitPrice: 100 }] });
+    expect(db.header[22]).toBe('exclusive');
+  });
+  it('anything else is refused before the first write', async () => {
+    await expect(create({ amountsAre: 'gross', items: [{ description: 'A', unitPrice: 100 }] })).rejects.toThrow('amountsAre must be "exclusive" or "inclusive"');
+    expect(db.writes).toBe(0);
+  });
+});
+
 describe('the legacy header taxRate', () => {
   it('15 types every line standard', async () => {
     await create({ taxRate: 15, items: [{ description: 'A', unitPrice: 100 }] });

@@ -30,7 +30,7 @@ import { dueDateForContact } from '../core/paymentTermsResolver';
 import { dueDateSourceOf } from '../shared/dueDateSource';
 import { applyItemLineDefaults } from '../items/itemLineDefaults';
 import { resolveInvoiceVat } from './invoiceLineVatDefaults';
-import { priceInvoiceVat } from './invoiceLineVatPricing';
+import { priceInvoiceVat, type AmountsAre } from './invoiceLineVatPricing';
 
 type Row = DbRow;
 
@@ -63,6 +63,11 @@ export interface DraftInvoiceInput {
   billingPeriodEnd?: string;
   /** LEGACY: the standard rate on the invoice date (every line standard) or 0 (zero_rated); never with a line vatType. */
   taxRate?: number;
+  /**
+   * How each unit price reads: 'exclusive' (default) or 'inclusive' (VAT-inclusive, stored AS ENTERED; the VAT is backed
+   * out of each line's gross and `amount` stores the net). Stored on customer_invoices.amounts_are.
+   */
+  amountsAre?: unknown;
   notes?: string;
   items: DraftInvoiceLineInput[];
   currencyCode?: string;
@@ -136,6 +141,13 @@ function functionalOf(total: number, exchangeRate: number): number {
   }
 }
 
+/** The `amountsAre` a request names, refused (400) unless 'exclusive' or 'inclusive'; absent is 'exclusive'. Shared with the preview. */
+export function draftAmountsAre(v: unknown): AmountsAre {
+  if (v === undefined || v === null) return 'exclusive';
+  if (v === 'exclusive' || v === 'inclusive') return v;
+  throw new InvoiceLineValidationError('amountsAre must be "exclusive" or "inclusive"');
+}
+
 /**
  * A date that is not a real YYYY-MM-DD calendar date (2026-02-30, 2026-02-03T00:00, 30/02/2026) is refused as a 400
  * before the first write: Postgres would throw 22008 at the INSERT, a 500. Absent or '' is no date. Shared with the
@@ -161,6 +173,7 @@ export async function createDraftCustomerInvoice(
     taxRate, notes, currencyCode, exchangeRate,
   } = input;
   assertDraftDates({ invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd });
+  const amountsAre = draftAmountsAre(input.amountsAre);
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today; // the date each line's VAT rate is read at
 
@@ -209,7 +222,7 @@ export async function createDraftCustomerInvoice(
   // Totals (in foreign currency) over the lines' own net and VAT — invoiceLineVatPricing, as the draft edit and the
   // new-invoice preview compute them.
   const vatPriced = priceInvoiceVat(items.map((item, i) => ({ quantity: priced[i]!.qty, unitPrice: priced[i]!.price, discount: Number(item.discount ?? 0) })),
-    vat, invDate, 'exclusive');
+    vat, invDate, amountsAre);
   const { subtotal, tax: taxAmount, total: totalAmount, taxRate: rate } = vatPriced.header;
   assertDraftTotalFits(totalAmount, invExchangeRate);
   // No due date named: the customer's terms give it, else the company default (migration 960). A named date equal to
@@ -242,14 +255,14 @@ export async function createDraftCustomerInvoice(
           subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date, due_date_source,
           notes, status, created_by,
           currency_code, exchange_rate, functional_total,
-          actor_type, actor_token_jti
+          actor_type, actor_token_jti, amounts_are
         ) VALUES (
           ${companyId}, ${number}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
           ${resolvedDueDate}, ${dueDateSource}, ${notes || null}, 'draft', ${userId},
           ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
-          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${amountsAre}
         ) RETURNING id
       `) as Row[];
       return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
