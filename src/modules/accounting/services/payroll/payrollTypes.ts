@@ -4,6 +4,7 @@ import type { PayeYearToDate } from './payrollTypesYtd';
 import type { RegularPayDirectiveType } from './taxDirectiveKinds';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee';
+import type { PspParticulars } from './payrollEmployeePspEntity';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
@@ -16,7 +17,7 @@ export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
 /** The unit of a run's quantity on a component row (migration 967). */
 export type QuantityUnit = 'hour' | 'day';
 
-export interface PayrollEmployee {
+export interface PayrollEmployee extends Partial<PspParticulars> {
   id: string;
   companyId: string;
   employeeNumber: string;
@@ -42,10 +43,6 @@ export interface PayrollEmployee {
   taxStatus: TaxStatus;
   /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
   pspEntityType?: PspEntityType | null;
-  /** A PSP's entity particulars for its H certificate (migration 1014, payrollEmployeePspEntity): trading name, registration number, tax reference. */
-  pspEntityName?: string | null;
-  pspRegistrationNumber?: string | null;
-  pspTaxReference?: string | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
