@@ -52,4 +52,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // The address is personal data: the request log masks it.
-export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['email'] }))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['email'] })));

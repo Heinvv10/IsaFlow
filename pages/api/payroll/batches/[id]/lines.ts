@@ -74,4 +74,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 // Each line names an employee, so these logged figures are what that person is paid.
 const PAY_KEYS = ['value', 'km', 'ratePerKm', 'taxablePortion', 'nonTaxablePortion'];
 
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: PAY_KEYS })));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler))), { maskBodyKeys: PAY_KEYS }));

@@ -166,4 +166,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, payload);
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(handler))));

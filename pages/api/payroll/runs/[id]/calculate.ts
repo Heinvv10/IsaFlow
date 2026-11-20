@@ -75,4 +75,4 @@ async function handler(
 }
 
 // A viewer must not recalculate a run (W3-01 review): the same roles as approve.
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

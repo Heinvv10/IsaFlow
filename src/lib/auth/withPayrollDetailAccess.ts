@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import type { CompanyAuthedRequest } from './withAuth';
 import { canWrite } from './writeRoles';
 import { checkPermission } from './permissionService';
+import { payrollReadAlreadyGranted } from './withPayrollModule';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => unknown | Promise<unknown>;
@@ -28,7 +29,8 @@ export function withPayrollDetailAccess(handler: Handler): NextApiHandler {
       return apiResponse.forbidden(res, `Your role (${role ?? 'unknown'}) does not allow ${what}.`);
     }
     const { companyId, user } = req as CompanyAuthedRequest;
-    if (!(await checkPermission(companyId, user.id, 'payroll', 'read'))) {
+    // withPayrollModule (outside this wrapper) has already asked Payroll read on a GET: not asked twice.
+    if (!payrollReadAlreadyGranted(req) && !(await checkPermission(companyId, user.id, 'payroll', 'read'))) {
       return apiResponse.forbidden(res, 'Your permissions do not include Payroll. An owner or admin can grant it in User Access.');
     }
     return handler(req, res);

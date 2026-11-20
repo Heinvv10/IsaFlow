@@ -57,4 +57,4 @@ async function handler(
 }
 
 // The terms are pay detail: the request log masks them.
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS })));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler))), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS }));

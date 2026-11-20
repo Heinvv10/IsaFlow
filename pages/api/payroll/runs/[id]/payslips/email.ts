@@ -21,4 +21,4 @@ import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 export const admitPayslipEmails: AdmitPayslipEmails = (req, companyId, count) =>
   checkSendRateLimit(req, companyId, 'payslips', { count, companyMax: 500, dailyMax: 1000, refundUnused: true });
 
-export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(sendEmail, admitPayslipEmails)))))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(payslipEmailHandler(sendEmail, admitPayslipEmails)))))));

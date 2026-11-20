@@ -63,3 +63,29 @@ describe('withPayrollModule (#1656)', () => {
     expect(checkPermission).not.toHaveBeenCalled();
   });
 });
+
+describe('withPayrollModule + withPayrollDetailAccess on one GET (round 3, L1)', () => {
+  it('Payroll read is asked of the database once, not by each wrapper', async () => {
+    const { withPayrollDetailAccess } = await import('@/lib/auth/withPayrollDetailAccess');
+    db.allowed.add('payroll:read');
+    const inner = vi.fn();
+    const r = req('GET') as unknown as { companyRole: string };
+    r.companyRole = 'manager';
+    await withPayrollModule(withPayrollDetailAccess(inner))(r as never, res() as unknown as NextApiResponse);
+    expect(inner).toHaveBeenCalledOnce();
+    expect(vi.mocked(checkPermission).mock.calls.filter((c) => c[2] === 'payroll' && c[3] === 'read')).toHaveLength(1);
+  });
+
+  it('a write is still asked Payroll write by the module and Payroll read by the detail gate (different questions)', async () => {
+    const { withPayrollDetailAccess } = await import('@/lib/auth/withPayrollDetailAccess');
+    db.allowed.add('payroll:write');
+    const inner = vi.fn();
+    const r = req('POST') as unknown as { companyRole: string };
+    r.companyRole = 'manager';
+    const out = res();
+    await withPayrollModule(withPayrollDetailAccess(inner))(r as never, out as unknown as NextApiResponse);
+    expect(inner).not.toHaveBeenCalled(); // write granted, read not: the detail gate refuses
+    expect(out.statusCode).toBe(403);
+    expect(vi.mocked(checkPermission).mock.calls.map((c) => c[3])).toEqual(['write', 'read']);
+  });
+});

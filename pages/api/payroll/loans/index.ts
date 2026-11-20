@@ -81,4 +81,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 }
 
 // The body names the employee, so a logged principal is what that person owes.
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['principal'] })));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['principal'] }));

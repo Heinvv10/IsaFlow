@@ -39,4 +39,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, read);
 }
 
-export default withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))))));

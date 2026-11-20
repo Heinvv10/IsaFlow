@@ -60,4 +60,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['branchCode', 'accountHolder'] })));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['branchCode', 'accountHolder'] }));

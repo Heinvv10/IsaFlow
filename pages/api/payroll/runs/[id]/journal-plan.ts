@@ -40,4 +40,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, await withCostCentreLabels(companyId, toJournalPlanPreview(preview)));
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(handler)));

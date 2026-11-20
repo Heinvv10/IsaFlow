@@ -31,4 +31,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withPayrollDetailAccess(handler))));

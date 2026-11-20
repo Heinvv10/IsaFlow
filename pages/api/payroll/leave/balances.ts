@@ -26,4 +26,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, balances);
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

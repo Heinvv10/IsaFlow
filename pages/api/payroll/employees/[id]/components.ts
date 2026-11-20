@@ -129,4 +129,4 @@ async function handler(
 }
 
 // The URL names the employee, so a logged amount is what that person earns.
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] })));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['amount'] }));

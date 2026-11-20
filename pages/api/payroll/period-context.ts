@@ -80,4 +80,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(handler)));

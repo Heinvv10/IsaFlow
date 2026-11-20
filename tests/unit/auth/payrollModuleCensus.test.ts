@@ -37,12 +37,12 @@ describe('payroll module census (#1656)', () => {
     expect(missing, `Wrap these in withPayrollModule (src/lib/auth/withPayrollModule.ts): ${missing.join(', ')}`).toEqual([]);
   });
 
-  it('withPayrollModule sits inside withAuth (it reads the company and user withAuth set)', () => {
-    const outside = routes.filter((f) => {
+  it('withPayrollModule sits inside withAuth (it reads the company and user withAuth set) AND inside withErrorHandler (a failed permission read is answered by it)', () => {
+    const wrong = routes.filter((f) => {
       const exp = defaultExport(readFileSync(f, 'utf8')) ?? '';
-      return !/^withAuth\(withPayrollModule\(/.test(exp);
+      return !/^withAuth\((?:withNoStore\()?withErrorHandler\(withPayrollModule\(/.test(exp);
     });
-    expect(outside).toEqual([]);
+    expect(wrong).toEqual([]);
   });
 
   it('every payroll MCP tool declares permissionModule payroll', () => {

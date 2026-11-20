@@ -35,4 +35,4 @@ async function handler(
   return apiResponse.success(res, { count: employees.length, employees });
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(handler)));

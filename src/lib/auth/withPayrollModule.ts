@@ -17,6 +17,10 @@ type Handler = (req: any, res: NextApiResponse<any>) => unknown | Promise<unknow
 
 const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** Requests withPayrollModule has already granted Payroll READ for, so withPayrollDetailAccess does not ask the database again (round 3, L1). */
+const readGranted = new WeakSet<object>();
+export const payrollReadAlreadyGranted = (req: object): boolean => readGranted.has(req);
+
 export function withPayrollModule(handler: Handler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const { companyId, user } = req as CompanyAuthedRequest;
@@ -24,6 +28,7 @@ export function withPayrollModule(handler: Handler): NextApiHandler {
     if (!companyId || !user?.id || !(await checkPermission(companyId, user.id, 'payroll', action))) {
       return apiResponse.forbidden(res, `Your permissions do not include Payroll ${action}. An owner or admin can grant it in User Access.`);
     }
+    if (action === 'read') readGranted.add(req);
     return handler(req, res);
   };
 }

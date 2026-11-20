@@ -19,7 +19,7 @@ vi.mock('@/lib/auth/withNoStore', () => ({ withNoStore: pass }));
 vi.mock('@/lib/auth/withPayrollDetailAccess', () => ({ withPayrollDetailAccess: pass }));
 vi.mock('@/lib/auth/withPayrollModule', () => ({ withPayrollModule: pass }));
 
-const WRAP = 'withAuth(withPayrollModule(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(';
+const WRAP = 'withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(payslipEmailHandler(';
 
 describe('POST /api/payroll/runs/[id]/payslips/email', () => {
   it('is payslipEmailHandler(sendEmail)', async () => {

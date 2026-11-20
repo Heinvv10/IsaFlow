@@ -83,4 +83,4 @@ function getHandler(): (req: AuthenticatedNextApiRequest, res: NextApiResponse) 
   };
 }
 
-export default withAuth(withPayrollModule(withErrorHandler(withCsrf(withPayrollDetailAccess(getHandler())))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(getHandler())))));
