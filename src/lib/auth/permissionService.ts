@@ -190,9 +190,11 @@ export async function checkGroupPermission(
     SELECT cu.role, cu.approve_withheld, p.can_read, p.can_write, p.can_delete, p.can_export, p.can_approve, (p.module_key IS NOT NULL) AS has_row
     FROM company_group_members cgm
     JOIN company_users cu ON cu.company_id = cgm.company_id
+    JOIN companies c ON c.id = cgm.company_id
     LEFT JOIN company_user_permissions p
       ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = ${moduleKey}
     WHERE cgm.group_id = ${groupId}::UUID AND cgm.left_date IS NULL AND cu.user_id = ${userId}
+      AND c.status IS DISTINCT FROM 'suspended' AND c.status IS DISTINCT FROM 'deleted' AND c.suspended_at IS NULL
   `;
   // A write role is needed to write, delete or approve; a read or export of the group follows the permission alone.
   const needsWriteRole = action === 'write' || action === 'delete' || action === 'approve';

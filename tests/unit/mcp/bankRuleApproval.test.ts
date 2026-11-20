@@ -35,11 +35,11 @@ const projection = (r: BankCategorisationRule) => ({
   auto_create_entry: r.autoCreateEntry, is_active: r.isActive,
 });
 /** The service double: runs the guard against (before, after) the way writeRuleChange does under the rule lock. */
-function runGuard(before: BankCategorisationRule | null, patch: Record<string, unknown>) {
+function runGuard(before: BankCategorisationRule | null, patch: Record<string, unknown>, posts = false) {
   return async (...a: unknown[]) => {
     const guard = a[a.length - 1] as ((after: unknown, posts: boolean, before: unknown) => Promise<void>) | undefined;
     const b = before ? projection(before) : null;
-    await guard?.({ ...(b ?? { is_active: true }), ...patch }, false, b);
+    await guard?.({ ...(b ?? { is_active: true }), ...patch }, posts, b, posts);
     return { ...(before ?? {}), status: 'applied' } as never;
   };
 }
@@ -111,5 +111,13 @@ describe('disable_bank_rule (enable) and create_bank_rule without Banking Approv
     expect(text(refused)).toMatch(/permission to approve auto-posting bank rules/);
     vi.mocked(createRule).mockImplementation(runGuard(null, { auto_create_entry: false }) as never);
     expect((await createBankRuleTool.handler({ ...base, auto_create_entry: false }, ctx())).isError).toBeFalsy();
+  });
+
+  it('round 6: with company auto-post ON a suggest-only create posts money (bank_rule_posts_money), so it is refused without Banking Approve', async () => {
+    const base = { rule_name: 'Fuel', match_field: 'description', match_type: 'contains', match_pattern: 'ENGEN', supplier_id: SUP, ...KEY };
+    vi.mocked(createRule).mockImplementation(runGuard(null, { auto_create_entry: false }, true) as never);
+    const refused = await createBankRuleTool.handler({ ...base }, ctx());
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/permission to approve auto-posting bank rules/);
   });
 });

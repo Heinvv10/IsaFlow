@@ -45,14 +45,24 @@ describe('prepareInvoiceDelete: Approve decided on the locked row', () => {
   });
 });
 
-describe('reinstateInvoiceJournal: the undo re-posts only what the delete reversed', () => {
+describe('reinstateInvoiceJournal: the undo puts an invoice back on the books only for a person with Approve', () => {
   it('a recorded reversal and no Approve: refused', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([{ reversal_journal_entry_id: 'rev-1' }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ status: 'approved', gl_journal_entry_id: 'je-1' }] as never);
     await expect(reinstateInvoiceJournal(...args, { allowReversal: false })).rejects.toMatchObject({ name: 'ApprovePermissionError', module: 'customers' });
   });
 
-  it('no recorded reversal (the delete posted nothing): the undo needs no Approve', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+  it.each(['approved', 'sent', 'paid'])('round 6 (L4): a %s invoice with NO journal (a Sage import) is refused too: the restore puts it back on the books', async (status) => {
+    vi.mocked(sql).mockResolvedValueOnce([{ status, gl_journal_entry_id: null }] as never);
+    await expect(reinstateInvoiceJournal(...args, { allowReversal: false })).rejects.toMatchObject({ name: 'ApprovePermissionError' });
+  });
+
+  it('a draft invoice with no recorded reversal: the undo needs no Approve', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([{ status: 'draft', gl_journal_entry_id: null }] as never).mockResolvedValueOnce([] as never);
     await expect(reinstateInvoiceJournal(...args, { allowReversal: false })).resolves.toBeNull();
+  });
+
+  it('with Approve a journal-less approved invoice is restored (nothing recorded to re-post)', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([{ status: 'approved', gl_journal_entry_id: null }] as never).mockResolvedValueOnce([] as never);
+    await expect(reinstateInvoiceJournal(...args, { allowReversal: true })).resolves.toBeNull();
   });
 });

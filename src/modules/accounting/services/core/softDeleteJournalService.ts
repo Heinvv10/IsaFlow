@@ -213,6 +213,14 @@ export async function reinstateInvoiceJournal(
   userId: string,
   options: { allowReversal: boolean },
 ): Promise<string | null> {
+  // The restored invoice goes back on the books when it is approved or later, or carries a journal, whether or not the delete reversed
+  // one (a Sage-imported approved invoice has none): the same predicate as the delete, decided under the invoice's row lock.
+  const [inv] = (entityType === 'customer_invoice'
+    ? await sql`SELECT status, gl_journal_entry_id FROM customer_invoices WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`
+    : await sql`SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`) as DbRow[];
+  if (inv && !options.allowReversal && (inv.gl_journal_entry_id || !NEVER_APPROVED.includes(String(inv.status)))) {
+    throw new ApprovePermissionError(entityType === 'customer_invoice' ? 'customers' : 'suppliers', 'invoice deletions');
+  }
   const rows = (await sql`
     DELETE FROM soft_delete_journal_reversals
     WHERE company_id = ${companyId}::UUID

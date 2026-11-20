@@ -14,7 +14,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -64,6 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const input = parsed.data;
     // #1656 (round 4): an auto-create rule posts entries for the lines it matches, like an auto-posting template: Banking Approve, before any write.
     if (input.autoCreateEntry === true && await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-posting bank rules')) return;
+    const mayApproveBanking = await mayApprove(companyId, userId, 'banking');
     let rule;
     try {
       rule = await createRule(companyId, {
@@ -81,9 +83,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Omitted rather than defaulted here: the service and the column own
         // the default, and a second copy of it is how two entry points drift.
         ...(input.autoApply === undefined ? {} : { autoApply: input.autoApply }),
-      }, userId);
+      }, userId, autoPostApprovalGuard(mayApproveBanking)); // under the rule lock: a rule that posts (its flag, or company auto-post being on) needs Banking Approve
     } catch (err) {
       // Refused before the INSERT, so nothing has been written.
+      if (respondIfApprovePermissionRefused(res, err)) return; // a rule that posts, no Banking Approve: 403 before the INSERT
       if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError || isBankAllocationRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
@@ -99,7 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let applied = 0;
     let skips: Record<string, number> = {};
     // #1656 (round 3): the auto-apply allocates (posts) the lines the rule matches: only a person with Banking Approve gets it; the rule itself is saved either way.
-    if (input.bankAccountId && await mayApprove(companyId, userId, 'banking')) {
+    if (input.bankAccountId && mayApproveBanking) {
       const result = await applyRules(companyId, input.bankAccountId, userId, [rule.id]);
       applied = result.applied;
       // The run's autoPost* skip counts too, which the create toast reads (applyToast.reportCreated): a rule

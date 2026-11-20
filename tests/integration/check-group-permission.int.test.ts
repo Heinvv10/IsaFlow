@@ -11,12 +11,14 @@ if (!DATABASE_URL) throw new Error('DATABASE_URL required');
 const A = '00000000-0000-0000-0000-0000000c0001';
 const B = '00000000-0000-0000-0000-0000000c0002';
 const LEFT = '00000000-0000-0000-0000-0000000c0003';
+const SUSPENDED = '00000000-0000-0000-0000-0000000c0004';
 const GROUP = '00000000-0000-0000-0000-0000000c0090';
 const U = {
   writer: '00000000-0000-0000-0000-0000000c00a1', viewerStale: '00000000-0000-0000-0000-0000000c00a2',
   split: '00000000-0000-0000-0000-0000000c00a3', withheld: '00000000-0000-0000-0000-0000000c00a4',
   bookkeeper: '00000000-0000-0000-0000-0000000c00a5', leftCo: '00000000-0000-0000-0000-0000000c00a6',
   none: '00000000-0000-0000-0000-0000000c00a7', viewer: '00000000-0000-0000-0000-0000000c00a8',
+  inSuspended: '00000000-0000-0000-0000-0000000c00a9',
 };
 
 describe('checkGroupPermission (real SQL)', () => {
@@ -45,15 +47,18 @@ describe('checkGroupPermission (real SQL)', () => {
     await member(A, U.bookkeeper, 'manager', true); // a migrated former bookkeeper: manager with approve_withheld (1010 / 1010c)
     await member(LEFT, U.leftCo, 'owner');
     await member(A, U.viewer, 'viewer');
+    await admin.query(`INSERT INTO companies (id, name, is_active, status, suspended_at) VALUES ($1,'CGP Suspended',true,'suspended',now()) ON CONFLICT (id) DO NOTHING`, [SUSPENDED]);
+    await admin.query(`INSERT INTO company_group_members (group_id, company_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [GROUP, SUSPENDED]);
+    await member(SUSPENDED, U.inSuspended, 'owner');
   });
 
   afterAll(async () => {
-    await admin.query(`DELETE FROM company_user_permissions WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT]]);
-    await admin.query(`DELETE FROM company_users WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT]]);
+    await admin.query(`DELETE FROM company_user_permissions WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
+    await admin.query(`DELETE FROM company_users WHERE company_id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
     await admin.query(`DELETE FROM company_group_members WHERE group_id = $1::UUID`, [GROUP]);
     await admin.query(`DELETE FROM company_groups WHERE id = $1::UUID`, [GROUP]);
     await admin.query(`DELETE FROM users WHERE id = ANY($1::TEXT[])`, [Object.values(U)]);
-    await admin.query(`DELETE FROM companies WHERE id = ANY($1::UUID[])`, [[A, B, LEFT]]);
+    await admin.query(`DELETE FROM companies WHERE id = ANY($1::UUID[])`, [[A, B, LEFT, SUSPENDED]]);
     await admin.end();
   });
 
@@ -82,5 +87,10 @@ describe('checkGroupPermission (real SQL)', () => {
     expect(await checkGroupPermission(U.viewer, GROUP, 'group', 'read')).toBe(true);
     expect(await checkGroupPermission(U.viewer, GROUP, 'group', 'write')).toBe(false);
     expect(await checkGroupPermission(U.viewer, GROUP, 'group', 'approve')).toBe(false);
+  });
+
+  it('round 6 (L5): a member company that is suspended no longer carries the user', async () => {
+    expect(await checkGroupPermission(U.inSuspended, GROUP, 'group', 'approve')).toBe(false);
+    expect(await checkGroupPermission(U.inSuspended, GROUP, 'group', 'read')).toBe(false);
   });
 });
