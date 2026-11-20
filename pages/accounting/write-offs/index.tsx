@@ -9,6 +9,7 @@ import { XCircle, Plus, Check, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { fetchCustomerOpenInvoices } from '@/components/accounting/allocations/openInvoiceFetch';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -61,11 +62,10 @@ export default function WriteOffsPage() {
 
   useEffect(() => {
     if (!form.clientId) { setInvoices([]); return; }
-    apiFetch(`/api/customer-invoices?client_id=${form.clientId}&status=approved&status=sent&status=partially_paid&status=overdue`, { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load invoices - try again'); return r.json(); }).then(res => {
-        const d = res.data || res;
-        const list = Array.isArray(d) ? d : d.invoices || [];
-        setInvoices(list.filter((inv: Invoice) => Math.round(Number(inv.total_amount) * 100) - Math.round(Number(inv.amount_paid) * 100) > 0));
+    fetchCustomerOpenInvoices(form.clientId)
+      .then(all => {
+        setInvoices((all.rows as unknown as Invoice[]).filter((inv: Invoice) => Math.round(Number(inv.total_amount) * 100) - Math.round(Number(inv.amount_paid) * 100) > 0));
+        if (all.truncated) setError(`Showing ${all.rows.length} of ${all.total} invoices; the rest are not listed here.`);
       }).catch(err => setError(apiErrorMessage(err, 'Could not load invoices - try again')));
   }, [form.clientId]);
 

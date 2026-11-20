@@ -9,6 +9,7 @@ import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { fetchSupplierOpenBills } from '@/components/accounting/allocations/openInvoiceFetch';
 import { supplierOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
@@ -28,6 +29,7 @@ export default function SupplierAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [cutOff, setCutOff] = useState<{ shown: number; total: number } | null>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -37,11 +39,12 @@ export default function SupplierAllocationsPage() {
       await assertOk(res, 'Could not load the unallocated payments - try again');
       const json = await res.json();
       const d = json.data;
-      const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
+      const raw: (Payment & { totalAmount?: number; paymentDate?: string })[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
       // API mapper returns `totalAmount`, not `amount`. Filter unallocated client-side
       // because the `?unallocated=true` query param isn't yet honoured server-side.
       const mapped = raw.map(p => ({
         ...p,
+        date: String(p.paymentDate ?? p.date ?? ''),
         amount: Number(p.totalAmount ?? p.amount ?? 0),
         allocatedAmount: Number(p.allocatedAmount ?? 0),
       }));
@@ -57,13 +60,11 @@ export default function SupplierAllocationsPage() {
   useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   const selectPayment = async (p: Payment) => {
-    setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
+    setSelected(p); setAllocs({}); setMsg(''); setCutOff(null); setLoadingInv(true);
     try {
-      const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
-      await assertOk(res, 'Could not load the supplier invoices - try again');
-      const json = await res.json();
-      const rawInv: Record<string, unknown>[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.invoices || []; })();
-      setInvoices(supplierOpenRows(rawInv));
+      const all = await fetchSupplierOpenBills(p.supplierId);
+      setInvoices(supplierOpenRows(all.rows));
+      setCutOff(all.truncated ? { shown: all.rows.length, total: all.total } : null);
     } catch (err) {
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
@@ -164,6 +165,7 @@ export default function SupplierAllocationsPage() {
                 <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No outstanding invoices</div>
               ) : (
                 <>
+                  {cutOff && <div role="alert" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {cutOff.shown} of {cutOff.total} invoices. The rest are not listed here: narrow it down in the invoice list.</div>}
                   <div className="divide-y divide-[var(--ff-border-light)] max-h-[50vh] overflow-y-auto">
                     {invoices.map(inv => (
                       <label key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">
