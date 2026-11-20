@@ -17,8 +17,8 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 let id = '';
 const MIGRATION = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1002_intercompany_round2.sql'), 'utf8');
-// 1013 replaces functions 1002 defines (the messages guard): applying 1002 again COMMITS 1002's bodies over the database, so the later migration is applied after it, as a deploy would, or every later suite of the shard would run on 1002's guard.
-const MIGRATION_1013 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1013_intercompany_p2_mirror.sql'), 'utf8');
+// 1019 replaces functions 1002 defines (the messages guard): applying 1002 again COMMITS 1002's bodies over the database, so the later migration is applied after it, as a deploy would, or every later suite of the shard would run on 1002's guard.
+const MIGRATION_1019 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1019_intercompany_p2_mirror.sql'), 'utf8');
 
 beforeAll(() => setup(pool), 60000);
 afterAll(() => cleanup(pool));
@@ -266,7 +266,7 @@ describe('1002 on a database that already holds rows', () => {
     try {
       await client.query('BEGIN');
       await client.query(MIGRATION);
-      await client.query(MIGRATION_1013);
+      await client.query(MIGRATION_1019);
       await client.query('COMMIT');
     } finally {
       client.release();

@@ -1,7 +1,7 @@
 /**
  * Auto-generation of the STORED (manual / legacy) intercompany eliminations. A mirrored document's elimination is never stored: it is derived from
  * the ledgers at read time (mirrorEliminations.ts), so this generator skips mirrored rows. One elimination per row: a second run skips a row whose
- * elimination already stands, and the partial unique index on consolidation_adjustments(source_intercompany_id) (1013, when it could be built)
+ * elimination already stands, and the partial unique index on consolidation_adjustments(source_intercompany_id) (1019, when it could be built)
  * turns a concurrent loser's insert into a skip.
  */
 import { sql } from '@/lib/neon';
@@ -47,7 +47,7 @@ export async function autoGenerateEliminations(
 ): Promise<ConsolidationAdjustment[]> {
   try {
     // Two runs for one group are serialised (the request transaction holds this to commit), so the per-row skip below sees the other run's rows
-    // even where the partial unique index could not be built (1013 skips it while legacy duplicates exist).
+    // even where the partial unique index could not be built (1019 skips it while legacy duplicates exist).
     await sql`SELECT pg_advisory_xact_lock(hashtext('consolidation-eliminations:' || ${groupId}::TEXT))`;
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
@@ -62,7 +62,7 @@ export async function autoGenerateEliminations(
 
     for (const tx of icTxRows) {
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are stopped by the
-      // partial unique index on consolidation_adjustments(source_intercompany_id) (1013): the loser's insert does nothing (ON CONFLICT) and is skipped.
+      // partial unique index on consolidation_adjustments(source_intercompany_id) (1019): the loser's insert does nothing (ON CONFLICT) and is skipped.
       const standing = (await sql`
         SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
       `) as DbRow[];

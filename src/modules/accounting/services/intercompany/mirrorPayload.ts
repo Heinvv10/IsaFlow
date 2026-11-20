@@ -1,7 +1,7 @@
 /**
  * The payload of an intercompany invoice / credit-note message (P2), and the rules around it. PURE: no database.
  *
- * The DATABASE builds the payload from the sender's approved document (`intercompany_send_for_source`, migration 1013), cents-exact, so
+ * The DATABASE builds the payload from the sender's approved document (`intercompany_send_for_source`, migration 1019), cents-exact, so
  * the receiver's draft carries the same number, VAT and total; the sender never writes it. The RECEIVER still treats whatever it reads as
  * untrusted input (a sender is another tenant, and a payload outlives its release): `parseMirrorPayload` refuses
  * a payload that does not add up, names a storage path outside the sender's own prefix, or is malformed; `payloadBlocker`

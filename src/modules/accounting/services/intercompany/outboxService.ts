@@ -3,7 +3,7 @@
  * the partner on an ACTIVE intercompany connection, and its date is on or after the connection's cut-over, one message is
  * written for the partner. MESSAGES ONLY: the sender never writes into the other company's ledger, and never reads it.
  *
- * The message is written by the DATABASE (`intercompany_send_for_source`, migration 1013): it reads the approved document, its lines,
+ * The message is written by the DATABASE (`intercompany_send_for_source`, migration 1019): it reads the approved document, its lines,
  * the company's name, VAT number and currency, builds the payload and the sender's group row (the elimination feed) itself, and
  * the messages guard refuses the sender's own INSERT of a document message. This service names the document and nothing else, so no
  * field of what the receiver reads is the sender's to choose.

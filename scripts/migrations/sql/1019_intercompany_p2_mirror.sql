@@ -1,4 +1,4 @@
--- 1013: Intercompany P2 (invoice + credit-note mirror). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md (P2).
+-- 1019: Intercompany P2 (invoice + credit-note mirror). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md (P2).
 -- Applies on top of 1000 / 1002; idempotent (CREATE OR REPLACE, IF NOT EXISTS, DROP ... IF EXISTS). Adds columns and indexes and replaces
 -- function bodies; drops only functions this migration's own earlier shapes defined (payload_problem, the one-argument queue / chain length).
 
@@ -91,7 +91,7 @@ BEGIN
                                       WHERE source_intercompany_id IS NOT NULL AND status IN ('draft', 'posted')
                                       GROUP BY source_intercompany_id HAVING count(*) > 1) d;
   IF v_dups > 0 THEN
-    RAISE NOTICE '1013: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created', v_dups;
+    RAISE NOTICE '1019: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created', v_dups;
   ELSE
     CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
       WHERE status IN ('draft', 'posted');   -- (NULLs never collide: a manual adjustment has no source row)
@@ -1245,7 +1245,7 @@ END;
 $$;
 
 
--- A request's new row names no match and no reason (the 999r body, plus the two columns of 1013).
+-- A request's new row names no match and no reason (the 999r body, plus the two columns of 1019).
 CREATE OR REPLACE FUNCTION public.intercompany_transaction_recorded_fresh()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1575,6 +1575,6 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_own_posting_problem(text, uuid, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_release_group_row(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid, date)', 'EXECUTE') THEN
-    RAISE EXCEPTION '1013: a role it must not reach can execute an intercompany P2 definer function';
+    RAISE EXCEPTION '1019: a role it must not reach can execute an intercompany P2 definer function';
   END IF;
 END $$;

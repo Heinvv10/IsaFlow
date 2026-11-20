@@ -27,7 +27,7 @@ beforeEach(async () => {
 
 const SEND = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`;
-// 1013: the DATABASE writes an invoice / credit-note message (app_user's own INSERT of one is refused: mirror-forged), so these send as the table
+// 1019: the DATABASE writes an invoice / credit-note message (app_user's own INSERT of one is refused: mirror-forged), so these send as the table
 // owner with the sender's claims; every other rule of the guard (the source, the connection, the group, the write role) runs as it does for anyone.
 const send = async (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
   asDefiner(pool, user, from, async (q) => outcome(q, SEND, [id, from, to, kind, type, doc, await payloadFor(pool, kind, doc, from)]));

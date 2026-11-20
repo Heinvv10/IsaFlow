@@ -1,5 +1,5 @@
 /**
- * Intercompany P2, the database's payload builder (`intercompany_build_payload`, migration 1013) against its reference
+ * Intercompany P2, the database's payload builder (`intercompany_build_payload`, migration 1019) against its reference
  * (tests/helpers/mirrorReference.ts, the parser's rules in TypeScript): for a few hundred invoices of every shape (several VAT rates on one
  * invoice, headers that are the rate on the sum, per line or off by the cents a ledger leaves, discounted lines, tens of lines) the database's payload is the reference's, and the receiver's parser reads every one. A document the parser would refuse
  * (a negative line, a header that is not its lines) is not built: 'unmirrorable', never a message the receiver cannot read.

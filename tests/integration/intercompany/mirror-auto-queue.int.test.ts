@@ -1,5 +1,5 @@
 /**
- * Intercompany P2, who the auto-accept worker takes and in what order (migration 1013). It takes only a message created AFTER the
+ * Intercompany P2, who the auto-accept worker takes and in what order (migration 1019). It takes only a message created AFTER the
  * receiver's side switched auto-accept on (so switching it on never drains a backlog), never one a person restored or retried
  * (manual_only), at most 10 per receiver per run, and every attempt is stamped with a back-off (a message that keeps deferring never
  * blocks the head; after 8 attempts the queue lets go). A refusal's `error` is a fixed sentence (the sender reads it): a detail that

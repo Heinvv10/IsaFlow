@@ -1,7 +1,7 @@
 /**
  * The two calls the document services make into the intercompany mirror after their own change has been written (P2). Both run in a
  * SAVEPOINT on the caller's transaction and never throw: a failure is logged at ERROR (with the SQLSTATE only) and the caller's change
- * stands. Both are registered definers (migration 1013) that act for the session company only.
+ * stands. Both are registered definers (migration 1019) that act for the session company only.
  *
  * Hooks keep INBOX state and the group row's DISPLAY columns only; they never block (each definer has lock_timeout = 2 s) and no figure
  * depends on them: the eliminations of mirrored documents are derived from the ledgers at read time (mirrorEliminations.ts).

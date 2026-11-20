@@ -1,7 +1,7 @@
 /**
  * Intercompany P2, the guards ALLOW-LIST the definers' owner (round-4 MED 3). The guard used to test `current_user IN ('app_user', 'app_service')`:
  * the service LOGIN's own name (isaflow_service, which inherits app_service) is neither, so it could insert a forged document message (which a
- * receiver accepted as a R1 035 000 bill) and a pre-matched group row. Every trigger of 1013 that judged a role now refuses unless the role is
+ * receiver accepted as a R1 035 000 bill) and a pre-matched group row. Every trigger of 1019 that judged a role now refuses unless the role is
  * migration_admin. Probed as the two real logins: isaflow_service (the worker's) and isaflow_app (the request login, SET ROLE app_user).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';

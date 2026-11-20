@@ -5,7 +5,7 @@
  * invoice / credit note; nothing is approved or posted, a person approves it in the usual way (the side form says so).
  *
  * WHO IT ACTS AS. The cron has no user and no company, and `intercompany_in_one_group` is false without a signed-in user (it
- * is no membership oracle), so the worker has its OWN definer path: `intercompany_auto_accept_queue` (migration 1013, app_service
+ * is no membership oracle), so the worker has its OWN definer path: `intercompany_auto_accept_queue` (migration 1019, app_service
  * only) lists the work: message, receiver company, and a write-role user of the receiver in good standing, after the same
  * group re-check on the pair at action time. For each message the worker then opens `withReceiverTx`: app_user with THAT user's
  * claims and the RECEIVER's company, and runs the same `acceptMessage` a person's click runs, which re-checks the connection,

@@ -166,7 +166,7 @@ export async function createEliminationAdjustment(
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       throw new EliminationUnbalancedError(totalDebit, totalCredit);
     }
-    // No ON CONFLICT: 1013 builds the partial unique index only where no legacy duplicates exist, and an ON CONFLICT naming an index that is
+    // No ON CONFLICT: 1019 builds the partial unique index only where no legacy duplicates exist, and an ON CONFLICT naming an index that is
     // absent fails every insert. Where the index exists a second standing elimination of a row is a unique violation, mapped to the skip.
     let rows: DbRow[];
     try {

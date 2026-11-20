@@ -1,5 +1,5 @@
 /**
- * REFERENCE builder of an intercompany invoice / credit-note payload: what `intercompany_build_payload` (migration 1013) must produce.
+ * REFERENCE builder of an intercompany invoice / credit-note payload: what `intercompany_build_payload` (migration 1019) must produce.
  * Production does not use it (the DATABASE builds the payload, the sender never does); the suites compare the database's payload with it,
  * so a change to the SQL builder that drifts from the parser's rules is a red test.
  */

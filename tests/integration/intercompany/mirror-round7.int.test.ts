@@ -110,7 +110,7 @@ describe('L2 and the hook-free receiver journal', () => {
 
 describe('R2: the migration never changes existing consolidation data; without its index, two runs still make one adjustment', () => {
   const block = () => {
-    const sqlText = readFileSync('scripts/migrations/sql/1013_intercompany_p2_mirror.sql', 'utf8');
+    const sqlText = readFileSync('scripts/migrations/sql/1019_intercompany_p2_mirror.sql', 'utf8');
     const start = sqlText.indexOf('DO $$\nDECLARE\n  v_dups integer;');
     return sqlText.slice(start, sqlText.indexOf('END $$;', start) + 'END $$;'.length);
   };

@@ -1,5 +1,5 @@
 /**
- * Intercompany P2, messages written before the database recorded their journal and group row (migration 1013, section 6b). The backfill
+ * Intercompany P2, messages written before the database recorded their journal and group row (migration 1019, section 6b). The backfill
  * takes the sender's journal from the sender's own document, and the group row from the payload ONLY where the database confirms it (the
  * sender's row to this receiver for that journal, both companies in its group); a reference it cannot confirm is left NULL, which the
  * definers fail closed on. The block is run here against planted legacy rows, as it is in the migration.
@@ -17,7 +17,7 @@ beforeAll(() => mirrorSetup(pool), 60000);
 afterAll(() => mirrorCleanup(pool), 60000);
 beforeEach(async () => { await clearMirrorRows(pool); await connect(pool); });
 
-const sql = readFileSync('scripts/migrations/sql/1013_intercompany_p2_mirror.sql', 'utf8');
+const sql = readFileSync('scripts/migrations/sql/1019_intercompany_p2_mirror.sql', 'utf8');
 const BACKFILL = sql.slice(sql.indexOf('DO $$\nDECLARE\n  r RECORD;'), sql.indexOf('-- ── 7. The definer registry'));
 const legacy = (id: string) => withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
   'UPDATE intercompany_messages SET source_journal_entry_id = NULL, group_transaction_id = NULL WHERE id = $1', [id]));

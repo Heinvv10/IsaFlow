@@ -1,6 +1,6 @@
 /**
  * Intercompany P2, the auto-accept worker, against a real database. The worker has no user and no company, so it lists its work
- * through ONE definer (`intercompany_auto_accept_queue`, 1013) and then acts as the RECEIVER: app_user with the claims of a write-role
+ * through ONE definer (`intercompany_auto_accept_queue`, 1019) and then acts as the RECEIVER: app_user with the claims of a write-role
  * user of the receiving company and that company's GUCs. It accepts only what the receiver's side asked to have accepted on an ACTIVE
  * GROUP connection whose companies still share a group, creates DRAFTS only (nothing approved or posted), writes nothing in the
  * sender's or a third company's books, and leaves a message it cannot accept `failed` with a plain sentence.

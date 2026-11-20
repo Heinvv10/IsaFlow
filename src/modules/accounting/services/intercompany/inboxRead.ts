@@ -14,7 +14,7 @@ const OPEN: InboxStatus[] = ['pending', 'failed'];
 const HANDLED: InboxStatus[] = ['accepted', 'rejected', 'dismissed', 'withdrawn'];
 
 export const INBOX_PAGE_MAX = 100;
-/** The attempts the auto-accept queue gives a message (migration 1013 `intercompany_auto_accept_queue`); a pending message that used them all needs a person. */
+/** The attempts the auto-accept queue gives a message (migration 1019 `intercompany_auto_accept_queue`); a pending message that used them all needs a person. */
 export const AUTO_ACCEPT_MAX_ATTEMPTS = 8;
 
 const asText = (v: unknown, max = 200): string | null => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : null);

@@ -1,5 +1,5 @@
 /**
- * Intercompany P2, the SENDER does not author the payload (migration 1013). The breaker's round-2 findings were all one thing: the sender
+ * Intercompany P2, the SENDER does not author the payload (migration 1019). The breaker's round-2 findings were all one thing: the sender
  * wrote the JSON the receiver builds a draft from, and the database could only check some of its fields (line VAT, due date, notes, PDF,
  * credited invoice, the group reference were free). Now the DATABASE writes a document message (`intercompany_send_for_source`) from the
  * sender's approved document, and the messages guard refuses the sender's own INSERT of one, so no field is the sender's to choose.
