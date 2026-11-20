@@ -69,8 +69,10 @@ describe('a header-only bill nets the PO pro rata', () => {
     expect(await openOf(po, { excludeInvoiceId: draft.id })).toEqual([70000]);
   });
 
-  it('another supplier\'s bill and another company\'s bill net nothing', async () => {
+  it('another supplier\'s bill, another company\'s bill and a soft-deleted bill net nothing', async () => {
     const po = await seedPo(pool, f, { lines: [1000] });
+    const gone = await headerBill(po.po, 300);
+    await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [gone.id]);
     await headerBill(po.po, 300, { supplier: await seedSupplier(pool, f, 'Header stranger') });
     await seedRawBill(pool, other, { items: [{ total: 300 }], subtotal: 300, total: 345, header: po.po, supplier: f.supplier });
     expect(await openOf(po)).toEqual([100000]);

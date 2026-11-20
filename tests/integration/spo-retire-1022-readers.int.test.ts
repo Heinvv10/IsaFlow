@@ -180,14 +180,18 @@ describe('the supplier invoice PDF', () => {
 });
 
 describe('the Demo reseed wipe', () => {
-  it('deletes every legacy row past the retirement trigger: copied, edited through the PO PUT, and skipped', async () => {
+  it('deletes every legacy row past the retirement trigger: copied, edited through the PO PUT, deleted through the PO DELETE, skipped', async () => {
     // The PO PUT replaces a copy's lines with new po_items ids: the legacy lines' own copies are gone.
     const put = await callRoute(purchaseOrderDetailRoute as never, f, f.owner, `/api/accounting/purchase-orders/${S.c!.id}`,
       { items: [{ description: 'Edited', quantity: 2, unit_price: 3 }] }, { method: 'PUT', id: S.c!.id });
     expect(put.statusCode).toBe(200);
     expect((await pool.query('SELECT count(*)::INT AS n FROM po_items WHERE id = ANY($1::UUID[])', [S.c!.items])).rows[0].n).toBe(0);
-    expect((await pool.query('SELECT reason FROM supplier_purchase_orders_retired_skips WHERE id = $1', [S.skipped!.id])).rows[0]?.reason)
-      .toBe('negative line total');
+    // The PO DELETE removes a draft copy outright: its legacy rows have no copy at all.
+    const del = await callRoute(purchaseOrderDetailRoute as never, f, f.owner, `/api/accounting/purchase-orders/${S.e!.id}`, undefined, { method: 'DELETE', id: S.e!.id });
+    expect(del.statusCode).toBe(200);
+    expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_orders WHERE id = $1', [S.e!.id])).rows[0].n).toBe(0);
+    // The skipped order was never copied.
+    expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_orders WHERE id = $1', [S.skipped!.id])).rows[0].n).toBe(0);
     const tables = ['supplier_purchase_order_items', 'po_items', 'supplier_purchase_orders', 'purchase_orders'];
     const steps = WIPE_STEPS.filter((st) => tables.includes(st.table));
     expect(steps.map((st) => st.table)).toEqual(tables);

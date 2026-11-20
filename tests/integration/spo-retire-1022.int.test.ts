@@ -1,12 +1,13 @@
 /**
  * Migration 1022: supplier_purchase_orders (SPO) retired into purchase_orders + po_items, real PostgreSQL 16: the copy.
- * Seeds legacy POs in every status and every billing-evidence shape (a live bill of any status, a soft-deleted bill, another
- * company's bill, another supplier's bill, an invoiced line, an invoiced status), a discount line, a 4-dp quantity, a quantity
- * that rounds to 0 and one too large to price at 2 dp, a zero-line order, items / accounts / cost centres of this company and
- * another, a number the canonical table holds twice, and the skip shapes (another company's supplier, a negative total, a line
- * id po_items holds). Runs the migration file and asserts: same ids, figures to the cent, the status map with
- * closed_from_status, the units rule, the notes, the skips with their records, the bill links, the exact NOTICE counts and
- * the committed record. Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
+ * Seeds legacy POs in every status and every billing shape (partly / fully / over billed, bills of every status, a soft-deleted
+ * bill, another company's bill, another supplier's bill, an invoiced line, an invoiced status with and without a live bill), a
+ * discount line, a 4-dp quantity, a quantity that rounds to 0 and one too large to price at 2 dp, NULL tax, a zero-line order,
+ * items / accounts / cost centres of this company and another, a number the canonical table holds twice, and the skip shapes
+ * (another company's supplier, a negative total, a line id po_items holds). Runs the migration file and asserts: same ids,
+ * figures to the cent, the status map (open by quantity; closed only when fully billed, or invoiced with no live bill), the
+ * units rule, the notes, the skips, the bill links, the exact NOTICE counts and the committed record.
+ * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -57,7 +58,8 @@ beforeAll(async () => {
       project: '00000000-0000-4000-8000-0000000000aa', costCentre: f.cc.FT });
     await at('draftCc2', 'SPO-D2', 'draft', one(), { costCentre: cc2 });
     await at('draftForeignCc', 'SPO-D3', 'draft', one(), { costCentre: other.cc.FT });
-    await at('nullStatus', 'SPO-N1', null, [{ qty: 1, price: 10 }], { orderDate: null });
+    await at('nullStatus', 'SPO-N1', null, [{ qty: 1, price: 10 }], { orderDate: null, createdAt: '2026-04-30T22:30:00Z' });
+    await at('nullTax', 'SPO-N2', 'draft', [{ qty: 1, price: 200, taxRate: null, tax: null }, { qty: 1, price: 100, taxRate: 0, tax: null }], { headerTaxRate: 14 });
     await at('sent', 'SPO-S1', 'sent', [{ qty: 3, price: 100, discount: 10 }, { qty: 1.2345, price: 80.01, item: itemMine },
       { qty: 1, price: 5, item: itemTheirs, gl: other.acc.opex }], { deliveryDate: '2026-06-30' });
     await at('sentClean', 'SPO-S2', 'sent', one());
@@ -67,6 +69,10 @@ beforeAll(async () => {
     await at('piPart', 'SPO-PI2', 'partially_invoiced', [{ qty: 2, price: 10, received: 2, invoiced: 2 }, { qty: 3, price: 10, received: 1 }]);
     await at('invoiced', 'SPO-I1', 'invoiced', [{ qty: 1, price: 99.99, received: 1, invoiced: 1 }]);
     await at('invoicedNoTrace', 'SPO-I2', 'invoiced', [{ qty: 1, price: 9, received: 1 }]);
+    await at('invoicedPartBill', 'SPO-I3', 'invoiced', [{ qty: 4, price: 50, received: 4, invoiced: 4 }]);
+    await at('invoicedDraftBill', 'SPO-I4', 'invoiced', [{ qty: 4, price: 50, received: 2 }]);
+    await at('sentFullyBilled', 'SPO-E9', 'sent', one());
+    await at('sentOverBilled', 'SPO-E10', 'sent', one(2));
     await at('sentCancelledBill', 'SPO-E8', 'sent', one());
     await at('sentDraftBill', 'SPO-E1', 'sent', one(2));
     await at('sentInvoicedLine', 'SPO-E2', 'sent', one(0, 1));
@@ -88,6 +94,10 @@ beforeAll(async () => {
   const bill = (fx: BillFixture, k: string, o: { status?: string; supplier?: string } = {}) =>
     seedRawBill(pool, fx, { items: [{ total: 100 }], subtotal: 100, total: 115, header: S[k]!.id, ...o }).then((b) => b.id);
   bills.sent = await bill(f, 'sent');
+  bills.invoicedPart = await bill(f, 'invoicedPartBill');
+  bills.invoicedDraft = await bill(f, 'invoicedDraftBill', { status: 'draft' });
+  bills.full = await bill(f, 'sentFullyBilled');
+  bills.over = (await seedRawBill(pool, f, { items: [{ total: 150 }], subtotal: 150, total: 172.5, header: S.sentOverBilled!.id, status: 'paid' })).id;
   bills.draft = await bill(f, 'sentDraftBill', { status: 'draft' });
   bills.deleted = await bill(f, 'sentDeletedBill');
   await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bills.deleted]);
@@ -135,7 +145,7 @@ describe('the copy', () => {
 });
 
 describe('the status map', () => {
-  it('keeps draft and cancelled, and the committing statuses when there is no billing evidence', async () => {
+  it('keeps draft and cancelled whatever their bills; open orders by the legacy status, invoiced ones by quantity', async () => {
     expect(await status('draft')).toEqual(['draft', null]);
     expect(await status('nullStatus')).toEqual(['draft', null]);
     expect(await status('draftBilled')).toEqual(['draft', null]);
@@ -144,32 +154,33 @@ describe('the status map', () => {
     expect(await status('sentClean')).toEqual(['approved', null]);
     expect(await status('partRecv')).toEqual(['partially_received', null]);
     expect(await status('received')).toEqual(['received', null]);
+    expect(await status('piFull')).toEqual(['received', null]);
+    expect(await status('piPart')).toEqual(['partially_received', null]);
   });
 
-  it('closes an order with billing evidence, from received / partially_received / approved by quantity, with a NOTICE each', async () => {
-    expect(await status('sent')).toEqual(['closed', 'approved']);
-    expect(await status('sentDraftBill')).toEqual(['closed', 'received']);
-    expect(await status('sentInvoicedLine')).toEqual(['closed', 'approved']);
-    expect(await status('piFull')).toEqual(['closed', 'received']);
-    expect(await status('piPart')).toEqual(['closed', 'partially_received']);
-    expect(await status('invoiced')).toEqual(['closed', 'received']);
-    // The legacy status alone is evidence: no invoiced line, no bill.
-    expect(await status('invoicedNoTrace')).toEqual(['closed', 'received']);
-    for (const k of ['sent', 'sentDraftBill', 'sentInvoicedLine', 'piFull', 'piPart', 'invoiced', 'invoicedNoTrace']) {
-      expect(notices.some((n) => n.includes(S[k]!.id) && n.includes('billing evidence')), k).toBe(true);
+  it('keeps a partly billed order open (committed nets its bill), whatever shape its billing evidence has', async () => {
+    for (const k of ['sent', 'sentDraftBill', 'sentInvoicedLine', 'sentCancelledBill', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill']) {
+      expect(await status(k), k).toEqual(['approved', null]);
     }
+    expect(await status('invoicedPartBill')).toEqual(['received', null]);
+    // A live draft bill names it: not closed by the invoiced rule, and a draft nets nothing.
+    expect(await status('invoicedDraftBill')).toEqual(['partially_received', null]);
   });
 
-  it('ignores a cancelled bill, a soft-deleted bill, another company\'s bill and another supplier\'s bill', async () => {
-    for (const k of ['sentCancelledBill', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill']) expect(await status(k), k).toEqual(['approved', null]);
+  it('closes a fully (or over) billed order, and an invoiced one no live bill names, from its open status, with a NOTICE each', async () => {
+    expect(await status('sentFullyBilled')).toEqual(['closed', 'approved']);
+    expect(await status('sentOverBilled')).toEqual(['closed', 'approved']);
+    expect(await status('invoiced')).toEqual(['closed', 'received']);
+    expect(await status('invoicedNoTrace')).toEqual(['closed', 'received']);
+    expect(notices.some((n) => n.includes(S.sentFullyBilled!.id) && n.includes('fully billed (R 100'))).toBe(true);
+    expect(notices.some((n) => n.includes(S.invoiced!.id) && n.includes('legacy invoiced, and no live bill names it'))).toBe(true);
   });
 
-  it('still links the bills that named a legacy id (a closed PO is linkable)', async () => {
+  it('links the bills that named a legacy id', async () => {
     const got = (await linkRows(pool, f)).filter((l) => [bills.sent, bills.draft].includes(l.bill)).map((l) => [l.bill, l.po, l.source]);
     expect(got.sort()).toEqual([[bills.sent, S.sent!.id, 'backfill'], [bills.draft, S.sentDraftBill!.id, 'backfill']].sort());
   });
 });
-
 describe('the header', () => {
   it('keeps internal notes, the project and a CC1 / CC2 cost centre; another company\'s centre goes to the notes', async () => {
     const h = await head(S.draft!.id);
@@ -178,7 +189,12 @@ describe('the header', () => {
     expect((await lines(S.draftCc2!.id))[0]).toMatchObject({ cc1_id: null, cc2_id: cc2 });
     expect((await lines(S.draftForeignCc!.id))[0]).toMatchObject({ cc1_id: null, cc2_id: null });
     expect((await head(S.draftForeignCc!.id)).notes).toContain(`not a CC1 / CC2 of this company): ${other.cc.FT}`);
+    // A missing order date takes the created date in SAST: 22:30 UTC on 30 April is 1 May in Johannesburg.
     expect((await head(S.nullStatus!.id)).order_date).toBe('2026-05-01');
+  });
+
+  it('takes a NULL line tax rate from the header (else 15) and works out a NULL tax amount', async () => {
+    expect((await lines(S.nullTax!.id)).map((l) => [l.rate, l.tax])).toEqual([['14.00', '28.00'], ['0.00', '0.00']]);
   });
 
   it('renames a taken number, keeps the original in its notes (no external reference on any copy) and says so', async () => {
@@ -191,22 +207,23 @@ describe('the header', () => {
 });
 
 describe('the skips and the record', () => {
-  it('skips another company\'s supplier, a negative total and a line id po_items holds, records each, leaves them in place', async () => {
+  it('skips another company\'s supplier, a negative total and a line id po_items holds, names each, leaves them in place', async () => {
     const skipped = { foreignSupplier: 'supplier of another company', negative: 'negative line total', idCollision: 'line id already in po_items' };
     for (const [k, reason] of Object.entries(skipped)) {
       expect(await head(S[k]!.id), k).toBeUndefined();
       expect(notices.some((n) => n.includes(S[k]!.id) && n.includes(reason)), k).toBe(true);
-      expect((await pool.query('SELECT reason FROM supplier_purchase_orders_retired_skips WHERE id = $1', [S[k]!.id])).rows).toEqual([{ reason }]);
       expect((await pool.query('SELECT 1 FROM supplier_purchase_orders WHERE id = $1', [S[k]!.id])).rowCount, k).toBe(1);
     }
   });
 
   it('says exactly what it did, and what entered committed spend', async () => {
-    expect(notices).toContain('1022: copied 26 order(s) in all, 3 skipped, 1 renamed, 7 closed for billing evidence, 2 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 31 order(s) in all, 3 skipped, 1 renamed, 4 closed, 2 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 1 supplier of another company, 1 negative line total, 1 line id already in po_items, '
       + '0 id already a purchase order of another company, 0 refused by the database');
-    const committing = ['sentClean', 'partRecv', 'received', 'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill', 'sentCancelledBill'];
-    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 7 order(s), R ${(cents(committing) / 100).toFixed(2)} ex VAT`);
-    expect(notices).toContain(`1022: company ${other.co} committing copies, order month 2026-05: 1 order(s), R 11.00 ex VAT`);
+    const committing = ['sent', 'sentClean', 'partRecv', 'received', 'piFull', 'piPart', 'sentDraftBill', 'sentInvoicedLine', 'sentCancelledBill',
+      'sentDeletedBill', 'sentForeignBill', 'sentStrangerBill', 'invoicedPartBill', 'invoicedDraftBill'];
+    // Billing netted: SPO-S1's and SPO-I3's approved R100 bills.
+    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 14 order(s), R ${(cents(committing) / 100).toFixed(2)} ex VAT, less R 200.00 billed`);
+    expect(notices).toContain(`1022: company ${other.co} committing copies, order month 2026-05: 1 order(s), R 11.00 ex VAT, less R 0.00 billed`);
   });
 });

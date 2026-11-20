@@ -1,15 +1,14 @@
 /**
- * Migration 1022 and committed spend (review round 1, HIGH; the breaker's repro), real PostgreSQL 16 and the real
- * budgets/remainingCommitted.readCommitments. A header link (the only way a legacy bill could name a legacy order) nets
- * nothing from committed, so a billed legacy order must not come out committing: it would count again what its bill already
- * put in actuals.
- *   A  received, fully billed by an approved header bill          -> commits 0
- *   B1 partially_invoiced, R400 of R1000 billed (approved bill)    -> commits 0 (closed: the remainder drops out, the honest limit)
- *   B2 the same order, its bill lost                               -> commits 0 (invoiced status is evidence)
- *   B3 partially_invoiced whose only bill is a draft               -> commits 0
- *   C  sent, over-billed by a PAID R1500 bill                      -> commits 0
- *   D  sent, no evidence: a 12345.6789 x 1.23 line and a 0.125 one -> commits its R15 186.43 (the big line as 1 unit)
- *   E  sent, no evidence: R500 and a 0.004-quantity dust line      -> commits R500.04 (the dust line copied, not lost)
+ * Migration 1022 and committed spend (PR #1703: the breaker's repro, then Hein's ruling that copies keep their unbilled
+ * remainder in committed), real PostgreSQL 16 and the real budgets/remainingCommitted.readCommitments. A legacy bill can name a
+ * legacy order only by its header; committed now nets header billing (budgets/remainingHeaderBilled), so nothing counts twice:
+ *   A  received, fully billed by an approved header bill          -> closed, commits 0
+ *   B1 partially_invoiced, R400 of R1000 billed (approved bill)    -> open (received), commits the R600 remainder exactly
+ *   B2 the same order, its bill lost                               -> open, commits R1000 (nothing to net)
+ *   B3 partially_invoiced whose only bill is a draft               -> open, commits R1000 (a draft nets nothing)
+ *   C  sent, over-billed by a PAID R1500 bill                      -> closed, commits 0
+ *   D  sent: a 12345.6789 x 1.23 line and a 0.125 one              -> commits its R15 186.43 (the big line as 1 unit)
+ *   E  sent: R500 and a 0.004-quantity dust line                   -> commits R500.04 (the dust line copied, not lost)
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -68,16 +67,16 @@ const committedByOrder = async (): Promise<Record<string, number>> => {
 };
 
 describe('committed spend after the copy', () => {
-  it('commits nothing for a billed legacy order, and the whole of an unbilled one', async () => {
-    expect(await committedByOrder()).toEqual({ 'CM-D': 1518643, 'CM-E': 50004 });
+  it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
+    expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
   });
 
-  it('closes each billed order by quantity', async () => {
+  it('closes only the fully billed copies, from their open status', async () => {
     const st = async (k: string) => (await pool.query('SELECT status, closed_from_status FROM purchase_orders WHERE id = $1', [S[k]!.id])).rows[0];
     expect(await st('A')).toEqual({ status: 'closed', closed_from_status: 'received' });
-    expect(await st('B1')).toEqual({ status: 'closed', closed_from_status: 'received' });
-    expect(await st('B2')).toEqual({ status: 'closed', closed_from_status: 'received' });
-    expect(await st('B3')).toEqual({ status: 'closed', closed_from_status: 'received' });
+    expect(await st('B1')).toEqual({ status: 'received', closed_from_status: null });
+    expect(await st('B2')).toEqual({ status: 'received', closed_from_status: null });
+    expect(await st('B3')).toEqual({ status: 'received', closed_from_status: null });
     expect(await st('C')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('D')).toEqual({ status: 'approved', closed_from_status: null });
   });

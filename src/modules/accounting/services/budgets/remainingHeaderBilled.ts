@@ -12,7 +12,9 @@
  *   - else, tied only by `purchase_order_id`: its ex-VAT subtotal less what it already attributes elsewhere (the posted ex-VAT of
  *     its lines that name any PO line, and its link rows to other POs), floored at 0: 1006's amount rule, so one rand never nets
  *     two POs.
- * Same bill statuses as line netting (`BILLED_STATUSES`, or a bill in `own`), and the bill must be the PO's company AND supplier.
+ * Same bill statuses as line netting (`BILLED_STATUSES`, or a bill in `own`), and the bill must be the PO's company AND supplier
+ * and not soft-deleted. (Line netting still counts a soft-deleted approved bill, a pre-existing behaviour flagged to Hein: its
+ * journal is reversed out of actuals, so netting committed by it would understate; header netting does not copy that.)
  * The amount is spread over ALL the PO's lines by `line_total` share in cents (sort_order, id), the residual on the last line;
  * the core floors each line at 0 (`openPoLineCents`). Basis: `po_items.line_total`, the link amount, the subtotal and the posted
  * line amounts are all ex-VAT. Named limit (the slice): header billing nets at the PO line, not at the bill's own account /
@@ -59,6 +61,7 @@ export async function headerTies(
       LEFT JOIN purchase_order_bill_links l
         ON l.company_id = ${companyId}::UUID AND l.purchase_order_id = c.po AND l.supplier_invoice_id = c.bill
      WHERE (si.status = ANY(${[...billedStatuses]}::TEXT[]) OR si.id = ANY(${[...own]}::UUID[]))
+       AND si.deleted_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
                         WHERE x.supplier_invoice_id = c.bill AND pi.purchase_order_id = c.po)
   `) as DbRow[];

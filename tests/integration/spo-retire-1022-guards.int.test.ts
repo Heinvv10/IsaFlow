@@ -3,16 +3,16 @@
  *   - the purchase_order counter: raised past a copied number of its form, never moved back, inserted when the company has
  *     none, a custom prefix honoured, a non-numeric number ignored; each company to itself;
  *   - a re-run changes nothing; after a new legacy row is seeded only that row copies;
- *   - an order an unforeseen constraint refuses is skipped (WARNING, skips record), the rest still copy;
- *   - the triggers: INSERT / UPDATE refused, DELETE by state (copy in the same company, or skipped; a line by its header, the
- *     cascade), TRUNCATE refused, replica mode does not switch them off; as app_user and as the owner.
+ *   - an order an unforeseen constraint refuses is skipped (WARNING), the rest still copy;
+ *   - a role that does not bypass row security is refused before anything changes (it would see no rows and "copy 0");
+ *   - the triggers: INSERT / UPDATE refused, DELETE allowed (the copies are independent orders the app edits and deletes),
+ *     ENABLE ALWAYS so replica mode does not switch them off.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
-import { seedPo } from './helpers/poBillLinkHarness';
 import { asBeforeRetirement, canonicalSnapshot, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 
 assertDisposable();
@@ -80,20 +80,21 @@ describe('re-runs and the per-order guard', () => {
     const before = await canonicalSnapshot(pool, companies());
     const notices = await runMigration(pool);
     expect(await canonicalSnapshot(pool, companies())).toBe(before);
-    expect(notices).toContain('1022: copied 0 order(s) in all, 0 skipped, 0 renamed, 0 closed for billing evidence, 0 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 0 order(s) in all, 0 skipped, 0 renamed, 0 closed, 0 line(s) as 1 unit');
   });
 
   it('after a new legacy row is seeded, a re-run copies only that row', async () => {
     const before = await canonicalSnapshot(pool, companies());
     S.late = await seed(f, 'LATE-1');
     const notices = await runMigration(pool);
-    expect(notices).toContain('1022: copied 1 order(s) in all, 0 skipped, 0 renamed, 0 closed for billing evidence, 0 line(s) as 1 unit');
+    expect(notices).toContain('1022: copied 1 order(s) in all, 0 skipped, 0 renamed, 0 closed, 0 line(s) as 1 unit');
     expect(await poOf(S.late.id)).toEqual({ company_id: f.co, po_number: 'LATE-1' });
     await pool.query('DELETE FROM purchase_orders WHERE id = $1', [S.late.id]);
+    await pool.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [S.late.id]); // DELETE is allowed
     expect(await canonicalSnapshot(pool, companies())).toBe(before);
   });
 
-  it('skips an order a constraint refuses (WARNING, a skips record) and still copies the others', async () => {
+  it('skips an order a constraint refuses (WARNING) and still copies the others', async () => {
     S.forced = await seed(f, 'FORCE-1');
     S.beside = await seed(f, 'BESIDE-1');
     await pool.query(`ALTER TABLE purchase_orders ADD CONSTRAINT spo_1022_forced CHECK (po_number <> 'FORCE-1') NOT VALID`);
@@ -102,10 +103,9 @@ describe('re-runs and the per-order guard', () => {
     expect(await poOf(S.forced.id)).toBeUndefined();
     expect(await poOf(S.beside.id)).toEqual({ company_id: f.co, po_number: 'BESIDE-1' });
     expect(notices.some((n) => n.includes(S.forced!.id) && n.includes('refused by the database (23514)'))).toBe(true);
+    expect(notices).toContain('1022: copied 1 order(s) in all, 1 skipped, 0 renamed, 0 closed, 0 line(s) as 1 unit');
     expect(notices).toContain('1022: skipped per reason: 0 supplier of another company, 0 negative line total, 0 line id already in po_items, '
       + '0 id already a purchase order of another company, 1 refused by the database');
-    const rec = (await pool.query('SELECT reason FROM supplier_purchase_orders_retired_skips WHERE id = $1', [S.forced.id])).rows;
-    expect(rec[0]?.reason).toMatch(/^refused by the database \(23514\)/);
   });
 });
 
@@ -126,54 +126,29 @@ describe('the retired tables\' write rules', () => {
     await expect(asApp(`UPDATE supplier_purchase_order_items SET description = 'x' WHERE id = $1`, [S.fSame!.items[0]])).rejects.toThrow(retired);
   });
 
-  it('deletes a copied order as app_user, and the cascade takes its lines', async () => {
+  it('allows DELETE as app_user: a copied order (the cascade takes its lines), one with no copy at all, a lone line', async () => {
+    const lone = await seed(f, 'LONE-1');
     await asOwner(async (c) => {
       await c.query('SET LOCAL ROLE app_user');
       await c.query("SELECT set_config('request.jwt.claims', $1, true), set_config('app.current_company_id', $2, true)", [JSON.stringify({ sub: f.owner }), f.co]);
-      expect((await c.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [S.fSame!.id])).rowCount).toBe(1);
+      expect((await c.query('DELETE FROM supplier_purchase_order_items WHERE id = $1', [lone.items[0]])).rowCount).toBe(1);
+      expect((await c.query('DELETE FROM supplier_purchase_orders WHERE id = ANY($1::UUID[])', [[S.fSame!.id, lone.id]])).rowCount).toBe(2);
       await c.query('RESET ROLE');
       expect((await c.query('SELECT count(*)::INT AS n FROM supplier_purchase_order_items WHERE purchase_order_id = $1', [S.fSame!.id])).rows[0].n).toBe(0);
     });
   });
 
-  it('deletes a skipped order and its lines', async () => {
-    await asOwner(async (c) => {
-      expect((await c.query('DELETE FROM supplier_purchase_order_items WHERE purchase_order_id = $1', [S.forced!.id])).rowCount).toBe(1);
-      expect((await c.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [S.forced!.id])).rowCount).toBe(1);
-    });
+  it('refuses the migration, before it changes anything, for a role that does not bypass row security', async () => {
+    const before = (await pool.query(`SELECT pg_get_functiondef('supplier_purchase_orders_retired()'::regprocedure) AS d`)).rows[0].d;
+    await expect(runMigration(pool, 'app_user')).rejects.toThrow(/1022 must run as a role that bypasses row security/);
+    expect((await pool.query(`SELECT pg_get_functiondef('supplier_purchase_orders_retired()'::regprocedure) AS d`)).rows[0].d).toBe(before);
   });
 
-  it('refuses the delete of an order with no copy and no skip record, and of its lines', async () => {
-    const lone = await seed(f, 'LONE-1');
-    await expect(asOwner((c) => c.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [lone.id]))).rejects.toThrow(retired);
-    await expect(asOwner((c) => c.query('DELETE FROM supplier_purchase_order_items WHERE id = $1', [lone.items[0]]))).rejects.toThrow(retired);
-  });
-
-  it('refuses the delete when the same id is a purchase order of ANOTHER company', async () => {
-    const twin = await seed(f, 'TWIN-1');
-    await pool.query(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id) VALUES ($1, $2, 'TWIN-THEIRS', $3)`, [twin.id, other.co, other.supplier]);
-    await expect(asOwner((c) => c.query('DELETE FROM supplier_purchase_orders WHERE id = $1', [twin.id]))).rejects.toThrow(retired);
-    await pool.query('DELETE FROM purchase_orders WHERE id = $1', [twin.id]);
-  });
-
-  it('refuses the delete of a line whose id is a po_items row of a different order, when its own header has no copy', async () => {
-    const orphan = await seed(f, 'ORPHAN-1');
-    const po = await seedPo(pool, f, { lines: [] });
-    await pool.query(`INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, line_total) VALUES ($1, $2, 'x', 1, 1, 1)`,
-      [orphan.items[0], po.po]);
-    await expect(asOwner((c) => c.query('DELETE FROM supplier_purchase_order_items WHERE id = $1', [orphan.items[0]]))).rejects.toThrow(retired);
-  });
-
-  it('refuses TRUNCATE on both tables', async () => {
-    await expect(asOwner((c) => c.query('TRUNCATE supplier_purchase_order_items'))).rejects.toThrow(/TRUNCATE is refused/);
-    await expect(asOwner((c) => c.query('TRUNCATE supplier_purchase_orders CASCADE'))).rejects.toThrow(/TRUNCATE is refused/);
-  });
-
-  it('leaves all four triggers ENABLE ALWAYS', async () => {
-    const rows = (await pool.query(`SELECT tgname, tgenabled FROM pg_trigger WHERE NOT tgisinternal
+  it('leaves both triggers ENABLE ALWAYS, on INSERT and UPDATE only', async () => {
+    const rows = (await pool.query(`SELECT tgname, tgenabled, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE NOT tgisinternal
       AND tgrelid IN ('supplier_purchase_orders'::regclass, 'supplier_purchase_order_items'::regclass) ORDER BY tgname`)).rows;
-    expect(rows).toEqual(['trg_supplier_purchase_order_items_retired', 'trg_supplier_purchase_order_items_retired_truncate',
-      'trg_supplier_purchase_orders_retired', 'trg_supplier_purchase_orders_retired_truncate'].map((tgname) => ({ tgname, tgenabled: 'A' })));
+    expect(rows.map((r) => [r.tgname, r.tgenabled])).toEqual([['trg_supplier_purchase_order_items_retired', 'A'], ['trg_supplier_purchase_orders_retired', 'A']]);
+    for (const r of rows) expect(r.def).toMatch(/BEFORE INSERT OR UPDATE ON/);
   });
 
   it('refuses for every session: session_replication_role = replica does not switch the triggers off', async () => {
