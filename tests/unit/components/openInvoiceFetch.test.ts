@@ -21,15 +21,16 @@ describe('fetchAllPages: total not reached', () => {
 });
 
 describe('fetchAllPages: unknown total', () => {
-  it('keeps fetching while a page comes back full, and stops complete on a short page', async () => {
+  it('keeps fetching until an empty page, whatever the page size', async () => {
+    const pages = [mk(0, 3), mk(3, 3), mk(6, 1), []];
     let calls = 0;
-    const out = await fetchAllPages(async i => { calls++; return { rows: i < 2 ? mk(i * 3, 3) : mk(6, 1), total: null, pageSize: 3 }; });
+    const out = await fetchAllPages(async i => { calls++; return { rows: pages[i] ?? [], total: null }; });
     expect(out.rows).toHaveLength(7);
     expect(out).toMatchObject({ total: 7, truncated: false });
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
   });
-  it('flags truncated when full pages run into the page cap', async () => {
-    const out = await fetchAllPages(async i => ({ rows: mk(i * 3, 3), total: null, pageSize: 3 }), 4);
+  it('flags truncated when non-empty pages run into the page cap', async () => {
+    const out = await fetchAllPages(async i => ({ rows: mk(i * 3, 3), total: null }), 4);
     expect(out.rows).toHaveLength(12);
     expect(out.truncated).toBe(true);
   });
@@ -37,17 +38,19 @@ describe('fetchAllPages: unknown total', () => {
 
 describe('readPage via fetchAllPayments: a response without total', () => {
   beforeEach(() => vi.mocked(apiFetch).mockReset());
-  it('does not stop after a full page 1', async () => {
-    const full = mk(0, PAYMENT_PAGE_SIZE);
+  it('does not stop after page 1, even when the server caps a page below the limit asked for', async () => {
+    const cap = PAYMENT_PAGE_SIZE / 2; // the server answers 100 to limit=200
     vi.mocked(apiFetch)
-      .mockResolvedValueOnce(reply({ payments: full }))
-      .mockResolvedValueOnce(reply({ payments: mk(PAYMENT_PAGE_SIZE, 5) }));
+      .mockResolvedValueOnce(reply({ payments: mk(0, cap) }))
+      .mockResolvedValueOnce(reply({ payments: mk(cap, cap) }))
+      .mockResolvedValueOnce(reply({ payments: mk(2 * cap, 5) }))
+      .mockResolvedValueOnce(reply({ payments: [] }));
     const out = await fetchAllPayments('supplier', 'x');
-    expect(out.rows).toHaveLength(PAYMENT_PAGE_SIZE + 5);
+    expect(out.rows).toHaveLength(2 * cap + 5);
     expect(out.truncated).toBe(false);
-    expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(4);
   });
-  it('is truncated when every page stays full to the cap', async () => {
+  it('is truncated when every page stays non-empty to the cap', async () => {
     let n = 0;
     vi.mocked(apiFetch).mockImplementation(async () => reply({ payments: mk(PAYMENT_PAGE_SIZE * n++, PAYMENT_PAGE_SIZE) }));
     const out = await fetchAllPayments('customer', 'x');

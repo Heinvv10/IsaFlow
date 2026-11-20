@@ -97,7 +97,7 @@ export default function CustomerAllocationsPage() {
         credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
       });
       await assertOk(res, 'Could not allocate the receipt - try again');
-      ++loadSeq.current; // an invoice load still in flight predates this allocation: drop it
+      ++loadSeq.current; setLoadingInv(false); // an invoice load still in flight predates this allocation: drop it, and its finally no longer clears the spinner
       setMsg('Allocated successfully'); setSelected(null); setAllocs({});
       await loadPayments();
     } catch (err) { setError(apiErrorMessage(err, 'Could not allocate the receipt - try again')); }

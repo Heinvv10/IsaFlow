@@ -8,8 +8,8 @@ import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { AP_OPEN_STATUSES, AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 
 type Raw = Record<string, unknown>;
-/** `total: null` = the API did not say; `pageSize` (the `limit` asked for) then tells a full page from the last one. */
-export interface PageOut { rows: Raw[]; total: number | null; pageSize?: number }
+/** `total: null` = the API did not say; only an empty page then ends the list (a server may cap a page below the `limit` asked for). */
+export interface PageOut { rows: Raw[]; total: number | null }
 export interface AllPages { rows: Raw[]; total: number; truncated: boolean }
 
 export const SUPPLIER_PAGE_SIZE = 200;
@@ -30,8 +30,7 @@ export async function fetchAllPages(getPage: (index: number) => Promise<PageOut>
     }
     const total = known ?? seen.size;
     if (known === null) {
-      // unknown total: a short or empty page is the last one; a full page may have more behind it
-      if (out.rows.length === 0 || (out.pageSize !== undefined && out.rows.length < out.pageSize)) return { rows, total, truncated: false };
+      if (out.rows.length === 0) return { rows, total, truncated: false };
     } else {
       if (seen.size >= known) return { rows, total, truncated: false };
       if (out.rows.length === 0) return { rows, total, truncated: true }; // the list ended short of its own total: say so, do not pass it off as whole
@@ -40,7 +39,7 @@ export async function fetchAllPages(getPage: (index: number) => Promise<PageOut>
   return { rows, total: known ?? seen.size, truncated: true };
 }
 
-async function readPage(url: string, message: string, keys: readonly string[], pageSize: number): Promise<PageOut> {
+async function readPage(url: string, message: string, keys: readonly string[]): Promise<PageOut> {
   const res = await apiFetch(url, { credentials: 'include' });
   await assertOk(res, message);
   const json = await res.json();
@@ -48,7 +47,7 @@ async function readPage(url: string, message: string, keys: readonly string[], p
   const rows: Raw[] = Array.isArray(d) ? d : keys.map(k => d?.[k]).find(Array.isArray) ?? [];
   const raw = Array.isArray(d) ? undefined : d?.total;
   const total = raw === undefined || raw === null || !Number.isFinite(Number(raw)) ? null : Number(raw);
-  return { rows, total, pageSize };
+  return { rows, total };
 }
 
 const INVOICE_KEYS = ['invoices', 'items'] as const;
@@ -56,7 +55,7 @@ const INVOICE_KEYS = ['invoices', 'items'] as const;
 /** Every payment / receipt (the list API pages at 200 and ignores `unallocated=true`, so the page filters). */
 export async function fetchAllPayments(kind: 'supplier' | 'customer', message: string): Promise<AllPages> {
   return fetchAllPages(i => readPage(
-    `/api/accounting/${kind}-payments?unallocated=true&limit=${PAYMENT_PAGE_SIZE}&offset=${i * PAYMENT_PAGE_SIZE}`, message, ['payments', 'items'], PAYMENT_PAGE_SIZE));
+    `/api/accounting/${kind}-payments?unallocated=true&limit=${PAYMENT_PAGE_SIZE}&offset=${i * PAYMENT_PAGE_SIZE}`, message, ['payments', 'items']));
 }
 
 /** Every approved and partially paid bill of one supplier. */
@@ -65,7 +64,7 @@ export async function fetchSupplierOpenBills(supplierId: string): Promise<AllPag
   for (const status of AP_OPEN_STATUSES) {
     const part = await fetchAllPages(i => readPage(
       `/api/accounting/supplier-invoices?supplier_id=${supplierId}&status=${status}&limit=${SUPPLIER_PAGE_SIZE}&offset=${i * SUPPLIER_PAGE_SIZE}`,
-      'Could not load the supplier invoices - try again', INVOICE_KEYS, SUPPLIER_PAGE_SIZE));
+      'Could not load the supplier invoices - try again', INVOICE_KEYS));
     all.rows.push(...part.rows); all.total += part.total; all.truncated = all.truncated || part.truncated;
   }
   const seen = new Set<string>(); // a bill is in one status, but never list one twice
@@ -78,5 +77,5 @@ export async function fetchCustomerOpenInvoices(clientId: string): Promise<AllPa
   const statuses = AR_OPEN_STATUSES.map(s => `status=${s}`).join('&');
   return fetchAllPages(i => readPage(
     `/api/accounting/customer-invoices-list?client_id=${clientId}&${statuses}&limit=${CUSTOMER_PAGE_SIZE}&page=${i + 1}`,
-    'Could not load invoices for this receipt - try again', INVOICE_KEYS, CUSTOMER_PAGE_SIZE));
+    'Could not load invoices for this receipt - try again', INVOICE_KEYS));
 }
