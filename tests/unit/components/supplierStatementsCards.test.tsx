@@ -13,7 +13,6 @@ import SupplierStatementsPage from '../../../pages/accounting/supplier-statement
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const labels = (el: Element | null) => [...(el?.querySelectorAll('td[data-label]') ?? [])].map(td => td.getAttribute('data-label'));
-const COLS = ['Current', '1-30', '31-60', '61-90', '90+', 'Credits on account', 'Net balance'];
 
 beforeEach(() => vi.mocked(apiFetch).mockReset());
 afterEach(cleanup);
@@ -27,15 +26,18 @@ describe('supplier statements balances on touch', () => {
     await screen.findByText('Acme Supplies');
     const table = container.querySelector('table')!;
     expect(table.className).toContain('table-cards');
+    // Labels come from the column headers, so a renamed header cannot drift from its data-label.
+    const COLS = [...table.querySelectorAll('thead th')].slice(1, 8).map(th => th.textContent);
+    expect(COLS).toHaveLength(7);
     expect(labels(table.querySelector('tbody tr'))).toEqual(COLS);
     // The TOTAL row is a card too, and its empty trailing cell must not add a blank line.
     const total = [...table.querySelectorAll('tbody tr')].find(tr => tr.textContent?.startsWith('TOTAL'))!;
     expect(labels(total)).toEqual(COLS);
     expect(total.querySelector('td:last-child')?.className).toContain('max-lg:!hidden');
     expect(screen.getByRole('link', { name: 'Acme Supplies' }).className).toContain('max-lg:min-h-11');
-    const chevron = screen.getByTitle('View Acme Supplies statement');
-    expect(chevron.className).toContain('max-lg:min-h-11');
-    expect(chevron.className).toContain('max-lg:min-w-11');
+    expect(screen.getByRole('link', { name: 'Acme Supplies' }).className).not.toMatch(/(^|\s)inline-flex/);
+    // The name link is already a 44px target to the same page, so the chevron cell is hidden on cards.
+    expect(screen.getByTitle('View Acme Supplies statement').closest('td')?.className).toContain('max-lg:!hidden');
     expect(screen.getByRole('button', { name: /Export CSV/ }).className).toContain('max-lg:min-h-11');
     expect(screen.getByPlaceholderText('Search supplier...').className).toContain('max-lg:min-h-11');
   });

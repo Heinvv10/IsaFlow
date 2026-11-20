@@ -178,7 +178,7 @@ export default function SupplierStatementsPage() {
                   {filteredSuppliers.map(s => (
                     <tr key={s.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`} className="inline-flex items-center max-lg:min-h-11 hover:text-orange-400 transition-colors">
+                        <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`} className="max-lg:inline-flex max-lg:items-center max-lg:min-h-11 hover:text-orange-400 transition-colors">
                           {s.entityName}
                         </Link>
                       </td>
@@ -189,9 +189,9 @@ export default function SupplierStatementsPage() {
                       <td data-label="90+" className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(s.days120Plus)}</td>
                       <td data-label="Credits on account" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(s.onAccount)}</td>
                       <td data-label="Net balance" className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(s.netBalance)}</td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 text-center max-lg:!hidden">
                         <Link href={`/accounting/supplier-statements/${s.entityId}?as_at_date=${asAtDate}`}
-                          className="inline-flex items-center justify-center px-4 py-3 max-lg:min-h-11 max-lg:min-w-11 rounded-lg text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"
+                          className="inline-flex items-center justify-center px-4 py-3 rounded-lg text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"
                           title={`View ${s.entityName} statement`}>
                           <ChevronRight className="h-5 w-5" />
                           <span className="sr-only">View details</span>
