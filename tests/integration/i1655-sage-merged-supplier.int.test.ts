@@ -119,6 +119,9 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect((await syncSuppliers([party(811, 'Ivy Paints'), party(812, 'Ivy Paints Ltd')])).suppliers)
       .toEqual({ created: 0, skipped: 2, failed: [] });
     expect(await liveNamed('Ivy Paints Ltd')).toEqual([{ id: b2, external_ref: '812' }]);
+    // 811 now meets a survivor carrying 812, and still follows the merge by its own id.
+    expect((await syncSuppliers([party(811, 'Ivy Paints'), party(812, 'Ivy Paints Ltd')])).suppliers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
   });
 
   it("a new Sage bill for A lands on B", async () => {
@@ -346,5 +349,40 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
     const { rows } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
+  });
+  it('two hand-keyed same-name suppliers merged: Sage 101 claims the survivor, Sage 102 gets its own row, bills follow their own party', async () => {
+    const keep = await insPlain('Acme Foods');
+    const dup = await insPlain('Acme Foods');
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', keep, dup, userId));
+    expect((await syncSuppliers([party(101, 'Acme Foods')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect((await byRef('101')).map((r) => r.id)).toEqual([keep]);
+    // 102 would match the unstamped merged-away twin by name and follow it to the survivor 101 holds.
+    expect((await syncSuppliers([party(102, 'Acme Foods')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    const own = await byRef('102');
+    expect(own).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
+    expect(own[0].id).not.toBe(keep);
+    // Re-syncing both creates nothing, and each stays on its own row.
+    expect((await syncSuppliers([party(101, 'Acme Foods'), party(102, 'Acme Foods')])).suppliers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
+    expect((await byRef('101')).map((r) => r.id)).toEqual([keep]);
+    expect((await byRef('102')).map((r) => r.id)).toEqual([own[0].id]);
+    // Bills: 102's land on 102's row, 101's on the survivor.
+    expect((await bill('AP-ACME-102', 'Acme Foods', 102)).created).toBe(true);
+    expect((await bill('AP-ACME-101', 'Acme Foods', 101)).created).toBe(true);
+    expect(await billSupplier('AP-ACME-102')).toBe(own[0].id);
+    expect(await billSupplier('AP-ACME-101')).toBe(keep);
+  });
+
+  it('the survivor test holds at every point of the chain: a stamped row in the middle also refuses a name-only match', async () => {
+    // H (hand-keyed 'Acme Bolts') merged into M, a Sage 301 supplier, itself merged into the live C.
+    const c = await insPlain('Acme Bolts Holdings');
+    const m = await insPlain('Acme Bolts Ltd', 'sage', '301');
+    const h = await insPlain('Acme Bolts');
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [m, c]);
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [h, m]);
+    expect((await syncSuppliers([party(302, 'Acme Bolts')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    expect((await byRef('302'))[0].deleted).toBe(false);
+    // Sage 301 still follows its own merge by id.
+    expect((await syncSuppliers([party(301, 'Acme Bolts Ltd')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
   });
 });

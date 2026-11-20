@@ -47,6 +47,13 @@
  * the sync creates its own live row (the bill import reports the supplier as not found). Rows that all
  * lead to the same survivor are no ambiguity.
  *
+ * A name-only match through a merge is not followed past another Sage party: when any row the chain
+ * passes after the matched one, the survivor included, carries a Sage id other than the pull's, the hit
+ * is dropped and the sync creates the party's own live row. (Two hand-keyed 'Acme' merged, Sage 101
+ * stamps the survivor; Sage 102 would otherwise reach it through the unstamped merged-away twin.) A
+ * Sage-id hit is always followed, whatever the chain carries: that is the merge a user made of two
+ * Sage parties, and the bills of the merged-away one belong on its survivor.
+ *
  * Every caller resolves through resolveSageSupplier / resolveSageCustomer: match, then stamp (claim), and
  * when a concurrent import of another Sage party stamped the row first (the claim updates nothing and the
  * row no longer matches), match again, so two Sage parties never share one row. The bill import
@@ -107,16 +114,18 @@ export async function matchSageSupplier(
          OR (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
              AND external_system = 'sage' AND external_ref IS DISTINCT FROM ${ref}::TEXT)
     ), chain AS (
-      SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen FROM hit h
+      SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen, FALSE AS blocked FROM hit h
       UNION ALL
-      SELECT c.start_id, s.id, s.deleted_at, s.merged_into_id, c.hops + 1, c.seen || s.id
+      SELECT c.start_id, s.id, s.deleted_at, s.merged_into_id, c.hops + 1, c.seen || s.id,
+             c.blocked OR (${ref}::TEXT IS NOT NULL AND s.external_system = 'sage'
+                           AND s.external_ref IS NOT NULL AND s.external_ref <> ${ref}::TEXT)
       FROM chain c
       JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
       WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
     )
     SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
     FROM chain c JOIN hit h ON h.id = c.start_id
-    WHERE c.deleted_at IS NULL
+    WHERE c.deleted_at IS NULL AND (h.by_ref OR NOT c.blocked)
     ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
   `) as Row[];
   // Merged-away rows of this name already stamped with ANOTHER Sage id: matched only to spot a conflict.
