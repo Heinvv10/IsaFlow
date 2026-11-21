@@ -189,4 +189,14 @@ describe('round 14: the Eliminations page', () => {
     await screen.findByPlaceholderText(/Describe the elimination/);
     expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
   });
+
+  it('a post-cutover draft whose mirror stands: the badge and the dialog say why it was drafted, and the button is a plain Post', async () => {
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01' })] });
+    render(<EliminationsPage />);
+    expect((await screen.findByRole('note')).textContent).toMatch(/the pair mirrors from 2026-03-01, and this row was drafted because that mirror accounts for another row or is not its closest match: check before posting/);
+    fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/this row was drafted because that mirror accounts for another row.*If it is the same sale, posting this would eliminate it twice/);
+    expect(within(dialog).getByRole('button', { name: 'Post' })).toBeTruthy();
+  });
 });

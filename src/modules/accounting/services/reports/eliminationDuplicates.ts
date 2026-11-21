@@ -38,8 +38,13 @@ export async function cutoverRequiringReason(groupId: string, date: string | nul
 /** The stored adjustments of the list, each with its possible mirrored duplicate (draft or posted), whether that is eliminated automatically, and how many listed adjustments point at the same mirror(s). */
 export async function storedEliminationRows(groupId: string, pStart: string | null, pEnd: string | null): Promise<DbRow[]> {
   return (await sql`
-    WITH s AS MATERIALIZED (
-      SELECT ca.*, dup.mirror_rows, dup.mirror_ref
+    WITH pc AS MATERIALIZED (SELECT * FROM public.intercompany_pair_cutovers(${groupId}::UUID)
+    ), s AS MATERIALIZED (
+      SELECT ca.*, dup.mirror_rows, dup.mirror_ref,
+             -- the row is on or after its pair's cutover (sale class): it was drafted because no standing mirror is left to it
+             (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN pc
+                ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
+               WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
         FROM consolidation_adjustments ca
         LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) dup
           ON ca.source_intercompany_id IS NOT NULL AND ca.status IN ('draft', 'posted')
@@ -76,12 +81,16 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
     `) as DbRow[];
     if (result.length === 0) {
       const dup = (await sql`
-        SELECT d.mirror_ref, (SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x), false)) FROM unnest(d.mirror_rows) x) AS stands
+        SELECT d.mirror_ref, (SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x), false)) FROM unnest(d.mirror_rows) x) AS stands,
+               (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
+                  ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
+                 WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
           FROM consolidation_adjustments ca CROSS JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) d
          WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft' AND ca.source_intercompany_id IS NOT NULL
       `) as DbRow[] | undefined;
       if (!confirmDuplicate && Array.isArray(dup) && dup.length > 0) {
-        throw new EliminationPossibleDuplicateError(adjustmentId, String(dup[0]!.mirror_ref), dup[0]!.stands === true);
+        const d = dup[0]!;
+        throw new EliminationPossibleDuplicateError(adjustmentId, String(d.mirror_ref), d.stands === true, d.pair_cutover ? String(d.pair_cutover) : null);
       }
       throw new EliminationStateError(adjustmentId, 'draft');
     }

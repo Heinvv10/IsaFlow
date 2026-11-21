@@ -52,6 +52,8 @@ export interface ConsolidationAdjustment {
   mirrorStands?: boolean | null;
   /** How many listed adjustments point at the same mirror(s): more than one means at most one of them can be the duplicate. */
   mirrorShared?: number | null;
+  /** The row is on or after its mirroring pair's cutover (so no standing mirror was left to it): the cutover date. */
+  pairCutover?: string | null;
   /** Why a person made this elimination by hand for a group whose pairs mirror (required on or after a pair's cutover). */
   manualReason?: string | null;
 }
@@ -228,7 +230,8 @@ export async function getEliminationAdjustments(
     // (eliminationDuplicates.ts): the list says so, with whether the mirror is eliminated automatically and how many share it.
     const rows = await storedEliminationRows(groupId, pStart, pEnd);
     const stored = rows.map((r) => ({ ...mapAdjustmentRow(r), mirroredDuplicateOf: r.mirrored_duplicate_of ? String(r.mirrored_duplicate_of) : null,
-      mirrorStands: typeof r.mirror_stands === 'boolean' ? r.mirror_stands : null, mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared) }));
+      mirrorStands: typeof r.mirror_stands === 'boolean' ? r.mirror_stands : null, mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared),
+      pairCutover: r.pair_cutover ? String(r.pair_cutover) : null }));
     // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
     // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
     const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd, dropped) : [];

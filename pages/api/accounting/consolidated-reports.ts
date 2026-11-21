@@ -71,7 +71,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
     if (err instanceof EliminationPossibleDuplicateError) {
-      return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorStands: err.mirrorStands });
+      return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorStands: err.mirrorStands, pairCutover: err.pairCutover });
     }
     throw err;
   }

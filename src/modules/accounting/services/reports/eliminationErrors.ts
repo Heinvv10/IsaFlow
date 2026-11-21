@@ -42,15 +42,22 @@ export class EliminationAlreadyStandsError extends Error {
  * not approved, or reversed), this may be the sale's only elimination. Either way the person confirms to post it.
  */
 export class EliminationPossibleDuplicateError extends Error {
-  constructor(readonly adjustmentId: string, readonly mirroredRef: string, readonly mirrorStands: boolean) {
-    super(possibleDuplicateMessage(mirroredRef, mirrorStands));
+  constructor(readonly adjustmentId: string, readonly mirroredRef: string, readonly mirrorStands: boolean, readonly pairCutover: string | null = null) {
+    super(possibleDuplicateMessage(mirroredRef, mirrorStands, pairCutover));
     this.name = 'EliminationPossibleDuplicateError';
   }
 }
 
-/** The one wording of a possible duplicate (the 409 and the page's confirm both use it). */
-export function possibleDuplicateMessage(mirroredRef: string, mirrorStands: boolean): string {
-  return mirrorStands
-    ? `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`
-    : `Possibly the same sale as mirrored document ${mirroredRef}, which is NOT eliminated automatically at the moment (booked by the receiver in another financial year, not approved yet, or reversed): this may be the sale's only elimination. If the receiver books it in the same financial year later, the two would eliminate it twice. Confirm to post it.`;
+/**
+ * The one wording of a possible duplicate (the 409 and the page's confirm both use it). `pairCutover`: the row is on or after its pair's
+ * cutover, so the generator drafted it because that mirror does not account for it (it accounts for a closer row, or none stands).
+ */
+export function possibleDuplicateMessage(mirroredRef: string, mirrorStands: boolean, pairCutover: string | null = null): string {
+  if (!mirrorStands) {
+    return `Possibly the same sale as mirrored document ${mirroredRef}, which is NOT eliminated automatically at the moment (booked by the receiver in another financial year, not approved yet, or reversed): this may be the sale's only elimination. If the receiver books it in the same financial year later, the two would eliminate it twice. Confirm to post it.`;
+  }
+  if (pairCutover) {
+    return `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically; the pair mirrors from ${pairCutover}, and this row was drafted because that mirror accounts for another row or is not its closest match. If it is the same sale, posting this would eliminate it twice. Confirm to post it.`;
+  }
+  return `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`;
 }

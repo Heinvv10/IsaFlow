@@ -21,13 +21,14 @@ import { DateField } from '@/components/ui/DateField';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 interface EntityGroup { id: string; name: string; }
-interface PossibleDuplicate { id: string; ref: string; stands: boolean }
+interface PossibleDuplicate { id: string; ref: string; stands: boolean; cutover: string | null }
 const NO_NOTES = { flagged: [] as FlaggedRow[], skipped: [] as SkippedRow[] };
 
 /** The possible duplicate a 409 body names (a post refused because the list was stale: the mirror was accepted after it loaded), or null. */
 function possibleDuplicateIn(body: unknown, id: string): PossibleDuplicate | null {
-  const d = (body as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown } } } | null)?.error?.details;
-  return d?.reason === 'possible_duplicate' && typeof d.mirroredRef === 'string' ? { id, ref: d.mirroredRef, stands: d.mirrorStands === true } : null;
+  const d = (body as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown; pairCutover?: unknown } } } | null)?.error?.details;
+  return d?.reason === 'possible_duplicate' && typeof d.mirroredRef === 'string'
+    ? { id, ref: d.mirroredRef, stands: d.mirrorStands === true, cutover: typeof d.pairCutover === 'string' ? d.pairCutover : null } : null;
 }
 
 export default function EliminationsPage() {
@@ -118,7 +119,9 @@ export default function EliminationsPage() {
     postAction(id, { action: 'post-elimination', adjustmentId: id, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }, 'Could not post the elimination - try again');
   const handlePost = (id: string) => {
     const item = items.find((i) => i.id === id);
-    if (item?.mirroredDuplicateOf) { setConfirmPost({ id, ref: item.mirroredDuplicateOf, stands: item.mirrorStands === true }); return; }
+    if (item?.mirroredDuplicateOf) {
+      setConfirmPost({ id, ref: item.mirroredDuplicateOf, stands: item.mirrorStands === true, cutover: item.pairCutover ?? null }); return;
+    }
     return post(id, false);
   };
 
@@ -184,8 +187,8 @@ export default function EliminationsPage() {
         <ConfirmDialog
           open={confirmPost !== null}
           title="Post a possible duplicate?"
-          message={confirmPost ? possibleDuplicateMessage(confirmPost.ref, confirmPost.stands) : ''}
-          confirmLabel={confirmPost?.stands ? 'Post anyway' : 'Post'} confirmTone={confirmPost?.stands ? 'danger' : 'primary'}
+          message={confirmPost ? possibleDuplicateMessage(confirmPost.ref, confirmPost.stands, confirmPost.cutover) : ''}
+          confirmLabel={confirmPost?.stands && !confirmPost.cutover ? 'Post anyway' : 'Post'} confirmTone={confirmPost?.stands && !confirmPost.cutover ? 'danger' : 'primary'}
           onConfirm={() => { const id = confirmPost?.id; setConfirmPost(null); if (id) void post(id, true); }}
           onCancel={() => setConfirmPost(null)}
         />

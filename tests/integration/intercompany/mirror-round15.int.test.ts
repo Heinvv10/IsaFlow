@@ -9,6 +9,7 @@ import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { createIntercompanyTransaction, matchIntercompanyTransactions } from '../../../src/modules/accounting/services/reports/intercompanyService';
 import { autoGenerateEliminations, type FlaggedEliminationRow, type SkippedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
 import { getPairCutovers } from '../../../src/modules/accounting/services/reports/eliminationDuplicates';
+import { getEliminationAdjustments, postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asService, co, inbox, sentInvoice, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
 import { asAppUser, party, withoutTrigger } from './intercompany.helpers';
@@ -123,6 +124,11 @@ describe('the mirror goes to the row it belongs to', () => {
     await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = ANY($1)", [[early.id, exact.id]]);
     const g = await gen();
     expect([g.skipped, g.drafted.includes(early.id)]).toEqual([[exact.id], true]);
+    // the drafted row's warning and its post refusal say why it was drafted (the mirror accounts for another row), never just "twice"
+    const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', '2026-03-31'))).find((a) => a.sourceIntercompanyId === early.id)!;
+    expect([row.mirrorStands, row.pairCutover]).toEqual([true, '2026-03-01']);
+    const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G)).then(() => '', (e: Error) => e.message);
+    expect(refused).toMatch(/the pair mirrors from 2026-03-01, and this row was drafted because that mirror accounts for another row or is not its closest match/);
   });
 });
 

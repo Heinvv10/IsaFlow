@@ -45,6 +45,8 @@ export interface EliminationAdjustment {
   mirrorStands?: boolean;
   /** How many listed adjustments point at the same mirror (more than one: at most one of them can be its duplicate). */
   mirrorShared?: number;
+  /** On or after its pair's mirroring cutover: the cutover date (the row was drafted because no standing mirror was left to it). */
+  pairCutover?: string;
   /** Why it was made by hand (required on or after a mirroring cutover). */
   manualReason?: string;
 }
@@ -90,6 +92,7 @@ export function toEliminationRow(raw: unknown): EliminationAdjustment {
     mirroredDuplicateOf: typeof r.mirroredDuplicateOf === 'string' && r.mirroredDuplicateOf ? r.mirroredDuplicateOf : undefined,
     mirrorStands: r.mirrorStands === true,
     mirrorShared: typeof r.mirrorShared === 'number' ? r.mirrorShared : undefined,
+    pairCutover: typeof r.pairCutover === 'string' && r.pairCutover ? r.pairCutover : undefined,
     manualReason: typeof r.manualReason === 'string' && r.manualReason ? r.manualReason : undefined,
   };
 }
