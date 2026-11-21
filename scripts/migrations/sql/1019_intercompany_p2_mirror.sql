@@ -1540,7 +1540,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_pair_cutovers(uuid) TO app_user, a
 -- the row's elimination does (a purchase in reverse), its subtotal or total (signed) the row's amount, its date in the same calendar month as
 -- or within 7 days of the row's by the sender's or the receiver's document date, its message accepted with a target document. A CANCELLED
 -- sender (source_cancelled_at) is NOT left out: whether it eliminates anything is judged as at a period (intercompany_mirror_stands), never by
--- the stamp, which is today's state. Named by description, else a plain label (never an id). SECURITY INVOKER, migration_admin only: the
+-- the stamp, which is today's state. Named by description, else '(no description)', never an id. SECURITY INVOKER, migration_admin only: the
 -- duplicate flag and the link function call it after their own membership checks.
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_candidates(p_row uuid)
 RETURNS TABLE (mirror_row uuid, mirror_ref text, rank bigint)
@@ -1557,7 +1557,7 @@ AS $$
      WHERE r.id = p_row AND r.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
        AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = r.id)
   ), m AS (
-    SELECT o.id, COALESCE(NULLIF(btrim(o.description), ''), 'an unnamed mirrored document') AS ref, o.amount AS sub,
+    SELECT o.id, COALESCE(NULLIF(btrim(o.description), ''), '(no description)') AS ref, o.amount AS sub,
            sign(o.amount) * (x.payload->>'total')::numeric AS tot, o.transaction_date AS od, o.created_at,
            COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE x.target_doc_type = 'supplier_invoice' AND si.id = x.target_doc_id),
                     (SELECT cn.credit_date FROM public.credit_notes cn WHERE x.target_doc_type = 'credit_note' AND cn.id = x.target_doc_id)) AS bd
@@ -1760,7 +1760,7 @@ BEGIN
   v_role := CASE WHEN r.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END;
   v_asat := LEAST(GREATEST(COALESCE(p_asat, CURRENT_DATE), r.td), CURRENT_DATE);
 
-  SELECT l.id, l.mirror_row AS mid, COALESCE(NULLIF(btrim(o.description), ''), 'an unnamed mirrored document') AS ref INTO k
+  SELECT l.id, l.mirror_row AS mid, COALESCE(NULLIF(btrim(o.description), ''), '(no description)') AS ref INTO k
     FROM public.intercompany_mirror_links l JOIN public.intercompany_transactions o ON o.id = l.mirror_row
    WHERE l.row_id = p_row AND l.released_at IS NULL;
   IF FOUND THEN

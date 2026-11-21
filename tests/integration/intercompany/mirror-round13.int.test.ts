@@ -5,7 +5,7 @@
  *  R12-M2  a draft generated while the mirror was pending carries the warning once the mirror is accepted, and posting it is refused with
  *          the mirror named unless the person confirms;
  *  R12-L1  a posted one is told whether the mirror is eliminated automatically (its pair stands), never told to reverse the only elimination;
- *  a mirror with no description is named by its id.
+ *  a mirror with no description is named by a plain label (round 17), never by its id.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -81,7 +81,7 @@ describe('R12-M1: the flag is wide', () => {
     await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
       'UPDATE intercompany_transactions SET description = NULL WHERE id = $1', [row]));
     const r = await manualSale(1000, '2026-01-15');
-    expect((await dup(r.id))[0]?.mirror_ref).toBe('an unnamed mirrored document');
+    expect((await dup(r.id))[0]?.mirror_ref).toBe('(no description)');
   });
 });
 
