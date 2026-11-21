@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import recurring from '../../pages/api/accounting/recurring-transactions';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
+import uifRoute from '../../pages/api/payroll/uif/[id]';
 import { rig, type Route } from './brkr.helpers';
 
 let r: Awaited<ReturnType<typeof rig>>;
@@ -26,6 +27,7 @@ beforeAll(async () => {
 }, 90000);
 afterAll(async () => {
   await r.pool.query('DELETE FROM recurring_transaction_templates WHERE company_id = $1', [r.company]).catch(() => undefined);
+  await r.pool.query('DELETE FROM uif_declarations WHERE company_id = $1', [r.company]).catch(() => undefined);
   await r.pool.query('DELETE FROM company_user_permissions WHERE company_id = $1', [r.company]).catch(() => undefined);
   if (seededModule) await r.pool.query("DELETE FROM permission_modules WHERE module_key = 'suppliers'").catch(() => undefined);
   await r.teardown();
@@ -95,4 +97,21 @@ describe('L5: a pay_run raise serialises with a member write on the approver loc
     expect((await r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
       { user: r.admin, body: { action: 'reject', requestId: request.id, expectedDigest: request.documentDigest } })).statusCode).toBe(200);
   }, 90000);
+});
+
+describe('r12 M2: a UIF declaration is marked submitted only from draft', () => {
+  it('a PAID declaration is refused 409 and stays paid (the flip back re-armed markPaid); a draft is marked submitted once', async () => {
+    const [paid, draft] = [crypto.randomUUID(), crypto.randomUUID()];
+    await r.pool.query(`INSERT INTO uif_declarations (id, company_id, period_year, period_month, status)
+      VALUES ($1, $3, 2026, 3, 'paid'), ($2, $3, 2026, 4, 'draft')`, [paid, draft, r.company]);
+    const mark = (id: string) => r.call(uifRoute as Route, 'PATCH', `/api/payroll/uif/${id}`, id, { body: { markSubmitted: true } });
+    const refused = await mark(paid);
+    expect(refused.statusCode).toBe(409);
+    expect(r.msg(refused)).toMatch(/Only a draft UIF declaration can be marked submitted \(current: paid\)/);
+    const status = async (id: string) => (await r.pool.query('SELECT status FROM uif_declarations WHERE id = $1', [id])).rows[0]?.status;
+    expect(await status(paid)).toBe('paid');
+    expect((await mark(draft)).statusCode).toBe(200);
+    expect(await status(draft)).toBe('submitted');
+    expect((await mark(draft)).statusCode).toBe(409); // not twice
+  }, 60000);
 });

@@ -100,7 +100,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/uifDeclarationService.ts`]: {
     93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
     233: 'status, submitted_by, updated_at',
-    273: 'submitted_by = ${submittedByUserId},',
+    286: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     49: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',

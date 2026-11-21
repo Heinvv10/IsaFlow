@@ -27,6 +27,7 @@ import {
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -44,7 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (op === 'poll') return apiResponse.success(res, await pollVAT201Status(companyId, submissionId, userId));
     // Filing a VAT201 takes VAT & Tax Approve (Hein's gate-everything ruling, 2026-11-21), before the submission is read.
-    if (await refuseWithoutApprove(res, companyId, userId, 'vat', 'VAT201 returns')) return;
+    if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('VAT201'), 'VAT201 returns')) return;
     return apiResponse.success(res, await submitVAT201ToSars(companyId, submissionId, userId));
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;

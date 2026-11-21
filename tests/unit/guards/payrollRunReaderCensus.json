@@ -557,7 +557,8 @@
    {"line":225,"text":"INSERT INTO uif_declarations (","class":"S","owner":"FQb2/EF","why":"declaration upsert per month from the month sum"},
    {"line":242,"text":"WHEN uif_declarations.status = 'draft' THEN 'draft'","class":"S","owner":"FQb2/EF","why":"same upsert"},
    {"line":243,"text":"ELSE uif_declarations.status","class":"S","owner":"FQb2/EF","why":"same upsert"},
-   {"line":266,"text":"UPDATE uif_declarations SET","class":"S","owner":"FQb2/EF","why":"write by id"}
+   {"line":266,"text":"UPDATE uif_declarations SET","class":"S","owner":"FQb2/EF","why":"write by id"},
+   {"line":293,"text":"SELECT status FROM uif_declarations WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb2/EF","why":"read by id: the status a refused mark-submitted names (#1670 r12 M2)"}
   ],
   "src/modules/accounting/services/payroll/uifPaymentService.ts": [
    {"line":50,"text":"SELECT * FROM uif_declarations","class":"S","owner":"FQb1","why":"declaration by id"},

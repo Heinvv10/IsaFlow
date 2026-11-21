@@ -261,6 +261,19 @@ export async function generateUifDeclaration(
   return { ...mapUifDeclaration(upsertRows[0]), runWarnings: await uifRunWarnings(companyId, year, month) };
 }
 
+/** A declaration that is not a draft any more (submitted, accepted or paid) is not marked submitted again. Routes answer 409. */
+export class UifDeclarationNotDraftError extends Error {
+  readonly code = 'UIF_DECLARATION_NOT_DRAFT';
+  constructor(readonly status: string) {
+    super(`Only a draft UIF declaration can be marked submitted (current: ${status})`);
+    this.name = 'UifDeclarationNotDraftError';
+  }
+}
+
+/**
+ * Draft -> submitted only (#1670 breaker M2): flipping a PAID declaration back to submitted re-armed markUifDeclarationPaid, so
+ * the same declaration could be paid (and its journal posted) twice. null when this company has no such declaration.
+ */
 export async function markUifSubmitted(
   companyId: string,
   id: string,
@@ -272,10 +285,16 @@ export async function markUifSubmitted(
       submitted_at = NOW(),
       submitted_by = ${submittedByUserId},
       updated_at   = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
     RETURNING *
   `) as Row[];
-  if (rows.length === 0 || !rows[0]) return null;
+  if (rows.length === 0 || !rows[0]) {
+    const current = (await sql`
+      SELECT status FROM uif_declarations WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    `) as Row[];
+    if (current[0]) throw new UifDeclarationNotDraftError(String(current[0].status));
+    return null;
+  }
   log.info('UIF declaration marked submitted', { companyId, id }, 'uifDeclarationService');
   return mapUifDeclaration(rows[0]);
 }

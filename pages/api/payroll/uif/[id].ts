@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getUifDeclaration,
   markUifSubmitted,
+  UifDeclarationNotDraftError,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
@@ -67,9 +68,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }
 
     if (body.markSubmitted === true) {
-      const updated = await markUifSubmitted(companyId, id, user.id);
-      if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
-      return apiResponse.success(res, updated);
+      // Filing the declaration with the Department of Labour takes Payroll Approve (#1670 breaker M2), before any write.
+      if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'UIF declarations')) return;
+      try {
+        const updated = await markUifSubmitted(companyId, id, user.id);
+        if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
+        return apiResponse.success(res, updated);
+      } catch (err) {
+        if (err instanceof UifDeclarationNotDraftError) return apiResponse.conflict(res, err.message);
+        throw err;
+      }
     }
 
     return apiResponse.badRequest(res, 'unknown patch operation — send markSubmitted or markPaid');
