@@ -349,7 +349,7 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       off_cycle_payday_at = (${sastToday})::timestamp AT TIME ZONE 'Africa/Johannesburg' WHERE id = $1`, [id]);
     await flip('calculated'); // reopened after payday: the paid R200 is the ceiling, not the pre-payday R100 (not LEAST)
     expect(await snap()).toEqual({ [emp]: 200 });
-    const header = (await a.pool.query('SELECT run_kind, run_date, off_cycle_paid_gross, approval_history FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
+    const header = (await a.pool.query('SELECT run_kind, run_date, off_cycle_paid_gross, approval_history, off_cycle_payday_at FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
     const today = String((await a.pool.query(`SELECT ${sastToday}::text AS d`)).rows[0].d);
     expect(offCycleRaiseRefusal(header, emp, 180, today)).toBeNull();
     expect(offCycleRaiseRefusal(header, emp, 250, today)).toMatch(/can't be raised after the pay date/);
