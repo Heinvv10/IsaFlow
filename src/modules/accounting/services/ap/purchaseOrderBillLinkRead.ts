@@ -10,7 +10,8 @@ import type { DbRow } from '@/lib/neon';
 import { lockExternalRef } from '../core/externalRefService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
-import { postedExpenseLines } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents, postedExpenseLines } from '../budgets/remainingCommitted';
+import { billTies } from '../budgets/billAttribution';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import type { BillFacts, BillLineFacts, ExistingLink, LinkRequest, PoFacts } from './purchaseOrderBillLinkTypes';
@@ -22,6 +23,8 @@ export interface LinkFacts {
   poItemOwner: Map<string, string>;
   existing: ExistingLink[];
   refOwners: Map<string, ExistingLink>;
+  unlinkedBilled: Map<string, Array<{ billId: string; cents: number }>>;
+  heldByHeader: Map<string, Array<{ poId: string; poNumber: string; status: string; cents: number }>>;
 }
 
 const low = (v: unknown) => String(v).toLowerCase();
@@ -29,14 +32,13 @@ const low = (v: unknown) => String(v).toLowerCase();
 export function existingLinkOf(r: DbRow): ExistingLink {
   return {
     id: low(r.id), poId: low(r.purchase_order_id), billId: low(r.supplier_invoice_id),
-    billStatus: r.bill_deleted === true ? 'deleted' : String(r.bill_status), amountCents: toCents(Number(r.amount)),
+    billStatus: r.bill_deleted === true ? 'deleted' : String(r.bill_status), amountCents: toCents(Number(r.amount)), storedAmountCents: toCents(Number(r.amount)),
     refSystem: r.external_system == null ? null : String(r.external_system),
-    refRef: r.external_ref == null ? null : String(r.external_ref), closedFrom: r.closed_po_from_status == null ? null : String(r.closed_po_from_status),
+    refRef: r.external_ref == null ? null : String(r.external_ref),
   };
 }
 
-export const LINK_SELECT_COLUMNS = `l.id, l.purchase_order_id, l.supplier_invoice_id, l.amount, l.external_system, l.external_ref,
-  l.closed_po_from_status`;
+export const LINK_SELECT_COLUMNS = `l.id, l.purchase_order_id, l.supplier_invoice_id, l.amount, l.external_system, l.external_ref`;
 
 /** Resolve each request's PO (po_id or po_number, this company's only), without a lock. */
 async function resolvePos(companyId: string, requests: readonly LinkRequest[]): Promise<Map<number, string>> {
@@ -65,11 +67,19 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   const poIds = [...new Set(resolvedPo.values())].sort();
   const billIds = [...new Set(requests.map((r) => r.billId))].sort();
   const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
+  // The POs the call's bills name in their header are locked WITH the call's POs, in the one sorted list, before any bill (review
+  // r5 H1 / L3): a link may take a header residual from such a PO, so its status and billing must hold under the decision.
+  const headerIds = ((await sql`
+    SELECT DISTINCT si.purchase_order_id::TEXT AS po FROM supplier_invoices si
+     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${billIds}::UUID[]) AND si.purchase_order_id IS NOT NULL
+  `) as DbRow[]).map((r) => low(r.po));
+  const lockPoIds = [...new Set([...poIds, ...headerIds])].sort();
 
-  const poRows = await withRowLockBudget(async () => (await sql`
+  const lockedPos = await withRowLockBudget(async () => (await sql`
     SELECT id::TEXT AS id, po_number, status, supplier_id::TEXT AS supplier_id, subtotal FROM purchase_orders
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${poIds}::UUID[]) ORDER BY id FOR NO KEY UPDATE
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${lockPoIds}::UUID[]) ORDER BY id FOR NO KEY UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
+  const poRows = lockedPos.filter((r) => poIds.includes(low(r.id)));
   // FOR NO KEY UPDATE, not FOR UPDATE: it still excludes another link / unlink call and a PO cancel / approve / goods receipt
   // (FOR UPDATE), but not the KEY SHARE a draft edit's link insert takes on the PO through the FK, which a draft edit holding
   // its bill row would otherwise wait on while this call waits for that bill (a deadlock; review round 2, M1).
@@ -134,14 +144,48 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     `) as DbRow[];
     for (const r of owned) refOwners.set(`${r.external_system}\u0000${r.external_ref}`, existingLinkOf(r));
   }
+  // One attribution (budgets/billAttribution, PR #1703 isaflow-c8): a link whose bill's lines name its PO holds the lines' posted
+  // amount, whatever amount it stored (a link written with an explicit amount beside lines before the planner checked them).
+  const existing = links.map(existingLinkOf);
+  const linkPos = [...new Set(existing.map((l) => l.poId))];
+  const ties = await billTies(companyId, [...new Set([...linkPos, ...poIds])], { statuses: null });
+  const byLines = new Map(ties.filter((t) => t.via === 'lines').map((t) => [`${t.billId}|${t.poId}`, t.cents]));
+  for (const l of existing) { const c = byLines.get(`${l.billId}|${l.poId}`); if (c !== undefined) l.amountCents = c; }
+  // The billed ties of the call's POs with NO link row (by header, or by lines saved while the PO was not linkable; review r3 M2):
+  // billed counts them as get_purchase_order does, so the close decision and its dry run agree with it.
+  const pairLinked = new Set(existing.map((l) => `${l.billId}|${l.poId}`));
+  const unlinkedBilled = new Map<string, Array<{ billId: string; cents: number }>>();
+  for (const t of ties) {
+    if (t.via === 'link' || pairLinked.has(`${t.billId}|${t.poId}`) || t.deleted || !(BILLED_STATUSES as readonly string[]).includes(t.status)
+      || !poIds.includes(t.poId)) continue;
+    unlinkedBilled.set(t.poId, [...(unlinkedBilled.get(t.poId) ?? []), { billId: t.billId, cents: t.cents }]);
+  }
+  // The POs the call's bills tie only by their header, and what each holds there (breaker R3-4).
+  const headerPos = [...new Set(billRows.map((b) => (b.purchase_order_id == null ? null : low(b.purchase_order_id))).filter((v): v is string => !!v))];
+  const heldByHeader = new Map<string, Array<{ poId: string; poNumber: string; status: string; cents: number }>>();
+  if (headerPos.length > 0) {
+    // Locked above; a header changed between that read and the bill lock names a PO read here unlocked (its status as it is now).
+    const headerPo = new Map(((await sql`
+      SELECT id::TEXT AS id, po_number, status FROM purchase_orders WHERE company_id = ${companyId}::UUID AND id = ANY(${headerPos}::UUID[])
+    `) as DbRow[]).map((r) => [low(r.id), { poNumber: String(r.po_number), status: String(r.status) }]));
+    for (const t of await billTies(companyId, headerPos, { statuses: null })) {
+      if (t.via !== 'header' || !billIds.includes(t.billId)) continue;
+      const h = headerPo.get(t.poId);
+      heldByHeader.set(t.billId, [...(heldByHeader.get(t.billId) ?? []), { poId: t.poId, poNumber: h?.poNumber ?? t.poId, status: h?.status ?? 'unknown', cents: t.cents }]);
+    }
+  }
+  // Fully billed against max(header subtotal, lines' total), as 1022 closes on (review r7 M2).
+  const basis = await poBillingBasisCents(companyId, poRows.map((r) => low(r.id)));
   return {
     resolvedPo,
     pos: new Map(poRows.map((r) => [low(r.id), {
-      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: toCents(Number(r.subtotal)),
+      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: basis.get(low(r.id)) ?? toCents(Number(r.subtotal)),
     }])),
     bills,
     poItemOwner: new Map(owners.map((r) => [low(r.id), low(r.po)])),
-    existing: links.map(existingLinkOf),
+    existing,
     refOwners,
+    unlinkedBilled,
+    heldByHeader,
   };
 }

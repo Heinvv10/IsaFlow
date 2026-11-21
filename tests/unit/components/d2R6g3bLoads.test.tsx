@@ -23,7 +23,6 @@ vi.mock('@/components/accounting/CashFlowForecastChart', () => ({
 import { apiFetch } from '@/lib/apiFetch';
 import ConnectedApps from '../../../pages/accounting/settings/connected-apps';
 import OauthApps from '../../../pages/developer/oauth-apps';
-import PurchaseOrders from '../../../pages/accounting/supplier-purchase-orders/index';
 import Dedup from '../../../pages/accounting/suppliers/dedup';
 import Emp501 from '../../../pages/payroll/emp501/index';
 import Eea2 from '../../../pages/payroll/equity/eea2';
@@ -77,22 +76,6 @@ describe('developer oauth apps', () => {
     answer(() => bad400()); render(<OauthApps />); expect(await screen.findByText(MSG)).toBeTruthy(); cleanup();
     answer(() => empty500()); render(<OauthApps />);
     expect(await screen.findByText('Could not load your apps - try again')).toBeTruthy(); noRaw();
-  });
-});
-
-describe('supplier purchase orders list', () => {
-  const PO = { id: 'o1', order_number: 'PO-D2-001', supplier_name: 'D2 Supplies', order_date: '2026-01-01', delivery_date: null, total_amount: 10, status: 'draft' };
-  it('a failed reload clears the rows and says why', async () => {
-    let n = 0;
-    answer(() => (++n === 1 ? ok({ orders: [PO], total: 1 }) : empty500()));
-    render(<PurchaseOrders />);
-    await screen.findByText('PO-D2-001');
-    fireEvent.click(screen.getByRole('button', { name: /sent/i }));
-    expect(await screen.findByText('Could not load purchase orders - try again')).toBeTruthy();
-    expect(screen.queryByText('PO-D2-001')).toBeNull(); noRaw();
-  });
-  it('load 400 shows the server message', async () => {
-    answer(() => bad400()); render(<PurchaseOrders />); expect(await screen.findByText(MSG)).toBeTruthy();
   });
 });
 

@@ -7,14 +7,18 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { previewPurchaseOrderBudget } from './purchaseOrderBudget';
 
-export async function unlinkBudgetWarnings(companyId: string, poId: string, poNumber: string, figures: boolean): Promise<string[]> {
+export async function unlinkBudgetWarnings(companyId: string, poId: string, poNumber: string, figures: boolean, lead = 'Unlinked.'): Promise<string[]> {
   const preview = await previewPurchaseOrderBudget(companyId, poId);
   if (!preview || !preview.checks) return [];
   return preview.lines.filter((l) => l.over || l.offSlice).map((l) => {
     const where = [l.accountLabel, l.sliceLabel, l.month].filter((s) => s !== '').join(' · ');
     const by = l.over && figures && l.remaining !== null ? ` by ${formatMoney(Math.max(0, l.amount - l.remaining))}` : '';
     return l.offSlice
-      ? `Unlinked. Purchase order ${poNumber} commits spend again outside the budgeted slices (${where}).`
-      : `Unlinked. Purchase order ${poNumber} commits spend again and is now over budget on ${where}${by}.`;
+      ? `${lead} Purchase order ${poNumber} commits spend again outside the budgeted slices (${where}).`
+      : `${lead} Purchase order ${poNumber} commits spend again and is now over budget on ${where}${by}.`;
   });
 }
+
+/** The same read for the PO a link took header rands from (PR #1703 breaker R4-4): its committed rose. */
+export const linkHeaderBudgetWarnings = (companyId: string, poId: string, poNumber: string, figures: boolean): Promise<string[]> =>
+  unlinkBudgetWarnings(companyId, poId, poNumber, figures, 'Linked.');

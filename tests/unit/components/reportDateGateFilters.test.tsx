@@ -54,13 +54,13 @@ describe.each([
     body: 'a@example.com', path: 'reports/customer-communication', dateParam: 'to' },
   { file: 'journal-entries', date: 'To', control: select, value: 'posted', param: 'status=posted',
     body: 'J1', path: 'reports-journal-entries', dateParam: 'date_to' },
-  { file: 'supplier-pos', date: 'To', control: select, value: 'sent', param: 'status=sent',
+  { file: 'supplier-pos', date: 'To', control: select, value: 'submitted', param: 'status=submitted',
     body: 'Supplier Total', path: 'reports-supplier-pos', dateParam: 'date_to' },
 ])('$file', ({ file, date, control, value, param, body, path, dateParam }) => {
   const openWithFilter = async () => {
     await open(file);
     await waitFor(() => expect(control()).toBeTruthy());
-    await screen.findAllByRole('option', { name: /One|Savings|Failed|Posted|Sent/ });
+    await screen.findAllByRole('option', { name: /One|Savings|Failed|Posted|Sent|Submitted/ });
     await screen.findByText(body);
     const field = textbox(date);
     const refuse = async () => { typeDate(field, 'zz'); await screen.findByText(NOTICE); };
@@ -136,12 +136,12 @@ describe.each([
     late: (d: { records: object[] }) => ({ ...d, records: [{ ...d.records[0], email: 'late@example.com' }] }), lateText: /late@example/ },
   { file: 'journal-entries', value: 'posted', param: 'status=posted', body: 'J1',
     late: (d: { entries: object[] }) => ({ ...d, entries: [{ ...d.entries[0], entryNumber: 'LATE' }] }), lateText: /LATE/ },
-  { file: 'supplier-pos', value: 'sent', param: 'status=sent', body: 'Supplier Total',
+  { file: 'supplier-pos', value: 'submitted', param: 'status=submitted', body: 'Supplier Total',
     late: (d: { suppliers: object[] }) => ({ ...d, suppliers: [{ ...d.suppliers[0], supplierName: 'LATE' }] }), lateText: /LATE/ },
 ] as const)('$file: an old response', ({ file, value, param, body, late, lateText }) => {
   it('does not replace the report of the selection that followed it', async () => {
     await open(file);
-    await screen.findAllByRole('option', { name: /Savings|Failed|Posted|Sent|One/ });
+    await screen.findAllByRole('option', { name: /Savings|Failed|Posted|Sent|Submitted|One/ });
     await screen.findByText(body);
     const original = select().value;
     let release: () => void = () => undefined;

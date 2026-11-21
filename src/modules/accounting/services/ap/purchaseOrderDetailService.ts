@@ -9,9 +9,11 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { toCents } from '../budgets/grid/cents';
-import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
+import { billTies } from '../budgets/billAttribution';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { isClosedUnderBilled } from './purchaseOrderBillingClose';
 
 /** Caps and text limits sized so the widest reply (`poBillLinkTools.test.ts`) stays under MAX_READ_RESULT_BYTES. Lines page by offset. */
 export const DETAIL_CAPS = { lines: 40, bills: 30, grns: 15, grnItems: 5, documents: 15 } as const;
@@ -39,7 +41,7 @@ export interface PurchaseOrderDetail {
   billed_total: number;
   outstanding_to_bill: number;
   fully_billed: boolean;
-  /** Closed by a link call (close_when_fully_billed) and billed is now below the subtotal less 1 c (a bill cancelled or unlinked since). */
+  /** Closed BY BILLING (a link call's close_when_fully_billed, or 1022) and billed is now below the subtotal less 1 c: `purchaseOrderBillingClose.isClosedUnderBilled`. */
   closed_under_billed: boolean;
 }
 
@@ -100,11 +102,11 @@ export async function readPurchaseOrderDetail(
   `) as DbRow[];
 
   const billedCents = (await billedCentsByPo(companyId, [poId])).get(poId.toLowerCase()) ?? 0;
-  const subtotalCents = toCents(Number(head.subtotal ?? 0));
-  const closedByLink = head.status === 'closed' && (((await sql`
-    SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID
-       AND closed_po_from_status IS NOT NULL LIMIT 1
-  `) as DbRow[]).length > 0);
+  // What each tying bill holds on this PO by the one attribution billed_total sums (review r3 L4); linked_amount stays the row's
+  // stored amount, which a link written before the lines check can disagree with.
+  const attributed = new Map((await billTies(companyId, [poId], { statuses: null })).map((t) => [t.billId, t.cents]));
+  // Fully billed / outstanding against max(header subtotal, lines' total), as 1022 closes on (review r7 M2).
+  const subtotalCents = (await poBillingBasisCents(companyId, [poId])).get(poId.toLowerCase()) ?? toCents(Number(head.subtotal ?? 0));
   const counted = (s: unknown) => (BILLED_STATUSES as readonly string[]).includes(String(s));
   return {
     purchase_order: {
@@ -121,6 +123,8 @@ export async function readPurchaseOrderDetail(
     bills: billRows.map((r) => ({
       tie: String(r.tie), deleted: r.deleted === true, link_id: r.link_id == null ? null : String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
       invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: r.amount == null ? 0 : Number(r.amount),
+      // The bill's attribution whether or not it counts (review r4 L5); see counts_as_billed.
+      attributed_amount: rand(attributed.get(String(r.bill_id).toLowerCase()) ?? 0),
       counts_as_billed: counted(r.status) && r.deleted !== true, source: r.source == null ? null : String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
     })),
     bills_total: ties.total,
@@ -141,6 +145,6 @@ export async function readPurchaseOrderDetail(
     billed_total: rand(billedCents),
     outstanding_to_bill: rand(Math.max(0, subtotalCents - billedCents)),
     fully_billed: isFullyBilled(billedCents, subtotalCents),
-    closed_under_billed: closedByLink && !isFullyBilled(billedCents, subtotalCents),
+    closed_under_billed: isClosedUnderBilled({ status: String(head.status), closedByBilling: head.closed_by_billing === true, subtotalCents }, billedCents),
   };
 }

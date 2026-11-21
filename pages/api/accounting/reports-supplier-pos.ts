@@ -1,11 +1,12 @@
 /**
  * Supplier POs by Supplier Report API
  * GET /api/accounting/reports-supplier-pos
- *   ?status=draft|sent|approved|received|cancelled
+ *   ?status=draft|submitted|approved|partially_received|received|closed|cancelled
  *   &date_from=YYYY-MM-DD
  *   &date_to=YYYY-MM-DD
  *
- * Returns purchase orders grouped by supplier with totals.
+ * Returns purchase orders grouped by supplier with totals. Reads the canonical purchase_orders (migration 1022 copied
+ * every supplier_purchase_orders row into it under the same id, with the same figures).
  * Sage Accounting parity: Suppliers > Reports > Purchase Orders by Supplier
  */
 
@@ -61,17 +62,17 @@ async function getSupplierPosReport(
   const rows = await sql`
     SELECT
       po.id,
-      po.order_number,
+      po.po_number,
       po.order_date,
-      po.delivery_date,
+      po.expected_delivery_date,
       po.reference,
       po.status,
-      po.total_amount,
+      po.total,
       po.tax_amount,
       po.subtotal,
       po.supplier_id,
       COALESCE(s.name, 'Unknown Supplier') AS supplier_name
-    FROM supplier_purchase_orders po
+    FROM purchase_orders po
     LEFT JOIN suppliers s
       ON s.id = po.supplier_id
       AND s.company_id = po.company_id
@@ -100,15 +101,15 @@ async function getSupplierPosReport(
     }
 
     const group = supplierMap.get(supplierId)!;
-    const totalAmount = Number(row.total_amount ?? 0);
+    const totalAmount = Number(row.total ?? 0);
 
     group.poCount += 1;
     group.totalValue = Math.round((group.totalValue + totalAmount) * 100) / 100;
     group.pos.push({
       id: String(row.id),
-      orderNumber: String(row.order_number),
+      orderNumber: String(row.po_number),
       orderDate: toDateString(row.order_date as Date | string) ?? '',
-      deliveryDate: toDateString(row.delivery_date as Date | string | null),
+      deliveryDate: toDateString(row.expected_delivery_date as Date | string | null),
       reference: row.reference ? String(row.reference) : null,
       status: String(row.status),
       totalAmount,

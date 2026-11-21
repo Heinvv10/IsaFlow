@@ -23,6 +23,7 @@ import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { mcpPostingOpts } from '../mcpActor';
+import { lockPosClosedByBilling, previewReopenOnBillGone, type ReopenedPo } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'cancel_supplier_invoice';
@@ -43,6 +44,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
     + 'its journal is still a draft; it is approved but has NO approval journal to reverse; no date up '
     + 'to today is outside the locked VAT periods for its VAT-carrying reversal; or it is already cancelled. '
     + 'Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
+    + 'A purchase order that was closed because it was fully billed and that this bill no longer leaves fully billed reopens: reopened_purchase_orders names each, and budget_warnings says it commits spend again; dry_run lists them as would_reopen_purchase_orders. '
     + 'Run with dry_run first: it shows the contra journal it would post and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -65,7 +67,10 @@ export const cancelSupplierInvoiceTool: McpTool = {
     // Planned on the LOCKED row: the cancel below re-locks it (a no-op), so no
     // concurrent payment or approval can move what the plan decided.
     let plan: SupplierInvoiceCancelPlan;
+    let billingClosed: Map<string, number>;
     try {
+      // The bill's POs closed by billing BEFORE the plan locks the bill (PO -> bill, as link / unlink; PR #1703 R4-1).
+      billingClosed = await lockPosClosedByBilling(ctx.companyId, invoiceId);
       plan = await lockAndPlanSupplierInvoiceCancel(ctx.companyId, invoiceId);
     } catch (err) {
       // Reads only: nothing has been written, so a refusal is safe to return.
@@ -76,7 +81,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
       throw err;
     }
 
-    if (args.dry_run === true) return dryRunResult(plan);
+    if (args.dry_run === true) return dryRunResult(plan, await previewReopenOnBillGone(ctx.companyId, invoiceId, billingClosed));
 
     // No catch — see the header.
     const cancelled = await cancelSupplierInvoice(
@@ -101,6 +106,9 @@ export const cancelSupplierInvoiceTool: McpTool = {
       reversal_date: plan.journal?.reversalDate ?? null,
       reversal_date_roll: plan.journal?.vatLockRoll ?? null,
       late_claim_reversal: lateClaimReversal(plan),
+      // A PO the bill no longer leaves fully billed reopens (PR #1703 R4-1, review r5 M1).
+      reopened_purchase_orders: cancelled.reopenedPurchaseOrders.map((r) => ({ purchase_order_id: r.poId, po_number: r.poNumber, reopened_to: r.reopenedTo })),
+      budget_warnings: cancelled.budgetWarnings,
     });
   },
 };
@@ -115,7 +123,7 @@ function lateClaimReversal(plan: SupplierInvoiceCancelPlan) {
 }
 
 /** `wroteNothing` keeps the idempotency key free for the real call. */
-function dryRunResult(plan: SupplierInvoiceCancelPlan) {
+function dryRunResult(plan: SupplierInvoiceCancelPlan, wouldReopen: ReopenedPo[]) {
   const j = plan.journal;
   const result: DryRunResult = {
     dryRun: true,
@@ -142,7 +150,8 @@ function dryRunResult(plan: SupplierInvoiceCancelPlan) {
     truncated: false,
   };
   return {
-    ...ok({ ...result, reversal_date_roll: j?.vatLockRoll ?? null, late_claim_reversal: lateClaimReversal(plan) }),
+    ...ok({ ...result, reversal_date_roll: j?.vatLockRoll ?? null, late_claim_reversal: lateClaimReversal(plan),
+      would_reopen_purchase_orders: wouldReopen.map((r) => ({ purchase_order_id: r.poId, po_number: r.poNumber, reopened_to: r.reopenedTo })) }),
     wroteNothing: true,
   };
 }

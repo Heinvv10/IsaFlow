@@ -40,17 +40,21 @@ const fmt = (n: number) => formatMoney(n);
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
   { value: 'draft', label: 'Draft' },
-  { value: 'sent', label: 'Sent' },
+  { value: 'submitted', label: 'Submitted' },
   { value: 'approved', label: 'Approved' },
+  { value: 'partially_received', label: 'Partially Received' },
   { value: 'received', label: 'Received' },
+  { value: 'closed', label: 'Closed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
 const STATUS_COLOURS: Record<string, string> = {
   draft: 'text-gray-400 bg-gray-400/10',
-  sent: 'text-blue-400 bg-blue-400/10',
+  submitted: 'text-blue-400 bg-blue-400/10',
   approved: 'text-teal-400 bg-teal-400/10',
+  partially_received: 'text-amber-400 bg-amber-400/10',
   received: 'text-green-400 bg-green-400/10',
+  closed: 'text-indigo-400 bg-indigo-400/10',
   cancelled: 'text-red-400 bg-red-400/10',
 };
 
@@ -58,7 +62,7 @@ function statusBadge(status: string) {
   const cls = STATUS_COLOURS[status] ?? 'text-gray-400 bg-gray-400/10';
   return (
     <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium capitalize ${cls}`}>
-      {status}
+      {status.replace(/_/g, ' ')}
     </span>
   );
 }

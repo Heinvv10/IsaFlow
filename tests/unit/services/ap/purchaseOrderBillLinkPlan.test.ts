@@ -14,7 +14,8 @@ const bill = (id: string, over: Partial<BillFacts> = {}): BillFacts => ({
 const req = (index: number, poId: string, billId: string, over: Partial<LinkRequest> = {}): LinkRequest =>
   ({ index, poId, poNumber: null, billId, amountCents: null, lines: [], ref: null, ...over });
 const existing = (over: Partial<ExistingLink> = {}): ExistingLink => ({
-  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null, closedFrom: null, ...over,
+  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null,
+  storedAmountCents: over.amountCents ?? 10000, ...over,
 });
 
 function plan(requests: LinkRequest[], over: Partial<PlanInput> = {}) {
@@ -71,12 +72,27 @@ describe('amount (decision 4)', () => {
     const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 }), req(1, 'p2', 'b1')]);
     expect(amount(r, 1)).toBe(20000);
   });
-  it('lines that post nothing fall back to the subtotal less the other links (decision 4), they do not drop the link', () => {
+  // PR #1703 breaker BRK-C: lines that post nothing used to fall back to the subtotal, a link committed spend never nets (it nets
+  // line-linked POs by their lines). With lines named, the link IS the lines' posted amount: R0 is refused.
+  it('lines that post nothing are refused (the link would be the lines\' amount, R0)', () => {
     const lines = [{ id: 'b1-l1', poItemId: null, poItemPoId: null, postedCents: 0 }];
     const r = plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], {
       bills: new Map([['b1', bill('b1', { lines })]]), existing: [existing({ poId: 'p2', amountCents: 5000 })],
     });
-    expect(amount(r)).toBe(25000);
+    expect(reasons(r)[0]).toMatch(/^0:the bill lines named for purchase order PO-p1 post 0.00/);
+  });
+  // BRK-A: an explicit amount beside lines was taken as given, so the lines netted one figure and the link held another.
+  it('an explicit amount beside lines must be the lines\' posted amount (within a cent), else refused', () => {
+    const named = { lines: [{ poItemId: 'i2', billLineId: 'b1-l2' }] };
+    expect(reasons(plan([req(0, 'p1', 'b1', { ...named, amountCents: 10000 })]))[0])
+      .toBe('0:amount 100.00 is not what the bill lines named for purchase order PO-p1 post (200.00); send that amount, or no amount');
+    expect(amount(plan([req(0, 'p1', 'b1', { ...named, amountCents: 20001 })]))).toBe(20000);
+  });
+  // BRK-B: one rand of a bill is attributed to at most one PO: a PO its lines name holds the lines' amount, whatever its link says.
+  it('another PO the bill\'s lines name holds the lines\' amount, not its (stale) link amount', () => {
+    const lines = [{ id: 'b1-l1', poItemId: 'j1', poItemPoId: 'p2', postedCents: 20000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 10000 }];
+    const r = plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { lines })]]), existing: [existing({ poId: 'p2', amountCents: 5000 })] });
+    expect(amount(r)).toBe(10000);
   });
   it('is refused at or below zero, and past the subtotal by more than a cent', () => {
     expect(reasons(plan([req(0, 'p1', 'b1')], { existing: [existing({ poId: 'p2', amountCents: 30000 })] }))[0]).toContain('give an amount above zero');
@@ -85,11 +101,83 @@ describe('amount (decision 4)', () => {
     const lines = [{ id: 'b1-l1', poItemId: null, poItemPoId: null, postedCents: 0 }];
     expect(reasons(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], {
       bills: new Map([['b1', bill('b1', { lines, subtotalCents: 0 })]]),
-    }))[0]).toContain('is 0.00');
+    }))[0]).toContain('post 0.00');
   });
   it('two links of one bill past its subtotal: the second is refused', () => {
     const r = plan([req(0, 'p1', 'b1', { amountCents: 20000 }), req(1, 'p2', 'b1', { amountCents: 10002 })]);
     expect(reasons(r)).toEqual([expect.stringMatching(/^1:bill B-b1 has 300.00 ex VAT and 200.00 is already linked; 100.02 more would pass it/)]);
+  });
+});
+
+describe('billed counts a bill tied with no link row (by its header, or by its lines) as committed nets it', () => {
+  it('a bill naming the PO only in its header adds its netted amount, unless this call links it', () => {
+    const unlinkedBilled = new Map([['p1', [{ billId: 'b2', cents: 20000 }]]]);
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { unlinkedBilled, closeWhenFullyBilled: true });
+    expect(r.plan!.poAfter.get('p1')).toMatchObject({ billedCents: 30000, fullyBilled: true, statusAfter: 'closed' });
+    const relinked = plan([req(0, 'p1', 'b2', { amountCents: 20000 })], { unlinkedBilled });
+    expect(relinked.plan!.poAfter.get('p1')!.billedCents).toBe(20000);
+  });
+});
+
+describe('a header tie is a residual, never a hold (breaker R4-4, review r4 M1 / L1)', () => {
+  const heldByHeader = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', status: 'approved', cents: 30000 }]]]);
+  const NO_AMOUNT = '0:the bill\'s header names purchase order PO-p2; give an amount or unlink it first';
+  const planned = (r: ReturnType<typeof plan>) => r.plan!.planned.map((x) => [x.poId, x.amountCents, x.takesFromHeader?.cents ?? 0]);
+  it('a link with no amount while another PO holds the header residual is refused, naming that PO', () => {
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader }))).toEqual([NO_AMOUNT]);
+    // With a firm R100 link on p3 the header still holds R200: still refused.
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] }))).toEqual([NO_AMOUNT]);
+  });
+  it('an explicit amount may take from the header residual (it reports what it took), up to the subtotal', () => {
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 20000 })], { heldByHeader }))).toEqual([['p1', 20000, 20000]]);
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 30000 })], { heldByHeader }))).toEqual([['p1', 30000, 30000]]);
+    expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 25000 })], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] })))
+      .toEqual(['0:bill B-b1 has 300.00 ex VAT and 100.00 is already linked; 250.00 more would pass it']);
+  });
+  it('lines win: a link by lines takes what its lines post, from the header residual too', () => {
+    expect(planned(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader }))).toEqual([['p1', 10000, 10000]]);
+  });
+  it('linking the header\'s own PO takes nothing from it', () => {
+    expect(planned(plan([req(0, 'p2', 'b1')], { heldByHeader }))).toEqual([['p2', 30000, 0]]);
+  });
+  it('M1: a split call that links the header\'s own PO is not refused, in either order', () => {
+    expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1', { amountCents: 20000 })], { heldByHeader })))
+      .toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 20000 }), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
+      .toEqual([['p1', 20000, 0], ['p2', 10000, 0]]);
+  });
+  it('review r5 H1: an amount never takes a header residual from a closed or cancelled PO; lines still do', () => {
+    for (const status of ['closed', 'cancelled']) {
+      const shut = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', status, cents: 30000 }]]]);
+      const want = `0:the bill's header names purchase order PO-p2, which is ${status}; unlink it from that purchase order first`;
+      expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { heldByHeader: shut }))).toEqual([want]);
+      expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader: shut }))).toEqual([want]);
+      expect(planned(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader: shut }))).toEqual([['p1', 10000, 10000]]);
+    }
+  });
+  it('breaker B5-2: the close decision nets what the same call takes from the PO\'s header tie', () => {
+    const pos = new Map([['p1', po('p1', { subtotalCents: 30000 })], ['p2', po('p2', { subtotalCents: 30000 })]]);
+    const bills = new Map([['b1', bill('b1')], ['b2', bill('b2', { subtotalCents: 1, lines: [{ id: 'b2-l1', poItemId: null, poItemPoId: null, postedCents: 1 }] })]]);
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 30000 }), req(1, 'p2', 'b2', { amountCents: 1 })], {
+      pos, bills, heldByHeader, closeWhenFullyBilled: true, unlinkedBilled: new Map([['p2', [{ billId: 'b1', cents: 30000 }]]]),
+    });
+    expect(r.plan!.poAfter.get('p2')).toMatchObject({ billedCents: 1, fullyBilled: false, statusAfter: 'approved' });
+  });
+  it('M1, no amount: after the header PO\'s own row the default is what is left; before it, the default takes the whole bill', () => {
+    expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1')], { heldByHeader }))).toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
+    expect(reasons(plan([req(0, 'p1', 'b1'), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
+      .toEqual(['1:bill B-b1 has 300.00 ex VAT and 300.00 is already linked; 100.00 more would pass it']);
+  });
+});
+
+describe('a replay compares the STORED amount (review r3 L1)', () => {
+  it('a link stored before the lines check (R100 beside R200 of lines) re-sent identically is already_existed', () => {
+    const lines = [{ id: 'b1-l1', poItemId: 'i1', poItemPoId: 'p1', postedCents: 20000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 10000 }];
+    const e = existing({ amountCents: 20000, storedAmountCents: 10000, refSystem: 'sage', refRef: 'OLD-1' });
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 10000, lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }], ref: { system: 'sage', ref: 'OLD-1' } })],
+      { bills: new Map([['b1', bill('b1', { lines })]]), existing: [e], refOwners: new Map([['sage\u0000OLD-1', e]]) });
+    expect(r.refusals).toEqual([]);
+    expect(r.plan!.planned[0]).toMatchObject({ existing: e, amountCents: 20000 });
   });
 });
 
@@ -143,7 +231,7 @@ describe('line links (decision 2)', () => {
   it('a PO line of another PO, a line of another bill, one named twice: refused', () => {
     expect(reasons(plan([req(0, 'p1', 'b1', { lines: [line('j1', 'b1-l1')] })]))[0]).toContain('purchase order line j1 is not a line of purchase order PO-p1');
     expect(reasons(plan([req(0, 'p1', 'b1', { lines: [line('i1', 'b2-l1')] })]))[0]).toContain('is not a line of bill B-b1');
-    const r = plan([req(0, 'p1', 'b1', { lines: [line('i1', 'b1-l1')], amountCents: 100 }), req(1, 'p2', 'b1', { lines: [line('j1', 'b1-l1')], amountCents: 100 })]);
+    const r = plan([req(0, 'p1', 'b1', { lines: [line('i1', 'b1-l1')], amountCents: 10000 }), req(1, 'p2', 'b1', { lines: [line('j1', 'b1-l1')], amountCents: 100 })]);
     expect(reasons(r)).toEqual(['1:bill line b1-l1 is also named by links[0]']);
   });
   it('a bill line already naming ANOTHER PO line is refused; naming the same one is fine and not rewritten', () => {

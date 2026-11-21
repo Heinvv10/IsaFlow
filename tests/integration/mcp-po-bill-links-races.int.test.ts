@@ -216,9 +216,11 @@ describe('races', () => {
         expect(new Set(links.map((l) => l.bill)).size, 'a pair is linked once').toBe(links.length);
         const status = await poStatus(pool, po.po);
         expect(['approved', 'closed', 'cancelled']).toContain(status);
-        // Only the link tool closes a PO here: a closed PO carries its closing record on one of its links.
-        if (status === 'closed') expect(links.some((l) => l.closed_po_from_status !== null), 'closed by a link: the record is on a link').toBe(true);
-        else expect(links.every((l) => l.closed_po_from_status === null), 'no record while not closed').toBe(true);
+        // Only the link tool closes a PO here: a closed PO carries its closing record on itself (PR #1703 R4-1), never on a link.
+        const rec = (await pool.query('SELECT closed_by_billing, closed_from_status FROM purchase_orders WHERE id = $1', [po.po])).rows[0];
+        expect(rec.closed_by_billing, 'closed by a link: the record is on the PO, and only while closed').toBe(status === 'closed');
+        expect(rec.closed_from_status !== null, 'closed_from_status only while closed').toBe(status === 'closed');
+        expect(links.every((l) => l.closed_po_from_status === null), 'no record on a link').toBe(true);
         expect(String((await pool.query('SELECT status FROM supplier_invoices WHERE id = $1', [draft.id])).rows[0].status)).toBe('approved');
       }
       expect(unexpected).toEqual([]);

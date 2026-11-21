@@ -56,6 +56,42 @@ linked IsaFlow bills; `billed` is kept for the status a linked bill sets), Cance
 Nothing posts to the GL. Committed = open PO lines less billed (`budgets/remainingCommitted.ts` already does this; it
 gains no statuses, so billed, closed and cancelled POs commit nothing). Attachments: `entity_type = purchase_order`.
 
+### Phase B: SPO retirement (migration 1022, 2026-11-20)
+
+`supplier_purchase_orders` (247) is retired into `purchase_orders` + `po_items`. The migration:
+
+- copies every legacy header and line **under its own id**, so a bill header naming a legacy id names its canonical copy;
+  figures as stored (the legacy `line_total` is net: the SPO writer stored round(quantity x unit_price, 2) with the VAT in
+  `tax_amount`), quantity to 2 dp, `unit_price` = `line_total / quantity` at 6 dp (1001's effective price: a discount is
+  in it). A line whose 2-dp quantity is 0 or cannot give its total back to the cent is copied as 1 unit at its total, with
+  "(qty <original> @ <price>)" in its description. `item_id` / `gl_account_id` only when they are the company's;
+- maps statuses: draft and cancelled stay; sent -> approved, partially_received and received stay; invoiced /
+  partially_invoiced open by quantity (received / partially_received / approved). Copies keep their unbilled remainder in
+  committed (Hein, 20 Nov): committed now nets header billing (`budgets/remainingHeaderBilled`; a legacy bill can name a legacy
+  order only by its header), so a partly billed copy commits exactly what is left. A copy is closed only when it is fully
+  billed (the billing committed nets reaches its subtotal) or when it was invoiced and no live bill names it, with a NOTICE.
+  No app path reopens a closed copy today (`set_purchase_order_status` needs an `external_ref`, which no copy carries). A
+  NOTICE per company and order month gives what entered committed and the billing that nets it;
+- puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every
+  line (another company's centre goes to `notes`, where the cost-centre usage guard no longer sees it); `approved_by` /
+  `approved_at` stay NULL (no reader needs them); a missing order date takes the created date in SAST; a NULL line tax rate
+  takes the header's, else 15, and a NULL tax amount is worked out;
+- never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with "was SPO <number>" in its
+  notes and a NOTICE. No copy carries `external_ref`;
+- skips with a WARNING, leaving the row in the legacy table: another company's supplier, an id that is another company's
+  purchase order, a negative line total, a line id `po_items` holds, or (each order in its own sub-transaction) any order a
+  check / not-null / unique / foreign-key constraint or a numeric overflow refuses. A NOTICE counts them per reason, and the
+  migration RAISES unless copied + skipped = the legacy orders it set out to copy. It refuses to run at all for a role that
+  does not bypass row security (it would see no rows); production's deploy role `postgres` is BYPASSRLS;
+- raises the `purchase_order` counter past a copied number of its own form (never back) and runs
+  `purchase_order_bill_links_backfill` for each company copied;
+- makes both legacy tables refuse INSERT and UPDATE (ENABLE ALWAYS). DELETE is allowed: the copies are independent orders the
+  app edits and deletes, so no rule tied to them could hold, and the Demo wipe deletes the legacy rows. Not dropped.
+
+The legacy pages redirect to `/accounting/purchase-orders` (same id), the legacy route and `purchaseOrderService` are
+deleted, and every reader (the supplier POs report, both PDFs, supplier merge, the cost-centre guard, the NL-query
+allowlist) reads the canonical tables. Tests: `tests/integration/spo-retire-1022*.int.test.ts`.
+
 ## Phase C — inventory (company setting `inventory_mode`, default `expense`)
 
 `expense`: quantity only, no stock journal (today's behaviour). `perpetual`: a receipt posts DR Inventory and CR the

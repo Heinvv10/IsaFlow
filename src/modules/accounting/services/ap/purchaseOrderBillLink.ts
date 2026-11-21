@@ -12,6 +12,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
+import { linkHeaderBudgetWarnings } from './purchaseOrderUnlinkBudget';
+import { poCommittedCents } from './purchaseOrderBillingClose';
 import { planLinks } from './purchaseOrderBillLinkPlan';
 import { readLinkFacts } from './purchaseOrderBillLinkRead';
 import {
@@ -24,6 +26,8 @@ export interface LinkOptions {
   source: 'mcp' | 'app';
   via: string;
   closeWhenFullyBilled: boolean;
+  /** May budget warnings show figures (read:reports). */
+  budgetFigures?: boolean;
 }
 
 export interface LinkedBill {
@@ -46,6 +50,8 @@ export interface LinkResult {
   links: LinkedBill[];
   /** One per PO the call names, after the call. */
   purchaseOrders: (PoAfter & { poNumber: string })[];
+  /** A link that took rands the bill's header held on another PO: that PO commits them again (breaker R4-4), with its budget read. */
+  budgetWarnings: string[];
 }
 
 const r2 = (c: number) => (c / 100).toFixed(2);
@@ -63,10 +69,10 @@ async function writeLink(companyId: string, p: PlannedLink, opts: LinkOptions): 
   }
   const rows = (await sql`
     INSERT INTO purchase_order_bill_links (
-      company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref, closed_po_from_status, created_by
+      company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref, created_by
     ) VALUES (
       ${companyId}::UUID, ${p.poId}::UUID, ${p.billId}::UUID, ${r2(p.amountCents)}::NUMERIC, ${opts.source},
-      ${p.ref?.system ?? null}, ${p.ref?.ref ?? null}, ${p.closedFrom}, ${opts.userId}
+      ${p.ref?.system ?? null}, ${p.ref?.ref ?? null}, ${opts.userId}
     ) RETURNING id
   `) as DbRow[];
   return String(rows[0]!.id);
@@ -79,6 +85,10 @@ export async function linkBillsToPurchaseOrders(
   const { plan, refusals } = planLinks({ requests, ...facts, closeWhenFullyBilled: opts.closeWhenFullyBilled });
   if (!plan) throw new PurchaseOrderBillLinkRefusal(linkRefusalText(requests.length, refusals), refusals);
 
+  // Breaker B5-5c: a header PO "commits it again" only if its committed really rises: read before the writes and after, under the
+  // call's locks (the header POs are locked with its POs, purchaseOrderBillLinkRead), by the committed engine itself.
+  const headerPos = [...new Set(plan.planned.map((p) => p.takesFromHeader?.poId).filter((v): v is string => !!v))];
+  const committedBefore = await poCommittedCents(companyId, headerPos);
   const links: LinkedBill[] = [];
   const touchedBills = new Set<string>();
   for (const p of plan.planned) {
@@ -99,10 +109,12 @@ export async function linkBillsToPurchaseOrders(
         });
       }
     } else {
-      // The PO is closed BEFORE the link naming that closing is written (the table's guard needs the PO closed).
+      // Closed BY BILLING: the record is on the PO (closed_from_status + closed_by_billing, PR #1703 breaker R4-1), so removing a
+      // counted tie that leaves it under-billed reopens it, whichever link or bill held it (purchaseOrderBillingClose).
       if (p.closedFrom) {
         const closed = (await sql`
-          UPDATE purchase_orders SET status = 'closed', updated_at = NOW(), updated_by = ${opts.userId}
+          UPDATE purchase_orders SET status = 'closed', closed_from_status = ${p.closedFrom}, closed_by_billing = true,
+                 updated_at = NOW(), updated_by = ${opts.userId}
            WHERE id = ${p.poId}::UUID AND company_id = ${companyId}::UUID AND status = ${p.closedFrom} RETURNING id
         `) as DbRow[];
         if (closed.length !== 1) throw new Error('The purchase order changed while it was being closed');
@@ -128,8 +140,21 @@ export async function linkBillsToPurchaseOrders(
     });
   }
   await syncBillHeaderPurchaseOrder(companyId, [...touchedBills]);
+  const budgetWarnings: string[] = [];
+  const committedAfter = await poCommittedCents(companyId, headerPos);
+  for (const poId of headerPos) {
+    const rise = (committedAfter.get(poId) ?? 0) - (committedBefore.get(poId) ?? 0);
+    if (rise <= 0) continue;
+    const takers = plan.planned.filter((x) => x.takesFromHeader?.poId === poId);
+    const n = takers[0]!.takesFromHeader!.poNumber;
+    const bills = [...new Set(takers.map((x) => x.invoiceNumber))].join(', ');
+    // Review r6 L2: every bill whose header residual the call took is named.
+    budgetWarnings.push(`Bill ${bills}: the header names purchase order ${n}, and this call takes what it held there, so ${n} commits ${r2(rise)} again.`);
+    budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, poId, n, opts.budgetFigures === true));
+  }
   return {
     links: links.sort((a, b) => a.index - b.index),
     purchaseOrders: [...plan.poAfter.values()].map((a) => ({ ...a, poNumber: facts.pos.get(a.poId)!.poNumber })),
+    budgetWarnings,
   };
 }
