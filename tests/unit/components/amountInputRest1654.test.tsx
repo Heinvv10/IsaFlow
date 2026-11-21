@@ -116,6 +116,12 @@ describe('recurring invoice LineItemsSection', () => {
     expect(v(screen.getByLabelText('Line 1 unit price'))).toBe('');
     typeText(screen.getByLabelText('Line 1 quantity'), '2.5');
     expect(updates.at(-1)).toEqual(['quantity', 2.5]);
+    // decimals equal the target column scale (customer_invoice_items: quantity numeric(10,2), unit_price numeric(15,2))
+    fireEvent.change(screen.getByLabelText('Line 1 unit price'), { target: { value: '10.255' } });
+    expect(v(screen.getByLabelText('Line 1 unit price'))).toBe('');
+    typeText(screen.getByLabelText('Line 1 unit price'), '10.25');
+    fireEvent.change(screen.getByLabelText('Line 1 unit price'), { target: { value: '10.255' } });
+    expect(v(screen.getByLabelText('Line 1 unit price'))).toBe('10.25');
   });
 });
 

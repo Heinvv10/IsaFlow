@@ -75,7 +75,7 @@ export function LineItemsSection({
             />
           </div>
           <div className="col-span-2">
-            <AmountInput min={0} decimals={6}
+            <AmountInput min={0}
               aria-label={`Line ${index + 1} unit price`}
               className={inputCls}
               value={line.unitPrice}
