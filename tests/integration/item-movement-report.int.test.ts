@@ -18,23 +18,26 @@ import itemMovementRoute from '../../pages/api/accounting/reports/item-movement'
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 let f: BillFixture;
+let other: BillFixture;
 const products: string[] = [];
 
-beforeAll(async () => { f = await seedBillFixture(pool, 'item-movement'); }, 60_000);
+beforeAll(async () => { f = await seedBillFixture(pool, 'item-movement'); other = await seedBillFixture(pool, 'item-movement-other'); }, 60_000);
 afterAll(async () => {
   try {
     await dropGrnExtras(pool, f);
     await dropMaintExtras(pool, f);
+    await pool.query('UPDATE grn_items SET product_id = NULL WHERE product_id = ANY($1::UUID[])', [products]);
     await pool.query('UPDATE po_items SET product_id = NULL WHERE product_id = ANY($1::UUID[])', [products]);
     await pool.query('DELETE FROM products WHERE id = ANY($1::UUID[])', [products]);
     await dropBillFixture(pool, f);
+    await dropBillFixture(pool, other);
   } finally { await pool.end(); }
 }, 60_000);
 
-const product = async (code: string) => {
+const product = async (code: string, co = f.co) => {
   const id = crypto.randomUUID();
   products.push(id);
-  await pool.query('INSERT INTO products (id, company_id, code, name) VALUES ($1, $2, $3, $4)', [id, f.co, code, `Item ${code}`]);
+  await pool.query('INSERT INTO products (id, company_id, code, name) VALUES ($1, $2, $3, $4)', [id, co, code, `Item ${code}`]);
   return id;
 };
 type Move = { reference: string; itemCode: string; qtyIn: number; balance: number };
@@ -57,6 +60,20 @@ describe('a receipt from before the product copy (grn_items.product_id NULL)', (
     for (const query of [{}, { item_id: p }]) {
       const rows = (await report(query)).filter((m) => m.reference === String(r.body.grn_number));
       expect(rows, JSON.stringify(query)).toEqual([expect.objectContaining({ qtyIn: 3, balance: 3 })]);
+    }
+  });
+});
+
+describe('a pre-copy receipt whose PO line names ANOTHER company\'s product', () => {
+  it('is not shown: the product resolved through the PO line must be this company\'s', async () => {
+    const theirs = await product(`THEIRS-${crypto.randomUUID().slice(0, 4)}`, other.co);
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 5, price: 1 }] });
+    await pool.query('UPDATE po_items SET product_id = $2 WHERE id = $1', [po.items[0], theirs]);
+    const r = await callTool(pool, f, create, grnArgs(po, [[0, 3]]));
+    expect(r.isError, r.text).toBe(false);
+    await pool.query('UPDATE grn_items SET product_id = NULL WHERE grn_id = $1', [r.body.grn_id]);
+    for (const query of [{}, { item_id: theirs }]) {
+      expect((await report(query)).filter((m) => m.reference === String(r.body.grn_number)), JSON.stringify(query)).toEqual([]);
     }
   });
 });
