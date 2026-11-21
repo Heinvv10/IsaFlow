@@ -12,8 +12,9 @@
  * functions (round 9: one copy of the maths): a typed invoice's remainder is creditNoteTypedSplit.settleApplied (per-leg
  * clamping, a negative discount leg included), an approval against it is allocateTypedCreditNote (its refusal is the
  * live one, word for word) and its rows are added to the legs' `taken`; one against a legacy invoice is
- * allocateCreditNote, whose excess is its detached gross. Cost: each invoice the batch touches is read once per dry run
- * (cached), the customer's open invoices once per customer; nothing per note beyond that. Reads only; no lock (the dry
+ * allocateCreditNote, whose excess is its detached gross. Cost: an open invoice is read only when a walk reaches it, in
+ * FIFO order, up to what covers the note's credit (round 11), and once per dry run (cached); the customer's open-invoice
+ * list once per customer. Reads only; no lock (the dry
  * run cannot foresee a concurrent request, as before). The live walk plans only over the invoices it holds a key for
  * (shared/creditNoteWalkKeys), which are the plan's own reach; this plans over all of them, with the same result.
  */
@@ -109,12 +110,19 @@ export async function simulateBatchApprovals(companyId: string, orderedIds: read
     const clientId = n.client_id ? String(n.client_id) : null;
     if (autoApply === 'fifo' && left > FLOOR && clientId) {
       if (!openOf.has(clientId)) openOf.set(clientId, (await fetchOpenCustomerInvoices(companyId, clientId, true, { forUpdate: false })).map((d) => d.invoiceId));
+      // In FIFO order, read only as far as the credit reaches (round 11): what each can take (outstanding, capped at a typed
+      // one's capacity) until `left` is covered. The greedy plan stops inside that prefix, so it is the plan over them all.
       const docs = [];
       const caps = new Map<string, number | null>();
+      let covered = 0;
       for (const docId of openOf.get(clientId)!.filter((d) => d !== linked)) {
+        if (covered >= left) break;
         const inv = await invoice(docId);
+        if (inv.outstanding <= FLOOR) continue;
         docs.push({ invoiceId: docId, outstanding: inv.outstanding / 100 });
-        if (inv.typed) { const t = settled(inv); caps.set(docId, Math.max(t.remainingNet, 0) + Math.max(t.remainingVat, 0)); } else caps.set(docId, null);
+        const cap = inv.typed ? (() => { const t = settled(inv); return Math.max(t.remainingNet, 0) + Math.max(t.remainingVat, 0); })() : null;
+        caps.set(docId, cap);
+        covered += Math.min(inv.outstanding, cap ?? Number.MAX_SAFE_INTEGER);
       }
       const gate = { type: 'customer', customerInvoiceId: linked };
       for (const p of planGreedyAllocations(left / 100, cappedDocuments(docs, caps, gate), FLOOR)) planned.push({ invoiceId: p.invoiceId, cents: cents(p.amount) });
