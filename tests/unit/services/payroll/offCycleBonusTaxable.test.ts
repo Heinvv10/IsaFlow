@@ -6,7 +6,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rows = vi.hoisted(() => ({ bonus: [] as Array<Record<string, unknown>> }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => rows.bonus) }));
+// The bonus inputs; the final-regular-run check (gate item 2 on 06c106a94d) finds every employee on it.
+vi.mock('@/lib/neon', () => ({
+  sql: Object.assign(vi.fn(async (strings: readonly string[]) => (strings.join('?').includes('NOT EXISTS') ? [] : rows.bonus)),
+    { unsafe: (t: string) => t }),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunRegularDirective', () => ({ loadRegularPayDirectives: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/payroll/payrollOffCycleMonthRead', () => ({ loadMonthEarlierLines: vi.fn(async () => new Map()) }));
 

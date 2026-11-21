@@ -18,6 +18,7 @@ import { loadMonthEarlierLines } from './payrollOffCycleMonthRead';
 import { NO_EARLIER_LINES, type MonthEarlierLines } from './payrollOffCycleMonth';
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { payRunFinalSql } from './payRunFinalSql';
 import type { PreparedRunEmployee } from './payrollRunComponents';
 import type { PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -58,6 +59,31 @@ async function assertLeaversStillLeaving(companyId: string, ids: string[], perio
   }
 }
 
+/**
+ * A bonus is costed on the employee's line of the month's final regular run (gate item 2 on 06c106a94d), as creation
+ * judged it: each must still have one at calculation. One reopened and recalculated without them is refused (409,
+ * REGULAR_LINE_MISSING), never costed as a month with no earlier line.
+ */
+async function assertOnFinalRegularRun(companyId: string, runId: string, ids: string[]): Promise<void> {
+  const rows = (await sql`
+    SELECT e.employee_number, e.first_name, e.last_name
+      FROM payroll_employees e
+     WHERE e.company_id = ${companyId}::uuid AND e.id = ANY(${ids}::uuid[])
+       AND NOT EXISTS (
+         SELECT 1 FROM payroll_run_headers me
+           JOIN payroll_run_headers o
+             ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
+            AND o.pay_frequency = me.pay_frequency AND o.run_kind = 'regular'
+           JOIN payroll_run_lines l ON l.run_id = o.id AND l.employee_id = e.id
+          WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid AND ${sql.unsafe(payRunFinalSql('o'))})
+     ORDER BY e.employee_number
+  `) as DbRow[];
+  if (rows.length === 0) return;
+  const who = rows.map((r) => `${`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim()} (${String(r.employee_number)})`);
+  throw new OffCycleRunRefusedError(`${who.join(', ')}: not on the month's final regular run, so a bonus cannot be costed on it. `
+    + 'Approve the regular run with them on it, or take them off this bonus run.', 409, 'REGULAR_LINE_MISSING');
+}
+
 export async function prepareOffCycleComponents(args: {
   companyId: string; runId: string; period: PayrollPeriod; reason: 'bonus' | 'termination'; employees: PayrollEmployee[];
 }): Promise<OffCyclePrepared[]> {
@@ -70,6 +96,7 @@ export async function prepareOffCycleComponents(args: {
      WHERE x.company_id = ${companyId}::uuid AND x.run_id = ${runId}::uuid
   `) as DbRow[]).map((r) => [String(r.employee_id), r]));
   if (reason === 'termination') await assertLeaversStillLeaving(companyId, ids, period);
+  if (reason === 'bonus') await assertOnFinalRegularRun(companyId, runId, ids);
   const directives = await loadRegularPayDirectives(companyId, ids, period, runId);
   const earlier = await loadMonthEarlierLines(companyId, runId, ids);
   const out: OffCyclePrepared[] = [];
