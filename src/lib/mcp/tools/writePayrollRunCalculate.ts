@@ -3,6 +3,7 @@
  * whose header explains why costing is re-runnable and approving is not) to keep that file under the 300-line cap.
  */
 import { sql } from '@/lib/neon';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import type { DbRow } from '@/lib/neon';
 import type { McpTool } from '../types';
 import {
@@ -49,13 +50,14 @@ export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
 }
 
 /**
- * An off-cycle refusal as the calculate route answers it (review L4 of f37f0f15a6): a named one (refusal, e.g.
- * TERMINATION_REASON_MISSING) as the API error envelope with its code; the rest as its message.
+ * An off-cycle refusal as the calculate route answers it (review L4 of f37f0f15a6, L3 of e8a2d72dbc): a named one
+ * (refusal, e.g. TERMINATION_REASON_MISSING) as the route's envelope, CONFLICT (BAD_REQUEST for a 400) with details
+ * { code: OFF_CYCLE_RUN_REFUSED, refusal }; the rest as its message.
  */
 function offCycleToolError(err: OffCycleRunRefusedError) {
-  return err.refusal
-    ? toolError(JSON.stringify({ success: false, error: { code: err.code, message: err.message, details: { refusal: err.refusal } } }))
-    : toolError(err.message);
+  if (!err.refusal) return toolError(err.message);
+  const code = err.status === 400 ? ErrorCode.BAD_REQUEST : ErrorCode.CONFLICT;
+  return toolError(JSON.stringify({ success: false, error: { code, message: err.message, details: { code: err.code, refusal: err.refusal } } }));
 }
 
 export const calculatePayRunTool: McpTool = {
