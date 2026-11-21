@@ -79,8 +79,9 @@ describe('the widest valid note fits a client\'s result limit (gate finding 5)',
     const grn = String(r.body.grn_id);
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: wide(500) })).isError).toBe(false);
     for (let i = 0; i < GRN_DETAIL_CAPS.documents + 1; i++) await fileDoc(grn, 'goods_received', `${wide(150)}${i}`);
+    // A cancelled note carries only cancelled or deleted bills (1021's grn-live trigger refuses a live one); 'cancelled' is the wider.
     for (let i = 0; i < GRN_DETAIL_CAPS.bills + 1; i++) {
-      const bill = await seedBill(pool, f, { status: 'draft', lines: [10] });
+      const bill = await seedBill(pool, f, { status: 'cancelled', lines: [10] });
       await pool.query('UPDATE supplier_invoices SET grn_id = $2, invoice_number = $3 WHERE id = $1', [bill.id, grn, `${wide(46)}${String(i).padStart(4, '0')}`]);
     }
 
