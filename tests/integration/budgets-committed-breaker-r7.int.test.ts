@@ -109,6 +109,7 @@ describe('B7-4 the unlink warns only for a tie that counted, whatever a concurre
       if (!blocked) await new Promise((r) => setTimeout(r, 25));
     }
     await t2.query('COMMIT'); t2.release();
+    expect(blocked).toBe(true); // the unlink really waited mid-way for the concurrent cancel (review r8 L7)
     const out = await p; await req.commit();
     const body = JSON.parse(out.content[0]!.text);
     const audit = (await pool.query(`SELECT changes->'metadata'->>'raised_committed' AS r FROM audit_log WHERE company_id = $1 AND entity_id = $2::UUID ORDER BY created_at DESC LIMIT 1`, [f.co, po.po]).catch(() => ({ rows: [] }))).rows[0];

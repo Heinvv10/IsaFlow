@@ -25,9 +25,9 @@
  *     becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
-import { COMMITTING_PO_STATUSES } from '../budgets/poCommitStatus';
+import { COMMITTING_PO_STATUSES, isFullyBilledBasis } from '../budgets/poCommitStatus';
 import {
-  CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES, isFullyBilled,
+  CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES,
   type BillFacts, type ExistingLink, type LinkPlan, type LinkRequest, type LinkRowRefusal, type PlannedLink, type PoAfter,
   type PoFacts,
 } from './purchaseOrderBillLinkTypes';
@@ -224,13 +224,14 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
       .reduce((s, p) => s + p.takesFromHeader!.cents, 0);
     for (const h of input.unlinkedBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += Math.max(0, h.cents - takenHere(h.billId));
     let statusAfter = po.status;
-    const fully = isFullyBilled(billed, po.subtotalCents);
+    const fully = isFullyBilledBasis(billed, po.subtotalCents); // never on a basis of 0 (review r8 L5)
     if (touched.has(poId) && input.closeWhenFullyBilled && fully && (CLOSABLE_PO_STATUSES as readonly string[]).includes(po.status)) {
       statusAfter = 'closed';
       const last = [...planned].reverse().find((p) => p.poId === poId && !p.existing)!;
       last.closedFrom = po.status;
     }
-    out.set(poId, { poId, statusBefore: po.status, statusAfter, billedCents: billed, subtotalCents: po.subtotalCents, fullyBilled: fully });
+    out.set(poId, { poId, statusBefore: po.status, statusAfter, billedCents: billed, subtotalCents: po.subtotalCents,
+      headerSubtotalCents: po.headerSubtotalCents ?? po.subtotalCents, fullyBilled: fully });
   }
   return out;
 }

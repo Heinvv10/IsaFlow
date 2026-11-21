@@ -45,6 +45,7 @@ beforeAll(async () => {
     await at('D', 'sent', [{ qty: 12345.6789, price: 1.23, lineTotal: 15185.18, gl }, { qty: 0.125, price: 9.99, lineTotal: 1.25, gl }]);
     await at('E', 'sent', [{ qty: 1, price: 500, gl }, { qty: 0.004, price: 10, lineTotal: 0.04, gl }]);
     await at('N', 'sent', [{ qty: 1, price: 100, gl }]);
+    await at('NG', 'received', ten(10, 10));
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
@@ -52,6 +53,22 @@ beforeAll(async () => {
   // Review r3 L2: a R-50 bill line naming N's (legacy) line holds 0, never -50, so N's R100 header bill still bills it fully.
   await seedRawBill(pool, f, { items: [{ total: 150 }, { total: -50, poItem: S.N!.items[0] }], subtotal: 100, total: 115 });
   await bill('N', 100, 'approved');
+  // Breaker r8 B8-NEG: a legacy credit-like bill (subtotal -R100) names NG beside its R1000 bill. Its header residual is 0, never
+  // -R100 (billAttribution.headerResidualCents), so NG is fully billed in the close step as in the TS readers. Written as legacy rows
+  // were, before the negative-total guard (replica skips the guard trigger).
+  await bill('NG', 1000, 'approved');
+  const neg = await pool.connect();
+  try {
+    await neg.query('BEGIN');
+    await neg.query('SET LOCAL session_replication_role = replica');
+    const nb = crypto.randomUUID();
+    await neg.query(`INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, purchase_order_id, invoice_date, subtotal, tax_rate,
+      tax_amount, total_amount, status, created_by) VALUES ($1, $2, $3, $4, $5, '2026-06-15', -100, 15, -15, -115, 'approved', $6)`,
+      [nb, f.co, `NEG-${nb.slice(0, 8)}`, f.supplier, S.NG!.id, f.owner]);
+    await neg.query(`INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id)
+      VALUES ($1, 'credit', 1, -100, 15, -15, -100, $2)`, [nb, f.acc.opex]);
+    await neg.query('COMMIT');
+  } catch (e) { await neg.query('ROLLBACK'); throw e; } finally { neg.release(); }
   await bill('B1', 400, 'approved');
   await bill('B3', 1, 'draft');
   await bill('C', 1500, 'paid');
@@ -104,6 +121,7 @@ describe('committed spend after the copy', () => {
     expect(await st('C')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('D')).toEqual({ status: 'approved', closed_from_status: null });
     expect(await st('N')).toEqual({ status: 'closed', closed_from_status: 'approved' });
+    expect(await st('NG')).toEqual({ status: 'closed', closed_from_status: 'received' });
   });
 });
 

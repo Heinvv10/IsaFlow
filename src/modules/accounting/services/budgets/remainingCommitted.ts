@@ -27,7 +27,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 import { headerBilledByPoItem } from './remainingHeaderBilled';
 import { billTies } from './billAttribution';
-import { BILLED_STATUSES, COMMITTING_PO_STATUSES, isFullyBilled } from './poCommitStatus';
+import { BILLED_STATUSES, COMMITTING_PO_STATUSES, isFullyBilledBasis } from './poCommitStatus';
 import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
 import { toCents } from './grid/cents';
 
@@ -64,7 +64,7 @@ export async function fullyBilledClosedPos(companyId: string, poIds: readonly st
     if (!t.deleted) billed.set(t.poId, (billed.get(t.poId) ?? 0) + t.cents);
   }
   const basis = await poBillingBasisCents(companyId, closed);
-  return new Set(closed.filter((id) => isFullyBilled(billed.get(id) ?? 0, basis.get(id) ?? 0)));
+  return new Set(closed.filter((id) => isFullyBilledBasis(billed.get(id) ?? 0, basis.get(id) ?? 0)));
 }
 
 export interface CommittedOptions {
@@ -114,26 +114,31 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
     const orderOf = new Map(billItems.map((i) => [text(i.po_item_id), text(i.item_po)]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
-    const mine = new Map<string, BilledPosting[]>();
-    // The floor is decided over EVERY line of the bill naming a line of that PO, whatever subset was asked for (review r7 M1).
-    const net = new Map<string, number>();
+    // Net then spread (breaker r8): per (bill, PO) the billed amount is max(0, net of ALL the bill's postings to that PO's lines,
+    // whatever subset was asked for; billAttribution's lines tie), spread over the bill's POSITIVE postings on that PO pro rata to
+    // their size, the residual on the last; a negative posting takes nothing. +500 on A and -500 on B of one PO bills it nothing,
+    // so it releases nothing; -200 on A and +300 on B bills R100, all of it on B.
+    const byOrder = new Map<string, Array<{ item: string; cents: number; posting: BilledPosting }>>();
     for (const line of postedExpenseLines(b, billItems)) {
-      const po = poOf.get(String(line.description));
-      if (!po) continue;
-      const order = orderOf.get(po) ?? po;
-      net.set(order, (net.get(order) ?? 0) + toCents(line.debit));
-      if (!linked.has(po)) continue;
-      mine.set(po, [...(mine.get(po) ?? []), {
+      const item = poOf.get(String(line.description));
+      if (!item) continue;
+      const order = orderOf.get(item) ?? item;
+      byOrder.set(order, [...(byOrder.get(order) ?? []), { item, cents: toCents(line.debit), posting: {
         glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
         buId: text(line.buId), month, amount: line.debit,
-      }]);
+      } }]);
     }
-    // A bill never nets a PO below nothing, the billAttribution floor (breaker r5 / r6 A2): a bill whose postings to one PO's
-    // lines sum below 0 across that PO (a discount line naming one) nets none of them; one that nets 0 or more keeps every posting,
-    // a negative line included (+500 on A and -500 on B of one PO stay, so a header bill still nets that PO exactly).
-    for (const [item, postings] of mine) {
-      if ((net.get(orderOf.get(item) ?? item) ?? 0) < 0) continue;
-      out.set(item, [...(out.get(item) ?? []), ...postings]);
+    for (const postings of byOrder.values()) {
+      const billed = Math.max(0, postings.reduce((sum, p) => sum + p.cents, 0));
+      const positive = postings.filter((p) => p.cents > 0);
+      const total = positive.reduce((sum, p) => sum + p.cents, 0);
+      if (billed === 0 || total === 0) continue;
+      let left = billed;
+      positive.forEach((p, k) => {
+        const share = k === positive.length - 1 ? left : Number((BigInt(billed) * BigInt(p.cents)) / BigInt(total));
+        left -= share;
+        if (share > 0 && linked.has(p.item)) out.set(p.item, [...(out.get(p.item) ?? []), { ...p.posting, amount: share / 100 }]);
+      });
     }
   }
   return out;

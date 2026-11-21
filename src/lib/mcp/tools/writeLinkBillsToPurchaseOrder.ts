@@ -46,7 +46,7 @@ function wire(result: LinkResult, dry: boolean) {
     })),
     purchase_orders: result.purchaseOrders.map((p) => ({
       id: p.poId, po_number: p.poNumber, status_before: p.statusBefore, status: p.statusAfter, closed_by_this_call: p.statusAfter !== p.statusBefore,
-      billed: r2(p.billedCents), subtotal: r2(p.subtotalCents), fully_billed: p.fullyBilled,
+      billed: r2(p.billedCents), subtotal: r2(p.headerSubtotalCents), billing_basis: r2(p.subtotalCents), fully_billed: p.fullyBilled,
     })),
     budget_warnings: result.budgetWarnings,
   };
@@ -62,7 +62,7 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     + 'A bill may be linked to several purchase orders (split amounts); the amounts of one bill may not pass its subtotal. Same company and same supplier only. '
     + 'The PO must be approved, partially_received, received or closed; the bill approved, paid or partially_paid (a draft or cancelled bill is not billed). '
     + 'A pair already linked under the same external_ref is already_existed (refused with payload_differs when the amount or lines you send differ); a pair linked without a reference (made by the app) takes the external_ref you send (adopted_reference); any other repeat is refused (unlink_bill_from_purchase_order first). '
-    + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed. '
+    + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed, judged against billing_basis (the larger of the header subtotal, reported as subtotal, and the lines\' total; a basis of 0 is never fully billed). '
     + 'Known limits: credit notes do not reduce what is billed; a header-only link reduces committed at the PO line, not on the bill\'s own account or month; '
     + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',

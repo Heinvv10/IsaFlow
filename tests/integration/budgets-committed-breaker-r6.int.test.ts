@@ -73,12 +73,13 @@ describe('M5: a PO closed by billing commits 0 while it is fully billed', () => 
 });
 
 describe('A2: the floor is per bill and PO', () => {
-  it('bill X: A +500 and B -500 (nets 0 on the PO, kept); a R500 header link: committed [0, 50000] = subtotal less billed', async () => {
+  // Breaker r8 (net then spread): X nets 0 on the PO, so it bills it nothing; the R500 header link spreads over the whole room.
+  it('bill X: A +500 and B -500 (nets 0 on the PO: bills nothing); a R500 header link: committed [25000, 25000] = subtotal less billed', async () => {
     const po = await seedPo(pool, f, { lines: [500, 500] });
     await seedRawBill(pool, f, { items: [{ total: 500, poItem: po.items[0] }, { total: -500, poItem: po.items[1] }], subtotal: 0, total: 0 });
     const h = await seedRawBill(pool, f, { items: [{ total: 500 }], subtotal: 500, total: 575 });
     expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: h.id, amount: 500 }] })).isError).toBe(false);
-    expect([await billed(po), await both(po)]).toEqual([50000, { lines: [0, 50000], po: 50000 }]);
+    expect([await billed(po), await both(po)]).toEqual([50000, { lines: [25000, 25000], po: 50000 }]);
   });
 });
 

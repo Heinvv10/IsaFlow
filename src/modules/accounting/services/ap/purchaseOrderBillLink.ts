@@ -8,7 +8,8 @@
  * savepoint rolls back on a throw) may answer it as a tool error. Anything after the first write rethrows.
  * One audit row per new link (entity purchase_order; the row that closed the PO also records the status change).
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
@@ -150,7 +151,13 @@ export async function linkBillsToPurchaseOrders(
     const bills = [...new Set(takers.map((x) => x.invoiceNumber))].join(', ');
     // Review r6 L2: every bill whose header residual the call took is named.
     budgetWarnings.push(`Bill ${bills}: the header names purchase order ${n}, and this call takes what it held there, so ${n} commits ${r2(rise)} again.`);
-    budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, poId, n, opts.budgetFigures === true));
+    // Its own savepoint (breaker B8-4): a failed budget read is said and logged; it never blocks or aborts the link.
+    try {
+      budgetWarnings.push(...await withSavepoint('link_header_budget_read', () => linkHeaderBudgetWarnings(companyId, poId, n, opts.budgetFigures === true)));
+    } catch (err) {
+      log.warn('Link header budget read failed', { companyId, poId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
+      budgetWarnings.push(`The budget could not be checked just now; purchase order ${n} commits spend again, check it in the app.`);
+    }
   }
   return {
     links: links.sort((a, b) => a.index - b.index),

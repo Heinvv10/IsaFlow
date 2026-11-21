@@ -179,7 +179,7 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   return {
     resolvedPo,
     pos: new Map(poRows.map((r) => [low(r.id), {
-      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: basis.get(low(r.id)) ?? toCents(Number(r.subtotal)),
+      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: basis.get(low(r.id)) ?? 0, headerSubtotalCents: toCents(Number(r.subtotal ?? 0)),
     }])),
     bills,
     poItemOwner: new Map(owners.map((r) => [low(r.id), low(r.po)])),

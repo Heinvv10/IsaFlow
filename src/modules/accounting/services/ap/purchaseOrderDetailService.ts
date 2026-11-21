@@ -106,7 +106,7 @@ export async function readPurchaseOrderDetail(
   // stored amount, which a link written before the lines check can disagree with.
   const attributed = new Map((await billTies(companyId, [poId], { statuses: null })).map((t) => [t.billId, t.cents]));
   // Fully billed / outstanding against max(header subtotal, lines' total), as 1022 closes on (review r7 M2).
-  const subtotalCents = (await poBillingBasisCents(companyId, [poId])).get(poId.toLowerCase()) ?? toCents(Number(head.subtotal ?? 0));
+  const subtotalCents = (await poBillingBasisCents(companyId, [poId])).get(poId.toLowerCase()) ?? 0;
   const counted = (s: unknown) => (BILLED_STATUSES as readonly string[]).includes(String(s));
   return {
     purchase_order: {

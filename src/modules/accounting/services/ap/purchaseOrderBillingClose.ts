@@ -31,7 +31,7 @@ import { toCents } from '../budgets/grid/cents';
 import { openPoLineCents } from '../budgets/remainingBudgetCore';
 import { commitsSpend, committedBillingByPoItem, fullyBilledClosedPos, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billedCentsByPo } from './purchaseOrderBilled';
-import { isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { isFullyBilledBasis } from '../budgets/poCommitStatus';
 import { billTies } from '../budgets/billAttribution';
 import { BILLED_STATUSES } from '../budgets/poCommitStatus';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
@@ -40,7 +40,7 @@ export interface ReopenedPo { poId: string; poNumber: string; reopenedTo: string
 
 /** The one rule: a PO closed because it was fully billed that no longer is. */
 export function isClosedUnderBilled(po: { status: string; closedByBilling: boolean; subtotalCents: number }, billedCents: number): boolean {
-  return po.status === 'closed' && po.closedByBilling && !isFullyBilled(billedCents, po.subtotalCents);
+  return po.status === 'closed' && po.closedByBilling && !isFullyBilledBasis(billedCents, po.subtotalCents);
 }
 
 /**
@@ -85,7 +85,7 @@ export async function reopenUnderBilled(
     const id = String(p.id).toLowerCase();
     const now = billed.get(id) ?? 0;
     // Against max(header subtotal, lines' total), as 1022 closed on (review r7 M2).
-    const facts = { status: 'closed', closedByBilling: true, subtotalCents: basis.get(id) ?? toCents(Number(p.subtotal ?? 0)) };
+    const facts = { status: 'closed', closedByBilling: true, subtotalCents: basis.get(id) ?? 0 };
     if (!(now < (billedBefore.get(id) ?? 0)) || !isClosedUnderBilled(facts, now) || p.closed_from_status == null) continue;
     const to = String(p.closed_from_status);
     const back = (await sql`
@@ -100,7 +100,8 @@ export async function reopenUnderBilled(
       companyId, userId: opts.userId, action: 'update', entityType: 'purchase_order', entityId: id, entityRef: String(p.po_number).slice(0, 100),
       changes: {
         fields: [{ field: 'status', old: 'closed', new: to, label: 'Status' }],
-        metadata: { reopened: 'true', reason: opts.why.slice(0, 500), source: opts.via, billed: (now / 100).toFixed(2), subtotal: (facts.subtotalCents / 100).toFixed(2) },
+        metadata: { reopened: 'true', reason: opts.why.slice(0, 500), source: opts.via, billed: (now / 100).toFixed(2),
+          subtotal: (toCents(Number(p.subtotal ?? 0)) / 100).toFixed(2), billing_basis: (facts.subtotalCents / 100).toFixed(2) },
       },
     });
   }
@@ -160,7 +161,7 @@ export async function previewReopenOnBillGone(companyId: string, billId: string,
   const ids = [...billedBefore.keys()];
   if (ids.length === 0) return [];
   const pos = (await sql`
-    SELECT id::TEXT AS id, po_number, closed_from_status, subtotal::TEXT AS subtotal FROM purchase_orders
+    SELECT id::TEXT AS id, po_number, closed_from_status FROM purchase_orders
      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND status = 'closed' AND closed_by_billing
   `) as DbRow[];
   const basis = await poBillingBasisCents(companyId, ids);
@@ -169,6 +170,6 @@ export async function previewReopenOnBillGone(companyId: string, billId: string,
   return pos.filter((p) => {
     const id = String(p.id).toLowerCase();
     const after = (billedBefore.get(id) ?? 0) - (held.get(id) ?? 0);
-    return (held.get(id) ?? 0) > 0 && p.closed_from_status != null && !isFullyBilled(after, basis.get(id) ?? 0);
+    return (held.get(id) ?? 0) > 0 && p.closed_from_status != null && !isFullyBilledBasis(after, basis.get(id) ?? 0);
   }).map((p) => ({ poId: String(p.id).toLowerCase(), poNumber: String(p.po_number), reopenedTo: String(p.closed_from_status) }));
 }

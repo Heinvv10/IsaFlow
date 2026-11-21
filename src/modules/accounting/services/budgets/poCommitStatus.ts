@@ -12,6 +12,8 @@ export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
 export const FULLY_BILLED_TOLERANCE_CENTS = 1;
 export const isFullyBilled = (billedCents: number, subtotalCents: number): boolean =>
   billedCents >= subtotalCents - FULLY_BILLED_TOLERANCE_CENTS;
+/** Fully billed against a billing basis, never when that basis is 0 (as 1022 closes: review r8 L5). */
+export const isFullyBilledBasis = (billedCents: number, basisCents: number): boolean => basisCents > 0 && isFullyBilled(billedCents, basisCents);
 
 /**
  * May a PO commit spend? A committing status, or closed BY BILLING (purchase_orders.closed_by_billing, 1016; PR #1703 breaker r5).

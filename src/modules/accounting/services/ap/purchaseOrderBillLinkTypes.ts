@@ -42,7 +42,8 @@ export interface LinkRequest {
   ref: { system: string; ref: string } | null;
 }
 
-export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number }
+/** `subtotalCents`: the billing basis, max(header subtotal, lines' total) (review r7 M2); `headerSubtotalCents`: the header's own. */
+export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number; headerSubtotalCents?: number }
 
 export interface BillLineFacts {
   id: string;
@@ -104,7 +105,9 @@ export interface PoAfter {
   statusBefore: string;
   statusAfter: string;
   billedCents: number;
+  /** The billing basis fully_billed is judged against; `headerSubtotalCents` the header's own subtotal (review r8 L3). */
   subtotalCents: number;
+  headerSubtotalCents: number;
   fullyBilled: boolean;
 }
 

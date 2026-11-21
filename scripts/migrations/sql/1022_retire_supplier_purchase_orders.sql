@@ -480,7 +480,8 @@ BEGIN
   SELECT COALESCE(jsonb_object_agg(g.po, g.cents), '{}'::JSONB) INTO v_billed FROM (
     SELECT t.po::TEXT AS po, SUM(CASE WHEN t.by_lines THEN t.line_c
                                       WHEN t.link_amount IS NOT NULL THEN round(t.link_amount * 100)
-                                      ELSE LEAST(round(t.subtotal * 100), GREATEST(0, round(t.subtotal * 100) - t.else_c)) END)::BIGINT AS cents
+                                      -- The header residual, the subtotal floored at 0 first (breaker r8 B8-NEG, billAttribution.headerResidualCents).
+                                      ELSE LEAST(GREATEST(0, round(t.subtotal * 100)), GREATEST(0, GREATEST(0, round(t.subtotal * 100)) - t.else_c)) END)::BIGINT AS cents
       FROM tie t GROUP BY t.po) g;
 
   FOR h IN

@@ -37,7 +37,6 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
-import { toCents } from '../budgets/grid/cents';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
@@ -152,7 +151,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
 
   const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
-  const fully = isFullyBilled(billed, (await poBillingBasisCents(companyId, [poId])).get(poId) ?? toCents(Number(pos[0].subtotal ?? 0)));
+  const fully = isFullyBilled(billed, (await poBillingBasisCents(companyId, [poId])).get(poId) ?? 0);
   // Removing ANY counted tie (link, lines, header of a billed live bill) reopens a PO closed BY BILLING (purchase_orders.closed_by_billing,
   // PR #1703 breaker R4-1) once it is no longer fully billed; a PO closed by hand, or a tie that never counted, is not touched.
   const reopenedTo = (await reopenUnderBilled(companyId, new Map([[poId, billedBefore]]), {
