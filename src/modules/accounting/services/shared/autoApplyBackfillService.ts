@@ -41,7 +41,7 @@ import type { SimulationDocument } from './autoApplySimulation';
 import { readCapacities, unreadCapacities, type CapacityCache } from './creditNoteTypedPlan';
 import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
 import { detachedProfiles } from '../ar/creditNoteDetachedRead';
-import { lockBackfillCreditNoteKeys } from './autoApplyBackfillLocks';
+import { contendedReason, lockBackfillCreditNoteKeys } from './autoApplyBackfillLocks';
 import {
   fetchDocumentFacts,
   fetchOpenDocuments,
@@ -178,10 +178,12 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     userId: req.userId,
     idempotencyKey: req.idempotencyKey ?? null,
     oldestFirstFor: makeStrategyReader(req.companyId, req.subledger),
-    // Before the first source, so no source's invoice rows are held when a key is taken (round 9: a receipt source's rows,
-    // then a credit-note source's keys, deadlocked against an approval holding a key and waiting for a row).
-    heldKeys: req.subledger === 'ar' ? await lockBackfillCreditNoteKeys(req.companyId, sources) : undefined,
   };
+  // Before the first source, so no source's invoice rows are held when a key is taken (round 9: a receipt source's rows,
+  // then a credit-note source's keys, deadlocked against an approval holding a key and waiting for a row). A note
+  // another request holds is skipped and reported alone (round 11); the rest of the run goes on.
+  const locks = req.subledger === 'ar' ? await lockBackfillCreditNoteKeys(req.companyId, sources) : null;
+  ctx.heldKeys = locks?.keys;
 
   const decided: { source: BackfillSource; lines: PlannedLine[] }[] = [];
   const failed: BackfillPlan['failed'] = [];
@@ -192,6 +194,10 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     // a rule applied in one mode and not the other is a preview that lies.
     if (source.skippedReason) {
       decided.push({ source, lines: [] });
+      continue;
+    }
+    if (locks?.contended.has(source.paymentId.toLowerCase())) {
+      failed.push({ payment_id: source.paymentId, payment_number: source.paymentNumber, error: contendedReason(source.paymentNumber) });
       continue;
     }
     try {

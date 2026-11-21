@@ -207,6 +207,25 @@ describeIfDisposable('per-line VAT writers, review round 9', () => {
     }
   }, 60_000);
 
+  it('round 11 MAJOR 2: a credit-note source another request holds is skipped and reported; the other sources still apply', async () => {
+    const c = await customer('R11-2');
+    const x = await legacyInvoice(c, '2026-05-11');
+    const held = await approvedNote(c, '2026-05-11', 20);                    // 23, locked by another request below
+    const free = await approvedNote(c, '2026-05-12', 30);                    // 34.50
+    const other = await open();
+    try {
+      await other.client.query('SELECT id FROM credit_notes WHERE id = $1 FOR UPDATE', [held.id]);
+      const plan = await inTx(f.fx, () => autoApplyUnapplied({ companyId: f.fx.companyId, subledger: 'ar', entityId: c, userId: f.fx.userId, dryRun: false }));
+      expect(plan.failed).toEqual([{ payment_id: held.id, payment_number: expect.any(String),
+        error: expect.stringMatching(/^Credit note \S+ is being changed by another request \(an approval, apply, unapply or cancel\); it was skipped/) }]);
+      expect(plan.applications.filter((a) => a.payment_id === free.id).map((a) => a.lines.map((l) => [l.document_id, l.amount]))).toEqual([[[x, 34.5]]]);
+    } finally {
+      await other.client.query('ROLLBACK').catch(() => {}); other.client.release();
+    }
+    expect(await rowsOf(held.id)).toEqual([]);
+    expect(await rowsOf(free.id)).toEqual([{ invoice_id: x, amount: 34.5 }]);
+  }, 60_000);
+
   describe('create_credit_note replay by external_ref: the party and the linked invoice are part of the match', () => {
     const create = (c: string, invoiceId: string, ref: string, subtotal = 40) => inTx(f.fx, () => createCreditNoteTool.handler({
       type: 'customer', client_id: c, customer_invoice_id: invoiceId, credit_date: '2026-05-06', subtotal, reason: 'Return',
