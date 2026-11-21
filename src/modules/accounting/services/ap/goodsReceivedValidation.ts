@@ -67,7 +67,11 @@ function text(value: unknown): string | undefined {
   if (typeof value !== 'string') throw new GoodsReceivedError('Receipt text fields must be strings');
   return value.trim() || undefined;
 }
-export function parseGoodsReceived(input: unknown, userId: string): GRNInput {
+/**
+ * The receipt, parsed. A PO line repeated is not thrown here (Codex round 3 nit): it comes back in `duplicates`, so the service refuses
+ * it together with every line it judges against the PO (line_not_on_po, over_receipt), as the tools promise.
+ */
+export function parseGoodsReceived(input: unknown, userId: string): GRNInput & { duplicates: GoodsReceivedLineRefusal[] } {
   const body = record(input);
   const date = body.receivedDate;
   if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -87,6 +91,8 @@ export function parseGoodsReceived(input: unknown, userId: string): GRNInput {
     if (seen.has(item.poItemId)) repeats.push({ index, poItemId: item.poItemId, code: 'duplicate_line' });
     seen.add(item.poItemId);
   });
-  if (repeats.length > 0) throw new GoodsReceivedError('A purchase order line may appear only once per receipt', 'duplicate_line', { lines: repeats });
-  return { purchaseOrderId: id(body.purchaseOrderId), receivedDate: date, receivedBy: text(body.receivedBy) ?? userId, notes: text(body.notes), items };
+  return {
+    purchaseOrderId: id(body.purchaseOrderId), receivedDate: date, receivedBy: text(body.receivedBy) ?? userId, notes: text(body.notes), items,
+    duplicates: repeats,
+  };
 }

@@ -94,8 +94,10 @@ export async function receiveGoods(companyId: string, userId: string, input: unk
     if (!RECEIVING_PO_STATUSES.includes(status) && status !== 'received') {
       throw new GoodsReceivedError('Only approved or partially received orders accept receipts', 'po_not_receivable', { poStatus: status });
     }
-    const refused: GoodsReceivedLineRefusal[] = [];
+    const refused: GoodsReceivedLineRefusal[] = [...body.duplicates];
+    const repeated = new Set(body.duplicates.map((d) => d.index));
     body.items.forEach((line, index) => {
+      if (repeated.has(index)) return;
       const item = items.find((i) => String(i.id) === line.poItemId);
       if (!item) { refused.push({ index, poItemId: line.poItemId, code: 'line_not_on_po' }); return; }
       const outstanding = cents(item.quantity) - cents(item.quantity_received);
@@ -104,9 +106,12 @@ export async function receiveGoods(companyId: string, userId: string, input: unk
       }
     });
     if (refused.length > 0) {
+      refused.sort((a, b) => a.index - b.index);
       const first = refused[0]!;
-      throw new GoodsReceivedError(first.code === 'line_not_on_po' ? 'Every receipt line must belong to this purchase order'
-        : 'Received quantity exceeds the outstanding order quantity', first.code, { lines: refused });
+      const message = first.code === 'line_not_on_po' ? 'Every receipt line must belong to this purchase order'
+        : first.code === 'duplicate_line' ? 'A purchase order line may appear only once per receipt'
+          : 'Received quantity exceeds the outstanding order quantity';
+      throw new GoodsReceivedError(message, first.code, { lines: refused });
     }
     if (status === 'received') {
       throw new GoodsReceivedError('Only approved or partially received orders accept receipts', 'po_not_receivable', { poStatus: status });

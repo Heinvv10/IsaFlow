@@ -53,6 +53,12 @@ describe('create refusals', () => {
     expect(refusal(notOnPo.text)).toMatchObject({ code: 'line_not_on_po', lines: [{ index: 1, po_item_id: foreignLine, code: 'line_not_on_po' }] });
     const twice = await callTool(pool, f, create, grnArgs(po, [[0, 1], [1, 1], [0, 2]]));
     expect(refusal(twice.text)).toMatchObject({ code: 'duplicate_line', lines: [{ index: 2, po_item_id: po.items[0], code: 'duplicate_line' }] });
+    // Every refused line, not only the first kind (gate round 3 nit): a repeated line AND an unrelated over-receipt, in one answer.
+    const both = await callTool(pool, f, create, grnArgs(po, [[0, 1], [1, 9], [0, 2]]));
+    expect(refusal(both.text)).toMatchObject({ code: 'over_receipt', lines: [
+      { index: 1, po_item_id: po.items[1], code: 'over_receipt', outstanding: 5, asked: 9 },
+      { index: 2, po_item_id: po.items[0], code: 'duplicate_line' },
+    ] });
     for (const status of ['draft', 'closed', 'cancelled']) {
       const p = await seedQtyPo(pool, f, { status, lines: [{ qty: 5, price: 1 }] });
       expect(refusal((await callTool(pool, f, create, grnArgs(p, [[0, 1]]))).text), status).toMatchObject({ code: 'po_not_receivable', po_status: status });
