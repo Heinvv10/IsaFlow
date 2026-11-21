@@ -145,7 +145,7 @@ export default function SupplierStatementsIndexPage() {
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Statements</h1>
               <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Reconcile supplier PDF statements against IsaFlow invoices.</p>
             </div>
-            <button onClick={openModal} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0">
+            <button onClick={openModal} className="flex items-center gap-2 px-4 py-2 max-lg:min-h-11 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0">
               <Upload className="h-4 w-4" /> Upload statement
             </button>
           </div>
@@ -157,11 +157,11 @@ export default function SupplierStatementsIndexPage() {
             <SupplierSelect
               name="filterSupplier" value={filterSupplier} onChange={id => setFilterSupplier(id)}
               placeholder="All suppliers" className="min-w-[200px]"
-              inputClassName="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
+              inputClassName="w-full px-3 py-2 max-lg:min-h-11 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
             />
             {(['all', 'extracting', 'failed', 'unreconciled', 'reconciled', 'disputed', 'archived'] as const).map(f => (
               <button key={f} onClick={() => setFilterStatus(f)}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors capitalize ${filterStatus === f ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-indigo-500/40'}`}>
+                className={`px-3 py-1.5 max-lg:min-h-11 rounded text-xs font-medium transition-colors capitalize ${filterStatus === f ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-indigo-500/40'}`}>
                 {f === 'all' ? 'All statuses' : f}
               </button>
             ))}
@@ -176,7 +176,7 @@ export default function SupplierStatementsIndexPage() {
             <div className="text-center py-20"><FileText className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3 opacity-40" /><p className="text-[var(--ff-text-secondary)] text-sm">No statements found.</p></div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
+              <table className="table-cards w-full text-sm lg:min-w-[800px]">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className={TH}>Statement date</th><th className={TH}>Supplier</th>
@@ -190,13 +190,13 @@ export default function SupplierStatementsIndexPage() {
                     return (
                     <tr key={s.id} onClick={() => router.push(`/accounting/ap/supplier-statements/${s.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
-                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
-                      <td className="px-4 py-3 text-xs font-medium text-[var(--ff-text-primary)]">{s.supplierName}</td>
-                      <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{s.periodStart || s.periodEnd ? `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}` : '—'}</td>
-                      <td className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
-                      <td className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
-                      <td className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
-                      <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
+                      <td data-label="Statement date" className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
+                      <td data-label="Supplier" className="px-4 py-3 text-xs font-medium text-[var(--ff-text-primary)]">{s.supplierName}</td>
+                      <td data-label="Period" className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{s.periodStart || s.periodEnd ? `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}` : '—'}</td>
+                      <td data-label="Supplier bal." className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
+                      <td data-label="IsaFlow bal." className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
+                      <td data-label="Variance" className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
+                      <td data-label="Status" className="px-4 py-3"><StatusBadge status={s.status} /></td>
                     </tr>
                     );
                   })}
@@ -213,13 +213,13 @@ export default function SupplierStatementsIndexPage() {
           <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">Upload Supplier Statement</h2>
-              <button onClick={() => { setModalOpen(false); setModalFile(null); setModalSupplier(''); }} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"><X className="h-5 w-5" /></button>
+              <button onClick={() => { setModalOpen(false); setModalFile(null); setModalSupplier(''); }} aria-label="Close" className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-5 w-5" /></button>
             </div>
             <div>
               <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1.5">Supplier</label>
               <SupplierSelect
                 required name="modalSupplier" value={modalSupplier} onChange={id => setModalSupplier(id)}
-                inputClassName="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
+                inputClassName="w-full px-3 py-2 max-lg:min-h-11 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
               />
             </div>
             <div>
@@ -233,9 +233,9 @@ export default function SupplierStatementsIndexPage() {
             </div>
             <div className="flex gap-3 pt-1">
               <button onClick={() => { setModalOpen(false); setModalFile(null); setModalSupplier(''); }}
-                className="flex-1 py-2.5 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">Cancel</button>
+                className="flex-1 py-2.5 max-lg:min-h-11 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">Cancel</button>
               <button onClick={handleUpload} disabled={!modalFile || !modalSupplier || uploading}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 max-lg:min-h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {uploading ? 'Uploading…' : 'Upload'}
               </button>
