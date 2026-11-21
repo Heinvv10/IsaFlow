@@ -157,6 +157,24 @@ describe('an item goes in only in the transaction that created its note, by the 
   });
 });
 
+describe('a note\'s transaction identity never changes, even for a privileged role (review of fba543d5, finding 1)', () => {
+  it('as migration_admin, rewriting created_xact (to adopt an old note) or created_at is refused, and no item goes on; nothing changed', async () => {
+    const { po, grn } = await received(f, 5, 1);
+    const before = (await pool.query('SELECT created_xact::text AS x, created_at FROM goods_received_notes WHERE id = $1', [grn])).rows[0];
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE migration_admin');
+      await expect(c.query('UPDATE goods_received_notes SET created_xact = pg_current_xact_id() WHERE id = $1', [grn])).rejects.toMatchObject({ code: '23514' });
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    expect(await asAdmin("UPDATE goods_received_notes SET created_at = now() - interval '1 day' WHERE id = $1", [grn])).toBe('23514');
+    // A status edit (not cancelled) that leaves both alone still passes the guard: the freeze is on those two columns only.
+    expect(await asAdmin("UPDATE goods_received_notes SET status = 'inspected' WHERE id = $1", [grn])).toBe('ok');
+    expect((await pool.query('SELECT created_xact::text AS x, created_at FROM goods_received_notes WHERE id = $1', [grn])).rows[0]).toEqual(before);
+    expect(await poState(pool, po)).toEqual({ status: 'partially_received', received: [1] });
+  });
+});
+
 describe('the cancel function enforces the tool\'s role rule (gate finding 1)', () => {
   it('a viewer of the company is refused role_not_allowed, directly and through the service, with nothing written; a manager cancels', async () => {
     const viewer = crypto.randomUUID();

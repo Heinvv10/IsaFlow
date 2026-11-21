@@ -14,7 +14,7 @@
 --     not cancelled, so a delivery is not received twice, and its reference is free again once its note is cancelled.
 --     The tool refuses a repeat first (duplicate_external_ref, naming the note that holds it); the index is the last line.
 --   goods_received_notes_guard (BEFORE UPDATE, SECURITY INVOKER): a cancelled note never changes again, so it never
---     moves out of 'cancelled'.
+--     moves out of 'cancelled'; and no note's created_xact or created_at ever changes (the same-transaction guard keys on them).
 --   grn_items_cancelled_guard (BEFORE INSERT OR UPDATE, SECURITY INVOKER): no item is added to, moved onto or edited on a
 --     cancelled note. It reads the parent under the caller's row security, which is where every app path writes from (a
 --     note of the request's company).
@@ -146,6 +146,11 @@ AS $$
 BEGIN
   IF OLD.status = 'cancelled' THEN
     RAISE EXCEPTION 'a cancelled goods received note does not change' USING ERRCODE = '23514';
+  END IF;
+  -- A note's transaction identity never moves (review of fba543d5, finding 1): rewriting created_xact would let a later transaction
+  -- adopt an old note and add items to it past grn_items_same_transaction_guard, for any role that may UPDATE. created_at with it.
+  IF NEW.created_xact IS DISTINCT FROM OLD.created_xact OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'a goods received note''s created_xact and created_at do not change' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END;
