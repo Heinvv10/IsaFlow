@@ -6,7 +6,9 @@
  * primary record, then soft-deletes the duplicate.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { SupplierMergeRefusal } from './supplierMergeRefusal';
+import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
@@ -21,13 +23,10 @@ export interface MergeResult {
   revokedPortalLogins?: number;
 }
 
-/** A merge refused before anything moved; its message is safe to show. */
-export class SupplierMergeRefusal extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SupplierMergeRefusal';
-  }
-}
+// A merge refused before anything moved (or rolled back whole); its message is safe to show.
+export { SupplierMergeRefusal } from './supplierMergeRefusal';
+// A source bill carrying a goods received note (#1708): checked before the move, and on the bill UPDATE's RETURNING rows.
+export { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 
 /**
  * DRC VAT eligibility reads the supplier's `subject_to_drc_vat` flag, and a
@@ -69,30 +68,6 @@ export async function assertSupplierMergeKeepsDrcFlag(
   }
 }
 
-const NOTED_BILLS_SHOWN = 10;
-
-/**
- * A bill's goods received note ties it to the note's PO as a link row does (gate at c63b1e26; #1708): a merge moves the bill to the
- * target but never the source's purchase orders, so the bill would carry a note on another supplier's PO. Both merge paths refuse,
- * as the REST route refuses a source with PO links (refusing, not moving the PO: a PO carries its other notes, links and commitment,
- * and a merge never moves purchase_orders). Live bills only (not deleted, not cancelled: the cancel's rule). Before anything moves.
- */
-export async function assertSupplierMergeMovesNoNotedBill(companyId: string, sourceId: string): Promise<void> {
-  const rows = (await sql`
-    SELECT si.invoice_number, count(*) OVER ()::INT AS n FROM supplier_invoices si
-     WHERE si.company_id = ${companyId}::UUID AND si.supplier_id = ${sourceId}::UUID AND si.grn_id IS NOT NULL
-       AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'
-     ORDER BY si.invoice_number, si.id LIMIT ${NOTED_BILLS_SHOWN}
-  `) as Array<{ invoice_number: string; n: number }>;
-  if (rows.length === 0) return;
-  const total = Number(rows[0]!.n);
-  const named = rows.map((r) => String(r.invoice_number)).join(', ') + (total > rows.length ? ` and ${total - rows.length} more` : '');
-  throw new SupplierMergeRefusal(
-    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}) whose purchase order stays with this supplier. `
-    + 'Take the note off each bill before merging (a draft: update_supplier_invoice with grn_id null; an approved bill: cancel it), so no bill names another supplier\'s note.',
-  );
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function mergeEntities(
@@ -127,6 +102,9 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
   await assertSupplierMergeMovesNoNotedBill(companyId, duplicateId);
 
+  // One savepoint for the moves: the bill UPDATE's RETURNING can still refuse (refuseIfMovedNotedBills), and a 4xx answer is
+  // committed by withAuth, so the refusal must take back what was moved before it.
+  return withSavepoint('merge_suppliers_moves', async () => {
   let count = 0;
 
   // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
@@ -149,8 +127,10 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
     UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID,
       content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
+    RETURNING id, invoice_number, grn_id, deleted_at, status
   `;
+  // A bill made live and noted while this ran, without the supplier lock, is moved by this UPDATE after it waited on the row.
+  refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
   count += r2.length;
 
   const r3 = await sql`
@@ -167,6 +147,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
 
   log.info('Supplier merge complete', { primaryId, duplicateId, count }, 'duplicate-merge');
   return { reassignedTransactions: count };
+  });
 }
 
 // ── Item merge ────────────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill,
+  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -93,13 +93,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
       // approval content (R-035): the merging user becomes an author of every
       // bill it moves.
-      await tx`
+      const movedBills = await tx`
         UPDATE supplier_invoices
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
+        RETURNING invoice_number, grn_id, deleted_at, status
       `;
+      // A bill made live and noted while this ran, without the supplier lock, is moved here after it waited on the row (#1708):
+      // refused, and this transaction's savepoint takes the whole merge back.
+      refuseIfMovedNotedBills(movedBills as Array<Record<string, unknown>>);
 
       // 4. Re-parent supplier_purchase_orders
       await tx`

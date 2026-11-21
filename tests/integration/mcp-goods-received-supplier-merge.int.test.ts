@@ -58,6 +58,10 @@ async function billOnlyTiedByItsNote(): Promise<{ bill: string; number: string }
     return { bill: bill.id, number: bill.invoiceNumber };
   } catch (err) { await req.rollback(); throw err; }
 }
+async function inReq<T>(fx: BillFixture, fn: () => Promise<T>): Promise<T> {
+  const r = await openRequest(pool, fx, fx.owner);
+  try { const v = await r.run(fn); await r.commit(); return v; } catch (e) { await r.rollback(); throw e; }
+}
 const supplierOf = async (bill: string) => String((await pool.query('SELECT supplier_id FROM supplier_invoices WHERE id = $1', [bill])).rows[0].supplier_id);
 const sourceLive = async () => (await pool.query('SELECT deleted_at IS NULL AS live FROM suppliers WHERE id = $1', [f.supplier])).rows[0].live as boolean;
 
@@ -69,7 +73,7 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     const text = JSON.stringify(out.body);
     expect(text).toContain('goods received note');
     expect(text).toContain(number);
-    expect(text).toContain('grn_id null');
+    expect(text).toContain('delete it and enter it again without the note');
     expect(await supplierOf(bill)).toBe(f.supplier);
     expect(await sourceLive()).toBe(true);
   });
@@ -131,24 +135,30 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
     } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
   });
 
-  it('a merge holding the supplier makes a bill create of that supplier wait; it never ends as a merged bill on the old supplier\'s noted PO', async () => {
+  it('the REAL merge, paused after its supplier lock, makes a bill create of that supplier wait; no merged bill on the old supplier\'s noted PO', async () => {
     const own = await seedBillFixture(pool, 'grn-merge-race-b');
     const fresh = await seedSupplier(pool, own, 'Race target B');
     try {
       const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }] });
       const note = String((await callTool(pool, own, create, grnArgs(po, [[0, 4]]))).body.grn_id);
+      // A plain bill of the source, its row held by the test: the merge takes the suppliers FOR UPDATE, runs its checks, then stops at
+      // its bill UPDATE on this row. That is where it is paused, holding the supplier lock (review of 3010bf7e, L2).
+      const plain = await inReq(own, () => createSupplierInvoice(own.co, billInput('', own), own.owner));
+      const hold = await pool.connect();
+      await hold.query('BEGIN');
+      await hold.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [plain.id]);
       const m = await openRequest(pool, own, own.owner);
+      const merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))
+        .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
       let creating: Promise<unknown> | undefined;
       try {
-        // The merge's first row lock: both suppliers FOR UPDATE (assertSupplierMergeKeepsDrcFlag), held to its commit.
-        await m.client.query('SELECT id FROM suppliers WHERE company_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [own.co, [own.supplier, fresh]]);
+        expect(await waitsOnLock('UPDATE supplier_invoices SET supplier_id')).toBe(true);
         const c = await openRequest(pool, own, own.owner);
         creating = c.run(() => createSupplierInvoice(own.co, billInput(note, own), own.owner))
           .then(async (r) => { await c.commit(); return r; }, async (e) => { await c.rollback(); return e; });
         expect(await waitsOnLock('INSERT INTO supplier_invoices')).toBe(true);
-        expect(await m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))).toMatchObject({ reassignedTransactions: expect.any(Number) });
-        await m.commit();
-      } catch (err) { await m.rollback(); throw err; }
+      } finally { await hold.query('ROLLBACK'); hold.release(); }
+      expect(await merging).toMatchObject({ reassignedTransactions: expect.any(Number) });
       await creating;
       const stranded = Number((await pool.query(
         `SELECT count(*) AS n FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id JOIN purchase_orders po ON po.id = g.purchase_order_id
