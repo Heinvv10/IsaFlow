@@ -6,7 +6,7 @@ import { settleByContraTool } from '@/lib/mcp/tools/writeSettleByContra';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import { apSubledger, billWithJournal, dropStepExtras, ledger, postedJournal, seedStepAccounts, type StepAccounts } from './helpers/shareUndoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -34,8 +34,9 @@ describe.skipIf(!DATABASE_URL)('breaker6 undo_share', () => {
   beforeAll(async () => {
     assertNotProductionDb('breaker6 posts journals and voids payments.');
     fx = await seedFixture('BRK6', DATABASE_URL!); a = await seedStepAccounts(fx);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
   }, 120000);
-  afterAll(async () => { await dropStepExtras(fx); await dropFixture(fx); }, 120000);
+  afterAll(async () => { await dropStepExtras(fx); await dropFixtureMember(fx); await dropFixture(fx); }, 120000);
 
   it('REPRO 1: one share journal (covering ONE bill) is consumed by two different contras', async () => {
     const before = await ledger(fx); const vat0 = await vatMay();

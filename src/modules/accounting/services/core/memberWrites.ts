@@ -21,6 +21,7 @@ import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
 import { VALID_ROLES } from './userInvitationService';
 import { refuseLastPayRunApprover } from './payRunApproverGuard';
+import type { ModulePermission } from '@/lib/auth/permissionService';
 
 
 /** RC001 on the migration_admin pool: the actor is not an owner or admin of the company. Routes answer 403. */
@@ -109,4 +110,68 @@ export async function removeCompanyUser(companyId: string, userId: string, actor
     await client.query('DELETE FROM company_users WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
   });
   log.info('Company user removed', { companyId, userId }, 'accounting');
+}
+
+/**
+ * Withhold (or restore) the manager default of Approve and Payroll for one member (company_users.approve_withheld, migration
+ * 1010c; #1656 round 3). A flag on the membership, not a role: the actor must be an owner or admin now (RC001), as for a role
+ * change, and the column is the only one written. No app role may UPDATE company_users (937), hence this pool.
+ */
+export async function setMemberApproveWithheld(
+  companyId: string,
+  userId: string,
+  withheld: boolean,
+  actorUserId: string,
+): Promise<void> {
+  await migrationAdminTx('set approve withheld', async (client) => {
+    await authorize(client, companyId, userId, actorUserId, false);
+    const before = await client.query<{ approve_withheld: boolean }>(
+      'SELECT approve_withheld FROM company_users WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
+    await client.query('UPDATE company_users SET approve_withheld = $3 WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId, withheld]);
+    // The audit row commits with the change (one transaction on this pool): who withheld or restored whose Approve.
+    await client.query(
+      `INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes)
+       VALUES ($1::UUID, $2, 'update', 'company_user', $3::UUID, $4::JSONB)`,
+      [companyId, actorUserId, userId, JSON.stringify({ fields: [{ field: 'approve_withheld', old: before.rows[0]?.approve_withheld ?? false, new: withheld }],
+        metadata: { change: 'approve_withheld', target_user_id: userId } })]);
+  });
+  log.info('Company user approve_withheld set', { companyId, userId, withheld }, 'accounting');
+}
+
+/**
+ * Set one module's permissions for a member (company_user_permissions, migration 1010d: no app role may write the table, so a forged
+ * claim cannot tick Approve back). The actor must be an owner or admin now (RC001), and only an owner changes an owner's; the target
+ * must be a member of THIS company (authorize). The row is written exactly as setUserModulePermission always wrote it. The request's
+ * claims ride the transaction (migrationAdminTx), so the entity-change history still names the actor.
+ */
+export async function setMemberModulePermission(
+  companyId: string, userId: string, moduleKey: string, perms: Partial<ModulePermission>, actorUserId: string,
+): Promise<void> {
+  await migrationAdminTx('set module permission', async (client) => {
+    await authorize(client, companyId, userId, actorUserId, false);
+    await client.query(
+      `INSERT INTO company_user_permissions (
+         company_id, user_id, module_key, can_read, can_write, can_delete, can_export, can_approve,
+         account_range_from, account_range_to, restrictions, updated_at
+       ) VALUES ($1::UUID, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::JSONB, NOW())
+       ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
+         can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write, can_delete = EXCLUDED.can_delete,
+         can_export = EXCLUDED.can_export, can_approve = EXCLUDED.can_approve,
+         account_range_from = EXCLUDED.account_range_from, account_range_to = EXCLUDED.account_range_to,
+         restrictions = EXCLUDED.restrictions, updated_at = NOW()`,
+      [companyId, userId, moduleKey, perms.canRead ?? false, perms.canWrite ?? false, perms.canDelete ?? false,
+        perms.canExport ?? false, perms.canApprove ?? false, perms.accountRangeFrom ?? null, perms.accountRangeTo ?? null,
+        JSON.stringify(perms.restrictions ?? {})],
+    );
+  });
+  log.info('Module permission updated', { companyId, userId, moduleKey }, 'accounting');
+}
+
+/** Reset a member to their role defaults (delete every permission row); the same actor rules as setMemberModulePermission. */
+export async function resetMemberPermissions(companyId: string, userId: string, actorUserId: string): Promise<void> {
+  await migrationAdminTx('reset module permissions', async (client) => {
+    await authorize(client, companyId, userId, actorUserId, false);
+    await client.query('DELETE FROM company_user_permissions WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
+  });
+  log.info('User permissions reset to defaults', { companyId, userId }, 'accounting');
 }

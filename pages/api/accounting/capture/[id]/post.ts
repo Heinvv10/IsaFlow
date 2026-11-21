@@ -6,8 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { apiResponse } from '@/lib/apiResponse';
-import { ErrorCode } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -22,6 +21,9 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
+import { recordApproveWithheld } from '@/modules/accounting/services/core/approvePermission';
+import { capturePostBody } from '@/modules/accounting/services/capture/capturePostResponse';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
@@ -183,11 +185,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // and all three override `auto_publish`, whose rules judge the supplier and
   // the duplicate history rather than whether the amount is legible.
   const unattendedRefused = refusesUnattendedApproval(extracted);
-  const approvalRoute = unattendedRefused
-    ? 'manual_review'
-    : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
-
-  const invoiceStatus = unattendedRefused
+  const pipelineRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
+  // #1656: a bill this would approve, posted by a person without Suppliers & AP Approve: draft + manual review, said and audited.
+  const approveWithheld = !unattendedRefused && (gateDecision.outcome === 'auto_publish' || pipelineRoute === 'auto_approve')
+    && !(await mayApproveSupplierInvoices(companyId, userId));
+  const approvalRoute = unattendedRefused || approveWithheld ? 'manual_review' : pipelineRoute;
+  const invoiceStatus = unattendedRefused || approveWithheld
     ? 'draft'
     : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
   // R-035 (B1): under an enforced approval rule an auto-approval becomes a draft plus a request.
@@ -244,12 +247,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
+  if (approveWithheld) {
+    await recordApproveWithheld({ companyId, userId, module: 'suppliers', entityType: 'supplier_invoice', entityId: String(invoice.id),
+      entityRef: invoice.invoice_number == null ? null : String(invoice.invoice_number), path: 'capture_post' });
+  }
   const slip = await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
 
   // Record coding for the learning loop (both auto_publish and route_review paths).
   // At this point gateDecision is guaranteed to be auto_publish | route_review
   // (duplicate_blocked returned early above).
   const publishedDecision = gateDecision as PublishedDecision;
+  // census-exempt(runCapturePostFollowUps): a bill the person may not approve is stored draft (approveWithheld), so the follow-ups settle nothing. captureApprovePermission
   const { provisionalAttach, threeWayMatch } = await runCapturePostFollowUps({
     companyId,
     userId,
@@ -270,31 +278,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
   const finalRoute = provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute;
-  if (publishedDecision.outcome === 'route_review') {
-    return apiResponse.success(res, {
-      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
-      supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
-      pipelineConfidence,
-      approvalRoute: finalRoute,
-      warnings: validation.warnings,
-      reason: 'routed for review',
-      reasons: publishedDecision.reasons,
-      threeWayMatch,
-      provisionalAttach, approvalRequired: approval.gated, approvalRequest,
-    });
-  }
-
-  return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
-    supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
-    pipelineConfidence,
-    approvalRoute: finalRoute,
-    warnings: validation.warnings,
-    gateOutcome: publishedDecision.outcome,
-    gateReason: publishedDecision.reason,
-    threeWayMatch,
-    provisionalAttach, approvalRequired: approval.gated, approvalRequest,
-  });
+  return apiResponse.success(res, capturePostBody({
+    invoice, status: finalStatus, supplierMatch, pipelineConfidence, approvalRoute: finalRoute, warnings: validation.warnings,
+    decision: publishedDecision, approveWithheld, followUps: { provisionalAttach, threeWayMatch },
+    approvalRequired: approval.gated, approvalRequest,
+  }));
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));

@@ -9,6 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutPayrollRead } from '@/lib/auth/payrollReadGate';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
@@ -32,8 +33,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (Date.parse(periodEnd) - Date.parse(periodStart) > MAX_SPAN_DAYS * 86_400_000) {
     return apiResponse.badRequest(res, `The period may span at most ${MAX_SPAN_DAYS} days`);
   }
-  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   if (form === 'EMP201' && !canWrite(companyRole)) return apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
+  if (form === 'EMP201' && await refuseWithoutPayrollRead(res, companyId, user.id)) return; // #1656 (round 6): Payroll read, not just a write role
+  // census-exempt(listVersions): Payroll read is asked above for an EMP201; the other forms' versions (VAT201, EMP501) hold company-level figures only
   return apiResponse.success(res, await listVersions(companyId, form, periodStart, periodEnd));
 }
 

@@ -29,7 +29,7 @@ import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoi
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { dropFixtureMember, inTx, seedFixtureMember } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -70,8 +70,9 @@ async function noteLegs(id: string): Promise<Record<string, number>> {
 }
 
 describeIfDisposable('PR #685 review round 1', () => {
-  beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
-  afterAll(async () => { if (f) await dropLineRevenue(f); });
+  // #1656: finalize_invoice asks the token owner's Customers & AR Approve; a bearer token's user is always a member.
+  beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); await seedFixtureMember(f.fx); });
+  afterAll(async () => { if (f) { await dropFixtureMember(f.fx); await dropLineRevenue(f); } });
 
   it('approve refuses an uncoded line saved without the FNO its customer now has, before the status moves; bulk dry run skips it', async () => {
     const id = await draft([{ unitPrice: 100 }]);

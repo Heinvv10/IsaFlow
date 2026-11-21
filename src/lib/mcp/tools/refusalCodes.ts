@@ -43,6 +43,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // raised (gl/approvalDocumentErrors). Names the caller's own document type
   // and id; nothing is written. No MCP tool raises requests (Q6).
   'APPROVAL_RULES_CHANGED',
+  // #1656 (core/approvePermission): no Approve on the document's module; pre-write, fixed wording.
+  'APPROVE_PERMISSION_REFUSED',
   // Budgets P6 three-way engine (budgets/threeWay/errors.ts): the assumptions document failed validation (field paths
   // and fixed messages only). No MCP tool runs the engine today.
   'ASSUMPTIONS_INVALID',

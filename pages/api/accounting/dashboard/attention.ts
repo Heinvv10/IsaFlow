@@ -18,6 +18,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  // census-exempt(getAttentionList): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   return apiResponse.success(res, await getAttentionList(companyId));
 }
 

@@ -14,6 +14,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
   const { companyId } = req as CompanyAuthedRequest;
+  // census-exempt(getSetupProgress): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   return apiResponse.success(res, await getSetupProgress(companyId));
 }
 

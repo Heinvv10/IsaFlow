@@ -30,6 +30,7 @@ import { previewBulkAccept, isBulkAcceptRefusal } from '@/modules/accounting/ser
 import { confirmBulkAccept, undoBulkAcceptBatch } from '@/modules/accounting/services/bank/bankBulkAcceptService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { ErrorCode } from '@/lib/apiResponse.types';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -51,6 +52,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
 
     const body = (req.body ?? {}) as { action?: string; previewToken?: unknown; runId?: unknown };
+    if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656: confirm posts, undo reverses
     if (body.action === 'confirm') {
       // The quota is spent only by a request that gets as far as work: a bad token (400) and a busy account (409) do not.
       const result = await confirmBulkAccept(companyId, userId, body.previewToken,
@@ -63,6 +65,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.tooManyRequests(res, 'Too many undo requests. Please try again shortly.');
       }
       const runId = body.runId;
+      // census-exempt(undoBulkAcceptBatch): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
       const result = await withJournalDateRefusal(res, () => undoBulkAcceptBatch(companyId, runId, userId));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info('Bulk accept batch undo requested', { companyId, runId, ...result }, 'bank-bulk-accept');

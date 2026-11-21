@@ -22,6 +22,7 @@ const packDataMock = vi.fn();
 const rateLimitMock = vi.fn();
 const warnMock = vi.fn();
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: Budgets Approve granted; the refusal is routeApproveGates
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: (...a: unknown[]) => warnMock(...a), error: vi.fn() },
 }));

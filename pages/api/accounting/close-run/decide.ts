@@ -11,6 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -41,7 +42,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `decision must be one of ${DECISIONS.join(', ')}`);
   }
 
+  // #1656 (round 3): approving a proposal posts its draft journal: Chart of Accounts & GL Approve, before any write. Reject / dismiss post nothing.
+  if (decision === 'approve' && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'close-run journals')) return;
+
   try {
+    // census-exempt(decideProposal): approve asks Chart of Accounts & GL Approve first (above); reject and dismiss post nothing. routeApproveGates (close-run/decide)
     const proposal = await withJournalDateRefusal(res, () => decideProposal(companyId, runId, proposalId, decision as Decision, userId));
     if (proposal === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { proposal });

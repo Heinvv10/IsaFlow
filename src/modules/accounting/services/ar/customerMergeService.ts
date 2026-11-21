@@ -19,7 +19,7 @@
 import { withTransaction, type TxSql } from '@/lib/neon';
 import { ArRequestError } from './arErrors';
 import { isLockContention } from '../core/lockContention';
-import { moveRulesToCustomer } from '../bank/bankRuleChangeControl';
+import { moveRulesToCustomer, type RuleWriteGuard } from '../bank/bankRuleChangeControl';
 import { assertMergeKeepsCredit } from './customerMergeCredit';
 import { moveRecurring } from './customerMergeRecurring';
 
@@ -204,6 +204,8 @@ export async function mergeCustomers(
   targetIdIn: string,
   /** The user merging — stamped as an author of the credit notes and invoices moved. */
   mergedBy: string,
+  /** Run for each bank rule the merge re-points (autoPostApprovalGuard: a rule that posts money needs Banking Approve). */
+  ruleGuard: RuleWriteGuard,
 ): Promise<CustomerMergeResult> {
   // Callers validate with a case-insensitive UUID pattern; one spelling here
   // makes "same customer" a string comparison and the JSON match exact.
@@ -213,7 +215,7 @@ export async function mergeCustomers(
     throw new ArRequestError('source_id and target_id must be different customers');
   }
   try {
-    return await withTransaction((tx) => mergeInSavepoint(tx, companyId, sourceId, targetId, mergedBy));
+    return await withTransaction((tx) => mergeInSavepoint(tx, companyId, sourceId, targetId, mergedBy, ruleGuard));
   } catch (err) {
     // FAIL CLOSED on contention. A merge touches every row of a customer, so
     // a multi-step settlement (a bulk allocation that takes bank line →
@@ -233,7 +235,7 @@ export async function mergeCustomers(
 }
 
 async function mergeInSavepoint(
-  tx: TxSql, companyId: string, sourceId: string, targetId: string, mergedBy: string,
+  tx: TxSql, companyId: string, sourceId: string, targetId: string, mergedBy: string, ruleGuard: RuleWriteGuard,
 ): Promise<CustomerMergeResult> {
   // Bounded wait; restored below on success, and by the savepoint's ROLLBACK TO on failure (SET LOCAL is subtransaction-aware).
   await tx`SET LOCAL lock_timeout = '5s'`;
@@ -244,7 +246,7 @@ async function mergeInSavepoint(
   // below still precedes the first write.
   const locked = await lockSettlementRows(tx, companyId, sourceId);
   await refuseOrLock(tx, companyId, sourceId, targetId);
-  await moveRulesToCustomer(tx, companyId, sourceId, targetId); // may refuse (bank_rule): before any other write
+  await moveRulesToCustomer(tx, companyId, sourceId, targetId, ruleGuard); // may refuse (bank_rule): before any other write
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);

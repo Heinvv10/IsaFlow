@@ -22,6 +22,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { ModulePermission } from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
 import { ErrorCode } from '@/lib/apiResponse';
 import { isPgError } from '@/modules/admin/middleware/adminRequestErrors';
@@ -203,4 +204,52 @@ export async function setUserCompanyRole(
   `);
   log.info('setUserCompanyRole', { userId, companyId, previousRole, role }, 'AdminCompanyMembership');
   return { previousRole, changed: true };
+}
+
+/** The admin portal's edit of company_users.approve_withheld (migration 1010c): the manager default of Approve and Payroll withheld for one member. platform_admin. */
+export async function setApproveWithheldByAdmin(userId: string, companyId: string, withheld: boolean): Promise<void> {
+  await lockMembership(userId, companyId);
+  await sql`
+    UPDATE company_users SET approve_withheld = ${withheld}
+    WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
+  `;
+  log.info('setApproveWithheldByAdmin', { userId, companyId, withheld }, 'AdminCompanyMembership');
+}
+
+/**
+ * The admin portal's module permission for one member (company_user_permissions): platform_admin, inside withPlatformAdmin's request
+ * transaction (so a failed audit write rolls it back). No app role may write the table (migration 1010d); the platform_admin role keeps its
+ * own grant. The route has proved the user is a member of the company.
+ */
+export async function setModulePermissionByAdmin(
+  companyId: string, userId: string, moduleKey: string, perms: Partial<ModulePermission>,
+): Promise<void> {
+  await sql`
+    INSERT INTO company_user_permissions (
+      company_id, user_id, module_key,
+      can_read, can_write, can_delete, can_export, can_approve,
+      account_range_from, account_range_to, restrictions, updated_at
+    ) VALUES (
+      ${companyId}::UUID, ${userId}, ${moduleKey},
+      ${perms.canRead ?? false}, ${perms.canWrite ?? false}, ${perms.canDelete ?? false},
+      ${perms.canExport ?? false}, ${perms.canApprove ?? false},
+      ${perms.accountRangeFrom ?? null}, ${perms.accountRangeTo ?? null},
+      ${JSON.stringify(perms.restrictions ?? {})}::JSONB, NOW()
+    )
+    ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
+      can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write,
+      can_delete = EXCLUDED.can_delete, can_export = EXCLUDED.can_export,
+      can_approve = EXCLUDED.can_approve,
+      account_range_from = EXCLUDED.account_range_from,
+      account_range_to   = EXCLUDED.account_range_to,
+      restrictions       = EXCLUDED.restrictions,
+      updated_at         = NOW()
+  `;
+  log.info('setModulePermissionByAdmin', { companyId, userId, moduleKey }, 'AdminCompanyMembership');
+}
+
+/** The admin portal's reset of a member to their role defaults (every permission row deleted); platform_admin, as above. */
+export async function resetPermissionsByAdmin(companyId: string, userId: string): Promise<void> {
+  await sql`DELETE FROM company_user_permissions WHERE company_id = ${companyId}::UUID AND user_id = ${userId}`;
+  log.info('resetPermissionsByAdmin', { companyId, userId }, 'AdminCompanyMembership');
 }

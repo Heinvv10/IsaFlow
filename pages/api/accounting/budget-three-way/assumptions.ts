@@ -31,6 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method === 'GET') {
       const q = VersionQuerySchema.safeParse(req.query);
       if (!q.success) return apiResponse.zodValidationError(res, q.error);
+      // census-exempt(getAssumptionsView): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
       return apiResponse.success(res, await getAssumptionsView(companyId, q.data.version_id, localISODate()));
     }
     const body = AssumptionsPutSchema.safeParse(req.body);

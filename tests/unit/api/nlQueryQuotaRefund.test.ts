@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 type H = (req: NextApiRequest, res: NextApiResponse) => unknown;
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656 round 6: Payroll read granted; the refusal is payrollReadRoutes.test
 vi.mock('@/lib/auth', () => ({ withAuth: (h: H) => h, withWriteAccess: (h: H) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: H) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: H) => h }));
@@ -38,7 +39,7 @@ async function call(question: unknown): Promise<number> {
   };
   await als.run(ctx, async () => {
     await (nlQuery as unknown as H)(
-      { method: 'POST', body: { question }, companyId: COMPANY } as unknown as NextApiRequest,
+      { method: 'POST', body: { question }, companyId: COMPANY, user: { id: 'u-1' } } as unknown as NextApiRequest,
       {} as NextApiResponse,
     );
   });

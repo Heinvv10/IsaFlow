@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
+import type { RuleWriteGuard } from '../bank/bankRuleChangeControl';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 
@@ -72,6 +73,8 @@ export async function mergeEntities(
   primaryId: string,
   duplicateId: string,
   userId: string,
+  /** For a customer merge: run for each bank rule it re-points (autoPostApprovalGuard). */
+  ruleGuard: RuleWriteGuard,
 ): Promise<MergeResult> {
   log.info('Merging entities', { companyId, entityType, primaryId, duplicateId, userId }, 'duplicate-merge');
 
@@ -80,7 +83,7 @@ export async function mergeEntities(
   // One customer merge for both routes (K-061): this path used to move five
   // tables and leave the duplicate's recurring invoices billing a deleted customer.
   if (entityType === 'customer') {
-    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId);
+    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId, ruleGuard);
     return {
       reassignedTransactions: merged.movedDocuments,
       pausedRecurring: merged.pausedRecurring,

@@ -47,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
   try {
+    // census-exempt(markReturnFiled): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     const out = await markReturnFiled(companyId, form, parsed.data.versionId, parsed.data.reference,
       { userId, role: companyRole },
       { overrideReason: parsed.data.overrideReason, correctsLegacySubmissionIds: parsed.data.correctsLegacySubmissionIds, reason: parsed.data.reason });

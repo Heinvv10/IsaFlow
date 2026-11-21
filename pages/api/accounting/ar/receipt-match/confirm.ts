@@ -56,6 +56,7 @@ import {
   isReceiptRefusal,
   isRetryableReceiptRefusal,
 } from '@/modules/accounting/services/ar/receiptRefusal';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))
@@ -78,6 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   const { companyId, user } = req as CompanyAuthedRequest;
+  if (await refuseWithoutApprove(res, companyId, user.id, 'banking', 'bank allocations')) return; // #1656 (Hein: gate everything), before any write
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) {
     apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request body');

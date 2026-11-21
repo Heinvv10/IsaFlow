@@ -29,6 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (windowProblem) return apiResponse.badRequest(res, windowProblem);
 
   // The same read the KPI scorecard and the ratio trends on this screen use.
+  // census-exempt(readExtendedRatioInputs): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const { data, figures } = await readExtendedRatioInputs(companyId, from, to);
   const ratios = calculateExtendedRatios(data);
 

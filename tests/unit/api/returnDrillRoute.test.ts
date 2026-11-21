@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const mocks = vi.hoisted(() => ({
   vat: vi.fn(), emp: vi.fn(), actor: vi.fn(), limit: vi.fn(),
 }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656 round 6: Payroll read granted; the refusal is payrollReadRoutes.test
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({ currentSessionActor: mocks.actor }));

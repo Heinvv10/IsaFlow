@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { isVersionAction, transitionVersion } from '@/modules/accounting/services/budgets/budgetVersionStatus';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})$/;
 
@@ -29,7 +30,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'expectedUpdatedAt must be the updatedAt the version was read with');
   }
   if (force !== undefined && typeof force !== 'boolean') return apiResponse.badRequest(res, 'force must be true or false');
+  // #1656 (Hein: gate everything): approving a budget version takes Budgets Approve, before the version is read.
+  if (action === 'approve' && await refuseWithoutApprove(res, companyId, userId, 'budgets', 'budget versions')) return;
   try {
+    // census-exempt(transitionVersion): approve asks Budgets Approve first (above); lock and unlock have no ledger effect. approveGateEverything
     const version = await transitionVersion(companyId, id, { action, reason, expectedUpdatedAt, force }, { userId, role: companyRole });
     return apiResponse.success(res, version);
   } catch (err) {

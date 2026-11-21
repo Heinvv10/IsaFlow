@@ -1,11 +1,14 @@
 /**
  * Permission Service — Granular module-level permissions (WS-4.1).
- * Role defaults: owner/admin → full, manager → read+write+export, viewer → read+export.
+ * Role defaults (roleDefaultPermission in companyRoles.ts, #1656): owner/admin → full,
+ * manager → all but delete, viewer → read+export. A company_user_permissions row overrides
+ * them for that user and module; the app's User Access page and the admin portal edit the same rows.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isFullAccessRole, isWriteRole, mayHoldApprove, normalizeCompanyRole, roleDefaultPermission, type PermissionAction } from './companyRoles';
 
 export interface ModulePermission {
   moduleKey: string; moduleName: string;
@@ -20,26 +23,18 @@ export interface PermissionModule {
 export interface UserWithPermissions {
   userId: string; email: string; firstName: string; lastName: string;
   role: string; permissions: ModulePermission[];
+  /** company_users.approve_withheld: the manager default of Approve (and Payroll) is withheld for this member. */
+  approveWithheld: boolean;
 }
 
-type Action = 'read' | 'write' | 'delete' | 'export' | 'approve';
+type Action = PermissionAction;
 type Row = DbRow;
 
-const FULL_ACCESS_ROLES = ['owner', 'admin'];
-
-function roleDefault(role: string, action: Action): boolean {
-  if (FULL_ACCESS_ROLES.includes(role)) return true;
-  if (role === 'manager') return action === 'read' || action === 'write' || action === 'export';
-  if (role === 'viewer') return action === 'read' || action === 'export';
-  return false;
-}
-
-function defaultPerm(role: string, moduleKey: string, moduleName: string): ModulePermission {
+function defaultPerm(role: string, moduleKey: string, moduleName: string, withheld = false): ModulePermission {
+  const d = (a: Action) => roleDefaultPermission(role, a, moduleKey, withheld);
   return {
     moduleKey, moduleName,
-    canRead: roleDefault(role, 'read'), canWrite: roleDefault(role, 'write'),
-    canDelete: roleDefault(role, 'delete'), canExport: roleDefault(role, 'export'),
-    canApprove: roleDefault(role, 'approve'),
+    canRead: d('read'), canWrite: d('write'), canDelete: d('delete'), canExport: d('export'), canApprove: d('approve'),
     accountRangeFrom: null, accountRangeTo: null, restrictions: {},
   };
 }
@@ -83,60 +78,96 @@ export async function getUserPermissions(
   return map;
 }
 
-export async function setUserModulePermission(
-  companyId: string, userId: string, moduleKey: string, perms: Partial<ModulePermission>
-): Promise<void> {
-  await sql`
-    INSERT INTO company_user_permissions (
-      company_id, user_id, module_key,
-      can_read, can_write, can_delete, can_export, can_approve,
-      account_range_from, account_range_to, restrictions, updated_at
-    ) VALUES (
-      ${companyId}::UUID, ${userId}, ${moduleKey},
-      ${perms.canRead ?? false}, ${perms.canWrite ?? false}, ${perms.canDelete ?? false},
-      ${perms.canExport ?? false}, ${perms.canApprove ?? false},
-      ${perms.accountRangeFrom ?? null}, ${perms.accountRangeTo ?? null},
-      ${JSON.stringify(perms.restrictions ?? {})}::JSONB, NOW()
-    )
-    ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
-      can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write,
-      can_delete = EXCLUDED.can_delete, can_export = EXCLUDED.can_export,
-      can_approve = EXCLUDED.can_approve,
-      account_range_from = EXCLUDED.account_range_from,
-      account_range_to   = EXCLUDED.account_range_to,
-      restrictions       = EXCLUDED.restrictions,
-      updated_at         = NOW()
-  `;
-  log.info('Module permission updated', { companyId, userId, moduleKey }, 'PermissionService');
-}
+// The writers of company_user_permissions are not here: no app role may write it (migration 1010d). The app's routes use
+// setMemberModulePermission / resetMemberPermissions (accounting/services/core/memberWrites.ts, migration_admin pool, owner / admin
+// checked); the admin portal's route uses setModulePermissionByAdmin / resetPermissionsByAdmin (admin/services/companyMembershipService.ts).
 
-export async function resetUserPermissions(companyId: string, userId: string): Promise<void> {
-  await sql`
-    DELETE FROM company_user_permissions
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `;
-  log.info('User permissions reset to defaults', { companyId, userId }, 'PermissionService');
-}
-
-export async function checkPermission(
-  companyId: string, userId: string, companyRole: string, moduleKey: string, action: Action
-): Promise<boolean> {
-  if (FULL_ACCESS_ROLES.includes(companyRole)) return true;
-
+/** The member's stored role in the company, or null when they are not a member. */
+export async function getMemberRole(companyId: string, userId: string): Promise<string | null> {
   const rows = await sql`
-    SELECT can_read, can_write, can_delete, can_export, can_approve
-    FROM company_user_permissions
-    WHERE company_id = ${companyId}::UUID
-      AND user_id    = ${userId}
-      AND module_key = ${moduleKey}
+    SELECT role FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId} LIMIT 1
+  `;
+  return ((rows[0] as Row | undefined)?.role as string | undefined) ?? null;
+}
+
+/** The member's stored role and whether their Approve (and Payroll) default is withheld (company_users.approve_withheld), or null. */
+export async function getMemberAccess(companyId: string, userId: string): Promise<{ role: string; approveWithheld: boolean } | null> {
+  const rows = await sql`
+    SELECT role, approve_withheld FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId} LIMIT 1
+  `;
+  const r = rows[0] as Row | undefined;
+  return r ? { role: String(r.role), approveWithheld: r.approve_withheld === true } : null;
+}
+
+/**
+ * One user's permission on every module as it is enforced: the user's row where there is one,
+ * else the role default (owner/admin: everything). What the User Access grid and the admin
+ * portal show, so a toggle saves from the effective state, not from all-off. `storedRole` is
+ * company_users.role as stored (a legacy accountant reads as a manager without approve).
+ */
+export async function getEffectivePermissions(
+  companyId: string, userId: string, storedRole: string, approveWithheld = false,
+): Promise<ModulePermission[]> {
+  const [modules, custom] = await Promise.all([getPermissionModules(), getUserPermissions(companyId, userId)]);
+  const fullAccess = isFullAccessRole(normalizeCompanyRole(storedRole));
+  return modules.map((mod) => (fullAccess ? null : custom.get(mod.moduleKey))
+    ?? defaultPerm(storedRole, mod.moduleKey, mod.moduleName, approveWithheld));
+}
+
+/**
+ * May the user do `action` on `moduleKey` in the company? Read from the database, not from the
+ * request: the user's STORED role there (not a member: no), owner/admin always, else their
+ * company_user_permissions row for the module, else the role default for the stored role.
+ */
+export async function checkPermission(
+  companyId: string, userId: string, moduleKey: string, action: Action,
+): Promise<boolean> {
+  const rows = await sql`
+    SELECT cu.role, cu.approve_withheld, p.can_read, p.can_write, p.can_delete, p.can_export, p.can_approve, (p.module_key IS NOT NULL) AS has_row
+    FROM company_users cu
+    LEFT JOIN company_user_permissions p
+      ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = ${moduleKey}
+    WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${userId}
     LIMIT 1
   `;
-  if (rows.length > 0) {
-    const r = rows[0] as Row;
-    const col = `can_${action}` as keyof typeof r;
-    return Boolean(r[col]);
-  }
-  return roleDefault(companyRole, action);
+  const r = rows[0] as Row | undefined;
+  return r ? memberMay(r, action, moduleKey) : false;
+}
+
+/**
+ * The rule, over one membership row joined to its module row: owner/admin always; Approve only for a role that can hold
+ * it (a viewer keeps no approval through rows that outlived a demotion); else the user's row for the module; else the
+ * role default for the stored role, honouring approve_withheld.
+ */
+export function memberMay(r: Row, action: Action, moduleKey: string): boolean {
+  const storedRole = String(r.role);
+  if (isFullAccessRole(normalizeCompanyRole(storedRole))) return true;
+  if (action === 'approve' && !mayHoldApprove(storedRole)) return false;
+  if (r.has_row) return Boolean(r[`can_${action}`]);
+  return roleDefaultPermission(storedRole, action, moduleKey, r.approve_withheld === true);
+}
+
+/**
+ * May the user do `action` on `moduleKey` through a CURRENT member company of the group, in ONE company: (for write, delete, approve) a write role there
+ * AND the permission there (round 3, M2: two checks, each satisfiable in a different company, let a viewer's stale
+ * approve row combine with a writer elsewhere). One query; the rule is memberMay's.
+ */
+export async function checkGroupPermission(
+  userId: string, groupId: string, moduleKey: string, action: Action,
+): Promise<boolean> {
+  const rows = await sql`
+    SELECT cu.role, cu.approve_withheld, p.can_read, p.can_write, p.can_delete, p.can_export, p.can_approve, (p.module_key IS NOT NULL) AS has_row
+    FROM company_group_members cgm
+    JOIN company_users cu ON cu.company_id = cgm.company_id
+    JOIN companies c ON c.id = cgm.company_id
+    LEFT JOIN company_user_permissions p
+      ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = ${moduleKey}
+    WHERE cgm.group_id = ${groupId}::UUID AND cgm.left_date IS NULL AND cu.user_id = ${userId}
+      AND c.status IS DISTINCT FROM 'suspended' AND c.status IS DISTINCT FROM 'deleted' AND c.suspended_at IS NULL
+  `;
+  // A write role is needed to write, delete or approve; a read or export of the group follows the permission alone.
+  const needsWriteRole = action === 'write' || action === 'delete' || action === 'approve';
+  return (rows as Row[]).some((r) => (!needsWriteRole || isWriteRole(String(r.role))) && memberMay(r, action, moduleKey));
 }
 
 export async function getCompanyUsersWithPermissions(companyId: string): Promise<UserWithPermissions[]> {
@@ -151,6 +182,10 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
   if (userRows.length === 0) return [];
 
   const modules = await getPermissionModules();
+  const withheldRows = await sql`
+    SELECT user_id, approve_withheld FROM company_users WHERE company_id = ${companyId}::UUID
+  `;
+  const withheld = new Set((withheldRows as Row[]).filter((w) => w.approve_withheld === true).map((w) => String(w.user_id)));
 
   const permRows = await sql`
     SELECT cup.user_id, cup.module_key, pm.module_name,
@@ -169,10 +204,11 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
   }
 
   return (userRows as Row[]).map((u: Row) => {
-    const role = u.role as string;
+    const storedRole = u.role as string;
+    const role = normalizeCompanyRole(storedRole);
     const uid = u.user_id as string;
     const custom = customMap.get(uid);
-    const isFullAccess = FULL_ACCESS_ROLES.includes(role);
+    const isFullAccess = isFullAccessRole(role);
 
     const permissions: ModulePermission[] = modules.map((mod) => {
       if (isFullAccess) {
@@ -182,14 +218,14 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
           accountRangeFrom: null, accountRangeTo: null, restrictions: {},
         };
       }
-      return custom?.get(mod.moduleKey) ?? defaultPerm(role, mod.moduleKey, mod.moduleName);
+      return custom?.get(mod.moduleKey) ?? defaultPerm(storedRole, mod.moduleKey, mod.moduleName, withheld.has(uid));
     });
 
     return {
       userId: uid, email: u.email as string,
       firstName: (u.first_name as string) ?? '',
       lastName: (u.last_name as string) ?? '',
-      role, permissions,
+      role, permissions, approveWithheld: withheld.has(uid),
     };
   });
 }

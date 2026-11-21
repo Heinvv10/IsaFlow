@@ -150,7 +150,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM customer_invoices': [{ open_count: '2' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID, { allowReversal: true })).rejects.toThrow(
       /open (invoice|document)/i,
     );
     // never reached the UPDATE
@@ -165,7 +165,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM supplier_invoices': [{ open_count: '1' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID, USER_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID, USER_ID, { allowReversal: true })).rejects.toThrow(
       /open (invoice|document)/i,
     );
   });
@@ -177,7 +177,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'UPDATE customers SET deleted_at': [{ id: ENTITY_ID }],
     });
 
-    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID);
+    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID, { allowReversal: true });
     expect(result.undoToken).toBeTruthy();
   });
 });

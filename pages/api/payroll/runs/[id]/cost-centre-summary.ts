@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth';
 import { costCentreSummaryForRun } from '@/modules/accounting/services/payroll/costCentreRunSummary';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -31,4 +32,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withPayrollDetailAccess(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(withPayrollDetailAccess(handler))));

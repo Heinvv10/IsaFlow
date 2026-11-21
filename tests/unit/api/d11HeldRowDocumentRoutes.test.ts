@@ -7,11 +7,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+// #1656: the module Approve is the subject of tests/unit/api/approveGateEverything; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({
   withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h, withVatVendor: (h: unknown) => h,
   withRole: () => (h: unknown) => h, withCsrf: (h: unknown) => h,
@@ -240,11 +243,15 @@ describe('D11 payroll routes: a held run or loan row -> 503 + Retry-After (was 4
 
 describe('D11 approval-requests, recurring-journals-action, journal-entries-action', () => {
   const decide = { action: 'approve', requestId: ID };
+  // round 10: the route reads the pending request first (unlocked) and refuses 404 without a row; these tests are about what decideRequest then throws.
+  const pending = () => vi.mocked(sql).mockResolvedValueOnce([{ document_type: 'supplier_invoice', document_id: ID }] as never);
   it('approval-requests: a held request row -> 503 (was 409)', async () => {
+    pending();
     vi.mocked(decideRequest).mockRejectedValueOnce(new ApprovalRequestLockTimeoutError(ID));
     expectHeld(await call(approvalRequests, decide));
   });
   it('approval-requests: a document changed since the request keeps 409', async () => {
+    pending();
     vi.mocked(decideRequest).mockRejectedValueOnce(new ApprovalDocumentChangedError('changed'));
     expectStatus(await call(approvalRequests, decide), 409);
   });

@@ -68,7 +68,7 @@ function installSql(opts: { groupAccess: boolean; membersInGroup: string[]; writ
       return opts.groupAccess ? [{ ok: 1 }] : [];
     }
     // userCanWriteCompany: a write role in the (source) company itself
-    if (q.includes('FROM company_users') && !q.includes('JOIN')) {
+    if (q.includes('FROM company_users') && !q.includes('company_group_members')) {
       return opts.writesSource === false ? [] : [{ ok: 1 }];
     }
     // verifyCompanyInGroup: company_id is an active member of the group

@@ -11,6 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { isUuidParam } from '@/lib/validation';
 import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { approveCommentary } from '@/modules/accounting/services/commentary/commentaryService';
@@ -33,6 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const supplied = !absent && 'text' in (body as object);
   const text: unknown = supplied ? (body as { text: unknown }).text : undefined;
   if (supplied && typeof text !== 'string') return apiResponse.badRequest(res, 'text must be a string.');
+
+  // #1656 (round 4): approving publishes the sentence with the budget figures it explains: Budgets Approve.
+  if (await refuseWithoutApprove(res, companyId, user.id, 'budgets', 'budget commentary')) return;
 
   const result = typeof text === 'string'
     ? await approveCommentary(companyId, id, user.id, text)

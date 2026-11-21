@@ -24,6 +24,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const period = emp501Period(taxYear, kind);
   await assertCertificateYearMonthlyOnly(companyId, taxYear, kind === 'interim' ? period.endYear * 100 + period.endMonth : undefined);
 
+  // census-exempt(sql): monthly PAYE / UIF / SDL totals and a head count, never one person's pay
   // Get monthly totals from payroll runs
   const rows = await sql`
     SELECT

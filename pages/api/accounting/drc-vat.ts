@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess, withVatVendor} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -33,6 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const { supplierInvoiceId } = req.body;
     if (!supplierInvoiceId) return apiResponse.badRequest(res, 'supplierInvoiceId required');
+    // #1656 (round 3): applying DRC VAT posts an adjusting journal: VAT & Tax Approve, before any write.
+    if (await refuseWithoutApprove(res, companyId, userId, 'vat', 'DRC VAT')) return;
     try {
       const result = await withJournalDateRefusal(res, () => applyDRCVat(companyId, supplierInvoiceId, userId));
       if (result === JOURNAL_DATE_REFUSED) return;

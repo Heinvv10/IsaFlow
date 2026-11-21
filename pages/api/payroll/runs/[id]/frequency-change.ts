@@ -15,6 +15,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { payslipEmailActor, UUID } from '@/lib/payslipEmailApi';
 import { sql } from '@/lib/neon';
@@ -55,4 +56,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

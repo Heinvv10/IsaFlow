@@ -42,6 +42,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -225,6 +226,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       transactions: dedupedTxs,
     };
 
+    // #1656 (round 3): the import's outflow auto-post and the optional rule pass post journals: they run only for a person with
+    // Banking Approve; the import itself (the lines, the transfer links) lands either way.
+    const mayPost = await mayApprove(companyId, authReq.user.id, 'banking');
+    // census-exempt(importParsedTransactions): the import lands for anyone who may write; its auto-post sweep is skipped (skipAutoPost: !mayPost) without Banking Approve. bankBulkCommitAutoPost.test
     const result = await importParsedTransactions(
       companyId,
       filteredResult,
@@ -232,6 +237,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       statementDate,
       {
         sourceFilename: filename,
+        skipAutoPost: !mayPost,
         ...uploadProvenance(authReq.user?.id, { pdfBase64, csvContent }), // who, channel upload, the uploaded bytes' hash
         bulkContext: {
           bulkImportId,
@@ -243,7 +249,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     // The optional rule pass, in its own savepoint; a failure is logged and the import still lands (bankBulkCommitRules).
-    const rules = applyBankRules === true
+    const rules = applyBankRules === true && mayPost
       ? await applyRulesAfterBulkFile(companyId, bankAccountId, authReq.user.id, filename)
       : { applied: 0, skippedLocked: 0 };
     const appliedRuleCount = rules.applied;

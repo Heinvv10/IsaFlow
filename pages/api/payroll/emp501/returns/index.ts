@@ -33,6 +33,8 @@ import { listVersions, type ReturnVersionView } from '@/modules/accounting/servi
 import { emp501Readiness } from '@/modules/accounting/services/returns/emp501Readiness';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { ReturnRefusal, type ReturnVersion } from '@/modules/accounting/services/returns/returnVersionTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Query = z.object({ periodStart: ISO_DATE, periodEnd: ISO_DATE });
@@ -77,6 +79,7 @@ async function post(req: NextApiRequest, res: NextApiResponse, companyId: string
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
   if (b.action === 'finalise') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'payroll', 'EMP501 returns')) return; // #1656 (Hein: gate everything), before any write
     const { version } = await finaliseReturn(companyId, 'EMP501', b.periodStart, b.periodEnd, actor);
     log.info('EMP501 finalised', { companyId, versionId: version.id }, 'emp501-returns');
     return apiResponse.success(res, { version: summary(version) });
@@ -107,4 +110,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

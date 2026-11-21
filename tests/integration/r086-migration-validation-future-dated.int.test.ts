@@ -122,7 +122,7 @@ describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not d
     // math assumes never happens as-at a real date. The CURRENT_STATE_SENTINEL
     // fix sidesteps this: order stops mattering once every entry in the chain
     // is always "on or before" the sentinel.
-    await softDelete(COMPANY_AR_FUTURE_DEL, 'customer_invoice', invoice.id, USER_ID);
+    await softDelete(COMPANY_AR_FUTURE_DEL, 'customer_invoice', invoice.id, USER_ID, { allowReversal: true });
 
     const results = await validateMigration(COMPANY_AR_FUTURE_DEL, 'r086-future-del-ar');
     const arCheck = results.find(r => r.check === 'AR vs GL');
@@ -152,7 +152,7 @@ describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not d
       ) RETURNING id
     `) as Array<{ id: string }>;
 
-    await softDelete(COMPANY_AP_FUTURE_DEL, 'supplier_invoice', invoice.id, USER_ID);
+    await softDelete(COMPANY_AP_FUTURE_DEL, 'supplier_invoice', invoice.id, USER_ID, { allowReversal: true });
 
     const results = await validateMigration(COMPANY_AP_FUTURE_DEL, 'r086-future-del-ap');
     const apCheck = results.find(r => r.check === 'AP vs GL');

@@ -23,6 +23,7 @@ import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpe
 import { itemIdArg } from './itemToolArgs';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 interface LineIn {
   description: string;
@@ -199,6 +200,7 @@ export const createDraftQuoteTool: McpTool = {
 
 export const finalizeInvoiceTool: McpTool = {
   name: 'finalize_invoice',
+  approveModule: 'customers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve a DRAFT customer invoice (draft → approved, posts it to the GL) — irreversible. Requires the write:post permission.',
   scope: 'write:invoices',
@@ -218,6 +220,8 @@ export const finalizeInvoiceTool: McpTool = {
     if (badArg) return badArg;
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
+    // #1656: the token owner's Customers & AR Approve, before the invoice is read.
+    if (!(await mayApprove(ctx.companyId, ctx.userId, 'customers'))) return toolError(approveRefusedMessage('customers', 'customer invoices'));
     // R-035 (Q6): an invoice an enforced approval rule governs is refused from
     // this read — an agent can neither raise nor decide the approval it needs,
     // and nothing is written, so the idempotency key stays free.

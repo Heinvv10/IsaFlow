@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), generate: vi.fn(), settle: vi.fn(), read: vi.fn() }));
+// #1656: withPayrollDetailAccess also asks Payroll read (tests/unit/auth/withPayrollDetailAccess); granted here.
+vi.mock('@/lib/auth/permissionService', async (orig) => ({ ...(await orig<object>()), checkPermission: vi.fn(async () => true) }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));

@@ -2,23 +2,20 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, UserPlus, Trash2, Shield, Mail, Clock, ChevronDown } from 'lucide-react';
+import { Users, UserPlus, Trash2, Shield, ChevronDown } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
+import { PendingInvitations, type PendingInvitation } from '@/components/accounting/user-access/PendingInvitations';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
-interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
-// Note: no `token` field — the API never returns the raw token for
-// pending invitations (only the SHA-256 hash is stored in the DB).
-interface PendingInvitation {
-  id: string; email: string; role: string; expiresAt: string; createdAt: string;
-  emailSentAt: string | null; emailError: string | null;
-}
+interface CompanyUser { userId: string; name: string; email: string; role: string; approveWithheld?: boolean; joinedAt: string; }
+// Note: no `token` field on a PendingInvitation — the API never returns the raw token (only the SHA-256 hash is stored in the DB).
 
-const ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+const ROLES = COMPANY_ROLES;
 const ADMIN_ROLES = ['owner', 'admin'];
 const ROLE_BADGE: Record<string, string> = {
   owner: 'bg-teal-900 text-teal-300', admin: 'bg-blue-900 text-blue-300',
@@ -191,6 +188,9 @@ export default function UserAccessPage() {
                             </span>
                           )}
                         </div>
+                        {u.approveWithheld && (
+                          <span title="Approve and Payroll are withheld by default for this member (open the permissions to change it)" className="text-xs text-amber-600 dark:text-amber-400">approve withheld</span>
+                        )}
                         <div className="hidden md:block w-28 text-gray-600 dark:text-gray-400 text-xs">{fmt(u.joinedAt)}</div>
                         {isAdmin && (
                           <div className="flex items-center gap-3 w-20 justify-end" onClick={(e) => e.stopPropagation()}>
@@ -254,42 +254,7 @@ export default function UserAccessPage() {
                   </button>
                 </form>
               </div>
-              {invitations.length > 0 && (
-                <div className="border-t border-gray-200 dark:border-gray-800 px-6 py-4">
-                  <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">Pending Invitations</p>
-                  <ul className="space-y-2">
-                    {invitations.map((inv) => (
-                      <li key={inv.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700/50 bg-slate-50 dark:bg-gray-800/40 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <Mail className="h-4 w-4 text-gray-500" />
-                          <div>
-                            <p className="text-sm text-slate-900 dark:text-white">{inv.email}</p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${ROLE_BADGE[inv.role] ?? 'bg-gray-700 text-gray-300'}`}>{inv.role}</span>
-                              <Clock className="h-3 w-3" />
-                              <span>Expires {fmt(inv.expiresAt)}</span>
-                              {inv.emailSentAt ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-green-900/50 px-2 py-0.5 text-green-400"><Mail className="h-3 w-3" />Email sent</span>
-                              ) : inv.emailError ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-red-900/50 px-2 py-0.5 text-red-400" title={inv.emailError}><Mail className="h-3 w-3" />Email failed</span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-orange-900/50 px-2 py-0.5 text-orange-400"><Mail className="h-3 w-3" />Email pending</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {/* Copy Link removed — the raw invite token isn't
-                              retrievable after creation (only the SHA-256 hash
-                              lives in the DB). A Resend flow that re-generates
-                              a fresh token is the correct replacement. */}
-                          <button onClick={() => handleCancelInvite(inv.id)} className="text-xs text-gray-500 hover:text-red-400">Cancel</button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <PendingInvitations invitations={invitations} onCancel={handleCancelInvite} />
             </div>
           )}
 

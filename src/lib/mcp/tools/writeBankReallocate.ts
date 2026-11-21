@@ -90,6 +90,7 @@ function wroteNothing(data: Record<string, unknown>): McpToolResult {
 
 export const reallocateBankTransactionTool: McpTool = {
   name: NAME,
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Re-point a RECONCILED bank line (one in a COMPLETED bank reconciliation) to a different allocation target '
     + 'WITHOUT reopening the reconciliation: the old allocation journal is reversed and a new one posted, BOTH on the '

@@ -263,8 +263,8 @@ describeIfDb('K-053 every AR/AP figure surface ties to the GL at the same as-at 
       .setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
 
     // The pre-branch shape: deleted_at set, approval journal left standing.
     // This is what softDeleteRow did on its own before the reversal existed,

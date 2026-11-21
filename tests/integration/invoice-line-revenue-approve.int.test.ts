@@ -22,7 +22,7 @@ import {
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx, runOn } from './helpers/l1FifoFixture';
+import { dropFixtureMember, inTx, runOn, seedFixtureMember } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -51,8 +51,9 @@ const finalize = (ids: string[], dry = false) => inTx(f.fx, async () => JSON.par
 const skew = (id: string) => sql`UPDATE customer_invoice_items SET amount = amount + 7 WHERE invoice_id = ${id}::UUID`;
 
 describeIfDisposable('approving invoices with and without coded lines (migration 874)', () => {
-  beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
-  afterAll(async () => { if (f) await dropLineRevenue(f); });
+  // #1656: finalize_invoice asks the token owner's Customers & AR Approve; a bearer token's user is always a member.
+  beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); await seedFixtureMember(f.fx); });
+  afterAll(async () => { if (f) { await dropFixtureMember(f.fx); await dropLineRevenue(f); } });
 
   it('an uncoded invoice whose lines do not add up is approved, as on master', async () => {
     const id = await draft([{ description: 'A', unitPrice: 100 }]);

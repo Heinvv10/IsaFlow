@@ -9,6 +9,7 @@
  * is to allocate the line to the supplier or customer, which records the
  * document; that keeps working.
  */
+import { anyRuleWrite } from '../helpers/ruleGuards';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
@@ -70,7 +71,7 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     const ap = await accountByCode('2100');
     await expect(inTx(fx, () => createRule(fx.companyId, {
       ruleName: 'AP rule', matchField: 'description', matchType: 'contains', matchPattern: 'CTRLRULE', glAccountId: ap, autoCreateEntry: true,
-    } as never, fx.userId))).rejects.toThrow(/^Rule "AP rule" posts to the accounts payable control account: .*set the rule's supplier/);
+    } as never, fx.userId, anyRuleWrite))).rejects.toThrow(/^Rule "AP rule" posts to the accounts payable control account: .*set the rule's supplier/);
 
     // A rule written before the guard existed (straight INSERT): the sweep must not post through it.
     await sql`INSERT INTO bank_categorisation_rules (company_id, rule_name, match_field, match_type, match_pattern, gl_account_id, auto_create_entry, created_by)
@@ -83,10 +84,10 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     expect(await lineStatus(tx)).toBe('imported');
     // Re-enabling that legacy rule is refused; disabling it is not.
     const [legacy] = (await sql`SELECT id FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID AND rule_name = 'legacy AP rule'`) as Record<string, unknown>[];
-    await inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), false, fx.userId));
-    await expect(inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), true, fx.userId)))
+    await inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), false, fx.userId, anyRuleWrite));
+    await expect(inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), true, fx.userId, anyRuleWrite)))
       .rejects.toThrow(/^Rule "legacy AP rule" posts to the accounts payable control account/);
-    await expect(inTx(fx, () => updateRule(fx.companyId, String(legacy!.id), { isActive: true }, fx.userId)))
+    await expect(inTx(fx, () => updateRule(fx.companyId, String(legacy!.id), { isActive: true }, fx.userId, anyRuleWrite)))
       .rejects.toThrow(/^Rule "legacy AP rule" posts to the accounts payable control account/);
     await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
   }, 60000);
@@ -95,11 +96,11 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     const ap = await accountByCode('2100');
     const base = { matchField: 'description', matchType: 'contains', autoCreateEntry: false };
     const expense = await accountByCode('6000');
-    const rule = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'expense rule', matchPattern: 'UPD1', glAccountId: expense } as never, fx.userId));
-    await expect(inTx(fx, () => updateRule(fx.companyId, String((rule as { id: string }).id), { glAccountId: ap }, fx.userId)))
+    const rule = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'expense rule', matchPattern: 'UPD1', glAccountId: expense } as never, fx.userId, anyRuleWrite));
+    await expect(inTx(fx, () => updateRule(fx.companyId, String((rule as { id: string }).id), { glAccountId: ap }, fx.userId, anyRuleWrite)))
       .rejects.toThrow(/^Rule "expense rule" posts to the accounts payable control account/);
-    const sup = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'supplier rule', matchPattern: 'UPD2', supplierId: fx.supplierId } as never, fx.userId));
-    await inTx(fx, () => updateRule(fx.companyId, String((sup as { id: string }).id), { glAccountId: ap }, fx.userId));
+    const sup = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'supplier rule', matchPattern: 'UPD2', supplierId: fx.supplierId } as never, fx.userId, anyRuleWrite));
+    await inTx(fx, () => updateRule(fx.companyId, String((sup as { id: string }).id), { glAccountId: ap }, fx.userId, anyRuleWrite));
     await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
   }, 60000);
 

@@ -42,6 +42,8 @@ import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/cre
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { approveRefusedMessage, assertMayApprove, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -94,6 +96,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // R-032 L5: create-and-post is a posting; refuse it before the draft is written.
       if (submitAction === 'post') await assertNotImpersonating();
+      // #1656 (review of #1670, M1): and so is the Approve it takes: refused before the draft is written, so a refused
+      // create-and-post leaves nothing behind for a retry to duplicate.
+      if (submitAction === 'post' && !(await mayApprove(companyId, userId, 'suppliers'))) {
+        return apiResponse.forbidden(res, approveRefusedMessage('suppliers', 'supplier credit notes'));
+      }
       if (!supplierId) return apiResponse.badRequest(res, 'supplierId is required');
       if (!creditDate) return apiResponse.badRequest(res, 'creditDate is required');
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
@@ -154,6 +161,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // Auto-post if requested
       if (submitAction === 'post') {
+        // The same Approve as the pre-write refusal above, asked again where the approval happens (the census sees only this one dominate).
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes');
         let posted: CreditNote;
         try {
           // Not wrapped: the note was created above, so a window refusal stays the 500 that rolls both back.
@@ -213,6 +222,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (existing.type !== 'supplier') return apiResponse.notFound(res, 'Supplier Credit Note', id);
 
       if (action === 'post') {
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656: pre-write (403)
         const posted = await withJournalDateRefusal(res, () => approveCreditNote(companyId, id, userId, { autoApply: parsedAutoApply }));
         if (posted === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, {
@@ -223,6 +233,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
 
       if (action === 'reverse') {
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656 (round 3): cancelling reverses the note's journal, as 'post' approves it (403)
+        // census-exempt(cancelCreditNote): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversed = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, id, userId));
         if (reversed === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, reversed);
@@ -240,6 +252,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfImpersonationForbidden(res, err)) return;
       // R-035: 'post' refused by the approval gate, under the row lock and before any write.
       if (respondIfApprovalRequired(res, err)) return;
+      if (respondIfApprovePermissionRefused(res, err)) return; // #1656: no Suppliers & AP Approve, pre-write
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }

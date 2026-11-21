@@ -15,6 +15,7 @@ import {
   getLoanGlPostings,
   postPeriodJournals,
 } from '@/modules/accounting/services/loans/loanGlPostingService';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -27,6 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'loan journals')) return; // #1656 (Hein: gate everything), before any write
     const { period } = req.body as { period?: number };
     if (!period || period <= 0) return apiResponse.badRequest(res, 'period (positive integer) is required');
     const result = await withJournalDateRefusal(res, () => postPeriodJournals(companyId, loanId, period, userId));

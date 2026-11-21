@@ -27,6 +27,8 @@ import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
 } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -49,9 +51,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         if (expectedDigest !== undefined && typeof expectedDigest !== 'string') {
           return apiResponse.badRequest(res, 'expectedDigest must be the digest the batch page read');
         }
+        // #1656: Suppliers & AP Approve, before the batch is read or locked.
+        if (!(await mayApprove(companyId, userId, 'suppliers'))) {
+          return apiResponse.forbidden(res, approveRefusedMessage('suppliers', 'payment batches'));
+        }
         return apiResponse.success(res, { status: await approveBatch(companyId, id, userId, expectedDigest) });
       }
       case 'process': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'payment batches (process)')) return; // #1656 (Hein: gate everything), before any write
         if (await withJournalDateRefusal(res, () => processBatch(companyId, id, userId)) === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { status: 'processed' });
       }
@@ -59,9 +66,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await cancelBatch(companyId, id);
         return apiResponse.success(res, { status: 'cancelled' });
       case 'reverse': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'payment batches (reverse)')) return; // #1656 (Hein: gate everything)
         // A PROCESSED batch: one contra of the batch journal, every bill
         // un-applied by this batch's allocations, members voided. Same gate as
         // every other action here, and as single-payment void.
+        // census-exempt(reverseBatch): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversal = await withJournalDateRefusal(res, () => reverseBatch(companyId, id, userId));
         if (reversal === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { status: 'reversed', ...reversal });

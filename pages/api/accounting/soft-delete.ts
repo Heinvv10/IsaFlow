@@ -22,6 +22,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -70,6 +72,13 @@ function isUserFixable(err: unknown): err is Error {
   );
 }
 
+/** What the person may do for an invoice delete / undo: their Approve on the invoice's module (anything but an invoice reverses nothing, so true). */
+async function mayApproveInvoiceDelete(entityType: string, companyId: string, userId: string): Promise<boolean> {
+  if (entityType === 'customer_invoice') return mayApprove(companyId, userId, 'customers');
+  if (entityType === 'supplier_invoice') return mayApprove(companyId, userId, 'suppliers');
+  return true;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
@@ -90,8 +99,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
+    // #1656 (round 4): deleting an invoice that is approved or later, or has a journal, reverses it: an approval act, decided by the
+    // service under the invoice's row lock from what the person may do. A draft delete needs nothing.
+    const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
+
     try {
-      const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id));
+      // census-exempt(softDelete): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+      const result = await withJournalDateRefusal(res, () => softDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
       return apiResponse.success(res, {
@@ -101,6 +115,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         expiresIn: null,
       });
     } catch (err) {
+      if (respondIfApprovePermissionRefused(res, err)) return; // approved or journalled, and no Approve: 403 under the row lock, nothing written
       if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       if (isUserFixable(err)) {
         return apiResponse.badRequest(res, (err as Error).message);
@@ -129,12 +144,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
+    // The undo re-instates (re-posts) the invoice's journal when the delete reversed one: the same Approve, decided under the lock.
+    const allowReversal = await mayApproveInvoiceDelete(entityType, companyId, user.id);
+
     try {
-      const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id));
+      // census-exempt(undoDelete): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+      const restored = await withJournalDateRefusal(res, () => undoDelete(companyId, entityType, entityId, user.id, { allowReversal }));
       if (restored === JOURNAL_DATE_REFUSED) return;
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');
       return apiResponse.success(res, { restored });
     } catch (err) {
+      if (respondIfApprovePermissionRefused(res, err)) return; // approved or journalled, and no Approve: 403 under the row lock, nothing written
       if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       // Same mapping as the delete path: the undo re-instates the journal
       // through the same reverseJournalEntry, so a period closed between the
