@@ -55,10 +55,14 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
+import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
+import { gateNote, type GateNote } from '../ar/creditNoteTypedGate';
 import { invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
   UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate, writeApplication,
 } from './creditNoteApplicationWrites';
+import { planWithinTypedCapacity } from './creditNoteTypedPlan';
+import { lockCustomerWalkKeys } from './creditNoteWalkKeys';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'linked', 'none'] as const;
 export type CreditNoteAutoApply = (typeof CREDIT_NOTE_AUTO_APPLY)[number];
@@ -129,6 +133,8 @@ export async function applyCreditNote(args: {
    * anything is written — see `assertAllocationsMatchApplied`.
    */
   alreadyApplied?: number;
+  /** A customer note's credit-note keys, held (approve takes them at step 2); absent: taken here (creditNoteWalkKeys). */
+  heldKeys?: ReadonlySet<string>;
 }): Promise<CreditNoteApplication> {
   const { companyId, creditNoteId, side, entityId, linkedInvoiceId, autoApply } = args;
   const totalAmount = round2(args.totalAmount);
@@ -149,6 +155,7 @@ export async function applyCreditNote(args: {
   // answers, and a default would have silently given one of them the wrong one
   // — which for this call would mean taking every candidate row's lock twice,
   // once here and once in lockInvoicesForUpdate below.
+  const held = side === 'customer' ? args.heldKeys ?? await lockCustomerWalkKeys(companyId, entityId, linkedInvoiceId, autoApply === 'fifo', totalAmount) : null;
   const candidates: string[] = [];
   if (linkedInvoiceId) candidates.push(linkedInvoiceId);
   if (autoApply === 'fifo' && entityId) {
@@ -158,7 +165,8 @@ export async function applyCreditNote(args: {
     for (const doc of open) {
       // The linked document is already first in the list. A second entry would
       // plan against it twice and violate the allocation table's UNIQUE.
-      if (doc.invoiceId !== linkedInvoiceId) candidates.push(doc.invoiceId);
+      // A customer walk plans only over candidates whose key it holds (one opened since is left out).
+      if (doc.invoiceId !== linkedInvoiceId && (!held || held.has(doc.invoiceId.toLowerCase()))) candidates.push(doc.invoiceId);
     }
   }
 
@@ -217,9 +225,17 @@ export async function applyCreditNote(args: {
     const rest = candidates
       .filter((id) => id !== linkedInvoiceId && locked.has(id))
       .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
-    for (const planned of planGreedyAllocations(remaining, rest, invoiceFloor(side))) {
-      lines.push({ invoiceId: planned.invoiceId, amount: planned.amount });
-      consumed = round2(consumed + planned.amount);
+    // A typed invoice takes no more than it has left to credit (ar/creditNoteTypedApplication): its room is capped at
+    // that, so one that fits partly takes what fits (shared/creditNoteTypedPlan, the planner the back-fill's dry run
+    // uses too). After the note's journal, so a cap, never a refusal. Judged by the note's own link, re-read here: the
+    // back-fill passes no linkedInvoiceId. No candidate, no plan: nothing is read.
+    const planned = rest.length === 0 ? [] : side === 'customer'
+      ? await planWithinTypedCapacity(async (id) => (await typedCreditCapacity(companyId, id))?.cap ?? null,
+        await gateNoteOf(companyId, creditNoteId), remaining, rest, invoiceFloor(side))
+      : planGreedyAllocations(remaining, rest, invoiceFloor(side));
+    for (const p of planned) {
+      lines.push({ invoiceId: p.invoiceId, amount: p.amount });
+      consumed = round2(consumed + p.amount);
     }
   }
 
@@ -272,3 +288,11 @@ export async function listCreditNoteAllocations(
 export { assertAllocationsMatchApplied } from './creditNoteApplicationWrites';
 export { getUnappliedCreditNotes } from './agedNetting';
 export type { UnappliedCreditNotesSummary } from './agedNetting';
+
+/** The note row's fields the typed gate reads (its own link decides which invoice is not gated). */
+async function gateNoteOf(companyId: string, creditNoteId: string): Promise<GateNote> {
+  const rows = (await sql`
+    SELECT id, credit_note_number, type, customer_invoice_id FROM credit_notes
+    WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  return gateNote(rows[0] ?? { id: creditNoteId, type: 'customer' });
+}

@@ -153,7 +153,7 @@ describe('edit page', () => {
     await waitFor(() => expect(saveButton().disabled).toBe(false));
     fireEvent.click(saveButton());
     await waitFor(() => expect(push).toHaveBeenCalled());
-    expect(sentBody('PUT').taxRate).toBe(15);
+    expect(sentBody('PUT').items[0]!.vatType).toBe('standard'); // the stored 15%: standard, no rate sent (per-line VAT)
     expect(sentBody('PUT').items[0]!.unitPrice).toBe(115);
   });
 

@@ -30,6 +30,10 @@ interface Props {
   /** Bumped by the page when it resets the form, to clear refused date text. */
   resetKey?: number;
   taxMode: TaxMode;
+  /** The "Amounts are" options offered (taxModeSwitch.taxModesFor: No VAT only for a company not registered for VAT). */
+  taxModes?: typeof TAX_MODE_OPTIONS;
+  /** Why the last "Amounts are" change was refused (taxModeSwitch), shown by the selector and announced; null when none. */
+  taxModeProblem?: string | null;
   onTaxModeChange: (mode: TaxMode) => void;
   /** Muted notes saying where a default came from (useContactDefaults). */
   hints?: { dueDate?: string; taxMode?: string };
@@ -54,8 +58,12 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
+export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, taxModes = TAX_MODE_OPTIONS, taxModeProblem, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
   const vatNoteId = useId();
+  const modeProblemId = useId();
+  const modeProblem = useRef<HTMLParagraphElement>(null);
+  // A refused switch is said where the user is looking: scrolled into view (a small screen may have the summary on top).
+  useEffect(() => { if (taxModeProblem) modeProblem.current?.scrollIntoView?.({ block: 'nearest' }); }, [taxModeProblem]);
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
   // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
@@ -80,8 +88,9 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
             onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…"
             labelClassName="after:ml-0.5 after:text-red-600 dark:after:text-red-400 after:content-['*']" />
           <div>
-            <Select label="Amounts are" options={TAX_MODE_OPTIONS} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
-              describedBy={hints?.taxMode || vatWarning ? vatNoteId : undefined} />
+            <Select label="Amounts are" options={taxModes} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
+              describedBy={[taxModeProblem ? modeProblemId : '', hints?.taxMode || vatWarning ? vatNoteId : ''].filter(Boolean).join(' ') || undefined} />
+            {taxModeProblem && <p id={modeProblemId} ref={modeProblem} role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">{taxModeProblem}</p>}
             <div id={vatNoteId} role="status">
               {hints?.taxMode && <p className={hint}>{hints.taxMode}</p>}
               {vatWarning && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vatWarning}</p>}
