@@ -76,7 +76,10 @@ const committedByOrder = async (): Promise<Record<string, number>> => {
 
 describe('committed spend after the copy', () => {
   it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
-    expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
+    // Breaker r5: the copies closed by billing (A, C, N) are read too, at their open remainder: 0, fully billed.
+    expect(await committedByOrder()).toEqual({
+      'CM-A': 0, 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-C': 0, 'CM-D': 1518643, 'CM-E': 50004, 'CM-N': 0,
+    });
   });
 
   // Breaker r3 / r4: over the copies in a committing status (a draft or cancelled copy is never closed). The one named exception:

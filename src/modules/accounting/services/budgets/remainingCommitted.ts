@@ -27,6 +27,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 import { headerBilledByPoItem } from './remainingHeaderBilled';
 import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
+import { toCents } from './grid/cents';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
@@ -86,13 +87,21 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
+    const mine = new Map<string, BilledPosting[]>();
     for (const line of postedExpenseLines(b, billItems)) {
       const po = poOf.get(String(line.description));
       if (!po || !linked.has(po)) continue;
-      out.set(po, [...(out.get(po) ?? []), {
+      mine.set(po, [...(mine.get(po) ?? []), {
         glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
         buId: text(line.buId), month, amount: line.debit,
       }]);
+    }
+    // A bill never nets a PO line below nothing (breaker r5, the billAttribution floor at the line): a bill whose postings to a PO
+    // line sum below 0 (a discount line naming it) nets that line 0, so a header bill's spread sees the line's whole room and a
+    // PO closed as fully billed commits 0. Named limit: the floor is per (bill, PO line); billAttribution floors per (bill, PO).
+    for (const [po, postings] of mine) {
+      if (postings.reduce((sum, p) => sum + toCents(p.amount), 0) < 0) continue;
+      out.set(po, [...(out.get(po) ?? []), ...postings]);
     }
   }
   return out;
