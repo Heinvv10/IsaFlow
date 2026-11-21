@@ -4,6 +4,7 @@
  *   - a note's documents filed under the legacy entity type goods_receipt_note are listed and counted beside goods_received ones;
  *   - the widest valid note (100 items, every text field at its limit in three-byte characters, documents and bills at their caps)
  *     answers every items page under MAX_READ_RESULT_BYTES through a real McpRegistry, and the pages walk every item once;
+ *   - list_goods_received's default and largest page of the widest notes stay under it too (round 3, finding 5);
  *   - an item whose legacy PO line belongs to another PO is kept (with its quantities, the line's metadata null), so items_total
  *     counts it, as the cancel's items_not_on_po refusal does.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -18,7 +19,7 @@ import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGo
 import { cancelGoodsReceivedTool as cancel } from '@/lib/mcp/tools/writeCancelGoodsReceived';
 import { getGoodsReceivedTool as getGrn, listGoodsReceivedTool as listGrn } from '@/lib/mcp/tools/goodsReceivedReadTools';
 import { MAX_READ_RESULT_BYTES } from '@/lib/mcp/resultSize';
-import { GRN_DETAIL_CAPS } from '@/modules/accounting/services/ap/goodsReceivedReadService';
+import { GRN_DETAIL_CAPS, GRN_LIST_LIMITS } from '@/modules/accounting/services/ap/goodsReceivedReadService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -100,6 +101,35 @@ describe('the widest valid note fits a client\'s result limit (gate finding 5)',
     expect(await get({ grn_id: grn, items_limit: GRN_DETAIL_CAPS.items + 1 })).toMatchObject({ isError: true });
     expect((await get({ grn_id: grn, items_offset: 200 })).body).toMatchObject({ items: [], items_total: 100, items_next_offset: null });
   }, 120_000);
+});
+
+describe('list_goods_received fits a client\'s result limit (gate round 3, finding 5)', () => {
+  it('cancelled notes with every text at its limit in three-byte characters: the default and the largest page are under MAX_READ_RESULT_BYTES and page on', async () => {
+    const own = await seedBillFixture(pool, 'grn-read-list');
+    try {
+      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [own.supplier, wide(255)]);
+      for (let i = 0; i < GRN_LIST_LIMITS.max + 1; i++) {
+        const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }], number: `${wide(40)}${String(i).padStart(4, '0')}` });
+        const r = await callTool(pool, own, create, {
+          ...grnArgs(po, [[0, 1]]), received_by: wide(200), notes: wide(500), external_system: wide(32), external_ref: `${wide(124)}${String(i).padStart(4, '0')}`,
+        });
+        expect(r.isError, r.text).toBe(false);
+        expect((await callTool(pool, own, cancel, { grn_id: String(r.body.grn_id), reason: wide(500) })).isError).toBe(false);
+      }
+      for (const args of [{}, { limit: GRN_LIST_LIMITS.max }]) {
+        const out = await callRegistry(pool, own, listGrn, args);
+        expect(out.isError, out.text.slice(0, 200)).toBe(false);
+        expect(Buffer.byteLength(out.text, 'utf8')).toBeLessThan(MAX_READ_RESULT_BYTES);
+        const body = JSON.parse(out.text) as { goods_received_notes: unknown[]; total: number; next_offset: number | null };
+        expect(body.total).toBe(GRN_LIST_LIMITS.max + 1);
+        expect(body.next_offset).toBe(body.goods_received_notes.length);
+      }
+      const over = await callRegistry(pool, own, listGrn, { limit: GRN_LIST_LIMITS.max + 1 });
+      expect((JSON.parse(over.text) as { goods_received_notes: unknown[] }).goods_received_notes).toHaveLength(GRN_LIST_LIMITS.max);
+    } finally {
+      await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own);
+    }
+  }, 180_000);
 });
 
 describe('an item whose legacy PO line is on another PO (gate finding 6)', () => {

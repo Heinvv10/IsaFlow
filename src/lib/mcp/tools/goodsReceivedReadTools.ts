@@ -4,13 +4,13 @@
  */
 import type { McpTool } from '../types';
 import {
-  GRN_DETAIL_CAPS, GRN_STATUSES, listGoodsReceived, readGoodsReceivedDetail,
+  GRN_DETAIL_CAPS, GRN_LIST_LIMITS, GRN_STATUSES, listGoodsReceived, readGoodsReceivedDetail,
 } from '@/modules/accounting/services/ap/goodsReceivedReadService';
 import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
 import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = GRN_LIST_LIMITS.default;
+const MAX_LIMIT = GRN_LIST_LIMITS.max;
 
 export const listGoodsReceivedTool: McpTool = {
   name: 'list_goods_received',
@@ -18,6 +18,7 @@ export const listGoodsReceivedTool: McpTool = {
     'Goods received notes of the connected company, ordered by received_date then grn_number: number, status (cancelled ones included, with who / when / why), '
     + 'received_date, received_by, the purchase order (po_number, its status), supplier, line_count, document_count (delivery notes filed on it, entity_type goods_received) '
     + 'and the external reference it was created with. Filter by po_id, supplier_id, date_from / date_to (received date), external_ref, status (one or a list). '
+    + 'Compact: received_by, supplier_name, notes and cancel_reason are cut at 80 characters (get_goods_received has them whole). '
     + 'A goods received note posts nothing to the ledger. '
     + `Returns {goods_received_notes, total, next_offset}: up to limit rows (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}); call again with offset=next_offset until it is null.`,
   scope: 'read:invoices',

@@ -18,7 +18,11 @@ export const GRN_STATUSES = ['draft', 'received', 'inspected', 'accepted', 'reje
 export const GRN_DETAIL_CAPS = { items: 40, documents: 25, bills: 25 } as const;
 /** Both entity types a note's documents are filed under (VALID_ENTITY_TYPES writes only the first). */
 export const GRN_DOCUMENT_ENTITY_TYPES = ['goods_received', 'goods_receipt_note'] as const;
+/** list_goods_received's page (round 3, finding 5): sized with LIST_TEXT_CAP so the widest page stays under MAX_READ_RESULT_BYTES. */
+export const GRN_LIST_LIMITS = { default: 25, max: 30 } as const;
 const TEXT_CAP = 150;
+/** The list's compact projection: free text (received_by, supplier, notes, cancel reason) cut shorter; get_goods_received has it whole. */
+const LIST_TEXT_CAP = 80;
 
 const day = (v: unknown): string | null => (v == null || v === '' ? null : fmtDate(v));
 const text = (v: unknown): string | null => (v == null ? null : String(v));
@@ -34,14 +38,15 @@ export interface GoodsReceivedListFilters {
   statuses: string[] | null;
 }
 
-function noteOut(r: DbRow) {
+function noteOut(r: DbRow, compact = false) {
+  const free = (v: unknown, cap: number): string | null => (v == null ? null : String(v).slice(0, compact ? LIST_TEXT_CAP : cap));
   return {
-    id: String(r.id), grn_number: String(r.grn_number), status: String(r.status), received_date: day(r.received_date),
-    received_by: short(r.received_by), notes: text(r.notes)?.slice(0, 500) ?? null,
-    purchase_order_id: String(r.purchase_order_id), po_number: text(r.po_number), po_status: text(r.po_status),
-    supplier_id: text(r.supplier_id), supplier_name: short(r.supplier_name),
+    id: String(r.id), grn_number: short(r.grn_number) ?? '', status: String(r.status), received_date: day(r.received_date),
+    received_by: free(r.received_by, TEXT_CAP), notes: free(r.notes, 500),
+    purchase_order_id: String(r.purchase_order_id), po_number: short(r.po_number), po_status: text(r.po_status),
+    supplier_id: text(r.supplier_id), supplier_name: free(r.supplier_name, TEXT_CAP),
     external_system: short(r.external_system), external_ref: short(r.external_ref),
-    cancelled_at: stamp(r.cancelled_at), cancelled_by: text(r.cancelled_by), cancel_reason: text(r.cancel_reason)?.slice(0, 500) ?? null,
+    cancelled_at: stamp(r.cancelled_at), cancelled_by: short(r.cancelled_by), cancel_reason: free(r.cancel_reason, 500),
     created_at: stamp(r.created_at),
   };
 }
@@ -74,7 +79,7 @@ export async function listGoodsReceived(
     return { rows: [], total: head.total };
   }
   return {
-    rows: rows.map((r) => ({ ...noteOut(r), line_count: Number(r.line_count), document_count: Number(r.document_count) })),
+    rows: rows.map((r) => ({ ...noteOut(r, true), line_count: Number(r.line_count), document_count: Number(r.document_count) })),
     total: rows[0] ? Number(rows[0].total_rows) : 0,
   };
 }
