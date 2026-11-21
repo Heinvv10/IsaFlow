@@ -3,7 +3,10 @@
  * "A bill's GRN"), real PostgreSQL, as app_user. A bill whose only tie to a PO is its grn_id (no link row, no header, no line)
  * would move to the target supplier while its note's PO stays on the source. Both merge paths refuse it, as they refuse a source
  * with PO links: the REST route (pages/api/accounting/supplier-merge.ts) with a 400, the duplicates merge (mergeEntities) with a
- * SupplierMergeRefusal; nothing moves. Taking the note off the bill (the named exit) lets the merge through.
+ * SupplierMergeRefusal; nothing moves. Taking the note off the bill (the named exit) lets the merge through. Only live bills block
+ * (a cancelled or soft-deleted one moves with the rest). A bill create and a merge of its supplier are serialised on the supplier
+ * row: the merge's FOR UPDATE (both suppliers, bounded) against the bill INSERT's FK KEY SHARE (supplier_invoices_supplier_id_fkey),
+ * so a noted bill is either seen by the merge's check or written after the merge, never moved unseen.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -16,6 +19,7 @@ import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGo
 import { updateSupplierInvoiceTool as update } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
 
 assertDisposable();
@@ -31,17 +35,24 @@ afterAll(async () => {
   try { await dropGrnExtras(pool, f); await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await pool.end(); }
 }, 60_000);
 
-/** A draft bill of the fixture's supplier carrying a live note on its PO, and no other tie to a PO. */
-async function billOnlyTiedByItsNote(): Promise<{ bill: string; number: string }> {
+/** A live note on a fresh PO of the fixture's supplier. */
+async function noteOfSource(): Promise<string> {
   const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
   const r = await callTool(pool, f, create, grnArgs(po, [[0, 4]]));
   expect(r.isError, r.text).toBe(false);
+  return String(r.body.grn_id);
+}
+const billInput = (grnId: string, fx: BillFixture = f) => ({
+  invoiceNumber: `GRN-MERGE-${crypto.randomUUID().slice(0, 8)}`, supplierId: fx.supplier, invoiceDate: '2026-06-15', grnId,
+  items: [{ description: 'Delivered goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: fx.acc.opex }],
+});
+
+/** A draft bill of the fixture's supplier carrying a live note on its PO, and no other tie to a PO. */
+async function billOnlyTiedByItsNote(): Promise<{ bill: string; number: string }> {
+  const grn = await noteOfSource();
   const req = await openRequest(pool, f, f.owner);
   try {
-    const bill = await req.run(() => createSupplierInvoice(f.co, {
-      invoiceNumber: `GRN-MERGE-${crypto.randomUUID().slice(0, 8)}`, supplierId: f.supplier, invoiceDate: '2026-06-15', grnId: String(r.body.grn_id),
-      items: [{ description: 'Delivered goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: f.acc.opex }],
-    }, f.owner));
+    const bill = await req.run(() => createSupplierInvoice(f.co, billInput(grn), f.owner));
     await req.commit();
     expect(Number((await pool.query('SELECT count(*) AS n FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id])).rows[0].n)).toBe(0);
     return { bill: bill.id, number: bill.invoiceNumber };
@@ -82,5 +93,123 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     expect(done).not.toBeInstanceOf(Error);
     expect(await supplierOf(bill)).toBe(target);
     expect(await sourceLive()).toBe(false);
+  });
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Until a statement containing `fragment` waits on a lock (or `ms` passed; false then). */
+async function waitsOnLock(fragment: string, ms = 3000): Promise<boolean> {
+  for (let t = 0; t < ms; t += 25) {
+    const rows = (await pool.query(
+      "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database() AND query LIKE '%' || $1 || '%'", [fragment])).rows;
+    if (rows.length > 0) return true;
+    await sleep(25);
+  }
+  return false;
+}
+describe('a bill create and a merge of its supplier are serialised on the supplier row (follow-up to the merge major)', () => {
+  it('a create in flight holds the supplier (FK KEY SHARE): the merge waits for it, then sees its bill and refuses', async () => {
+    const own = await seedBillFixture(pool, 'grn-merge-race-a');
+    const fresh = await seedSupplier(pool, own, 'Race target A');
+    try {
+      const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }] });
+      const note = await callTool(pool, own, create, grnArgs(po, [[0, 4]]));
+      const creating = await openRequest(pool, own, own.owner);
+      let merging: Promise<unknown> | undefined;
+      try {
+        await creating.run(() => createSupplierInvoice(own.co, billInput(String(note.body.grn_id), own), own.owner));
+        const m = await openRequest(pool, own, own.owner);
+        merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))
+          .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
+        expect(await waitsOnLock('FROM suppliers')).toBe(true);
+        await creating.commit();
+      } catch (err) { await creating.rollback(); throw err; }
+      const outcome = await merging!;
+      expect(outcome).toBeInstanceOf(SupplierMergeRefusal);
+      expect((outcome as Error).message).toContain('goods received note');
+      expect((await pool.query('SELECT deleted_at IS NULL AS live FROM suppliers WHERE id = $1', [own.supplier])).rows[0].live).toBe(true);
+    } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
+  });
+
+  it('a merge holding the supplier makes a bill create of that supplier wait; it never ends as a merged bill on the old supplier\'s noted PO', async () => {
+    const own = await seedBillFixture(pool, 'grn-merge-race-b');
+    const fresh = await seedSupplier(pool, own, 'Race target B');
+    try {
+      const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }] });
+      const note = String((await callTool(pool, own, create, grnArgs(po, [[0, 4]]))).body.grn_id);
+      const m = await openRequest(pool, own, own.owner);
+      let creating: Promise<unknown> | undefined;
+      try {
+        // The merge's first row lock: both suppliers FOR UPDATE (assertSupplierMergeKeepsDrcFlag), held to its commit.
+        await m.client.query('SELECT id FROM suppliers WHERE company_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [own.co, [own.supplier, fresh]]);
+        const c = await openRequest(pool, own, own.owner);
+        creating = c.run(() => createSupplierInvoice(own.co, billInput(note, own), own.owner))
+          .then(async (r) => { await c.commit(); return r; }, async (e) => { await c.rollback(); return e; });
+        expect(await waitsOnLock('INSERT INTO supplier_invoices')).toBe(true);
+        expect(await m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))).toMatchObject({ reassignedTransactions: expect.any(Number) });
+        await m.commit();
+      } catch (err) { await m.rollback(); throw err; }
+      await creating;
+      const stranded = Number((await pool.query(
+        `SELECT count(*) AS n FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id JOIN purchase_orders po ON po.id = g.purchase_order_id
+          WHERE si.company_id = $1 AND si.supplier_id = $2 AND po.supplier_id = $3`, [own.co, fresh, own.supplier])).rows[0].n);
+      expect(stranded).toBe(0);
+    } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
+  });
+});
+
+describe('the merge\'s supplier lock is bounded', () => {
+  it('a supplier row held past the 5 s budget is a typed, retryable RowLockTimeoutError; nothing moves', async () => {
+    const own = await seedBillFixture(pool, 'grn-merge-bound');
+    const fresh = await seedSupplier(pool, own, 'Bound target');
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [own.supplier]);
+      const req = await openRequest(pool, own, own.owner);
+      let out: unknown;
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner)); await req.commit(); }
+      catch (err) { await req.rollback(); out = err; }
+      expect(out).toBeInstanceOf(RowLockTimeoutError);
+      expect((out as RowLockTimeoutError).code).toBe('ROW_LOCK_TIMEOUT');
+      await holder.query('ROLLBACK');
+      expect((await pool.query('SELECT deleted_at IS NULL AS live FROM suppliers WHERE id = $1', [own.supplier])).rows).toEqual([{ live: true }]);
+    } finally {
+      await holder.query('ROLLBACK'); holder.release();
+      await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own);
+    }
+  }, 30_000);
+});
+
+describe('only live bills block the merge (follow-up: the live-only filter)', () => {
+  it('a cancelled bill and a soft-deleted bill carrying a grn_id do not block it; both move with the rest', async () => {
+    const own = await seedBillFixture(pool, 'grn-merge-live-only');
+    const fresh = await seedSupplier(pool, own, 'Live-only target');
+    try {
+      const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }] });
+      const note = String((await callTool(pool, own, create, grnArgs(po, [[0, 4]]))).body.grn_id);
+      const bills: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const req = await openRequest(pool, own, own.owner);
+        try { bills.push((await req.run(() => createSupplierInvoice(own.co, billInput(note, own), own.owner))).id); await req.commit(); }
+        catch (err) { await req.rollback(); throw err; }
+      }
+      // Set as the cancel / delete paths leave them (the bill guards are not what this test is about).
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query('SET LOCAL session_replication_role = replica');
+        await c.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bills[0]]);
+        await c.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bills[1]]);
+        await c.query('COMMIT');
+      } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+      const req = await openRequest(pool, own, own.owner);
+      let out: unknown;
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner)); await req.commit(); }
+      catch (err) { await req.rollback(); out = err; }
+      expect(out).not.toBeInstanceOf(Error);
+      const moved = (await pool.query('SELECT supplier_id::text AS s FROM supplier_invoices WHERE id = ANY($1::uuid[])', [bills])).rows.map((r) => r.s);
+      expect(moved).toEqual([fresh, fresh]);
+    } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
   });
 });

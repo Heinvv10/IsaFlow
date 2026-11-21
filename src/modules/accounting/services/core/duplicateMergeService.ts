@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
+import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
 
 export interface MergeResult {
   reassignedTransactions: number;
@@ -45,12 +46,16 @@ export async function assertSupplierMergeKeepsDrcFlag(
 ): Promise<void> {
   // Batch before supplier (bank/.claude.md): the batches carrying the payments the merge re-points are locked before
   // either supplier row, the order the bank-file gate takes them in. `movedFromId` is the supplier being merged away.
-  const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => (await sql`
+  // Both supplier rows FOR UPDATE, bounded (5 s, a typed retryable RowLockTimeoutError). This is also what serialises a merge against
+  // a bill create or a draft supplier change for the source: their write takes KEY SHARE on the supplier through
+  // supplier_invoices_supplier_id_fkey, so a bill is either committed before this lock (and seen by the link / note checks after it)
+  // or written after the merge commits (and not moved). Lock census: docs/design/mcp-po-bill-links.md.
+  const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => withRowLockBudget(async () => (await sql`
     SELECT name, COALESCE(subject_to_drc_vat, false) AS drc FROM suppliers
     WHERE id IN (${a}::UUID, ${b}::UUID) AND company_id = ${companyId}::UUID AND deleted_at IS NULL
     ORDER BY id
     FOR UPDATE
-  `) as { name: string; drc: boolean }[]);
+  `) as { name: string; drc: boolean }[], () => new RowLockTimeoutError('A supplier being merged')));
   if (rows.length !== 2) {
     throw new SupplierMergeRefusal('One or both suppliers not found or do not belong to this company');
   }
