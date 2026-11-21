@@ -10,7 +10,11 @@
  *    whether today's period is open, so dry_run promised a reversal the live
  *    call could not post, and the live call failed inside the write path.
  *
- * Periods are built relative to today so the test holds on any date.
+ * Periods are built relative to today so the test holds on any date. Each gets
+ * a fiscal year of exactly its own dates, inserted first: left to
+ * fiscal_year_link_period, a period inside the template year (Mar-Feb) takes a
+ * year clipped to the gap, and a later period straddling that year's end then
+ * overlaps it (fiscal_years_no_overlap) on the dates where today is near it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -55,9 +59,7 @@ async function periods(ranges: Array<[string, string, 'open' | 'closed']>): Prom
   let n = 0;
   for (const [start, end, status] of ranges) {
     n++;
-    // One fiscal year per period, cut to the period's own dates. Left to the trigger, a period is linked to the
-    // company's template year (March start), and a layout that straddles a template year end (today's offsets do,
-    // for part of every year) cuts a second year that overlaps the first: fiscal_years_no_overlap.
+    // The year is inserted 'open' (fiscal_years_insert_open) and re-derives its status from the period below.
     await sql`
       INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
       VALUES (${fx.companyId}::UUID, ${2100 + n}, ${start}::DATE, ${end}::DATE)`;

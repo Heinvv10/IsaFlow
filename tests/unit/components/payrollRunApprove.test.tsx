@@ -163,7 +163,8 @@ describe('payroll run page — approve (PAY-01)', () => {
       cleanup();
       fetchMock.mockImplementation(async () => ok(runBody({ status, lines: [] })));
       render(<PayrollRunDetailPage />);
-      await screen.findByText(/no lines yet/i);
+      // A calculated run with nobody on it says so (wave 6 FQd, review #1622 UI L4); a draft says no lines yet.
+      await screen.findByText(status === 'draft' ? /no lines yet/i : /nobody is on this run/i);
       expect(screen.queryByRole('button', { name: /calculate/i })).toBeNull();
       expect(screen.queryByText(/press/i)).toBeNull();
     }

@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
 import type { OffCycleReason, PayFrequency, RunKind, UnsupportedValue } from './payrollTypesRun';
 import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
+import { formatMonth } from './payrollPayWeek';
 import { runOrderKeySql } from './payrollRunOrder';
 
 type Row = DbRow;
@@ -27,7 +28,7 @@ export interface PayrollRunSummary {
   employeeCount: number;
   /** The GL entry posted at approval, still set after reopenPayrollRun. */
   journalEntryId: string | null;
-  /** Migration 999a. This release creates and costs only monthly regular runs (payrollRunKindGuard). */
+  /** Migration 999a. This release creates and costs regular runs: monthly, weekly and fortnightly (payrollRunKindGuard). */
   /** 'unsupported': a value a later release added; the run lists, and the guard refuses to act on it. */
   payFrequency: PayFrequency | UnsupportedValue;
   runKind: RunKind | UnsupportedValue;
@@ -62,9 +63,9 @@ export function mapRunRow(r: Row): PayrollRunSummary {
 
 export async function listPayrollRuns(companyId: string): Promise<PayrollRunSummary[]> {
   const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-    ORDER BY period_year DESC, period_month DESC
+    SELECT * FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::uuid
+    ORDER BY ${runOrderKeySql('h')} DESC
   `) as Row[];
   return rows.map(mapRunRow);
 }
@@ -85,8 +86,11 @@ export async function latestPayrollRun(companyId: string): Promise<{ id: string;
 export class PayrollRunDuplicateError extends Error {
   readonly month: number;
   readonly year: number;
-  constructor(month: number, year: number) {
-    super(`A payroll run for ${month}/${year} already exists.`);
+  /** The run that already holds the period, when known (FQd: the new-run page links to it). */
+  readonly runId: string | null;
+  constructor(month: number, year: number, message = `A payroll run for ${month}/${year} already exists.`, runId: string | null = null) {
+    super(message);
+    this.runId = runId;
     this.name = 'PayrollRunDuplicateError';
     this.month = month;
     this.year = year;
@@ -102,7 +106,15 @@ export async function createPayrollRun(
   log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
   const rows = await insertMonthlyRun(companyId, period, createdBy);
   if (rows.length === 0) {
-    throw new PayrollRunDuplicateError(period.month, period.year);
+    // The month in plain words and the run to open instead (review #1622 UI r2 L2), as the weekly create says it.
+    const held = (await sql`
+      SELECT id FROM payroll_run_headers
+       WHERE company_id = ${companyId}::uuid AND run_kind = 'regular' AND pay_frequency = 'monthly'
+         AND period_year = ${period.year} AND period_month = ${period.month}
+       LIMIT 1
+    `) as Row[];
+    throw new PayrollRunDuplicateError(period.month, period.year, `The run for ${formatMonth(period.year, period.month)} already exists.`,
+      held[0] ? String(held[0].id) : null);
   }
   if (!rows[0]) throw new Error('INSERT returned no row');
   return mapRunRow(rows[0]);

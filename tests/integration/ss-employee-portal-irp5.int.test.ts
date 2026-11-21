@@ -5,7 +5,8 @@
  *  - an employee lists and downloads only their OWN certificate of a FILED version: another employee's in the same
  *    version, another company's version, a finalised-not-filed and a superseded version are absent and 404;
  *  - a version without the map (finalised before SS-c), or naming the employee twice, shows nothing (fails closed);
- *  - weekly pay: the IRP5 guard refuses the year's file input, and the list says the employee is weekly with nothing;
+ *  - weekly pay: the list says the employee is weekly with nothing; a monthly run approved before an employee moved to weekly
+ *    is still certified (FQd judges the frequency as at the run; a year with a final weekly RUN is refused, w6-fqd-irp5-monthly-only);
  *  - every answer is no-store, and nothing answers without a portal session.
  *
  * Disposable DB only (rig -> assertDisposable).
@@ -14,7 +15,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import list from '../../pages/api/employee-portal/irp5/index';
 import pdfRoute from '../../pages/api/employee-portal/irp5/[versionId]';
 import { assembleEasyFileInput } from '@/modules/accounting/services/payroll/easyFileInput';
-import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { buildEmp501Figures, type Emp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { clearRateLimitCache } from '@/lib/rateLimit';
@@ -170,12 +170,13 @@ describe('employee portal IRP5', () => {
     expect((await getPdf(jars.two!, ver.twice!)).statusCode).toBe(404);
   });
 
-  it('weekly pay: the IRP5 guard refuses the year\'s input, and the list says weekly with nothing', async () => {
+  it('weekly pay: the list says weekly with nothing; the year\'s monthly run approved before the move is still certified', async () => {
     const weekly = await person(b, 'irp5-weekly@example.invalid', 'Weekly');
-    // Bee is on b's approved January run; paid weekly now, the run is not at Bee's frequency: the 'irp5' guard refuses.
+    // Bee is on b's approved January run, which was monthly when approved; paid weekly now. Since FQd the 'irp5' guard
+    // judges a final run's frequency as at the run, so the year's input is not refused for Bee's move.
     await b.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [emp.bee]);
     try {
-      await expect(assembleEasyFileInput(b.company, 2026, 'annual')).rejects.toSatisfy(isRunKindUnsupported);
+      await expect(assembleEasyFileInput(b.company, 2026, 'annual')).resolves.toBeDefined();
       const jar = await onboard(b, weekly, '198.18.3.4');
       await b.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [weekly]);
       expect(await listed(jar)).toEqual({ payFrequency: 'weekly', certificates: [] });
