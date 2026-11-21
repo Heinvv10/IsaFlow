@@ -342,6 +342,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 
@@ -355,6 +356,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 });

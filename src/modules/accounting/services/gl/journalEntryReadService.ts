@@ -52,7 +52,7 @@ export function mapLineRow(row: Row): JournalLine {
     cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
     cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
     buId: row.bu_id ? String(row.bu_id) : undefined,
-    vatType: row.vat_type ? String(row.vat_type) as VatType : undefined,
+    vatType: row.vat_type == null ? undefined : String(row.vat_type) as VatType, // a legacy '' stays '' (1018 round 10)
     createdAt: String(row.created_at),
     accountCode: row.account_code ? String(row.account_code) : undefined,
     accountName: row.account_name ? String(row.account_name) : undefined,

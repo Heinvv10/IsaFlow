@@ -70,6 +70,8 @@ export interface MergeAccountsResult {
   documentRowsRepointed: DocumentRowCounts;
 }
 
+/** Internal to `mergeAccounts`: only correct after its preview refused every closed-period line (a reversal pair split
+ *  across a closed period is refused there by name, never left to the deferred 23514 of migration 1018). */
 export async function repointMovableLines(
   companyId: string, sourceId: string, targetId: string,
 ): Promise<string[]> {

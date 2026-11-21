@@ -70,6 +70,14 @@ async function mkJournal(status: 'posted' | 'reversed', date = '2026-03-31'): Pr
   if (status === 'reversed') await su.query("UPDATE gl_journal_entries SET status = 'reversed', reversed_at = now() WHERE id = $1", [j]);
   return j;
 }
+/** A posted contra of `je` (the ledger's own reversal, as the superuser), so a flip to 'reversed' is the real one migration 1018 allows. */
+async function contraOf(je: string): Promise<void> {
+  const c = (await one(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+    SELECT entry_date, 'fz contra', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).id as string;
+  await su.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+    SELECT $1, gl_account_id, credit, debit, company_id FROM gl_journal_lines WHERE journal_entry_id = $2`, [c, je]);
+  await su.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [c, je]);
+}
 /** An approved run of two lines (R800 net) linked to its posted payroll journal. */
 async function finalRun(): Promise<{ run: string; je: string }> {
   month += 1;
@@ -110,10 +118,11 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
     });
     it(`B4 [${who}]: posted -> reversed, drop the net-pay credit, reversed -> posted never yields an unbalanced posted journal`, async () => {
       const { je } = await finalRun();
+      await contraOf(je); // 1018 (round 10): the flip to reversed is refused outright; before it, 999n refused the line removal
       await expect(as(who, async (c) => {
         await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
         await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit = 800', [je]);
-      })).rejects.toThrow(/cannot be added or removed/);
+      })).rejects.toThrow(/cannot be added or removed|are closed|never marked status reversed/); // 999n's line-set rule, or 1018's
       expect(await journal(je)).toEqual(INTACT);
     });
     it(`B5 [${who}]: a posted journal is not deleted outright (its lines would cascade)`, async () => {
@@ -147,7 +156,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
     };
     await expect(attempt("entry_date = DATE '2099-06-16'")).rejects.toThrow(/posted payroll journal keeps its date/);
     await expect(attempt("company_id = (SELECT id FROM companies WHERE id <> company_id LIMIT 1)")).rejects.toThrow(/posted journal keeps its company/);
-    await expect(attempt("created_at = created_at - interval '1 day'")).rejects.toThrow(/created_at is frozen/);
+    await expect(attempt("created_at = created_at - interval '1 day'")).rejects.toThrow(/created_at is frozen|created_at is never changed/); // 999n, or 1018 round 11 first
   });
   it('H3: reversed never hops back to posted; a legacy NULL-status journal moved into posted must balance', async () => {
     const je = await mkJournal('reversed');
@@ -290,6 +299,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     try {
       await c.query('BEGIN');
       await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_posted_frozen');
+      await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_reversed_status'); // migration 1018's own refusal of the same move
       const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
         VALUES ('2026-03-31', 'fz s3b', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 44, 0, $3)', [je, ACC.sal, A]);

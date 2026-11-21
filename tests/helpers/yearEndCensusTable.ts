@@ -167,6 +167,7 @@ export const STRINGS: Array<[string, Category]> = [
   ['core/nlQueryValidationService.ts', 'TABLE_NAME'],
   ['gl/accountMergeReferences.ts', 'TABLE_NAME'],
   ['gl/closeRun/closeRunProposalBuilder.ts', 'PROSE'],
+  ['gl/journalReinstateRefusal.ts', 'TABLE_NAME'], // matches 1018's error-message prefix, not SQL
 ];
 
 export const key = (f: string) => (f.startsWith('pages/') ? f : f.startsWith('lib/') ? `src/${f}` : `${SVC}${f}`);

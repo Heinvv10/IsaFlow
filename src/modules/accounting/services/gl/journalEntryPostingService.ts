@@ -10,6 +10,7 @@ import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEnt
 import { buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
   claimJournalReversal,
+  JournalReversalLockTimeoutError,
   releaseJournalReversalClaim,
   withReversalTransaction,
 } from './journalEntryReversalClaim';
@@ -24,6 +25,7 @@ import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
+import { ledgerLinkRefusal } from './journalReinstateRefusal';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -165,6 +167,8 @@ async function reverseJournalEntryInner(
         // re-park its VAT on the clearing account with no companion to clear it,
         // so that one faces the clearing-account guard like any other journal.
         reversal: !entry.reversalOfId,
+        // Round 10 L4: a legacy '' VAT type is copied as '' (not NULL), so the contra lands in the original's VAT box.
+        exactVatType: true,
         // Every line is a contra of a posted one, so a historic header line stays reversible (headerAccountGuard.ts).
         contraAccountIds: carried.lines.map((l) => l.glAccountId),
       });
@@ -249,6 +253,9 @@ async function reverseJournalEntryInner(
         && (err as { constraint?: unknown }).constraint === 'ux_gl_je_reversal_of') {
         throw new Error('Journal entry already reversed');
       }
+      // Migration 1018's refusals of the link, in the user's words; the retryable ones as a 503 (gl/journalReinstateRefusal).
+      const refusal = ledgerLinkRefusal(err, entry.entryNumber, () => new JournalReversalLockTimeoutError(id));
+      if (refusal) throw refusal;
       throw err;
     }
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).
