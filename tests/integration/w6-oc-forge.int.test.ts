@@ -161,10 +161,10 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       .rejects.toThrow(/approval history grows only when the run is reopened/);
     // In the same UPDATE as a flip out of 'approved' (the accepted-limit shape), a range that is not the approval it
     // ends (not from approved_at) is refused too.
-    // A backdated approval time is refused outright (review #1679 codex M5: it would claim an approval through payday).
-    await expect(asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() - interval '5 days' WHERE id = $1`, [id]))
-      .rejects.toThrow(/an off-cycle run's approval time is the time it is approved, never earlier/);
-    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [id]);
+    // A backdated approval time is not stored (review #1679 M5 security S2): the trigger stamps the clock.
+    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() - interval '5 days' WHERE id = $1`, [id]);
+    const stamped = (await a.pool.query('SELECT approved_at > now() - interval \'1 minute\' AS fresh FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
+    expect(stamped.fresh).toBe(true);
     await expect(asApp(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL,
       approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now() - interval '1 day')) WHERE id = $1`, [id]))
       .rejects.toThrow(/a reopen adds the approval it ends, from the run's approved_at/);
@@ -337,7 +337,8 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     await gross(200); // corrected to R200 before payday and approved for payment at R200 ...
     await flip('approved');
     // ... and payday passes (the approval and pay date moved back together, by a trusted identity).
-    await a.pool.query(`UPDATE payroll_run_headers SET run_date = ${sastToday} - 1, approved_at = approved_at - interval '3 days' WHERE id = $1`, [id]);
+    await a.pool.query(`UPDATE payroll_run_headers SET run_date = ${sastToday} - 1, approved_at = approved_at - interval '3 days',
+      off_cycle_payday_at = (${sastToday})::timestamp AT TIME ZONE 'Africa/Johannesburg' WHERE id = $1`, [id]);
     await flip('calculated'); // reopened after payday: the paid R200 is the ceiling, not the pre-payday R100 (not LEAST)
     expect(await snap()).toEqual({ [emp]: 200 });
     const header = (await a.pool.query('SELECT run_kind, run_date, off_cycle_paid_gross, approval_history FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
@@ -354,5 +355,19 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     await flip('approved');
     await flip('calculated');
     expect(await snap()).toEqual({ [emp]: 180 });
+    // Security S1: app_user moves the pay date forward and approves R300 again (claiming an approval before payday):
+    // payday stays frozen at the first approval, so the snapshot still never rises.
+    await asApp(`UPDATE payroll_run_headers SET run_date = ${sastToday} + 10 WHERE id = $1`, [id]);
+    await gross(300);
+    await flip('approved');
+    await flip('calculated');
+    expect(await snap()).toEqual({ [emp]: 180 });
+    // Security S2: a statement-supplied approval time is overridden by the clock; app_user cannot move the payday.
+    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = '2000-01-01T00:00:00Z',
+      off_cycle_payday_at = '2100-01-01T00:00:00Z' WHERE id = $1`, [id]);
+    const t = (await a.pool.query(`SELECT approved_at > now() - interval '1 minute' AS fresh, off_cycle_payday_at::date AS payday
+      FROM payroll_run_headers WHERE id = $1`, [id])).rows[0];
+    expect(t.fresh).toBe(true);
+    expect(new Date(t.payday).getUTCFullYear()).toBeLessThan(2100);
   });
 });

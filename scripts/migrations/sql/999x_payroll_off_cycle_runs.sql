@@ -28,8 +28,8 @@
 --     payday, or the first reopen after it of an approval given on or before it, takes the lines as they are (replacing
 --     an earlier snapshot); a reopen after payday of an approval given after it never rises (review #1679b: a status
 --     flip by app_user over raised lines): each employee keeps the LEAST of the old snapshot and the lines, nil when
---     absent from it. An off-cycle run's approved_at is never set in the past by those roles, so an approval cannot be
---     backdated across payday. After a run's pay date its gross may not rise above the snapshot
+--     absent from it. Those roles never write an off-cycle run's approved_at (the trigger stamps the clock) or
+--     off_cycle_payday_at (frozen at the first approval from run_date), so neither can be moved across payday. After a run's pay date its gross may not rise above the snapshot
 --     (payrollOffCycleCorrection: bonus and termination runs alike, review #1679 M).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
@@ -69,6 +69,7 @@
 --   DROP FUNCTION IF EXISTS public.payroll_run_app_role();  (an earlier draft's; a no-op where it never existed)
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
+--   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_payday_at;
 --   and re-run 951's approval_request_document_facts definition.
 
 SET LOCAL lock_timeout = '5s';
@@ -180,51 +181,71 @@ ALTER TABLE public.payroll_off_cycle_employees ENABLE ALWAYS TRIGGER payroll_off
 ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_paid_gross JSONB NULL;
 COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
   'Off-cycle runs (999x): each employee''s gross as last approved, {employee_id: gross}, taken by payroll_off_cycle_paid_snapshot when the run leaves approved (a reopen). Written by that trigger only.';
+-- When an off-cycle run is paid, frozen at its first approval (review #1679 M5 security S1): app_user may write run_date,
+-- so the snapshot never reads it. Written by payroll_off_cycle_paid_snapshot only (a trusted restore keeps it).
+ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_payday_at TIMESTAMPTZ NULL;
+COMMENT ON COLUMN public.payroll_run_headers.off_cycle_payday_at IS
+  'Off-cycle runs (999x): the end of payday (the start of the day after run_date, SAST) as at the run''s first approval. Written by payroll_off_cycle_paid_snapshot only.';
 
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  trusted boolean := public.payroll_run_trusted_restore(TG_RELID);
 BEGIN
   -- Every role but a trusted ops identity (payroll_run_trusted_restore, review #1679 ops M, fail closed): that one
-  -- restores or edits the column as written; only a reopen (approved -> not approved) still snapshots for it.
-  IF public.payroll_run_trusted_restore(TG_RELID)
+  -- restores or edits the columns as written; only a reopen (approved -> not approved) still snapshots for it.
+  IF trusted
      AND NOT (TG_OP = 'UPDATE' AND OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved'
               AND NEW.off_cycle_paid_gross IS NOT DISTINCT FROM OLD.off_cycle_paid_gross) THEN
     RETURN NEW;
   END IF;
-  -- An off-cycle run's approval time is the clock's (review #1679 codex M5: it says whether the run was approved through
-  -- its pay date, below): never set in the past, so it cannot be backdated across payday. approvePayrollRun sets
-  -- clock_timestamp(), reopen clears it.
-  IF NEW.run_kind = 'off_cycle' AND NEW.approved_at IS NOT NULL AND NEW.approved_at < pg_catalog.now()
-     AND (TG_OP = 'INSERT' OR NEW.approved_at IS DISTINCT FROM OLD.approved_at
-          OR (OLD.status NOT IN ('approved', 'paid') AND NEW.status IN ('approved', 'paid'))) THEN
-    RAISE EXCEPTION 'payroll_run_headers: an off-cycle run''s approval time is the time it is approved, never earlier'
-      USING ERRCODE = 'check_violation';
+  -- An off-cycle run's approval time and payday are the trigger's, never the statement's (review #1679 M5 security S1,
+  -- S2; the snapshot below reads only them). For every role but a trusted identity (a restore keeps what it writes):
+  --  * approved_at: the clock (clock_timestamp()) when the run moves into approved or paid, or when an approved run with
+  --    none is approved again (approvePayrollRun's stranded case); otherwise it stays as it was while approved, and is
+  --    nil while not approved. Whatever the statement supplies is overridden.
+  --  * off_cycle_payday_at: frozen at the first approval from the pay date then (the start of the next day, SAST);
+  --    otherwise it stays as it was. A run_date moved later never moves it.
+  IF NOT trusted AND NEW.run_kind = 'off_cycle' THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.approved_at := NULL;
+      NEW.off_cycle_payday_at := NULL;
+    ELSIF NEW.status IN ('approved', 'paid') THEN
+      NEW.approved_at := CASE WHEN OLD.status NOT IN ('approved', 'paid') OR OLD.approved_at IS NULL
+                              THEN pg_catalog.clock_timestamp() ELSE OLD.approved_at END;
+      NEW.off_cycle_payday_at := CASE WHEN OLD.off_cycle_payday_at IS NULL AND OLD.status NOT IN ('approved', 'paid')
+                                      THEN ((NEW.run_date + 1)::timestamp AT TIME ZONE 'Africa/Johannesburg')
+                                      ELSE OLD.off_cycle_payday_at END;
+    ELSE
+      NEW.approved_at := NULL;
+      NEW.off_cycle_payday_at := OLD.off_cycle_payday_at;
+    END IF;
   END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.off_cycle_paid_gross := NULL;
     RETURN NEW;
   END IF;
   IF OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved' THEN
-    -- The gross approved for PAYMENT as of payday (review #1679 codex M5). payday ends at the start of the day after the
-    -- pay date, South African time (a run is paid once its pay date has passed, payrollOffCycleCorrection).
+    -- The gross approved for PAYMENT as of payday (review #1679 codex M5). payday ends at off_cycle_payday_at: the start
+    -- of the day after the pay date, South African time, as at the first approval (a run is paid once its pay date has
+    -- passed, payrollOffCycleCorrection).
     --  * Reopened from an approval given on or before payday (so every reopen before payday, and the first one after it:
     --    the lines that were paid): the snapshot is the lines now, replacing any earlier one (a pre-payday correction
-    --    stands). approved_at cannot be backdated (above), so this is the approval's real time.
+    --    stands). Both times are the trigger's own (above): approved_at the clock's, payday frozen at the first approval.
     --  * Reopened after payday from an approval given after it (a correction of a paid run): never rises (review
     --    #1679b): per employee the LEAST of the snapshot and the lines; an employee absent from it stays nil. With no
     --    snapshot but an approval history it was lost below the service (review #1679d): every employee at nil, as
     --    payrollOffCycleCorrection.paidCaps fails closed.
     SELECT pg_catalog.jsonb_object_agg(s.employee_id::text,
-             CASE WHEN OLD.approved_at <= paid.at THEN s.gross
+             CASE WHEN OLD.approved_at <= OLD.off_cycle_payday_at THEN s.gross
                   WHEN OLD.off_cycle_paid_gross IS NULL
                        AND OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history) THEN 0
                   WHEN OLD.off_cycle_paid_gross IS NULL THEN s.gross
                   ELSE LEAST(s.gross, COALESCE((OLD.off_cycle_paid_gross ->> s.employee_id::text)::numeric, 0)) END)
       INTO NEW.off_cycle_paid_gross
       FROM (SELECT l.employee_id, pg_catalog.sum(l.gross_pay) AS gross
-              FROM public.payroll_run_lines l WHERE l.run_id = OLD.id GROUP BY l.employee_id) s
-      -- No pay date or no approval time: paid.at or approved_at NULL, so the replacing branch is false (fail closed).
-      CROSS JOIN (SELECT ((OLD.run_date + 1)::timestamp AT TIME ZONE 'Africa/Johannesburg') AS at) paid;
+              FROM public.payroll_run_lines l WHERE l.run_id = OLD.id GROUP BY l.employee_id) s;
+    -- No frozen payday or no approval time (NULL): the replacing branch is false (fail closed).
     -- No lines (a run reopened with none): the existing snapshot stands.
     NEW.off_cycle_paid_gross := COALESCE(NEW.off_cycle_paid_gross, OLD.off_cycle_paid_gross);
   ELSE
