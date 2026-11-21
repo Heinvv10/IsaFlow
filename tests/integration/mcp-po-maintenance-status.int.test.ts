@@ -122,7 +122,9 @@ describe('what refuses it', () => {
   it('a goods receipt, and a received / partially_received status either side', async () => {
     const withGrn = await seedQtyPo(pool, f, { external: true, lines: [{ qty: 10, price: 10, received: 2 }] });
     await seedGrn(pool, f, withGrn);
-    expect((await set(withGrn, 'closed')).text).toContain('a receipt is on record');
+    const refused = (await set(withGrn, 'closed')).text;
+    expect(refused).toContain('a receipt is on record');
+    expect(refused).toContain('cancel its goods received notes first (cancel_goods_received)');
     const part = await seedQtyPo(pool, f, { external: true, status: 'partially_received', lines: [{ qty: 10, price: 10, received: 2 }] });
     expect((await set(part, 'closed')).text).toContain('comes from its goods receipts');
     expect((await poRow(pool, withGrn.po)).status).toBe('approved');

@@ -74,6 +74,7 @@ describe('cancel_purchase_order', () => {
     const a = await callTool(pool, f, cancel, { po_id: received.po, reason: 'x' });
     expect(a.isError).toBe(true);
     expect(a.text).toContain('a receipt is on record');
+    expect(a.text).toContain('cancel its goods received notes first (cancel_goods_received)');
 
     const billed = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     const bill = await seedBill(pool, f, { lines: [100] });

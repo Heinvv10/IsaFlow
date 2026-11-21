@@ -29,7 +29,7 @@ import {
   PurchaseOrderChangedError, PurchaseOrderLockTimeoutError, PurchaseOrderMaintenanceRefusal, PurchaseOrderNotFoundError,
 } from './purchaseOrderErrors';
 import { insertPoLines, type PoLineRow } from './purchaseOrderLinesWrite';
-import { ACCOUNTLESS_REFUSAL, receiptOrLinkRefusal } from './purchaseOrderMaintenanceGuards';
+import { ACCOUNTLESS_REFUSAL, CANCELLED_NOTE_LINES_REFUSAL, noteKeepsPoSupplierRefusal, poHasAnyNote, receiptOrLinkRefusal } from './purchaseOrderMaintenanceGuards';
 import type { PoCents } from './purchaseOrderImportAmounts';
 
 /** The statuses an update accepts: the PUT's (draft, submitted) and approved. */
@@ -104,6 +104,13 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
     if (status === 'approved' && opts.mayEditApproved !== true) throw new PurchaseOrderMaintenanceRefusal(APPROVED_EDIT_REFUSAL);
     const refusal = await receiptOrLinkRefusal(companyId, poId, 'its lines and header cannot be edited');
     if (refusal) throw new PurchaseOrderMaintenanceRefusal(refusal);
+    // Replacing deletes the po_items rows, which a cancelled note's kept items still reference: header edits only.
+    // And its supplier (Codex gate at 42de08b3, 3): decided again here, under the PO lock (validatePoEdit ran before it).
+    const noted = await noteKeepsPoSupplierRefusal(companyId, poId, header.supplierId);
+    if (noted) throw new PurchaseOrderMaintenanceRefusal(noted);
+    if (replace && await poHasAnyNote(companyId, poId)) {
+      throw new PurchaseOrderMaintenanceRefusal(`${CANCELLED_NOTE_LINES_REFUSAL}, so its lines cannot be replaced; edit the header only`);
+    }
     if (status === 'approved' && gate?.policy === 'block' && replace?.lines.some((l) => l.glAccountId === null)) {
       throw new PurchaseOrderMaintenanceRefusal(ACCOUNTLESS_REFUSAL);
     }

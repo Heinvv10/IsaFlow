@@ -101,7 +101,15 @@ it('a database failure after receipt and line creation rolls all receipt/PO chan
 
 it('scoped history inventory detects a privileged synthetic foreign-PO receipt',async()=>{
   const id=crypto.randomUUID();
-  await pool.query("INSERT INTO goods_received_notes(id,company_id,grn_number,purchase_order_id,received_by) VALUES($1,$2,'LEGACY-bad',$3,'Synthetic control')",[id,first,foreignPo]);
+  // A row written before 1021's goods_received_notes_po_guard (which now refuses it): the guard is off for this one insert, in one transaction.
+  const c=await pool.connect();
+  try{
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE goods_received_notes DISABLE TRIGGER trg_goods_received_notes_po_guard');
+    await c.query("INSERT INTO goods_received_notes(id,company_id,grn_number,purchase_order_id,received_by) VALUES($1,$2,'LEGACY-bad',$3,'Synthetic control')",[id,first,foreignPo]);
+    await c.query('ALTER TABLE goods_received_notes ENABLE ALWAYS TRIGGER trg_goods_received_notes_po_guard');
+    await c.query('COMMIT');
+  }catch(err){await c.query('ROLLBACK');throw err;}finally{c.release();}
   const query=readFileSync('docs/audits/remediation/K-007/historical-impact.sql','utf8');
   expect((await pool.query(query,[first])).rows.find(row=>row.id===id)).toMatchObject({unowned_purchase_order:true});
   expect((await pool.query(query,[second])).rows).toEqual([]);

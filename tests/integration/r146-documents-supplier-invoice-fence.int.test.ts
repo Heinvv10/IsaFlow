@@ -14,8 +14,14 @@
 // so RLS membership alone would show company B's bill documents — the
 // cross-tenant refusal below can only come from the active-company fence.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { Readable } from 'node:stream';
 import { Pool } from 'pg';
+
+vi.mock('@/services/vfStorageAdapter', () => ({
+  vfStorage: { uploadFile: vi.fn(async (_b: Buffer, _a: string, t: string, name: string) => ({ url: `https://files.test/${t}/${name}`, path: `${t}/${name}` })) },
+  normalizeStorageUrl: (u: string | null | undefined) => u ?? undefined,
+}));
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -29,6 +35,7 @@ const SUP_A = randomUUID(), SUP_B = randomUUID();
 const SI_A = randomUUID(), SI_B = randomUUID();
 const DOC_A = randomUUID(), DOC_B = randomUUID();
 const PO_A = randomUUID();
+const NOTE_A = randomUUID(), LEGACY_DOC = randomUUID(), MISFILED_DOC = randomUUID(), PO_B = randomUUID();
 
 describe('R-146 — documents on a supplier invoice are fenced on supplier_invoices', () => {
   let pool: Pool;
@@ -42,6 +49,24 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
     const out = response();
     await documents(req as never, out.res as never);
     return out.state as { statusCode: number; body: { data?: Array<{ id: string }> } };
+  }
+
+  /** A real multipart POST (formidable reads the stream). */
+  async function post(fields: Record<string, string>) {
+    const boundary = `----r146${randomUUID()}`;
+    const payload = Buffer.concat([
+      ...Object.entries(fields).map(([k, v]) => Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`)),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="dn.pdf"\r\nContent-Type: application/pdf\r\n\r\n`),
+      Buffer.from('%PDF-1.4 r146'), Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const base = request({ 'sb-access-token': token, active_company_id: A }, 'POST') as never as Record<string, unknown>;
+    const req = Object.assign(Readable.from([payload]), base, {
+      url: '/api/accounting/documents', query: {},
+      headers: { ...(base.headers as Record<string, string>), 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(payload.length) },
+    });
+    const out = response();
+    await documents(req as never, out.res as never);
+    return out.state as { statusCode: number; body: unknown };
   }
 
   const isActive = async (id: string) =>
@@ -58,6 +83,10 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
       [A, B, USER]);
     await pool.query('INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, $3), ($4, $5, $6)',
       [SUP_A, A, 'R146 Supplier A', SUP_B, B, 'R146 Supplier B']);
+    // A real PO of company A: the auto-link only links a PO of the bill's own company (a bill's purchase_order_id has no FK).
+    await pool.query(
+      `INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, $3, $4, CURRENT_DATE, 'approved')`,
+      [PO_A, A, `R146-PO-${PO_A.slice(0, 8)}`, SUP_A]);
     for (const [id, co, sup, po] of [[SI_A, A, SUP_A, PO_A], [SI_B, B, SUP_B, null]] as const) {
       await pool.query(
         `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date,
@@ -71,6 +100,18 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
        VALUES ($1, 'supplier_invoice', $2, 'invoice', 'r146-a.pdf', 'application/pdf', 8, true),
               ($3, 'supplier_invoice', $4, 'invoice', 'r146-b.pdf', 'application/pdf', 8, true)`,
       [DOC_A, SI_A, DOC_B, SI_B]);
+    // A note of company A with a legacy goods_receipt_note document; and a note of company B whose id is company A's BILL id, with a
+    // document: the untyped check ("some row with this id is A's") would let A deactivate B's document.
+    await pool.query(
+      `INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, $3, $4, CURRENT_DATE, 'approved')`,
+      [PO_B, B, `R146-PO-${PO_B.slice(0, 8)}`, SUP_B]);
+    await pool.query(`INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-90146', $3, 'x'), ($4, $5, 'GRN-90147', $6, 'x')`,
+      [NOTE_A, A, PO_A, SI_A, B, PO_B]);
+    await pool.query(
+      `INSERT INTO procurement_documents (id, entity_type, entity_id, document_type, document_name, mime_type, file_size, is_active)
+       VALUES ($1, 'goods_receipt_note', $2, 'delivery_note', 'r146-legacy.pdf', 'application/pdf', 8, true),
+              ($3, 'goods_received', $4, 'delivery_note', 'r146-misfiled.pdf', 'application/pdf', 8, true)`,
+      [LEGACY_DOC, NOTE_A, MISFILED_DOC, SI_A]);
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -80,8 +121,10 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
     if (!pool) return;
     try {
       await pool.query('DELETE FROM document_links WHERE document_id = ANY($1::uuid[])', [[DOC_A, DOC_B]]);
-      await pool.query('DELETE FROM procurement_documents WHERE id = ANY($1::uuid[])', [[DOC_A, DOC_B]]);
-      for (const t of ['supplier_invoices', 'suppliers', 'company_users']) {
+      await pool.query('DELETE FROM procurement_documents WHERE id = ANY($1::uuid[]) OR entity_id = ANY($2::uuid[])',
+        [[DOC_A, DOC_B, LEGACY_DOC, MISFILED_DOC], [SI_A, SI_B, NOTE_A]]);
+      await pool.query('DELETE FROM goods_received_notes WHERE id = ANY($1::uuid[])', [[NOTE_A, SI_A]]);
+      for (const t of ['supplier_invoices', 'purchase_orders', 'suppliers', 'company_users']) {
         await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, [[A, B]]);
       }
       await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B]]);
@@ -136,6 +179,23 @@ describe('R-146 — documents on a supplier invoice are fenced on supplier_invoi
       await client.query('ROLLBACK');
       client.release();
     }
+  });
+
+  it('POST refuses entity_type goods_received with a bill id (typed ownership, review L1); nothing is written', async () => {
+    const state = await post({ entity_type: 'goods_received', entity_id: SI_A, document_type: 'delivery_note' });
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+    expect(Number((await pool.query(
+      "SELECT count(*) AS n FROM procurement_documents WHERE entity_type = 'goods_received' AND entity_id = $1", [SI_A])).rows[0].n)).toBe(1);
+    // A's note itself is accepted (the typed check passes for the right type).
+    expect((await post({ entity_type: 'goods_received', entity_id: NOTE_A, document_type: 'delivery_note' })).statusCode).toBe(201);
+  });
+
+  it('DELETE checks the document\'s own type: B\'s note document sharing an id with A\'s bill is refused, a legacy note document deletes', async () => {
+    expect((await call('DELETE', { id: MISFILED_DOC })).statusCode).toBe(403);
+    expect(await isActive(MISFILED_DOC)).toBe(true);
+    const legacy = await call('DELETE', { id: LEGACY_DOC });
+    expect(legacy.statusCode, JSON.stringify(legacy.body)).toBe(200);
+    expect(await isActive(LEGACY_DOC)).toBe(false);
   });
 
   it("auto-link reads the bill's purchase order only for the bill's own company", async () => {

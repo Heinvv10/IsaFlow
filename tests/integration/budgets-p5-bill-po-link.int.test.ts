@@ -15,6 +15,7 @@ import { readMatchInputs } from '@/modules/accounting/services/ap/threeWayMatchS
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { approvePo, makePo } from './helpers/budgetPoFixture';
+import { inOneTransaction } from './helpers/poMaintHarness';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -137,9 +138,11 @@ describe('a bill copied from a PO', () => {
   it('the inputs read filters by company itself, with no RLS behind it (the service pool has no claims)', async () => {
     const theirs = await makePo(pool, other, MONTH, [{ acct: other.acc.opex, amount: 60, cc1: other.cc.FT }]);
     const grn = crypto.randomUUID();
-    await pool.query(`INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by)
-      VALUES ($1, $2, $3, $4, $5)`, [grn, other.co, `GRN-${grn.slice(0, 8)}`, theirs.po, other.owner]);
-    await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, theirs.items[0]]);
+    await inOneTransaction(pool, async (c) => {
+      await c.query(`INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by)
+        VALUES ($1, $2, $3, $4, $5)`, [grn, other.co, `GRN-${grn.slice(0, 8)}`, theirs.po, other.owner]);
+      await c.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, theirs.items[0]]);
+    });
     const read = (co: string) => readMatchInputs(co, { supplierId: other.supplier, purchaseOrderId: theirs.po, grnId: grn });
     expect(await read(other.co)).toMatchObject({ poItems: [{ id: theirs.items[0] }], grnItems: [{ po_item_id: theirs.items[0] }] });
     expect(await read(f.co)).toMatchObject({ poItems: [], grnItems: [] });

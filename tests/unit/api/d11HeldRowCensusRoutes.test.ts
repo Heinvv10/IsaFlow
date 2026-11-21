@@ -202,7 +202,11 @@ describe.each(rows)('D11 %s', (_key, handler, service, method, body, query) => {
 describe.each([
   ['supplier-invoices POST (the SIV sequence row)', hSupplierInvoices as Handler, 'POST',
     { supplierId: ID, invoiceDate: '2026-09-01', useSequence: true, items: [{ description: 'x', quantity: 1, unitPrice: 1 }] }, {},
-    (e: Error) => vi.mocked(reserveSiv).mockRejectedValueOnce(e)],
+    (e: Error) => {
+      // The reservation runs inside the route's savepoint with the create (Codex gate at 1cf5bdc1, 2); the held row still reaches the 503.
+      vi.mocked(withTransaction).mockImplementationOnce((fn) => fn(sql as never) as never);
+      vi.mocked(reserveSiv).mockRejectedValueOnce(e);
+    }],
   ['supplier-returns POST (the supplier_return sequence row)', hSupplierReturns as Handler, 'POST',
     { supplierId: ID, amount: 10, reason: 'x' }, {}, (e: Error) => {
       // The reservation runs inside the route's savepoint (withTransaction) since DOCNUM round 3.
