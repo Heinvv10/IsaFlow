@@ -110,6 +110,15 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
     expect(await billRow(bill)).toEqual({ supplier_id: f.supplier, grn_id: grn });
   });
 
+  it('a header naming no purchase order of the company (a legacy id) does not make every note disagree (review L2)', async () => {
+    const bill = await draftWith(await noteOf());
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill, crypto.randomUUID()]);
+    const next = await noteOf();
+    const r = await callTool(pool, f, update, { invoice_id: bill, grn_id: next });
+    expect(r.isError, r.text).toBe(false);
+    expect(await billRow(bill)).toEqual({ supplier_id: f.supplier, grn_id: next });
+  });
+
   it('a cancel of the new note running during the edit: the edit waits on the note and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
     const grn = await noteOf();
     const bill = await draftWith(grn);

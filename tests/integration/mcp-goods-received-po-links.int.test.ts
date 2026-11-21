@@ -4,7 +4,8 @@
  *   - link_bills_to_purchase_order refuses (note_po_not_named), live and dry run, a call that would leave a bill carrying a note on
  *     PO A naming only PO B; naming A for that bill in the same call goes through;
  *   - unlink_bill_from_purchase_order refuses (live and dry run) unlinking A while B stays named, naming the exit; unlinking B, then
- *     the last PO A, goes through.
+ *     the last PO A, goes through; a cancelled bill is unlinked freely (clean-up), and a header naming no PO of the company (a legacy
+ *     id) is not a PO the bill names (review L1, L2).
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -42,6 +43,16 @@ async function setup(): Promise<{ a: QtyPo; b: QtyPo; bill: string; grnNumber: s
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
   return { a, b, bill, grnNumber: String(r.body.grn_number) };
+}
+/** One statement with the bill guards off (an approved bill's content is frozen; these set up legacy or cancelled states). */
+async function asReplica(q: string, params: unknown[]): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL session_replication_role = replica');
+    await c.query(q, params);
+    await c.query('COMMIT');
+  } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
 }
 const links = async (bill: string) => (await pool.query(
   'SELECT purchase_order_id::text AS po FROM purchase_order_bill_links WHERE supplier_invoice_id = $1 ORDER BY 1', [bill])).rows.map((r) => String(r.po));
@@ -84,6 +95,24 @@ describe('unlink_bill_from_purchase_order and a bill\'s note (gate finding 3)', 
     expect(other.isError, other.text).toBe(false);
     const last = await callTool(pool, f, unlink, { po_id: a.po, bill_id: bill, reason: 'the last PO' });
     expect(last.isError, last.text).toBe(false);
+    expect(await links(bill)).toEqual([]);
+  });
+
+  it('a cancelled bill is clean-up: unlinking the note\'s PO while another stays named is allowed (review L1)', async () => {
+    const { a, b, bill } = await setup();
+    expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: bill, amount: 25 }, { po_id: b.po, bill_id: bill, amount: 15 }] })).isError).toBe(false);
+    await asReplica("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bill]);
+    const r = await callTool(pool, f, unlink, { po_id: a.po, bill_id: bill, reason: 'clean-up' });
+    expect(r.isError, r.text).toBe(false);
+    expect(await links(bill)).toEqual([b.po]);
+  });
+
+  it('a header naming no purchase order of the company (a legacy id) is not a PO the bill names (review L2)', async () => {
+    const { a, bill } = await setup();
+    expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: bill, amount: 40 }] })).isError).toBe(false);
+    await asReplica('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill, crypto.randomUUID()]);
+    const r = await callTool(pool, f, unlink, { po_id: a.po, bill_id: bill, reason: 'the only real PO' });
+    expect(r.isError, r.text).toBe(false);
     expect(await links(bill)).toEqual([]);
   });
 });

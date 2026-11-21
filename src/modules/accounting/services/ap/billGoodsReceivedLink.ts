@@ -60,10 +60,16 @@ function disagreement(note: NoteFacts, supplierId: string | null, namedPos: Read
   return null;
 }
 
-/** The POs a bill names: its header PO and the POs its lines' PO lines belong to (this company's only), lower case. */
+/**
+ * The POs a bill names: its header PO and the POs its lines' PO lines belong to, lower case, each only when it is a purchase_orders row
+ * of this company (review L2: a header holding a legacy supplier_purchase_orders id or any other id names no PO; the column has no FK).
+ */
 async function namedPurchaseOrders(db: Db, companyId: string, purchaseOrderId: unknown, poItemIds: readonly unknown[]): Promise<Set<string>> {
   const named = new Set<string>();
-  if (typeof purchaseOrderId === 'string' && UUID_RE.test(purchaseOrderId)) named.add(purchaseOrderId.toLowerCase());
+  if (typeof purchaseOrderId === 'string' && UUID_RE.test(purchaseOrderId)) {
+    const header = (await db`SELECT id::text AS id FROM purchase_orders WHERE id = ${purchaseOrderId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[];
+    if (header[0]) named.add(String(header[0].id).toLowerCase());
+  }
   const items = poItemIds.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v));
   if (items.length > 0) {
     const rows = (await db`
@@ -144,7 +150,8 @@ export async function assertEditedBillGrn(
 /**
  * unlink_bill_from_purchase_order (gate finding 3): the refusal text when the bill carries a note (of this company) on `poId` and would
  * still name another PO after the unlink (its header, its lines' POs, its link rows, less `poId`), else null. Unlinking the last PO the
- * bill names stays allowed: the note's PO is still of the bill's supplier, and a bill that names no PO may carry any such note. Read
+ * bill names stays allowed: the note's PO is still of the bill's supplier, and a bill that names no PO may carry any such note. A cancelled
+ * or deleted bill is never refused (unlinking it is clean-up). Read
  * after the caller's PO and bill locks, before any write.
  */
 export async function unlinkNoteRefusal(companyId: string, billId: string, poId: string): Promise<string | null> {
@@ -152,6 +159,8 @@ export async function unlinkNoteRefusal(companyId: string, billId: string, poId:
     SELECT si.invoice_number, si.purchase_order_id::text AS header, g.grn_number, g.purchase_order_id::text AS note_po
       FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id AND g.company_id = si.company_id
      WHERE si.id = ${billId}::uuid AND si.company_id = ${companyId}::uuid
+       -- A cancelled or deleted bill is clean-up (the unlink's own rule, review L1): its note frees no claim and blocks nothing.
+       AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'
   `) as DbRow[])[0];
   if (!row || String(row.note_po).toLowerCase() !== poId.toLowerCase()) return null;
   const named = await storedBillNamedPos(sql, companyId, billId, row.header);
