@@ -6,7 +6,11 @@
  *   - an older automatic link row (po_invoice_link / grn_invoice_link) onto a bill is shown only while the document's parent is the
  *     bill's current note or one of the POs it names now: after the draft switches notes, or the PO is unlinked, the former paperwork is
  *     gone; a manual link row stays (finding 4);
- *   - a note's listing includes bill scans linked to it under the legacy alias goods_receipt_note (finding 6).
+ *   - a note's listing includes bill scans linked to it under the legacy alias goods_receipt_note (finding 6);
+ *   - a PO named only on a bill's lines lends the bill its documents (review L2);
+ *   - the mirror (review M): a note lists the scans of the live bills whose grn_id names it NOW, a PO those of the bills that name it
+ *     now (header, lines, links), resolved at read time; an older automatic row onto a note or PO follows the same rule, manual
+ *     rows always show.
  * Object storage is not run here: vfStorage.uploadFile is stubbed, every database write is real.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -127,10 +131,59 @@ describe('an older automatic link row follows the bill\'s current note and POs (
 
 describe('a note\'s listing includes scans linked under the legacy alias (finding 6)', () => {
   it('a bill scan linked to the note as goods_receipt_note is listed on the note', async () => {
+    // A manual row onto the note, from a bill that does not carry it: only the alias reaches it (the read-time arm does not).
+    const { grn } = await noteOnPo(f);
+    const bill = await draftBill('');
+    const scan = await doc('supplier_invoice', bill, 'SCAN-legacy-alias.pdf');
+    await linkRow(scan, 'goods_receipt_note', grn, null);
+    expect(await listed(f, 'goods_received', grn)).toEqual(['linked:SCAN-legacy-alias.pdf:']);
+  });
+});
+
+describe('a PO named only on a bill\'s lines lends the bill its documents (review L2)', () => {
+  it('a legacy bill whose line names the PO, with no link row and no header, lists the PO\'s documents', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const bill = await draftBill('');
+    await pool.query('UPDATE supplier_invoice_items SET po_item_id = $2 WHERE supplier_invoice_id = $1', [bill, po.items[0]]);
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill]);
+    await doc('purchase_order', po.po, 'LINE-po.pdf');
+    expect(await listed(f, 'supplier_invoice', bill)).toEqual(['linked:LINE-po.pdf:po_invoice_link']);
+  });
+});
+
+describe('a note\'s and a PO\'s listing follow the bills that name them now (review M, the mirror of finding 4)', () => {
+  it('after a draft moves from note N1 to N2, the bill\'s scan leaves N1 and shows on N2 (resolved at read time)', async () => {
+    const n1 = await noteOnPo(f);
+    const n2 = await noteOnPo(f);
+    const bill = await draftBill(n1.grn);
+    const scan = await doc('supplier_invoice', bill, 'SCAN-moves.pdf');
+    await linkRow(scan, 'goods_received', n1.grn, 'grn_invoice_link');
+    const manual = await doc('supplier_invoice', bill, 'SCAN-manual.pdf');
+    await linkRow(manual, 'goods_received', n1.grn, null);
+    expect(await listed(f, 'goods_received', n1.grn)).toEqual(['linked:SCAN-manual.pdf:', 'linked:SCAN-moves.pdf:grn_invoice_link']);
+    const r = await callTool(pool, f, update, { invoice_id: bill, grn_id: n2.grn });
+    expect(r.isError, r.text).toBe(false);
+    expect(await listed(f, 'goods_received', n1.grn)).toEqual(['linked:SCAN-manual.pdf:']);
+    expect(await listed(f, 'goods_received', n2.grn)).toEqual(['linked:SCAN-manual.pdf:grn_invoice_link', 'linked:SCAN-moves.pdf:grn_invoice_link']);
+  });
+
+  it('after the bill is unlinked from the PO, the PO no longer lists the bill\'s scan', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const bill = await draftBill('', po.po);
+    const scan = await doc('supplier_invoice', bill, 'SCAN-on-po.pdf');
+    await linkRow(scan, 'purchase_order', po.po, 'po_invoice_link');
+    expect(await listed(f, 'purchase_order', po.po)).toEqual(['linked:SCAN-on-po.pdf:po_invoice_link']);
+    const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill, reason: 'wrong PO' });
+    expect(r.isError, r.text).toBe(false);
+    expect(await listed(f, 'purchase_order', po.po)).toEqual([]);
+  });
+
+  it('a deleted bill lends a note nothing', async () => {
     const { grn } = await noteOnPo(f);
     const bill = await draftBill(grn);
-    const scan = await doc('supplier_invoice', bill, 'SCAN-legacy-alias.pdf');
-    await linkRow(scan, 'goods_receipt_note', grn, 'grn_invoice_link');
-    expect(await listed(f, 'goods_received', grn)).toEqual(['linked:SCAN-legacy-alias.pdf:grn_invoice_link']);
+    await doc('supplier_invoice', bill, 'SCAN-deleted-bill.pdf');
+    expect(await listed(f, 'goods_received', grn)).toEqual(['linked:SCAN-deleted-bill.pdf:grn_invoice_link']);
+    await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bill]);
+    expect(await listed(f, 'goods_received', grn)).toEqual([]);
   });
 });

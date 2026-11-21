@@ -41,6 +41,8 @@ export type EntityDocumentsResult =
  * bill's PO and note columns carry no foreign key, and row security admits every company the user belongs to. A document also
  * reached through an older document_links row is listed once (the link row's reason wins). Every linked document, however it was
  * reached, is shown only when its own parent (entity_type + entity_id) is a row of `companyId` (gate finding 2).
+ * The mirror (review M): a note's or PO's linked documents include, resolved here too, the documents of the live bills of the company
+ * that name it now (a note: their grn_id; a PO: header, lines, links), so a bill's scan follows a draft that moves notes or a PO unlink.
  *
  * The cap is per query and the merged result is at most 2×limit — the two
  * stores are paged independently because they have different orderings and a
@@ -91,17 +93,38 @@ export async function listEntityDocuments(
        WHERE po.company_id = ${companyId}::uuid
     ), bill_note AS (
       SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
+    ), naming_bills AS (
+      -- The mirror (review M): listing a note or a PO, the live bills of the company that name it NOW (a note: grn_id; a PO: header,
+      -- lines, link rows). Their scans are resolved here at read time, and an older automatic row onto the note / PO follows them.
+      SELECT si.id FROM supplier_invoices si
+        JOIN (SELECT s.id FROM supplier_invoices s
+               WHERE ${entityType}::text = 'goods_received' AND s.company_id = ${companyId}::uuid AND s.grn_id = ${entityId}::uuid
+              UNION
+              SELECT s.id FROM supplier_invoices s
+               WHERE ${entityType}::text = 'purchase_order' AND s.company_id = ${companyId}::uuid AND s.purchase_order_id = ${entityId}::uuid
+              UNION
+              SELECT l.supplier_invoice_id FROM purchase_order_bill_links l
+               WHERE ${entityType}::text = 'purchase_order' AND l.company_id = ${companyId}::uuid AND l.purchase_order_id = ${entityId}::uuid
+              UNION
+              SELECT sii.supplier_invoice_id FROM supplier_invoice_items sii JOIN po_items pi ON pi.id = sii.po_item_id
+               WHERE ${entityType}::text = 'purchase_order' AND pi.purchase_order_id = ${entityId}::uuid) n ON n.id = si.id
+       WHERE si.company_id = ${companyId}::uuid AND si.deleted_at IS NULL
     ), reached AS (
-      -- A note is also linked to under the legacy alias goods_receipt_note (round 3, finding 6). On a bill, an older AUTOMATIC row
-      -- (po_invoice_link / grn_invoice_link: a PO's or note's paperwork) is shown only while its document's parent is the bill's
-      -- current note or one of the POs it names now (round 3, finding 4); a manual row always.
+      -- A note is also linked to under the legacy alias goods_receipt_note (round 3, finding 6). An older AUTOMATIC row
+      -- (po_invoice_link / grn_invoice_link) is shown only while its document's parent still ties the two: on a bill, the bill's
+      -- current note or a PO it names now (round 3, finding 4); on a note or PO, a bill that names it now (review M). Manual rows always.
       SELECT dl.document_id, dl.link_reason, 0 AS rank FROM document_links dl
        WHERE (dl.linked_entity_type = ${entityType} OR (${entityType}::text = 'goods_received' AND dl.linked_entity_type = 'goods_receipt_note'))
          AND dl.linked_entity_id = ${entityId}::uuid
-         AND (${entityType}::text <> 'supplier_invoice' OR COALESCE(dl.link_reason, '') NOT IN ('po_invoice_link', 'grn_invoice_link')
+         AND (${entityType}::text NOT IN ('supplier_invoice', 'goods_received', 'purchase_order')
+              OR COALESCE(dl.link_reason, '') NOT IN ('po_invoice_link', 'grn_invoice_link')
               OR EXISTS (SELECT 1 FROM procurement_documents d WHERE d.id = dl.document_id
                           AND ((d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos))
-                               OR (d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note)))))
+                               OR (d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note))
+                               OR (d.entity_type = 'supplier_invoice' AND d.entity_id IN (SELECT id FROM naming_bills)))))
+      UNION ALL
+      SELECT d.id, CASE WHEN ${entityType}::text = 'goods_received' THEN 'grn_invoice_link' ELSE 'po_invoice_link' END, 1
+        FROM procurement_documents d WHERE d.entity_type = 'supplier_invoice' AND d.entity_id IN (SELECT id FROM naming_bills)
       UNION ALL
       SELECT d.id, 'po_invoice_link', 1 FROM procurement_documents d
        WHERE d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos)
