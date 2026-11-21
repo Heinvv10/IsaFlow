@@ -29,3 +29,23 @@ export async function outcome(p: Promise<unknown>): Promise<string> {
     return e.constraint ? `${e.code}:${e.constraint}` : String(e.code);
   }
 }
+
+/**
+ * What a backend is blocked on (#1701 round 9): polls pg_blocking_pids until `pid` is blocked BY `blockerPid` and
+ * returns the type of the lock it waits for (pg_locks: 'advisory' for a credit-note key, 'transactionid' for a row held
+ * by another transaction), or null when `p` settles first or nothing blocks it within 5 s. A race test asserts the TYPE,
+ * so it cannot pass on an incidental wait (a foreign key's row lock) the fix under test does not take.
+ */
+export async function lockWaitOf(observer: Pool, pid: number, blockerPid: number, p: Promise<unknown>): Promise<string | null> {
+  let settled = false;
+  void p.then(() => { settled = true; }, () => { settled = true; });
+  const deadline = Date.now() + 5000;
+  while (!settled && Date.now() < deadline) {
+    const r = await observer.query(
+      `SELECT l.locktype FROM pg_locks l
+       WHERE l.pid = $1 AND NOT l.granted AND $2 = ANY(pg_blocking_pids($1)) LIMIT 1`, [pid, blockerPid]);
+    if (r.rowCount) return String(r.rows[0].locktype);
+    await observer.query('SELECT pg_sleep(0.02)');
+  }
+  return null;
+}

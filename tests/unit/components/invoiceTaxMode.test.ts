@@ -1,13 +1,15 @@
 /**
- * taxMode.ts — what the invoice form's excl / incl / none choice does to a typed price. The invoice stores only
- * tax_rate and 2-dp ex-VAT unit prices, so "inclusive" converts in the form and can land off the typed gross. The
- * drift figures here are the ones spec decision 2 quotes; they are computed through the same pricing the server stores.
+ * taxMode.ts — what the invoice form's excl / incl / none choice does to a typed price. Since the per-line VAT writer PR
+ * the invoice form sends the price AS TYPED with its mode and the server backs an inclusive line's VAT out of its gross,
+ * so an inclusive total is exactly what was typed (the drift spec decision 2 quoted, 3 x R10 incl storing R30.02, is
+ * gone). The totals here are formTotals, the page's own, which is the pricing the server stores. The quote form still
+ * converts (storedUnitPrice / lineTotalForMode).
  */
 import { describe, expect, it } from 'vitest';
 import {
   effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, storedUnitPrice, taxModeFromVatType, vatTypeWarning, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
-import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { formTotals } from '@/components/accounting/customer-invoices/formVat';
 
 describe('exVatUnitPrice', () => {
   it.each([
@@ -97,28 +99,31 @@ describe('linesForModeChange', () => {
 });
 
 const line = (quantity: number, unitPrice: number, discount = 0) => ({ quantity, unitPrice, discount });
-const invoice = (mode: TaxMode, lines: ReturnType<typeof line>[], formRate = 15) => {
-  const rate = effectiveTaxRate(mode, formRate);
-  return previewTotals(lines.map((l) => lineTotalForMode(mode, rate, l)), rate);
-};
+const invoice = (mode: TaxMode, lines: ReturnType<typeof line>[], formRate = 15) =>
+  formTotals(lines, effectiveTaxRate(mode, formRate), mode, '2026-11-20');
 
 describe('the stored invoice for what was typed', () => {
-  it('3 x R10 incl comes to R30.02 against the R30.00 typed', () => {
+  it('3 x R10 incl comes to the R30.00 typed (it stored R30.02 when the form converted the price)', () => {
     const lines = [line(3, 10)];
-    expect(invoice('inclusive', lines).total).toBe(30.02);
+    expect(invoice('inclusive', lines)).toEqual({ subtotal: 26.09, tax: 3.91, total: 30 });
     expect(inclusiveTypedTotal(lines)).toBe(30);
   });
 
-  it('1 x R10 incl comes to R10.01: VAT is rounded after the price is, so even one unit can land a cent off', () => {
+  it('1 x R10 incl comes to R10.00: the VAT is backed out of the line\'s gross (it stored R10.01)', () => {
     const lines = [line(1, 10)];
-    expect(invoice('inclusive', lines)).toEqual({ subtotal: 8.7, tax: 1.31, total: 10.01 });
+    expect(invoice('inclusive', lines)).toEqual({ subtotal: 8.7, tax: 1.3, total: 10 });
     expect(inclusiveTypedTotal(lines)).toBe(10);
   });
 
-  it('1 000 x R10 incl comes to R10 005.00 against the R10 000.00 typed', () => {
+  it('1 000 x R10 incl comes to the R10 000.00 typed (it stored R10 005.00)', () => {
     const lines = [line(1000, 10)];
-    expect(invoice('inclusive', lines).total).toBe(10005);
+    expect(invoice('inclusive', lines).total).toBe(10000);
     expect(inclusiveTypedTotal(lines)).toBe(10000);
+  });
+
+  it('the quote form still converts an inclusive price to ex-VAT (quoteVat)', () => {
+    expect(storedUnitPrice('inclusive', 10, 15)).toBe(8.7);
+    expect(lineTotalForMode('inclusive', 15, line(3, 10))).toBe(26.1);
   });
 
   it('1 x R115 incl is exact', () => {
@@ -153,14 +158,12 @@ describe('the stored invoice for what was typed', () => {
 
 describe('pricesToNothing', () => {
   it('is a price typed above zero that stores as zero', () => {
-    expect(pricesToNothing('inclusive', 0.004, 15)).toBe(true);
-    expect(pricesToNothing('inclusive', 0.01, 150)).toBe(true); // 0.004: under half a cent
-    expect(pricesToNothing('inclusive', 0.01, 15)).toBe(false); // 0.0087 rounds to a cent
-    expect(pricesToNothing('inclusive', 0, 15)).toBe(false); // nothing was typed
-    expect(pricesToNothing('exclusive', 0.004, 15)).toBe(true); // the column stores 0.00
-    expect(pricesToNothing('none', 0.004, 0)).toBe(true);
-    expect(pricesToNothing('exclusive', 0.005, 15)).toBe(false); // rounds to a cent
-    expect(pricesToNothing('exclusive', Number.POSITIVE_INFINITY, 15)).toBe(false); // mid-edit, not a crash
+    // The price is sent as typed in every mode, so only its own column rounding matters.
+    expect(pricesToNothing(0.004)).toBe(true); // the column stores 0.00
+    expect(pricesToNothing(0.01)).toBe(false); // an inclusive R0.01 at 150% was 0.004 once converted; it is sent as 0.01 now
+    expect(pricesToNothing(0)).toBe(false); // nothing was typed
+    expect(pricesToNothing(0.005)).toBe(false); // rounds to a cent
+    expect(pricesToNothing(Number.POSITIVE_INFINITY)).toBe(false); // mid-edit, not a crash
   });
 });
 

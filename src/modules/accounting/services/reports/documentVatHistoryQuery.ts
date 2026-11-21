@@ -5,7 +5,12 @@
  *  1. the document row (number(s), date, status, posting journal);
  *  2. the DERIVABLE roots: its own posting (`gl_journal_entry_id`, plus any
  *     journal sourced from it via `source_record_id` — DRC VAT) and the posting
- *     journals of the credit notes LINKED to it;
+ *     journals of the credit notes LINKED to it. An UNLINKED customer note only
+ *     APPLIED to an invoice is not a root: its journal is its own (its VAT
+ *     reached the return on its own date), and one application can be a part of
+ *     a note spread over several invoices, so no whole journal of it is the
+ *     invoice's. ar/invoiceRevenuePosting counts the application against what
+ *     the invoice has left to credit instead (#1701 round 3);
  *  3. every root's CHAIN: posted reversals (`reversal_of_id`) and s16(3)
  *     late-claim companions (`late_claim_of_id`, vat201Service's tie), cycle-
  *     guarded, with every line and the VAT201 member-line rule evaluated per

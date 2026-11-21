@@ -14,7 +14,11 @@ export const PutItemSchema = z.object({
   // Within their columns (quantity numeric(10,2) and at least 0.01 once stored; unit_price numeric(15,2)), as create checks them.
   quantity: z.number().gte(0.005).lt(1e8),
   unitPrice: z.number().nonnegative().lt(1e13),
+  // LEGACY, stored by no total: accepted only as its VAT type's rate on the invoice date (invoiceLineVatTypes), else 400.
   taxRate: z.number().min(0).max(100).optional(),
+  // The line's VAT type (standard, zero_rated, exempt): its rate comes from the type and the date. Left out: the identical
+  // stored line's type, else the default chain (customerInvoiceDraftVat). Never with the header taxRate.
+  vatType: z.string().max(32).nullable().optional(),
   discount: z.number().refine(isDiscountPercent, 'discount must be from 0 to 100, to at most two decimal places').optional(),
   // Migration 874: the account the line credits and its job. Shape only —
   // ownership and the revenue-account rules are invoiceLineCodingGuard's.
@@ -42,7 +46,10 @@ export const PutBodySchema = z.object({
   invoiceDate: ISODate.optional(),
   billingPeriodStart: ISODate.optional(),
   billingPeriodEnd: ISODate.optional(),
+  // LEGACY header rate: the standard rate on the invoice date (every line standard) or 0 (zero_rated); never with a line vatType.
   taxRate: z.number().min(0).max(100).optional(),
+  // How each unitPrice reads: inclusive = VAT-inclusive, stored as entered, the VAT backed out per line. Left out: as stored.
+  amountsAre: z.enum(['exclusive', 'inclusive']).optional(),
   currencyCode: z.string().min(1).max(8).optional(),
   exchangeRate: z.number().positive().optional(),
   items: z.array(PutItemSchema).min(1).optional(),

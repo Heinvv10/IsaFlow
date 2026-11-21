@@ -20,6 +20,7 @@ import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/account
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+import { untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -33,6 +34,9 @@ async function invoice(items: { unitPrice: number; glAccountId: string; projectI
     clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0,
     items: items.map((i) => ({ description: 'Line', ...i })),
   }));
+  // A LEGACY invoice, as the legacy writers store it: this suite's subject is the legacy revenue builder (874); create types
+  // its lines since the per-line VAT writer PR (invoice-line-vat-writers covers that path).
+  await untypeLines(id);
   await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
   return id;
 }

@@ -18,7 +18,7 @@ import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx, runOn } from './helpers/l1FifoFixture';
 import { sql } from '@/lib/neon';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
-import { journalLegs, L, typeLines } from './helpers/lineVatFixture';
+import { journalLegs, L, typeLines, untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -32,7 +32,8 @@ async function approvedInvoice(date: string, items: { description: string; unitP
   const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
     clientId: f.fx.customerId, invoiceDate: date, taxRate: 15, items,
   }))).id;
-  if (types) await typeLines(id, types, { tax });
+  // No types named: a LEGACY invoice, the shape the legacy writers store (create types its lines since the writer PR).
+  if (types) await typeLines(id, types, { tax }); else await untypeLines(id);
   await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
   return id;
 }
@@ -117,13 +118,15 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
 
   it.each([
     ['VAT at the rate on its subtotal (150 + 22.50)', 150, 15,
-      /^Credit note \S+ reverses 150\.00 of an invoice with 1500\.00 left, so its VAT must be 15\.00, not 22\.50\. An invoice with a VAT type per line is credited in proportion across its lines\.$/],
+      /^Credit note \S+ reverses 150\.00 of an invoice with 1500\.00 left, so its VAT must be 15\.00, not 22\.50\. An invoice with a VAT type per line is credited in proportion across its lines\. Delete this draft \(or cancel it\) and create it again with no VAT given: its VAT then defaults to the figure required\.$/],
     ['more than the invoice has left (1600 + 160)', 1600, 10, /credits 1600\.00, but the invoice has 1500\.00 left to credit/],
   ] as const)('refuses, through the real service and a committed 4xx, a note with %s: nothing moves', async (_l, subtotal, rate, message) => {
     const id = await approvedInvoice('2026-11-10', [
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
     ], { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] }, 150);
-    const cn = await draftNote(id, '2026-11-20', subtotal, rate);
+    // The VAT given as a figure: create now refuses a taxRate that misses the required VAT (creditNoteTypedVat), and this
+    // case is approve's refusal of a draft carrying the wrong figure (one made before the writer PR, or by a dispute).
+    const cn = await draftNote(id, '2026-11-20', subtotal, rate, Math.round(subtotal * rate) / 100);
     const before = await footprint(cn.id, id, cn.creditNoteNumber);
     const err = await approveCommittingRefusal(cn.id);
     expect((err as { code?: string }).code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');

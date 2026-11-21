@@ -13,10 +13,16 @@
  *
  * PURE. Every open document is handed in; nothing here reads the database. The
  * arithmetic is `planGreedyAllocations`, the same function the live path uses,
- * so a preview cannot drift from the write by a cent.
+ * so a preview cannot drift from the write by a cent. A customer credit note's
+ * line is capped at each typed invoice's credit capacity, handed in, exactly as
+ * the live walk caps it (shared/creditNoteTypedPlan, #1701 round 5), and
+ * consumes it by what its applications count there (rule A, round 6).
  */
 
 import { EPS, planGreedyAllocations, round2, type OpenDocument } from './autoAllocateStrategy';
+import { cappedDocuments } from './creditNoteTypedPlan';
+import { gated } from '../ar/creditNoteTypedGate';
+import { detachedCountDelta, type DetachedProfile } from '../ar/creditNoteDetached';
 
 /** One open document, with the number a human reads it by. */
 export interface SimulationDocument extends OpenDocument {
@@ -54,6 +60,18 @@ export interface SimulationLine {
    * Defaults to a cent (supplier bills).
    */
   floor?: number;
+  /**
+   * Set (null or an id) on a CUSTOMER credit note: the walk caps each typed invoice at its credit capacity
+   * (`capacity`, consumed as the note's applications land there) except the note's own linked invoice, as the live
+   * walk does (shared/creditNoteTypedPlan). Absent: cash, or a supplier note, never capped.
+   */
+  creditNoteLink?: string | null;
+  /**
+   * The note's rule-A profile (ar/creditNoteDetached): its applications consume a typed invoice's capacity by what
+   * they COUNT there (its detached gross, in application order), as the live capacity read counts them. Absent: in
+   * full (conservative).
+   */
+  detached?: DetachedProfile;
 }
 
 export interface SimulatedApplication {
@@ -79,7 +97,9 @@ export interface SimulatedLine {
 export function simulateSequentialApplications(
   lines: readonly SimulationLine[],
   openByEntity: ReadonlyMap<string, readonly SimulationDocument[]>,
+  capacity: ReadonlyMap<string, number | null> = new Map(),
 ): SimulatedLine[] {
+  const caps = new Map(capacity);
   // One mutable copy per entity, shared by every line that names it. Copied
   // rather than mutated in place so the caller's input survives the call.
   const remaining = new Map<string, SimulationDocument[]>();
@@ -100,7 +120,8 @@ export function simulateSequentialApplications(
     const ordered = named !== null
       ? pool.filter((d) => d.invoiceId === named)
       : (oldestFirst ? pool : [...pool].reverse());
-    const planned = planGreedyAllocations(cash, ordered, floor);
+    const gate = line.creditNoteLink !== undefined ? { type: 'customer', customerInvoiceId: line.creditNoteLink } : null;
+    const planned = planGreedyAllocations(cash, gate ? cappedDocuments(ordered, caps, gate) : ordered, floor);
 
     const applications: SimulatedApplication[] = [];
     let applied = 0;
@@ -111,6 +132,8 @@ export function simulateSequentialApplications(
       // would silently overstate the next line's room.
       if (!doc) continue;
       doc.outstanding = round2(doc.outstanding - p.amount);
+      const cap = gate && !line.detached && gated(gate, p.invoiceId) ? caps.get(p.invoiceId) : null;
+      if (cap != null) caps.set(p.invoiceId, cap - Math.round(p.amount * 100));
       applications.push({
         documentId: p.invoiceId,
         documentNumber: doc.invoiceNumber,
@@ -119,6 +142,15 @@ export function simulateSequentialApplications(
       applied = round2(applied + p.amount);
     }
 
+    if (gate && line.detached) {
+      // Rule A: what the note's applications count changes by the delta (an add-to-existing row can move D off a
+      // later invoice), on every typed invoice it is gated on.
+      const delta = detachedCountDelta(line.detached, planned.map((p) => ({ invoiceId: p.invoiceId, cents: Math.round(p.amount * 100) })));
+      for (const [id, moved] of delta) {
+        const cap = gated(gate, id) ? caps.get(id) : null;
+        if (cap != null) caps.set(id, cap - moved);
+      }
+    }
     return { index, applications, onAccount: round2(round2(cash) - applied) };
   });
 }

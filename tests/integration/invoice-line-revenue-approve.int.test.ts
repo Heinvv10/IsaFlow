@@ -24,6 +24,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx, runOn } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+import { untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -33,9 +34,15 @@ const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
 type Line = { description: string; unitPrice: number; glAccountId?: string; projectId?: string; cc2Id?: string };
 
-const draft = async (items: Line[]) => (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
-  clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, items,
-}))).id;
+const draft = async (items: Line[]) => {
+  const { id } = await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+    clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, items,
+  }));
+  // A LEGACY invoice, as the legacy writers store it: this suite's subject is the legacy revenue builder (874); create types
+  // its lines since the per-line VAT writer PR (invoice-line-vat-writers covers that path).
+  await untypeLines(id);
+  return id;
+};
 const status = async (id: string) => ((await sql`SELECT status, gl_journal_entry_id FROM customer_invoices WHERE id = ${id}::UUID`) as
   { status: string; gl_journal_entry_id: string | null }[])[0]!;
 const revenue = async (je: string) => (await sql`
