@@ -465,10 +465,11 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
       const t1 = await typedInvoice(c, `2026-07-${days[0]}`, pick([100, 200]));
       const t2 = await typedInvoice(c, `2026-07-${days[1]}`, pick([100, 150]));
       const l1 = await legacyInvoice(c, `2026-07-${days[2]}`);
-      await approvedNote(c, '2026-07-10', pick([20, 50]), t1);                  // a return on T1, on account
+      await approvedNote(c, '2026-07-10', pick([50, 80]), t1);                  // a return on T1, on account: its capacity binds
       const n = await approvedNote(c, '2026-07-11', pick([150, 200]), l1);      // linked to legacy L1 with excess
       if (pick([true, false])) await applyAmount(n.id, t2, pick([10, 30]));
-      await approvedNote(c, '2026-07-12', pick([40, 100]));                     // unlinked
+      await approvedNote(c, '2026-07-12', pick([40, 100]));                     // two unlinked notes: the second meets what
+      await approvedNote(c, '2026-07-12', pick([60, 100]));                     // the first counted on a typed invoice
       if (pick([true, false])) await approvedNote(c, '2026-07-13', pick([10, 30]), t2);
       const req = { companyId: f.fx.companyId, subledger: 'ar' as const, entityId: c, userId: f.fx.userId };
       const lines = (p: Awaited<ReturnType<typeof autoApplyUnapplied>>) => p.applications.map((a) => [a.payment_id, a.lines.map((x) => [x.document_id, x.amount])]);
