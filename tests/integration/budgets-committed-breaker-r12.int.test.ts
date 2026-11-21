@@ -96,16 +96,13 @@ describe('F2 the link locks every bill that ties the PO', () => {
           }
           expect(out).toEqual([`${kind} ok`]);
           const args = { links: [{ po_id: p.po, bill_id: x.id, amount: 400 }], close_when_fully_billed: true };
-          // The cancel commits while the link runs: the link never waits on B, it is refused (NOWAIT) or reads B gone.
-          const [first] = await Promise.all([
-            callTool(pool, f, link, args).then((r) => `ok ${r.isError} ${r.text.slice(0, 60)}`, (e: unknown) => `threw ${(e as { code?: string }).code}`),
-            c.commit(),
-          ]);
-          expect(first).toMatch(/^(threw ROW_LOCK_TIMEOUT|ok false )/);
-          if (first.startsWith('threw')) {
-            const r = await callTool(pool, f, link, args);
-            expect(r.isError, r.text).toBe(false);
-          }
+          const attempt = () => callTool(pool, f, link, args).then((r) => `ok ${r.isError} ${r.text.slice(0, 60)}`, (e: unknown) => `threw ${(e as { code?: string }).code}`);
+          // B's removal is done but uncommitted: the link must not read B as billing (it would close P); it is refused, never waits.
+          expect(await attempt()).toBe('threw ROW_LOCK_TIMEOUT');
+          // Then the cancel commits while the link runs: it is refused (NOWAIT) or reads B gone, never waits and never closes P.
+          const [second] = await Promise.all([attempt(), c.commit()]);
+          expect(second).toMatch(/^(threw ROW_LOCK_TIMEOUT|ok false )/);
+          if (second.startsWith('threw')) expect(await attempt()).toMatch(/^ok false /);
         } catch (e) { await c.rollback(); throw e; }
         const s = await inv(p);
         expect([s.status, s.committedOk, s.statusOk]).toEqual(['approved', true, true]);
