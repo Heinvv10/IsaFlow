@@ -103,6 +103,18 @@ describe('decimals equal the stored column scale', () => {
     route.query = {};
   });
 
+  it('practice jobs/[id]: a stored 0 shows as 0, a negative is below the minimum, clearing is null', async () => {
+    route.query = { id: 'j1' };
+    vi.mocked(apiFetch).mockImplementation(async (u) => String(u).includes('/practice/jobs/j1') ? ok({ id: 'j1', jobNumber: 'J-1', name: 'Audit', status: 'new', fixedFeeAmount: 0, budgetAmount: null, budgetedHours: null, tags: [] }) : ok([]));
+    render(<JobPage />);
+    const fee = await waitFor(() => screen.getByText('Fixed Fee (R)').parentElement!.querySelector('input') as HTMLInputElement);
+    expect(fee.value).toBe('0');
+    expect(screen.getByText('Engagement Budget (R)').parentElement!.querySelector('input')!.value).toBe('');
+    fireEvent.change(fee, { target: { value: '' } });
+    expect(fee.value).toBe('');
+    route.query = {};
+  });
+
   it('supplier rules: auto-publish cap is numeric(18,2)', async () => {
     route.query = { supplierId: 's1' };
     vi.mocked(apiFetch).mockImplementation(async (u) => String(u).includes('suppliers-list') ? ok({ id: 's1', name: 'Acme' }) : ok([]));

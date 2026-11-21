@@ -195,7 +195,7 @@ describe('delete', () => {
   });
 });
 
-it('a third decimal (below a cent) is refused at the field: it keeps what is shown, flags it, and sends that', async () => {
+it('a third decimal (below a cent) is refused at the field: it keeps what is shown, flags it, and Save is blocked', async () => {
   const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
   fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: 'Tiny' } });
   const amount = within(dialog).getByLabelText('Amount (R)') as HTMLInputElement;
@@ -204,6 +204,8 @@ it('a third decimal (below a cent) is refused at the field: it keeps what is sho
   expect(amount.value).toBe('1000.00');
   expect(amount.getAttribute('aria-invalid')).toBe('true');
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
-  expect(JSON.stringify(sent)).toContain('1000');
-  expect(JSON.stringify(sent)).not.toContain('1000.005');
+  expect(sent).toEqual([]); // the refused entry blocks the save (useAmountGuard); a correct amount then saves
+  fireEvent.change(amount, { target: { value: '1000.50' } });
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
+  expect(JSON.stringify(sent)).toContain('1000.5');
 });
