@@ -186,4 +186,15 @@ describe('a note\'s and a PO\'s listing follow the bills that name them now (rev
     await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [bill]);
     expect(await listed(f, 'goods_received', grn)).toEqual([]);
   });
+
+  it('a cancelled bill lends its note and its PO nothing (the cancellation guard\'s live-bill rule)', async () => {
+    const { po, grn } = await noteOnPo(f);
+    const bill = await draftBill(grn, po.po);
+    await doc('supplier_invoice', bill, 'SCAN-cancelled-bill.pdf');
+    expect(await listed(f, 'goods_received', grn)).toEqual(['linked:SCAN-cancelled-bill.pdf:grn_invoice_link']);
+    expect(await listed(f, 'purchase_order', po.po)).toEqual(['linked:SCAN-cancelled-bill.pdf:po_invoice_link']);
+    await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bill]);
+    expect(await listed(f, 'goods_received', grn)).toEqual([]);
+    expect(await listed(f, 'purchase_order', po.po)).toEqual([]);
+  });
 });

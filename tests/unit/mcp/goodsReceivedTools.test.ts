@@ -62,8 +62,11 @@ describe('create_goods_received', () => {
     [{ po_id: 'nope' }, 'po_id is required'],
     [{ received_date: '2026-02-31' }, 'received_date is required'],
     [{ lines: [] }, 'lines is required'],
-    [{ lines: [{ po_item_id: LINE, quantity_received: -1 }] }, 'lines[0].quantity_received must be a number of at least 0'],
+    [{ lines: [{ po_item_id: LINE, quantity_received: -1 }] }, 'lines[0].quantity_received is required: a number of at least 0'],
     [{ lines: [{ po_item_id: LINE, quantity_received: 1, colour: 'red' }] }, 'lines[0].colour is not a field'],
+    // A rejection-only line still states its received count: omitted or null is not zero.
+    [{ lines: [{ po_item_id: LINE, quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],
+    [{ lines: [{ po_item_id: LINE, quantity_received: null, quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],
     [{ external_system: 'fibreflow' }, 'external_system and external_ref go together'],
     // Measured lower case, as stored: 'İ' lowercases to two UTF-16 units, so 20 of them are 40 (the CHECK would answer a raw 500).
     [{ external_system: 'İ'.repeat(20), external_ref: 'x' }, 'external_system is longer than 32 characters'],
@@ -84,6 +87,13 @@ describe('create_goods_received', () => {
     expect(receiveMock).toHaveBeenCalledWith('c1', 'u1', expect.objectContaining({ purchaseOrderId: PO, items: [expect.objectContaining({ poItemId: LINE, quantityReceived: 2 })] }),
       { via: 'mcp:create_goods_received', external: { system: 'fibreflow', ref: '4411' } });
     expect(rolledBack).not.toHaveBeenCalled();
+  });
+
+  it('an explicit quantity_received of 0 on a rejection-only line is accepted and passed as 0', async () => {
+    receiveMock.mockResolvedValue(received);
+    const r = await create.handler(args({ lines: [{ po_item_id: LINE, quantity_received: 0, quantity_rejected: 2 }] }), ctx);
+    expect(r.isError).toBeFalsy();
+    expect(receiveMock).toHaveBeenCalledWith('c1', 'u1', expect.objectContaining({ items: [expect.objectContaining({ poItemId: LINE, quantityReceived: 0, quantityRejected: 2 })] }), expect.anything());
   });
 
   it('a dry run runs the service in a rolled-back savepoint, reports grn_number "next" and leaves the key free', async () => {

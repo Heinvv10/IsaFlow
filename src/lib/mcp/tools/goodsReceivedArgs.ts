@@ -49,11 +49,12 @@ export function parseCreateGrnArgs(args: Record<string, unknown>): CreateGrnArgs
     const strayKey = Object.keys(line).find((k) => !LINE_KEYS.has(k));
     if (strayKey !== undefined) return `lines[${i}].${strayKey} is not a field of a line (allowed: ${[...LINE_KEYS].join(', ')})`;
     if (typeof line.po_item_id !== 'string' || !UUID_RE.test(line.po_item_id)) return `lines[${i}].po_item_id must be a PO line UUID (get_purchase_order lines[].id)`;
-    if (!qty(line.quantity_received)) return `lines[${i}].quantity_received must be a number of at least 0`;
+    // Required, even on a rejection-only line: an omitted count is not a count of zero (an explicit 0 is accepted).
+    if (line.quantity_received === undefined || line.quantity_received === null || !qty(line.quantity_received)) return `lines[${i}].quantity_received is required: a number of at least 0 (0 when every unit was rejected)`;
     if (!qty(line.quantity_rejected)) return `lines[${i}].quantity_rejected must be a number of at least 0`;
     const lineNotes = optionalText(line.notes, `lines[${i}].notes`, GRN_TEXT_MAX);
     if (isErr(lineNotes)) return lineNotes.error;
-    items.push({ poItemId: line.po_item_id, quantityReceived: line.quantity_received ?? 0, quantityRejected: line.quantity_rejected ?? 0, notes: lineNotes });
+    items.push({ poItemId: line.po_item_id, quantityReceived: line.quantity_received, quantityRejected: line.quantity_rejected ?? 0, notes: lineNotes });
   }
   // Lower case BEFORE the length check: that is what is stored, and lowercasing can lengthen a string ('İ' is two units lower case).
   const system = optionalText(typeof args.external_system === 'string' ? args.external_system.toLowerCase() : args.external_system, 'external_system', 32);

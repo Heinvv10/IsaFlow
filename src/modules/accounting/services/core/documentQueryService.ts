@@ -94,7 +94,7 @@ export async function listEntityDocuments(
     ), bill_note AS (
       SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
     ), naming_bills AS (
-      -- The mirror (review M): listing a note or a PO, the live bills of the company that name it NOW (a note: grn_id; a PO: header,
+      -- The mirror (review M): listing a note or a PO, the live (not deleted, not cancelled) bills of the company that name it NOW (a note: grn_id; a PO: header,
       -- lines, link rows). Their scans are resolved here at read time, and an older automatic row onto the note / PO follows them.
       SELECT si.id FROM supplier_invoices si
         JOIN (SELECT s.id FROM supplier_invoices s
@@ -108,7 +108,7 @@ export async function listEntityDocuments(
               UNION
               SELECT sii.supplier_invoice_id FROM supplier_invoice_items sii JOIN po_items pi ON pi.id = sii.po_item_id
                WHERE ${entityType}::text = 'purchase_order' AND pi.purchase_order_id = ${entityId}::uuid) n ON n.id = si.id
-       WHERE si.company_id = ${companyId}::uuid AND si.deleted_at IS NULL
+       WHERE si.company_id = ${companyId}::uuid AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'
     ), reached AS (
       -- A note is also linked to under the legacy alias goods_receipt_note (round 3, finding 6). An older AUTOMATIC row
       -- (po_invoice_link / grn_invoice_link) is shown only while its document's parent still ties the two: on a bill, the bill's
