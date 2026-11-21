@@ -12,7 +12,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedBill } from './helpers/poBillLinkHarness';
-import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, poState, refusal, seedQtyPo, type QtyPo } from './helpers/grnHarness';
+import { callTool, dropGrnExtras, dropMaintExtras, forgeLegacyBillGrn, grnArgs, poState, refusal, seedQtyPo, type QtyPo } from './helpers/grnHarness';
 import { inOneTransaction } from './helpers/poMaintHarness';
 import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGoodsReceived';
 import { cancelGoodsReceivedTool as cancel } from '@/lib/mcp/tools/writeCancelGoodsReceived';
@@ -143,7 +143,7 @@ describe('autoLinkSupplierInvoice stays inside the bill\'s company (L4)', () => 
     const theirNote = await doc('goods_received', theirs.grn, 'their-delivery.pdf');
     const theirPo = await doc('purchase_order', theirs.po.po, 'their-po.pdf');
     const bill = await seedBill(pool, f, { status: 'draft', lines: [20] });
-    await pool.query('UPDATE supplier_invoices SET grn_id = $2, purchase_order_id = $3 WHERE id = $1', [bill.id, theirs.grn, theirs.po.po]);
+    await forgeLegacyBillGrn(pool, bill.id, theirs.grn, theirs.po.po);
     const mine = await doc('supplier_invoice', bill.id, 'bill.pdf');
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
     try {

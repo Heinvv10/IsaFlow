@@ -24,7 +24,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedBill } from './helpers/poBillLinkHarness';
 import { PDF } from './helpers/mcpUploadHarness';
-import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, seedQtyPo, type QtyPo } from './helpers/grnHarness';
+import { callTool, dropGrnExtras, dropMaintExtras, forgeLegacyBillGrn, grnArgs, seedQtyPo, type QtyPo } from './helpers/grnHarness';
 import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGoodsReceived';
 import { attachEntityDocumentTool as attach } from '@/lib/mcp/tools/writeAttachEntityDocument';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
@@ -122,7 +122,7 @@ describe('a bill lists its note\'s and its POs\' documents (finding 4)', () => {
     await fileOn(other, 'goods_received', theirs.grn, 'THEIRS-dn.pdf');
     await fileOn(other, 'purchase_order', theirs.po.po, 'THEIRS-po.pdf');
     const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
-    await pool.query('UPDATE supplier_invoices SET grn_id = $2, purchase_order_id = $3 WHERE id = $1', [bill.id, theirs.grn, theirs.po.po]);
+    await forgeLegacyBillGrn(pool, bill.id, theirs.grn, theirs.po.po);
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
     try {
       expect(await onBill(f, bill.id)).toEqual([]);

@@ -11,6 +11,25 @@ import type { QtyPo } from './poMaintHarness';
 
 export { callTool, glCount, seedQtyPo, dropMaintExtras, type Json, type QtyPo } from './poMaintHarness';
 
+/**
+ * A live bill naming a note the database now refuses for it (another company's, or none): the state production may hold from before
+ * migration 1021's grn-live trigger, which the read paths must still contain. Written as superuser with that trigger off, in ONE
+ * transaction, so no other session ever sees it off. `poId` also sets the bill's header PO.
+ */
+export async function forgeLegacyBillGrn(pool: Pool, billId: string, grnId: string, poId?: string): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE supplier_invoices DISABLE TRIGGER trg_supplier_invoices_grn_live');
+    await c.query('UPDATE supplier_invoices SET grn_id = $2, purchase_order_id = COALESCE($3, purchase_order_id) WHERE id = $1', [billId, grnId, poId ?? null]);
+    await c.query('ALTER TABLE supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_grn_live');
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally { c.release(); }
+}
+
 /** create_goods_received arguments: one line per `[po line index, quantity_received, quantity_rejected?]`. */
 export function grnArgs(po: QtyPo, lines: Array<[number, number, number?]>, extra: Record<string, unknown> = {}) {
   return {
