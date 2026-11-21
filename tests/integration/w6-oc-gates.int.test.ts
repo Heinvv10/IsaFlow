@@ -91,6 +91,25 @@ afterAll(async () => {
   vi.useRealTimers();
 }, 120_000);
 
+describe('review #1679 codex M6: a termination run names every leaver with no termination reason', () => {
+  it('two leavers, one with no reason: 409 TERMINATION_REASON_MISSING naming that one, and nothing is written', async () => {
+    const withReason = (await b.employee(9_000)).employee;
+    const noReason = (await b.employee(9_000)).employee;
+    await b.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-20', termination_reason = 'resignation',
+      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [withReason]);
+    await b.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-20', termination_reason = NULL WHERE id = $1`, [noReason]);
+    const named = (await b.pool.query('SELECT employee_number AS n FROM payroll_employees WHERE id = $1', [noReason])).rows[0].n;
+    const before = await runs(b);
+    const made = await create(b, { reason: 'termination', runDate: '2026-11-29', employees: [{ employeeId: withReason }, { employeeId: noReason }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(409);
+    expect(made.body.error?.details?.refusal).toBe('TERMINATION_REASON_MISSING');
+    expect(String(made.body.error?.message)).toContain(`(${named})`);
+    expect(String(made.body.error?.message)).not.toContain(`(${(await b.pool.query('SELECT employee_number AS n FROM payroll_employees WHERE id = $1', [withReason])).rows[0].n})`);
+    expect(await runs(b)).toBe(before);
+    await b.pool.query('UPDATE payroll_employees SET end_date = NULL, termination_reason = NULL WHERE id = ANY($1::uuid[])', [[withReason, noReason]]);
+  });
+});
+
 describe('M1: an off-cycle run is approved only on the month\'s runs as they stand', () => {
   it('the regular run reopened and approved again after the bonus was calculated: the bonus is refused until recalculated', async () => {
     const made = await bonus(a, p.x!, '2026-11-18');

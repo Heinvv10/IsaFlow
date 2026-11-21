@@ -42,7 +42,8 @@ export interface OffCycleRunInput {
 /** Refused before any write: 400 for a malformed request, 409 for one the company's state does not allow. */
 export class OffCycleRunRefusedError extends Error {
   readonly code = 'OFF_CYCLE_RUN_REFUSED';
-  constructor(message: string, readonly status: 400 | 409) {
+  /** A refusal the caller may act on by name (review #1679 M6: TERMINATION_REASON_MISSING); absent for the rest. */
+  constructor(message: string, readonly status: 400 | 409, readonly refusal?: string) {
     super(message);
     this.name = 'OffCycleRunRefusedError';
   }
@@ -113,7 +114,7 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   if (filed) throw state(filed);
   const ids = employees.map((e) => e.employeeId);
   const people = (await tx`
-    SELECT e.id, e.employee_number, e.first_name, e.last_name, e.pay_frequency, e.end_date::text AS end_date,
+    SELECT e.id, e.employee_number, e.first_name, e.last_name, e.pay_frequency, e.end_date::text AS end_date, e.termination_reason,
            EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = ${regularId}::uuid AND l.employee_id = e.id) AS on_regular,
            (SELECT o.off_cycle_reason || ' run paid ' || to_char(COALESCE(o.run_date, o.period_end), 'YYYY-MM-DD')
               FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id
@@ -155,6 +156,13 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   }
   const notLeaving = named((p) => typeof p.end_date !== 'string' || String(p.end_date).slice(0, 7) !== monthName(period));
   if (notLeaving) throw state(`${notLeaving} not leaving in ${monthLabel(period)} (no end date in the month): record the termination first.`);
+  // An end date with no reason pays no termination pay-out (payrollTerminationService), and another leaver's gross
+  // would carry the run past the approval guard (review #1679 M6): every leaver needs the reason recorded.
+  const noReason = named((p) => p.termination_reason == null || String(p.termination_reason).trim() === '');
+  if (noReason) {
+    throw new OffCycleRunRefusedError(`${noReason} leaving with no termination reason: record the termination (with its reason) first.`,
+      409, 'TERMINATION_REASON_MISSING');
+  }
   for (const p of people) {
     // Any final run that paid them (the regular run included): none is excluded, the off-cycle run does not exist yet.
     const paid = await findPaidTerminationRun(companyId, String(p.id), NO_RUN);

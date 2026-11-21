@@ -38,8 +38,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (respondIfImpersonationForbidden(res, err)) return; // 403: a Login-as session creates no pay run (rule 14)
     if (err instanceof OffCycleRunRefusedError) {
       return err.status === 400
-        ? apiResponse.badRequest(res, err.message, { code: err.code })
-        : apiResponse.conflict(res, err.message, { code: err.code });
+        ? apiResponse.badRequest(res, err.message, { code: err.code, ...(err.refusal ? { refusal: err.refusal } : {}) })
+        : apiResponse.conflict(res, err.message, { code: err.code, ...(err.refusal ? { refusal: err.refusal } : {}) });
     }
     throw err;
   }
