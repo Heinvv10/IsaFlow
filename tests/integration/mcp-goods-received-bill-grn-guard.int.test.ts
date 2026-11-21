@@ -97,6 +97,24 @@ describe('the database refuses a live bill on a cancelled note', () => {
     expect(await asApp('UPDATE supplier_invoices SET deleted_at = NULL WHERE id = $1', [deleted.id])).toBe('23503:supplier_invoices_grn_live');
     expect(await asApp("UPDATE supplier_invoices SET notes = 'still deleted' WHERE id = $1", [deleted.id])).toBe('ok');
   });
+
+  it('a cancelled bill on a cancelled note put back to a live status is refused (review of c2110f585e, L2)', async () => {
+    const live = await note();
+    const bill = await seedBill(pool, f, { status: 'cancelled', lines: [40] });
+    await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, live]);
+    expect((await callTool(pool, f, cancel, { grn_id: live, reason: 'the bill was cancelled' })).isError).toBe(false);
+    expect(await asApp("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [bill.id])).toBe('23503:supplier_invoices_grn_live');
+    expect(await asApp("UPDATE supplier_invoices SET notes = 'still cancelled' WHERE id = $1", [bill.id])).toBe('ok');
+  });
+
+  it('a live bill moved to another company keeps no note of the first (superuser; review of c2110f585e, L4)', async () => {
+    const live = await note();
+    const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
+    await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, live]);
+    await expect(pool.query('UPDATE supplier_invoices SET company_id = $2 WHERE id = $1', [bill.id, other.co]))
+      .rejects.toMatchObject({ code: '23503', constraint: 'supplier_invoices_grn_live' });
+    expect(String((await pool.query('SELECT company_id::text AS c FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0].c)).toBe(f.co);
+  });
 });
 
 describe('a stored grn_id the trigger has not judged (a legacy live bill on a missing note)', () => {

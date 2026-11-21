@@ -93,6 +93,8 @@ describe('the running balance is per product', () => {
     expect(r.isError, r.text).toBe(false);
     const rows = (await report()).filter((m) => m.reference === String(r.body.grn_number));
     expect(rows.map((m) => [m.itemCode, m.qtyIn, m.balance]).sort()).toEqual([[`A-${tag}`, 10, 10], [`B-${tag}`, 2, 2]]);
+    // An empty item_id (the page's "all items") is no filter, not a 400 (review of c2110f585e, L1).
+    expect((await report({ item_id: '' })).filter((m) => m.reference === String(r.body.grn_number))).toHaveLength(2);
     const csv = await callRoute(itemMovementRoute as never, f, f.owner, '/api/accounting/reports/item-movement', undefined,
       { method: 'GET', query: { from: '2026-06-01', to: '2026-06-30', format: 'csv' } });
     const text = String((csv as unknown as { body: unknown }).body ?? '');

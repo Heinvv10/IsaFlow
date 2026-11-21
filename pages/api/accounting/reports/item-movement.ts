@@ -19,7 +19,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const companyId = (req as CompanyAuthedRequest).companyId;
     const from = (req.query.from as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
-    const itemId = req.query.item_id as string | undefined;
+    // An empty item_id ("all items") is no filter: ''::uuid would throw (review of c2110f585e, L1).
+    const itemId = (req.query.item_id as string | undefined) || null;
     const format = req.query.format as string;
 
     // Get GRN (goods received) as stock IN. grn_items.product_id references PRODUCTS (its FK, and what the receipt copies from the PO
@@ -40,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE g.received_date IS NOT NULL
         AND g.status <> 'cancelled'
         AND g.received_date >= ${from} AND g.received_date <= ${to}
-        AND (${itemId ?? null}::uuid IS NULL OR p.id = ${itemId ?? null}::uuid)
+        AND (${itemId}::uuid IS NULL OR p.id = ${itemId}::uuid)
       ORDER BY g.received_date, g.grn_number, gi.id
     `;
 

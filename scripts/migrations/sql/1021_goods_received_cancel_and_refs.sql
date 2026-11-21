@@ -42,7 +42,7 @@
 --     UPDATE privilege, which app_user no longer has. supplier_invoices.grn_id has no foreign key (201 created it bare; 246b's
 --     ADD COLUMN ... REFERENCES was skipped), so no KEY SHARE is taken for it: this hold is the lock.
 --   trg_supplier_invoices_grn_live (SECURITY DEFINER trigger function): a live bill names only a live note of its own company, for
---     every writer (insert, grn_id change, restore, status out of cancelled), under the same FOR SHARE as the hold.
+--     every writer (insert, grn_id change, restore, status out of cancelled, company change), under the same FOR SHARE as the hold.
 --   procurement_documents.tenant_isolation_via_parent gains a goods_received branch (713's policy, every other branch
 --     verbatim): a document filed on a goods received note (entity_type 'goods_received', the entity-store kind
 --     attach_entity_document and create_upload_urls / finalize_uploads now accept) is this company's when the note is. The
@@ -530,7 +530,8 @@ REVOKE ALL ON FUNCTION public.supplier_invoices_supplier_live_guard() FROM PUBLI
 -- were the only rule: a writer that skips them (old code, a direct statement) could put a live bill on a cancelled note, another
 -- company's note or none. Refused for every writer when the row becomes live on a note: an INSERT of a live bill with a grn_id, an
 -- UPDATE that changes grn_id (UPDATE OF fires whenever the column is in the SET list, so an unchanged value is skipped here), a
--- restore (deleted_at back to NULL) and a status out of 'cancelled'. A deleted or cancelled bill may name any note (the cancel frees a
+-- restore (deleted_at back to NULL), a status out of 'cancelled', and a company_id change (no app path moves a bill between
+-- companies; a superuser or a later migration could, and the note must then be the new company's). A deleted or cancelled bill may name any note (the cancel frees a
 -- note those bills carry). The note must exist in the BILL's company (NEW.company_id, which the bill's row security fixes) and not be
 -- cancelled, read under FOR SHARE: the same lock as goods_received_note_hold, so it composes with goods_received_note_cancel's
 -- FOR UPDATE exactly as the hold does (the bill waits for a running cancel and then reads 'cancelled', or the cancel waits for the
@@ -541,9 +542,15 @@ REVOKE ALL ON FUNCTION public.supplier_invoices_supplier_live_guard() FROM PUBLI
 -- a row lock needs UPDATE privilege, which app_user lacks on goods_received_notes; owned by migration_admin (BYPASSRLS, so it reads the
 -- note whatever the caller sees), pinned search_path, reads one row, writes nothing.
 -- OLD COLOUR: the old code writes grn_id only from its own checks against goods_received_notes of the company, and no note is
--- cancelled by it, so nothing it does is refused; a live bill already on a missing note is untouched until one of the four events.
+-- cancelled by it, so nothing it does is refused; a live bill already on a missing note is untouched until one of the five events.
+-- During the blue/green overlap an OLD-colour REST create naming a note can race a NEW-colour cancel of it: the old create takes no
+-- lockNotePo, so its INSERT's trigger holds the note FOR SHARE and its links step then wants the header PO, which the cancel holds
+-- FOR UPDATE while it waits for the note. Postgres breaks that cycle (40P01): one side rolls back whole (the old create answers a
+-- failed write, the cancel a retryable error), the other commits, and nothing inconsistent is written (never a live bill on a
+-- cancelled note: the trigger and the cancel's grn_on_bill check both still hold).
 -- SQLSTATE 23503 with constraint supplier_invoices_grn_live, which the app maps to SupplierInvoiceGrnRefusal (create, draft edit),
--- SoftDeleteRefusalError (restore) and, for every other route, a 409 (src/lib/apiBillSupplierDeleted.ts).
+-- SoftDeleteRefusalError (restore, behind its own check of the same rule) and, for every other route, a 409
+-- (src/lib/apiBillSupplierDeleted.ts).
 CREATE OR REPLACE FUNCTION public.supplier_invoices_grn_live_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -556,8 +563,8 @@ BEGIN
   IF NEW.grn_id IS NULL OR NEW.deleted_at IS NOT NULL OR NEW.status IS NOT DISTINCT FROM 'cancelled' THEN
     RETURN NULL;
   END IF;
-  IF TG_OP = 'UPDATE' AND NEW.grn_id IS NOT DISTINCT FROM OLD.grn_id AND OLD.deleted_at IS NULL
-     AND OLD.status IS DISTINCT FROM 'cancelled' THEN
+  IF TG_OP = 'UPDATE' AND NEW.grn_id IS NOT DISTINCT FROM OLD.grn_id AND NEW.company_id IS NOT DISTINCT FROM OLD.company_id
+     AND OLD.deleted_at IS NULL AND OLD.status IS DISTINCT FROM 'cancelled' THEN
     RETURN NULL;
   END IF;
   SELECT g.status INTO v_status FROM public.goods_received_notes g
@@ -573,12 +580,12 @@ $$;
 ALTER FUNCTION public.supplier_invoices_grn_live_guard() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.supplier_invoices_grn_live_guard() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_supplier_invoices_grn_live ON public.supplier_invoices;
-CREATE TRIGGER trg_supplier_invoices_grn_live AFTER INSERT OR UPDATE OF grn_id, deleted_at, status ON public.supplier_invoices
+CREATE TRIGGER trg_supplier_invoices_grn_live AFTER INSERT OR UPDATE OF grn_id, deleted_at, status, company_id ON public.supplier_invoices
   FOR EACH ROW EXECUTE FUNCTION public.supplier_invoices_grn_live_guard();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_grn_live;
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 VALUES ('supplier_invoices_grn_live_guard()',
-        'nothing (trigger on supplier_invoices: a FOR SHARE row lock on the goods_received_notes row a live bill names, in the bill''s company; raises 23503 supplier_invoices_grn_live when it is missing or cancelled)',
+        'nothing (trigger on supplier_invoices: a FOR SHARE row lock on the goods_received_notes row a live bill names, in the bill''s company; raises 23503 supplier_invoices_grn_live when it is missing, cancelled or another company''s)',
         public.app_definer_hash('public.supplier_invoices_grn_live_guard()'::regprocedure))
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
