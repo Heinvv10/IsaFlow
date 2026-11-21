@@ -27,7 +27,9 @@ async function promptFor(runKind: string): Promise<string> {
   const { result } = renderHook(() => useRunDetail('run-1'));
   await waitFor(() => expect(result.current.run).not.toBeNull());
   await act(async () => { await result.current.reopen(); });
-  return String((prompt.mock.calls[0] as unknown[] | undefined)?.[0]);
+  // The prompt ran, once (gate nit on 7630d9379f): a missing call would read as 'undefined' and pass a wording check.
+  expect(prompt).toHaveBeenCalledTimes(1);
+  return String((prompt.mock.calls[0] as unknown[])[0]);
 }
 
 describe('the reopen dialog', () => {

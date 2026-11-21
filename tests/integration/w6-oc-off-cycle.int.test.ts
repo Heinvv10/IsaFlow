@@ -121,7 +121,7 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     const journals = await a.journals('11');
     expect(journals.map((j) => j.description)).toEqual(expect.arrayContaining(['Payroll run 2026-11', 'Payroll run 2026-11 bonus, paid 2026-11-25']));
     const ref = await a.pool.query(`SELECT document_reference FROM approval_requests WHERE company_id = $1 AND document_id = $2`, [a.company, bonus]);
-    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, paid 2026-11-25');
+    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, pay date 2026-11-25');
     const reopened = await a.api.reopen(regular);
     expect(reopened.statusCode).toBe(400); // PayrollRunReopenRefusedError, as every reopen refusal
     // The route answers every reopen refusal "Reopen failed" (pre-existing); the reason is this gate's.

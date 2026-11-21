@@ -32,7 +32,7 @@
 --     off_cycle_payday_at (frozen at the first approval from run_date), so neither can be moved across payday. After a run's pay date its gross may not rise above the snapshot
 --     (payrollOffCycleCorrection: bonus and termination runs alike, review #1679 M).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
---     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
+--     its reference: '11/2026 bonus run, pay date 2026-11-28' (its kind and pay date: a month may hold several); a regular
 --     run's reference is unchanged
 --     ('11/2026'). approvalDocuments.ts builds the same string (the REST raise compares nothing with it; it is the
 --     reference an approver reads). The function stays plpgsql STABLE SECURITY INVOKER: 930's registry
@@ -408,7 +408,7 @@ BEGIN
   IF p_document_type = 'pay_run' THEN
     RETURN QUERY SELECT h.total_gross,
       pg_catalog.lpad(h.period_month::pg_catalog.text, 2, '0') || '/' || h.period_year::pg_catalog.text
-        || CASE WHEN h.run_kind = 'off_cycle' THEN ' ' || COALESCE(h.off_cycle_reason, 'off-cycle') || ' run, paid '
+        || CASE WHEN h.run_kind = 'off_cycle' THEN ' ' || COALESCE(h.off_cycle_reason, 'off-cycle') || ' run, pay date '
              || pg_catalog.to_char(COALESCE(h.run_date, h.period_end), 'YYYY-MM-DD') ELSE '' END,
       h.approval_plan_hash
     FROM public.payroll_run_headers h

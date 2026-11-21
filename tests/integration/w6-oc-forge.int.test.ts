@@ -9,6 +9,7 @@
  *  - A legitimate reopen of the paid run, with its lines, always takes a snapshot.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
@@ -20,6 +21,42 @@ let a: Awaited<ReturnType<typeof rig>>;
 let mid = '';
 let other = '';
 let bonusComponent = '';
+let decEmp = '';
+let decBonus = '';
+/**
+ * An approved December bonus of its own employee, made on first use (gate nit on 7630d9379f): the restore and snapshot
+ * tests each start from it, so each runs alone. After the November tests: a final December makes November's
+ * off-cycle runs unapprovable (laterMonthFinalRefusal).
+ */
+async function decemberBonus(): Promise<{ id: string; emp: string }> {
+  if (!decBonus) {
+    decEmp = (await a.employee(12_000)).employee;
+    const december = await a.calculatedRun(12);
+    expect((await a.api.approve(december)).statusCode).toBe(200);
+    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
+      body: { month: 12, year: 2026, reason: 'bonus', runDate: '2026-12-20', employees: [{ employeeId: decEmp, componentId: bonusComponent, amount: 3_000 }] },
+    });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    decBonus = String(made.body.data!.id);
+    expect((await a.api.calculate(decBonus)).statusCode).toBe(200);
+    const ok = await a.api.approve(decBonus);
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+  }
+  return { id: decBonus, emp: decEmp };
+}
+/** The cluster's own PostgreSQL 16 client (a newer pg_dump writes settings a 16 server refuses); else the PATH's. */
+const pgBin = (tool: string) => (existsSync(`/usr/lib/postgresql/16/bin/${tool}`) ? `/usr/lib/postgresql/16/bin/${tool}` : tool);
+/**
+ * libpq's own variables for pg_dump and psql (gate ruling 6): nothing of the connection reaches a command line. The
+ * password is the suite's own PGPASSWORD (run.sh puts none in the URL), inherited with the environment.
+ */
+function libpqEnv(): NodeJS.ProcessEnv {
+  const u = new URL(String(process.env.DATABASE_URL));
+  return {
+    ...process.env, PGHOST: u.hostname, PGPORT: u.port || '5432', PGUSER: decodeURIComponent(u.username),
+    PGDATABASE: decodeURIComponent(u.pathname.slice(1)), PGSSLMODE: u.searchParams.get('sslmode') ?? process.env.PGSSLMODE ?? 'prefer',
+  };
+}
 
 async function asApp(text: string, params: unknown[] = []): Promise<unknown[]> {
   const c = await a.pool.connect();
@@ -176,29 +213,23 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     expect(JSON.stringify(ap.body)).toMatch(/before today/);
   });
   it('a data-only restore (pg_dump, then psql as an ops role) brings back the inputs of an approved off-cycle run, created_at kept (#1679 codex 5)', async () => {
-    const emp = (await a.employee(12_000)).employee;
-    const december = await a.calculatedRun(12);
-    expect((await a.api.approve(december)).statusCode).toBe(200);
-    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
-      body: { month: 12, year: 2026, reason: 'bonus', runDate: '2026-12-20', employees: [{ employeeId: emp, componentId: bonusComponent, amount: 3_000 }] },
-    });
-    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
-    const id = String(made.body.data!.id);
-    expect((await a.api.calculate(id)).statusCode).toBe(200);
-    const ok = await a.api.approve(id);
-    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    const { id } = await decemberBonus();
     const rows = () => a.pool.query(`SELECT id, run_id, employee_id, component_id, amount::text, created_by, created_at::text AS at
       FROM payroll_off_cycle_employees WHERE company_id = $1 ORDER BY id`, [a.company]).then((r) => r.rows);
     const before = await rows();
     expect(before.map((r) => r.run_id)).toContain(id);
     // The table's data as pg_dump writes it, this company's rows only (the shard's database holds other suites' too).
-    const url = String(process.env.DATABASE_URL);
-    const dump = execFileSync('pg_dump', ['--data-only', '--table=public.payroll_off_cycle_employees', `--dbname=${url}`], { encoding: 'utf8' })
+    const env = libpqEnv();
+    const dumpArgs = ['--data-only', '--table=public.payroll_off_cycle_employees'];
+    const psqlArgs = ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q'];
+    // Gate ruling 6: no connection string (nor its password) on either command line; libpq reads them from env.
+    for (const args of [dumpArgs, psqlArgs]) expect(args.join(' ')).not.toMatch(/postgres(ql)?:\/\/|password|--dbname/i);
+    const dump = execFileSync(pgBin('pg_dump'), dumpArgs, { encoding: 'utf8', env })
       .split('\n').filter((l) => !/^[0-9a-f]{8}-[0-9a-f-]{27}\t/.test(l) || l.includes(a.company)).join('\n');
     expect(dump).toContain('COPY public.payroll_off_cycle_employees');
     await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]);
     // Restored by a NOSUPERUSER ops role (as postgres is on Supabase): COPY fires the ALWAYS row trigger.
-    execFileSync('psql', ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q', `--dbname=${url}`], { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8' });
+    execFileSync(pgBin('psql'), psqlArgs, { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8', env });
     expect(await rows()).toEqual(before);
     // The app still cannot write an input onto that run.
     await expect(asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 1)',
@@ -322,9 +353,7 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
   it('the snapshot is the gross approved for payment as of payday (review #1679 codex M5): R100, then R200 before payday, paid at R200', async () => {
     // The restore test's approved December bonus, driven below the service: the trigger reads the DATABASE clock, so its
     // pay date is set from that clock (three days ahead, then yesterday) by a trusted identity, and app_user flips it.
-    const run = (await a.pool.query(`SELECT h.id, x.employee_id FROM payroll_run_headers h JOIN payroll_off_cycle_employees x ON x.run_id = h.id
-      WHERE h.company_id = $1 AND h.run_kind = 'off_cycle' AND h.status = 'approved' AND h.period_month = 12 LIMIT 1`, [a.company])).rows[0];
-    const [id, emp] = [String(run.id), String(run.employee_id)];
+    const { id, emp } = await decemberBonus();
     const sastToday = "(now() AT TIME ZONE 'Africa/Johannesburg')::date";
     const gross = (g: number) => a.pool.query('UPDATE payroll_run_lines SET gross_pay = $2 WHERE run_id = $1', [id, g]);
     const flip = (status: string) => asApp(`UPDATE payroll_run_headers SET status = $2::text,
