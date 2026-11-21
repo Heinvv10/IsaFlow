@@ -24,6 +24,9 @@ import { withContentEditorStamp } from './supplierInvoiceContentEditor';
 import { defaultVatClassification, type SupplierInvoiceTotals } from './supplierInvoiceTotals';
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
+import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
+import { asBillSupplierDeleted } from './billSupplierLive';
+import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -49,10 +52,12 @@ export interface SupplierInvoiceDraftPatch {
   notes?: string;
   /** Invoice-level VAT %; only meaningful with `items`, which it defaults. */
   taxRate?: number;
+  /** The bill's goods received note: another live note that agrees with the bill, or null to take it off (gate finding 3). */
+  grnId?: string | null;
   items?: SupplierInvoiceItemInput[];
 }
 
-export interface SupplierInvoiceDraftUpdatePlan {
+export interface SupplierInvoiceDraftUpdatePlan extends DraftGrnPlan {
   invoiceId: string;
   supplierId: string;
   invoiceNumber: string;
@@ -165,6 +170,8 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   if (totalChanges || supplierChanges || invoiceNumber !== number) {
     await refuseIfRecordsPinBill(companyId, invoiceId, number, supplierChanges);
   }
+  // The bill's goods received note against the bill as it will stand (supplierInvoiceDraftGrn).
+  const grn = await planDraftGrn(companyId, invoiceId, number, row, patch.grnId, supplierId, supplierChanges);
 
   const stored: Record<string, unknown> = {
     supplierId: String(row.supplier_id),
@@ -180,6 +187,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     return next !== undefined && next !== stored[k];
   });
   if (lines) changed.push('lines');
+  if (grn.grnChanges) changed.push('grnId');
   // Re-dated by the terms; not twice when the caller also sent that very date (it is already listed as a changed field).
   if (redated.source !== null && dueDate !== storedDueDate && !changed.includes('dueDate')) changed.push('dueDate');
 
@@ -193,6 +201,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     paymentTerms: patch.paymentTerms ?? (row.payment_terms ?? null),
     reference: patch.reference ?? (row.reference ?? null),
     notes: patch.notes ?? (row.notes ?? null),
+    ...grn,
     totalBefore,
     lines,
     changed,
@@ -201,8 +210,9 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
 }
 
 /**
- * Write the plan. Refuses nothing — call it with no catch. `editedBy` becomes
- * the bill's content author when the write moves the approval digest (R-035).
+ * Write the plan. Refuses nothing the plan did not decide (call it with no catch), except a note cancelled between the plan and the
+ * apply's hold (`SupplierInvoiceGrnRefusal`, typed; the caller's transaction takes the edit back). `editedBy` becomes the bill's
+ * content author when the write moves the approval digest (R-035).
  */
 export async function applySupplierInvoiceDraftUpdate(
   companyId: string,
@@ -222,7 +232,10 @@ export async function applySupplierInvoiceDraftUpdate(
     );
   }
 
+  // A supplier change onto a supplier merged or deleted meanwhile (1021's supplier-live trigger) is a typed refusal; nothing is written.
   await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
+    // A new note: its PO FOR KEY SHARE BEFORE the UPDATE, whose grn-live trigger (1021) takes the note (Codex gate at 42de08b3, 4).
+    if (plan.grnChanges && plan.grnId) await lockNotePo(companyId, plan.grnId, tx);
     await tx`
       UPDATE supplier_invoices SET
         supplier_id = ${plan.supplierId}::UUID,
@@ -235,6 +248,7 @@ export async function applySupplierInvoiceDraftUpdate(
         payment_terms = ${plan.paymentTerms},
         reference = ${plan.reference},
         notes = ${plan.notes},
+        grn_id = ${plan.grnId}::UUID,
         subtotal = COALESCE(${totals?.subtotal ?? null}::NUMERIC, subtotal),
         tax_rate = COALESCE(${totals?.taxRate ?? null}::NUMERIC, tax_rate),
         tax_amount = COALESCE(${totals?.totalTax ?? null}::NUMERIC, tax_amount),
@@ -261,5 +275,8 @@ export async function applySupplierInvoiceDraftUpdate(
     }
     // Migration 1006: the bill's `app` links follow its new subtotal and lines (amounts are recomputed, not edited).
     await refreshAppBillLinks(companyId, plan.invoiceId, editedBy, tx);
-  }));
+    // The note (held FOR SHARE to the commit; a new one already by the UPDATE's grn-live trigger, after its PO), then the stored match
+    // re-judged when the note or supplier moved.
+    await applyDraftGrn(companyId, plan, tx);
+  })).catch((err: unknown) => { throw asBillSupplierDeleted(err) ?? asBillGrnRefused(err) ?? err; });
 }

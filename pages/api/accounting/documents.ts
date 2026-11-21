@@ -23,9 +23,10 @@ import {
   VALID_DOCUMENT_TYPES,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE,
-  verifyEntityOwnership,
+  verifyEntityOwnershipTyped,
   uploadDocument,
 } from '@/modules/accounting/services/core/documentStorageService';
+import type { AccountingEntityType } from '@/types/procurement/document.types';
 import {
   DOCUMENT_ENTITY_TYPES,
   bankTxBelongsToCompany,
@@ -148,7 +149,7 @@ async function handlePost(
     }
     const owned = isBankEntityType(entityType)
       ? await bankTxBelongsToCompany(companyId, entityId)
-      : await verifyEntityOwnership(entityId, companyId);
+      : await verifyEntityOwnershipTyped(entityType as AccountingEntityType, entityId, companyId);
     if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
     const fileField = files.file;
@@ -238,11 +239,13 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId
   if (!id) return apiResponse.badRequest(res, 'Missing required query param: id');
 
   const [doc] = await sql`
-    SELECT entity_id FROM procurement_documents WHERE id = ${id}::uuid AND is_active = true
+    SELECT entity_type, entity_id FROM procurement_documents WHERE id = ${id}::uuid AND is_active = true
   `;
   if (!doc) return apiResponse.notFound(res, 'Document', id);
 
-  const owned = await verifyEntityOwnership(doc.entity_id as string, companyId);
+  // The document's OWN type (review L1): a row whose id is some other row of ours is not ours. The legacy goods_receipt_note is a note.
+  const docType = String(doc.entity_type) === 'goods_receipt_note' ? 'goods_received' : String(doc.entity_type);
+  const owned = await verifyEntityOwnershipTyped(docType as AccountingEntityType, doc.entity_id as string, companyId);
   if (!owned) return apiResponse.forbidden(res, 'Document does not belong to your company');
 
   const [row] = await sql`

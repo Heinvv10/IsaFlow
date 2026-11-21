@@ -19,6 +19,8 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'bulk_create_purchase_orders',
   // Adds a link and never changes a bill or a ledger row (a PO may close when asked); the unlink deletes it.
   'link_bills_to_purchase_order',
+  // A new goods received note: quantities only, no ledger row; cancel_goods_received undoes it.
+  'create_goods_received',
   'attach_document',
   'attach_entity_document',
   'create_upload_urls',
@@ -76,6 +78,8 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'cancel_purchase_order',
   'close_purchase_order',
   'set_purchase_order_status',
+  // Takes a receipt's quantities back off its PO lines and moves the PO status.
+  'cancel_goods_received',
   // A template that auto-posts changes what later runs post; a run may post (write:post decided per template).
   'create_recurring_journal',
   'run_recurring_journals',

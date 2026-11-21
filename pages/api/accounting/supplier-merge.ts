@@ -2,8 +2,8 @@
  * Supplier Merge API
  * POST /api/accounting/supplier-merge
  *
- * Re-parents all FK references from source_id → target_id within a single
- * transaction, then soft-deletes the source supplier.
+ * Re-parents the source's payments, bills, purchase orders, credit notes, intercompany side and open expectations onto
+ * target_id within a single transaction, then soft-deletes the source and records its survivor (merged_into_id, #1655).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,9 +16,9 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, PO_BILL_LINKS_REFUSAL, assertSupplierMergeKeepsDrcFlag,
+  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills,
 } from '@/modules/accounting/services/core/duplicateMergeService';
-import { lockSupplierPurchaseOrders, movePurchaseOrders, purchaseOrderMoveRefusal } from '@/modules/accounting/services/core/supplierMergePurchaseOrders';
+import { lockMovablePurchaseOrders, movePurchaseOrders } from '@/modules/accounting/services/core/supplierMergePurchaseOrders';
 import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from '@/modules/accounting/services/core/supplierMergeOpenWork';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -46,6 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Before the transaction: a refusal moves nothing.
     await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id, source_id);
+    // A bill tied to a PO only by its goods received note is refused as a PO link is (#1708).
+    await assertSupplierMergeMovesNoNotedBill(companyId, source_id);
     await withTransaction(async (tx) => {
       // 1. Validate both suppliers belong to this company and are active
       const suppliers = await tx`
@@ -60,21 +62,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
-      // The source's purchase orders are locked first, so a bill link made meanwhile cannot slip past the check below (a link
-      // maker locks the PO too). Migration 1006: a purchase order <-> bill link joins one supplier's documents; moving only some
-      // would leave a cross-supplier link (the database refuses it). The smaller safe option: refuse while the source has links.
-      const pos = await lockSupplierPurchaseOrders(companyId, source_id);
-      const linked = await tx`
-        SELECT 1 FROM purchase_order_bill_links l
-          JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
-         WHERE l.company_id = ${companyId} AND po.supplier_id = ${source_id} LIMIT 1
-      `;
-      if ((linked as unknown[]).length > 0) {
-        throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
-      }
-      // Approved (or later) purchase orders move only for a role that may edit them, as updatePurchaseOrder demands.
-      const poRefusal = purchaseOrderMoveRefusal(pos, companyRole);
-      if (poRefusal) throw new SupplierMergeRefusal(poRefusal);
+      // The source's purchase orders locked first, then the PO <-> bill link and approved-PO refusals (lockMovablePurchaseOrders).
+      const pos = await lockMovablePurchaseOrders(companyId, source_id, companyRole);
       const sideBlock = await sideRefusal(companyId, source_id, target_id);
       if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
       const side = await moveIntercompanySide(companyId, source_id, target_id);
@@ -100,13 +89,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
       // approval content (R-035): the merging user becomes an author of every
       // bill it moves.
-      await tx`
+      const movedBills = await tx`
         UPDATE supplier_invoices
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
+        RETURNING invoice_number, grn_id, deleted_at, status
       `;
+      // A bill made live and noted while this ran, without the supplier lock, is moved here after it waited on the row (#1708):
+      // refused, and this transaction's savepoint takes the whole merge back.
+      refuseIfMovedNotedBills(movedBills as Array<Record<string, unknown>>);
 
       // 4. Re-parent supplier_purchase_orders
       await tx`
@@ -140,6 +133,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         UPDATE suppliers
         SET deleted_at = NOW(),
             merged_into_id = ${target_id}
+        -- A bill create racing this merge waits on the supplier row (the FK), then is refused by trg_supplier_invoices_supplier_live
+        -- (migration 1021): no bill lands on the merged-away source.
         WHERE id = ${source_id}
           AND company_id = ${companyId}
       `;

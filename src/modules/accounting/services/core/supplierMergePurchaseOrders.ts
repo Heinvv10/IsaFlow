@@ -36,6 +36,11 @@ import { logAuditOrThrow } from './auditTrailService';
 import { withRowLockBudget } from './rowLockBudget';
 import { APPROVED_EDIT_REFUSAL } from '../ap/purchaseOrderUpdate';
 import { PurchaseOrderLockTimeoutError } from '../ap/purchaseOrderErrors';
+import { SupplierMergeRefusal } from './supplierMergeRefusal';
+
+/** Shown when a supplier merge is refused because the source has purchase-order <-> bill links (mig 1006). */
+export const PO_BILL_LINKS_REFUSAL =
+  'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.';
 
 export interface SourcePo { id: string; poNumber: string; status: string; approvedBy: string | null; approvedAt: string | null }
 
@@ -62,6 +67,24 @@ export async function lockSupplierPurchaseOrders(companyId: string, supplierId: 
 export function purchaseOrderMoveRefusal(pos: readonly SourcePo[], role: string | null | undefined): string | null {
   if (canCancelApprovedPo(role) || !pos.some((p) => !OPEN_PO_STATUSES.includes(p.status))) return null;
   return `This supplier has approved, partly received or received purchase orders, and merging moves them to the other supplier. ${APPROVED_EDIT_REFUSAL}.`;
+}
+
+/**
+ * Both merge paths, before anything moves: the source's POs locked first, so a bill link made meanwhile cannot slip past the link
+ * check (a link maker locks the PO too). Migration 1006: a purchase order <-> bill link joins one supplier's documents, and the
+ * database refuses a supplier change on a PO or bill that has one; refuse with the reason. Then the approved-PO role check.
+ */
+export async function lockMovablePurchaseOrders(companyId: string, sourceId: string, role: string | null | undefined): Promise<SourcePo[]> {
+  const pos = await lockSupplierPurchaseOrders(companyId, sourceId);
+  const linked = await sql`
+    SELECT 1 FROM purchase_order_bill_links l
+      JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+     WHERE l.company_id = ${companyId}::UUID AND po.supplier_id = ${sourceId}::UUID LIMIT 1
+  `;
+  if (linked.length > 0) throw new SupplierMergeRefusal(PO_BILL_LINKS_REFUSAL);
+  const refusal = purchaseOrderMoveRefusal(pos, role);
+  if (refusal) throw new SupplierMergeRefusal(refusal);
+  return pos;
 }
 
 /** Moves the (locked) purchase orders to the survivor, one audit row each. Returns how many actually moved. */

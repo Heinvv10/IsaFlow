@@ -10,6 +10,9 @@
  */
 
 import { sql } from '@/lib/neon';
+import { asBillGrnRefused, assertBillRestorableGrn } from '../ap/billGoodsReceivedLink';
+import { SoftDeleteRefusalError } from './softDeleteErrors';
+import { assertBillRestorableSupplier } from '../ap/billSupplierLive';
 
 // ── Soft-delete per table ────────────────────────────────────────────────────
 
@@ -120,11 +123,26 @@ export async function restoreRow(
       ` as { id: string }[];
       break;
     case 'supplier_invoice':
-      rows = await sql`
-        UPDATE supplier_invoices SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
+      // A bill naming a goods received note cancelled while it was deleted stays deleted (the note held FOR SHARE first).
+      await assertBillRestorableGrn(companyId, entityId);
+      // Nor one whose supplier was soft-deleted meanwhile (the restore does not fire 1021's supplier-live trigger). Only a plain supplier
+      // soft-delete leaves a deleted bill on a deleted supplier: both merges move deleted bills to their target too.
+      await assertBillRestorableSupplier(companyId, entityId);
+      // 1021's grn-live trigger re-decides the note on this UPDATE (under the hold assertBillRestorableGrn already took, so it agrees
+      // with it); its refusal is the same 400 as the check's.
+      try {
+        rows = await sql`
+          UPDATE supplier_invoices SET deleted_at = NULL
+          WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
+          RETURNING id
+        ` as { id: string }[];
+      } catch (err) {
+        if (asBillGrnRefused(err)) {
+          throw new SoftDeleteRefusalError('This bill names a goods received note that is cancelled, or that is not one of this company\'s, so it '
+            + 'cannot be restored; enter the bill again as a new one (naming a live note, or none)');
+        }
+        throw err;
+      }
       break;
     default:
       throw new Error(`Unknown entity type: ${entityType}`);
