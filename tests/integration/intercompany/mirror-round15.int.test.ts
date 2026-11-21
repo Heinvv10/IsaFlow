@@ -108,6 +108,14 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
 });
 
 describe('the mirror goes to the row it belongs to', () => {
+  it('the only matching row two days off the mirror (12 March for 10 March): skipped, the mirror eliminates it', async () => {
+    await turnOn();
+    const m = await L.accepted({ date: '2026-03-10' }); await redate(m.bill, '2026-03-10'); await L.approveBill(m.bill);
+    const r = await manual(co.A, co.B, 'sale', '2026-03-12');
+    await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = $1", [r.id]);
+    expect((await gen()).skipped).toEqual([r.id]);
+  });
+
   it('a mirror of 10 March and manual sales of 5 and 10 March (both match it, same month): the 10 March row is skipped, the 5 March row drafted', async () => {
     await turnOn();
     const m = await L.accepted({ date: '2026-03-10' }); await redate(m.bill, '2026-03-10'); await L.approveBill(m.bill);
