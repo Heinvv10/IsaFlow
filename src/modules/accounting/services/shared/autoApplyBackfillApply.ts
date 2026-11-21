@@ -54,6 +54,8 @@ export interface ApplyContext {
   idempotencyKey: string | null;
   /** True unless the contact asked for newest-first. Cached by the caller. */
   oldestFirstFor: (entityId: string) => Promise<boolean>;
+  /** AR: the credit-note keys taken before the first source (autoApplyBackfillLocks); the walks take none of their own. */
+  heldKeys?: ReadonlySet<string>;
 }
 
 /** Each contact's direction preference, read once however many sources it has. */
@@ -220,6 +222,7 @@ export async function applyOneCreditNote(
     linkedInvoiceId: null,
     autoApply: 'fifo',
     alreadyApplied: appliedBefore,
+    heldKeys: ctx.heldKeys,
   });
   if (application.lines.length === 0) return [];
 

@@ -2,6 +2,7 @@
  * Reusable form section panels for the New Item page.
  */
 import { DateField } from '@/components/ui';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Category {
   id: string;
@@ -98,15 +99,15 @@ export function PricingSection({ cost_price, selling_price_excl, selling_price_i
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label htmlFor="item-form-sections-cost-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label>
-          <input id="item-form-sections-cost-price-zar" type="number" step="0.01" min="0" value={cost_price} onChange={e => onChange('cost_price', e.target.value)} className="ff-input w-full" />
+          <AmountInput min={0} id="item-form-sections-cost-price-zar" value={cost_price} onValueChange={(_n, t) => onChange('cost_price', t)} className="ff-input w-full" />
         </div>
         <div>
           <label htmlFor="item-form-sections-exclusive-selling-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Exclusive Selling Price (ZAR)</label>
-          <input id="item-form-sections-exclusive-selling-price-zar" type="number" step="0.01" min="0" value={selling_price_excl} onChange={e => onChange('selling_price_excl', e.target.value)} className="ff-input w-full" />
+          <AmountInput min={0} id="item-form-sections-exclusive-selling-price-zar" value={selling_price_excl} onValueChange={(_n, t) => onChange('selling_price_excl', t)} className="ff-input w-full" />
         </div>
         <div>
           <label htmlFor="item-form-sections-inclusive-selling-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Inclusive Selling Price (ZAR)</label>
-          <input id="item-form-sections-inclusive-selling-price-zar" type="number" step="0.01" min="0" value={selling_price_incl} onChange={e => onChange('selling_price_incl', e.target.value)} className="ff-input w-full" />
+          <AmountInput min={0} id="item-form-sections-inclusive-selling-price-zar" value={selling_price_incl} onValueChange={(_n, t) => onChange('selling_price_incl', t)} className="ff-input w-full" />
         </div>
         <div>
           <label htmlFor="item-form-sections-gp" className="block text-sm text-[var(--ff-text-secondary)] mb-1">GP %</label>
@@ -186,7 +187,7 @@ export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date
         </div>
         <div>
           <label htmlFor="item-form-sections-opening-cost-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Cost (ZAR)</label>
-          <input id="item-form-sections-opening-cost-zar" type="number" step="0.01" min="0" value={opening_cost} onChange={e => onChange('opening_cost', e.target.value)} className="ff-input w-full" />
+          <AmountInput min={0} id="item-form-sections-opening-cost-zar" value={opening_cost} onValueChange={(_n, t) => onChange('opening_cost', t)} className="ff-input w-full" />
         </div>
         <div>
           <DateField label="Opening Date" name="opening_date" value={opening_date || null} onChange={dates.bind('opening_date', (iso) => onChange('opening_date', iso), opening_date)} />

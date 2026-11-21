@@ -80,7 +80,7 @@ describe('recurring invoice: new', () => {
     await screen.findByText('D2 Customer');
     fireEvent.change(document.querySelector('select[name="clientId"]')!, { target: { value: 'c1' } });
     fireEvent.change(screen.getByPlaceholderText('Description *'), { target: { value: 'D2 line' } });
-    const price = Array.from(document.querySelectorAll('input[type="number"]')).find((i) => (i as HTMLInputElement).value === '0')!;
+    const price = screen.getByLabelText('Line 1 unit price');
     fireEvent.change(price, { target: { value: '100' } });
   };
 

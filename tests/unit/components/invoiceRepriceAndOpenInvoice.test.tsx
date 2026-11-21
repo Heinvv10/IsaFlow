@@ -41,7 +41,9 @@ const VIEW = (id: string, extra: object = {}) => ({
 });
 
 describe.each([
-  ['a quote converted at 0% (stored R1 000; the header rate prices it to R1 150)', { ...DRAFT, tax_rate: 15, total_amount: 1000, items: [{ description: 'Quoted work', quantity: 1, unit_price: 1000, amount: 1000, tax_rate: 0 }] }, /Save to reprice at R\s?1\s?150\.00, or approve R\s?1\s?000\.00 from the invoice page/],
+  // A line stored at 0% is read at its own rate since #1701 round 11 (it priced to R1 150 at the header rate): this one
+  // carries 15% but was stored without its VAT.
+  ['a draft stored without its VAT (stored R1 000; its 15% line prices to R1 150)', { ...DRAFT, tax_rate: 15, total_amount: 1000, items: [{ description: 'Quoted work', quantity: 1, unit_price: 1000, amount: 1000, tax_rate: 15 }] }, /Save to reprice at R\s?1\s?150\.00, or approve R\s?1\s?000\.00 from the invoice page/],
   ['a WIP draft rounded per line (stored R115.00; the lines price to R114.99)', { ...DRAFT, tax_rate: 15, total_amount: 115, items: [{ description: 'Time 1', quantity: 3, unit_price: 33.33, amount: 99.99, time_entry_id: 'te-1' }] }, /Save to reprice at R\s?114\.99, or approve R\s?115\.00 from the invoice page/],
 ])('edit page: %s', (_name, invoice, refusal) => {
   it('shows both figures; Approve & email refuses and nothing is saved or approved', async () => {

@@ -80,7 +80,10 @@ export const unapplyCreditNoteTool: McpTool = {
     + 'its journal with the amount as on-account credit (apply_credit_note re-applies it). Use it to '
     + 'correct a wrong oldest-first application; use cancel_credit_note only when the note itself is '
     + 'wrong. Refused for a draft or cancelled note, a note whose applied amount has no allocation rows '
-    + `behind it (a legacy row — reconcile by hand), or a document the note is not applied to. ${COMMON_TAIL}`,
+    + 'behind it (a legacy row — reconcile by hand), or a document the note is not applied to. A customer note\'s '
+    + 'take-back is also refused when it would move the note\'s credit that reversed no invoice line onto another of '
+    + 'its invoices with a VAT type per line past what that invoice has left to credit ("would move X of its credit onto '
+    + `invoice Y"): take that invoice's application back first, or take back less. ${COMMON_TAIL}`,
   scope: 'write:invoices',
   write: true,
   requiresPost: true,

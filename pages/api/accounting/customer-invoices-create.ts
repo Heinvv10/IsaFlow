@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { invoiceDigests } from '@/modules/accounting/services/ar/invoicePdfModel';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -29,7 +30,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const {
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, notes, items, currencyCode, exchangeRate, projectId,
+    taxRate, notes, items, currencyCode, exchangeRate, projectId, amountsAre,
   } = req.body;
   if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
   if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
@@ -38,7 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const userId = String(req.user?.id || 'system');
     const { id: invoiceId, invoiceNumber } = await createDraftCustomerInvoice(companyId, userId, {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-      taxRate, notes, items, currencyCode, exchangeRate, projectId,
+      taxRate, notes, items, currencyCode, exchangeRate, projectId, amountsAre,
     });
     // What Approve (shownDigest) and the edit page's PUTs (draftDigest) send back for this invoice (invoicePdfModel).
     const digests = await invoiceDigests(companyId, invoiceId);
@@ -48,6 +49,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
     // Raised before the first write: the 400 commits nothing.
     if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+    // Per-line VAT (invoiceLineVatTypes): a type, a legacy rate or VAT asked of a non-vendor, refused before the first write.
+    if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
     if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
     if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);

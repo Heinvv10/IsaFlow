@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { fetchCustomerOpenInvoices } from '@/components/accounting/allocations/openInvoiceFetch';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -148,7 +149,7 @@ export default function WriteOffsPage() {
                   {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoice_number} — Balance: {fmt(inv.balanceCents / 100)}</option>)}
                 </select>
                 {invoiceNote && <p role="status" className="text-xs text-amber-400 md:col-span-2">{invoiceNote}</p>}
-                <input type="number" step="0.01" min="0.01" max={maxAmount} value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="ff-input" placeholder="Amount *" required />
+                <AmountInput min={0.01} max={maxAmount === undefined ? undefined : Number(maxAmount)} value={form.amount} onValueChange={(_n, t) => setForm(f => ({ ...f, amount: t }))} className="ff-input" placeholder="Amount *" required />
                 <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input" placeholder="Reason *" required />
               </div>
               <div className="flex justify-end gap-2">
