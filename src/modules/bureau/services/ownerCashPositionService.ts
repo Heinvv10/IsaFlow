@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { approvalCoveredPaydaySql } from '@/modules/accounting/services/payroll/payrollPaydayCover';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -43,8 +44,8 @@ export interface PayrollRunRow {
   /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
   final?: boolean;
   /**
-   * Gate rulings on 7630d9379f: an approval of the run lasted into its pay date (approval_history), so its salaries were
-   * disbursed even if it has since been reopened; its gross, and an off-cycle run's paid gross (999x snapshot).
+   * Gate rulings on 7630d9379f: an approval of the run covered the start of its payday (approval_history,
+   * approvalCoveredPaydaySql), so its salaries were disbursed even if it has since been reopened; its gross, and an off-cycle run's paid gross (999x snapshot).
    */
   disbursed?: boolean;
   total_gross?: string | number;
@@ -141,7 +142,7 @@ const emp201Due = (r: PayrollRunRow): string =>
 /**
  * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Before its pay date, or overdue and
  * neither final nor disbursed (review #1679 M3): all of it. Once its pay date has passed and it was paid (final, or an
- * approval that lasted into its pay date, since reopened): payday settled the net pay, so it needs its PAYE (less ETI, never
+ * approval that covered the start of its payday, since reopened): payday settled the net pay, so it needs its PAYE (less ETI, never
  * below nil), UIF and SDL until the
  * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
@@ -221,8 +222,7 @@ async function nextPayrollSection(
            total_net, total_paye, total_uif, total_sdl, total_eti,
            COALESCE(run_date, period_end)::text AS pay_date,
            ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,
-           total_gross, COALESCE(approval_history && tstzrange((COALESCE(run_date, period_end)::timestamp AT TIME ZONE 'Africa/Johannesburg'), NULL),
-                    false) AS disbursed,
+           total_gross, ${sql.unsafe(approvalCoveredPaydaySql('payroll_run_headers'))} AS disbursed,
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid

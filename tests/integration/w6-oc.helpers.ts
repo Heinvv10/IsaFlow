@@ -23,3 +23,15 @@ export async function refusedApproval(r: Rig, runId: string): Promise<string> {
   expect(r.msg(approved)).toBe(r.msg(submitted));
   return r.msg(submitted) ?? '';
 }
+
+/**
+ * The run's current approval as the app's (fake) clock made it: at the start of its payday less an hour, SAST (gate item
+ * 1 on 06c106a94d). These suites fake the app's Date only; the database stamps approved_at from its own clock (today), so
+ * without this an approval "on the pay date" would read as one after it, and a later reopen would not cover payday.
+ * Written as the trusted fixture role, which the 999x triggers leave as written.
+ */
+export async function approvedOverPayday(r: Rig, runId: string): Promise<void> {
+  await r.pool.query(`UPDATE payroll_run_headers
+      SET approved_at = (COALESCE(run_date, period_end)::timestamp AT TIME ZONE 'Africa/Johannesburg') - interval '1 hour'
+    WHERE id = $1 AND status = 'approved'`, [runId]);
+}

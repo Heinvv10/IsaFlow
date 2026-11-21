@@ -20,7 +20,8 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
-import { emp201FiledForMonth, wasApprovedBefore } from './payrollOffCycleCorrection';
+import { emp201FiledForMonth } from './payrollOffCycleCorrection';
+import { approvalCoveredPayday } from './payrollPaydayCover';
 
 /**
  * Why this off-cycle run cannot be reopened (review #1620 final breaker M, coordinator ruling; review #1679 M4): it is
@@ -48,10 +49,11 @@ export async function offCyclePaidReopenRefusal(
 /** Why this off-cycle run cannot be approved today; null when it can (or it is not off-cycle). */
 export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown; approval_history?: unknown }, today: string = todayInSast()): string | null {
   if (run.run_kind !== 'off_cycle') return null;
-  // A run approved before and reopened to correct it (final breaker M): its money is already out, so the cash-forecast
-  // reason for this refusal (D1) does not apply; re-approving it after its pay date is allowed.
-  if (wasApprovedBefore(run.approval_history)) return null;
   const payDate = dateColumnOf(run.run_date);
+  // A run approved over the start of its payday and reopened to correct it (final breaker M; gate item 1 on 06c106a94d:
+  // that approval, not any earlier one): its money is out, so the cash-forecast reason for this refusal (D1) does not
+  // apply; re-approving it after its pay date is allowed.
+  if (approvalCoveredPayday(run.approval_history, payDate)) return null;
   if (payDate === null) return 'This off-cycle run has no pay date. Create it again with one.';
   return payDate < today
     ? `This off-cycle run's pay date (${formatDisplayDate(payDate)}) is before today (${formatDisplayDate(today)}): it cannot be `

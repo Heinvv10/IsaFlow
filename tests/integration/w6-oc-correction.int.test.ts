@@ -12,6 +12,7 @@
  *  - once the month's EMP201 is filed, the reopen is refused (409) saying so.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { approvedOverPayday } from './w6-oc.helpers';
 import { rig, type Route } from './brkr.helpers';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
@@ -66,6 +67,7 @@ beforeAll(async () => {
   run = String(made.body.data!.id);
   expect((await a.api.calculate(run)).statusCode).toBe(200);
   expect((await a.api.approve(run)).statusCode).toBe(200);
+  await approvedOverPayday(a, run); // approved on its pay date by the app's clock, so it was paid over payday
   vi.setSystemTime(new Date('2026-11-17T22:05:00Z')); // 00:05 SAST, 18 Nov: the bonus is paid
 }, 120_000);
 

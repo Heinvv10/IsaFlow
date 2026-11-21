@@ -6,6 +6,7 @@
  * is approved.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { approvedOverPayday } from './w6-oc.helpers';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
@@ -35,6 +36,7 @@ async function final(made: { statusCode: number; body: { data?: { id?: unknown }
   expect((await a.api.calculate(id)).statusCode).toBe(200);
   const ok = await a.api.approve(id);
   expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+  await approvedOverPayday(a, id); // approved on its pay date by the app's clock, so it was paid over payday
   return id;
 }
 
