@@ -114,6 +114,28 @@ describe('gate review of 7630d9379f, ruling 1: a bonus is paid on a PAYE-taxable
   });
 });
 
+describe('gate ruling 3 on e0eec1dea1: calculation re-checks every leaver', () => {
+  it('a reason cleared after creation: 409 TERMINATION_REASON_MISSING naming that leaver, and no line is written', async () => {
+    const [one, two] = [(await b.employee(9_000)).employee, (await b.employee(9_000)).employee];
+    for (const id of [one, two]) {
+      await b.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-20', termination_reason = 'resignation',
+        termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [id]);
+    }
+    const made = await create(b, { reason: 'termination', runDate: '2026-11-29', employees: [{ employeeId: one }, { employeeId: two }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    await b.pool.query('UPDATE payroll_employees SET termination_reason = NULL WHERE id = $1', [two]);
+    const number = (await b.pool.query('SELECT employee_number AS n FROM payroll_employees WHERE id = $1', [two])).rows[0].n;
+    const calc = await b.api.calculate(id);
+    expect(calc.statusCode).toBe(409);
+    expect(calc.body.error?.details?.refusal).toBe('TERMINATION_REASON_MISSING');
+    expect(b.msg(calc)).toContain(`(${number})`);
+    expect(await n(b, 'SELECT count(*) AS n FROM payroll_run_lines WHERE run_id = $1', [id])).toBe(0);
+    await b.pool.query(`UPDATE payroll_run_headers SET status = 'cancelled' WHERE id = $1`, [id]);
+    await b.pool.query('UPDATE payroll_employees SET end_date = NULL, termination_reason = NULL WHERE id = ANY($1::uuid[])', [[one, two]]);
+  });
+});
+
 describe('review #1679 codex M6: a termination run names every leaver with no termination reason', () => {
   it('two leavers, one with no reason: 409 TERMINATION_REASON_MISSING naming that one, and nothing is written', async () => {
     const withReason = (await b.employee(9_000)).employee;
