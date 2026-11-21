@@ -51,14 +51,17 @@ export function vatAtLoad(invoice: Pick<InvoiceDetail, 'tax_rate' | 'amounts_are
   return { mode, formRate, effectiveRate: effectiveTaxRate(mode, formRate), ...(invoice.invoice_date ? { date: String(invoice.invoice_date).slice(0, 10) } : {}) };
 }
 
-/** The stored lines as the form holds them; an invoice with none starts with one empty line on the invoice's job. */
 /**
- * A LEGACY line's effective type (round 11): from its OWN stored rate, else whether it carries VAT, else the header's;
+ * A LEGACY line's effective type (round 11): on a header that charges VAT, from its OWN stored rate, else whether it
+ * carries VAT, else the header's;
  * 0 -> zero_rated, the standard rate on the invoice date -> standard, any other rate (a 14% legacy line) none, so the
  * form's rate check holds the save rather than repricing it. So a mixed legacy draft (R100 at 15% + R100 at 0%) keeps
  * R215; read at the header rate it became R230.
  */
 function legacyLineType(it: InvoiceItemRow, vat: { effectiveRate: number; date?: string }): string | null {
+  // A header at no VAT decides (round 12): its lines' tax_rate may be the column default 15.00 on a draft that charges
+  // none, and reading that would price "No VAT" at R115. The form's own rate types them (zero-rated / exempt).
+  if (vat.effectiveRate <= 0) return null;
   const rate = it.tax_rate != null && it.tax_rate !== '' ? Number(it.tax_rate)
     : it.tax_amount != null ? (Number(it.tax_amount) > 0 ? null : 0) : vat.effectiveRate;
   if (rate === 0) return 'zero_rated';
@@ -66,6 +69,7 @@ function legacyLineType(it: InvoiceItemRow, vat: { effectiveRate: number; date?:
   return vat.date && isRatedDate(vat.date) && rate === standardVatRatePctOn(vat.date) ? 'standard' : null;
 }
 
+/** The stored lines as the form holds them; an invoice with none starts with one empty line on the invoice's job. */
 export function linesFromStoredItems(items: InvoiceItemRow[], projectId: string, vat?: { mode: TaxMode; effectiveRate: number; date?: string }): EditLine[] {
   // The schema has no `discount` column — it is folded into `amount`.
   // Reverse-engineer percent discount from amount vs (qty × unitPrice) so a
