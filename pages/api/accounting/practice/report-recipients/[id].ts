@@ -34,6 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
+    if (!isFullAccessRole(companyRole)) return apiResponse.forbidden(res, 'Only an owner or admin can remove report recipients.');
     await deleteReportRecipient(companyId, id as string);
     return apiResponse.success(res, { deleted: true });
   }

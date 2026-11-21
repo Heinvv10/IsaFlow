@@ -168,18 +168,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
         `) ?? []) as Array<{ document_type: string; document_id: string }>;
         const requestRow = requestRows[0];
+        // No pending request of this company: refused 404 here, BEFORE the gate (round 10). The read is unlocked, and the gate is judged from
+        // the row it returns: without a row there is nothing to judge, so nothing may reach decideRequest (fail closed; same answer as decideRequest's).
+        if (!requestRow) return apiResponse.notFound(res, `Approval request ${requestId} not found or already decided`);
         // #1656: approving a request approves its document, so it takes that document's module Approve, before
         // any write. Fails closed: a type with no module, not resolvable and not listed as ungated, is refused.
-        if (decision === 'approved' && requestRow && await refuseApprovalRequestWithoutApprove(res, companyId, userId, requestRow)) return;
+        if (decision === 'approved' && await refuseApprovalRequestWithoutApprove(res, companyId, userId, requestRow)) return;
         // Deciding a pay-run request is Payroll's too: a rejection needs Payroll write (an approval asked the Approve gate above).
-        if (decision === 'rejected' && requestRow?.document_type === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
-        if (requestRow?.document_type === 'pay_run') {
+        if (decision === 'rejected' && requestRow.document_type === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
+        if (requestRow.document_type === 'pay_run') {
           // census-exempt(preparePayRunApprovalRequest): Payroll Approve (an approval) or Payroll write (a rejection) is asked just above; it reads the run's kind and plan hash only
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }
         // census-exempt(decideRequest): approving asks the document type's Approve first (refuseApprovalRequestWithoutApprove, above); a rejection posts nothing. approveGateEverything / approvePermissionPaths
         const result = await decideRequest(companyId, requestId, decision, userId, notes, expectedDigest);
-        if (requestRow?.document_type === 'pay_run' && result.documentDigest) {
+        if (requestRow.document_type === 'pay_run' && result.documentDigest) {
           await recordPayRunApprovalAudit({
             companyId, runId: String(requestRow.document_id), actorId: userId,
             event: decision === 'approved' ? 'authorised' : 'declined',

@@ -29,6 +29,8 @@ describe('report-recipients', () => {
     expect(await call(list, 'GET', 'manager')).toBe(200);
     expect(await call(list, 'POST', 'manager')).toBe(403);
     expect(await call(one, 'PUT', 'manager')).toBe(403);
+    expect(await call(one, 'DELETE', 'manager')).toBe(403); // round 10
+    expect(svc.deleteReportRecipient).not.toHaveBeenCalled();
     expect(svc.createReportRecipient).not.toHaveBeenCalled();
     expect(svc.updateReportRecipient).not.toHaveBeenCalled();
   });
@@ -36,6 +38,7 @@ describe('report-recipients', () => {
     for (const role of ['owner', 'admin']) {
       expect(await call(list, 'POST', role)).toBe(201);
       expect(await call(one, 'PUT', role)).toBe(200);
+      expect(await call(one, 'DELETE', role)).toBe(200);
     }
   });
 });

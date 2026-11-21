@@ -33,6 +33,7 @@ vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({
 
 import { checkPermission } from '@/lib/auth/permissionService';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { refuseApprovalRequestWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { decideRequest, getPendingCount, listRequests, requestApproval } from '@/modules/accounting/services/gl/approvalService';
 import handler from '../../../pages/api/accounting/approval-requests';
 
@@ -113,5 +114,25 @@ describe('listing and checking', () => {
     allowed.read = false;
     expect((await call('GET', { action: 'check', documentType: 'supplier_invoice', documentId: RUN })).statusCode).toBe(200);
     expect(checkPermission).not.toHaveBeenCalled();
+  });
+});
+
+describe('round 10: a decision on a request the unlocked read does not find', () => {
+  it.each(['approve', 'reject'])('%s: 404 before any gate, and decideRequest is never reached', async (action) => {
+    state.requestRow = undefined;
+    const res = await call('POST', {}, { action, requestId: REQ });
+    expect(res.statusCode).toBe(404);
+    expect(decideRequest).not.toHaveBeenCalled();
+    expect(refuseApprovalRequestWithoutApprove).not.toHaveBeenCalled();
+  });
+  it('approve of a found request runs the Approve gate (unconditionally) before deciding', async () => {
+    state.requestRow = { document_type: 'supplier_invoice', document_id: RUN };
+    allowed.write = false;
+    expect((await call('POST', {}, { action: 'approve', requestId: REQ })).statusCode).toBe(200);
+    expect(refuseApprovalRequestWithoutApprove).toHaveBeenCalledTimes(1);
+    vi.mocked(refuseApprovalRequestWithoutApprove).mockImplementationOnce(async (res) => { (res as unknown as { status(c: number): { json(p: unknown): void } }).status(403).json({}); return true; });
+    vi.mocked(decideRequest).mockClear();
+    expect((await call('POST', {}, { action: 'approve', requestId: REQ })).statusCode).toBe(403);
+    expect(decideRequest).not.toHaveBeenCalled();
   });
 });
