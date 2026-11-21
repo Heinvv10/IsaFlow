@@ -55,6 +55,12 @@ async function periods(ranges: Array<[string, string, 'open' | 'closed']>): Prom
   let n = 0;
   for (const [start, end, status] of ranges) {
     n++;
+    // One fiscal year per period, cut to the period's own dates. Left to the trigger, a period is linked to the
+    // company's template year (March start), and a layout that straddles a template year end (today's offsets do,
+    // for part of every year) cuts a second year that overlaps the first: fiscal_years_no_overlap.
+    await sql`
+      INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
+      VALUES (${fx.companyId}::UUID, ${2100 + n}, ${start}::DATE, ${end}::DATE)`;
     await sql`
       INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
       VALUES (${fx.companyId}::UUID, ${`R012-${n}-${fx.tag}`}, ${n}, ${2100 + n}, ${start}::DATE, ${end}::DATE, ${status})`;
