@@ -217,7 +217,7 @@ describeIfDisposable('per-line VAT writers, review round 9', () => {
       await other.client.query('SELECT id FROM credit_notes WHERE id = $1 FOR UPDATE', [held.id]);
       const plan = await inTx(f.fx, () => autoApplyUnapplied({ companyId: f.fx.companyId, subledger: 'ar', entityId: c, userId: f.fx.userId, dryRun: false }));
       expect(plan.failed).toEqual([{ payment_id: held.id, payment_number: expect.any(String),
-        error: expect.stringMatching(/^Credit note \S+ is being changed by another request \(an approval, apply, unapply or cancel\); it was skipped/) }]);
+        error: expect.stringMatching(/^Credit note \S+ is being changed by another request \(an approval, apply, unapply or cancel\); it was skipped\. .*with a NEW idempotency_key/) }]);
       expect(plan.applications.filter((a) => a.payment_id === free.id).map((a) => a.lines.map((l) => [l.document_id, l.amount]))).toEqual([[[x, 34.5]]]);
     } finally {
       await other.client.query('ROLLBACK').catch(() => {}); other.client.release();
