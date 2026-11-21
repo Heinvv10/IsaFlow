@@ -34,6 +34,10 @@ describe('what stays queryable', () => {
     // time_entries: `rate` is the price typed for the billed hour, `applied_rate` comes from the practice's rate tables (round 8)
     'SELECT SUM(hours * rate) FROM time_entries',
     'SELECT * FROM time_entries',
+    // ACCEPTED (round 9): a practice time entry with status 'leave', and its free-text notes, are the practice's own timesheet, which every
+    // reader of time_entries (the practice routes, MCP list_time_entries) sees; the query is no wider. Blocking them would mean refusing every
+    // time_entries query (a row filter and a column list cannot be told apart from `SELECT *` here), so it is documented, not blocked.
+    "SELECT notes FROM time_entries WHERE status = 'leave'",
     'SELECT SUM(total_amount) FROM customer_invoices',
     'SELECT * FROM customers',
     'SELECT COUNT(*) FROM leave_types',

@@ -9,7 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
-import { refuseAuditPayrollType } from '@/modules/accounting/services/core/auditPayrollGate';
+import { refuseAuditPayrollType, singleQueryParam } from '@/modules/accounting/services/core/auditPayrollGate';
 import { getAuditLog } from '@/modules/accounting/services/core/auditTrailService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -32,10 +32,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Payroll entity types (an employee's email, a directive, a garnishee order ...) are Payroll's: left out of the rows and the count
       // without Payroll read, and asking for one by name is a 403 (#1656 round 8).
       const payrollRead = await mayReadPayroll(companyId, user.id);
-      if (refuseAuditPayrollType(res, entity_type, payrollRead)) return;
+      const entityTypeOnce = singleQueryParam(res, 'entity_type', entity_type);
+      if (entityTypeOnce === null) return;
+      if (refuseAuditPayrollType(res, entityTypeOnce, payrollRead)) return;
       const result = await getAuditLog(companyId, {
         payrollRead,
-        entityType: entity_type as string | undefined,
+        entityType: entityTypeOnce,
         entityId: entity_id as string | undefined,
         userId: user_id as string | undefined,
         action: action as string | undefined,

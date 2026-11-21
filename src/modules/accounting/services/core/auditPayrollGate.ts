@@ -10,3 +10,15 @@ export function refuseAuditPayrollType(res: NextApiResponse, entityType: unknown
   apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
   return true;
 }
+
+/**
+ * A query parameter that must be ONE value: a repeated `?type=a&type=b` arrives as an array, which would skip the string check of
+ * refuseAuditPayrollType and reach the SQL as an array. Answers 400 and returns null for an array (round 9); else the string, or undefined.
+ */
+export function singleQueryParam(res: NextApiResponse, name: string, value: string | string[] | undefined): string | undefined | null {
+  if (Array.isArray(value)) {
+    apiResponse.badRequest(res, `${name} may be given once`);
+    return null;
+  }
+  return value;
+}

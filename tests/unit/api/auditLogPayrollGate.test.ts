@@ -49,6 +49,11 @@ describe.each([['audit-log', list], ['audit-log-export', exportCsv]] as const)('
     expect(res.statusCode).toBe(403);
     expect(getAuditLog).not.toHaveBeenCalled();
   });
+  it('a repeated ?entity_type= (an array) is a 400 and nothing is read: the payroll check always sees one string', async () => {
+    const res = await get(handler, { entity_type: ['supplier_invoice', 'payroll_employee'] });
+    expect(res.statusCode).toBe(400);
+    expect(getAuditLog).not.toHaveBeenCalled();
+  });
   it('without Payroll read any other request reads with payrollRead=false (the payroll types are excluded from rows and count)', async () => {
     expect((await get(handler, { entity_type: 'supplier_invoice' })).statusCode).toBe(200);
     expect((await get(handler, {})).statusCode).toBe(200);
@@ -62,6 +67,10 @@ describe.each([['audit-log', list], ['audit-log-export', exportCsv]] as const)('
 });
 
 describe('audit-log-entity', () => {
+  it('a repeated ?type= (an array) is a 400 and nothing is read', async () => {
+    expect((await get(entity, { type: ['supplier_invoice', 'payroll_employee'], id: ID })).statusCode).toBe(400);
+    expect(getEntityHistory).not.toHaveBeenCalled();
+  });
   it.each(PAYROLL_AUDIT_ENTITY_TYPES)('without Payroll read, the history of a %s is a 403', async (t) => {
     expect((await get(entity, { type: t, id: ID })).statusCode).toBe(403);
     expect(getEntityHistory).not.toHaveBeenCalled();

@@ -149,7 +149,12 @@ export async function getAuditLog(
         FROM audit_log
         WHERE company_id = ${companyId}::UUID
           AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
-          AND (${hidden}::TEXT[] IS NULL OR entity_type <> ALL(${hidden}::TEXT[]))
+          AND (${hidden}::TEXT[] IS NULL OR (
+                entity_type <> ALL(${hidden}::TEXT[])
+                -- rows about a payroll subject under another entity type (round 9): the pay-run approval request (872's definer), and the
+                -- reveal of a payroll entity change (metadata.entityType)
+                AND NOT (entity_type = 'approval_request' AND changes #>> '{metadata,documentType}' = 'pay_run')
+                AND NOT (entity_type = 'entity_change' AND changes #>> '{metadata,entityType}' = ANY(${hidden}::TEXT[]))))
           AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
           AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
           AND (${action}::VARCHAR IS NULL OR action = ${action})
@@ -169,7 +174,12 @@ export async function getAuditLog(
         FROM audit_log
         WHERE company_id = ${companyId}::UUID
           AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
-          AND (${hidden}::TEXT[] IS NULL OR entity_type <> ALL(${hidden}::TEXT[]))
+          AND (${hidden}::TEXT[] IS NULL OR (
+                entity_type <> ALL(${hidden}::TEXT[])
+                -- rows about a payroll subject under another entity type (round 9): the pay-run approval request (872's definer), and the
+                -- reveal of a payroll entity change (metadata.entityType)
+                AND NOT (entity_type = 'approval_request' AND changes #>> '{metadata,documentType}' = 'pay_run')
+                AND NOT (entity_type = 'entity_change' AND changes #>> '{metadata,entityType}' = ANY(${hidden}::TEXT[]))))
           AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
           AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
           AND (${action}::VARCHAR IS NULL OR action = ${action})
@@ -202,6 +212,7 @@ export async function getEntityHistory(
   payrollRead: boolean,
 ): Promise<AuditLogItem[]> {
   if (!payrollRead && PAYROLL_AUDIT_ENTITY_TYPES.includes(entityType)) return [];
+  const hidden = payrollRead ? null : [...PAYROLL_AUDIT_ENTITY_TYPES];
   try {
     const rows = (await sql`
       SELECT *
@@ -209,6 +220,9 @@ export async function getEntityHistory(
       WHERE company_id = ${companyId}::UUID
         AND entity_type = ${entityType}
         AND entity_id = ${entityId}::UUID
+        AND (${hidden}::TEXT[] IS NULL OR (
+              NOT (entity_type = 'approval_request' AND changes #>> '{metadata,documentType}' = 'pay_run')
+              AND NOT (entity_type = 'entity_change' AND changes #>> '{metadata,entityType}' = ANY(${hidden}::TEXT[]))))
       ORDER BY created_at DESC
       LIMIT 500
     `) as Record<string, unknown>[];
