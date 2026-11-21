@@ -134,4 +134,25 @@ describe('the reads that leave a cancelled note out (L4)', () => {
       expect(rows, JSON.stringify(query)).toEqual([expect.objectContaining({ reference: live.number, qtyIn: 2, itemName: 'Moved item', itemCode: 'GRN-MOVE' })]);
     }
   });
+
+  it('a PO line naming ANOTHER company\'s product: the receipt stores no product, even for a user of both companies', async () => {
+    // po_items.product_id's FK is tenant-agnostic, so the row can name it; products' row security admits every company the user belongs
+    // to, so for a member of both only the receipt's own company check keeps the foreign product off the item (review of 9b0262df).
+    const otherCo = crypto.randomUUID();
+    const foreign = crypto.randomUUID();
+    await pool.query("INSERT INTO companies (id, name) VALUES ($1, 'GRN foreign product co')", [otherCo]);
+    await pool.query("INSERT INTO products (id, company_id, code, name) VALUES ($1, $2, 'GRN-FOREIGN', 'Not ours')", [foreign, otherCo]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [otherCo, f.owner]);
+    try {
+      const po = await seedQtyPo(pool, f, { lines: [{ qty: 3, price: 1 }] });
+      await pool.query('UPDATE po_items SET product_id = $2 WHERE id = $1', [po.items[0], foreign]);
+      const note = await receive(po, 1);
+      expect((await pool.query('SELECT product_id FROM grn_items WHERE grn_id = $1', [note.id])).rows).toEqual([{ product_id: null }]);
+      await pool.query('UPDATE po_items SET product_id = NULL WHERE id = $1', [po.items[0]]);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1', [otherCo]);
+      await pool.query('DELETE FROM products WHERE id = $1', [foreign]);
+      await pool.query('DELETE FROM companies WHERE id = $1', [otherCo]);
+    }
+  });
 });
