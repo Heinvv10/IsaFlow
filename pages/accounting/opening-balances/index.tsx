@@ -11,6 +11,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface AccountBalance {
   id: string;
@@ -55,7 +56,9 @@ export default function OpeningBalancesPage() {
   const totalCredits = accounts.reduce((sum, a) => sum + (a.opening_credit || 0), 0);
   const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
+  const guard = useAmountGuard();
   const handleSave = async () => {
+    if (guard.blocked()) return;
     if (!isBalanced) {
       setMessage({ type: 'error', text: 'Debits must equal credits before saving' });
       return;
@@ -85,7 +88,7 @@ export default function OpeningBalancesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">

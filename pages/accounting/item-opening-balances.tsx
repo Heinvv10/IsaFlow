@@ -9,6 +9,7 @@ import { PackageOpen, Save, Loader2, Search } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -66,8 +67,10 @@ export default function ItemOpeningBalancesPage() {
     });
   };
 
+  const guard = useAmountGuard();
   const save = async () => {
     if (!changedCount) return;
+    if (guard.blocked()) return;
     setSaving(true); setMsg(''); setErr('');
     const payload = Object.entries(edits).map(([itemId, v]) => ({ itemId, quantity: Number(v.quantity), unitCost: Number(v.unitCost) }));
     let written = false;
@@ -89,7 +92,7 @@ export default function ItemOpeningBalancesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

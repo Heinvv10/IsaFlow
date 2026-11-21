@@ -19,6 +19,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 type Tab = 'details' | 'tasks' | 'time';
 const ALLOWED: Record<PracticeJob['status'], PracticeJob['status'][]> = {
   new: ['in_progress', 'cancelled'], in_progress: ['review', 'cancelled'],
@@ -75,9 +76,7 @@ export default function JobDetailPage() {
     } catch (err) { setUsers([]); setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);
-
   useEffect(() => { void loadJob(); }, [loadJob]);
-
   useEffect(() => {
     if (tab !== 'tasks' || tasksLoaded || tasksError || !jobId) return;
     void apiFetch(`/api/accounting/practice/tasks?jobId=${jobId}`)
@@ -98,8 +97,9 @@ export default function JobDetailPage() {
       .catch(e => setTimeError(apiErrorMessage(e, 'Could not load the time entries - try again')));
   }, [tab, timeLoaded, timeError, jobId]);
 
+  const guard = useAmountGuard();
   async function save() {
-    if (!job) return;
+    if (!job || guard.blocked()) return;
     setSaving(true); setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'PUT', body: JSON.stringify(form) });
@@ -158,7 +158,7 @@ export default function JobDetailPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
             <nav className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] mb-3">
@@ -240,8 +240,8 @@ export default function JobDetailPage() {
                   </select>
                 </label>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Budgeted Hours</span><input type="number" min="0" step="0.5" value={form.budgetedHours ?? ''} onChange={e => setForm(f => ({ ...f, budgetedHours: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
-                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Fixed Fee (R)</span><AmountInput value={form.fixedFeeAmount ?? ''} onValueChange={(n, t) => setForm(f => ({ ...f, fixedFeeAmount: t === '' ? null : n }))} className={inp} /></label>
-                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><AmountInput value={form.budgetAmount ?? ''} placeholder="No budget" onValueChange={(n, t) => setForm(f => ({ ...f, budgetAmount: t === '' ? null : n }))} className={inp} /></label>
+                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Fixed Fee (R)</span><AmountInput min={0} value={form.fixedFeeAmount == null ? '' : String(form.fixedFeeAmount)} onValueChange={(n, t) => setForm(f => ({ ...f, fixedFeeAmount: t === '' ? null : n }))} className={inp} /></label>
+                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><AmountInput min={0} value={form.budgetAmount == null ? '' : String(form.budgetAmount)} placeholder="No budget" onValueChange={(n, t) => setForm(f => ({ ...f, budgetAmount: t === '' ? null : n }))} className={inp} /></label>
               </div>
               <div className="flex justify-end pt-2">
                 <button onClick={() => void save()} disabled={saving || dateGate.blocked} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">

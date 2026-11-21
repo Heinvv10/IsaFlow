@@ -16,6 +16,7 @@ import {
 } from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; accountCode: string; accountName: string }
@@ -137,8 +138,10 @@ export default function SupplierRulesPage() {
 
   function markDirty() { setIsDirty(true); }
 
+  const guard = useAmountGuard();
   async function handleSave() {
     if (!sid) return;
+    if (guard.blocked()) return;
     setSaving(true);
     try {
       const body = {
@@ -217,7 +220,7 @@ export default function SupplierRulesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link href={`/accounting/suppliers/${sid}`}

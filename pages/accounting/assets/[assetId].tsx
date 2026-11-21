@@ -19,6 +19,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 // ---- Types ----
 
@@ -136,8 +137,10 @@ export default function AssetDetailPage() {
 
   useEffect(() => { void loadAsset(); }, [loadAsset]);
 
+  const guard = useAmountGuard();
   const handleDispose = async () => {
     if (!asset) return;
+    if (guard.blocked()) return;
     setSubmitting(true); setDisposalError('');
     try {
       // /assets/:id/dispose, NOT /assets-disposals. The latter recorded the
@@ -188,7 +191,7 @@ export default function AssetDetailPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link href="/accounting/assets" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3">
             <ArrowLeft className="h-4 w-4" /> Back to Assets
