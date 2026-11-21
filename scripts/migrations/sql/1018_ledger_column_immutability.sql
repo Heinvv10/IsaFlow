@@ -158,7 +158,7 @@
 --     public.gl_je_created_at_frozen(), public.gl_je_reversal_base_check(), public.gl_late_claim_bases_negated(uuid, uuid),
 --     public.ledger_lock_journal(uuid), public.gl_jl_late_claim_base_born_here(),
 --     public.ledger_lock_key(uuid), public.ledger_bound_lock_wait(), public.gl_reversal_reinstates_cancelled_document(uuid, integer),
---     public.ledger_lock_chains(uuid[]), public.gl_jl_based_vat_type_frozen();
+--     public.ledger_lock_chains(uuid[]), public.gl_jl_based_vat_type_frozen(), public.ledger_lock_accounts(uuid[]);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -353,6 +353,33 @@ BEGIN
 END
 $$;
 
+-- Round 14 L1: one lock order for an account row and a journal: the gl_accounts rows first, then the journal's row, then
+-- its key. An account merge takes its two accounts FOR UPDATE, then the keys of their journals (gl/ledgerLinkKeys), so a
+-- transaction that held a journal's key and only then asked for one of its accounts (the contra's composite FK
+-- (gl_account_id, company_id) asks FOR KEY SHARE) deadlocked with it. So every take of a journal's key by a claim or a
+-- document first takes FOR KEY SHARE, in id order, on the accounts of the lines of the given journals and of their chain
+-- roots: what the contra INSERT will ask for anyway. FOR KEY SHARE conflicts only with FOR UPDATE (a merge, a
+-- reclassification target, a re-parent), never with another reversal. Bounded like every take here; read as the caller.
+CREATE OR REPLACE FUNCTION public.ledger_lock_accounts(p_entries uuid[])
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_prev text := public.ledger_bound_lock_wait();
+BEGIN
+  PERFORM 1 FROM public.gl_accounts a
+   WHERE a.id IN (SELECT l.gl_account_id FROM public.gl_journal_lines l
+                   WHERE l.journal_entry_id IN (SELECT e.id FROM unnest(p_entries) e(id)
+                                                UNION
+                                                SELECT r.id FROM unnest(p_entries) e(id)
+                                                  CROSS JOIN LATERAL public.gl_journal_ancestors(e.id) r WHERE r.is_root))
+   ORDER BY a.id
+     FOR KEY SHARE OF a;
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
+END
+$$;
+
 CREATE OR REPLACE FUNCTION public.ledger_lock_journal(p_entry uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -361,6 +388,7 @@ AS $$
 DECLARE
   v_prev text := public.ledger_bound_lock_wait();
 BEGIN
+  PERFORM public.ledger_lock_accounts(ARRAY[p_entry]); -- round 14 L1: accounts, then row, then key
   PERFORM 1 FROM public.gl_journal_entries e WHERE e.id = p_entry FOR NO KEY UPDATE;
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(p_entry));
   PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
@@ -370,7 +398,8 @@ $$;
 -- Round 13 L1: the rows and keys of several journals AND their chain roots, in one sorted (uuid) order: the order a
 -- reversal link takes its keys and an account merge its sweep. The reversal service takes it for the journal it
 -- reverses (and a late-claim companion with it) BEFORE its claim, so no transaction holds one chain key while it waits
--- for a lower one. Each take is ledger_lock_journal: row, then key, bounded.
+-- for a lower one. Each take is ledger_lock_journal: row, then key, bounded. Round 14 L1: every chain's accounts
+-- first, so the pair holds no key while it waits for an account the second chain's contra will need.
 CREATE OR REPLACE FUNCTION public.ledger_lock_chains(p_entries uuid[])
 RETURNS void
 LANGUAGE plpgsql
@@ -379,6 +408,7 @@ AS $$
 DECLARE
   v_id uuid;
 BEGIN
+  PERFORM public.ledger_lock_accounts(p_entries);
   FOR v_id IN SELECT DISTINCT s.x FROM (
                 SELECT e.id AS x FROM unnest(p_entries) e(id)
                 UNION
@@ -675,6 +705,9 @@ BEGIN
     PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
     -- Round 13 L1: this journal's key AND its chain root's, sorted, so a claim and the link that follows never hold
     -- one chain key while waiting for a lower one (an account merge's sorted sweep would deadlock against that).
+    -- Round 14 L1: the accounts of its lines and its root's first (the contra's FK will ask for them), so a claim never
+    -- holds a key while it waits for an account a merge holds FOR UPDATE.
+    PERFORM public.ledger_lock_accounts(ARRAY[OLD.id]);
     FOR v_key IN SELECT DISTINCT s.k FROM (SELECT OLD.id AS k UNION SELECT a.id FROM public.gl_journal_ancestors(OLD.id) a WHERE a.is_root) s
                   ORDER BY s.k LOOP
       PERFORM public.ledger_lock_key(v_key);

@@ -40,7 +40,9 @@ export async function lockJournalChains(entryIds: readonly string[], busy: () =>
 /**
  * Round 12 L3: before a bulk line move (the account merge), take the link keys of every journal with a line on the
  * account, in sorted uuid order: the order a reversal link takes them. The deferred check later asks for keys already
- * held, so a merge and a link wait for one another instead of deadlocking (40P01).
+ * held, so a merge and a link wait for one another instead of deadlocking (40P01). Round 14 L1: the caller already holds
+ * the accounts FOR UPDATE (mergeAccounts), and a claim or a document takes FOR KEY SHARE on its journal's accounts before
+ * its key (1018's ledger_lock_accounts), so account-then-key is the one order and a reversal waits on the account row.
  */
 export async function lockLinkKeysOfAccountJournals(companyId: string, accountId: string): Promise<void> {
   await busyAs(() => new JournalLinkKeysBusyError(), () => sql`
