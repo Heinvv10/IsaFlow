@@ -117,7 +117,7 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
   async function deletedNotedBill(fx: BillFixture): Promise<string> {
     const note = await noteOf(fx);
     const bill = await inReq(fx, () => createSupplierInvoice(fx.co, billInput(fx, note), fx.owner));
-    await inReq(fx, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner));
+    await inReq(fx, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner, { allowReversal: true }));
     return bill.id;
   }
   const settle = <T>(p: Promise<T>) => p.then((v) => ({ v, e: undefined as unknown }), (e: unknown) => ({ v: undefined, e }));
@@ -126,7 +126,7 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
     await withFixture('race-r2-restore-first', async (fx, target) => {
       const bill = await deletedNotedBill(fx);
       const r = await openRequest(pool, fx, fx.owner);
-      expect(await r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner))).toBe(true);
+      expect(await r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner, { allowReversal: true }))).toBe(true);
       const m = await openRequest(pool, fx, fx.owner);
       const merging = settle(m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner)))
         .then(async (x) => { await m.commit(); return x; });
@@ -146,7 +146,7 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
       const m = await openRequest(pool, fx, fx.owner);
       expect(await m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))).toMatchObject({ reassignedTransactions: expect.any(Number) });
       const r = await openRequest(pool, fx, fx.owner);
-      const restoring = settle(r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner)))
+      const restoring = settle(r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner, { allowReversal: true })))
         .then(async (x) => { await r.commit(); return x; });
       await sleep(300);
       await m.commit();

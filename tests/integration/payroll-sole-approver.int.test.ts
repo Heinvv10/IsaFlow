@@ -152,6 +152,17 @@ describe('withholding Approve or unticking Payroll Approve from the last other a
     (await r.pool.query('SELECT approve_withheld FROM company_users WHERE company_id = $1 AND user_id = $2', [r.company, user])).rows[0]?.approve_withheld;
 
   it('the only other effective approver keeps Payroll Approve while the request is pending; a manager without it is no other approver', async () => {
+    // Migration 270 seeds permission_modules; the schema-only CI baseline holds no rows, and the route refuses an unknown module.
+    const seeded = (await r.pool.query(`INSERT INTO permission_modules (module_key, module_name, display_order)
+      VALUES ('payroll', 'Payroll', 80) ON CONFLICT (module_key) DO NOTHING RETURNING id`)).rowCount === 1;
+    try {
+      await withPayrollModuleRow();
+    } finally {
+      if (seeded) await r.pool.query("DELETE FROM permission_modules WHERE module_key = 'payroll'");
+    }
+  }, 90000);
+
+  async function withPayrollModuleRow(): Promise<void> {
     await setRole(r.approver, 'viewer');
     const manager = await r.addUser('manager');
     const withheldManager = await r.addUser('manager');
@@ -173,6 +184,6 @@ describe('withholding Approve or unticking Payroll Approve from the last other a
     expect((await payrollApprove(withheldManager, true)).statusCode).toBe(200);
     expect((await withhold(manager, true)).statusCode).toBe(200);
     expect((await decide('reject', request, r.admin)).statusCode).toBe(200);
-  }, 90000);
+  }
 });
 
