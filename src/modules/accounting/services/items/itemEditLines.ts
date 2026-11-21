@@ -35,8 +35,10 @@ interface EditLine {
   vatClassification?: string;
 }
 
-const key = (description: string, quantity: unknown, unitPrice: unknown): string =>
+/** What makes a sent line identical to a stored one (description, quantity, unit price); the invoice edit's VAT type uses it too. */
+export const identicalLineKey = (description: string, quantity: unknown, unitPrice: unknown): string =>
   JSON.stringify([description, Number(quantity).toFixed(4), Number(unitPrice).toFixed(2)]);
+const key = identicalLineKey;
 
 export async function resolveEditLineItems<T extends EditLine>(
   companyId: string,

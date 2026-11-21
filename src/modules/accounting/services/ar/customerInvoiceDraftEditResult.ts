@@ -4,4 +4,5 @@ export type CustomerInvoiceDraftEditResult =
   | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string } | { kind: 'stale_view' }
   | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
-  | { kind: 'bad_dimensions'; message: string };
+  | { kind: 'bad_dimensions'; message: string }
+  | { kind: 'vat_refused'; message: string; code: string };
