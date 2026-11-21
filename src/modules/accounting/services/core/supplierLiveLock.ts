@@ -18,6 +18,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ROW_LOCK_BUDGET_MS, RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
 
+/** Shown when a writer's supplier was merged away or deleted after it was chosen (lockSupplierIfLive answered false). */
+export const SUPPLIER_NOT_LIVE_REFUSAL = 'This supplier was merged into another supplier or deleted. Choose the supplier again.';
+
 /** How many merges (A into B, B into C, ...) lockLiveSurvivor follows. */
 export const MAX_SURVIVOR_HOPS = 10;
 

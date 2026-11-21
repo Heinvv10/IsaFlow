@@ -31,6 +31,11 @@
  *   row (Codex gate at ecc452ea6b, finding 5).
  * - A pull without a Sage id still reaches the survivor by name and stamps nothing.
  *
+ * Concurrent imports: resolveSageSupplier / resolveSageCustomer first take a transaction advisory lock on (company, kind, Sage id)
+ * (lockSageParty), held until the import commits, so two imports of one Sage party serialise across lookup, claim and the caller's
+ * create: no unique index stops two imports whose snapshots straddle a rename from claiming different unstamped rows for one Sage id
+ * (#1699 review). Two batch imports locking the same ids in opposite orders end in 40P01, nothing written.
+ *
  * Known: a bill imported before its supplier sync throws "Supplier not found" where the name is ambiguous.
  */
 
@@ -130,6 +135,13 @@ export async function matchSageSupplier(
   return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
 }
 
+/** Serialises every import of one Sage party in this company until the caller's transaction ends (header). No Sage id: no lock. */
+async function lockSageParty(companyId: string, kind: 'supplier' | 'customer', sageId: number | string | null | undefined): Promise<void> {
+  const ref = sageRef(sageId);
+  if (!ref) return;
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sage_party:${companyId}:${kind}:${ref}`}, 0))`;
+}
+
 /** How many times a resolve re-matches after a concurrent import stamped the row it matched. */
 const MAX_CLAIM_ATTEMPTS = 5;
 
@@ -156,6 +168,7 @@ async function heldRefOf(table: 'suppliers' | 'customers', companyId: string, id
 export async function resolveSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
 ): Promise<SageSupplierMatch | null> {
+  await lockSageParty(companyId, 'supplier', party.sageId);
   let match = await matchSageSupplier(companyId, party, opts);
   for (let attempt = 0; match && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     if (await claimMatchedSupplier(companyId, match, party.sageId)) return match;
@@ -221,6 +234,7 @@ export async function findSageCustomer(
 export async function resolveSageCustomer(
   companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
 ): Promise<string | null> {
+  await lockSageParty(companyId, 'customer', party.sageId);
   let id = await findSageCustomer(companyId, party);
   for (let attempt = 0; id && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     if (await claimSageCustomer(companyId, id, party.sageId)) return id;
