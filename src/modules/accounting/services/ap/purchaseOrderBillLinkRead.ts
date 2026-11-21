@@ -34,12 +34,11 @@ export function existingLinkOf(r: DbRow): ExistingLink {
     id: low(r.id), poId: low(r.purchase_order_id), billId: low(r.supplier_invoice_id),
     billStatus: r.bill_deleted === true ? 'deleted' : String(r.bill_status), amountCents: toCents(Number(r.amount)), storedAmountCents: toCents(Number(r.amount)),
     refSystem: r.external_system == null ? null : String(r.external_system),
-    refRef: r.external_ref == null ? null : String(r.external_ref), closedFrom: r.closed_po_from_status == null ? null : String(r.closed_po_from_status),
+    refRef: r.external_ref == null ? null : String(r.external_ref),
   };
 }
 
-export const LINK_SELECT_COLUMNS = `l.id, l.purchase_order_id, l.supplier_invoice_id, l.amount, l.external_system, l.external_ref,
-  l.closed_po_from_status`;
+export const LINK_SELECT_COLUMNS = `l.id, l.purchase_order_id, l.supplier_invoice_id, l.amount, l.external_system, l.external_ref`;
 
 /** Resolve each request's PO (po_id or po_number, this company's only), without a lock. */
 async function resolvePos(companyId: string, requests: readonly LinkRequest[]): Promise<Map<number, string>> {

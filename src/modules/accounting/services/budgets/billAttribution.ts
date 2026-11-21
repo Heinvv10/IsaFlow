@@ -3,8 +3,8 @@
  * (`ap/purchaseOrderBilled`: fully_billed, the close and reopen rules) and the unlink read (PR #1703: review M2, ledger breaker
  * BRK-A/B/C/E, isaflow-c8). One rand of a bill is attributed to at most one PO. Per (bill, PO), decided once:
  *   - `lines`: the bill has a line naming a line of that PO: the posted ex-VAT of those lines (`postedExpenseLines`), floored at 0
- *     (a negative line, a discount naming a PO line, never makes a PO hold less than nothing; review r3 L2, the same clamp the
- *     other-PO sum below uses), whatever a link row of the pair says (a stored amount written beside lines before the link tool
+ *     once, where the per-PO sum is built (a negative line, a discount naming a PO line, never makes a PO hold less than nothing;
+ *     review r3 L2 / r4 L4; the other-PO sum below reads the same floored figure), whatever a link row of the pair says (a stored amount written beside lines before the link tool
  *     checked it is ignored, c8);
  *   - `link`: else a `purchase_order_bill_links` row: its amount;
  *   - `header`: else only `purchase_order_id`: the subtotal less what the bill attributes to every OTHER PO it ties, by the same
@@ -13,6 +13,9 @@
  * Named limit (breaker R3-2): a lines tie can hold more than the bill's subtotal when the bill's OTHER lines are negative (an R1200
  * line naming a PO beside an unnamed R-400 discount line, subtotal R800). That is line netting "wherever it posted": the PO line's
  * account really posted R1200. The header fallback of the same bill then holds 0, never less.
+ * Named limit (breaker R4-5): attribution is per (bill, PO), not per PO line. A line over-billed by its lines (A R500 billed R800)
+ * counts in full towards the PO's billed, so fully_billed can be true while committed (per line, each capped at its own total) still
+ * holds the PO's other lines: A 500 billed 800 by lines plus a R200 header bill is fully billed and B still commits R300.
  * A link or header tie needs the PO's supplier; a lines tie does not (line netting never asked; `assertBillPoLinks` checks it
  * when the line is written). All ex-VAT cents.
  */
@@ -92,18 +95,20 @@ export async function billTies(
       const po = poOfLine.get(String(l.description));
       if (po) posted.set(po, (posted.get(po) ?? 0) + toCents(l.debit));
     }
+    // The one clamp (review r3 L2 / r4 L4): what a bill's lines hold on a PO is floored at 0 here, where it is built.
+    for (const [po, c] of posted) posted.set(po, Math.max(0, c));
     const linked = new Map(links.filter((k) => String(k.bill) === id).map((k) => [lower(k.po), toCents(Number(k.amount))]));
     facts.set(id, { named: new Set(poOfLine.values()), posted, linked });
   }
   const held = (f: { named: Set<string>; posted: Map<string, number>; linked: Map<string, number> }, po: string) =>
-    (f.named.has(po) ? Math.max(0, f.posted.get(po) ?? 0) : (f.linked.get(po) ?? 0));
+    (f.named.has(po) ? (f.posted.get(po) ?? 0) : (f.linked.get(po) ?? 0));
 
   return kept.map((r) => {
     const f = facts.get(String(r.bill))!;
     const po = lower(r.po);
     let via: BillTie['via'];
     let cents: number;
-    if (r.by_lines === true) { via = 'lines'; cents = Math.max(0, f.posted.get(po) ?? 0); } else if (r.link_amount != null) {
+    if (r.by_lines === true) { via = 'lines'; cents = f.posted.get(po) ?? 0; } else if (r.link_amount != null) {
       via = 'link'; cents = toCents(Number(r.link_amount));
     } else {
       via = 'header';

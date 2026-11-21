@@ -55,13 +55,17 @@ export { postedExpenseLines } from './postedExpenseLines';
  * (`readCommitments`) and the PO approval (`ap/purchaseOrderBudget`) both net a PO line by all of them
  * (`remainingBudgetCore.openPoLineCents`).
  */
-export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
+/** `liveOnly`: leave out soft-deleted bills (the header room, breaker R4-2); line netting itself still counts them (a flagged limit). */
+export async function billedLinesByPoItem(
+  companyId: string, poItemIds: string[], own: string[], opts: { liveOnly?: boolean } = {},
+): Promise<Map<string, BilledPosting[]>> {
   const out = new Map<string, BilledPosting[]>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
     SELECT si.* FROM supplier_invoices si
      WHERE si.company_id = ${companyId}::UUID
        AND (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) OR si.id = ANY(${own}::UUID[]))
+       AND (NOT ${opts.liveOnly === true}::BOOLEAN OR si.deleted_at IS NULL)
        AND EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id = ANY(${poItemIds}::UUID[]))
   `) as DbRow[];
   if (bills.length === 0) return out;
@@ -94,7 +98,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
  */
 export async function committedBillingByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
   const out = await billedLinesByPoItem(companyId, poItemIds, own);
-  for (const [id, postings] of await headerBilledByPoItem(companyId, poItemIds, own, BILLED_STATUSES, (ids) => billedLinesByPoItem(companyId, ids, own))) {
+  for (const [id, postings] of await headerBilledByPoItem(companyId, poItemIds, own, BILLED_STATUSES, (ids) => billedLinesByPoItem(companyId, ids, own, { liveOnly: true }))) {
     out.set(id, [...(out.get(id) ?? []), ...postings]);
   }
   return out;

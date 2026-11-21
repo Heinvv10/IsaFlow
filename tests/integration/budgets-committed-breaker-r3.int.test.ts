@@ -21,7 +21,6 @@ import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder'
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { openPoLineCents } from '@/modules/accounting/services/budgets/remainingBudgetCore';
 import { billedCentsByPo } from '@/modules/accounting/services/ap/purchaseOrderBilled';
-import { billTies } from '@/modules/accounting/services/budgets/billAttribution';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -41,8 +40,6 @@ const openOf = async (po: SeededPo) => {
 };
 const sum = (a: Array<number | null>) => a.reduce<number>((s, c) => s + (c ?? 0), 0);
 const billed = async (po: SeededPo) => (await billedCentsByPo(f.co, [po.po])).get(po.po.toLowerCase()) ?? 0;
-const ties = async (pos: SeededPo[]) => (await billTies(f.co, pos.map((p) => p.po), { statuses: null }))
-  .map((t) => ({ po: pos.findIndex((p) => p.po.toLowerCase() === t.poId), via: t.via, cents: t.cents }));
 
 describe('R3-1 header spread ignores line billing on the same PO', () => {
   it('PO A+B, bill 1 lines-billed A, bill 2 header-billed (link, no lines) the rest: fully billed, but committed still holds R250', async () => {
@@ -54,8 +51,6 @@ describe('R3-1 header spread ignores line billing on the same PO', () => {
     const r2 = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b2.id }] });
     expect(r2.isError, r2.text).toBe(false);
     const open = await openOf(po);
-    const det = await callTool(pool, f, getPo, { po_id: po.po });
-    void ('R3-1 billed', await billed(po), 'open per line', open, 'ties', await ties([po]), 'detail fully_billed', /"fully_billed":\s*true/.test(det.text));
     expect(await billed(po)).toBe(100000);
     // Invariant: billed reaches the subtotal, so committed must be 0.
     expect(sum(open)).toBe(0);
@@ -69,7 +64,6 @@ describe('R3-2 lines tie larger than the bill subtotal', () => {
     await seedRawBill(pool, f, { items: [{ total: 1200, poItem: x.items[0] }, { total: -400 }], subtotal: 800, total: 920, header: z.po });
     const openX = await openOf(x); const openZ = await openOf(z);
     const netted = (120000 - sum(openX)) + (100000 - sum(openZ));
-    void ('R3-2 open X', openX, 'open Z', openZ, 'netted', netted, 'billed X', await billed(x), 'billed Z', await billed(z), 'ties', await ties([x, z]));
     // Named limit R3-2 (billAttribution header): X's line posted R1200 to its account, so X nets R1200; Z nets 0.
     expect([netted, await billed(z)]).toEqual([120000, 0]);
   });
@@ -87,11 +81,8 @@ describe('R3-3 unlinking a header-only bill from a PO a link call closed', () =>
     const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'wrong PO' });
     expect(u.isError, u.text).toBe(false);
     const after = await poStatus(pool, po.po);
-    void ('R3-3 after link', statusClosed, 'billed before unlink was 100000; after unlink', await billed(po), 'status', after,
-      'unlink reply', u.text.slice(0, 600));
     expect(statusClosed).toBe('closed');
     // Invariant: a PO closed as fully billed that is no longer fully billed reopens (as unlinking a LINK does), so the R600 commits again.
-    expect(await billed(po) >= 99999 || after !== 'closed').toBe(true);
     expect([after, u.body.reopened_to, await openOf(po)]).toEqual(['approved', 'approved', [60000]]);
   });
   it('same with a lines-only tie (no link row)', async () => {
@@ -104,32 +95,28 @@ describe('R3-3 unlinking a header-only bill from a PO a link call closed', () =>
     const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'wrong PO' });
     expect(u.isError, u.text).toBe(false);
     const after = await poStatus(pool, po.po);
-    void ('R3-3b after link', statusClosed, 'billed after unlink', await billed(po), 'status', after);
     expect(statusClosed).toBe('closed');
-    expect(await billed(po) >= 99999 || after !== 'closed').toBe(true);
     expect([after, u.body.reopened_to]).toEqual(['approved', 'approved']);
   });
 });
 
-describe('R3-4 a link to another PO silently takes a header tie\'s rands', () => {
-  it('bill header-nets P2; linking it to P1 with no amount moves all of it to P1, P2 commits again with no warning', async () => {
+describe('R3-4 (ruled again in round 4) a link without an amount never silently takes a header tie\'s rands', () => {
+  it('bill header-nets P2; linking it to P1 with no amount is refused, dry run too; an explicit amount takes it, warned', async () => {
     const p1 = await seedPo(pool, f, { lines: [1000] });
     const p2 = await seedPo(pool, f, { lines: [1000] });
     const b = await seedRawBill(pool, f, { items: [{ total: 1000 }], subtotal: 1000, total: 1150, header: p2.po });
     const before = { p1: await openOf(p1), p2: await openOf(p2) };
-    const r = await callTool(pool, f, link, { links: [{ po_id: p1.po, bill_id: b.id }] });
-    const after = { p1: await openOf(p1), p2: await openOf(p2) };
-    void ('R3-4 before', before, 'after', after, 'link reply', r.isError, r.text.slice(0, 500), 'links', (await linkRows(pool, f, `l.supplier_invoice_id = '${b.id}'`)).map((l) => l.amount));
-    expect(sum(after.p1) + sum(after.p2)).toBeGreaterThanOrEqual(100000);
-    // R3-4: refused, naming the header's PO, nothing written; the dry run says the same; an explicit amount is refused too.
-    expect(r.isError).toBe(true);
-    expect(r.text).toContain(`the bill's header names purchase order ${p2.number}; unlink it from that purchase order first`);
-    expect(after).toEqual(before);
-    const dry = await callTool(pool, f, link, { links: [{ po_id: p1.po, bill_id: b.id }], dry_run: true });
-    expect([dry.isError, dry.text.includes(`header names purchase order ${p2.number}`)]).toEqual([true, true]);
-    const explicit = await callTool(pool, f, link, { links: [{ po_id: p1.po, bill_id: b.id, amount: 100 }] });
-    expect([explicit.isError, explicit.text.includes(`header names purchase order ${p2.number}`)]).toEqual([true, true]);
+    const want = `the bill's header names purchase order ${p2.number}; give an amount or unlink it first`;
+    for (const dry_run of [false, true]) {
+      const r = await callTool(pool, f, link, { links: [{ po_id: p1.po, bill_id: b.id }], dry_run });
+      expect([r.isError, r.text.includes(want)]).toEqual([true, true]);
+    }
+    expect({ p1: await openOf(p1), p2: await openOf(p2) }).toEqual(before);
     expect(await linkRows(pool, f, `l.supplier_invoice_id = '${b.id}'`)).toEqual([]);
+    const explicit = await callTool(pool, f, link, { links: [{ po_id: p1.po, bill_id: b.id, amount: 100 }] });
+    expect(explicit.isError, explicit.text).toBe(false);
+    expect((explicit.body.budget_warnings as string[]).join(' ')).toContain(`header names purchase order ${p2.number}`);
+    expect({ p1: await openOf(p1), p2: await openOf(p2) }).toEqual({ p1: [90000], p2: [10000] });
   });
 });
 
@@ -142,9 +129,7 @@ describe('R3-5 multiple POs, links + lines on the same PO, a PO of another suppl
     expect(r1.isError, r1.text).toBe(false);
     const r2 = await callTool(pool, f, link, { links: [{ po_id: x.po, bill_id: b.id, lines: [{ po_item_id: x.items[0], bill_line_id: b.lines[0] }] }] });
     expect(r2.isError, r2.text).toBe(false);
-    const netted = (70000 - sum(await openOf(x))) + (100000 - sum(await openOf(y)));
-    void ('R3-5 netted', netted, 'ties', await ties([x, y]));
-    expect(netted).toBeLessThanOrEqual(100000);
+    expect([await openOf(x), await openOf(y)]).toEqual([[0], [70000]]); // R700 + R300 netted: the subtotal, once
   });
   it('the reverse order: lines on X first (R700), then Y with no amount, then repeat X lines with amount equal', async () => {
     const x = await seedPo(pool, f, { lines: [700] });
@@ -154,9 +139,7 @@ describe('R3-5 multiple POs, links + lines on the same PO, a PO of another suppl
     expect(r1.isError, r1.text).toBe(false);
     const r2 = await callTool(pool, f, link, { links: [{ po_id: y.po, bill_id: b.id, lines: [{ po_item_id: y.items[0], bill_line_id: b.lines[1] }] }] });
     expect(r2.isError, r2.text).toBe(false);
-    const netted = (70000 - sum(await openOf(x))) + (100000 - sum(await openOf(y)));
-    void ('R3-5b netted', netted, 'ties', await ties([x, y]));
-    expect(netted).toBeLessThanOrEqual(100000);
+    expect([await openOf(x), await openOf(y)]).toEqual([[0], [70000]]);
   });
   it('in ONE call: X by lines and Y with no amount, Y planned before X', async () => {
     const x = await seedPo(pool, f, { lines: [700] });
@@ -166,9 +149,9 @@ describe('R3-5 multiple POs, links + lines on the same PO, a PO of another suppl
       { po_id: y.po, bill_id: b.id },
       { po_id: x.po, bill_id: b.id, lines: [{ po_item_id: x.items[0], bill_line_id: b.lines[0] }] },
     ] });
-    const netted = (70000 - sum(await openOf(x))) + (100000 - sum(await openOf(y)));
-    void ('R3-5c', r.isError, r.text.slice(0, 300), 'netted', netted, 'ties', await ties([x, y]));
-    expect(netted).toBeLessThanOrEqual(100000);
+    // Y's default takes the whole R1000 first, so X's R700 of lines would pass the subtotal: refused, nothing written.
+    expect([r.isError, r.text.includes('more would pass it')]).toEqual([true, true]);
+    expect([await openOf(x), await openOf(y)]).toEqual([[70000], [100000]]);
   });
 });
 
@@ -181,7 +164,6 @@ describe('R3-6 follow-ups', () => {
     await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'wrong PO' });
     const det = await callTool(pool, f, getPo, { po_id: po.po });
     const j = JSON.parse(det.text);
-    void ('R3-6a status', j.purchase_order.status, 'billed_total', j.billed_total, 'fully_billed', j.fully_billed, 'closed_under_billed', j.closed_under_billed, 'open', await openOf(po));
     expect([j.purchase_order.status, j.closed_under_billed, await openOf(po)]).toEqual(['approved', false, [60000]]);
   });
   it('lines-only tie: the link call\'s fully_billed / close decision vs get_purchase_order', async () => {
@@ -191,7 +173,6 @@ describe('R3-6 follow-ups', () => {
     const r = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b2.id, lines: [{ po_item_id: po.items[1], bill_line_id: b2.lines[0] }] }], close_when_fully_billed: true });
     const rj = JSON.parse(r.text);
     const det = JSON.parse((await callTool(pool, f, getPo, { po_id: po.po })).text);
-    void ('R3-6b link reply PO', JSON.stringify(rj.purchase_orders), 'detail billed_total', det.billed_total, 'fully_billed', det.fully_billed, 'status', det.purchase_order.status, 'open', await openOf(po));
     expect(rj.purchase_orders[0].fully_billed).toBe(det.fully_billed);
   });
 });

@@ -87,8 +87,10 @@ describe('close_when_fully_billed', () => {
     const second = await callTool(pool, f, link, { links: [{ po_id: p2.po, bill_id: rest.id }], close_when_fully_billed: true });
     expect(second.body.purchase_orders).toEqual([expect.objectContaining({ status_before: 'partially_received', status: 'closed', closed_by_this_call: true, fully_billed: true })]);
     expect(await poStatus(pool, p2.po)).toBe('closed');
-    const rows = await linkRows(pool, f, `l.purchase_order_id = '${p2.po}'`);
-    expect(rows.map((l) => l.closed_po_from_status)).toEqual([null, 'partially_received']);
+    // PR #1703 R4-1: the closing is recorded on the PO (closed_by_billing + closed_from_status), never on a link.
+    expect((await pool.query('SELECT closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [p2.po])).rows[0])
+      .toEqual({ closed_from_status: 'partially_received', closed_by_billing: true });
+    expect((await linkRows(pool, f, `l.purchase_order_id = '${p2.po}'`)).map((l) => l.closed_po_from_status)).toEqual([null, null]);
     const audit = await pool.query(
       `SELECT changes FROM audit_log WHERE entity_id = $1 AND entity_type = 'purchase_order' ORDER BY created_at DESC, id LIMIT 1`, [p2.po]);
     expect(audit.rows[0].changes.fields).toEqual([{ field: 'status', old: 'partially_received', new: 'closed', label: 'Status' }]);

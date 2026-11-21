@@ -22,6 +22,7 @@ import {
 import { parseLinkBatch } from './poBillLinkArgs';
 import { MAX_LINES } from './invoiceCreateArgs';
 import { ok, toolError } from './toolHelpers';
+import { mayReadBudgetFigures } from './budgetFigures';
 
 const TOOL = 'link_bills_to_purchase_order';
 const r2 = (cents: number) => cents / 100;
@@ -47,6 +48,7 @@ function wire(result: LinkResult, dry: boolean) {
       id: p.poId, po_number: p.poNumber, status_before: p.statusBefore, status: p.statusAfter, closed_by_this_call: p.statusAfter !== p.statusBefore,
       billed: r2(p.billedCents), subtotal: r2(p.subtotalCents), fully_billed: p.fullyBilled,
     })),
+    budget_warnings: result.budgetWarnings,
   };
 }
 
@@ -54,7 +56,7 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
     `Link bills (supplier invoices) to the purchase orders they were billed against: up to ${MAX_LINKS_PER_CALL} pairs per call. Posts NOTHING: no journal, and the bill's status, totals and amount_paid are untouched, so approved bills can be linked without reposting. `
-    + 'Each link: po_id or po_number, bill_id, optional amount (ex-VAT billed against that PO; with lines it is the posted ex-VAT of the bill lines naming this PO and any other amount is refused, lines that post nothing are refused; without lines the default is the bill subtotal less what the bill already attributes to its other POs), '
+    + 'Each link: po_id or po_number, bill_id, optional amount (ex-VAT billed against that PO; with lines it is the posted ex-VAT of the bill lines naming this PO and any other amount is refused, lines that post nothing are refused; without lines the default is the bill subtotal less what the bill already attributes to its other POs; when the bill\'s header names ANOTHER PO it holds the rest only as a residual: give an amount to take from it, and budget_warnings names that PO, which commits it again; no amount is refused), '
     + 'optional lines [{po_item_id, bill_line_id}] (whole bill line to whole PO line: budget committed nets those lines, and they feed the three-way match; a link with no lines nets committed by its amount, spread over the PO lines), '
     + 'and external_system + external_ref to make the link idempotent (the same pair under the same reference comes back already_existed). '
     + 'A bill may be linked to several purchase orders (split amounts); the amounts of one bill may not pass its subtotal. Same company and same supplier only. '
@@ -109,7 +111,10 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     const dryRun = args.dry_run === true;
     // Outside a request transaction a savepoint is a plain call and the rollback below would undo nothing.
     if (dryRun && !als.getStore()?.client) return toolError('dry_run needs a request transaction');
-    const opts = { userId: ctx.userId, source: 'mcp' as const, via: `mcp:${TOOL}`, closeWhenFullyBilled: args.close_when_fully_billed === true };
+    const opts = {
+      userId: ctx.userId, source: 'mcp' as const, via: `mcp:${TOOL}`, closeWhenFullyBilled: args.close_when_fully_billed === true,
+      budgetFigures: mayReadBudgetFigures(ctx),
+    };
 
     let result: LinkResult | undefined;
     try {

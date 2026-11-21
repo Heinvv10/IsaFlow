@@ -53,8 +53,8 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      tie for the (PO, bill) pair in one locked write: the link row if there is one (with the reopen / closing-record / budget-warning
      behaviour of #1627), `po_item_id` on the bill's lines that point into this PO's lines, and the header if it names this PO. It
      succeeds when any of the three exists and is refused "not linked" only when none does. Any bill status (draft, cancelled,
-     soft-deleted too). Removing any tie (link, line or header reference) reopens a PO a link call or migration 1022 closed once it
-     is no longer fully billed (PR #1703 breaker R3-3: line and header ties count in billed). The audit row says what was cleared (`link_removed`,
+     soft-deleted too). Removing any COUNTED tie (link, line or header reference of a billed live bill) reopens a PO closed by billing
+     (`closed_by_billing`: a link call or migration 1022) once it is no longer fully billed (PR #1703 R3-3 / R4-1 / r4 L2). The audit row says what was cleared (`link_removed`,
      `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
      (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing a line reference RAISES committed spend
      exactly when `budgets/remainingCommitted.billedLinesByPoItem` counted that line today (the bill is approved / paid / partially_paid,
@@ -97,12 +97,12 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
    **owner / admin only**, audited (old -> new). Refused unless the PO carries `external_ref`, when it has a goods receipt, and
    for a move that would orphan bill links (-> draft or -> cancelled while links exist). **-> closed only from approved** (closing
    a draft / submitted / cancelled PO would make it billable without it ever having been approved; the import creates closed POs
-   directly). **Leaving closed clears the closing records on the PO's links** (`closed_po_from_status`, 1006), so a later unlink
-   cannot reopen a PO someone deliberately reopened and closed again (review M3; the 4-step case is tested). -> approved runs the budget check
+   directly). **Leaving closed clears `closed_by_billing`** (1022's trigger, whoever writes the status; before PR #1703 R4-1 the
+   record was on the links), so a later unlink cannot reopen a PO someone deliberately reopened and closed again (review M3; the
+   4-step case is tested). -> approved runs the budget check
    NORMALLY (the import's `skip_budget_check_for_import` does not apply: a status fix is not a load) and stamps
    `approved_by` / `approved_at`; -> closed records `closed_from_status` (always `approved`) as `close_purchase_order` does; leaving
-   closed clears it. The audit row of a set status that leaves closed names the links whose closing record it cleared
-   (`cleared_link_records`, `cleared_links`: link id, bill, what the record said).
+   closed clears it.
    partially_received / received are never targets (they come from receipts) and refused as sources.
 5. **`bulk_create_purchase_orders` changes:**
    - `dry_run` reports per PO `budget_check` (`outcome` ok | warn | block, `policy`, `reasons`; null for a PO that is not

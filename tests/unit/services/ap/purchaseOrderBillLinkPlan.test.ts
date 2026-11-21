@@ -14,7 +14,7 @@ const bill = (id: string, over: Partial<BillFacts> = {}): BillFacts => ({
 const req = (index: number, poId: string, billId: string, over: Partial<LinkRequest> = {}): LinkRequest =>
   ({ index, poId, poNumber: null, billId, amountCents: null, lines: [], ref: null, ...over });
 const existing = (over: Partial<ExistingLink> = {}): ExistingLink => ({
-  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null, closedFrom: null,
+  id: 'x', poId: 'p1', billId: 'b1', billStatus: 'approved', amountCents: 10000, refSystem: null, refRef: null,
   storedAmountCents: over.amountCents ?? 10000, ...over,
 });
 
@@ -119,26 +119,37 @@ describe('billed counts a bill tied with no link row (by its header, or by its l
   });
 });
 
-describe('a link never takes a header tie\'s rands (breaker R3-4)', () => {
+describe('a header tie is a residual, never a hold (breaker R4-4, review r4 M1 / L1)', () => {
   const heldByHeader = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', cents: 30000 }]]]);
-  it('the default amount is the subtotal less every other tie; nothing left is refused, naming the header\'s PO', () => {
-    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader }))).toEqual([
-      '0:the bill\'s header names purchase order PO-p2; unlink it from that purchase order first',
-    ]);
-    // The header holds the residual (the subtotal less the firm links / lines on other POs): with a firm R100 link on p3 it holds
-    // R200, and a link to p1 is still refused for it.
-    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] }))[0])
-      .toContain('header names purchase order PO-p2');
+  const NO_AMOUNT = '0:the bill\'s header names purchase order PO-p2; give an amount or unlink it first';
+  const planned = (r: ReturnType<typeof plan>) => r.plan!.planned.map((x) => [x.poId, x.amountCents, x.takesFromHeader?.cents ?? 0]);
+  it('a link with no amount while another PO holds the header residual is refused, naming that PO', () => {
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader }))).toEqual([NO_AMOUNT]);
+    // With a firm R100 link on p3 the header still holds R200: still refused.
+    expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] }))).toEqual([NO_AMOUNT]);
   });
-  it('a link by lines takes what its lines post: the header\'s residual shrinks, nothing is refused', () => {
-    expect(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader }).plan!.planned[0]!.amountCents).toBe(10000);
+  it('an explicit amount may take from the header residual (it reports what it took), up to the subtotal', () => {
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 20000 })], { heldByHeader }))).toEqual([['p1', 20000, 20000]]);
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 30000 })], { heldByHeader }))).toEqual([['p1', 30000, 30000]]);
+    expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 25000 })], { heldByHeader, existing: [existing({ poId: 'p3', amountCents: 10000 })] })))
+      .toEqual(['0:bill B-b1 has 300.00 ex VAT and 100.00 is already linked; 250.00 more would pass it']);
   });
-  it('an explicit amount that would take rands from the header tie is refused the same way', () => {
-    expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 100 })], { heldByHeader }))[0])
-      .toBe('0:the bill\'s header names purchase order PO-p2; unlink it from that purchase order first');
+  it('lines win: a link by lines takes what its lines post, from the header residual too', () => {
+    expect(planned(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader }))).toEqual([['p1', 10000, 10000]]);
   });
-  it('linking the header\'s own PO is not taking from it', () => {
-    expect(plan([req(0, 'p2', 'b1')], { heldByHeader }).plan!.planned[0]!.amountCents).toBe(30000);
+  it('linking the header\'s own PO takes nothing from it', () => {
+    expect(planned(plan([req(0, 'p2', 'b1')], { heldByHeader }))).toEqual([['p2', 30000, 0]]);
+  });
+  it('M1: a split call that links the header\'s own PO is not refused, in either order', () => {
+    expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1', { amountCents: 20000 })], { heldByHeader })))
+      .toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
+    expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 20000 }), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
+      .toEqual([['p1', 20000, 0], ['p2', 10000, 0]]);
+  });
+  it('M1, no amount: after the header PO\'s own row the default is what is left; before it, the default takes the whole bill', () => {
+    expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1')], { heldByHeader }))).toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
+    expect(reasons(plan([req(0, 'p1', 'b1'), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
+      .toEqual(['1:bill B-b1 has 300.00 ex VAT and 300.00 is already linked; 100.00 more would pass it']);
   });
 });
 

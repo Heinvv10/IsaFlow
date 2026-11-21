@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
-import { seedRawBill } from './helpers/poBillLinkHarness';
+import { seedPo, seedRawBill } from './helpers/poBillLinkHarness';
 import { asBeforeRetirement, dropCanonical, dropLegacy, runMigration, seedSpo, type SeededSpo } from './spo-retire-1022.helpers';
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { openPoLineCents } from '@/modules/accounting/services/budgets/remainingBudgetCore';
@@ -79,14 +79,19 @@ describe('committed spend after the copy', () => {
     expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
   });
 
-  it('every copy is closed exactly when the TS readers call it fully billed, or legacy invoiced with no live bill (breaker r3)', async () => {
-    const pos = (await pool.query(`SELECT p.id::TEXT AS id, p.status, s.status AS legacy,
+  // Breaker r3 / r4: over the copies in a committing status (a draft or cancelled copy is never closed). The one named exception:
+  // a legacy invoiced copy with no live bill is closed though nothing bills it, and is not closed BY BILLING (it never reopens).
+  it('every committing copy is closed by billing exactly when the TS readers call it fully billed; the exception is legacy invoiced with no live bill', async () => {
+    const pos = (await pool.query(`SELECT p.id::TEXT AS id, p.status, s.status AS legacy, p.closed_by_billing,
         GREATEST(round(p.subtotal * 100), (SELECT COALESCE(round(SUM(x.line_total) * 100), 0) FROM po_items x WHERE x.purchase_order_id = p.id))::INT AS sub
-      FROM purchase_orders p JOIN supplier_purchase_orders s ON s.id = p.id WHERE p.company_id = $1`, [f.co])).rows;
+      FROM purchase_orders p JOIN supplier_purchase_orders s ON s.id = p.id
+     WHERE p.company_id = $1 AND p.status IN ('approved', 'partially_received', 'received', 'closed')`, [f.co])).rows;
     const billed = await billedCentsByPo(f.co, pos.map((p) => String(p.id)));
-    const bad = pos.filter((p) => (p.status === 'closed') !== ((billed.get(String(p.id)) ?? 0) >= p.sub - 1 && p.sub > 0)
-      && !(p.legacy === 'invoiced' && p.status === 'closed'));
-    expect(bad).toEqual([]);
+    const fully = (p: { id: string; sub: number }) => (billed.get(String(p.id)) ?? 0) >= p.sub - 1 && p.sub > 0;
+    const legacyNoBill = (p: { status: string; legacy: string; closed_by_billing: boolean }) => p.legacy === 'invoiced' && p.status === 'closed' && !p.closed_by_billing;
+    expect(pos.filter((p) => (p.status === 'closed') !== fully(p) && !legacyNoBill(p))).toEqual([]);
+    expect(pos.filter((p) => p.closed_by_billing !== (p.status === 'closed' && fully(p)))).toEqual([]);
+    expect(pos.length).toBeGreaterThan(5);
   });
 
   it('closes only the fully billed copies, from their open status', async () => {
@@ -102,17 +107,32 @@ describe('committed spend after the copy', () => {
 });
 
 describe('a copy the migration closed as fully billed', () => {
-  // Review L5: the closing is recorded on the deciding link (closed_po_from_status), as link_bills_to_purchase_order records its own,
-  // so unlinking the bill reopens the copy to the status it was closed from, and it commits again.
-  it('records the closing on its bill\'s link, and an unlink reopens it', async () => {
-    const rec = (await pool.query('SELECT closed_po_from_status FROM purchase_order_bill_links WHERE purchase_order_id = $1 AND supplier_invoice_id = $2',
-      [S.A!.id, bills.A])).rows;
-    expect(rec).toEqual([{ closed_po_from_status: 'received' }]);
+  // Breaker r4 R4-1: the closing is recorded on the PO itself (closed_by_billing + closed_from_status), as link_bills_to_purchase_order
+  // records its own, so removing a counted tie that leaves it under-billed reopens the copy to the status it was closed from.
+  it('records the closing on the purchase order, and an unlink reopens it', async () => {
+    expect((await pool.query('SELECT closed_by_billing, closed_from_status FROM purchase_orders WHERE id = $1', [S.A!.id])).rows[0])
+      .toEqual({ closed_by_billing: true, closed_from_status: 'received' });
+    // No link carries a closing record any more (1022 moved the old ones onto their POs).
+    expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE closed_po_from_status IS NOT NULL')).rows[0].n).toBe(0);
     const r = await callTool(pool, f, unlink, { po_id: S.A!.id, bill_id: bills.A, reason: 'billed in error' });
     expect(r.isError, r.text).toBe(false);
     expect(r.body).toMatchObject({ unlinked: true, reopened_to: 'received' });
-    expect((await pool.query('SELECT status, closed_from_status FROM purchase_orders WHERE id = $1', [S.A!.id])).rows[0])
-      .toEqual({ status: 'received', closed_from_status: null });
+    expect((await pool.query('SELECT status, closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [S.A!.id])).rows[0])
+      .toEqual({ status: 'received', closed_from_status: null, closed_by_billing: false });
     expect((await committedByOrder())['CM-A']).toBe(100000);
+  });
+
+  it('moves a closing record a pre-1022 link call left on its link onto the purchase order (breaker r4 R4-1)', async () => {
+    const po = await seedPo(pool, f, { lines: [100], status: 'closed' });
+    const b = await seedRawBill(pool, f, { items: [{ total: 100 }], subtotal: 100, total: 115 });
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, closed_po_from_status, created_by)
+      VALUES ($1, $2, $3, 100, 'mcp', 'received', $4)`, [f.co, po.po, b.id, f.owner]);
+    await runMigration(pool);
+    expect((await pool.query('SELECT status, closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0])
+      .toEqual({ status: 'closed', closed_from_status: 'received', closed_by_billing: true });
+    expect((await pool.query('SELECT closed_po_from_status FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows)
+      .toEqual([{ closed_po_from_status: null }]);
+    const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b.id, reason: 'billed in error' });
+    expect([r.isError, r.body.reopened_to], r.text).toEqual([false, 'received']);
   });
 });

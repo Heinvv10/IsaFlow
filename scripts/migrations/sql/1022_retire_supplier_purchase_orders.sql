@@ -37,10 +37,10 @@
 --          subtotal less what the bill attributes elsewhere) reaches its subtotal less 1 cent; or (b) its legacy status was
 --          invoiced and no live bill (not cancelled, not deleted, any status) of its company and supplier names it. "Fully"
 --          is against the larger of the subtotal and the lines' total, and never when that is 0. A NOTICE per closed copy. A
---          fully billed close records itself on the deciding link (closed_po_from_status, the latest link on a billed bill), as
---          link_bills_to_purchase_order does, so unlinking any tie that leaves it under-billed reopens the copy; a fully billed copy
---          with no link row to hold the record (a bill the backfill skipped) is left open, committing nothing, with a NOTICE; an
---          invoiced-with-no-bill close has no link to hold it (named limit: nothing reopens it). No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
+--          fully billed close records itself on the copy (closed_by_billing + closed_from_status, section 1c), as
+--          link_bills_to_purchase_order does, so removing any counted tie (an unlink, a bill cancelled or deleted) that leaves it
+--          under-billed reopens it, whichever bill or link held it; an invoiced-with-no-bill close is not closed by billing (named
+--          limit: nothing reopens it). No app path reopens a closed copy today (set_purchase_order_status takes only an order with an
 --          external_ref, which no copy carries; the PUT / update_purchase_order edit draft / submitted / approved only).
 --        number: a (company, po_number) the canonical table already holds is NOT a failure (a failed production migration
 --          blocks every release): the copy takes order_number || '-SPO', then '-SPO2', ... until free, its notes say
@@ -62,6 +62,11 @@
 --      foreign key, numeric_value_out_of_range) is named in a WARNING and then FAILS the migration: nothing is copied and the
 --      legacy tables stay writable, rather than a green release with orders behind it (review M1). Then the migration RAISES
 --      unless copied + skipped = the legacy headers it set out to copy.
+--   1c. purchase_orders.closed_by_billing (BOOLEAN NOT NULL DEFAULT false; PR #1703 breaker R4-1): "closed because fully billed"
+--      lives on the PO. The link tool's close_when_fully_billed and this migration's close step set it with closed_from_status; a
+--      close by hand leaves it false; a trigger (BEFORE INSERT OR UPDATE, SECURITY INVOKER, ENABLE ALWAYS) clears it whenever the
+--      status is not closed, whoever writes it. A closing record a pre-1022 link call left on a link (1006's
+--      closed_po_from_status) moves onto its PO, and the links' column is cleared (kept, unread, unwritten).
 --   2b. purchase_order_bill_links_backfill (1006) is redefined, verbatim but for held_c: a link it does not own on a PO the bill's
 --      lines name is no longer subtracted on top of those lines (one rand to one PO; PR #1703 ledger breaker BRK-B), as the app
 --      writer now does too.
@@ -75,12 +80,17 @@
 -- LOCKS. First (0b) the purchase_order counter rows of every company with legacy orders (FOR UPDATE), the row both writers it can
 --   meet take first: the app's PO create (counter, then purchase_orders) and the old colour's SPO create during the switch
 --   (counter, then supplier_purchase_orders); so the order is counter -> supplier_purchase_orders -> purchase_orders and neither
---   can deadlock with it. Then ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes it; reads of them wait too), SHARE ROW
---   EXCLUSIVE on
---   purchase_orders (LOCK TABLE: no app PO insert can take a number between the free-number check and the copy's insert); ROW
---   EXCLUSIVE on po_items,
+--   can deadlock with it. Then ACCESS EXCLUSIVE on both legacy tables (DROP TRIGGER takes it; reads of them wait too), ACCESS
+--   EXCLUSIVE on purchase_orders (1c, ADD COLUMN: reads of purchase_orders wait for the rest of the migration too, and no app PO
+--   insert can take a number between the free-number check and the copy's insert); ROW EXCLUSIVE on po_items,
 --   company_document_numbers and purchase_order_bill_links. All held to commit; lock_timeout bounds each wait. The legacy
 --   tables are small (dev: 204 headers).
+--   NAMED LIMIT (LOCK-1, accepted): this is NOT deadlock-free against every writer in flight. A writer that holds a bill row and
+--   then needs purchase_orders (the old colour's draft edit: bill FOR UPDATE, then the PO FOR KEY SHARE; any bill -> PO writer)
+--   can meet 1022 holding purchase_orders and waiting for that bill (the backfill's link insert takes the bill's key share).
+--   PostgreSQL then aborts one of the two (40P01): when it is 1022, the whole migration rolls back cleanly and the release retries;
+--   when it is the app request, the request fails and is retried by its user. Writers that lock the PO first (link, unlink, and
+--   since this PR the bill cancel and delete) simply wait for 1022, or 1022 waits at 1c for them.
 --
 -- OLD COLOUR. During the switch (a few minutes) the old code writes the legacy tables and is refused with the message above, a 500:
 --   its supplier-purchase-orders pages and route, its supplier merge (route and duplicate merge, which re-parented
@@ -98,7 +108,12 @@
 --     ALTER TABLE public.supplier_purchase_order_items ENABLE ALWAYS TRIGGER trg_supplier_purchase_order_items_retired;
 --
 -- Rollback (down SQL; roll the code back first). The copies stay: they are ordinary purchase orders now, and bills may link
--- them. To make the legacy tables writable again:
+-- them. closed_by_billing may stay (the old code neither reads nor writes it; the trigger only clears it), or:
+--   DROP TRIGGER IF EXISTS trg_purchase_orders_closed_by_billing ON public.purchase_orders;
+--   DROP FUNCTION IF EXISTS public.purchase_orders_closed_by_billing_follows_status();
+--   ALTER TABLE public.purchase_orders DROP COLUMN IF EXISTS closed_by_billing;
+-- (the old code's unlink reopens only on a link's closed_po_from_status, so a PO closed by billing before the rollback no longer
+-- reopens: get_purchase_order's closed_under_billed of the old code does not see it either). To make the legacy tables writable again:
 --   DROP TRIGGER IF EXISTS trg_supplier_purchase_orders_retired ON public.supplier_purchase_orders;
 --   DROP TRIGGER IF EXISTS trg_supplier_purchase_order_items_retired ON public.supplier_purchase_order_items;
 --   DROP FUNCTION IF EXISTS public.supplier_purchase_orders_retired();
@@ -238,7 +253,35 @@ END;
 $$;
 
 -- ── 1c. The canonical table, after the counters (0b) ─────────────────────────────────────────────────────────────
-LOCK TABLE public.purchase_orders IN SHARE ROW EXCLUSIVE MODE;
+-- closed_by_billing (PR #1703 breaker R4-1): "closed because fully billed" lives on the PO, never on a link, so no link's removal
+-- can lose it. ADD COLUMN takes ACCESS EXCLUSIVE, held to commit: it also does what the LOCK TABLE ... SHARE ROW EXCLUSIVE here did
+-- (no app PO insert takes a number between the free-number check and the copy's insert).
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS closed_by_billing BOOLEAN NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.purchase_orders.closed_by_billing IS
+  'Closed because it was fully billed (link_bills_to_purchase_order close_when_fully_billed, or migration 1022): removing a counted bill tie that leaves it under-billed reopens it to closed_from_status (ap/purchaseOrderBillingClose). False for a close by hand; cleared whenever the status leaves closed.';
+
+-- Whoever moves a PO out of closed (the old colour too), the flag goes with it: it can only describe a closed PO.
+CREATE OR REPLACE FUNCTION public.purchase_orders_closed_by_billing_follows_status() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM 'closed' THEN NEW.closed_by_billing := false; END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.purchase_orders_closed_by_billing_follows_status() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_purchase_orders_closed_by_billing ON public.purchase_orders;
+CREATE TRIGGER trg_purchase_orders_closed_by_billing BEFORE INSERT OR UPDATE ON public.purchase_orders
+  FOR EACH ROW EXECUTE FUNCTION public.purchase_orders_closed_by_billing_follows_status();
+ALTER TABLE public.purchase_orders ENABLE ALWAYS TRIGGER trg_purchase_orders_closed_by_billing;
+
+-- A closing record a link call left on a link before this release (1006's closed_po_from_status) moves onto its PO; the links keep
+-- the column, unread and unwritten.
+UPDATE public.purchase_orders po
+   SET closed_by_billing = true, closed_from_status = COALESCE(po.closed_from_status, c.from_status)
+  FROM (SELECT DISTINCT ON (l.purchase_order_id) l.purchase_order_id AS po, l.closed_po_from_status AS from_status
+          FROM public.purchase_order_bill_links l WHERE l.closed_po_from_status IS NOT NULL
+         ORDER BY l.purchase_order_id, l.created_at DESC, l.id DESC) c
+ WHERE po.id = c.po AND po.status = 'closed' AND NOT po.closed_by_billing;
+UPDATE public.purchase_order_bill_links SET closed_po_from_status = NULL WHERE closed_po_from_status IS NOT NULL;
 
 -- ── 2 + 3. The copy, the counter, the bill links, the close step, the committed record ──────────────────────────
 
@@ -273,7 +316,6 @@ DECLARE
   v_max INT;
   v_off INT;
   v_billed JSONB;
-  v_holder UUID;
 BEGIN
   SELECT count(*) INTO v_total FROM public.supplier_purchase_orders s
    WHERE NOT EXISTS (SELECT 1 FROM public.purchase_orders p WHERE p.id = s.id AND p.company_id = s.company_id);
@@ -479,21 +521,12 @@ BEGIN
      WHERE p.id = ANY(v_copied) AND p.status IN ('approved', 'partially_received', 'received')
      ORDER BY p.company_id, p.id
   LOOP
-    -- The link that will hold a fully billed close's record (review L5, breaker R3-3): the latest link on a billed bill.
-    v_holder := (SELECT l.id FROM public.purchase_order_bill_links l JOIN public.supplier_invoices si ON si.id = l.supplier_invoice_id
-                  WHERE l.purchase_order_id = h.id AND si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
-                  ORDER BY l.created_at DESC, l.id DESC LIMIT 1);
-    IF h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 AND v_holder IS NULL THEN
-      -- Fully billed by ties the backfill left without a link row (only a bill it skipped): nothing could hold the closing record, so
-      -- an unlink could never reopen it. Left open instead; committed nets those ties, so it commits nothing.
-      RAISE NOTICE '1022: company % purchase order % (%) is fully billed but left %: no link row to record a closing on', h.company_id, h.id, h.po_number, h.status;
-    ELSIF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
-      UPDATE public.purchase_orders SET status = 'closed', closed_from_status = h.status WHERE id = h.id;
-      IF h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN
-        -- Review L5: the closing is recorded on the deciding link, as link_bills_to_purchase_order records its own, so unlinking any
-        -- tie that leaves it no longer fully billed reopens the copy to h.status (purchaseOrderBillUnlink).
-        UPDATE public.purchase_order_bill_links SET closed_po_from_status = h.status WHERE id = v_holder;
-      END IF;
+    IF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
+      -- Breaker R4-1: a fully billed close is recorded on the copy itself (closed_by_billing), as link_bills_to_purchase_order records
+      -- its own, so removing any counted tie that leaves it under-billed reopens it to h.status (ap/purchaseOrderBillingClose).
+      UPDATE public.purchase_orders SET status = 'closed', closed_from_status = h.status,
+             closed_by_billing = (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1)
+       WHERE id = h.id;
       RAISE NOTICE '1022: company % purchase order % (%) copied as closed from %: %', h.company_id, h.id, h.po_number, h.status,
         CASE WHEN h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)
              ELSE 'legacy invoiced, and no live bill names it' END;

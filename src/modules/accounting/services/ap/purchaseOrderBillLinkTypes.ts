@@ -73,7 +73,6 @@ export interface ExistingLink {
   storedAmountCents: number;
   refSystem: string | null;
   refRef: string | null;
-  closedFrom: string | null;
 }
 
 export interface PlannedLink {
@@ -87,8 +86,13 @@ export interface PlannedLink {
   /** Bill lines whose po_item_id must be written (a line already naming the same PO line is not listed). */
   lineWrites: { poItemId: string; billLineId: string }[];
   linesLinked: number;
-  /** The PO status this link's call moved the PO from to closed. */
+  /** The PO status this link's call moved the PO from to closed (recorded on the PO: closed_from_status + closed_by_billing). */
   closedFrom: string | null;
+  /**
+   * The rands this link takes from what the bill's header held on ANOTHER PO (a header tie is a residual, never a hold; PR #1703
+   * breaker R4-4): that PO commits them again, and the reply warns, naming it.
+   */
+  takesFromHeader: { poId: string; poNumber: string; cents: number } | null;
   /** Set when the pair was already linked: under the same reference nothing is written; with `adopt`, the reference is set. */
   existing: ExistingLink | null;
   /** The pair was linked by a ref-less app / backfill link and this call's external_ref is set on it. */

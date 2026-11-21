@@ -15,6 +15,7 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { DbRow } from '@/types/db';
+import { lockPosClosedByBilling, reopenUnderBilled } from '../ap/purchaseOrderBillingClose';
 
 // Allowlist of entity types that support soft-delete
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -89,6 +90,8 @@ async function softDeleteInner(
   userId: string,
 ): Promise<{ undoToken: string }> {
   try {
+    // A bill's POs closed BY BILLING, locked BEFORE the bill (PO -> bill, as link / unlink): one the delete leaves under-billed reopens.
+    const billingClosed = entityType === 'supplier_invoice' ? await lockPosClosedByBilling(companyId, entityId) : new Map<string, number>();
     // An invoice that is out of the subledger must be out of the ledger too:
     // approve posted a journal, so the delete reverses it, exactly as cancel
     // does. Guards and reversal both live in softDeleteJournalService.
@@ -106,6 +109,7 @@ async function softDeleteInner(
     if (!deleted) {
       throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
+    await reopenUnderBilled(companyId, billingClosed, { userId, via: 'soft_delete', why: 'bill deleted' });
 
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
     return { undoToken: entityId };

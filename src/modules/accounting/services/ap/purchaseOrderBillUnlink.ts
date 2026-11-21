@@ -17,13 +17,13 @@
  *
  * Then: delete the link, clear `po_item_id` on the bill's lines into this PO, reset the bill's header
  * (`purchaseOrderBillLinkHeader`), and decide the PO's status:
- *   - the PO is closed and a link of it records the status a link call closed it from (`closed_po_from_status`, read
- *     BEFORE the delete: it may be the deleted link's) and the PO is no longer fully billed (what approved / paid / partially_paid
- *     bills hold on it by `budgets/billAttribution` < subtotal - 1 c) -> it reopens to that status, and the record is cleared, whatever
- *     tie the unlink removed: a link, a line or a header reference (PR #1703 breaker R3-3);
- *   - still fully billed, and the deleted link held the record -> the record moves to a remaining link of the PO (so a later
- *     unlink can still reopen it);
- *   - a PO closed by hand, or cancelled, is not touched.
+ *   - the PO is closed BY BILLING (`purchase_orders.closed_by_billing`, set by a link call's close_when_fully_billed or by 1022, with
+ *     closed_from_status; PR #1703 breaker R4-1), the removed tie counted (billed fell: a link, line or header reference of an
+ *     approved / paid / partially_paid live bill, review r4 L2) and the PO is no longer fully billed (what those bills hold on it by
+ *     `budgets/billAttribution` < subtotal - 1 c) -> it reopens to closed_from_status and both columns clear
+ *     (`purchaseOrderBillingClose.reopenUnderBilled`, the rule a bill cancel and soft delete use too);
+ *   - otherwise the status stays: a PO closed by hand, or cancelled, is never touched, and a PO still fully billed keeps its record
+ *     on itself (no link holds it, so none is lost with a link).
  * R2: when the PO commits spend again (it reopened, or its lines are un-netted) the budget is READ (`unlinkBudgetWarnings`: the same lines
  * the PO approve judges, nothing recorded) and an over-budget result comes back as `budgetWarnings` in the unlink's own wording; it
  * NEVER blocks and never fails on a busy gate or a policy that changed. Reopening is open to any write:invoices holder (Hein): it
@@ -36,7 +36,7 @@ import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../c
 import { sql, withSavepoint } from '@/lib/neon';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
-import { BILLED_STATUSES, COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
+import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 import { toCents } from '../budgets/grid/cents';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
@@ -44,6 +44,7 @@ import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { auditBillCleared, clearingRaisesCommitted, headerNetsCommitted, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { reopenUnderBilled } from './purchaseOrderBillingClose';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
 
@@ -109,9 +110,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const invoiceNumber = String(bills[0].invoice_number);
 
   const all = (await sql`
-    SELECT l.id::TEXT AS id, l.supplier_invoice_id::TEXT AS bill, l.amount, l.closed_po_from_status,
-           (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) AND si.deleted_at IS NULL) AS billed,
-           NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL) AS durable
+    SELECT l.id::TEXT AS id, l.supplier_invoice_id::TEXT AS bill, l.amount
       FROM purchase_order_bill_links l JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
      WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ${poId}::UUID ORDER BY l.created_at, l.id
   `) as DbRow[];
@@ -124,8 +123,8 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   if (!link && lineRefs.length === 0 && !namesInHeader) {
     throw new PurchaseOrderBillLinkRefusal(`Bill ${invoiceNumber} is not linked to purchase order ${poNumber} (no link, no line on one of its lines, and its header does not name it)`);
   }
-  const claim = all.find((l) => l.closed_po_from_status != null);
-  const closedFrom = claim ? String(claim.closed_po_from_status) : null;
+  // What the PO is billed before anything is cleared (under its lock): a reopen needs the removed tie to have counted (review r4 L2).
+  const billedBefore = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
 
   // BEFORE the clear: does removing the line references raise committed spend (an approved / paid bill's non-zero posted line netted it)?
   // And does the bill net the PO through its header (a link row or purchase_order_id) now? Read again after the clear below.
@@ -150,31 +149,12 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
 
   const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
   const fully = isFullyBilled(billed, toCents(Number(pos[0].subtotal ?? 0)));
-  let statusAfter = status;
-  let reopenedTo: string | null = null;
-  // Removing ANY tie can reopen a PO a link call (or 1022) closed: since PR #1703 a line or header reference counts in billed
-  // (budgets/billAttribution) as a link does, so clearing one can leave the PO no longer fully billed (breaker R3-3). A PO closed by
-  // hand carries no closing record on a link (closedFrom is null) and is not touched.
-  if (status === 'closed' && closedFrom && !fully) {
-    const back = (await sql`
-      UPDATE purchase_orders SET status = ${closedFrom}, closed_from_status = NULL, updated_at = NOW(), updated_by = ${opts.userId}
-       WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status = 'closed' RETURNING id
-    `) as DbRow[];
-    if (back.length !== 1) throw new Error('The purchase order changed while it was being reopened');
-    reopenedTo = closedFrom;
-    statusAfter = closedFrom;
-    if (claim && String(claim.id) !== String(link?.id)) {
-      await sql`UPDATE purchase_order_bill_links SET closed_po_from_status = NULL WHERE id = ${String(claim.id)}::UUID AND company_id = ${companyId}::UUID`;
-    }
-  } else if (status === 'closed' && claim && link && String(claim.id) === String(link.id)) {
-    // Still fully billed: the closing record outlives the link that held it.
-    // Only a link on a BILLED bill can hold it (a draft's app link is remade by the draft's next edit), the durable (mcp / referenced) first.
-    const others = all.filter((l) => String(l.id) !== String(link.id) && l.billed === true);
-    const heir = others.find((l) => l.durable === true) ?? others[0];
-    if (heir) {
-      await sql`UPDATE purchase_order_bill_links SET closed_po_from_status = ${closedFrom} WHERE id = ${String(heir.id)}::UUID AND company_id = ${companyId}::UUID`;
-    }
-  }
+  // Removing ANY counted tie (link, lines, header of a billed live bill) reopens a PO closed BY BILLING (purchase_orders.closed_by_billing,
+  // PR #1703 breaker R4-1) once it is no longer fully billed; a PO closed by hand, or a tie that never counted, is not touched.
+  const reopenedTo = (await reopenUnderBilled(companyId, new Map([[poId, billedBefore]]), {
+    userId: opts.userId, via: opts.via, why: reason, audit: false,
+  })).get(poId) ?? null;
+  const statusAfter = reopenedTo ?? status;
 
   // R2 (Hein): never blocks, and records nothing (no budget_check_events row, no approve audit row): a READ of what the PO would
   // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.

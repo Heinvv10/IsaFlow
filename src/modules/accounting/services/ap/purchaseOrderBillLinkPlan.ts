@@ -14,9 +14,11 @@
  *   - amount: when lines of the bill name this PO (named now, or already), the posted ex-VAT of those lines, and an explicit
  *     amount must be that within a cent (PR #1703 breaker BRK-A: else the lines net one figure and the link holds another) and
  *     lines that post nothing are refused (BRK-C); else explicit; else the bill's subtotal less what it attributes to its
- *     other POs (lines when its lines name that PO, else that PO's link, else what its header holds there: one rand to one PO,
- *     BRK-B). It must be above zero and take the bill no further than its subtotal (+1 c); when a header tie's rands are what
- *     stand in the way, the refusal names that PO: "unlink it from that purchase order first" (breaker R3-4);
+ *     other POs (lines when its lines name that PO, else that PO's link: one rand to one PO, BRK-B). It must be above zero and
+ *     take the bill no further than its subtotal (+1 c). A header tie is a residual, never a hold (breaker R4-4): a link by amount
+ *     never takes a header tie's rands silently: with no amount it is refused, naming the header's PO ("give an amount or unlink it
+ *     first"), with an amount it may take them and reports what it took (`takesFromHeader`, warned in the reply); a link by lines
+ *     does take them, because lines win (review r4 L1). A header PO the same call links is no header tie (review r4 M1);
  *   - close_when_fully_billed: an approved / partially_received / received PO that the call leaves fully billed
  *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that tie the PO
  *     with no link row, by header or by lines, as `budgets/billAttribution` and get_purchase_order count them, >= subtotal - 1 c)
@@ -55,6 +57,7 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
   const refusals: LinkRowRefusal[] = [];
   const planned: PlannedLink[] = [];
   const pairSeen = new Map<string, number>();
+  const callLinks = new Set(input.requests.map((r) => `${input.resolvedPo.get(r.index) ?? ''}\u0000${r.billId}`));
   const lineClaimed = new Map<string, { index: number; poItemId: string }>();
   // Per bill, what it attributes to each PO: its links (the read gives a line-linked pair its lines' amount), then, for a PO its
   // lines name, those lines (positive only); then earlier rows of this call.
@@ -112,7 +115,7 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       }
       planned.push({
         index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber,
-        amountCents: existing.amountCents, ref: r.ref, lineWrites: [], linesLinked: 0, closedFrom: null, existing, adopt,
+        amountCents: existing.amountCents, ref: r.ref, lineWrites: [], linesLinked: 0, closedFrom: null, existing, adopt, takesFromHeader: null,
       });
       continue;
     }
@@ -123,14 +126,13 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     const lineWrites = r.lines.filter((l) => bill.lines.find((b) => b.id === l.billLineId)!.poItemId !== l.poItemId);
     for (const l of r.lines) lineClaimed.set(l.billLineId, { index: r.index, poItemId: l.poItemId });
 
-    // Firm: what the bill's links and lines hold on its other POs. A PO its header names (no link, no lines) holds the residual,
-    // the subtotal less the firm amounts on every other PO (budgets/billAttribution); a link never takes it (breaker R3-4).
+    // Firm: what the bill's links and lines (and this call's earlier rows) hold on its other POs. A header tie is a RESIDUAL, never
+    // a hold (PR #1703 breaker R4-4): the PO the bill's header alone names holds what the firm ties leave, so a link takes from it only
+    // by an explicit amount or by lines (lines win, review r4 L1), and the reply says what it took. A header PO this call also links
+    // is no header tie at all (review r4 M1).
     const firm = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
-    const header = (input.heldByHeader?.get(bill.id) ?? []).find((h) => h.poId !== po.id);
-    const headerHolds = header
-      ? Math.max(0, bill.subtotalCents - [...att(bill.id).entries()].filter(([p]) => p !== po.id && p !== header.poId).reduce((s, [, c]) => s + c, 0))
-      : 0;
-    const others = firm + headerHolds;
+    const header = (input.heldByHeader?.get(bill.id) ?? []).find((h) => h.poId !== po.id && !callLinks.has(`${h.poId}\u0000${bill.id}`));
+    const headerHolds = header ? Math.max(0, bill.subtotalCents - firm) : 0;
     const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
     let amount: number;
     if (linked.length > 0) {
@@ -144,30 +146,24 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
         continue;
       }
       amount = fromLines;
-      // Lines name this PO: attribution puts them first, so the header's residual shrinks; only firm amounts can stand in the way.
-      if (firm + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
-        refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(firm)} is already linked; ${fmt(amount)} more would pass it`);
-        continue;
-      }
-    } else {
-      amount = r.amountCents ?? bill.subtotalCents - others;
-      if (header && headerHolds > 0 && (amount <= 0 || others + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS)) {
-        refuse(`the bill's header names purchase order ${header.poNumber}; unlink it from that purchase order first`);
-        continue;
-      }
-    }
+    } else if (r.amountCents === null && header && headerHolds > 0) {
+      refuse(`the bill's header names purchase order ${header.poNumber}; give an amount or unlink it first`);
+      continue;
+    } else amount = r.amountCents ?? bill.subtotalCents - firm;
     if (amount <= 0) {
-      refuse(`the amount to link is ${fmt(amount)}; give an amount above zero (bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT, ${fmt(others)} already linked)`);
+      refuse(`the amount to link is ${fmt(amount)}; give an amount above zero (bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT, ${fmt(firm)} already linked)`);
       continue;
     }
-    if (linked.length === 0 && others + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
-      refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(others)} is already linked; ${fmt(amount)} more would pass it`);
+    if (firm + amount > bill.subtotalCents + FULLY_BILLED_TOLERANCE_CENTS) {
+      refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(firm)} is already linked; ${fmt(amount)} more would pass it`);
       continue;
     }
+    const taken = headerHolds - Math.max(0, bill.subtotalCents - firm - amount);
+    const takesFromHeader = header && taken > 0 ? { poId: header.poId, poNumber: header.poNumber, cents: taken } : null;
     att(bill.id).set(po.id, amount);
     planned.push({
       index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber, amountCents: amount,
-      ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null, adopt: false,
+      ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null, adopt: false, takesFromHeader,
     });
   }
   if (refusals.length > 0) return { plan: null, refusals };

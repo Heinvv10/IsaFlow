@@ -29,6 +29,7 @@ import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
+import { lockPosClosedByBilling, reopenUnderBilled } from './purchaseOrderBillingClose';
 
 type Row = DbRow;
 
@@ -303,6 +304,8 @@ async function cancelSupplierInvoiceInner(
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
+    // The POs closed BY BILLING this bill ties, locked BEFORE the bill (PO -> bill, as link / unlink): one it leaves under-billed reopens.
+    const billingClosed = await lockPosClosedByBilling(companyId, id);
     // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
@@ -355,6 +358,7 @@ async function cancelSupplierInvoiceInner(
     if (cancelledSourceDoc) {
       await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
     }
+    await reopenUnderBilled(companyId, billingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
 
     return mapInvoiceRow(rows[0]!);
   } catch (err) {

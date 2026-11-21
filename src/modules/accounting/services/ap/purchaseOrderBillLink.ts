@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
+import { linkHeaderBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { planLinks } from './purchaseOrderBillLinkPlan';
 import { readLinkFacts } from './purchaseOrderBillLinkRead';
 import {
@@ -24,6 +25,8 @@ export interface LinkOptions {
   source: 'mcp' | 'app';
   via: string;
   closeWhenFullyBilled: boolean;
+  /** May budget warnings show figures (read:reports). */
+  budgetFigures?: boolean;
 }
 
 export interface LinkedBill {
@@ -46,6 +49,8 @@ export interface LinkResult {
   links: LinkedBill[];
   /** One per PO the call names, after the call. */
   purchaseOrders: (PoAfter & { poNumber: string })[];
+  /** A link that took rands the bill's header held on another PO: that PO commits them again (breaker R4-4), with its budget read. */
+  budgetWarnings: string[];
 }
 
 const r2 = (c: number) => (c / 100).toFixed(2);
@@ -63,10 +68,10 @@ async function writeLink(companyId: string, p: PlannedLink, opts: LinkOptions): 
   }
   const rows = (await sql`
     INSERT INTO purchase_order_bill_links (
-      company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref, closed_po_from_status, created_by
+      company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref, created_by
     ) VALUES (
       ${companyId}::UUID, ${p.poId}::UUID, ${p.billId}::UUID, ${r2(p.amountCents)}::NUMERIC, ${opts.source},
-      ${p.ref?.system ?? null}, ${p.ref?.ref ?? null}, ${p.closedFrom}, ${opts.userId}
+      ${p.ref?.system ?? null}, ${p.ref?.ref ?? null}, ${opts.userId}
     ) RETURNING id
   `) as DbRow[];
   return String(rows[0]!.id);
@@ -99,10 +104,12 @@ export async function linkBillsToPurchaseOrders(
         });
       }
     } else {
-      // The PO is closed BEFORE the link naming that closing is written (the table's guard needs the PO closed).
+      // Closed BY BILLING: the record is on the PO (closed_from_status + closed_by_billing, PR #1703 breaker R4-1), so removing a
+      // counted tie that leaves it under-billed reopens it, whichever link or bill held it (purchaseOrderBillingClose).
       if (p.closedFrom) {
         const closed = (await sql`
-          UPDATE purchase_orders SET status = 'closed', updated_at = NOW(), updated_by = ${opts.userId}
+          UPDATE purchase_orders SET status = 'closed', closed_from_status = ${p.closedFrom}, closed_by_billing = true,
+                 updated_at = NOW(), updated_by = ${opts.userId}
            WHERE id = ${p.poId}::UUID AND company_id = ${companyId}::UUID AND status = ${p.closedFrom} RETURNING id
         `) as DbRow[];
         if (closed.length !== 1) throw new Error('The purchase order changed while it was being closed');
@@ -128,8 +135,16 @@ export async function linkBillsToPurchaseOrders(
     });
   }
   await syncBillHeaderPurchaseOrder(companyId, [...touchedBills]);
+  const budgetWarnings: string[] = [];
+  for (const p of plan.planned) {
+    const h = p.takesFromHeader;
+    if (!h) continue;
+    budgetWarnings.push(`Bill ${p.invoiceNumber}'s header names purchase order ${h.poNumber}: this link takes ${r2(h.cents)} of what the bill held there, so ${h.poNumber} commits it again.`);
+    budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, h.poId, h.poNumber, opts.budgetFigures === true));
+  }
   return {
     links: links.sort((a, b) => a.index - b.index),
     purchaseOrders: [...plan.poAfter.values()].map((a) => ({ ...a, poNumber: facts.pos.get(a.poId)!.poNumber })),
+    budgetWarnings,
   };
 }
