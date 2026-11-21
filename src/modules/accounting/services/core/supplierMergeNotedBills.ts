@@ -33,8 +33,8 @@ function exits(statuses: readonly string[]): string {
 function refusal(numbers: readonly string[], total: number, statuses: readonly string[]): SupplierMergeRefusal {
   const named = numbers.join(', ') + (total > numbers.length ? ` and ${total - numbers.length} more` : '');
   return new SupplierMergeRefusal(
-    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}) whose purchase order stays with this supplier, `
-    + `so merging would leave ${total === 1 ? 'it' : 'them'} naming another supplier's note. Before merging, ${exits(statuses)}.`,
+    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}), and a merge does not move a live `
+    + `bill tied to a note. Before merging, ${exits(statuses)}.`,
   );
 }
 

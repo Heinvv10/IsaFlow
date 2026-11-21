@@ -80,7 +80,7 @@ describe('R1: a writer adding grn_id without the supplier lock races a merge (th
       const e = await openNoting(fx, bill.id, note);
       // As withAuth does below 500: the merge's request commits whatever it answered.
       const m = await openRequest(pool, fx, fx.owner);
-      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))
+      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner'))
         .then(async (r) => { await m.commit(); return r; }, async (err) => { await m.commit(); return err; });
       try {
         expect(await waitsOnLock('UPDATE supplier_invoices SET supplier_id')).toBe(true);
@@ -128,7 +128,7 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
       const r = await openRequest(pool, fx, fx.owner);
       expect(await r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner))).toBe(true);
       const m = await openRequest(pool, fx, fx.owner);
-      const merging = settle(m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner)))
+      const merging = settle(m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner')))
         .then(async (x) => { await m.commit(); return x; });
       await sleep(300);
       await r.commit();
@@ -140,21 +140,25 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
     });
   }, 30_000);
 
-  it('merge first: the restore meets the moved row, reads it on the target and is refused; the bill stays deleted', async () => {
+  it('merge first: the restore meets the moved row and restores it on the target, where the merge also moved its note\'s PO (#1655)', async () => {
     await withFixture('race-r2-merge-first', async (fx, target) => {
       const bill = await deletedNotedBill(fx);
       const m = await openRequest(pool, fx, fx.owner);
-      expect(await m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))).toMatchObject({ reassignedTransactions: expect.any(Number) });
+      expect(await m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner'))).toMatchObject({ reassignedTransactions: expect.any(Number) });
       const r = await openRequest(pool, fx, fx.owner);
       const restoring = settle(r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner)))
         .then(async (x) => { await r.commit(); return x; });
       await sleep(300);
       await m.commit();
       const out = await restoring;
-      expect(out.e, String(out.v)).toBeInstanceOf(Error);
-      expect((out.e as Error).message).toContain('cannot be restored');
+      expect(out.e).toBeUndefined();
+      expect(out.v).toBe(true);
       expect(await stranded(fx, target)).toEqual([]);
-      expect((await pool.query('SELECT deleted_at IS NULL AS live FROM supplier_invoices WHERE id = $1', [bill])).rows[0].live).toBe(false);
+      // Live on the target, and its note's PO is the target's too: nothing cross-supplier.
+      expect((await pool.query(
+        `SELECT si.deleted_at IS NULL AS live, si.supplier_id::text AS s, po.supplier_id::text AS po_s FROM supplier_invoices si
+           JOIN goods_received_notes g ON g.id = si.grn_id JOIN purchase_orders po ON po.id = g.purchase_order_id WHERE si.id = $1`, [bill])).rows)
+        .toEqual([{ live: true, s: target, po_s: target }]);
     });
   }, 30_000);
 });
@@ -170,7 +174,7 @@ describe('a draft supplier change racing a merge of the new supplier (review of 
       await hold.query('BEGIN');
       await hold.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [plain.id]);
       const m = await openRequest(pool, fx, fx.owner);
-      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))
+      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner'))
         .then(async (r) => { await m.commit(); return r; }, async (err) => { await m.rollback(); return err; });
       let editing: Promise<Awaited<ReturnType<typeof callTool>>> | undefined;
       try {
@@ -209,7 +213,7 @@ describe('the refusal names the exit for each bill state, in UI terms (review of
       expect(text).not.toContain('a draft bill');
       const req = await openRequest(pool, fx, fx.owner);
       let dup: unknown;
-      try { dup = await req.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner)); } catch (err) { dup = err; } finally { await req.rollback(); }
+      try { dup = await req.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner')); } catch (err) { dup = err; } finally { await req.rollback(); }
       expect((dup as Error).message).toContain('a paid or partially paid bill: reverse its payments, then cancel it');
     });
   }, 30_000);
