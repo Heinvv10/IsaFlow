@@ -183,8 +183,10 @@ $$;
 -- The two journals' lines are exact negations: one multiset of (account, VAT type, debit, credit) equals the other with
 -- debit and credit swapped, none left over on either side, and the first has a line. Both sides read as the caller.
 -- vat_type is in the comparison (round 8): it picks the VAT201 box, and the reversal writer copies it untouched
--- (gl/reversalLines), except that a legacy '' is read back as no VAT type and written as NULL, so '' and NULL compare
--- equal (NULLIF, round 9; isaflow_dev holds no '' line). The dimensions (project_id, cc1_id, cc2_id, bu_id) are NOT: the writer drops a foreign legacy
+-- (gl/reversalLines). '' and NULL are NOT equal here (round 9): the VAT reports tell them apart (vat201NilRatedSupplies
+-- reads NULL as zero_rated and '' as neither, vatExceptions flags a NULL on a VAT account and not a ''), so a contra
+-- must carry the original's exact value. The writer turns a legacy '' into NULL, so such a journal is refused rather than
+-- reversed into another box; isaflow_dev holds no '' line. The dimensions (project_id, cc1_id, cc2_id, bu_id) are NOT: the writer drops a foreign legacy
 -- tag on the contra by design (K-051), totals and VAT tie without them, and comparing them would make such a journal
 -- unreversable. cost_center_id (legacy, unread), description, source_document_line_id and late_claim_base (copied
 -- after the link, vatLateClaimBasis) do not move a figure.
@@ -196,13 +198,13 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (SELECT 1 FROM public.gl_journal_lines WHERE journal_entry_id = p_contra)
      AND NOT EXISTS (
-       (SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
+       (SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
         EXCEPT ALL
-        SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
+        SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
      AND NOT EXISTS (
-       (SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
+       (SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
         EXCEPT ALL
-        SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
+        SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
 $$;
 
 -- The chain from the journal down is one line (no journal has two contras) of fewer than 64 journals: the shape a new
@@ -638,13 +640,13 @@ BEGIN
   -- A constraint trigger has no CREATE OR REPLACE: (re)create it unless it already carries this definition (vat_type).
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                   WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_linked_account_check'
-                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%NULLIF(old.vat_type%') THEN
+                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%vat_type%') THEN
     DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
     CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check
       AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW
-      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR NULLIF(OLD.vat_type, '') IS DISTINCT FROM NULLIF(NEW.vat_type, ''))
+      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR OLD.vat_type IS DISTINCT FROM NEW.vat_type)
       EXECUTE FUNCTION public.gl_jl_linked_account_check();
   END IF;
 END

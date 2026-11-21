@@ -1,6 +1,6 @@
 /**
  * Migration 1018, round 9 (the round-8 breaker's probes, as assertions), as app_user under RLS and claims unless said.
- * M2: a legacy vat_type '' and NULL compare equal (the reversal writer turns '' into NULL). Production blocker: the
+ * M2: vat_type '' and NULL stay distinct in a pair (the VAT reports tell them apart). Production blocker: the
  * stamp guard exempts the table's OWNER, so the backfill runs as a non-superuser owner with no trigger switched off,
  * while app_user is still refused. L1: the backfill also ties the journal's amount to the document and skips a '' number.
  */
@@ -30,13 +30,14 @@ describeIfDisposable('ledger column immutability, round 9 (migration 1018)', () 
   beforeAll(async () => { z = await seedFreeze(); legs = [[z.ar, 100, 0], [z.revenue, 0, 100]]; }, 240000);
   afterAll(async () => { if (z) await dropFreeze(z); }, 120000);
 
-  it("M2 a legacy vat_type '' and the contra's NULL are an exact negation; '' -> NULL on a linked pair is no change", async () => {
+  it("M2 '' and NULL are different VAT types (the reports tell them apart): no pair across them, no switch on a linked line", async () => {
     const o = await journal(z, legs);
     await setVat(o, '');
-    const r = await journal(z, negate(legs)); // NULL, as the writer stores it
-    await asApp(z, link(r, o), { commit: true });
-    await asApp(z, (c) => c.query("UPDATE gl_journal_lines SET vat_type = NULL WHERE journal_entry_id = $1", [o]), { commit: true });
-    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_lines SET vat_type = 'standard' WHERE journal_entry_id = $1", [o]), { commit: true }), /exact negation/);
+    await refused(asApp(z, link(await journal(z, negate(legs)), o)), /exact negation/); // NULL contra: refused
+    const r = await journal(z, negate(legs));
+    await setVat(r, '');
+    await asApp(z, link(r, o), { commit: true }); // over-strict check: '' with '' is a pair
+    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_lines SET vat_type = NULL WHERE journal_entry_id = $1', [o]), { commit: true }), /exact negation/);
   });
 
   it('the stamp guard exempts the table owner (a non-superuser member of it), and still refuses app_user', async () => {
