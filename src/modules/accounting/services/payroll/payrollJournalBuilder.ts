@@ -84,7 +84,9 @@ export async function buildPayrollJournalPlan(
   const headerRows = (await sql`
     SELECT h.*, (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id AND l.net_pay > 0) AS paid_employee_count,
            (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS line_count,
-           (SELECT COALESCE(SUM(l.uif_employee), 0) FROM payroll_run_lines l WHERE l.run_id = h.id) AS lines_uif_employee
+           -- NULL with no line (a header-only run): the split then halves the total, as before #1679 (never 0, which
+           -- would book all UIF as the employer's and move it into the other deductions).
+           (SELECT SUM(l.uif_employee) FROM payroll_run_lines l WHERE l.run_id = h.id) AS lines_uif_employee
     FROM payroll_run_headers h
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as Row[];
