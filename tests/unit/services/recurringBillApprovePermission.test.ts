@@ -59,6 +59,7 @@ beforeEach(() => {
   audits.length = 0;
   vi.mocked(sql).mockImplementation(permissionSql(db, (text, values) => {
     if (text.includes('INSERT INTO audit_log')) audits.push(JSON.stringify(values));
+    if (text.includes('FROM suppliers WHERE id')) return [{ '?column?': 1 }]; // the template's supplier is live (dc34ae0887's pre-write check)
     return text.includes('FROM recurring_transaction_templates') && storedTemplate ? [storedTemplate] : [];
   }) as never);
 });
@@ -159,6 +160,48 @@ describe('creating or switching on an autoPost supplier-invoice template', () =>
     manager(false);
     expect((await call('POST', { name: 'X', entityType: 'Supplier_Invoice', templateData: {}, frequency: 'monthly', autoPost: true })).statusCode).toBe(400);
     expect(createRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  // #1670 Codex: a later run checks only the runner's Approve, so the editor of ANY auto-posting template needs the module's Approve.
+  const withheld = (module: string) => db.rows.set(`${C}:${U}:${module}`, { can_read: true, can_write: true, can_approve: false });
+
+  it.each([
+    ['journal_entry', 'accounts', /Chart of Accounts/],
+    ['customer_invoice', 'customers', /Customers & AR/],
+  ])('an autoPost %s template needs %s Approve to create, turn on or edit (403, nothing written)', async (type, module, label) => {
+    manager(true); // Suppliers Approve held: the other module decides
+    withheld(module);
+    const created = await call('POST', { name: 'X', entityType: type, templateData: {}, frequency: 'monthly', autoPost: true });
+    expect(created.statusCode).toBe(403);
+    expect(JSON.stringify(created.sent)).toMatch(label);
+    storedTemplate = { entity_type: type, auto_post: false };
+    expect((await call('PUT', { id: T, autoPost: true })).statusCode).toBe(403);
+    storedTemplate = { entity_type: type, auto_post: true };
+    expect((await call('PUT', { id: T, name: 'edited figures' })).statusCode).toBe(403);
+    expect(createRecurringTemplate).not.toHaveBeenCalled();
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+    // autoPost off asks nothing.
+    expect((await call('POST', { name: 'X', entityType: type, templateData: {}, frequency: 'monthly', autoPost: false })).statusCode).toBe(200);
+  });
+
+  it('a stored auto-posting template of a type with no Approve module is refused (fail closed)', async () => {
+    manager(true);
+    storedTemplate = { entity_type: 'stock_adjustment', auto_post: true };
+    expect((await call('PUT', { id: T, name: 'x' })).statusCode).toBe(403);
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('PUT locks the template row (FOR UPDATE) before the permission check, and the update follows it', async () => {
+    manager(true);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: true };
+    expect((await call('PUT', { id: T, name: 'x' })).statusCode).toBe(200);
+    const texts = vi.mocked(sql).mock.calls.map((c) => (c[0] as unknown as string[]).join('?'));
+    const lock = texts.findIndex((t) => t.includes('FROM recurring_transaction_templates'));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(texts[lock]).toMatch(/FOR UPDATE/);
+    const permission = texts.findIndex((t) => t.includes('LEFT JOIN company_user_permissions p'));
+    expect(permission).toBeGreaterThan(lock);
+    expect(updateRecurringTemplate).toHaveBeenCalledTimes(1);
   });
 
   it('a manager with Approve may create one', async () => {

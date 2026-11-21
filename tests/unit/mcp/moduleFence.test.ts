@@ -37,6 +37,14 @@ describe('moduleFenceRefusal (#1656)', () => {
     expect(await moduleFenceRefusal(write, {}, ctx)).toBeNull();
   });
 
+  it('#1670 Codex: a payroll write tool (calculate_pay_run, even a dry run) needs Payroll read as well: write alone returns employee pay', async () => {
+    const calc = tool({ name: 'calculate_pay_run', write: true, permissionModule: 'payroll' });
+    db.allowed.add('payroll:write');
+    expect(await moduleFenceRefusal(calc, { dry_run: true }, ctx)).toMatch(/calculate_pay_run needs Payroll read/);
+    db.allowed.add('payroll:read');
+    expect(await moduleFenceRefusal(calc, { dry_run: true }, ctx)).toBeNull();
+  });
+
   it('a posting tool needs its module Approve', async () => {
     const post = tool({ name: 'post_journal', approveModule: 'accounts' });
     expect(await moduleFenceRefusal(post, {}, ctx)).toMatch(/post_journal: .*"Approve" on Chart of Accounts/);
@@ -47,6 +55,7 @@ describe('moduleFenceRefusal (#1656)', () => {
 
   it('a payroll posting tool needs both Payroll write and Payroll Approve', async () => {
     const approve = tool({ name: 'approve_pay_run', permissionModule: 'payroll', approveModule: 'payroll' });
+    db.allowed.add('payroll:read');
     db.allowed.add('payroll:write');
     expect(await moduleFenceRefusal(approve, {}, ctx)).toMatch(/approve_pay_run: /);
     db.allowed.add('payroll:approve');

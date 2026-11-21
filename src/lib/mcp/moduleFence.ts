@@ -1,8 +1,8 @@
 /**
  * The module fence for MCP tools (#1656): the token owner's module permissions, read from the
  * database (company_user_permissions through checkPermission), before any handler runs.
- *   - McpTool.permissionModule ('payroll'): Payroll read for a read tool, Payroll write for a write
- *     tool, as withPayrollModule does for pages/api/payroll/**.
+ *   - McpTool.permissionModule ('payroll'): Payroll read for a read tool, Payroll read AND write for a write
+ *     tool (every payroll tool returns employee pay), as withPayrollDetailAccess does over HTTP.
  *   - McpTool.approveModule: the module's Approve for a tool that approves or posts (Hein,
  *     2026-11-19: gate everything). A credit note's module is its type; settle_by_contra's is its
  *     subledger; 'per_document' tools ask per document themselves.
@@ -53,9 +53,13 @@ export async function moduleFenceRefusal(
   tool: McpTool, args: Record<string, unknown>, ctx: McpToolContext,
 ): Promise<string | null> {
   if (tool.permissionModule) {
-    const action = tool.write ? 'write' : 'read';
-    if (!(await checkPermission(ctx.companyId, ctx.userId, tool.permissionModule, action))) {
-      return `${tool.name} needs Payroll ${action} in your User Access permissions. An owner or admin can grant it.`;
+    // Every payroll tool returns employee pay (calculate_pay_run's dry run included), so a write tool needs Payroll read as well as
+    // write, as withPayrollDetailAccess asks of a payroll write over HTTP (#1670 Codex: write alone showed a reader-revoked manager pay).
+    const actions = tool.write ? (['read', 'write'] as const) : (['read'] as const);
+    for (const action of actions) {
+      if (!(await checkPermission(ctx.companyId, ctx.userId, tool.permissionModule, action))) {
+        return `${tool.name} needs Payroll ${action} in your User Access permissions. An owner or admin can grant it.`;
+      }
     }
   }
   const module = await approveModuleFor(tool, args, ctx);

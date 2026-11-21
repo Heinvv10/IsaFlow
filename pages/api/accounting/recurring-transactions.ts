@@ -16,7 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { isUuidParam } from '@/lib/validation';
-import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
+import { APPROVE_MODULE_BY_DOCUMENT, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import {
   getRecurringTemplates,
   createRecurringTemplate,
@@ -25,9 +25,10 @@ import {
 } from '@/modules/accounting/services/core/recurringTransactionService';
 
 /**
- * #1656: an autoPost supplier-invoice template approves a bill on every run, so only a person who
- * may approve supplier invoices (Suppliers & AP Approve) may create one or turn autoPost on. A run
- * by someone without it leaves the bill a draft (mintRecurringSupplierInvoice).
+ * #1656: an autoPost template posts what it holds on every run: a journal (Chart of Accounts Approve), a customer invoice
+ * (Customers & AR Approve) or a supplier invoice (Suppliers & AP Approve). A later run checks only the RUNNER's Approve, so
+ * the person who writes the figures must hold the module's Approve too (#1670 Codex): only they may create such a template,
+ * turn autoPost on, or edit one that has it on. A type with no module is refused (gate everything, fail closed).
  */
 /**
  * The two fields the approve rule reads, typed before anything else (security review of #1670):
@@ -39,22 +40,29 @@ const FlagFields = z.object({
   autoPost: z.boolean().nullable().optional(),
 }).passthrough();
 
-/** Would a template of this type with this autoPost approve bills, for someone who may not approve them? */
-async function refusesAutoPostBills(companyId: string, userId: string, type: unknown, autoPost: unknown): Promise<boolean> {
+const AUTO_POST_WHAT: Readonly<Record<string, string>> = { journal_entry: 'journals', customer_invoice: 'customer invoices', supplier_invoice: 'supplier invoices' };
+
+/** The refusal when a template of this type with this autoPost would post for someone who may not approve it; null when it may go on. */
+async function autoPostRefusal(companyId: string, userId: string, type: string, autoPost: unknown): Promise<string | null> {
   // Belt and braces: anything but an explicit false / absent counts as on, as the column would store it.
-  if (type !== 'supplier_invoice' || autoPost === undefined || autoPost === null || autoPost === false) return false;
-  return !(await mayApproveSupplierInvoices(companyId, userId));
+  if (autoPost === undefined || autoPost === null || autoPost === false) return null;
+  const module = Object.prototype.hasOwnProperty.call(AUTO_POST_WHAT, type) ? APPROVE_MODULE_BY_DOCUMENT[type] : undefined;
+  if (!module) return `An auto-posting template of type ${type} has no Approve permission to check, so it is refused.`;
+  return (await mayApprove(companyId, userId, module)) ? null : approveRefusedMessage(module, AUTO_POST_WHAT[type]!);
 }
 
 /**
  * An update is judged on the STORED template (breaker R2-C): its entity type always (the update
  * service never changes it, so a body's entityType decides nothing), and its auto_post unless the
- * body sets one. null when this company has no such template.
+ * body sets one. null when this company has no such template. The row is locked FOR UPDATE in the
+ * request transaction (withAuth) and held through the update (#1670 Codex): an approver who turns
+ * auto_post on meanwhile is either seen here or waits for this edit, never lands between them.
  */
-async function storedTemplateFlags(companyId: string, id: string): Promise<{ type: string; autoPost: boolean } | null> {
+async function lockStoredTemplateFlags(companyId: string, id: string): Promise<{ type: string; autoPost: boolean } | null> {
   const rows = await sql`
     SELECT entity_type, auto_post FROM recurring_transaction_templates
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
   ` as Array<{ entity_type: string; auto_post: boolean }>;
   return rows[0] ? { type: rows[0].entity_type, autoPost: rows[0].auto_post } : null;
 }
@@ -88,9 +96,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'name, entityType, templateData, and frequency are required');
     }
     const userId = req.user.id;
-    if (await refusesAutoPostBills(companyId, userId, entityType, autoPost)) {
-      return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
-    }
+    const refused = await autoPostRefusal(companyId, userId, entityType, autoPost);
+    if (refused) return apiResponse.forbidden(res, refused);
     try {
       const item = await createRecurringTemplate(companyId, userId, {
         name,
@@ -113,12 +120,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { id, ...updates } = req.body as { id?: string; [key: string]: unknown };
     if (!id) return apiResponse.badRequest(res, 'id is required');
     if (!isUuidParam(id)) return apiResponse.notFound(res, 'Recurring template');
-    const stored = await storedTemplateFlags(companyId, id);
+    const stored = await lockStoredTemplateFlags(companyId, id);
     if (!stored) return apiResponse.notFound(res, 'Recurring template');
-    // Any edit of a template that will approve bills (stored type; the body's autoPost, else the stored one).
-    if (await refusesAutoPostBills(companyId, req.user.id, stored.type, updates.autoPost ?? stored.autoPost)) {
-      return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
-    }
+    // Any edit of a template that will post (stored type; the body's autoPost, else the stored one).
+    const refused = await autoPostRefusal(companyId, req.user.id, stored.type, updates.autoPost ?? stored.autoPost);
+    if (refused) return apiResponse.forbidden(res, refused);
     delete updates.entityType; // never changed by the update (the service ignores it); not trusted either
     try {
       const item = await updateRecurringTemplate(
