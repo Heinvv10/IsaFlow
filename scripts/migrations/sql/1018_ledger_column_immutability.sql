@@ -95,10 +95,11 @@
 -- journal with an arbitrary source / description (createJournalEntry serves ~60 callers as the same login); a draft or
 -- pending document set to 'approved' without a link (AR approve writes status before it posts and links; AP can approve
 -- with a NULL link: provisional bank-first, legacy rows); an approved document linked to a journal the caller posted
--- itself with the right source; a legacy invoice or bill cancelled before this migration (its link cleared, no
--- document_cancelled_at) whose chain is re-reversed; a legacy cancelled credit note, deleted, then re-reversed. The reversal and the link rules above
--- are what a consumer of the chain or the link should trust, not source. Rows already in the database are judged when
--- next written (no scan, no backfill).
+-- itself with the right source; a legacy invoice or bill cancelled before this migration whose approval journal the
+-- backfill (end of file) cannot identify without doubt (its count is raised as a NOTICE) and whose chain is then
+-- re-reversed. The reversal and the link rules above are what a consumer of the chain or the link should trust, not
+-- source. Rows already in the database are judged when next written; the one scan is the backfill of
+-- document_cancelled_at for documents cancelled before this migration.
 --
 -- OLD COLOUR (the release before this one, against this schema). Every writer above is unchanged: reverseJournalEntry
 -- claims (reversed_at), creates and posts the contra, then links it; approve posts then links; cancel reverses then
@@ -107,6 +108,8 @@
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
 -- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
+-- The backfill (end of file) switches trg_gl_je_document_cancel_kept off and on (SHARE ROW EXCLUSIVE, as above) and
+-- scans the cancelled invoices and bills once; every lock is held to the migration's COMMIT, as the trigger DDL's are.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_no_insert ON public.gl_journal_entries;
@@ -177,8 +180,13 @@ BEGIN
 END
 $$;
 
--- The two journals' lines are exact negations: one multiset of (account, debit, credit) equals the other with debit and
--- credit swapped, none left over on either side, and the first has a line. Both sides read as the caller.
+-- The two journals' lines are exact negations: one multiset of (account, VAT type, debit, credit) equals the other with
+-- debit and credit swapped, none left over on either side, and the first has a line. Both sides read as the caller.
+-- vat_type is in the comparison (round 8): it picks the VAT201 box, and the reversal writer copies it untouched
+-- (gl/reversalLines). The dimensions (project_id, cc1_id, cc2_id, bu_id) are NOT: the writer drops a foreign legacy
+-- tag on the contra by design (K-051), totals and VAT tie without them, and comparing them would make such a journal
+-- unreversable. cost_center_id (legacy, unread), description, source_document_line_id and late_claim_base (copied
+-- after the link, vatLateClaimBasis) do not move a figure.
 CREATE OR REPLACE FUNCTION public.gl_lines_are_negation(p_contra uuid, p_original uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -187,13 +195,13 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (SELECT 1 FROM public.gl_journal_lines WHERE journal_entry_id = p_contra)
      AND NOT EXISTS (
-       (SELECT gl_account_id, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
+       (SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
         EXCEPT ALL
-        SELECT gl_account_id, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
+        SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
      AND NOT EXISTS (
-       (SELECT gl_account_id, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
+       (SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
         EXCEPT ALL
-        SELECT gl_account_id, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
+        SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
 $$;
 
 -- The chain from the journal down is one line (no journal has two contras) of fewer than 64 journals: the shape a new
@@ -472,17 +480,27 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
-    RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to stays reversed' USING ERRCODE = '23514';
+  -- Round 8 F4: the attribution of a reversal is kept, each field on its own. Once a contra links to this journal,
+  -- reversed_at and reversed_by do not change at all (the claim sets them, and the release clears them, only before
+  -- any contra exists). Once the journal is linked either way, posted_at and posted_by do not change (both are written
+  -- by the post itself, draft -> posted, before any link).
+  IF (NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by)
+     AND EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when' USING ERRCODE = '23514';
+  END IF;
+  IF (NEW.posted_at IS DISTINCT FROM OLD.posted_at OR NEW.posted_by IS DISTINCT FROM OLD.posted_by)
+     AND public.gl_journal_is_linked(OLD.id) THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal linked as a reversal keeps who posted it and when' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END
 $$;
 
 CREATE OR REPLACE TRIGGER trg_gl_je_reversed_at_release
-  BEFORE UPDATE OF reversed_at ON public.gl_journal_entries
+  BEFORE UPDATE OF reversed_at, reversed_by, posted_at, posted_by ON public.gl_journal_entries
   FOR EACH ROW
-  WHEN (OLD.reversed_at IS NOT NULL AND NEW.reversed_at IS NULL)
+  WHEN (NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by
+        OR NEW.posted_at IS DISTINCT FROM OLD.posted_at OR NEW.posted_by IS DISTINCT FROM OLD.posted_by)
   EXECUTE FUNCTION public.gl_je_reversed_at_release();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_reversed_at_release;
 
@@ -575,8 +593,9 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_linked_set_frozen
   FOR EACH ROW EXECUTE FUNCTION public.gl_jl_linked_set_frozen();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_linked_set_frozen;
 
--- A line's account may move on a linked journal only while the pair is still an exact negation at COMMIT: an account
--- merge moves both sides in one transaction and passes, one side alone is refused. Deferred, once per changed line.
+-- A line's account or VAT type may move on a linked journal only while the pair is still an exact negation at COMMIT:
+-- an account merge moves both sides in one transaction and passes, one side alone is refused. Deferred, once per changed
+-- line, under the journal's advisory key (round 8 F1).
 -- Both neighbours of the line's journal: the journal it reverses and every contra reversing it (in R of O <- R <- R2,
 -- R against O and R2 against R), so moving O and R together leaves R2 refused.
 CREATE OR REPLACE FUNCTION public.gl_jl_linked_account_check()
@@ -590,6 +609,11 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
+  -- Round 8: serialise with a reversal link of this journal (gl_je_reversal_link takes the same key for the contra, the
+  -- journal reversed and the root), then read at READ COMMITTED: a link that committed while this change was open is
+  -- seen, and a link still open waits for this check to commit, then reads the changed lines.
+  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.journal_entry_id));
   SELECT e.reversal_of_id INTO v_original FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id;
   IF (v_original IS NOT NULL AND NOT public.gl_lines_are_negation(NEW.journal_entry_id, v_original))
      OR EXISTS (SELECT 1 FROM public.gl_journal_entries c
@@ -604,13 +628,16 @@ $$;
 
 DO $$
 BEGIN
+  -- A constraint trigger has no CREATE OR REPLACE: (re)create it unless it already carries this definition (vat_type).
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
-                  WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_linked_account_check') THEN
+                  WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_linked_account_check'
+                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%vat_type%') THEN
+    DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
     CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check
-      AFTER UPDATE OF gl_account_id ON public.gl_journal_lines
+      AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW
-      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id)
+      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR OLD.vat_type IS DISTINCT FROM NEW.vat_type)
       EXECUTE FUNCTION public.gl_jl_linked_account_check();
   END IF;
 END
@@ -971,3 +998,69 @@ CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
   EXECUTE FUNCTION public.doc_delete_in_force();
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
+
+-- ── backfill: the journals of documents cancelled before this migration (round 8 F3) ──────────────────────────────
+--
+-- Rule 1 reads document_cancelled_at, which only a cancel from here on writes. A document cancelled before 1018 is
+-- found by state, and only where the state says so without doubt:
+--   (a) EXACT: a cancelled document that still links its journal (every credit-note cancel; an invoice or bill whose
+--       cancel never cleared the link, the "old colour" legacy).
+--   (b) BY IDENTITY: the invoice and bill cancels clear the link, so the journal is found by what approve wrote on it
+--       and rule 2 has frozen since: its company, its source and its description, which name the document's number
+--       ('auto_invoice' / 'Customer invoice <n>', 'auto_supplier_invoice' / 'Supplier invoice <n>', and the take-on
+--       imports' 'auto_migration' / 'Take-on AR|AP invoice <n>'). Only a ROOT journal (no reversal_of_id), posted,
+--       OUT of force (the cancel's reversal took it out), held by no document, matched by exactly ONE cancelled
+--       unlinked document of that company and matching only that one: a bill number is unique per supplier, not per
+--       company, so two bills with one number match nothing.
+-- Writes document_cancelled_at only (no amount, no status, no link); idempotent (only NULL stamps); the count of each
+-- kind and of the ambiguous ones skipped is raised as a NOTICE. The stamp trigger refuses a direct write, so it is
+-- switched off for this statement only (this migration's role owns the table).
+DO $$
+DECLARE
+  v_held bigint;
+  v_by_identity bigint;
+  v_ambiguous bigint;
+BEGIN
+  ALTER TABLE public.gl_journal_entries DISABLE TRIGGER trg_gl_je_document_cancel_kept;
+
+  UPDATE public.gl_journal_entries e SET document_cancelled_at = now()
+   WHERE e.document_cancelled_at IS NULL
+     AND e.id IN (SELECT gl_journal_entry_id FROM public.credit_notes WHERE status = 'cancelled' AND gl_journal_entry_id IS NOT NULL
+                  UNION SELECT gl_journal_entry_id FROM public.customer_invoices WHERE status = 'cancelled' AND gl_journal_entry_id IS NOT NULL
+                  UNION SELECT gl_journal_entry_id FROM public.supplier_invoices WHERE status = 'cancelled' AND gl_journal_entry_id IS NOT NULL);
+  GET DIAGNOSTICS v_held = ROW_COUNT;
+
+  CREATE TEMP TABLE ledger_1018_cancel_candidates ON COMMIT DROP AS
+    SELECT d.doc, e.id AS je
+      FROM (SELECT ci.id AS doc, ci.company_id, ci.invoice_number,
+                   ARRAY['auto_invoice|Customer invoice ' || ci.invoice_number,
+                         'auto_migration|Take-on AR invoice ' || ci.invoice_number] AS keys
+              FROM public.customer_invoices ci WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
+            UNION ALL
+            SELECT si.id, si.company_id, si.invoice_number,
+                   ARRAY['auto_supplier_invoice|Supplier invoice ' || si.invoice_number,
+                         'auto_migration|Take-on AP invoice ' || si.invoice_number]
+              FROM public.supplier_invoices si WHERE si.status = 'cancelled' AND si.gl_journal_entry_id IS NULL) d
+      JOIN public.gl_journal_entries e
+        ON e.company_id = d.company_id AND (e.source || '|' || e.description) = ANY (d.keys)
+     WHERE e.reversal_of_id IS NULL AND e.status IN ('posted', 'reversed') AND e.document_cancelled_at IS NULL
+       AND NOT public.gl_journal_in_force(e.id)
+       AND NOT EXISTS (SELECT 1 FROM public.customer_invoices x WHERE x.gl_journal_entry_id = e.id)
+       AND NOT EXISTS (SELECT 1 FROM public.supplier_invoices x WHERE x.gl_journal_entry_id = e.id)
+       AND NOT EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.gl_journal_entry_id = e.id);
+
+  UPDATE public.gl_journal_entries e SET document_cancelled_at = now()
+   WHERE e.id IN (SELECT c.je FROM ledger_1018_cancel_candidates c
+                   WHERE (SELECT count(*) FROM ledger_1018_cancel_candidates c2 WHERE c2.doc = c.doc) = 1
+                     AND (SELECT count(*) FROM ledger_1018_cancel_candidates c3 WHERE c3.je = c.je) = 1);
+  GET DIAGNOSTICS v_by_identity = ROW_COUNT;
+  SELECT count(DISTINCT c.je) INTO v_ambiguous FROM ledger_1018_cancel_candidates c
+   WHERE (SELECT count(*) FROM ledger_1018_cancel_candidates c2 WHERE c2.doc = c.doc) > 1
+      OR (SELECT count(*) FROM ledger_1018_cancel_candidates c3 WHERE c3.je = c.je) > 1;
+  DROP TABLE ledger_1018_cancel_candidates;
+
+  ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_cancel_kept;
+  RAISE NOTICE '1018 backfill: % journal(s) of a cancelled document that still links them, % found by approval identity, % ambiguous left unstamped',
+    v_held, v_by_identity, v_ambiguous;
+END
+$$;

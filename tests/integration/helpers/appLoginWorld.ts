@@ -9,8 +9,39 @@
  * the module registry so the services get a fresh `@/lib/neon` pool that logs in as isaflow_app.
  */
 import { randomUUID } from 'crypto';
-import { Pool } from 'pg';
+import { Client } from 'pg';
 import { vi } from 'vitest';
+
+const LOGIN_LOCK = 'ci:isaflow_app_login';
+
+/**
+ * The isaflow_app password, provisioned ONCE per cluster and shared (round 8): a role and its password are
+ * cluster-wide, so a suite that rotated it would cut off another suite's NEW connections on the same cluster (its open
+ * ones keep working). Kept in a superuser-only table of the cluster's `postgres` database (one per cluster, whichever
+ * database the suite routes to), under a session advisory lock, so the first caller sets it and every later or
+ * concurrent caller reads the same value. run.sh gives each shard its own cluster copy; this makes two suites on ONE
+ * cluster safe too (a local run, a second vitest beside a gate).
+ */
+export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
+  const admin = new URL(fixtureUrl);
+  admin.pathname = '/postgres';
+  const c = new Client({ connectionString: admin.toString() });
+  await c.connect();
+  try {
+    await c.query('SELECT pg_advisory_lock(hashtext($1))', [LOGIN_LOCK]);
+    await c.query('CREATE TABLE IF NOT EXISTS public.ci_isaflow_app_login (password text NOT NULL)');
+    await c.query('REVOKE ALL ON public.ci_isaflow_app_login FROM PUBLIC');
+    const { rows } = await c.query<{ password: string }>('SELECT password FROM public.ci_isaflow_app_login LIMIT 1');
+    if (rows[0]) return rows[0].password;
+    const password = randomUUID();
+    await c.query(`ALTER ROLE isaflow_app LOGIN PASSWORD '${password}'`);
+    await c.query('INSERT INTO public.ci_isaflow_app_login (password) VALUES ($1)', [password]);
+    return password;
+  } finally {
+    await c.query('SELECT pg_advisory_unlock(hashtext($1))', [LOGIN_LOCK]).catch(() => undefined);
+    await c.end();
+  }
+}
 
 export interface AppWorld {
   /** A fresh import of a module, bound to the isaflow_app pool. */
@@ -24,10 +55,7 @@ export interface AppWorld {
 
 export async function appLoginWorld(): Promise<AppWorld> {
   const fixtureUrl = process.env.DATABASE_URL!;
-  const su = new Pool({ connectionString: fixtureUrl, max: 1 });
-  const password = randomUUID();
-  await su.query(`ALTER ROLE isaflow_app LOGIN PASSWORD '${password}'`);
-  await su.end();
+  const password = await provisionAppLogin(fixtureUrl);
   const url = new URL(fixtureUrl);
   url.username = 'isaflow_app';
   url.password = password;
