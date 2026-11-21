@@ -79,16 +79,18 @@ describeIfDb('dashboard attention list: pay runs anchored on the current period'
       await journal(co, add(-5), acc.bank, acc.capital, 1000);
     }
     await pool.query(
-      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status,total_net,total_paye)
-       VALUES($1,$6,2020,1,'approved',40000,10000),
-             ($2,$6,$8,$9,'draft',0,0),
-             ($3,$6,$10,$11,'approved',300,100),
-             ($4,$6,$12,$9,'calculated',0,0),
-             ($5,$7,$8,$9,'draft',0,0)`,
+      // An approved run carries its approval time (final, payRunFinalSql): only a final run past its pay date has been
+      // paid (owner cash position, review #1679 M3).
+      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status,total_net,total_paye,approved_at)
+       VALUES($1,$6,2020,1,'approved',40000,10000,now()),
+             ($2,$6,$8,$9,'draft',0,0,NULL),
+             ($3,$6,$10,$11,'approved',300,100,now()),
+             ($4,$6,$12,$9,'calculated',0,0,NULL),
+             ($5,$7,$8,$9,'draft',0,0,NULL)`,
       [RUN.old, RUN.now, RUN.prev, RUN.future, RUN.other, C, D, T_YEAR, T_MONTH, P_YEAR, P_MONTH, T_YEAR + 2]);
     await pool.query(
-      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status,total_net,total_paye)
-       VALUES($1,$3,$6,$7,'approved',300,100),($2,$3,$4,$5,'approved',4000,1000)`,
+      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status,total_net,total_paye,approved_at)
+       VALUES($1,$3,$6,$7,'approved',300,100,now()),($2,$3,$4,$5,'approved',4000,1000,now())`,
       [RUN.ePrev, RUN.eNow, E, T_YEAR, T_MONTH, P_YEAR, P_MONTH]);
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
