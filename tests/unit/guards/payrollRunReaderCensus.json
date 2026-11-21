@@ -611,9 +611,9 @@
    {"line":47,"text":"FROM payroll_run_headers pr","class":"S","owner":"FQb2","why":"list of open runs"}
   ],
   "src/modules/bureau/services/ownerCashPositionService.ts": [
-   {"line":164,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final","class":"S","owner":"OC","why":"each open run's own finality (payRunFinalSql, review #1679 M3): only a final run past its pay date counts as paid"},
-   {"line":165,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
-   {"line":169,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+   {"line":187,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,","class":"S","owner":"OC","why":"each open run's own finality (payRunFinalSql, review #1679 M3): only a final run past its pay date counts as paid"},
+   {"line":190,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
+   {"line":194,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
    {"line":33,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the run being reopened, by id"},
