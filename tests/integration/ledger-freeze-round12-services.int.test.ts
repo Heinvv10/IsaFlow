@@ -77,6 +77,11 @@ describeIfDisposable('ledger column immutability, round 12: services as the prod
       const { mergeAccounts } = await world.load(() => import('@/modules/accounting/services/gl/accountMergeService'));
       const merging = settle(world.run(who, () => mergeAccounts(z.f.fx.companyId, source, target, z.f.fx.userId)));
       await new Promise((r) => setTimeout(r, 1500));
+      // The merge waits for LOW's key in its up-front, sorted key statement, before it moves a line (not at COMMIT,
+      // in the deferred checks, holding whichever keys its line order reached first).
+      const waiting = (await sql`SELECT query FROM pg_stat_activity
+        WHERE usename = ${FIXTURE_LOGIN} AND wait_event_type = 'Lock' AND wait_event = 'advisory'`) as Row[];
+      expect(waiting.map((w) => String(w.query))).toEqual([expect.stringMatching(/SELECT pg_advisory_xact_lock\(public\.ledger_link_key\(j\.id\)\)/)]);
       const second = settle(link.query('SELECT pg_advisory_xact_lock(public.ledger_link_key($1))', [high]));
       expect(await second).toBe('ACCEPTED');
       await link.query('COMMIT');
