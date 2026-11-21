@@ -140,6 +140,30 @@ describe('a PO line naming a catalogue item only (Codex gate at 4840b1a6, major)
     expect(text.split('\n').find((l) => l.includes(`I-${tag}`))).toContain(',item,');
   });
 
+  it('a line naming ANOTHER company\'s item is not shown, even to a user of both companies', async () => {
+    const id = crypto.randomUUID();
+    items.push(id);
+    await pool.query('INSERT INTO items (id, company_id, code, description) VALUES ($1, $2, $3, $4)', [id, other.co, `X-${id.slice(0, 4)}`, 'Theirs']);
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 5, price: 1 }] });
+    // 1005's po_items_item_company refuses this row; forged with it off (one transaction) to prove the report's own check.
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE po_items DISABLE TRIGGER po_items_item_company');
+      await c.query('UPDATE po_items SET item_id = $2, product_id = NULL WHERE id = $1', [po.items[0], id]);
+      await c.query('ALTER TABLE po_items ENABLE TRIGGER po_items_item_company');
+      await c.query('COMMIT');
+    } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+    const r = await callTool(pool, f, create, grnArgs(po, [[0, 1]]));
+    expect(r.isError, r.text).toBe(false);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [other.co, f.owner]);
+    try {
+      for (const query of [{}, { item_id: id }]) {
+        expect((await report(query)).filter((m) => m.reference === String(r.body.grn_number)), JSON.stringify(query)).toEqual([]);
+      }
+    } finally { await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]); }
+  });
+
   it('a line naming both a product and an item is keyed by the product', async () => {
     const tag = crypto.randomUUID().slice(0, 4);
     const prod = await product(`PB-${tag}`);
