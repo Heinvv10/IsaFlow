@@ -24,7 +24,7 @@ describeIfDisposable('ledger column immutability, round 11: the fixtures (migrat
     const admin = new URL(url); admin.pathname = '/postgres';
     const c = new Client({ connectionString: admin.toString() });
     await c.connect();
-    try { await c.query('DELETE FROM public.ci_isaflow_app_login'); } finally { await c.end(); } // force a provisioning
+    try { await c.query('DROP TABLE IF EXISTS public.ci_isaflow_app_login'); } finally { await c.end(); } // force a provisioning
     const password = await provisionAppLogin(url);
     expect(await appPassword()).toEqual(before);
     const login = new URL(url); login.username = FIXTURE_LOGIN; login.password = password;
