@@ -18,6 +18,7 @@
  * Pure. The earlier lines are read by payrollOffCycleMonthRead.ts.
  */
 import type { EmployeeComponent, UifResult } from './payrollTypes';
+import type { EmploymentClassification } from './employmentTerms';
 import { getTaxYearConfig } from './taxTables';
 import { UIF_RATE } from './uifEngine';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -37,9 +38,22 @@ export interface MonthEarlierLines {
   etiComponents: EmployeeComponent[];
   /** Gross pay of earlier lines whose breakdown rebuilds no earning (an imported line): their ETI base is unknown. */
   unrebuiltPay?: number;
+  /**
+   * An earlier line costed before the onceOff marker whose once-off basic pay could not be told from its recurring pay
+   * (gate ruling 1 on e0eec1dea1): its own class as stored (flat: PAYE outside the tables at 25%), which the off-cycle
+   * line takes rather than reclassifying.
+   */
+  storedClass?: 'flat' | 'tables';
 }
 
 export const NO_EARLIER_LINES: MonthEarlierLines = { uifRemuneration: 0, eti: 0, etiComponents: [] };
+
+/** The class of the month's regular line as stored (storedClass), as the classifier states one. */
+export function storedClassification(stored: 'flat' | 'tables'): EmploymentClassification {
+  return stored === 'flat'
+    ? { kind: 'non_standard_flat', reason: 'Classified as the month\'s regular line was: non-standard employment (G21 p. 28).', hoursNotRecorded: false }
+    : { kind: 'standard', reason: 'Classified as the month\'s regular line was: taxed on the tables.', hoursNotRecorded: false };
+}
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 

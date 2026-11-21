@@ -14,6 +14,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql } from './payrollRunOrder';
+
+/** The calculation version whose lines carry the breakdown's onceOff marker (eb1c7badc5); older lines do not. */
+const ONCE_OFF_MARKER_VERSION = 20;
 import type { MonthEarlierLines } from './payrollOffCycleMonth';
 import type { ComponentBreakdownItem, EmployeeComponent } from './payrollTypes';
 
@@ -45,9 +48,19 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
   if (employeeIds.length === 0) return new Map();
   const rows = (await sql`
     SELECT l.employee_id, l.gross_pay, l.eti, l.uif_employee, l.uif_employer,
+           COALESCE(o.calculation_version, 0) < ${ONCE_OFF_MARKER_VERSION} AS historic,
+           COALESCE(l.validation_results @> '[{"code": "PAYE_OUTSIDE_TABLES", "treatment": "flat_25"}]'::jsonb, false) AS flat,
            COALESCE((
              SELECT jsonb_agg(item || jsonb_build_object('isEarning',
-                      pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%'))
+                      pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%',
+                      -- A line before the marker: the item's assignment, the one of its component and amount active over
+                      -- the month (gate ruling 1); null when none or several match.
+                      'assignmentRecurring', (
+                        SELECT CASE WHEN count(*) = 1 THEN bool_and(ec.is_recurring) END
+                          FROM payroll_employee_components ec
+                         WHERE ec.employee_id = l.employee_id AND ec.component_id::text = item->>'componentId'
+                           AND ec.amount = (item->>'amount')::numeric
+                           AND ec.effective_from <= o.period_end AND (ec.effective_to IS NULL OR ec.effective_to >= o.period_start))))
                FROM jsonb_array_elements(l.component_breakdown) AS item
                LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = me.company_id
            ), '[]'::jsonb) AS items
@@ -64,7 +77,16 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
   const out = new Map<string, MonthEarlierLines>();
   for (const r of rows) {
     const id = String(r.employee_id);
-    const items = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>;
+    const raw = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean; assignmentRecurring?: boolean | null }>;
+    // A line before the onceOff marker (gate ruling 1 on e0eec1dea1): each unflagged basic pay item takes its
+    // assignment's kind; one that cannot be recovered leaves the line's class as stored.
+    let unrecovered = false;
+    const items = r.historic !== true ? raw : raw.map((i) => {
+      if (i.isEarning !== true || i.onceOff || i.sarsSourceCode?.trim() !== '3601') return i;
+      if (i.assignmentRecurring === false) return { ...i, onceOff: true as const };
+      if (i.assignmentRecurring !== true) unrecovered = true;
+      return i;
+    });
     const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 0, uifEmployer: 0 };
     const earnings = earningsOfBreakdown(items);
     out.set(id, {
@@ -76,6 +98,7 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
       etiComponents: [...had.etiComponents, ...earnings],
       // A line that paid but whose breakdown rebuilds no earning (an import): the month's ETI base cannot be told.
       unrebuiltPay: round2((had.unrebuiltPay ?? 0) + (earnings.length === 0 ? Math.max(0, n(r.gross_pay)) : 0)),
+      ...(unrecovered || had.storedClass ? { storedClass: had.storedClass === 'flat' || (unrecovered && r.flat === true) ? 'flat' as const : 'tables' as const } : {}),
     });
   }
   return out;

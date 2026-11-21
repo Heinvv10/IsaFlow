@@ -9,7 +9,6 @@ import { explainPayrollLine } from './payrollExplain';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
-import { classifyEmployment, timeWorkedEarnings } from './employmentTerms';
 import { cadenceTermsOf } from './payrollLineCadence';
 import { etiMonthPartsOf, pendingEti } from './payrollLineEtiMonth';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
@@ -19,6 +18,7 @@ import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { overtimeThresholdWarnings, PERIODS_A_YEAR, splitTravelRows } from './payrollRunInputUnits';
 import { costLineEti } from './payrollLineEti';
 import { OffCycleEtiBasisError, offCycleEti, offCycleEtiRefusal } from './payrollOffCycleMonth';
+import { lineClassification } from './payrollLineClassification';
 import { costLineUif } from './payrollLineUif';
 import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
@@ -90,9 +90,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
   // stays out of every later table month's base.
   const cadence = cadenceTermsOf(input); // wave 6 FQc: weekly and fortnightly (payrollLineCadence)
-  // An off-cycle line is classified on the month's time-worked earnings, its earlier lines' included (gate ruling 2).
-  const timeWorked = timeWorkedEarnings(components) + (input.monthEarlier ? timeWorkedEarnings(input.monthEarlier.etiComponents) : 0);
-  const classification = classifyEmployment(employee, taxYear, cadence.dayPay(timeWorked));
+  // Off-cycle: on the month's time-worked pay, or a historical regular line's stored class (payrollLineClassification).
+  const classification = lineClassification({ employee, taxYear, components, monthEarlier: input.monthEarlier, dayPay: cadence.dayPay });
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
   const psp = pspFacts(employee, taxYear); // a personal service provider's entity and rate (wave 6 PSP), else null
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.

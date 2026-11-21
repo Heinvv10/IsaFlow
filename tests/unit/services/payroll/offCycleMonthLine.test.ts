@@ -291,3 +291,19 @@ describe('the employment class across the month: a once-off basic pay item does 
     expect(bonus.paye.monthlyPaye).not.toBeCloseTo(2_500, 2);
   });
 });
+
+// Gate ruling 1 on e0eec1dea1: a regular line costed before the onceOff marker whose once-off pay cannot be told from
+// its recurring pay (payrollOffCycleMonthRead: storedClass) is not reclassified: the bonus takes that line's class.
+describe('a historical regular line that cannot be rebuilt: its stored class (review of e0eec1dea1)', () => {
+  const partTime = employee({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 300 });
+  const treatmentOf = (l: ReturnType<typeof regularLine>) => l.explanations.paye.steps.find((s) => s.key === 'paye.treatment')?.label;
+  it('stored on the tables: the bonus is on the tables, whatever the rebuilt earnings say', () => {
+    const month = [earning('basic', '3601', 3_033), earning('overtime', '3607', 1_517)]; // R450 a day if all counted
+    const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'tables' }, undefined, partTime);
+    expect(treatmentOf(bonus)).toMatch(/Taxed on the SARS tables/);
+  });
+  it('stored as flat: the bonus is non-standard too', () => {
+    const bonus = bonusLine(10_000, { uifRemuneration: 3_033, eti: 0, etiComponents: [earning('basic', '3601', 3_033)], storedClass: 'flat' }, undefined, partTime);
+    expect(treatmentOf(bonus)).toMatch(/Non-standard employment/);
+  });
+});

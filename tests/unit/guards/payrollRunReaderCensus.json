@@ -623,8 +623,9 @@
    {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS-style: any calculated-or-later regular MONTHLY run of the month paid on or before the off-cycle pay date (review #1575 carry 1); the 999a regular-period key allows one, and ORDER BY + LIMIT 1 only names the earliest pay date in the refusal"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
-   {"line":51,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},
-   {"line":52,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a sum over the month's final runs of the same frequency BEFORE this run in pay order (runOrderKeySql): every earlier run counts, whatever their number"}
+   {"line":60,"text":"FROM payroll_employee_components ec","class":"S","owner":"OC","why":"gate ruling 1 on e0eec1dea1: a historical earlier line's basic pay item's assignment (that employee, component and amount, active over the month), read for its is_recurring only"},
+   {"line":67,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},
+   {"line":68,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a sum over the month's final runs of the same frequency BEFORE this run in pay order (runOrderKeySql): every earlier run counts, whatever their number"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleRun.ts": [
    {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR UPDATE"},
