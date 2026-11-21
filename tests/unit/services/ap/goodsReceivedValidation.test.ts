@@ -18,6 +18,9 @@ describe('parseGoodsReceived requires quantityReceived on every line (review of 
     ['omitted', { quantityRejected: 2 }],
     ['null', { quantityReceived: null, quantityRejected: 2 }],
     ['empty', { quantityReceived: '', quantityRejected: 2 }],
+    // Whitespace only is missing too, not Number('  ') = 0 (Codex gate at 4840b1a6, nit 2).
+    ['whitespace only', { quantityReceived: '  ', quantityRejected: 2 }],
+    ['a tab and a newline', { quantityReceived: '\t\n', quantityRejected: 2 }],
   ])('refuses it %s, typed, even on a rejection-only line', (_, line) => {
     const err = refusal(line);
     expect(err).toBeInstanceOf(GoodsReceivedError);

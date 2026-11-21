@@ -57,8 +57,13 @@ function id(value: unknown): string {
 /** grn_items.quantity_received / quantity_rejected are NUMERIC(15,2): above this the insert would fail 22003 (round 5 nit). */
 export const GRN_QUANTITY_MAX = 9999999999999.99;
 
+/** Not given: undefined, null, or a string of whitespace only (Number('  ') is 0, which is not a count; Codex gate at 4840b1a6, nit 2). */
+export function quantityMissing(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
 function quantity(value: unknown): number {
-  if (value === undefined || value === null || value === '') return 0;
+  if (quantityMissing(value)) return 0;
   if (typeof value !== 'number' && typeof value !== 'string') throw new GoodsReceivedError('Invalid quantity');
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || Math.round(number * 100) / 100 !== number
@@ -87,7 +92,7 @@ export function parseGoodsReceived(input: unknown, userId: string): GRNInput & {
     const item = record(value);
     // Required on every line, for the app POST as for the tool (review of fba543d5, finding 2): an omitted count is not a count of
     // zero; an explicit 0 (every unit rejected) is accepted. quantityRejected may be omitted (none rejected).
-    if (item.quantityReceived === undefined || item.quantityReceived === null || item.quantityReceived === '') {
+    if (quantityMissing(item.quantityReceived)) {
       throw new GoodsReceivedError('Each line\'s received quantity is required (0 when every unit was rejected)');
     }
     const result = { poItemId: id(item.poItemId), quantityReceived: quantity(item.quantityReceived), quantityRejected: quantity(item.quantityRejected), notes: text(item.notes) };

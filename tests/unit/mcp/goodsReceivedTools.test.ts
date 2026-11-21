@@ -77,6 +77,8 @@ describe('create_goods_received', () => {
     // A rejection-only line still states its received count: omitted or null is not zero.
     [{ lines: [{ po_item_id: LINE, quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],
     [{ lines: [{ po_item_id: LINE, quantity_received: null, quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],
+    // Whitespace only is missing, not a malformed number (Codex gate at 4840b1a6, nit 2).
+    [{ lines: [{ po_item_id: LINE, quantity_received: '  ', quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],
     [{ external_system: 'fibreflow' }, 'external_system and external_ref go together'],
     // Measured lower case, as stored: 'İ' lowercases to two UTF-16 units, so 20 of them are 40 (the CHECK would answer a raw 500).
     [{ external_system: 'İ'.repeat(20), external_ref: 'x' }, 'external_system is longer than 32 characters'],
