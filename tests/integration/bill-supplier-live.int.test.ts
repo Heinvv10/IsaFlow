@@ -23,6 +23,7 @@ import billsRoute from '../../pages/api/accounting/supplier-invoices';
 import executeRoute from '../../pages/api/accounting/recurring-transactions-execute';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { SoftDeleteRefusalError } from '@/modules/accounting/services/core/softDeleteErrors';
+import { ensureDocumentNumbers } from '@/modules/accounting/services/core/companySettingsService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -161,3 +162,21 @@ describe('a recurring bill template naming a deleted supplier (review of b474139
     }
   });
 });
+
+describe('a REST create refused for a deleted supplier reserves no number (Codex gate at 1cf5bdc1, 2)', () => {
+  it('the refused create rolls its sequence number back: the next good create takes the very next number', async () => {
+    await ensureDocumentNumbers(f.co);
+    const items = [{ description: 'Goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: f.acc.opex }];
+    const post = (supplierId: string) => callRoute(billsRoute as never, f, f.owner, '/api/accounting/supplier-invoices',
+      { supplierId, useSequence: true, invoiceDate: '2026-06-15', items });
+    const first = await post(f.supplier);
+    expect(first.statusCode, JSON.stringify(first.body)).toBe(201);
+    const refused = await post(gone);
+    expect(refused.statusCode).toBe(400);
+    const second = await post(f.supplier);
+    expect(second.statusCode, JSON.stringify(second.body)).toBe(201);
+    const seq = (r: typeof first) => Number(String((r.body.data as { invoiceNumber: string }).invoiceNumber).match(/(\d+)$/)![1]);
+    expect(seq(second)).toBe(seq(first) + 1);
+  });
+});
+

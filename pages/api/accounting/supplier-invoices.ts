@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { withTransaction } from '@/lib/neon';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -86,28 +87,33 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // too; the service checks again under a lock.
     await assertBillGrn(companyId, grnId, { supplierId: String(supplierId), purchaseOrderId, items: safeItems });
 
-    // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
-    // was supplied, atomically reserve the next number from
-    // company_document_numbers (SIV sequence in Settings → Document Numbers).
-    let resolvedInvoiceNumber: string;
-    if (useSequence === true || !invoiceNumber || !String(invoiceNumber).trim()) {
-      resolvedInvoiceNumber = await reserveNextDocumentNumber(companyId, 'supplier_invoice');
-    } else {
-      resolvedInvoiceNumber = String(invoiceNumber).trim();
-    }
-
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
-    const invoice = await createSupplierInvoice(companyId, {
-      invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
-      invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
-      // Migration 962: only 'document' is meaningful from the page (a date the scan printed or its terms gave); else manual.
-      dueDateGivenAs: dueDateGivenAs === 'document' ? 'document' : undefined,
-      paymentTerms, reference, projectId, costCenterId, notes, items: safeItems,
-      currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
-      exchangeRate: exchangeRate ? Number(exchangeRate) : undefined,
-    }, userId);
+    // The number reservation and the create in ONE savepoint (Codex gate at 1cf5bdc1, 2): withAuth COMMITs the 400 below, so a refused
+    // create (a supplier soft-deleted meanwhile, a note cancelled under the hold, a duplicate) must take its reserved number back with
+    // it, or the SIV sequence has a gap.
+    const invoice = await withTransaction(async () => {
+      // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
+      // was supplied, atomically reserve the next number from
+      // company_document_numbers (SIV sequence in Settings → Document Numbers).
+      let resolvedInvoiceNumber: string;
+      if (useSequence === true || !invoiceNumber || !String(invoiceNumber).trim()) {
+        resolvedInvoiceNumber = await reserveNextDocumentNumber(companyId, 'supplier_invoice');
+      } else {
+        resolvedInvoiceNumber = String(invoiceNumber).trim();
+      }
+
+      return createSupplierInvoice(companyId, {
+        invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
+        invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
+        // Migration 962: only 'document' is meaningful from the page (a date the scan printed or its terms gave); else manual.
+        dueDateGivenAs: dueDateGivenAs === 'document' ? 'document' : undefined,
+        paymentTerms, reference, projectId, costCenterId, notes, items: safeItems,
+        currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
+        exchangeRate: exchangeRate ? Number(exchangeRate) : undefined,
+      }, userId);
+    });
 
     return apiResponse.created(res, invoice);
   } catch (err) {
