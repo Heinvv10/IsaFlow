@@ -61,10 +61,10 @@ const unlistedUuidBinds = (line: string) => [...line.matchAll(/\$\{([^}]*)\}\s*:
 /** file -> line -> exact trimmed text of every actor-column line in a file that names one of the tables. */
 const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}core/payRunApproverGuard.ts`]: {
-    97: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
-    101: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
-    102: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
-    130: 'const requester = request.requested_by.toLowerCase();',
+    100: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
+    104: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
+    105: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
+    133: 'const requester = request.requested_by.toLowerCase();',
   },
   [`${S}gl/approvalDocuments.ts`]: { 167: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
   [`${S}payroll/payRunDecision.ts`]: {
