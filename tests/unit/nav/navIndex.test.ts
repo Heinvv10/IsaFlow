@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { buildNavIndex, trailForPath } from '@/components/accounting/navSections/navIndex';
+import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { TABS } from '@/components/accounting/accountingNavConfig';
 import type { Tab } from '@/components/accounting/navSections/types';
 
 const find = (idx: ReturnType<typeof buildNavIndex>, href: string) => idx.find((e) => e.href === href);
 
 describe('buildNavIndex', () => {
-  const idx = buildNavIndex(TABS, true);
+  const idx = buildNavIndex(TABS, true, new Set(NAV_FLAGS));
 
   it('gives a section page its module and section as trail, label separate', () => {
     expect(find(idx, '/accounting/customer-invoices')).toMatchObject({
@@ -44,7 +45,7 @@ describe('buildNavIndex', () => {
   });
 
   it('hides VAT pages from a non-vendor', () => {
-    const non = buildNavIndex(TABS, false);
+    const non = buildNavIndex(TABS, false, new Set(NAV_FLAGS));
     expect(find(non, '/accounting/sars/vat201')).toBeUndefined();
     expect(find(idx, '/accounting/sars/vat201')).toBeDefined();
     expect(find(non, '/accounting/sars/emp201')).toBeDefined();
@@ -60,7 +61,7 @@ describe('buildNavIndex', () => {
 });
 
 describe('trailForPath', () => {
-  const idx = buildNavIndex(TABS, true);
+  const idx = buildNavIndex(TABS, true, new Set(NAV_FLAGS));
 
   it('returns the entry whose href owns the path', () => {
     expect(trailForPath('/accounting/customer-invoices', idx)?.label).toBe('Tax Invoices');
@@ -113,7 +114,7 @@ describe('trailForPath', () => {
 });
 
 describe('buildNavIndex aliases (W2 H)', () => {
-  const idx = buildNavIndex(TABS, true);
+  const idx = buildNavIndex(TABS, true, new Set(NAV_FLAGS));
 
   it('keeps a dropped duplicate label as an alias of the entry that owns the href', () => {
     expect(find(idx, '/accounting/reports/income-statement')?.aliases).toContain('Profit & Loss');
@@ -130,7 +131,7 @@ describe('buildNavIndex aliases (W2 H)', () => {
 });
 
 describe('Practice Generate Invoice entry', () => {
-  const idx = buildNavIndex(TABS, true);
+  const idx = buildNavIndex(TABS, true, new Set(NAV_FLAGS));
   it('opens the Generate Invoice form, not the WIP board with a query nothing reads', () => {
     expect(find(idx, '/accounting/practice/generate-invoice')?.label).toBe('Generate Invoice');
     expect(idx.some((e) => e.href.includes('action=invoice'))).toBe(false);

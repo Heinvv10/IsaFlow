@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { TABS } from '@/components/accounting/accountingNavConfig';
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { filterActions, PALETTE_ACTIONS } from '@/components/layout/commandActions';
 import { buildSections, pageResult, rankPages, type SearchResult } from '@/components/layout/paletteRank';
 
-const index = buildNavIndex(TABS, true);
+const index = buildNavIndex(TABS, true, new Set(NAV_FLAGS));
 const rec = (over: Partial<SearchResult>): SearchResult => ({
   type: 'customer', id: 'c1', title: 'Acme', subtitle: '', url: '/accounting/customers?id=c1', icon: 'users', ...over,
 });

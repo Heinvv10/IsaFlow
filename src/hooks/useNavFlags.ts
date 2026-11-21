@@ -1,16 +1,18 @@
 /**
- * The nav feature flags the active company has (`NAV_FLAGS`, budgets P6 spec §13.14), for `stripFlagNav`.
+ * What the nav may show the active company and user (`NAV_FLAGS`), for `stripFlagNav`: the company's feature flags
+ * (budgets P6 spec §13.14) and `moduleReadFlag(m)` for each module the user can read (Payroll).
  *
- * One `/api/features/check` per flag per company per page load, shared by every nav that asks (the top bar, the
- * drawer, the sidebar, the module bar and the command palette mount together). Until the answer arrives, when it
- * fails, and outside a CompanyProvider the set is EMPTY: a flagged link stays hidden rather than flashing up for a
- * company that cannot use it. A failed check is not cached, so the next mount asks again.
+ * One `/api/features/check` per feature flag and one `/api/accounting/my-permissions` per company per page load,
+ * shared by every nav that asks (the top bar, the drawer, the sidebar, the module bar and the command palette mount
+ * together). Until the answers arrive, when either fails, and outside a CompanyProvider the set is EMPTY: a flagged
+ * link and a module the user may not read stay hidden rather than flashing up and out. A failed check is not
+ * cached, so the next mount asks again.
  */
 import { useEffect, useState } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
+import { FEATURE_NAV_FLAGS, moduleReadFlag, NAV_MODULES } from '@/components/accounting/navSections/flagNav';
 
 const NONE: ReadonlySet<string> = new Set();
 const resolved = new Map<string, ReadonlySet<string>>();
@@ -23,20 +25,31 @@ async function checkFlag(code: string): Promise<boolean> {
   return json.data?.enabled === true;
 }
 
+/** The `moduleReadFlag`s of the `NAV_MODULES` the signed-in user can read in the active company. */
+async function readableModuleFlags(): Promise<string[]> {
+  const res = await apiFetch('/api/accounting/my-permissions');
+  await assertOk(res, 'Could not check which modules this user can read');
+  const json = (await res.json()) as { data?: { modules?: Record<string, { read?: unknown } | undefined> } };
+  return NAV_MODULES.filter((m) => json.data?.modules?.[m]?.read === true).map(moduleReadFlag);
+}
+
 /** The company's enabled nav flags (cached per company for the page's life). */
 export function loadNavFlags(companyId: string): Promise<ReadonlySet<string>> {
   const done = resolved.get(companyId);
   if (done) return Promise.resolve(done);
   const pending = inFlight.get(companyId);
   if (pending) return pending;
-  const p = Promise.all(NAV_FLAGS.map(async (code) => ((await checkFlag(code)) ? code : null)))
-    .then((codes) => {
-      const set: ReadonlySet<string> = new Set(codes.filter((c): c is string => c !== null));
+  const p = Promise.all([
+    Promise.all(FEATURE_NAV_FLAGS.map(async (code) => ((await checkFlag(code)) ? code : null))),
+    readableModuleFlags(),
+  ])
+    .then(([codes, modules]) => {
+      const set: ReadonlySet<string> = new Set([...codes.filter((c): c is string => c !== null), ...modules]);
       resolved.set(companyId, set);
       return set;
     })
     .catch((error: unknown) => {
-      log.warn('nav feature flags unavailable; flagged links stay hidden', { error: String(error) }, 'useNavFlags');
+      log.warn('nav flags unavailable; flagged links and modules the user may not read stay hidden', { error: String(error) }, 'useNavFlags');
       return NONE;
     })
     .finally(() => inFlight.delete(companyId));
