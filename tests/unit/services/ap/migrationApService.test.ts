@@ -180,3 +180,20 @@ describe('importAPInvoices — R-119: a swapped LEG passes the drift check and m
     expect(mockCreateJournalEntry).not.toHaveBeenCalled();
   });
 });
+
+describe('importAPInvoices — a held row or a deadlock victim on a row (#1699 breaker L5)', () => {
+  it('reports the row as retryable in the neutral wording, never the driver text, and goes on', async () => {
+    mockSql.mockReset(); // clearAllMocks keeps an earlier test's unused once-values
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
+      .mockRejectedValueOnce(Object.assign(new Error('deadlock detected on relation supplier_invoices'), { code: '40P01' }));
+
+    const result = await importAPInvoices(COMPANY_ID, SESSION_ID, [invoiceRow], USER_ID);
+
+    expect(result.imported).toBe(0);
+    expect(result.errors.map((e) => e.message)).toEqual(['Another request is changing this record — retry in a moment.']);
+  });
+});
+
