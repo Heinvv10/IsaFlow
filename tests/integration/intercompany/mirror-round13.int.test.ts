@@ -61,8 +61,8 @@ describe('R12-M1: the flag is wide', () => {
     expect((await generate()).flagged.map((f) => f.transactionId)).toEqual([r.id]);
   });
 
-  it('A2b: a day off (16 Jan): flagged; within 7 days across a month end (3 Feb for 29 Jan): flagged', async () => {
-    await mirrored('2026-01-29');
+  it('A2b: a day off (30 Jan): flagged; within 7 days of the sale across a month end (3 Feb for 29 Jan, the bill booked in March): flagged', async () => {
+    await mirrored('2026-01-29', '2026-03-20');
     const a = await manualSale(1000, '2026-01-30');
     const b = await manualSale(1000, '2026-02-03');
     expect([(await dup(a.id)).length, (await dup(b.id)).length]).toEqual([1, 1]);
