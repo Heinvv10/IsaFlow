@@ -144,7 +144,7 @@ describe('one unreconciled population for the bank card, the workbench and the b
     const meta = new Map<string, CompanyMeta>([
       [company, { bureau_id: uuid(), bureau_name: 'UC Bureau', company_id: company, company_name: 'UC Client' }],
     ]);
-    const { items } = await aggregateBureauWork([company], meta, new Date());
+    const { items } = await aggregateBureauWork([company], meta, new Date(), { payrollCompanyIds: [] });
     const recon = items.filter((i) => i.task === 'Bank reconciliation');
     expect(recon).toHaveLength(1);
     expect(recon[0]).toMatchObject({ companyId: company, detail: `${UNRECONCILED.length} unreconciled` });
@@ -173,7 +173,7 @@ describe('one unreconciled population for the bank card, the workbench and the b
     const meta = new Map<string, CompanyMeta>([
       [shapes, { bureau_id: uuid(), bureau_name: 'US Bureau', company_id: shapes, company_name: 'US Client' }],
     ]);
-    const { items } = await aggregateBureauWork([shapes], meta, new Date());
+    const { items } = await aggregateBureauWork([shapes], meta, new Date(), { payrollCompanyIds: [] });
     expect(items.find((i) => i.task === 'Bank reconciliation')?.detail).toBe('4 unreconciled');
   });
 });

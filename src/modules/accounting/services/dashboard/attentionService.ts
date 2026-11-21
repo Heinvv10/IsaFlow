@@ -54,7 +54,7 @@ export async function getAttentionList(companyId: string, access: AttentionAcces
     [companyId, { bureau_id: '', bureau_name: '', company_id: companyId, company_name: '' }],
   ]);
   const [work, cash] = await Promise.all([
-    aggregateBureauWork([companyId], meta, now, { payroll: access.payrollRead }),
+    aggregateBureauWork([companyId], meta, now, { payrollCompanyIds: access.payrollRead ? [companyId] : [] }),
     getOwnerCashPosition(companyId, cashBalance.total, now, { payroll: access.payrollRead }),
   ]);
   const items = shapeAttention({

@@ -10,6 +10,8 @@ import type { NextApiResponse } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
+import { payrollReadByCompany } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
 import { getBureauClientForUser } from '@/modules/bureau/services/bureauService';
 import { clientMetricsSnapshot } from '@/modules/bureau/services/bureauClientMetricsService';
 import {
@@ -32,13 +34,17 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Client');
   }
 
-  // census-exempt(aggregateBureauWork): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  // The client's payroll signals (pay runs with /payroll links, IRP5, directives, leave) need this user's Payroll read in THIS company.
+  const payrollRead = await payrollReadByCompany(getPlatformAdminPool(), req.user.id, [companyId]);
+  const payrollCompanyIds = payrollRead.get(companyId) === true ? [companyId] : [];
+  // census-exempt(aggregateBureauWork): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
   const [metrics, work] = await Promise.all([
     clientMetricsSnapshot(companyId),
     aggregateBureauWork(
       [companyId],
       new Map<string, CompanyMeta>([[companyId, meta]]),
       new Date(),
+      { payrollCompanyIds },
     ),
   ]);
 

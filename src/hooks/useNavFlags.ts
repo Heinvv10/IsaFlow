@@ -80,14 +80,17 @@ export function resetNavFlagsCache(): void {
   inFlight.clear();
 }
 
-/** The signed-in user's id, or null outside an AuthProvider (a nav rendered on its own in a test or a shell). */
-function useUserIdOrNull(): string | null {
+/**
+ * The signed-in user: `inProvider` false outside an AuthProvider (a nav rendered on its own in a test or a shell), and then `id` null;
+ * inside one, `id` is null while the user is still loading (or when nobody is signed in).
+ */
+function useAuthUser(): { inProvider: boolean; id: string | null } {
   try {
     // Like useCompany, useAuth reads its context first and only then throws, so the hook order never changes.
-    return useAuth().user?.id ?? null;
+    return { inProvider: true, id: useAuth().user?.id ?? null };
   } catch (err) {
     if (!(err instanceof Error && err.message.includes('within an AuthProvider'))) throw err;
-    return null;
+    return { inProvider: false, id: null };
   }
 }
 
@@ -104,8 +107,10 @@ function useActiveCompanyIdOrNull(): string | null {
 
 export function useNavFlags(): ReadonlySet<string> {
   const companyId = useActiveCompanyIdOrNull();
-  const userId = useUserIdOrNull();
-  const key = companyId ? keyOf(companyId, userId) : null;
+  const { inProvider, id: userId } = useAuthUser();
+  // Inside the AuthProvider with no user yet (still loading): nothing is asked and nothing is cached, so no answer is stored under a
+  // key that is not this user's; the key appears when the user does.
+  const key = companyId && !(inProvider && !userId) ? keyOf(companyId, userId) : null;
   // Re-render when this company's answer lands; the flags themselves are read for the company on screen NOW, so a
   // company switch never shows the previous company's flags while the new check is in flight (review M4).
   const [, setAnswered] = useState(0);

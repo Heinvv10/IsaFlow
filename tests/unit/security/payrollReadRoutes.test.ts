@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => ({
-  pass: (x: unknown) => x,
+  pass: (x: unknown) => x, provider: vi.fn(), order: [] as string[],
   attention: vi.fn(), setup: vi.fn(), answer: vi.fn(), may: vi.fn(), sql: vi.fn(), completeness: vi.fn(), checklist: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: h.pass, withWriteAccess: h.pass }));
@@ -20,7 +20,7 @@ vi.mock('@/modules/billing/services/flowOperationCatalog', () => ({ getFlowCost:
 vi.mock('@/modules/accounting/services/dashboard/attentionService', () => ({ getAttentionList: h.attention }));
 vi.mock('@/modules/accounting/services/core/setupProgressService', () => ({ getSetupProgress: h.setup }));
 vi.mock('@/modules/accounting/services/ask/askAnswer', () => ({ answerQuestion: h.answer }));
-vi.mock('@/modules/accounting/services/ask/askProvider', () => ({ resolveProvider: () => null }));
+vi.mock('@/modules/accounting/services/ask/askProvider', () => ({ resolveProvider: () => h.provider() }));
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ getFiscalYear: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/monthEndCloseService', () => ({
   generateCloseChecklist: h.checklist, checkCompleteness: h.completeness, buildCloseProgressSummary: () => ({ percentComplete: 0, period: 'p', status: 'not_started' }),
@@ -81,6 +81,22 @@ describe.each([[true], [false]])('payrollRead=%s', (allowed) => {
     expect(h.completeness.mock.calls[0]![1]).toEqual({ payroll: allowed });
     const payrollQueries = h.sql.mock.calls.filter(([strings]) => String(strings.join('')).includes('payroll_runs')).length;
     expect(payrollQueries).toBe(allowed ? 1 : 0);
+  });
+});
+
+describe('ask mode=free: the Payroll decision is made before any provider is asked', () => {
+  const stub = { answer: vi.fn() };
+  beforeEach(() => { stub.answer.mockReset().mockResolvedValue({ figure: null }); h.provider.mockReturnValue(stub); });
+  it.each([[true], [false]])('a provider is told payrollRead=%s and cannot decide it', async (allowed) => {
+    h.may.mockResolvedValue(allowed);
+    await run(askRoute, req({ query: { q: 'what did the last pay run cost', mode: 'free' } }));
+    expect(h.may).toHaveBeenCalledWith(CO, 'caller');
+    expect(stub.answer).toHaveBeenCalledWith(CO, 'what did the last pay run cost', { payrollRead: allowed });
+    expect(h.may.mock.invocationCallOrder[0]!).toBeLessThan(stub.answer.mock.invocationCallOrder[0]!);
+  });
+  it('no user in the session: the provider is told payrollRead=false', async () => {
+    await run(askRoute, req({ user: undefined, query: { q: 'pay run', mode: 'free' } }));
+    expect(stub.answer.mock.calls[0]![2]).toEqual({ payrollRead: false });
   });
 });
 

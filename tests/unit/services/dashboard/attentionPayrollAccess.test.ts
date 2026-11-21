@@ -47,13 +47,13 @@ describe('getAttentionList', () => {
     const k = await keys(false);
     expect(k.filter((x) => /pay-run|payroll/.test(x))).toEqual([]);
     expect(h.sql).not.toHaveBeenCalled(); // getOpenPayRuns is the only statement this module runs itself
-    expect(h.aggregate.mock.calls[0]![3]).toEqual({ payroll: false });
+    expect(h.aggregate.mock.calls[0]![3]).toEqual({ payrollCompanyIds: [] });
     expect(h.cashPosition.mock.calls[0]![3]).toEqual({ payroll: false });
   });
 
   it('asks the payroll readers for Payroll only when read is true', async () => {
     await keys(true);
-    expect(h.aggregate.mock.calls[0]![3]).toEqual({ payroll: true });
+    expect(h.aggregate.mock.calls[0]![3]).toEqual({ payrollCompanyIds: ['co-1'] });
     expect(h.cashPosition.mock.calls[0]![3]).toEqual({ payroll: true });
   });
 });

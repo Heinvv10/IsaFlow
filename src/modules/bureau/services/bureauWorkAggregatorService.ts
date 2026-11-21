@@ -226,12 +226,15 @@ export async function aggregateBureauWork(
   companyIds: string[],
   meta: Map<string, CompanyMeta>,
   today: Date,
-  /** `payroll: false` leaves the payroll signals (open pay runs, IRP5, directives, leave) unread; the default reads them. */
-  signals: { payroll?: boolean } = {},
+  /**
+   * Required, so a caller must decide: the payroll signals (open pay runs, IRP5, directives, leave, each with a /payroll link) are read for
+   * `payrollCompanyIds` only, the companies the caller has Payroll read in (payrollReadByCompany); none for an empty list.
+   */
+  signals: { payrollCompanyIds: ReadonlyArray<string> },
 ): Promise<AggregateResult> {
   const [groups, monthEnd] = await Promise.all([
     Promise.all([
-      signals.payroll === false ? Promise.resolve([]) : safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
+      signals.payrollCompanyIds.length === 0 ? Promise.resolve([]) : safeSignal('payroll', () => payrollSignals([...signals.payrollCompanyIds], meta, today)),
       safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
       safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
       safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),

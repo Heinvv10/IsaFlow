@@ -171,6 +171,25 @@ describe('the cache is per company AND user', () => {
   });
 });
 
+describe('while the auth user is still loading', () => {
+  const asLoading = ({ children }: { children: React.ReactNode }) => <AuthContext.Provider value={{ user: null } as never}>{children}</AuthContext.Provider>;
+  const asUser = (id: string) => ({ children }: { children: React.ReactNode }) => <AuthContext.Provider value={{ user: { id } } as never}>{children}</AuthContext.Provider>;
+  const asked = () => h.apiFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/accounting/my-permissions')).length;
+
+  it('nothing is asked and nothing is cached; the answer is fetched once the user is known', async () => {
+    server({ read: true, write: false, approve: false });
+    const loading = renderHook(() => useNavFlags(), { wrapper: asLoading });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(asked()).toBe(0);
+    expect(loading.result.current.has(moduleReadFlag('payroll'))).toBe(false);
+    loading.unmount();
+
+    const known = renderHook(() => useNavFlags(), { wrapper: asUser('user-1') });
+    await waitFor(() => expect(known.result.current.has(moduleReadFlag('payroll'))).toBe(true));
+    expect(asked()).toBe(1);
+  });
+});
+
 describe('DrawerNav (mobile)', () => {
   it('lists no Payroll entry without Payroll read, one with it', async () => {
     server({ read: false, write: false, approve: false });

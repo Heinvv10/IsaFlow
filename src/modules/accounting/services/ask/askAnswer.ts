@@ -5,7 +5,9 @@
 import { parseQuestion, exampleFor, INTENT_EXAMPLES } from './askIntents';
 import { aging, balanceSheet, bank, income } from './askFigures';
 import { emp201, lastPayRun, vat } from './askTax';
-import type { AskAnswer } from './askTypes';
+import type { AskAccess, AskAnswer } from './askTypes';
+
+export type { AskAccess };
 
 export const NOT_UNDERSTOOD: AskAnswer = {
   understood: false,
@@ -14,9 +16,6 @@ export const NOT_UNDERSTOOD: AskAnswer = {
 };
 
 /** Answers `question` for `companyId`. `today` is the South African date (YYYY-MM-DD). */
-/** What the asker may be told. Required, so a caller must decide: payroll questions are answered only for `payrollRead: true`. */
-export interface AskAccess { payrollRead: boolean }
-
 export const NEEDS_PAYROLL_ACCESS: AskAnswer = {
   understood: true,
   text: 'Answering that needs Payroll access, which you do not have in this company. An owner or admin can grant it in User Access.',

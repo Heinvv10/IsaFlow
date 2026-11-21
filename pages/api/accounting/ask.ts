@@ -27,14 +27,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!q) return apiResponse.badRequest(res, 'q is required');
   if (q.length > MAX_QUESTION) return apiResponse.badRequest(res, `q must be at most ${MAX_QUESTION} characters`);
   res.setHeader('Cache-Control', 'no-store');
+  // Decided before ANY answer path, free text included: the pay run and EMP201 answers (gross, net, PAYE, a /payroll link) need Payroll
+  // read in this company, and a provider is told so rather than trusted to ask.
+  const userId = (req as UserAuthedRequest).user?.id;
+  const payrollRead = userId ? await mayReadPayroll(companyId, userId) : false;
   if (req.query.mode === 'free') {
     const provider = resolveProvider();
     if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
-    return apiResponse.success(res, await provider.answer(companyId, q));
+    return apiResponse.success(res, await provider.answer(companyId, q, { payrollRead }));
   }
-  // The pay run and EMP201 answers (gross, net, PAYE, a /payroll link) need Payroll read in this company.
-  const userId = (req as UserAuthedRequest).user?.id;
-  const payrollRead = userId ? await mayReadPayroll(companyId, userId) : false;
   // census-exempt(answerQuestion): the pay run and EMP201 intents are answered only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other answer is a ledger figure, no one person's pay
   const answer = await answerQuestion(companyId, q, todayInSast(), { payrollRead });
   // A metered intent is charged up front; one that returned no figure (a refused period, a missing run) did no billable work.
