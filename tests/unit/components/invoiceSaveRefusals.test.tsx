@@ -51,13 +51,16 @@ async function addLine(desc: string, unitPrice: string) {
   type(price(i), unitPrice);
 }
 
+const STORED_NEGATIVE = { ...THOUSAND, total_amount: 1035, items: [...THOUSAND.items, { description: 'Discount', quantity: 1, unit_price: -100, amount: -100 }] };
+
 describe.each([
-  ['a "Discount" line at -R100', 'Discount', '-100', NEGATIVE],
-  ['a R500 line with no description', '', '500', NO_DESCRIPTION],
-])('edit page: %s', (_name, desc, unitPrice, reason) => {
+  ['a stored "Discount" line at -R100', STORED_NEGATIVE, '', '', NEGATIVE],
+  ['a R500 line with no description', THOUSAND, '', '500', NO_DESCRIPTION],
+])('edit page: %s', (_name, invoice, desc, unitPrice, reason) => {
   it('autosave holds it and says why; Save and Approve & email refuse it; nothing is written', async () => {
-    await openEdit();
-    await addLine(desc, unitPrice);
+    await openEdit(invoice);
+    if (unitPrice) await addLine(desc, unitPrice);
+    else type(description(0), 'Build, revised'); // any edit starts autosave over the stored -R100 line
     await advance(5_000);
     expect(puts()).toHaveLength(0);
     expect(statusText()).toMatch(reason);
@@ -70,7 +73,6 @@ describe.each([
 });
 
 describe.each([
-  ['a "Discount" line at -R100', 'Discount', '-100', NEGATIVE],
   ['a R500 line with no description', '', '500', NO_DESCRIPTION],
 ])('new page: %s', (_name, desc, unitPrice, reason) => {
   it('Create and Approve & email refuse it, saying why', async () => {
@@ -90,9 +92,11 @@ describe.each([
 });
 
 describe('the price field', () => {
-  it('says it takes nothing below 0', async () => {
+  it('takes nothing below 0: a minus sign is refused at the field', async () => {
     await openEdit();
-    expect(price().getAttribute('min')).toBe('0');
+    type(price(), '-100');
+    expect(price().value).not.toContain('-');
+    expect(price().getAttribute('aria-invalid')).toBe('true');
   });
 });
 
