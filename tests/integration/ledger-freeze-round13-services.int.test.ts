@@ -31,6 +31,10 @@ const release = async (c: PoolClient) => { await c.query('ROLLBACK').catch(() =>
 /** The statement the world's login is waiting in, on an advisory lock. */
 const waitingIn = async () => ((await sql`SELECT query FROM pg_stat_activity
   WHERE usename = ${world.login} AND wait_event_type = 'Lock' AND wait_event = 'advisory'`) as Row[]).map((r) => String(r.query));
+/** Has the waiting request written a journal yet (a claim or a contra holds RowExclusiveLock on the table)? */
+const wroteJournals = async () => Number((await one(sql`SELECT count(*)::int AS n FROM pg_locks l
+  JOIN pg_stat_activity a ON a.pid = l.pid
+  WHERE a.usename = ${world.login} AND l.relation = 'public.gl_journal_entries'::regclass AND l.mode = 'RowExclusiveLock'`)).n);
 
 describeIfDisposable('ledger column immutability, round 13: reversal lock order as the production login (migration 1018)', () => {
   beforeAll(async () => {
@@ -68,6 +72,7 @@ describeIfDisposable('ledger column immutability, round 13: reversal lock order 
       reversing = settle(world.run(who, () => reverseJournalEntry(z.f.fx.companyId, x, z.f.fx.userId)));
       await new Promise((r) => setTimeout(r, 800));
       expect(await waitingIn()).toEqual([expect.stringMatching(/ledger_lock_chains/)]);
+      expect(await wroteJournals()).toBe(0); // the claim has not happened
     } finally { await release(h); }
     expect(await reversing).toBe('ACCEPTED');
     expect((await one(sql`SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id = ${x}::UUID`)).n).toBe(1);
@@ -87,6 +92,7 @@ describeIfDisposable('ledger column immutability, round 13: reversal lock order 
       reversing = settle(world.run(who, () => reverseJournalEntry(late.companyId, original, late.userId)));
       await new Promise((r) => setTimeout(r, 800));
       expect(await waitingIn()).toEqual([expect.stringMatching(/ledger_lock_chains/)]); // not in the companion's claim
+      expect(await wroteJournals()).toBe(0); // nor after the original's claim and contra: the companion's chain was taken with it
     } finally { await release(h); }
     expect(await reversing).toBe('ACCEPTED');
     expect((await one(sql`SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id = ${companion}::UUID`)).n).toBe(1);
