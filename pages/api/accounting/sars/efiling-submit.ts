@@ -1,7 +1,7 @@
 /**
  * SARS eFiling VAT201 submit / status-poll.
  * POST { submissionId, action?: 'submit' | 'poll' }
- *   'submit' (default) — file the VAT201 to SARS via the ISV channel.
+ *   'submit' (default) — file the VAT201 to SARS via the ISV channel (VAT & Tax Approve).
  *   'poll'             — refresh the SARS-reported status.
  *
  * The server re-runs the exceptions gate before filing (see
@@ -26,6 +26,7 @@ import {
   EfilingSendUncertainError,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -41,10 +42,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const op = action === 'poll' ? 'poll' : 'submit';
 
   try {
-    const result = op === 'poll'
-      ? await pollVAT201Status(companyId, submissionId, userId)
-      : await submitVAT201ToSars(companyId, submissionId, userId);
-    return apiResponse.success(res, result);
+    if (op === 'poll') return apiResponse.success(res, await pollVAT201Status(companyId, submissionId, userId));
+    // Filing a VAT201 takes VAT & Tax Approve (Hein's gate-everything ruling, 2026-11-21), before the submission is read.
+    if (await refuseWithoutApprove(res, companyId, userId, 'vat', 'VAT201 returns')) return;
+    return apiResponse.success(res, await submitVAT201ToSars(companyId, submissionId, userId));
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (respondIfImpersonationForbidden(res, err)) return;

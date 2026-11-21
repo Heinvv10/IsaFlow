@@ -24,7 +24,7 @@
 import ts from 'typescript';
 import { resolve } from 'path';
 import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, objectProp, primitiveModule, programFor, ROOT, sqlTextOf, unwrap,
-  type SqlPrimitive } from './approveCensusProgram';
+  type MarkerScope, type SqlPrimitive } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -41,8 +41,8 @@ export interface CensusConfig {
   /** A route unit running primitive SQL itself is dangerous unless wrapped, a gate dominates it, or a marker sits above it (#1670). */
   flagPrimitiveRoots?: boolean;
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
+  markerScope?: MarkerScope; // the census whose scoped markers apply (`census-exempt(<callee>, <scope>)`); unscoped ones always do
 }
-
 export interface BadRoute { file: string; unit: string; sites: string[] }
 export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; markersUsed: string[]; staleMarkers: string[] }
 interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primSites: Array<{ node: ts.Node; module: string }>; primNeeds: Set<string>; needs: Set<string> }
@@ -212,7 +212,7 @@ export function analyse(cfg: CensusConfig): Census {
         const sinkModule = name !== null && Object.hasOwn(cfg.sinks, name) ? (routeSet.has(rel(sf.fileName)) ? cfg.sinks[name]! : '*') : null;
         // A marker binds to the OUTERMOST call of that name in its statement: a same-named call nested inside it is not exempted.
         const outermost = name !== null && !callAncestors(n).some((a) => calleeName(a) === name);
-        const exempt = outermost ? (markersAbove(n).find((m) => m.callee === name) ?? null) : null;
+        const exempt = outermost ? (markersAbove(n, cfg.markerScope).find((m) => m.callee === name) ?? null) : null;
         if ((target || sinkModule !== null) && !selfGuarded(n)) {
           const u = enclosing(n) ?? unitOfFile(sf);
           u.calls.push({ node: n, callee: name ?? '?', target, sinkModule, gates: dominating(n, u.node), exempt });
@@ -281,7 +281,7 @@ export function analyse(cfg: CensusConfig): Census {
       for (const { node: site, module } of u.primSites) {
         const g = dominating(site, u.node);
         if (g.has('*') || (module === '*' ? g.size > 0 : g.has(module))) continue;
-        const marker = markersAbove(site).find((m) => m.callee === 'sql');
+        const marker = markersAbove(site, cfg.markerScope).find((m) => m.callee === 'sql');
         if (marker) used.add(`${u.file}:${marker.line}`);
         else sites.push(`sql(primitive)[${module}]@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
       }
@@ -292,7 +292,7 @@ export function analyse(cfg: CensusConfig): Census {
   for (const f of cfg.routeFiles) {
     const sf = program.getSourceFile(virtual ? f : resolve(ROOT, f));
     if (!sf) continue;
-    for (const m of markersIn(sf)) if (!used.has(`${f}:${m.line}`)) staleMarkers.push(`${f}:${m.line} census-exempt(${m.callee})`);
+    for (const m of markersIn(sf, cfg.markerScope)) if (!used.has(`${f}:${m.line}`)) staleMarkers.push(`${f}:${m.line} census-exempt(${m.callee})`);
   }
   const why: Record<string, string[]> = {};
   for (const u of D) why[u.key] = uncovered(u).map((c) => `${c.callee}${c.target ? ` -> ${c.target.key}` : ' (primitive)'} needs ${[...(needsOfCall(c) ?? [])].join('+')}`);

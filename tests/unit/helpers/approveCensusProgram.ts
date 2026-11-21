@@ -60,22 +60,28 @@ export function objectProp(o: ts.ObjectLiteralExpression, name: string): { initi
   return undefined;
 }
 
-const MARKER = /census-exempt\(([A-Za-z0-9_-]+)\):\s*(\S[^\n*]*)/g;
+/**
+ * `census-exempt(<callee>): reason`, or `census-exempt(<callee>, <census>): reason` for ONE census (`posting` or `payroll-read`):
+ * a marker written for the payroll-read census does not exempt the same call from the posting census (#1670: the SARS file route).
+ */
+const MARKER = /census-exempt\(([A-Za-z0-9_-]+)(?:,\s*(posting|payroll-read))?\):\s*(\S[^\n*]*)/g;
+export type MarkerScope = 'posting' | 'payroll-read';
+const applies = (m: RegExpMatchArray, scope?: MarkerScope): boolean => m[2] === undefined || scope === undefined || m[2] === scope;
 
-/** Every `census-exempt(<callee>): reason` marker in a source file, with its line. */
-export function markersIn(sf: ts.SourceFile): Array<{ callee: string; line: number }> {
+/** Every `census-exempt(<callee>): reason` marker in a source file that applies to `scope`, with its line. */
+export function markersIn(sf: ts.SourceFile, scope?: MarkerScope): Array<{ callee: string; line: number }> {
   const out: Array<{ callee: string; line: number }> = [];
-  for (const m of sf.text.matchAll(MARKER)) out.push({ callee: m[1]!, line: sf.getLineAndCharacterOfPosition(m.index!).line + 1 });
+  for (const m of sf.text.matchAll(MARKER)) if (applies(m, scope)) out.push({ callee: m[1]!, line: sf.getLineAndCharacterOfPosition(m.index!).line + 1 });
   return out;
 }
 
-/** The markers in the comments directly above the statement holding `node` (callee and line). */
-export function markersAbove(node: ts.Node): Array<{ callee: string; line: number }> {
+/** The markers in the comments directly above the statement holding `node` that apply to `scope` (callee and line). */
+export function markersAbove(node: ts.Node, scope?: MarkerScope): Array<{ callee: string; line: number }> {
   let stmt: ts.Node = node;
   while (stmt.parent && !ts.isStatement(stmt)) stmt = stmt.parent;
   const sf = node.getSourceFile();
   const ranges = ts.getLeadingCommentRanges(sf.text, stmt.getFullStart()) ?? [];
-  return ranges.flatMap((r) => [...sf.text.slice(r.pos, r.end).matchAll(MARKER)]
+  return ranges.flatMap((r) => [...sf.text.slice(r.pos, r.end).matchAll(MARKER)].filter((m) => applies(m, scope))
     .map((m) => ({ callee: m[1]!, line: sf.getLineAndCharacterOfPosition(r.pos + m.index!).line + 1 })));
 }
 

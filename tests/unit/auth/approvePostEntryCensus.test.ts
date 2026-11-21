@@ -61,6 +61,7 @@ const programFiles = execFileSync('git', ['ls-files', 'pages', 'src'], { encodin
  */
 const POSTING_RULES = {
   sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
+  markerScope: 'posting',
 } as const;
 let memo: ReturnType<typeof analyse> | undefined;
 const census = () => (memo ??= analyse({ routeFiles: apiFiles, programFiles, ...POSTING_RULES }));
@@ -70,7 +71,7 @@ const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payrol
 let payrollMemo: ReturnType<typeof analyse> | undefined;
 const payrollCensus = () => (payrollMemo ??= analyse({
   routeFiles: payrollReadRoutes, programFiles, sinks: {}, gates: PAYROLL_READ_GATES, routeWrappers: PAYROLL_READ_WRAPPERS,
-  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, queryCalls: true,
+  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, queryCalls: true, markerScope: 'payroll-read',
 }));
 
 /** A one-route virtual project under the posting census's own rules (the #1670 fixtures). */
@@ -163,6 +164,7 @@ describe('approve / post entry-point census (#1656)', () => {
     ['payroll_run_headers', 'approved', 'payroll'], ['payroll_batches', 'posted', 'payroll'], ['uif_declarations', 'paid', 'payroll'],
     ['vat_adjustments', 'approved', 'vat'], ['accounting_adjustments', 'approved', 'items'], ['consolidation_adjustments', 'posted', 'group'],
     ['budget_versions', 'approved', 'budgets'], ['fiscal_periods', 'closed', 'accounts'], ['tax_return_versions', 'finalised', '*'],
+    ['tax_return_versions', 'filed', '*'], ['sars_submissions', 'submitted', '*'],
   ])('#1670 breaker L1d: UPDATE %s SET status = %s is a primitive needing %s Approve', (table, status, module) => {
     const flip = `await client.query(\`UPDATE ${table} SET updated_at = NOW(), status = '${status}' WHERE id = $1\`, [id]);`;
     expect(fixture(handler(flip)), 'ungated').toHaveLength(1);
@@ -170,6 +172,15 @@ describe('approve / post entry-point census (#1656)', () => {
     expect(fixture(handler(`${gate(module === '*' ? 'accounts' : module)} ${flip}`)), 'its module').toEqual([]);
     // A cancel that only names the status in its WHERE is no approval.
     expect(fixture(handler(`await client.query(\`UPDATE ${table} SET status = 'cancelled' WHERE status = '${status}'\`);`)), 'cancel').toEqual([]);
+  });
+
+  it('#1670 filing ruling: a marker scoped to the payroll-read census does not exempt the call from the posting census', () => {
+    const filed = "await sql`UPDATE tax_return_versions SET status = 'filed' WHERE id = ${id}`;";
+    const post = 'await flipBill(id);';
+    expect(fixture(handler(`\n// census-exempt(flipBill, payroll-read): a company total\n ${post}`))).toHaveLength(1);
+    expect(fixture(handler(`\n// census-exempt(flipBill, posting): the gate is per document, inside\n ${post}`))).toEqual([]);
+    expect(fixture(handler(`\n// census-exempt(flipBill): either census\n ${post}`))).toEqual([]);
+    expect(fixture(handler(filed))).toHaveLength(1);
   });
 
   it('#1670 Codex: withPayrollModule (Payroll read / write) is no proof of Payroll Approve in the posting census; it still is for payroll access', () => {

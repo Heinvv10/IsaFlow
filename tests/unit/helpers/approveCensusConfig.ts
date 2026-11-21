@@ -77,7 +77,9 @@ export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   flips('consolidation_adjustments', 'posted|reversed', 'group'),
   flips('budget_versions', 'approved', 'budgets'),
   flips('fiscal_periods', 'closed|locked', 'accounts'),
-  flips('tax_return_versions', 'finalised', '*'), // finaliseReturn; a filing (status 'filed') records a submission, not in the approve map
+  // finaliseReturn, and a filing (Hein's gate-everything ruling, 2026-11-21): the form's module (VAT201 vat; EMP201/EMP501 payroll)
+  flips('tax_return_versions', 'finalised|filed', '*'),
+  flips('sars_submissions', 'submitted', '*'), // the legacy / ISV way of marking a return submitted
 ];
 
 /**

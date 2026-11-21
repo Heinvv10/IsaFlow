@@ -85,6 +85,7 @@ async function post(req: NextApiRequest, res: NextApiResponse, companyId: string
     return apiResponse.success(res, { version: summary(version) });
   }
   if (b.action === 'file') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'payroll', 'EMP501 returns')) return; // filing: Hein's gate-everything ruling, 2026-11-21
     const out = await markReturnFiled(companyId, 'EMP501', b.versionId, b.reference, actor,
       { correctsLegacySubmissionIds: b.correctsLegacySubmissionIds, reason: b.reason });
     log.info('EMP501 filed', { companyId, versionId: out.version.id }, 'emp501-returns');
