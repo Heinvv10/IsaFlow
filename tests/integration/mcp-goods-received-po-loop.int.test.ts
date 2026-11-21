@@ -21,6 +21,8 @@ import { cancelPurchaseOrderTool as cancelPo } from '@/lib/mcp/tools/writeCancel
 import { setPurchaseOrderStatusTool as setStatus } from '@/lib/mcp/tools/writeSetPurchaseOrderStatus';
 import unmatchedRoute from '../../pages/api/accounting/purchase-orders/unmatched';
 import itemMovementRoute from '../../pages/api/accounting/reports/item-movement';
+import poRoute from '../../pages/api/accounting/purchase-orders/[id]';
+import { seedSupplier } from './helpers/poBillLinkHarness';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -71,6 +73,24 @@ describe('a PO whose every note is cancelled (M2)', () => {
     const cancelled = await callTool(pool, f, cancelPo, { po_id: po.po, reason: 'no longer needed' });
     expect(cancelled.isError, cancelled.text).toBe(false);
     expect((await poRow(pool, po.po)).status).toBe('cancelled');
+  });
+
+  it('a PO whose notes are all cancelled keeps its supplier: update_purchase_order and the PUT refuse the change (Codex gate at 42de08b3, 3)', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 5, price: 10 }] });
+    await cancelNote((await receive(po, 2)).id);
+    const other = await seedSupplier(pool, f, 'Another supplier for the PO');
+    const mcp = await callTool(pool, f, updatePo, { po_id: po.po, supplier_id: other });
+    expect(mcp.isError).toBe(true);
+    expect(mcp.text).toContain('cancelled goods received note');
+    expect(mcp.text).toContain('its supplier cannot change');
+    // The PUT edits only a draft / submitted PO; one put back to draft by hand still holds the cancelled note.
+    await pool.query("UPDATE purchase_orders SET status = 'draft' WHERE id = $1", [po.po]);
+    const put = await callRoute(poRoute as never, f, f.owner, `/api/accounting/purchase-orders/${po.po}`, { supplier_id: other }, { method: 'PUT', id: po.po });
+    expect(put.statusCode, JSON.stringify(put.body)).toBe(400);
+    expect(JSON.stringify(put.body)).toContain('its supplier cannot change');
+    expect(String((await poRow(pool, po.po)).supplier_id)).toBe(f.supplier);
+    // The same supplier sent again is no change.
+    expect((await callTool(pool, f, updatePo, { po_id: po.po, supplier_id: f.supplier, notes: 'same supplier' })).text).not.toContain('its supplier cannot change');
   });
 
   it('a live note still refuses both; an imported PO is closed by set_purchase_order_status but not set back to draft', async () => {

@@ -34,6 +34,23 @@ export async function poHasAnyNote(companyId: string, poId: string): Promise<boo
   return rows.length > 0;
 }
 
+/**
+ * A supplier change on a PO that has ANY goods received note, cancelled included (Codex gate at 42de08b3, 3): the note is the record of
+ * what THIS supplier delivered, and it reads its supplier through the PO, so moving the PO would move the history. The refusal, or
+ * null when the supplier does not change or the PO has no note.
+ */
+export async function noteKeepsPoSupplierRefusal(companyId: string, poId: string, supplierId: string | null | undefined): Promise<string | null> {
+  if (!supplierId) return null;
+  const rows = (await sql`
+    SELECT 1 FROM purchase_orders po
+     WHERE po.id = ${poId}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplierId}::UUID
+       AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.purchase_order_id = po.id AND g.company_id = po.company_id)
+  `) as DbRow[];
+  return rows.length > 0 ? NOTE_KEEPS_SUPPLIER_REFUSAL : null;
+}
+
+export const NOTE_KEEPS_SUPPLIER_REFUSAL = 'This purchase order has a goods received note (a cancelled goods received note counts: it is kept as the '
+  + 'record of this supplier\'s delivery), so its supplier cannot change; raise a new purchase order for the other supplier';
 export const RECEIPT_REFUSAL = 'Goods have been received against this purchase order (a receipt is on record)';
 export const CANCELLED_NOTE_LINES_REFUSAL =
   'A cancelled goods received note of this purchase order is kept as the record and names its lines';
