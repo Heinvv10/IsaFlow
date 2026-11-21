@@ -34,6 +34,8 @@ export interface MonthEarlierLines {
   eti: number;
   /** The earnings those lines paid, rebuilt from their stored breakdown: the month's ETI base, hours and wage. */
   etiComponents: EmployeeComponent[];
+  /** Gross pay of earlier lines whose breakdown rebuilds no earning (an imported line): their ETI base is unknown. */
+  unrebuiltPay?: number;
 }
 
 export const NO_EARLIER_LINES: MonthEarlierLines = { uifRemuneration: 0, eti: 0, etiComponents: [] };
@@ -80,6 +82,27 @@ export function offCycleUif(thisRemuneration: number, earlier: MonthEarlierLines
     leviable: leviableOf(monthToDate),
     monthToDate, rebuilt, earlierPay, liability, booked, leviableSides, capped,
   };
+}
+
+/** Refused at calculation (offCycleEtiRefusal): the month's ETI cannot be costed on the earnings it knows. */
+export class OffCycleEtiBasisError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OffCycleEtiBasisError';
+  }
+}
+
+/**
+ * Why this line's ETI cannot be costed, or null (review of 99db78312): an earlier line paid earnings its breakdown does
+ * not rebuild (unrebuiltPay), so the month's ETI recomputed on this line alone would reverse a valid claim or claim in
+ * excess. Only where ETI is at stake: the earlier lines claimed some, or the month's recomputed ETI is not nil (an
+ * ineligible employee, or a month above the s7 table even on this line alone, stays nil on more pay too).
+ */
+export function offCycleEtiRefusal(monthEti: number, earlier: MonthEarlierLines, employeeName: string): string | null {
+  if ((earlier.unrebuiltPay ?? 0) <= 0 || (earlier.eti === 0 && monthEti === 0)) return null;
+  return `${employeeName}'s earlier pay this month (R${(earlier.unrebuiltPay ?? 0).toFixed(2)}) was recorded without its earnings `
+    + 'breakdown (an imported line), so the month\'s Employment Tax Incentive cannot be costed on this run. Recalculate the '
+    + 'month\'s regular run in IsaFlow first, or pay this amount on the regular run.';
 }
 
 /** This line's ETI: the month's, on everything the month paid, less what the earlier lines claimed (may be negative). */

@@ -32,7 +32,8 @@ import { offCycleReasonOf, payFrequencyOf, runKindOf, runPeriodOf } from './payr
 import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
 import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
-import { assertOffCycleBeforeClose } from './payrollOffCycleRun';
+import { assertOffCycleBeforeClose, OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { OffCycleEtiBasisError } from './payrollOffCycleMonth';
 import { assertPreparerSupported } from './payrollPreparerGuard';
 import { loadRunGarnisheeOrders, offCycleGarnisheeNotice, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
 
@@ -41,6 +42,16 @@ export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 export {
   createPayrollRun, getPayrollRun, listPayrollRuns, mapRunRow, PayrollRunDuplicateError, type PayrollRunSummary,
 } from './payrollRunHeaders';
+
+/** An off-cycle line whose month's ETI cannot be costed (payrollOffCycleMonth.offCycleEtiRefusal) refuses the run, 409. */
+function refusedOnEtiBasis<T>(cost: () => T): T {
+  try {
+    return cost();
+  } catch (err) {
+    if (err instanceof OffCycleEtiBasisError) throw new OffCycleRunRefusedError(err.message, 409);
+    throw err;
+  }
+}
 
 export async function calculatePayrollRun(
   runId: string,
@@ -154,7 +165,7 @@ export async function calculatePayrollRun(
     const loanApplications: ApplyLoanResult[] = onlySeverance ? [] : loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = appendLoanComponents(components, loanApplications, loanComponents);
 
-    const line = calculatePayrollLine({
+    const line = refusedOnEtiBasis(() => calculatePayrollLine({
       employee,
       components: componentsWithLoans,
       period,
@@ -167,7 +178,7 @@ export async function calculatePayrollRun(
       cadence: cadences.get(employee.id),
       // An off-cycle run takes no instalment (review #1679e): the month's is the regular run's; the line says so.
       garnisheeOrders: onlySeverance || offCycle ? undefined : garnishees.get(employee.id),
-    });
+    }));
     garnisheeLines.push({ employeeId: employee.id, garnishees: line.garnishees });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);

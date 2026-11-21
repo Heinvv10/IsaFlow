@@ -6,7 +6,9 @@
  * component is one (joined by id within the company) or it is a termination pay-out (synthetic:termination:*). From
  * those earnings: the month's ETI base, hours and wage, and the UIF remuneration (the UIF-applicable ones at their PAYE
  * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). The UIF those lines
- * booked is their STORED contributions (review #1679 codex 1), not a rebuild. Scoped by company_id throughout.
+ * booked is their STORED contributions (review #1679 codex 1), not a rebuild. A line that paid but rebuilds no earning
+ * (an imported line with an empty breakdown) is counted in unrebuiltPay: the ETI cannot be costed on it (review of
+ * 99db78312, payrollOffCycleMonth.offCycleEtiRefusal). Scoped by company_id throughout.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -41,7 +43,7 @@ export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEa
 export async function loadMonthEarlierLines(companyId: string, runId: string, employeeIds: string[]): Promise<Map<string, MonthEarlierLines>> {
   if (employeeIds.length === 0) return new Map();
   const rows = (await sql`
-    SELECT l.employee_id, l.eti, l.uif_employee, l.uif_employer,
+    SELECT l.employee_id, l.gross_pay, l.eti, l.uif_employee, l.uif_employer,
            COALESCE((
              SELECT jsonb_agg(item || jsonb_build_object('isEarning',
                       pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%'))
@@ -63,13 +65,16 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
     const id = String(r.employee_id);
     const items = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>;
     const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 0, uifEmployer: 0 };
+    const earnings = earningsOfBreakdown(items);
     out.set(id, {
       uifRemuneration: round2(had.uifRemuneration + uifRemunerationOf(items)),
       // What the earlier lines booked, as stored (review #1679 codex 1): an imported line's breakdown may be empty.
       uifEmployee: round2((had.uifEmployee ?? 0) + n(r.uif_employee)),
       uifEmployer: round2((had.uifEmployer ?? 0) + n(r.uif_employer)),
       eti: round2(had.eti + n(r.eti)),
-      etiComponents: [...had.etiComponents, ...earningsOfBreakdown(items)],
+      etiComponents: [...had.etiComponents, ...earnings],
+      // A line that paid but whose breakdown rebuilds no earning (an import): the month's ETI base cannot be told.
+      unrebuiltPay: round2((had.unrebuiltPay ?? 0) + (earnings.length === 0 ? Math.max(0, n(r.gross_pay)) : 0)),
     });
   }
   return out;

@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import { NO_EARLIER_LINES, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
+import { NO_EARLIER_LINES, OffCycleEtiBasisError, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
 import type { EmployeeComponent, PayeYearToDate, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 import { expectRecomputes } from './payrollExplainRecompute.helpers';
@@ -200,3 +200,42 @@ describe('UIF booked across the month (review #1679)', () => {
   });
 });
 
+
+describe('a monthly-paid hourly employee\'s bonus (review of 99db78312)', () => {
+  const hourly = employee({ payBasis: 'hourly', hourlyRate: 33.13, hoursPerDay: 8 });
+  const worked: EmployeeComponent = { ...earning('basic', '3601', 5_300.8), quantity: 160, quantityUnit: 'hour' };
+  it('the bonus line is not judged on hours: its month\'s hours are on the regular line', () => {
+    const regular = calculatePayrollLine({ employee: hourly, components: [worked], period, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(regular.validationResults.map((v) => v.code)).not.toContain('HOURS_MISSING');
+    const bonus = bonusLine(1_000, { uifRemuneration: 5_300.8, eti: regular.eti.monthlyEti, etiComponents: [worked] }, undefined, hourly);
+    expect(bonus.validationResults.filter((v) => v.code.startsWith('HOURS_'))).toEqual([]);
+  });
+  it('a regular line still asks for the hours', () => {
+    const regular = calculatePayrollLine({ employee: hourly, components: [], period, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(regular.validationResults.map((v) => v.code)).toContain('HOURS_MISSING');
+  });
+});
+
+describe('an earlier line whose earnings cannot be rebuilt (review of 99db78312)', () => {
+  const imported = (eti: number): MonthEarlierLines => ({ uifRemuneration: 0, uifEmployee: 53, uifEmployer: 53, eti, etiComponents: [], unrebuiltPay: 5_300 });
+  it('an imported regular line that claimed ETI refuses the bonus: the month\'s ETI cannot be costed on the bonus alone', () => {
+    expect(() => bonusLine(1_000, imported(1_500))).toThrow(OffCycleEtiBasisError);
+  });
+  it('one that claimed none still refuses where the bonus alone would claim', () => {
+    const regular = regularLine(5_300);
+    expect(regular.eti.monthlyEti).toBeGreaterThan(0);
+    expect(() => calculatePayrollLine({
+      employee: employee(), components: [earning('basic', '3601', 5_300)], period, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+      monthEarlier: imported(0),
+    })).toThrow(OffCycleEtiBasisError);
+  });
+  it('where ETI is not at stake (no claim and none on the month), the bonus is costed', () => {
+    const older = employee({ dateOfBirth: new Date(1970, 0, 1), idNumber: '7001015009087' });
+    const bonus = bonusLine(1_000, imported(0), undefined, older);
+    expect(bonus.eti.monthlyEti).toBe(0);
+  });
+  it('earlier lines that rebuild are costed as before', () => {
+    const regular = regularLine(5_300);
+    expect(() => bonusLine(1_000, { ...earlierFrom(regular, 5_300), unrebuiltPay: 0 })).not.toThrow();
+  });
+});

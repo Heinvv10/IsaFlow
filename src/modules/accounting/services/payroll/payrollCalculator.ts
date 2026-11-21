@@ -19,7 +19,7 @@ import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { overtimeThresholdWarnings, PERIODS_A_YEAR, splitTravelRows } from './payrollRunInputUnits';
 import { costLineEti } from './payrollLineEti';
-import { offCycleEti, offCycleUif } from './payrollOffCycleMonth';
+import { OffCycleEtiBasisError, offCycleEti, offCycleEtiRefusal, offCycleUif } from './payrollOffCycleMonth';
 import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
@@ -199,6 +199,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // An off-cycle line (OC; monthly only): the month's ETI on everything the month paid, less the earlier lines' claim.
   // A PSP claims no ETI, and its off-cycle line does not reverse an earlier run's claim either: that claim stands with its
   // run (review #1679 merge L1).
+  const etiRefusal = input.monthEarlier && !psp
+    ? offCycleEtiRefusal(lineEti.eti.monthlyEti, input.monthEarlier, `${employee.firstName} ${employee.lastName}`.trim()) : null;
+  if (etiRefusal) throw new OffCycleEtiBasisError(etiRefusal);
   const etiCosted: EtiResult = input.monthEarlier && !psp
     ? { ...lineEti.eti, monthlyEti: offCycleEti(lineEti.eti.monthlyEti, input.monthEarlier) }
     : etiPending?.eti ?? lineEti.eti;
@@ -290,7 +293,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     netPay: round2(Math.max(0, netPay) - garnishee.total),
     garnishees: garnishee.deductions,
     componentBreakdown: breakdown,
-    validationResults: [...warnings, ...(input.notEmployedInPeriod ? [] : hoursValidation(employee, components))],
+    // An off-cycle line pays a supplement only: the month's hours are on its regular line, so it is not judged on hours.
+    validationResults: [...warnings, ...(input.notEmployedInPeriod || input.monthEarlier ? [] : hoursValidation(employee, components))],
     hours,
     explanations,
   };
