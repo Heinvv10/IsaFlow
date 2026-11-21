@@ -227,7 +227,7 @@ export default function SupplierStatementDetailPage() {
                         <tr key={line.id} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5">
                           <td data-label="Date" className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(line.lineDate)}</td>
                           <td data-label="Reference" className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{line.reference ?? '—'}</td>
-                          <td data-label="Description" className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[200px] truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
+                          <td data-label="Description" className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] lg:max-w-[200px] lg:truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
                           <td data-label="Debit" className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
                           <td data-label="Credit" className="px-4 py-2.5 text-xs tabular-nums text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
                           <td data-label="Match" className="px-4 py-2.5"><MatchStatusCell line={line} opening={recon.openingBalance} /></td>

@@ -41,6 +41,11 @@ describe('AP statement detail on touch', () => {
       // Labels come from the headers, so a renamed header cannot drift from its data-label.
       expect(labels(t)).toEqual(heads(t));
     }
+    // The 200px clamp is for the desktop column only: on a card the description spans the full width.
+    const description = container.querySelector('td[data-label="Description"]')!;
+    expect(description.className.split(/\s+/)).toEqual(expect.arrayContaining(['lg:max-w-[200px]', 'lg:truncate']));
+    expect(description.className.split(/\s+/)).not.toContain('max-w-[200px]');
+    expect(description.className.split(/\s+/)).not.toContain('truncate');
   });
 
   it('gives every control 44px on phones', async () => {
@@ -57,5 +62,6 @@ describe('AP statement detail on touch', () => {
     fireEvent.click(screen.getByRole('button', { name: /Rematch/ }));
     const dismiss = await screen.findByRole('button', { name: 'Dismiss' });
     expect(dismiss.className).toContain('max-lg:min-h-11');
+    expect(dismiss.className).toContain('max-lg:min-w-11');
   });
 });
