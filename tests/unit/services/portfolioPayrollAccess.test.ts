@@ -18,9 +18,10 @@ vi.mock('@/lib/auth/withPlatformAdmin.pools', () => ({
   getPlatformAdminPool: () => ({ query: h.adminQuery, connect: async () => ({ query: vi.fn(async () => ({ rows: [] })), release: vi.fn() }) }),
 }));
 vi.mock('@/modules/accounting/services/workbench/monthEndWorkbenchService', () => ({
-  getMonthEndWorkbench: vi.fn(async (companyId: string) => ({ cards: h.cards[companyId] ?? [], trialBalanceBalanced: true })),
+  getMonthEndWorkbench: vi.fn(async (companyId: string, _period: string, _access: { payrollRead: boolean }) => ({ cards: h.cards[companyId] ?? [], trialBalanceBalanced: true })),
 }));
 
+import { getMonthEndWorkbench } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
 import { getPortfolioWorkbench } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 import { payrollReadByCompany, withoutPayrollCard } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
 
@@ -86,6 +87,13 @@ describe('getPortfolioWorkbench with one readable and one hidden client', () => 
     expect(byId[NOREAD]!.attentionCount).toBe(0);
     expect(wb.summary.cardsByStatus).toMatchObject({ ready: 2, attention: 1, blocked: 1 });
     expect(wb.rows[0]!.companyId).toBe(READ); // most attention first: the hidden client's payroll attention does not count
+  });
+
+  it("tells each client's workbench whether to build its payroll card at all", async () => {
+    vi.mocked(getMonthEndWorkbench).mockClear();
+    await getPortfolioWorkbench(U, '2026-09');
+    const access = Object.fromEntries(vi.mocked(getMonthEndWorkbench).mock.calls.map(([id, , a]) => [id, a.payrollRead]));
+    expect(access).toEqual({ [READ]: true, [NOREAD]: false });
   });
 
   it('fails closed: a client the access query does not return is hidden', async () => {

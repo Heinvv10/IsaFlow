@@ -102,6 +102,7 @@ async function buildOneClientRow(
   cu: CompanyMembership,
   userId: string,
   period: string,
+  payrollRead: boolean,
 ): Promise<PortfolioRow> {
   // Wrap the iteration in a real transaction. Without BEGIN, set_config
   // with is_local=true reverts immediately on the implicit single-statement
@@ -122,7 +123,7 @@ async function buildOneClientRow(
   // the right transaction.
   const wb = await runOwnedContext(
     { client, userId, companyId: cu.companyId, claims: {} },
-    () => getMonthEndWorkbench(cu.companyId, period),
+    () => getMonthEndWorkbench(cu.companyId, period, { payrollRead }),
   );
 
   await client.query('COMMIT');
@@ -183,7 +184,7 @@ export async function getPortfolioWorkbench(
       const client = await adminPool.connect();
       let unusable = false;
       try {
-        return await buildOneClientRow(client, cu, userId, period);
+        return await buildOneClientRow(client, cu, userId, period, payrollRead.get(cu.companyId) === true);
       } catch (err) {
         unusable = await rollbackFailed(client, 'portfolioWorkbench');
         log.error('Portfolio workbench: client failed',

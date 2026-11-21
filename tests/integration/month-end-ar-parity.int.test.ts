@@ -109,7 +109,7 @@ describeIfDb('month-end Sales card is the headline receivables figure', () => {
   it('a current-period card equals the open book as at today on overdue, outstanding and customer count', async () => {
     const today = todayInSast();
     const book = await getOpenBook(COMPANY, 'ar', today);
-    const sales = (await getMonthEndWorkbench(COMPANY, period)).cards.find((c) => c.id === 'sales')!;
+    const sales = (await getMonthEndWorkbench(COMPANY, period, { payrollRead: true })).cards.find((c) => c.id === 'sales')!;
     // Overdue includes the disputed balance, as the dashboard tile's does; the invoice due in 3 days is not overdue.
     expect(book.overdue).toBeCloseTo(OVERDUE_BAL + OLD_BAL + DISPUTED_BAL, 2);
     expect(sales.primary).toBe(`${formatMoney(book.overdue)} overdue`);
@@ -137,14 +137,14 @@ describeIfDb('month-end Sales card is the headline receivables figure', () => {
     const rewound = (await getAPAging(COMPANY, periodEnd))
       .reduce((a, b) => a + b.days30 + b.days60 + b.days90 + b.days120Plus, 0);
     expect(rewound).toBeCloseTo(AP_OVERDUE + AP_OLD + AP_DUE_SOON, 2);
-    const purchases = (await getMonthEndWorkbench(COMPANY, period)).cards.find((c) => c.id === 'purchases')!;
+    const purchases = (await getMonthEndWorkbench(COMPANY, period, { payrollRead: true })).cards.find((c) => c.id === 'purchases')!;
     expect(purchases.primary).toBe(`${formatMoney(AP_OVERDUE + AP_OLD)} overdue`);
     expect(purchases.secondary).toBe(
       `${formatMoney(AP_OVERDUE + AP_OLD + AP_DUE_SOON)} outstanding · 1 suppliers · as at ${formatDisplayDate(todayInSast())}`);
   });
 
   it('banking card prints the last reconciliation as dd MMM yyyy', async () => {
-    const wb = await getMonthEndWorkbench(COMPANY, period);
+    const wb = await getMonthEndWorkbench(COMPANY, period, { payrollRead: true });
     const banking = wb.cards.find((c) => c.id === 'banking')!;
     expect(banking.secondary).toContain('last recon 03 Mar 2026');
   });
@@ -158,10 +158,10 @@ describeIfDb('month-end Sales card is the headline receivables figure', () => {
     const expected = (await getARAging(COMPANY, closedEnd))
       .reduce((a, b) => a + b.days30 + b.days60 + b.days90 + b.days120Plus, 0);
     expect(expected).toBeCloseTo(OLD_BAL, 2);
-    const sales = (await getMonthEndWorkbench(COMPANY, closed)).cards.find((c) => c.id === 'sales')!;
+    const sales = (await getMonthEndWorkbench(COMPANY, closed, { payrollRead: true })).cards.find((c) => c.id === 'sales')!;
     expect(sales.primary).toBe(`${formatMoney(OLD_BAL)} overdue`);
     expect(sales.href).toBe(`/accounting/ar-aging?as_at_date=${closedEnd}`);
-    const purchases = (await getMonthEndWorkbench(COMPANY, closed)).cards.find((c) => c.id === 'purchases')!;
+    const purchases = (await getMonthEndWorkbench(COMPANY, closed, { payrollRead: true })).cards.find((c) => c.id === 'purchases')!;
     expect(purchases.primary).toBe(`${formatMoney(AP_OLD)} overdue`);
     expect(purchases.href).toBe(`/accounting/ap-aging?as_at_date=${closedEnd}`);
   });

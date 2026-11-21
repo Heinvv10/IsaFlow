@@ -105,7 +105,7 @@ describe('readers', () => {
 
   it('monthEndWorkbench banking card counts only posted rows', async () => {
     const { getMonthEndWorkbench } = await import('@/modules/accounting/services/workbench/monthEndWorkbenchService');
-    const workbench = await inRequest(() => getMonthEndWorkbench(company, '2026-09'));
+    const workbench = await inRequest(() => getMonthEndWorkbench(company, '2026-09', { payrollRead: true }));
     const banking = workbench.cards.find((c) => c.id === 'banking');
     // Only the single posted row should count as unmatched — the pending and
     // removed rows must not inflate this to 2 or 3.

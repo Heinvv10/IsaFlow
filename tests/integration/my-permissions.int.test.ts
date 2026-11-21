@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { getMyModulePermissions } from '@/lib/auth/myPermissions';
 import { checkPermission } from '@/lib/auth/permissionService';
 import { payrollReadByCompany } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
+import { getMonthEndWorkbench } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
 import { getPortfolioWorkbench } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -103,6 +104,15 @@ describe('getMyModulePermissions (real SQL) agrees with checkPermission', () => 
     expect(rows[B]!.payrollHidden).toBe(true);
     expect(rows[B]!.cards.some((c) => c.id === 'payroll')).toBe(false);
     expect(rows[A]!.payrollHidden).toBeUndefined();
+  });
+
+  it('getMonthEndWorkbench: the payroll card is built only with payrollRead, on the real schema', async () => {
+    const without = await getMonthEndWorkbench(A, '2026-09', { payrollRead: false });
+    expect(without.cards.some((c) => c.id === 'payroll')).toBe(false);
+    expect(without.payrollHidden).toBe(true);
+    const withRead = await getMonthEndWorkbench(A, '2026-09', { payrollRead: true });
+    expect(withRead.cards.some((c) => c.id === 'payroll')).toBe(true);
+    expect(withRead.payrollHidden).toBeUndefined();
   });
 });
 

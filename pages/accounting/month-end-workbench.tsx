@@ -6,7 +6,7 @@
  * Path: /accounting/month-end-workbench
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -42,6 +42,15 @@ const STATUS_META: Record<CardStatus, { label: string; tone: StatusTone; iconCol
   blocked:     { label: 'Blocked',       tone: 'danger',    iconColor: 'text-rose-400',    Icon: AlertCircle },
   not_started: { label: 'Not started',   tone: 'neutral',   iconColor: 'text-zinc-400',    Icon: Circle },
 };
+
+function NoAccessTile({ title }: { title: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4 h-full" data-testid="no-access-tile">
+      <h3 className="text-sm font-medium text-zinc-400">{title}</h3>
+      <p className="mt-3 text-sm text-zinc-500">No access. You do not have Payroll access in this company.</p>
+    </div>
+  );
+}
 
 interface CardProps { card: WorkbenchCard }
 function CardTile({ card }: CardProps) {
@@ -179,7 +188,11 @@ export default function MonthEndWorkbenchPage() {
         {data && !loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {data.cards.map(card => (
-              <CardTile key={card.id} card={card} />
+              <Fragment key={card.id}>
+                <CardTile card={card} />
+                {/* The server leaves the payroll card out where the user has no Payroll read; it says so here, in its place. */}
+                {card.id === 'vat' && data.payrollHidden && <NoAccessTile title="Payroll Run" />}
+              </Fragment>
             ))}
           </div>
         )}

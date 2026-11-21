@@ -18,6 +18,7 @@ vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib
 import ApprovalsPage from '../../../pages/accounting/approvals';
 import AutoPostingsPage from '../../../pages/accounting/auto-postings';
 import PortfolioWorkbenchPage from '../../../pages/accounting/portfolio-workbench';
+import MonthEndWorkbenchPage from '../../../pages/accounting/month-end-workbench';
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
 import { MODULE_READ_NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 
@@ -122,5 +123,28 @@ describe('Portfolio: Payroll is decided per client row by the server', () => {
     expect(within(rowOf('Readable Client')).queryByText('No access')).toBeNull();
     expect(within(rowOf('Readable Client')).getByText('2/8')).toBeTruthy();
     expect(screen.getByTitle('Payroll')).toBeTruthy(); // the column header stays
+  });
+});
+
+describe('Month-end workbench: the single company', () => {
+  const card = (id: string, title: string) => ({ id, title, status: 'ready', primary: `${title} ok` });
+  const answer = (extra: Record<string, unknown>, ids: string[]) => h.apiFetch.mockImplementation(async () => json({ success: true, data: {
+    companyId: 'c', period: '2026-09', periodStart: '2026-09-01', periodEnd: '2026-09-30', generatedAt: '2026-10-01T00:00:00Z',
+    cards: ids.map((i) => card(i, i === 'vat' ? 'VAT Readiness' : i === 'payroll' ? 'Payroll Run' : i)), trialBalanceBalanced: true, trialBalanceDiff: 0, ...extra } }));
+
+  it('says "No access" in the payroll place, and the ready count is out of the cards it was given', async () => {
+    answer({ payrollHidden: true }, ['banking', 'vat', 'afs']);
+    render(<MonthEndWorkbenchPage />);
+    const tile = await screen.findByTestId('no-access-tile');
+    expect(tile.textContent).toMatch(/No access/);
+    expect(screen.getAllByText('Payroll Run')).toHaveLength(1);
+    expect(document.body.textContent).toMatch(/3\s*of\s*3 areas ready/);
+  });
+
+  it('shows the payroll card and no placeholder with Payroll read', async () => {
+    answer({}, ['banking', 'vat', 'payroll', 'afs']);
+    render(<MonthEndWorkbenchPage />);
+    await screen.findAllByText('Payroll Run');
+    expect(screen.queryByTestId('no-access-tile')).toBeNull();
   });
 });
