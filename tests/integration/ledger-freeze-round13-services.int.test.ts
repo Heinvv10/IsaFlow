@@ -59,7 +59,7 @@ describeIfDisposable('ledger column immutability, round 13: reversal lock order 
     }
   }, 120000);
 
-  it('L1 a re-reversal waits for its chain root\'s key BEFORE it claims (not while holding the claimed journal\'s)', async () => {
+  it('L1 a re-reversal waits for its chain root\'s key in the claim, before it holds the claimed journal\'s key', async () => {
     const legs: Leg[] = [[z.ar, 100, 0], [z.revenue, 0, 100]];
     const y = await journal(z, legs);
     const x = await journal(z, negate(legs));
@@ -71,8 +71,10 @@ describeIfDisposable('ledger column immutability, round 13: reversal lock order 
     try {
       reversing = settle(world.run(who, () => reverseJournalEntry(z.f.fx.companyId, x, z.f.fx.userId)));
       await new Promise((r) => setTimeout(r, 800));
-      expect(await waitingIn()).toEqual([expect.stringMatching(/ledger_lock_chains/)]);
-      expect(await wroteJournals()).toBe(0); // the claim has not happened
+      // In the claim (its trigger takes Y's key before X's), not in the link holding X's key while it waits for Y's.
+      const waiting = await waitingIn();
+      expect(waiting).toEqual([expect.stringMatching(/SET reversed_by/)]);
+      expect(waiting[0]).not.toMatch(/reversal_of_id/);
     } finally { await release(h); }
     expect(await reversing).toBe('ACCEPTED');
     expect((await one(sql`SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id = ${x}::UUID`)).n).toBe(1);

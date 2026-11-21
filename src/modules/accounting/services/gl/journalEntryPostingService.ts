@@ -84,8 +84,8 @@ export async function reverseJournalEntry(
     // A late-claim original reverses its companion with it, all or nothing; the
     // companion's reversal is planned (and refused) before any write.
     const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
-    // 1018 round 13 L1: every chain this reversal touches (and the companion's), rows and keys, sorted, before the claim.
-    await lockJournalChains([id, ...(companion ? [companion.id] : [])], () => new JournalReversalLockTimeoutError(id));
+    // 1018 round 13 L1: a late-claim pair is two chains in one transaction: both, rows and keys, sorted, before any claim.
+    if (companion) await lockJournalChains([id, companion.id], () => new JournalReversalLockTimeoutError(id));
     const body = () => reverseJournalEntryInner(companyId, id, userId, opts, companion);
     return companion ? withSavepoint('reverse_late_claim', body) : body();
   });
