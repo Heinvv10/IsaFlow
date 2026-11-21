@@ -24,6 +24,7 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { SoftDeleteRefusalError } from '../core/softDeleteErrors';
+import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 
 export class SupplierInvoiceGrnRefusal extends Error {
   readonly code = 'SUPPLIER_INVOICE_GRN_REFUSED';
@@ -33,7 +34,36 @@ export class SupplierInvoiceGrnRefusal extends Error {
   }
 }
 
+/** The wording of 1021's grn-live trigger refusal (SQLSTATE 23503, constraint supplier_invoices_grn_live; Codex gate at 42de08b3, 4). */
+export const GRN_LIVE_REFUSAL = 'This bill names a goods received note that is cancelled, or that is not one of this company\'s, so it was not saved; '
+  + 'name a live goods received note of this company, or none';
+
+/** The typed refusal for the trigger's error, or null for anything else. */
+export function asBillGrnRefused(err: unknown): SupplierInvoiceGrnRefusal | null {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e && e.code === '23503' && e.constraint === 'supplier_invoices_grn_live' ? new SupplierInvoiceGrnRefusal(GRN_LIVE_REFUSAL) : null;
+}
+
 type Db = typeof sql | TxSql;
+
+/**
+ * A write that puts a note on a live bill (the create's INSERT, a draft edit's UPDATE of grn_id): the note's PO `FOR KEY SHARE` (5 s,
+ * typed retryable `PURCHASE_ORDER_LOCK_TIMEOUT`) BEFORE that statement, whose grn-live trigger (migration 1021, Codex gate at
+ * 42de08b3, 4) takes the note `FOR SHARE`. Without it the writer would hold the note and then want that PO (the create's
+ * `recordBillLinks` / the edit's links refresh KEY SHARE the header PO, which `assertBillPoLinks` does not lock), while
+ * goods_received_note_cancel holds the PO `FOR UPDATE` and wants the note: a cycle. With it the writer is PO -> bill -> note and a
+ * running cancel makes it wait (or time out) before it holds anything the cancel needs. KEY SHARE conflicts only with `FOR UPDATE`
+ * holders (PO cancel / approve / maintenance, goods receipt and its cancel), none of which then waits on a bill row. Company-scoped
+ * through the note; a note of no PO, or not this company's, locks nothing (the trigger and the checks refuse it).
+ */
+export async function lockNotePo(companyId: string, grnId: string, db: Db): Promise<void> {
+  await withRowLockBudget(async () => (await db`
+    SELECT po.id FROM goods_received_notes g
+      JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
+     WHERE g.id = ${grnId}::uuid AND g.company_id = ${companyId}::uuid
+       FOR KEY SHARE OF po
+  `) as DbRow[], () => new PurchaseOrderLockTimeoutError());
+}
 
 interface NoteFacts { status: string; poId: string; supplierId: string | null }
 

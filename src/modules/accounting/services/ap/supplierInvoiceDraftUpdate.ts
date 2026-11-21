@@ -26,6 +26,7 @@ import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
 import { asBillSupplierDeleted } from './billSupplierLive';
+import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -233,6 +234,8 @@ export async function applySupplierInvoiceDraftUpdate(
 
   // A supplier change onto a supplier merged or deleted meanwhile (1021's supplier-live trigger) is a typed refusal; nothing is written.
   await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
+    // A new note: its PO FOR KEY SHARE BEFORE the UPDATE, whose grn-live trigger (1021) takes the note (Codex gate at 42de08b3, 4).
+    if (plan.grnChanges && plan.grnId) await lockNotePo(companyId, plan.grnId, tx);
     await tx`
       UPDATE supplier_invoices SET
         supplier_id = ${plan.supplierId}::UUID,
@@ -272,7 +275,8 @@ export async function applySupplierInvoiceDraftUpdate(
     }
     // Migration 1006: the bill's `app` links follow its new subtotal and lines (amounts are recomputed, not edited).
     await refreshAppBillLinks(companyId, plan.invoiceId, editedBy, tx);
-    // The note LAST (held FOR SHARE to the commit), then the stored match re-judged when the note or supplier moved.
+    // The note (held FOR SHARE to the commit; a new one already by the UPDATE's grn-live trigger, after its PO), then the stored match
+    // re-judged when the note or supplier moved.
     await applyDraftGrn(companyId, plan, tx);
-  })).catch((err: unknown) => { throw asBillSupplierDeleted(err) ?? err; });
+  })).catch((err: unknown) => { throw asBillSupplierDeleted(err) ?? asBillGrnRefused(err) ?? err; });
 }

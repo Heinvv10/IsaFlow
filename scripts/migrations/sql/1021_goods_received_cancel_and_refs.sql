@@ -41,6 +41,8 @@
 --     bill that names a note takes it (create, restore of a soft-deleted bill) and refuses a cancelled one; a row lock needs
 --     UPDATE privilege, which app_user no longer has. supplier_invoices.grn_id has no foreign key (201 created it bare; 246b's
 --     ADD COLUMN ... REFERENCES was skipped), so no KEY SHARE is taken for it: this hold is the lock.
+--   trg_supplier_invoices_grn_live (SECURITY DEFINER trigger function): a live bill names only a live note of its own company, for
+--     every writer (insert, grn_id change, restore, status out of cancelled), under the same FOR SHARE as the hold.
 --   procurement_documents.tenant_isolation_via_parent gains a goods_received branch (713's policy, every other branch
 --     verbatim): a document filed on a goods received note (entity_type 'goods_received', the entity-store kind
 --     attach_entity_document and create_upload_urls / finalize_uploads now accept) is this company's when the note is. The
@@ -51,9 +53,10 @@
 --
 -- Nothing here posts: a goods received note records quantities only (no GRNI accrual, no stock journal).
 --
--- The two guards are SECURITY INVOKER. goods_received_note_cancel and goods_received_note_hold are SECURITY DEFINER, owned by
+-- The two guards are SECURITY INVOKER. goods_received_note_cancel, goods_received_note_hold and supplier_invoices_grn_live_guard are SECURITY DEFINER, owned by
 -- migration_admin (BYPASSRLS), pinned search_path with pg_temp last, a member-of-the-session-company check inside (the cancel also
--- requires owner, admin or manager), EXECUTE for app_user and app_service only, and registered in app_definer_reviews (930). Grants: app_user keeps SELECT and INSERT on both
+-- requires owner, admin or manager), EXECUTE for app_user and app_service only (the trigger function instead reads the note in the
+-- bill's own company and has no EXECUTE grant: only its trigger runs it), and registered in app_definer_reviews (930). Grants: app_user keeps SELECT and INSERT on both
 -- tables (348's default privileges, which cover the new columns) and loses UPDATE and DELETE.
 --
 -- LOCKS. The ALTERs take ACCESS EXCLUSIVE on goods_received_notes (a CHECK scan, small table) and on grn_items (row
@@ -65,9 +68,13 @@
 --   name (`SELECT g.*` passes the new columns through). Its create inserts a note with the new columns NULL, which every
 --   CHECK and the unique index accept, and its items onto that note of the request's company, which grn_items' policy
 --   accepts. It never UPDATEs or DELETEs either table. Nothing it does is refused, except a bill written onto a soft-deleted
---   supplier (trg_supplier_invoices_supplier_live), which the old code then answers as a failed write.
+--   supplier (trg_supplier_invoices_supplier_live) or onto a note cancelled meanwhile (trg_supplier_invoices_grn_live), which the old
+--   code then answers as a failed write.
 --
 -- Rollback (down SQL; roll the code back first, and only while no row uses what is dropped):
+--   DROP TRIGGER IF EXISTS trg_supplier_invoices_grn_live ON public.supplier_invoices;
+--   DROP FUNCTION IF EXISTS public.supplier_invoices_grn_live_guard();
+--   DELETE FROM public.app_definer_reviews WHERE signature = 'supplier_invoices_grn_live_guard()';
 --   DROP TRIGGER IF EXISTS trg_supplier_invoices_supplier_live ON public.supplier_invoices;
 --   DROP FUNCTION IF EXISTS public.supplier_invoices_supplier_live_guard();
 --   DROP INDEX IF EXISTS public.idx_supplier_invoices_grn;
@@ -517,6 +524,63 @@ CREATE TRIGGER trg_supplier_invoices_supplier_live AFTER INSERT OR UPDATE OF sup
   FOR EACH ROW EXECUTE FUNCTION public.supplier_invoices_supplier_live_guard();
 ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_supplier_live;
 REVOKE ALL ON FUNCTION public.supplier_invoices_supplier_live_guard() FROM PUBLIC;
+
+-- ── A live bill names only a live goods received note of its own company (Codex gate at 42de08b3, 4) ───────────────
+-- supplier_invoices.grn_id has no foreign key (201), so the app's checks (billGoodsReceivedLink.ts, under goods_received_note_hold)
+-- were the only rule: a writer that skips them (old code, a direct statement) could put a live bill on a cancelled note, another
+-- company's note or none. Refused for every writer when the row becomes live on a note: an INSERT of a live bill with a grn_id, an
+-- UPDATE that changes grn_id (UPDATE OF fires whenever the column is in the SET list, so an unchanged value is skipped here), a
+-- restore (deleted_at back to NULL) and a status out of 'cancelled'. A deleted or cancelled bill may name any note (the cancel frees a
+-- note those bills carry). The note must exist in the BILL's company (NEW.company_id, which the bill's row security fixes) and not be
+-- cancelled, read under FOR SHARE: the same lock as goods_received_note_hold, so it composes with goods_received_note_cancel's
+-- FOR UPDATE exactly as the hold does (the bill waits for a running cancel and then reads 'cancelled', or the cancel waits for the
+-- bill and then finds it, grn_on_bill). Lock order (docs/design/mcp-po-bill-links.md census): the note is the bill writer's LAST
+-- rank, after its bill row and PO rows: the create takes its named POs FOR KEY SHARE before the INSERT, a restore holds the note
+-- (goods_received_note_hold) before its UPDATE, and a draft edit that changes grn_id takes the note's PO FOR KEY SHARE before its
+-- UPDATE (supplierInvoiceDraftUpdate.ts), so no bill writer holds the note and then waits on a PO the cancel holds. A definer because
+-- a row lock needs UPDATE privilege, which app_user lacks on goods_received_notes; owned by migration_admin (BYPASSRLS, so it reads the
+-- note whatever the caller sees), pinned search_path, reads one row, writes nothing.
+-- OLD COLOUR: the old code writes grn_id only from its own checks against goods_received_notes of the company, and no note is
+-- cancelled by it, so nothing it does is refused; a live bill already on a missing note is untouched until one of the four events.
+-- SQLSTATE 23503 with constraint supplier_invoices_grn_live, which the app maps to SupplierInvoiceGrnRefusal (create, draft edit),
+-- SoftDeleteRefusalError (restore) and, for every other route, a 409 (src/lib/apiBillSupplierDeleted.ts).
+CREATE OR REPLACE FUNCTION public.supplier_invoices_grn_live_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_status text;
+BEGIN
+  IF NEW.grn_id IS NULL OR NEW.deleted_at IS NOT NULL OR NEW.status IS NOT DISTINCT FROM 'cancelled' THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.grn_id IS NOT DISTINCT FROM OLD.grn_id AND OLD.deleted_at IS NULL
+     AND OLD.status IS DISTINCT FROM 'cancelled' THEN
+    RETURN NULL;
+  END IF;
+  SELECT g.status INTO v_status FROM public.goods_received_notes g
+   WHERE g.id = NEW.grn_id AND g.company_id = NEW.company_id
+   FOR SHARE OF g;
+  IF v_status IS NULL OR v_status = 'cancelled' THEN
+    RAISE EXCEPTION 'goods received note % is cancelled or not a note of company %; a live bill cannot name it', NEW.grn_id, NEW.company_id
+      USING ERRCODE = '23503', CONSTRAINT = 'supplier_invoices_grn_live';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+ALTER FUNCTION public.supplier_invoices_grn_live_guard() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.supplier_invoices_grn_live_guard() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_supplier_invoices_grn_live ON public.supplier_invoices;
+CREATE TRIGGER trg_supplier_invoices_grn_live AFTER INSERT OR UPDATE OF grn_id, deleted_at, status ON public.supplier_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.supplier_invoices_grn_live_guard();
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_grn_live;
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+VALUES ('supplier_invoices_grn_live_guard()',
+        'nothing (trigger on supplier_invoices: a FOR SHARE row lock on the goods_received_notes row a live bill names, in the bill''s company; raises 23503 supplier_invoices_grn_live when it is missing or cancelled)',
+        public.app_definer_hash('public.supplier_invoices_grn_live_guard()'::regprocedure))
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 -- ── Upload targets: a goods received note ───────────────────────────────────────────────────────────────────────
 

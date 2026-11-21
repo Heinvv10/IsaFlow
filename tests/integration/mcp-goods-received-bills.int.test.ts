@@ -149,7 +149,8 @@ describe('a bill create racing a cancel of its note (M1)', () => {
     const req = await openRequest(pool, f, f.owner);
     const bill = await req.run(() => createSupplierInvoice(f.co, billInput(grn), f.owner));
     const cancelling = callTool(pool, f, cancel, { grn_id: grn, reason: 'race' });
-    await blockedOn('goods_received_note_cancel');
+    // At its first lock, the note's PO FOR UPDATE: the bill holds that PO FOR KEY SHARE (lockNotePo, Codex gate at 42de08b3, 4).
+    await blockedOn('FOR UPDATE OF po');
     await req.commit();
     expect(refusal((await cancelling).text)).toMatchObject({ code: 'grn_on_bill', bills: [expect.objectContaining({ id: bill.id })] });
     expect(await noteStatus(grn)).toBe('received');
@@ -160,7 +161,8 @@ describe('a bill create racing a cancel of its note (M1)', () => {
     const req = await openRequest(pool, f, f.owner);
     await req.run(() => cancelGoodsReceived(f.co, grn, 'race', { userId: f.owner, via: 'test' }));
     const billing = createBill(grn);
-    await blockedOn('goods_received_note_hold');
+    // At the note's PO (lockNotePo's FOR KEY SHARE, before the INSERT whose grn-live trigger takes the note): the cancel holds it.
+    await blockedOn('FOR KEY SHARE OF po');
     await req.commit();
     expect((await billing).error).toContain('is cancelled');
     expect(await liveBills(grn)).toBe(0);

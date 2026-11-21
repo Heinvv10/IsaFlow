@@ -201,7 +201,8 @@ export function respondToUnhandledError(res: NextApiResponse, error: unknown): v
   if (respondIfPspComponentRefused(res, error)) {
     return;
   }
-  // A bill written onto a supplier merged into another or deleted (1021's supplier-live trigger) — 409, typed.
+  // A bill written onto a supplier merged into another or deleted (1021's supplier-live trigger), or a live bill onto a cancelled
+  // goods received note (its grn-live trigger) — 409, typed.
   if (respondIfBillSupplierDeleted(res, error)) {
     return;
   }

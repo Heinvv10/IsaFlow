@@ -49,3 +49,19 @@ describe('a bill onto a soft-deleted supplier, unmapped by its route', () => {
     expect(res.statusCode).toBe(409);
   });
 });
+
+describe('a live bill on a cancelled / foreign note, refused by 1021\'s grn-live trigger (Codex gate at 42de08b3, 4)', () => {
+  const GRN_ERROR = Object.assign(new Error('goods received note 1 is cancelled or not one of company 2'), {
+    code: '23503', constraint: 'supplier_invoices_grn_live',
+  });
+  it('answers 409 with the typed wording and code, not the driver text', () => {
+    const res = fakeRes();
+    respondToUnhandledError(res as unknown as NextApiResponse, GRN_ERROR);
+    expect(res.statusCode).toBe(409);
+    const body = JSON.stringify(res.body);
+    expect(body).toContain('SUPPLIER_INVOICE_GRN_REFUSED');
+    expect(body).toContain('goods received note that is cancelled');
+    expect(body).not.toContain('company 2');
+  });
+});
+
