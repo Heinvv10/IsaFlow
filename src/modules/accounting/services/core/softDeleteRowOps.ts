@@ -120,7 +120,8 @@ export async function restoreRow(
     case 'supplier_invoice':
       // A bill naming a goods received note cancelled while it was deleted stays deleted (the note held FOR SHARE first).
       await assertBillRestorableGrn(companyId, entityId);
-      // Nor one whose supplier was merged away or deleted meanwhile (the restore does not fire 1021's supplier-live trigger).
+      // Nor one whose supplier was soft-deleted meanwhile (the restore does not fire 1021's supplier-live trigger). Only a plain supplier
+      // soft-delete leaves a deleted bill on a deleted supplier: both merges move deleted bills to their target too.
       await assertBillRestorableSupplier(companyId, entityId);
       rows = await sql`
         UPDATE supplier_invoices SET deleted_at = NULL

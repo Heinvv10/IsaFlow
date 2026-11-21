@@ -2,8 +2,9 @@
  * Supplier Merge API
  * POST /api/accounting/supplier-merge
  *
- * Re-parents all FK references from source_id → target_id within a single
- * transaction, then soft-deletes the source supplier.
+ * Re-parents the source's payments, bills and supplier_purchase_orders onto target_id within a single
+ * transaction, then deactivates the source (is_active = false) and renames it "... [MERGED]". It does NOT
+ * soft-delete it (deleted_at stays NULL): see docs/design/mcp-goods-received.md, Known limits.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -116,7 +117,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Note: unified credit_notes table covers both customer and supplier
       // credit notes; no separate supplier_credit_notes table exists.
 
-      // 6. Soft-delete the source supplier
+      // 6. Deactivate and rename the source (not a soft-delete: deleted_at is left NULL)
       await tx`
         UPDATE suppliers
         SET is_active = false,

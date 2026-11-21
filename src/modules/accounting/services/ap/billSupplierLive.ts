@@ -38,6 +38,6 @@ export async function assertBillRestorableSupplier(companyId: string, billId: st
   `) as unknown[];
   if (gone.length > 0) {
     throw new SoftDeleteRefusalError('This bill\'s supplier has been deleted, so the bill cannot be restored: '
-      + 'restore the supplier from the recycle bin first, then the bill');
+      + 'restore the supplier first (undo its delete), then the bill');
   }
 }

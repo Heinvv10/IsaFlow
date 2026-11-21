@@ -138,7 +138,8 @@ describe('the undo of a bill whose supplier was deleted since (review of b474139
     expect(out).toBeInstanceOf(SoftDeleteRefusalError);
     expect((out as Error).message).toContain('supplier has been deleted, so the bill cannot be restored');
     // The exit (review of 95ef48f8, L1): merges move deleted bills, so only a plain supplier soft-delete leaves one here.
-    expect((out as Error).message).toContain('restore the supplier from the recycle bin first, then the bill');
+    expect((out as Error).message).toContain('restore the supplier first (undo its delete), then the bill');
+    expect((out as Error).message).not.toContain('recycle bin');
     expect((await pool.query('SELECT deleted_at IS NOT NULL AS deleted FROM supplier_invoices WHERE id = $1', [bill!])).rows[0].deleted).toBe(true);
   });
 });
