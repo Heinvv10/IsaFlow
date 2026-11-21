@@ -2,11 +2,13 @@
  * The new and edit invoice pages' "Amounts are" control (#1701 rounds 8-9): the mode the form prices in for the active
  * company (No VAT for one not registered, vatModeFor), the options it is offered (taxModesFor), and the switch
  * (taxModeSwitch.switchTaxMode: each line at its own rate; refused, prices and mode kept, when a line would move). A
- * refusal is kept as `problem` for InvoiceHeaderFields to show and announce by the selector; it clears on the next
- * switch that goes through and once the lines' figures (quantity, price, discount) are edited. Held against those
- * figures, not the lines' identity: a re-render that rebuilds the same lines (a customer's defaults landing) keeps it.
+ * refusal is kept as `problem` for InvoiceHeaderFields to show and announce by the selector. It is held against the
+ * WHOLE input it was decided on (the lines' figures, the form rate, the date, the customer's VAT type, the mode it was
+ * switched from, round 10) and dropped for good the moment any of them changes: an edit back to the old figures does
+ * not bring it back, and a customer's defaults landing (which may change the mode) clear it. A re-render that rebuilds
+ * the same lines keeps it.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useVatRegistrationOrDefault } from '@/hooks/useVatRegistration';
 import { vatModeFor, type FormVatLine } from './formVat';
 import { switchTaxMode, taxModesFor } from './taxModeSwitch';
@@ -22,16 +24,17 @@ export interface TaxModeSwitchArgs<L extends FormVatLine & { description?: strin
 
 export function useTaxModeSwitch<L extends FormVatLine & { description?: string }>(a: TaxModeSwitchArgs<L>) {
   const registered = useVatRegistrationOrDefault().isRegistered;
-  const [refused, setRefused] = useState<{ text: string; figures: string } | null>(null);
-  const figures = JSON.stringify(a.lines.map((l) => [l.quantity, l.unitPrice, l.discount ?? 0]));
+  const [refused, setRefused] = useState<{ text: string; input: string } | null>(null);
+  const input = JSON.stringify([a.lines.map((l) => [l.quantity, l.unitPrice, l.discount ?? 0]), a.formRate, a.date, a.customerVat ?? null, a.taxMode, registered]);
+  useEffect(() => { if (refused && refused.input !== input) setRefused(null); }, [input, refused]);
   const pick = (mode: TaxMode) => {
     const s = switchTaxMode(a.lines, { from: a.taxMode, to: mode, formRate: a.formRate, date: a.date, customerVat: a.customerVat, registered });
-    if ('problem' in s) { setRefused({ text: s.problem, figures }); return; }
+    if ('problem' in s) { setRefused({ text: s.problem, input }); return; }
     setRefused(null);
     a.onSwitched?.();
     a.setLines(s.lines);
     a.setTaxMode(s.mode);
   };
-  const problem = refused && refused.figures === figures ? refused.text : null;
+  const problem = refused && refused.input === input ? refused.text : null;
   return { vatMode: vatModeFor(registered, a.taxMode), modes: taxModesFor(registered), problem, pick };
 }

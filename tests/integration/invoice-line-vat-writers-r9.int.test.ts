@@ -236,5 +236,47 @@ describeIfDisposable('per-line VAT writers, review round 9', () => {
       expect(other.content[0]!.text).toMatch(/for a different client_id and customer_invoice_id/);
       expect(await notesWith('CRET-9B')).toEqual([{ id: made.id }]);
     });
+
+    it('round 10: two live notes on one ref (no unique index), each retried, is each one\'s replay; a third invoice is refused naming both', async () => {
+      const c = await customer('R10-1');
+      const y = await typedInvoice(c, '2026-05-08');
+      const y2 = await typedInvoice(c, '2026-05-08');
+      const y3 = await typedInvoice(c, '2026-05-08');
+      const a = J(await create(c, y, 'CRET-10A'));
+      const b = J(await create(c, y2, 'CRET-10A-TMP'));
+      await sql`UPDATE credit_notes SET external_ref = 'CRET-10A' WHERE id = ${String(b.id)}::UUID`;   // a second live row on the ref
+      expect(J(await create(c, y2, 'CRET-10A'))).toMatchObject({ already_existed: true, payload_differs: false, id: b.id });
+      expect(J(await create(c, y, 'CRET-10A'))).toMatchObject({ already_existed: true, payload_differs: false, id: a.id });
+      const third = await create(c, y3, 'CRET-10A');
+      expect(third.isError).toBe(true);
+      expect(third.content[0]!.text).toMatch(/already used by credit notes \S+ and \S+ for a different customer_invoice_id/);
+      expect(await notesWith('CRET-10A')).toHaveLength(2);
+    });
+    it('round 10: after a customer merge (S into T) a retry naming S is refused before any write (its invoice is T\'s now)', async () => {
+      const s = await customer('R10-2s');
+      const t = await customer('R10-2t');
+      const y = await typedInvoice(s, '2026-05-09');
+      const made = J(await create(s, y, 'CRET-10B'));
+      // What the merge re-points (customerMergeService): the note's and the invoice's customer.
+      await sql`UPDATE credit_notes SET client_id = ${t}::UUID WHERE id = ${String(made.id)}::UUID`;
+      await sql`UPDATE customer_invoices SET client_id = ${t}::UUID, customer_id = ${t}::UUID WHERE id = ${y}::UUID`;
+      const again = await create(s, y, 'CRET-10B');
+      expect(again.isError).toBe(true);
+      expect(await notesWith('CRET-10B')).toEqual([{ id: made.id }]);
+      // Retried for T (the surviving customer), it is the note's replay.
+      expect(J(await create(t, y, 'CRET-10B'))).toMatchObject({ already_existed: true, id: made.id });
+    });
+    it('round 10: a draft whose linked invoice was changed since: a retry naming the old invoice is refused, naming the field and the note', async () => {
+      const c = await customer('R10-3');
+      const y = await typedInvoice(c, '2026-05-10');
+      const y2 = await typedInvoice(c, '2026-05-10');
+      const made = J(await create(c, y, 'CRET-10C'));
+      await sql`UPDATE credit_notes SET customer_invoice_id = ${y2}::UUID WHERE id = ${String(made.id)}::UUID`;   // the draft re-linked
+      const again = await create(c, y, 'CRET-10C');
+      expect(again.isError).toBe(true);
+      const [{ number }] = (await sql`SELECT credit_note_number AS number FROM credit_notes WHERE id = ${String(made.id)}::UUID`) as { number: string }[];
+      expect(again.content[0]!.text).toMatch(new RegExp(`for a different customer_invoice_id: .* The existing note is ${number}\\.`));
+      expect(await notesWith('CRET-10C')).toEqual([{ id: made.id }]);
+    });
   });
 });

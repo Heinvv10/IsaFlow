@@ -23,11 +23,12 @@ const OTHER_CUSTOMER = '88888888-8888-4888-8888-888888888888';
 const XREF = { external_system: 'sage', external_ref: 'CRET-1' };
 // A linked customer note with no VAT figure or rate: the replay compares no total (its VAT is the invoice's remainder).
 const args = { type: 'customer', client_id: CUSTOMER, customer_invoice_id: CUST_INV, credit_date: '2026-11-11', subtotal: 100, ...KEY, ...XREF };
-const stored = (identity: Record<string, string | null>) => [{
-  entityType: 'credit_note' as const, id: 'cn-1', number: 'CN-1', status: 'approved', date: '2026-11-11', totalAmount: 115, subtotal: 100,
+const row = (id: string, identity: Record<string, string | null>) => ({
+  entityType: 'credit_note' as const, id, number: id.toUpperCase(), status: 'approved', date: '2026-11-11', totalAmount: 115, subtotal: 100,
   live: true, externalDocumentNumber: null, creditNoteType: 'customer',
   identity: { client_id: CUSTOMER, supplier_id: null, customer_invoice_id: CUST_INV, supplier_invoice_id: null, ...identity },
-}];
+});
+const stored = (identity: Record<string, string | null>) => [row('cn-1', identity)];
 
 describe('create_credit_note replay: the party and the linked document', () => {
   it('the same ref for a DIFFERENT invoice is refused, naming customer_invoice_id; nothing written, the old note not returned', async () => {
@@ -36,6 +37,7 @@ describe('create_credit_note replay: the party and the linked document', () => {
     expect(r.isError).toBe(true);
     expect(r.wroteNothing).toBe(true);
     expect(errText(r)).toMatch(/^external_ref CRET-1 \(sage\) is already used by credit note CN-1 for a different customer_invoice_id/);
+    expect(errText(r)).toMatch(/The existing note is CN-1\./);
     expect(errText(r)).not.toMatch(/already_existed/);
     expect(createCreditNote).not.toHaveBeenCalled();
   });
@@ -53,5 +55,30 @@ describe('create_credit_note replay: the party and the linked document', () => {
     vi.mocked(findByExternalRef).mockResolvedValueOnce(stored({ customer_invoice_id: CUST_INV.toUpperCase() }));
     const out = parseOk(await createCreditNoteTool.handler(args, ctx()));
     expect(out).toMatchObject({ already_existed: true, payload_differs: false, id: 'cn-1' });
+  });
+});
+
+describe('round 10: several live notes may carry one reference (no unique index): the replay matches ANY of them', () => {
+  const THIRD_INV = '99999999-9999-4999-8999-999999999999';
+  const two = () => [row('cn-a', { customer_invoice_id: OTHER_INV }), row('cn-b', {})];   // A on another invoice, B on CUST_INV
+  it('a retry for note B is B\'s clean replay, not a refusal against A (whichever comes first)', async () => {
+    for (const rows of [two(), two().reverse()]) {
+      vi.mocked(findByExternalRef).mockResolvedValueOnce(rows);
+      expect(parseOk(await createCreditNoteTool.handler(args, ctx()))).toMatchObject({ already_existed: true, payload_differs: false, id: 'cn-b' });
+    }
+  });
+  it('a retry for note A is A\'s', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce(two());
+    expect(parseOk(await createCreditNoteTool.handler({ ...args, customer_invoice_id: OTHER_INV }, ctx()))).toMatchObject({ already_existed: true, id: 'cn-a' });
+  });
+  it('a third invoice matches neither: refused, naming the field and both existing notes', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce(two());
+    const r = await createCreditNoteTool.handler({ ...args, customer_invoice_id: THIRD_INV }, ctx());
+    expect(r.isError).toBe(true);
+    expect(errText(r)).toMatch(/already used by credit notes CN-A and CN-B for a different customer_invoice_id/);
+  });
+  it('of two notes with this identity, the one the request also matches on date and amounts is the replay', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{ ...row('cn-x', {}), subtotal: 90, totalAmount: 103.5 }, row('cn-y', {})]);
+    expect(parseOk(await createCreditNoteTool.handler(args, ctx()))).toMatchObject({ already_existed: true, payload_differs: false, id: 'cn-y' });
   });
 });

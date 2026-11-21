@@ -13,7 +13,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fillLine, INV, pickMode, price, prices, sentBody, serve } from '../helpers/invoiceDefaultsHarness';
-import { openCombobox } from '../helpers/kitPick';
+import { typeDate } from '../helpers/dateFields';
+import { openCombobox, pickOption } from '../helpers/kitPick';
 
 const push = vi.hoisted(() => vi.fn());
 const reg = vi.hoisted(() => ({ isRegistered: true }));
@@ -147,5 +148,44 @@ describe('(round 9) the refusal is said by the selector, and clears', () => {
     expect(prices()).toEqual(['0.03']);
     await pickMode(/No VAT/);
     expect(screen.queryByText(/would change/)).toBeNull();
+  });
+});
+
+describe('(round 10) the held refusal is dropped for good when anything it was decided on changes', () => {
+  const refusedOnEdit = async () => {
+    serve(undefined, { ...INV, items: [{ description: 'Tiny', quantity: 1000, unit_price: 0.03, amount: 30, tax_rate: 15, vat_type: 'standard', tax_amount: 4.5 }], total_amount: 34.5 });
+    render(<EditPage />);
+    await screen.findByDisplayValue('Tiny');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/Switching to Including VAT would change "Tiny"/);
+  };
+  const gone = () => waitFor(() => expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull());
+  it('an edit back to the old figures does not bring it back', async () => {
+    await refusedOnEdit();
+    fireEvent.change(price(0), { target: { value: '0.04' } });
+    await gone();
+    fireEvent.change(price(0), { target: { value: '0.03' } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull();
+  });
+  it('a change of the form rate clears it', async () => {
+    await refusedOnEdit();
+    fireEvent.change(screen.getByLabelText('VAT rate %'), { target: { value: '0' } });
+    await gone();
+  });
+  it('a change of the invoice date clears it', async () => {
+    await refusedOnEdit();
+    typeDate(screen.getByLabelText(/^Invoice date/), '16 Sep 2026');
+    await gone();
+  });
+  it('new page: a customer\'s defaults landing (a zero-rated one moves the mode to No VAT) clear it', async () => {
+    serve();
+    render(<NewPage />);
+    fillLine(0, '0.03', '1000');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/Switching to Including VAT would change "Work"/);
+    await pickOption('Client', 'c-zero');
+    await gone();
+    await waitFor(() => expect(modeShown()).toMatch(/No VAT/));
   });
 });

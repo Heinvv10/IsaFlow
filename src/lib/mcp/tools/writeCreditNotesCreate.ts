@@ -35,7 +35,7 @@ export const createCreditNoteTool: McpTool = {
     'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named. ' +
     'A customer note linked to an invoice with a VAT type per line must carry that invoice\'s remaining VAT in proportion to the net it credits (not the rate on its subtotal): leave tax_rate and tax_amount out and it defaults to that figure; a tax_rate that misses it is refused, naming it, and approve_credit_note refuses any other tax_amount. ' +
     'A supplier note linked to a bill credits that bill\'s own expense accounts and CC1/CC2/BU pro rata at approve; mirror_bill also takes its VAT from the bill as it stands now (see document_vat_history). ' +
-    'Pass external_system + external_ref (e.g. the Sage RTN id) to make the create idempotent: a live note already carrying them is returned instead (already_existed: true).',
+    'Pass external_system + external_ref (e.g. the Sage RTN id) to make the create idempotent: a live note already carrying them FOR THE SAME customer/supplier and linked invoice/bill is returned instead (already_existed: true; payload_differs when its date or amounts differ). A reference already used by a note for another customer/supplier or linked document (a reused reference, a customer merged since, a draft re-linked since) is refused, naming the field and the existing note, and nothing is created.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {

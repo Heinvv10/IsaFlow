@@ -121,15 +121,10 @@ export async function invoiceCreditFigures(companyId: string, invoiceId: string,
   const legs = await invoiceRevenueLegs(companyId, invoiceId, noteId, defaultRevenueAccountId);
   const replayed = (await legacyLinkedNotes(companyId, invoiceId, noteId)).map((n) => n.subtotal);
   if (!legsAreTyped(legs)) return { legs, replayed, typed: null };
-  // Live customer notes APPLIED to this typed invoice but not linked to it (#1701 rounds 3-6; applying one here does
-  // not link it). Each took none of its legs at approval, yet settled it: what its applications count here is RULE A
-  // (creditNoteDetached): its DETACHED gross, the share of its total that reversed no leg anywhere, consumed by its
-  // applications to invoices whose legs it did not reverse, in application order. So a linked note's FIFO spillover
-  // counts nowhere (it reversed its own invoice's legs) and a late link to a legacy invoice cannot make an application
-  // here stop counting. Their sum uses this invoice's GROSS credit capacity in its own remaining proportion
-  // (appliedSettlement; the note posted its own VAT at its approval), the net taken off the legs pro rata as if
-  // recorded on them, the VAT off the remaining VAT. A note linked to this invoice counts once, by its link. Unapply,
-  // cancel and an adjustment down give the share back and re-derive the order.
+  // `applied`: what the live customer notes APPLIED to this typed invoice but not linked to it count here, gross (RULE A,
+  // creditNoteDetachedRead.detachedAppliedOn); raw, before any settlement. How it comes off the legs and the VAT (in the
+  // invoice's own remaining proportion) is creditNoteTypedSplit.settleApplied, the one copy invoiceCreditBasis and the
+  // bulk dry run both call.
   return { legs, replayed, typed: { vatLeft: await invoiceVatLeft(companyId, invoiceId, noteId), applied: await detachedAppliedOn(companyId, invoiceId, noteId) } };
 }
 

@@ -102,23 +102,32 @@ export async function createReplayOrLock(
   const live = (await findByExternalRef(ctx.companyId, kind, ref.system, ref.ref, { creditNoteType: opts.creditNoteType }))
     .filter((m) => m.live);
   if (live.length === 0) return null;
-  const other = identityDifferences(live[0]!, opts.expect ?? {});
-  if (other.length > 0) {
-    const r = toolError(`external_ref ${ref.ref} (${ref.system}) is already used by ${kind.replace('_', ' ')} ${live[0]!.number ?? live[0]!.id} `
-      + `for a different ${other.join(' and ')}: a reference names one document. Nothing was created; send this document's own `
-      + 'reference, or find the existing one with find_by_external_ref.');
+  const expect = opts.expect ?? {};
+  // Several live rows may carry one reference (credit_notes has no unique index on it): the replay is whichever has the
+  // request's identity, preferring one that also matches its date and amounts (round 10); none with it is a refusal.
+  const same = live.filter((m) => identityDifferences(m, expect).length === 0);
+  if (same.length === 0) {
+    const fields = [...new Set(live.flatMap((m) => identityDifferences(m, expect)))];
+    const named = live.map((m) => m.number ?? m.id);
+    const what = `${kind.replace('_', ' ')}${named.length > 1 ? 's' : ''} ${named.join(' and ')}`;
+    const r = toolError(`external_ref ${ref.ref} (${ref.system}) is already used by ${what} for a different ${fields.join(' and ')}: a `
+      + `reference names one document. The existing note is ${named.join(' / ')}. Nothing was created; send this document's own `
+      + 'reference, or, if the existing note IS this document (its customer was merged, or its linked invoice changed), use it '
+      + '(find_by_external_ref, get_credit_note).');
     return { ...r, wroteNothing: true };
   }
-  const diff = differences(live[0]!, opts.expect ?? {});
+  const match = same.find((m) => differences(m, expect).length === 0) ?? same[0]!;
+  const others = live.filter((m) => m !== match);
+  const diff = differences(match, expect);
   return {
     ...ok({
       already_existed: true,
       payload_differs: diff.length > 0,
       ...(diff.length > 0 ? { differences: diff } : {}),
-      ...matchOut(live[0]!),
+      ...matchOut(match),
       external_system: ref.system,
       external_ref: ref.ref,
-      ...(live.length > 1 ? { other_live_ids: live.slice(1).map((m) => m.id) } : {}),
+      ...(others.length > 0 ? { other_live_ids: others.map((m) => m.id) } : {}),
       note: diff.length > 0
         ? 'A record with this external reference already exists and DIFFERS from this request (see differences); nothing was created or changed. If the source document was corrected, correct the existing record.'
         : 'A record with this external reference already exists; nothing was created.',
