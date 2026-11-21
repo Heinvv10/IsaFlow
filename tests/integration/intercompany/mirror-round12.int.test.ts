@@ -99,9 +99,9 @@ describe('drafted and flagged, never skipped', () => {
     await redate(m.bill, '2026-01-15');
     await approveBill(m.bill);
     const r = await manual(co.B, co.A, 'sale');
-    await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = $1", [r.id]);
-    const { flagged } = await generate();
-    expect(flagged).toEqual([]);
+    const same = await manual(co.A, co.B, 'sale');   // (the control: the same direction does match)
+    const dup = (id: string) => asService(pool, U.ab, co.A, async (q) => (await q.query('SELECT mirror_row FROM public.intercompany_mirrored_duplicate($1)', [id])).rows.length);
+    expect([await dup(r.id), await dup(same.id)]).toEqual([0, 1]);
   });
 
   it('N-M4: the generator walks no ledger chain for the flag (no pair or chain function is called)', async () => {
