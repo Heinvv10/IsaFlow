@@ -153,10 +153,12 @@ function owedOf(r: PayrollRunRow, asAt: string | undefined): { owed: number; pay
   const paye = Math.max(0, payeNet);
   const credit = Math.min(0, payeNet);
   const other = r2(num(r.total_uif) + num(r.total_sdl));
-  const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.disbursed === true);
+  // Marked paid (gate item 3 on 06c106a94d): its net pay has left, whatever its pay date says.
+  const paid = r.status === 'paid'
+    || (asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.disbursed === true));
   if (!paid) return { owed: r2(num(r.total_net) + paye + other), paye, credit, paid };
   const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
-  if (asAt! > emp201Due(r)) return { owed: above, paye: 0, credit: 0, paid };
+  if (asAt !== undefined && asAt > emp201Due(r)) return { owed: above, paye: 0, credit: 0, paid };
   return { owed: r2(paye + other + above), paye, credit, paid };
 }
 

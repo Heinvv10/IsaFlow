@@ -146,6 +146,12 @@ describe('pickPayrollRun', () => {
       // The fallback (nothing owed anywhere) states what is owed, never the run netted below nil.
       const etiOnly = run({ id: 'etiOnly', status: 'calculated', total_net: '0', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '100', pay_date: '2026-07-25' });
       expect(pickPayrollRun([etiOnly], 0, '2026-06-30')).toMatchObject({ runId: 'etiOnly', totalRequired: 0, canPay: true });
+      // Gate item 3 on 06c106a94d: a run marked paid has paid its net pay, whatever its pay date says; its PAYE, UIF and
+      // SDL stay owed until its EMP201 is due.
+      const markedPaid = run({ id: 'marked', status: 'paid', total_net: '1000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-07-31', final: true });
+      expect(pickPayrollRun([markedPaid], 100, '2026-06-30')).toMatchObject({ runId: 'marked', canPay: true, shortfall: 0 });
+      const markedWithPaye = { ...markedPaid, id: 'markedPaye', total_paye: '300' };
+      expect(pickPayrollRun([markedWithPaye], 100, '2026-06-30')).toMatchObject({ runId: 'markedPaye', totalRequired: 300, shortfall: 200 });
       // Another month's credit is not netted (its own EMP201).
       const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
       expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
