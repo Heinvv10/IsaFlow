@@ -23,6 +23,8 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
   const [inputs, setInputs] = useState<Input[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [value, setValue] = useState('');
+  // The amount when editing started (gate item 4 on 06c106a94d): the save's expectedAmount, whatever a refetch shows since.
+  const [original, setOriginal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,7 +45,8 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
   if (!bonus || inputs.length === 0) return <FocusedAlert message={error} />;
   const canEdit = (run.status === 'draft' || run.status === 'calculated') && (companyRole === 'owner' || companyRole === 'admin');
 
-  // expectedAmount: the amount shown, so a save over someone else's correction is refused (409), not silently overwritten.
+  // expectedAmount: the amount shown when editing started, so a save over someone else's correction is refused (409),
+  // not silently overwritten.
   const save = async (employeeId: string, expectedAmount: number) => {
     setBusy(true);
     setError('');
@@ -81,7 +84,7 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
                 <label className="sr-only" htmlFor={`bonus-${i.employeeId}`}>Bonus amount for {i.employeeName}</label>
                 <input id={`bonus-${i.employeeId}`} type="number" min="0.01" step="0.01" value={value} onChange={(e) => setValue(e.target.value)}
                   className="w-36 min-h-[44px] px-3 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]" />
-                <button type="button" onClick={() => void save(i.employeeId, i.amount)} disabled={busy || !(Number(value) > 0)}
+                <button type="button" onClick={() => void save(i.employeeId, original ?? i.amount)} disabled={busy || !(Number(value) > 0)}
                   className="flex items-center gap-2 px-4 min-h-[44px] rounded-lg bg-brand-700 hover:bg-brand-800 text-white font-medium disabled:opacity-50">
                   {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />} Save
                 </button>
@@ -92,7 +95,7 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
               <span className="flex items-center gap-3">
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(i.amount)}</span>
                 {canEdit && (
-                  <button type="button" onClick={() => { setEditing(i.employeeId); setValue(String(i.amount)); }}
+                  <button type="button" onClick={() => { setEditing(i.employeeId); setValue(String(i.amount)); setOriginal(i.amount); }}
                     aria-label={`Change the bonus amount for ${i.employeeName}`}
                     className="px-3 min-h-[44px] rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)]">Change</button>
                 )}
