@@ -1144,7 +1144,8 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  RAISE EXCEPTION '%: a cancelled document stays cancelled (cancelling is final)', TG_TABLE_NAME USING ERRCODE = '23514';
+  RAISE EXCEPTION '%: a cancelled document stays cancelled (cancelling is final)', TG_TABLE_NAME
+    USING ERRCODE = '23514', CONSTRAINT = 'doc_cancelled_final';
 END
 $$;
 
@@ -1160,7 +1161,8 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  RAISE EXCEPTION '%: a linked or non-draft document keeps its company', TG_TABLE_NAME USING ERRCODE = '23514';
+  RAISE EXCEPTION '%: a linked or non-draft document keeps its company', TG_TABLE_NAME
+    USING ERRCODE = '23514', CONSTRAINT = 'doc_company_frozen';
 END
 $$;
 
