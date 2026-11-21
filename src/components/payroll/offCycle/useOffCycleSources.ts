@@ -88,7 +88,10 @@ export function useRunPeople(runId: string | null) {
   const [people, setPeople] = useState<PersonOption[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
-    if (!runId) { setPeople([]); return; }
+    // A new run: the last run's roster and error go first (review #1679 N8), so a failed lookup never shows them.
+    setPeople([]);
+    setError('');
+    if (!runId) return;
     let live = true;
     data<{ lines: Array<{ employeeId: string; employeeNumber: string; employeeName: string }> }>(`/api/payroll/runs/${runId}`, 'Could not load the regular run')
       .then((run) => { if (live) setPeople(run.lines.map((l) => ({ employeeId: l.employeeId, label: `${l.employeeNumber} ${l.employeeName}` }))); })

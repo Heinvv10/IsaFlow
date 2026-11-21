@@ -5,6 +5,7 @@
  */
 import Link from 'next/link';
 import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatPeriodRange } from '@/modules/accounting/services/payroll/payrollPayWeek';
 
 export interface RunRow {
@@ -38,6 +39,11 @@ export const periodLabel = (r: RunRow) => {
     ? `${word} ${formatPeriodRange(r.periodStart, r.periodEnd)}`
     : `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`) + runKindSuffix(r);
 };
+
+/** The run page's title: its period, and an off-cycle run's scheduled date as its PAY date (review #1679 N9: a draft or
+ * cancelled run has paid nothing, so never "paid"). */
+export const runPeriodTitle = (r: RunRow & { runDate?: string | null }): string =>
+  `${periodLabel(r)}${r.runKind === 'off_cycle' && r.runDate ? `, pay date ${formatDisplayDate(r.runDate)}` : ''}`;
 
 export function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
