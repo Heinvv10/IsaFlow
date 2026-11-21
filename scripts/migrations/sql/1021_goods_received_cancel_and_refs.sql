@@ -490,8 +490,9 @@ ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLU
 -- in name order (C collation), and the FK's is 'RI_ConstraintTrigger_c_<oid>', which sorts before any lower-case name; renaming this
 -- trigger to sort first would run the check before the FK has waited and let a racing merge through (bill-supplier-live.int.test.ts
 -- asserts the order). By then the FK has waited for any merge, and this statement's fresh snapshot (READ COMMITTED) sees its commit.
--- A merge takes the supplier rows FOR UPDATE, which the FK's KEY SHARE waits on; a plain supplier soft-delete takes no such lock, so
--- a create racing it is not caught (Known limits). A supplier
+-- A merge takes the supplier rows FOR UPDATE, which the FK's KEY SHARE waits on; only the duplicates merge soft-deletes its source
+-- (the REST merge leaves it inactive, so a racing bill lands there with its note's PO), and a plain supplier soft-delete takes no such
+-- lock, so a create racing it is not caught (Known limits). A supplier
 -- the caller cannot see (another company's) passes here; the tenant check is the app's (assertSupplierInCompany) and the FK's.
 -- SQLSTATE 23503 with constraint supplier_invoices_supplier_live, which the app maps to a typed refusal.
 CREATE OR REPLACE FUNCTION public.supplier_invoices_supplier_live_guard()

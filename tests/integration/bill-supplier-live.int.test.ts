@@ -136,8 +136,9 @@ describe('the undo of a bill whose supplier was deleted since (review of b474139
     let out: unknown;
     try { out = await u.run(() => undoDelete(f.co, 'supplier_invoice', bill!, f.owner)); await u.commit(); } catch (err) { await u.rollback(); out = err; }
     expect(out).toBeInstanceOf(SoftDeleteRefusalError);
-    expect((out as Error).message).toContain('supplier has been merged into another or deleted');
-    expect((out as Error).message).toContain('enter the bill again');
+    expect((out as Error).message).toContain('supplier has been deleted, so the bill cannot be restored');
+    // The exit (review of 95ef48f8, L1): merges move deleted bills, so only a plain supplier soft-delete leaves one here.
+    expect((out as Error).message).toContain('restore the supplier from the recycle bin first, then the bill');
     expect((await pool.query('SELECT deleted_at IS NOT NULL AS deleted FROM supplier_invoices WHERE id = $1', [bill!])).rows[0].deleted).toBe(true);
   });
 });

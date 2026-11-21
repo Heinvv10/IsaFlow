@@ -2,8 +2,18 @@
  * The ONE route answer for a bill written onto a soft-deleted supplier (review of b4741393, M2): migration 1021's supplier-live
  * trigger (SQLSTATE 23503, constraint supplier_invoices_supplier_live) or its typed form, `BillSupplierDeletedError`
  * (ap/billSupplierLive.ts). 409 with the typed wording and code. `respondToUnhandledError` asks it, so a route that does not map it
- * (capture post, the AI pipeline, anything that rethrows) answers it the same. A 4xx is safe here: the failed statement either ran
- * in a savepoint that rolled back, or left the request transaction aborted, which withAuth's COMMIT then rolls back.
+ * (capture post, the AI pipeline, anything that rethrows) answers it the same.
+ *
+ * A 4xx is safe ONLY where the refused INSERT / UPDATE ran in its own savepoint, or aborted the request transaction before anything
+ * else that request wrote could be committed: withAuth COMMITs below 500, and COMMIT of an aborted transaction is a rollback. Today:
+ *   - createSupplierInvoice (REST create, MCP single and bulk, Sage commit) and the MCP draft edit: the write runs in a withTransaction
+ *     savepoint, which rolls back; they answer their own typed refusal before reaching here;
+ *   - capture/[id]/post and ai-invoice-pipeline: the bill INSERT is a plain statement in the request transaction; the trigger's error
+ *     aborts it, so the event / document locks and the claim they took before it are not committed (their candidate lists exclude
+ *     deleted suppliers, so this is the race only);
+ *   - recurring, the Sage import service, the migration AP import: they refuse a deleted supplier before their INSERT (or match live
+ *     suppliers only) and run each row in a savepoint.
+ * A new caller that catches the error and goes on writing in the same transaction would commit those writes with this 409.
  */
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
