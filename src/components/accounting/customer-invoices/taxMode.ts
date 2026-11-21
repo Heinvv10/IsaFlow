@@ -13,7 +13,9 @@
  * (linesForModeChange), so it never reprices at the same rate and an untouched line saves as it was. A rate changed while
  * inclusive holds the gross. A 2-dp price always comes back exact at a rate of 0 or more: grossing up moves it at most
  * R0.005, and dividing by 1 + rate shrinks that below the half cent the way back rounds on. Below 0 the way back is not
- * exact, so nothing converts.
+ * exact, so nothing converts. That is per unit: the price rounds to the cent before its quantity multiplies it (1 000 x
+ * R0.03 excl is R0.0345 incl, shown as R0.03), so the invoice pages convert through taxModeSwitch.switchTaxMode, each
+ * line at its own rate, which refuses a change that would reprice a line.
  *
  * Pure: safe in a client bundle.
  */

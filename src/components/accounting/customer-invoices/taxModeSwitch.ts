@@ -46,7 +46,8 @@ export function switchTaxMode<L extends FormVatLine & { description?: string }>(
     const same = before.subtotal === after.subtotal && (!bothRated || before.tax === after.tax);
     if (!same) {
       const [was, now] = bothRated ? [before.total, after.total] : [before.subtotal, after.subtotal];
-      return { problem: `Switching to ${LABEL[s.to]} would change "${lines[i]!.description ?? `line ${i + 1}`}" from ${rands(was)} to `
+      const name = lines[i]!.description ? `"${lines[i]!.description}"` : `line ${i + 1}`;
+      return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${rands(was)} to `
         + `${rands(now)}: its unit price cannot carry the VAT to the cent at that quantity. Change its quantity or price first, or keep ${LABEL[s.from]}.` };
     }
   }

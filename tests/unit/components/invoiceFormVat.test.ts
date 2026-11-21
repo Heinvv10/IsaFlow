@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { formLineType, formTotals, vatModeFor } from '@/components/accounting/customer-invoices/formVat';
+import { switchTaxMode } from '@/components/accounting/customer-invoices/taxModeSwitch';
+import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { priceInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 const l = (quantity: number, unitPrice: number, discount = 0) => ({ quantity, unitPrice, discount });
@@ -76,5 +78,48 @@ describe('an exempt customer at no VAT (#1701 round 1: the pages type its lines 
     expect(createBody({ ...form, taxRate: 14 }, [pageLine('A')], 'exclusive', 14, {})).toEqual({ problem: msg });
     expect(saveProblem({ form: { ...form, taxRate: 14 }, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBe(msg);
     expect(saveProblem({ form, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBeNull();
+  });
+});
+
+describe('switchTaxMode (#1701 round 8: the "Amounts are" switch never reprices; the gate fixer\'s cases)', () => {
+  const D = '2026-11-20';
+  const pl = (description: string, quantity: number, unitPrice: number, more: object = {}) => ({ description, quantity, unitPrice, discount: 0, ...more });
+  type PL = ReturnType<typeof pl>;
+  const change = (lines: PL[], from: TaxMode, to: TaxMode, formRate: number, registered = true) =>
+    switchTaxMode(lines, { from, to, formRate, date: D, registered });
+  const shown = (r: ReturnType<typeof change>) => {
+    if ('problem' in r) throw new Error(r.problem);
+    return r.lines.map((x) => x.unitPrice);
+  };
+
+  it('converts each line at its own rate: a mixed draft\'s exempt line keeps its price, and the total stays R215', () => {
+    const mixed = [pl('Fee', 1, 100, { vatType: 'standard', vatRateAtLoad: 15 }), pl('Rent', 1, 100, { vatType: 'exempt', vatRateAtLoad: 15 })];
+    const r = change(mixed, 'exclusive', 'inclusive', 15);
+    expect(shown(r)).toEqual([115, 100]);
+    expect(formTotals(mixed, 15, 'exclusive', D).total).toBe(215);
+    if ('lines' in r) expect(formTotals(r.lines, 15, 'inclusive', D).total).toBe(215);
+    expect(shown(change([pl('Fee', 1, 115, { vatType: 'standard', vatRateAtLoad: 15 }), pl('Rent', 1, 100, { vatType: 'exempt', vatRateAtLoad: 15 })], 'inclusive', 'exclusive', 15))).toEqual([100, 100]);
+  });
+
+  it('a line typed by the form\'s rate converts at it: 0 converts nothing, 15 grosses up', () => {
+    expect(shown(change([pl('A', 1, 100)], 'exclusive', 'inclusive', 0))).toEqual([100]);
+    expect(shown(change([pl('A', 1, 100)], 'none', 'inclusive', 15))).toEqual([115]);
+  });
+
+  it('refuses a switch that would reprice a line: 1 000 x R0.03 excl is not R30.00 incl; R10.00 incl would be R10.01 excl', () => {
+    expect(change([pl('Fee', 1, 100), pl('Screws', 1000, 0.03)], 'exclusive', 'inclusive', 15)).toEqual({
+      problem: expect.stringMatching(/^Switching to Including VAT would change "Screws" from R34\.50 to R30\.00/),
+    });
+    expect(change([pl('', 1, 10)], 'inclusive', 'exclusive', 15)).toEqual({
+      problem: expect.stringMatching(/^Switching to Excluding VAT would change line 1 from R10\.00 to R10\.01/),
+    });
+  });
+
+  it('a company not registered for VAT converts nothing', () => {
+    expect(change([pl('A', 1, 100)], vatModeFor(false, 'exclusive'), 'inclusive', 15, false)).toEqual({ mode: 'none', lines: [pl('A', 1, 100)] });
+  });
+
+  it('a price mid-edit is left as it is and does not refuse the switch', () => {
+    expect(shown(change([pl('A', 1, Number.NaN), pl('B', 1, 100)], 'exclusive', 'inclusive', 15))).toEqual([Number.NaN, 115]);
   });
 });

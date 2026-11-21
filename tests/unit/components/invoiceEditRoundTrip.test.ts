@@ -109,3 +109,22 @@ describe('a legacy invoice (no types)', () => {
     expect(body.amountsAre).toBe('exclusive');
   });
 });
+
+describe('an inclusive invoice stored at 0% (#1701 review)', () => {
+  const detail = stored([{ description: 'Rent', quantity: 1, unitPrice: 200, discount: 0, vatType: 'exempt' }], 'inclusive');
+
+  it('reloads at 0%, not the standard rate: a line added at R115 is not typed standard and carries no VAT', () => {
+    expect(detail.tax_rate).toBe('0');
+    const v = vatAtLoad(detail);
+    expect(v).toEqual({ mode: 'inclusive', formRate: 0, effectiveRate: 0 });
+    const lines = [...linesFromStoredItems(detail.items ?? [], '', v), { key: 'n', description: 'New', quantity: 1, unitPrice: 115, discount: 0,
+      glAccountId: '', projectId: '', cc2Id: '', buId: '' }];
+    const body = invoicePutBody('inv-1', { form: FORM(v.formRate), lines, taxMode: v.mode });
+    expect(body.items.map((i) => i.vatType)).toEqual(['exempt', 'zero_rated']);
+    expect(formTotals(lines, v.effectiveRate, v.mode, DATE)).toEqual({ subtotal: 315, tax: 0, total: 315 });
+  });
+
+  it('an exclusive invoice at 0% still loads as No VAT with the standard rate behind it', () => {
+    expect(vatAtLoad({ tax_rate: '0', amounts_are: null })).toEqual({ mode: 'none', formRate: 15, effectiveRate: 0 });
+  });
+});

@@ -9,13 +9,19 @@ import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { openCombobox } from '../helpers/kitPick';
 import { typeDate } from '../helpers/dateFields';
 import {
-  fillLine, invoiceDate, INV, pickClient, pickMode, price, prices, sentBody, serve, submitAndWait, TWO_LINES,
+  descriptionField, fillLine, invoiceDate, INV, pickClient, pickMode, price, prices, sentBody, serve, submitAndWait, TWO_LINES,
 } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
 const scan = vi.hoisted(() => ({ current: { vatRate: null as number | null, lineItems: [] as unknown[] } }));
+const vatRegistered = vi.hoisted(() => ({ current: true }));
+vi.mock('@/hooks/useVatRegistration', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useVatRegistration')>()),
+  useVatRegistrationOrDefault: () => ({ isRegistered: vatRegistered.current, known: true }),
+}));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
@@ -32,7 +38,7 @@ import EditPage from '../../../pages/accounting/customer-invoices/edit/[invoiceI
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
-afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); scan.current = { vatRate: null, lineItems: [] }; });
+afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); scan.current = { vatRate: null, lineItems: [] }; vatRegistered.current = true; });
 
 const summaryOf = () => within(screen.getByText('Invoice Summary').closest('.rounded-2xl') as HTMLElement);
 const expectTotal = (amount: RegExp) => expect(summaryOf().getByText('Total').parentElement!.textContent).toMatch(amount);
@@ -272,5 +278,80 @@ describe('edit page: a gross price too small to survive taking the VAT out', () 
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await screen.findByText('"Two" comes to under a cent - enter a higher price');
     expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
+  });
+});
+
+describe('#1701 review: a mode change never reprices', () => {
+  const openNew = async () => { serve(); render(<NewPage />); await screen.findByRole('combobox', { name: 'Client' }); typeDate(invoiceDate(), '1 Oct 2026'); await pickClient('c-bare'); };
+  const modeShown = () => screen.getByRole('combobox', { name: 'Amounts are' }).textContent;
+  const MIXED = { ...INV, items: [
+    { description: 'Fee', quantity: 1, unit_price: 100, amount: 100, tax_amount: 15, vat_type: 'standard' },
+    { description: 'Rent', quantity: 1, unit_price: 100, amount: 100, tax_amount: 0, vat_type: 'exempt' },
+  ] };
+
+  it('edit page: a mixed draft goes inclusive line by line, R215 before and after, and saves the exempt line at R100', async () => {
+    serve(undefined, MIXED); render(<EditPage />); await screen.findByDisplayValue('Fee');
+    expectTotal(/215\.00/);
+    await pickMode(/Including VAT/);
+    expect(prices()).toEqual(['115', '100']);
+    expectTotal(/215\.00/);
+    await save();
+    expect(sentPrices('PUT')).toEqual([115, 100]);
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['standard', 'exempt']);
+  });
+
+  it('new page: 1 000 x R0.03 is refused going inclusive, saying why, and nothing changes', async () => {
+    await openNew();
+    fillLine(0, '0.03', '1000');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/^Switching to Including VAT would change "Work" from R34\.50 to R30\.00/);
+    expect(modeShown()).toMatch(/Excluding VAT/);
+    expect(prices()).toEqual(['0.03']);
+    expectTotal(/34\.50/);
+  });
+
+  it('edit page: the same refusal, so autosave has nothing repriced to send', async () => {
+    serve(undefined, { ...INV, items: [{ description: 'Screws', quantity: 1000, unit_price: 0.03, amount: 30 }] });
+    render(<EditPage />); await screen.findByDisplayValue('Screws');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/^Switching to Including VAT would change "Screws" from R34\.50 to R30\.00/);
+    expect(modeShown()).toMatch(/Excluding VAT/);
+    expect(prices()).toEqual(['0.03']);
+    expectTotal(/34\.50/);
+  });
+
+  it('new page, a company not registered for VAT: offered No VAT only, R100 is not grossed up, and R100 is sent', async () => {
+    vatRegistered.current = false;
+    await openNew();
+    fillLine(0, '100');
+    openCombobox('Amounts are');
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['No VAT']);
+    expect(prices()).toEqual(['100']);
+    await submitAndWait(push);
+    expect(sentPrices('POST')).toEqual([100]);
+  });
+
+  it('edit page, a company not registered for VAT: offered No VAT only, the stored prices saved as they are', async () => {
+    vatRegistered.current = false;
+    serve(undefined, TWO_LINES); render(<EditPage />); await screen.findByDisplayValue('One');
+    openCombobox('Amounts are');
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['No VAT']);
+    expect(prices()).toEqual(['1000', '500']);
+    await save();
+    expect(sentPrices('PUT')).toEqual([1000, 500]);
+  });
+
+  it('edit page: an inclusive draft at 0% reloads at 0%, so a new R115 line carries no VAT', async () => {
+    serve(undefined, { ...INV, tax_rate: '0.00', amounts_are: 'inclusive', items: [{ description: 'Rent', quantity: 1, unit_price: 200, amount: 200, tax_amount: 0, vat_type: 'exempt' }] });
+    render(<EditPage />); await screen.findByDisplayValue('Rent');
+    expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Line' }));
+    fireEvent.change(descriptionField(1), { target: { value: 'New' } });
+    fireEvent.change(price(1), { target: { value: '115' } });
+    expectTotal(/315\.00/);
+    expect(summaryOf().getByText(/^VAT/).parentElement!.textContent).toMatch(/0\.00/);
+    await save();
+    expect(sentBody('PUT').items.map((i) => i.vatType)).toEqual(['exempt', 'zero_rated']);
+    expect(sentPrices('PUT')).toEqual([200, 115]);
   });
 });
