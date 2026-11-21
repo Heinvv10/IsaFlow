@@ -65,16 +65,19 @@ describe('a receipt from before the product copy (grn_items.product_id NULL)', (
 });
 
 describe('a pre-copy receipt whose PO line names ANOTHER company\'s product', () => {
-  it('is not shown: the product resolved through the PO line must be this company\'s', async () => {
+  it('is not shown, even to a user of both companies (row security admits both): the product must be this company\'s', async () => {
     const theirs = await product(`THEIRS-${crypto.randomUUID().slice(0, 4)}`, other.co);
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 5, price: 1 }] });
     await pool.query('UPDATE po_items SET product_id = $2 WHERE id = $1', [po.items[0], theirs]);
     const r = await callTool(pool, f, create, grnArgs(po, [[0, 3]]));
     expect(r.isError, r.text).toBe(false);
     await pool.query('UPDATE grn_items SET product_id = NULL WHERE grn_id = $1', [r.body.grn_id]);
-    for (const query of [{}, { item_id: theirs }]) {
-      expect((await report(query)).filter((m) => m.reference === String(r.body.grn_number)), JSON.stringify(query)).toEqual([]);
-    }
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [other.co, f.owner]);
+    try {
+      for (const query of [{}, { item_id: theirs }]) {
+        expect((await report(query)).filter((m) => m.reference === String(r.body.grn_number)), JSON.stringify(query)).toEqual([]);
+      }
+    } finally { await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]); }
   });
 });
 
