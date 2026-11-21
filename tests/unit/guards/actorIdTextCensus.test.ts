@@ -66,7 +66,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     105: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
     133: 'const requester = request.requested_by.toLowerCase();',
   },
-  [`${S}gl/approvalDocuments.ts`]: { 167: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
+  [`${S}gl/approvalDocuments.ts`]: { 168: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
   [`${S}payroll/payRunDecision.ts`]: {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
@@ -79,7 +79,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunCreatePeriod.ts`]: { 83: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end, run_date' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 126: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
-  [`${S}payroll/payrollRunLock.ts`]: { 238: 'prepared_by     = ${preparedBy},' },
+  [`${S}payroll/payrollRunLock.ts`]: { 239: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 79: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
