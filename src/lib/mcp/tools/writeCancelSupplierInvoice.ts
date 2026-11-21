@@ -23,7 +23,7 @@ import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { mcpPostingOpts } from '../mcpActor';
-import { lockPosClosedByBilling, previewReopenOnBillGone, type ReopenedPo } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
+import { lockPosClosedByBilling, previewReopenOnBillGone, type HeldPos, type ReopenedPo } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'cancel_supplier_invoice';
@@ -44,7 +44,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
     + 'its journal is still a draft; it is approved but has NO approval journal to reverse; no date up '
     + 'to today is outside the locked VAT periods for its VAT-carrying reversal; or it is already cancelled. '
     + 'Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
-    + 'A purchase order that was closed because it was fully billed and that this bill no longer leaves fully billed reopens: reopened_purchase_orders names each, and budget_warnings says it commits spend again; dry_run lists them as would_reopen_purchase_orders (only the POs already closed by billing when it locked them). A PO a link closed by billing meanwhile that is busy is not re-checked and is named in unchecked_purchase_orders (the request holding it may reopen it; if it stays closed it still counts its unbilled remainder in committed, get_purchase_order reads it closed_under_billed, and the next unlink, cancel or delete of a bill on it reopens it; the dry run cannot list these). '
+    + 'A purchase order that was closed because it was fully billed and that this bill no longer leaves fully billed reopens: reopened_purchase_orders names each, and budget_warnings says it commits spend again; dry_run lists them as would_reopen_purchase_orders (only the POs already closed by billing when it locked them). A PO a link closed by billing meanwhile that is busy is not re-checked and is named in unchecked_purchase_orders (the request holding it may reopen it; if it is still closed it still counts its unbilled remainder in committed, and it reopens only when a bill that still counts toward its billing is next unlinked, cancelled or deleted, otherwise it stays closed under-billed: get_purchase_order shows closed_under_billed; the dry run cannot list these). '
     + 'Run with dry_run first: it shows the contra journal it would post and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -67,7 +67,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
     // Planned on the LOCKED row: the cancel below re-locks it (a no-op), so no
     // concurrent payment or approval can move what the plan decided.
     let plan: SupplierInvoiceCancelPlan;
-    let billingClosed: Map<string, number>;
+    let billingClosed: HeldPos;
     try {
       // The bill's POs closed by billing BEFORE the plan locks the bill (PO -> bill, as link / unlink; PR #1703 R4-1).
       billingClosed = await lockPosClosedByBilling(ctx.companyId, invoiceId);
@@ -86,7 +86,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
     // No catch — see the header.
     // The POs locked above, before the plan locked the bill: the cancel does not lock them again (bill -> PO would wait).
     const cancelled = await cancelSupplierInvoice(
-      ctx.companyId, invoiceId, ctx.userId, { ...mcpPostingOpts(ctx, TOOL), heldPos: new Set(billingClosed.keys()) },
+      ctx.companyId, invoiceId, ctx.userId, { ...mcpPostingOpts(ctx, TOOL), heldPos: billingClosed },
     );
     const contra = plan.journal
       ? ((await sql`

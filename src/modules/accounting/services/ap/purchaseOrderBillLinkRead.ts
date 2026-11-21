@@ -1,8 +1,9 @@
 /**
  * link_bills_to_purchase_order: the facts, read under the locks (design decision 13). Lock order, one 5 s budget for the
  * whole section (`withRowLockBudget`, one deadline): the call's external-reference advisory locks (sorted), then the
- * PO rows `FOR UPDATE` in id order, then the bill rows in id order. A row held past the budget is a typed, retryable
- * refusal; nothing has been written by then. Every query is company-scoped (po_items and grn_items have no company_id:
+ * PO rows `FOR NO KEY UPDATE` in id order, then the call's own bills `FOR UPDATE` in id order (one statement, waiting), then every
+ * other bill tying those POs `FOR SHARE NOWAIT` (one statement). A row held past the budget, or a busy tied bill, is a typed,
+ * retryable refusal; nothing has been written by then. Every query is company-scoped (po_items and grn_items have no company_id:
  * their tenancy goes through the parent PO).
  */
 import { sql, withSavepoint } from '@/lib/neon';
@@ -58,14 +59,16 @@ async function resolvePos(companyId: string, requests: readonly LinkRequest[]): 
   return out;
 }
 
-async function lockTiedBillsNowait(companyId: string, poIds: readonly string[], linked: readonly string[], pos: readonly DbRow[]): Promise<void> {
+async function lockTiedBillsNowait(companyId: string, poIds: readonly string[], callBills: readonly string[], pos: readonly DbRow[]): Promise<void> {
   const ids = [...poIds];
-  const skip = [...linked];
+  const skip = [...callBills];
   try {
     await withSavepoint('link_tied_bills_lock', async () => sql`
       SELECT 1 FROM supplier_invoices si
        WHERE si.company_id = ${companyId}::UUID AND si.status <> 'cancelled' AND NOT (si.id = ANY(${skip}::UUID[])) AND (
              si.purchase_order_id = ANY(${ids}::UUID[])
+          OR si.id IN (SELECT l.supplier_invoice_id FROM purchase_order_bill_links l
+                        WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${ids}::UUID[]))
           OR si.id IN (SELECT x.supplier_invoice_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
                         WHERE pi.purchase_order_id = ANY(${ids}::UUID[])))
        ORDER BY si.id FOR SHARE NOWAIT
@@ -109,15 +112,15 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
      WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
   `) as DbRow[];
   const lockIds = [...new Set([...billIds, ...held.map((r) => low(r.bill))])].sort();
-  // The call's bills and those with a link row on its POs: FOR UPDATE, waiting under the budget, ONE statement in id order.
+  // The CALL'S OWN bills (the ones it links): FOR UPDATE, waiting under the budget, ONE statement in id order.
   await withRowLockBudget(async () => sql`
-    SELECT 1 FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${lockIds}::UUID[]) ORDER BY id FOR UPDATE
+    SELECT 1 FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${billIds}::UUID[]) ORDER BY id FOR UPDATE
   `, () => new RowLockTimeoutError('A bill in this call'), { deadline });
-  // Breaker r12 F2 / r13: the bills that tie a requested PO only by their header or their lines (no link row; a cancelled one is
-  // terminal and skipped) are taken FOR SHARE NOWAIT, so a cancel or delete of one that is done but uncommitted cannot be read as
-  // still billing while this call closes the PO. NOWAIT never waits (no cycle, whatever order another writer takes them in); one
-  // that is busy refuses the whole call, retryably, before any write (dry run too).
-  await lockTiedBillsNowait(companyId, poIds, lockIds, lockedPos);
+  // Breaker r12 F2 / r13, review r14 M3: every OTHER bill that ties a requested PO (a link row, its header or its lines; a cancelled
+  // one is terminal and skipped) is taken FOR SHARE NOWAIT, so billed / fully_billed cannot move under the close decision and a
+  // cancel or delete of one that is done but uncommitted cannot be read as still billing. NOWAIT never waits (no cycle, whatever
+  // order another writer takes them in); one that is busy refuses the whole call, retryably, before any write (dry run too).
+  await lockTiedBillsNowait(companyId, poIds, billIds, lockedPos);
   const billRows = ((await sql`
     SELECT si.* FROM supplier_invoices si
      WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id

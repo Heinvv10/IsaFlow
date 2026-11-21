@@ -78,7 +78,9 @@ describe('STRUCTURAL: a PO closed by billing commits whatever becomes unbilled',
     expect(r.isError, r.text).toBe(false);
     expect([(await flag(z)).status, await billed(z), await committed(z)]).toEqual(['closed', 0, 100000]);
   });
-  it.each(['cancel', 'soft delete'] as const)('B5-3 / 3b: a %s racing the close of its PO: closed, yet commits subtotal less billed', async (how) => {
+  // Breaker r12 F2 / r13: a link no longer reads a bill whose removal is uncommitted as billing; it refuses, retryably, and the retry
+  // reads it gone. The structural rule (closed by billing, under-billed: commits subtotal less billed) is pinned after it.
+  it.each(['cancel', 'soft delete'] as const)('B5-3 / 3b: a %s racing the close of its PO: the link is refused, then reads it gone; a PO closed under-billed commits subtotal less billed', async (how) => {
     const p = await seedPo(pool, f, { lines: [1000] });
     const h = await approvedBill(1000);
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [h.id, p.po]);
@@ -86,9 +88,13 @@ describe('STRUCTURAL: a PO closed by billing commits whatever becomes unbilled',
     const c = await seedRawBill(pool, f, { items: [{ total: 1 }], subtotal: 1, total: 1.15 });
     const req = await openRequest(pool, f, f.owner);
     await req.run(() => (how === 'cancel' ? cancelSupplierInvoice(f.co, h.id, f.owner) : softDelete(f.co, 'supplier_invoice', h.id, f.owner)));
+    const args = { links: [{ po_id: p.po, bill_id: c.id, amount: 1 }], close_when_fully_billed: true };
     try {
-      expect((await callTool(pool, f, link, { links: [{ po_id: p.po, bill_id: c.id, amount: 1 }], close_when_fully_billed: true })).isError).toBe(false);
+      await expect(callTool(pool, f, link, args)).rejects.toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
     } finally { await req.commit(); }
+    expect((await callTool(pool, f, link, args)).isError).toBe(false);
+    expect([(await flag(p)).status, await billed(p), await committed(p)]).toEqual(['approved', 100, 99900]);
+    await pool.query(`UPDATE purchase_orders SET status = 'closed', closed_from_status = 'approved', closed_by_billing = true WHERE id = $1`, [p.po]);
     expect([(await flag(p)).status, await billed(p), await committed(p)]).toEqual(['closed', 100, 99900]);
   });
   it('a close by hand and a cancelled PO commit nothing', async () => {

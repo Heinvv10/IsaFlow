@@ -70,14 +70,23 @@ async function closedByBillingPoIds(companyId: string, ids: readonly string[], l
  * (the bulk cancel before its loop, the MCP cancel before its plan) passes the PO set it holds to the cancel (`heldPos`), which then
  * does not lock again: a second, waiting read after the bill lock would be bill -> PO.
  */
-export async function lockPosClosedByBilling(companyId: string, billIds: string | readonly string[]): Promise<Map<string, number>> {
+export async function lockPosClosedByBilling(companyId: string, billIds: string | readonly string[]): Promise<HeldPos> {
   const ids = typeof billIds === 'string' ? [billIds] : [...billIds];
   const poIds = await withRowLockBudget(() => closedByBillingPoIds(companyId, ids, true), () => new RowLockTimeoutError('A purchase order of this bill'));
   const billed = await billedCentsByPo(companyId, poIds);
-  return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
+  return Object.assign(new Map(poIds.map((id) => [id, billed.get(id) ?? 0])), { [HELD]: true as const });
 }
 
-async function heldClosedByBilling(companyId: string, billId: string, heldPos: ReadonlySet<string>): Promise<Map<string, number>> {
+declare const HELD_BRAND: unique symbol;
+const HELD: typeof HELD_BRAND = Symbol('HeldPos') as typeof HELD_BRAND;
+/**
+ * The POs closed by billing a caller LOCKED (review r14 M2): only `lockPosClosedByBilling` builds one, so a cancel cannot be told
+ * "these are held" with a hand-made set (a plain Set is a type error; an EMPTY HeldPos means "locked, none was closed by billing").
+ * Billed cents per PO at the lock.
+ */
+export type HeldPos = ReadonlyMap<string, number> & { readonly [HELD_BRAND]: true };
+
+async function heldClosedByBilling(companyId: string, billId: string, heldPos: HeldPos): Promise<Map<string, number>> {
   const poIds = (await closedByBillingPoIds(companyId, [billId], false)).filter((id) => heldPos.has(id));
   const billed = await billedCentsByPo(companyId, poIds);
   return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
@@ -86,7 +95,7 @@ async function heldClosedByBilling(companyId: string, billId: string, heldPos: R
 export interface ClosedByBillingRecheck {
   /** Per PO closed by billing, what it is billed before the change (the first read's, and the late ones'). */
   billedBefore: Map<string, number>;
-  /** POs a link closed by billing meanwhile that were busy: left closed (they still count their unbilled remainder). */
+  /** POs a link closed by billing meanwhile that were busy: not re-checked (their holder may reopen them; else they stay closed). */
   busy: Array<{ poId: string; poNumber: string }>;
 }
 
@@ -120,11 +129,11 @@ export async function recheckClosedByBilling(companyId: string, billId: string, 
  * One bill's cancel or delete (review r5 M1, Codex gate): its POs closed by billing locked first (`lockPosClosedByBilling`), the late
  * re-read once the caller holds the bill (`recheck`), and the reopen after the change (`reopen`).
  */
-export async function guardBillGone(companyId: string, billId: string, heldPos?: ReadonlySet<string>) {
+export async function guardBillGone(companyId: string, billId: string, heldPos?: HeldPos) {
   // With `heldPos` (the caller locked them before the bill): the bill's POs closed by billing in that set are read, not locked again,
   // billed NOW (an earlier bulk item may have moved it); any other is reached by the NOWAIT re-check after the bill lock.
-  const known = heldPos ? await heldClosedByBilling(companyId, billId, heldPos) : await lockPosClosedByBilling(companyId, billId);
-  let checked: ClosedByBillingRecheck = { billedBefore: known, busy: [] };
+  const known: ReadonlyMap<string, number> = heldPos ? await heldClosedByBilling(companyId, billId, heldPos) : await lockPosClosedByBilling(companyId, billId);
+  let checked: ClosedByBillingRecheck = { billedBefore: new Map(known), busy: [] };
   return {
     recheck: async (): Promise<void> => { checked = await recheckClosedByBilling(companyId, billId, known); },
     reopen: (opts: { userId: string; via: string; why: string; figures?: boolean }): Promise<BillGoneReopen> =>
@@ -233,7 +242,7 @@ export async function reopenAfterBillGone(
   busy: ReadonlyArray<{ poId: string; poNumber: string }> = [],
 ): Promise<BillGoneReopen> {
   const reopened = [...(await reopenUnderBilled(companyId, billedBefore, opts)).values()];
-  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now; if it is still closed, it still counts its unbilled remainder in committed and reopens when a bill on it is next unlinked, cancelled or deleted.`);
+  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now; if it is still closed, it still counts its unbilled remainder in committed; it reopens only when a bill that still counts toward its billing is next unlinked, cancelled or deleted, otherwise it stays closed under-billed (get_purchase_order shows closed_under_billed).`);
   return {
     reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: [...busy],
     budgetWarnings: [...await reopenWarnings(companyId, reopened, opts.figures === true), ...unchecked],

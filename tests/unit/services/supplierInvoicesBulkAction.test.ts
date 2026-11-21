@@ -251,7 +251,9 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { heldPos: new Set() });
+    // Review r14 M2: the very HeldPos the lock returned (only purchaseOrderBillingClose builds one), never a copy.
+    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { heldPos: await lockPosMock.mock.results[0]!.value });
+    expect(cancelMock.mock.calls[0]![3].heldPos).toBe(await lockPosMock.mock.results[0]!.value);
     expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_A]);
     expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(cancelMock.mock.invocationCallOrder[0]!);
     expect(approveMock).not.toHaveBeenCalled();
@@ -275,13 +277,15 @@ describe('supplier-invoices-bulk-action', () => {
 
   // Codex gate review M1 + L13: the POs the route locked are handed to EVERY cancel (held, not locked again: no cache), and the
   // ids are lower-cased before the sort, so the lock order is the database's whatever case the client sent.
-  it('hands the held PO set to each cancel; mixed-case ids are lower-cased before the sort', async () => {
-    lockPosMock.mockResolvedValueOnce(new Map([['p1', 100], ['p2', 0]]));
+  it('hands the held PO set to each cancel; mixed-case ids are lower-cased before the sort, then de-duplicated', async () => {
+    const held = new Map([['p1', 100], ['p2', 0]]);
+    lockPosMock.mockResolvedValueOnce(held);
     cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
     const upper = 'AAAAAAAA-1111-4111-8111-111111111111';
-    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_B, upper] }), res());
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_B, upper, upper.toLowerCase()] }), res());
     expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_B, upper.toLowerCase()]);
-    for (const c of cancelMock.mock.calls) expect(c[3]).toEqual({ heldPos: new Set(['p1', 'p2']) });
+    expect(cancelMock.mock.calls.map((c) => c[1])).toEqual([ID_B, upper.toLowerCase()]);
+    for (const c of cancelMock.mock.calls) expect(c[3].heldPos).toBe(held);
   });
 
   // Codex gate review M3: what each cancel reopened, and what it could not re-check, reach the results the bulk bar reads.

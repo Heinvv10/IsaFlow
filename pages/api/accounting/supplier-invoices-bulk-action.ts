@@ -137,7 +137,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
   // Lower-cased first (Codex gate review L13): the lock order is the database's id order, whatever case the client sent.
-  const ordered = [...invoiceIds].map((id) => id.toLowerCase()).sort();
+  const ordered = [...new Set(invoiceIds.map((id) => id.toLowerCase()))].sort();
 
   const numberOf = await billNumbers(companyId, ordered);
 
@@ -155,7 +155,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // item savepoints; each bill is locked by its own cancel inside its item's savepoint (a held bill fails that item alone), which then
   // re-reads its POs closed by billing meanwhile with NOWAIT (purchaseOrderBillingClose.recheckClosedByBilling). Named limit B6-DL1:
   // POs closed by billing after the batch's start are not in the up-front set (docs/design/mcp-po-bill-links.md).
-  const heldPos = action === 'cancel' ? new Set((await lockPosClosedByBilling(companyId, ordered)).keys()) : undefined;
+  const heldPos = action === 'cancel' ? await lockPosClosedByBilling(companyId, ordered) : undefined;
 
   for (const invoiceId of ordered) {
     try {

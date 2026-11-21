@@ -8,7 +8,8 @@
  *   - the write guards that cannot fire under the locks, forced by a trigger that skips the row: a bill line that changes
  *     while it is linked, a PO that changes while it is closed or reopened, each throw and leave nothing behind;
  *   - a draft edit (holding its bill, then taking the PO's KEY SHARE through the link's FK) against a link / unlink call (holding the PO,
- *     then waiting for that bill): no deadlock, because the PO is taken FOR NO KEY UPDATE (review round 2, M1);
+ *     then waiting for that bill): no deadlock, because the PO is taken FOR NO KEY UPDATE (review round 2, M1); since PR #1703 r14 M3
+ *     the link takes a bill it does not link (a tie of its PO) FOR SHARE NOWAIT, so it refuses at once, retryably, and the retry links;
  *   - link x unlink x PO cancel x bill approve / cancel x draft edit on the same rows under the block policy (the budget gate taken):
  *     no deadlock, no unexpected rejection, and the final state is consistent.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -166,8 +167,15 @@ describe('races', () => {
       try { refreshed = await edit.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await edit.commit(); } catch (e) { await edit.rollback(); refreshed = e; }
       const done = await Promise.allSettled([other]);
       expect(refreshed, `${leg}: the draft edit's refresh`).toBe(1);
-      expect(done[0]!.status, `${leg}: the other call`).toBe('fulfilled');
-      expect((done[0] as PromiseFulfilledResult<{ isError: boolean; text: string }>).value.isError, `${leg}`).toBe(false);
+      if (leg === 'link') {
+        // PR #1703 r14 M3: the draft is a tie of the PO the link does not link: taken NOWAIT, busy, so the call is refused at once.
+        expect(done[0]!.status, 'link: refused, never waiting').toBe('rejected');
+        expect((done[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'ROW_LOCK_TIMEOUT', name: 'TiedBillBusyError' });
+        expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] })).isError, 'link: the retry').toBe(false);
+      } else {
+        expect(done[0]!.status, `${leg}: the other call`).toBe('fulfilled');
+        expect((done[0] as PromiseFulfilledResult<{ isError: boolean; text: string }>).value.isError, `${leg}`).toBe(false);
+      }
       expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '40.00', source: 'app' });
     }
   }, 60_000);
@@ -207,7 +215,9 @@ describe('races', () => {
         settled.forEach((r, k) => {
           if (r.status === 'fulfilled') return;
           const err = r.reason as Error;
-          // The only refusal a race may legitimately produce: the PO was closed or cancelled by another call first.
+          // The refusals a race may legitimately produce: the PO was closed or cancelled by another call first; the link found a
+          // bill tying its PO busy (PR #1703 r13 / r14 M3: taken NOWAIT, refused at once and retryably, never a wait or a 40P01).
+          if (ops[k]![0] === 'link' && (err as { name?: string }).name === 'TiedBillBusyError') return;
           if (!(err instanceof PurchaseOrderNotCancellableError)) unexpected.push(`${ops[k]![0]}: ${(err as { code?: string }).code ?? ''} ${err.message}`);
         });
         const links = await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`);

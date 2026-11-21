@@ -27,7 +27,7 @@ function notifyBudgetWarnings(data: BulkActionResult, action: BulkAction): void 
   if (action === 'cancel') {
     const done = data.results.filter((r) => r.ok);
     const toast = cancelReopenToast(done.flatMap((r) => r.reopenedPurchaseOrders ?? []), done.flatMap((r) => r.uncheckedPurchaseOrders ?? []));
-    if (toast) notify.warning(toast.title, toast.line);
+    if (toast) notify.warning(toast.title, toast.line, { live: true });
     return;
   }
   const warned = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);

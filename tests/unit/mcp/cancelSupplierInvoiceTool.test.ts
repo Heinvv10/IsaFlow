@@ -81,11 +81,13 @@ describe('cancel_supplier_invoice', () => {
 
   it('cancels as the agent, with NO catch around the write', async () => {
     // Codex gate review M1: the POs locked before the plan are handed to the cancel, which does not lock them again.
-    vi.mocked(lockPosClosedByBilling).mockResolvedValueOnce(new Map([['p1', 100]]));
+    const held = new Map([['p1', 100]]) as never;
+    vi.mocked(lockPosClosedByBilling).mockResolvedValueOnce(held);
     const r = await cancelSupplierInvoiceTool.handler({ invoice_id: BILL, ...KEY }, ctx);
     expect(cancelSupplierInvoice).toHaveBeenCalledWith(
-      COMPANY, BILL, 'u-1', expect.objectContaining({ postingAgent: 'mcp:cancel_supplier_invoice:v1', heldPos: new Set(['p1']) }),
+      COMPANY, BILL, 'u-1', expect.objectContaining({ postingAgent: 'mcp:cancel_supplier_invoice:v1' }),
     );
+    expect(vi.mocked(cancelSupplierInvoice).mock.calls[0]![3]!.heldPos).toBe(held);
     expect(JSON.parse(text(r))).toMatchObject({
       status: 'cancelled', journal_reversed: true, reversal_journal_entry_id: 'rev-1',
     });

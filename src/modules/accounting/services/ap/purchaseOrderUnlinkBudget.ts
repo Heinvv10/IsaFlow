@@ -15,6 +15,8 @@ export async function unlinkBudgetRead(companyId: string, poId: string, poNumber
   const flagged = preview.lines.filter((l) => l.over || l.offSlice);
   return {
     warnings: budgetLines(flagged, poNumber, figures, lead),
+    // The same fork as the prose (budgetLines): an off-slice line is worded "outside the budgeted slices" even when it is also
+    // over, so it sets outsideSlices only; overBudget is an over line inside a slice. A screen reading the flags says what the text says.
     overBudget: flagged.some((l) => l.over && !l.offSlice), outsideSlices: flagged.some((l) => l.offSlice),
   };
 }

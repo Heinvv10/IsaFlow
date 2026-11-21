@@ -126,6 +126,43 @@ describe('#1 no deadlock with an unsorted writer of two tied bills', () => {
     }, 60_000);
   }
 
+  // Review r14 M3: the common tie. Bills naming the PO in their header nearly always carry an app link row too; those are no longer
+  // waited on FOR UPDATE (only the call's own bills are), so the out-of-order batch cannot deadlock the link either.
+  for (let run = 0; run < 3; run++) {
+    it(`with real app link rows on the tied drafts, run ${run}: the batch completes, the link refuses at once, no 40P01`, async () => {
+      const p = await seedPo(pool, f, { lines: [1000] });
+      const d1 = await bill(100, { approved: false, header: p.po }); const d2 = await bill(100, { approved: false, header: p.po });
+      const seedReq = await openRequest(pool, f, f.owner);
+      try { // a committed draft edit of each: the app writes its link row to the header PO
+        await seedReq.run(async () => { for (const d of [d1, d2]) await editTool.handler({ invoice_id: d.id, notes: 'b14 app link' }, ctx()); });
+        await seedReq.commit();
+      } catch (e) { await seedReq.rollback(); throw e; }
+      const appLinks = (await pool.query(`SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE purchase_order_id = $1 AND source = 'app'`, [p.po])).rows[0].n;
+      expect(appLinks).toBe(2);
+      const [lo, hi] = d1.id < d2.id ? [d1, d2] : [d2, d1];
+      const x = await bill(400);
+      const out: string[] = [];
+      const w = await openRequest(pool, f, f.owner);
+      const edit = async (id: string, tag: string) => {
+        try {
+          const r = await withSavepoint(`mcp_${tag}`, () => editTool.handler({ invoice_id: id, notes: `b14 ${tag}` }, ctx()));
+          out.push(`${tag} isError=${r.isError === true}`);
+        } catch (e) { out.push(`${tag} threw ${(e as { code?: string }).code ?? ''} ${String(e).slice(0, 80)}`); }
+      };
+      let linked: Awaited<ReturnType<typeof timedLink>>;
+      try {
+        await w.run(() => edit(hi.id, 'edit_hi'));
+        linked = await timedLink({ links: [{ po_id: p.po, bill_id: x.id, amount: 400 }] });
+        await w.run(() => edit(lo.id, 'edit_lo'));
+        await w.commit();
+      } catch (e) { await w.rollback(); throw e; }
+      expect(out).toEqual(['edit_hi isError=false', 'edit_lo isError=false']);
+      expect([linked.ok, linked.code, linked.message]).toEqual([false, 'ROW_LOCK_TIMEOUT', busyText(p)]);
+      expect(linked.ms).toBeLessThan(FAST_MS);
+      expect((await timedLink({ links: [{ po_id: p.po, bill_id: x.id, amount: 400 }] })).ok).toBe(true);
+    }, 60_000);
+  }
+
   for (let run = 0; run < 4; run++) {
     it(`a plain writer holding B_hi, then B_lo, vs the link, run ${run}: no 40P01`, async () => {
       const p = await seedPo(pool, f, { lines: [1000] });

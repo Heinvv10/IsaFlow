@@ -52,7 +52,7 @@ describe('supplier invoice detail: Cancel Invoice', () => {
   };
   it('a cancel that reopened a PO says which, and its budget warning', async () => {
     await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'approved' }], budgetWarnings: [REOPENED] });
-    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to approved', 'Commits again: PO-9'));
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to approved', 'Commits again: PO-9', { live: true }));
   });
   it('a cancel that reopened nothing says nothing', async () => {
     await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [] });
@@ -64,7 +64,7 @@ describe('the cancel toast (title carries the facts, the line fits)', () => {
   it('a PO closed by billing meanwhile that could not be re-checked is said', async () => {
     const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
     expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }]))
-      .toEqual({ title: 'Purchase order PO-2 could not be re-checked', line: 'If still closed, still commits' });
+      .toEqual({ title: 'Purchase order PO-2 could not be re-checked', line: 'If still closed: under-billed, still commits' });
     expect(cancelReopenToast([], [])).toBeNull();
   });
   // Codex gate review M4: two bills of one bulk cancel that reopen the same PO name it once (by its id), and a long list is capped.
@@ -77,6 +77,21 @@ describe('the cancel toast (title carries the facts, the line fits)', () => {
     expect(many!.title).toMatch(/^Purchase orders reopened: PO-100000 to approved, .* and \d+ more$/);
     expect(many!.title.length).toBeLessThanOrEqual(90);
     expect(many!.line.length).toBeLessThanOrEqual(45);
+  });
+  // Review r14 M1: the WHOLE title fits, reopened + unchecked + joiner together, and one long PO number is cut.
+  it('a mixed 30 reopened + 30 unchecked title fits whole; a single long label is cut', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const po = (k: string, i: number) => ({ poId: `${k}${i}`, poNumber: `PO-${k}-${String(i).padStart(5, '0')}`, reopenedTo: 'partially_received' });
+    const mixed = cancelReopenToast(Array.from({ length: 30 }, (_, i) => po('r', i)), Array.from({ length: 30 }, (_, i) => po('u', i)))!;
+    expect(mixed.title.length).toBeLessThanOrEqual(90);
+    expect(mixed.title).toMatch(/reopened/);
+    expect(mixed.title).toMatch(/30 purchase orders could not be re-checked|and \d+ more could not be re-checked/);
+    const long = 'PO-' + 'X'.repeat(120);
+    const one = cancelReopenToast([{ poId: 'p1', poNumber: long, reopenedTo: 'partially_received' }], [{ poId: 'p2', poNumber: long + 'Y' }])!;
+    expect(one.title.length).toBeLessThanOrEqual(90);
+    expect(one.title).not.toContain(long);
+    expect(cancelReopenToast([{ poId: 'p1', poNumber: long, reopenedTo: 'approved' }], [])!.title)
+      .toBe(`Purchase order ${long.slice(0, 23)}\u2026 reopened to approved`);
   });
   // Codex gate review L11: the line reads the server's flags, never the warning prose.
   it('the line follows the flags: over budget, then outside the slices', async () => {
@@ -96,6 +111,6 @@ describe('supplier invoice bulk bar: Cancel', () => {
     render(<BulkActionBar selected={new Set(['b1'])} busy={null} onBusyChange={() => {}} onError={() => {}} onComplete={onComplete} onClear={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
-    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to partially received', 'Now over budget: PO-9'));
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to partially received', 'Now over budget: PO-9', { live: true }));
   });
 });

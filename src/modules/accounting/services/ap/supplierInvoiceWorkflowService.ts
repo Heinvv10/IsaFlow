@@ -29,7 +29,7 @@ import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
-import { guardBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
+import { guardBillGone, type BillGoneReopen, type HeldPos } from './purchaseOrderBillingClose';
 
 type Row = DbRow;
 
@@ -290,7 +290,7 @@ export async function cancelSupplierInvoice(
   // Optional and last-positional, as on approveSupplierInvoice: an MCP cancel
   // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
   // `heldPos`: the POs closed by billing the caller locked before the bill (the bulk route, the MCP tool): not locked again.
-  opts?: PostingActorOpts & { heldPos?: ReadonlySet<string> },
+  opts?: PostingActorOpts & { heldPos?: HeldPos },
 ): Promise<SupplierInvoice & BillGoneReopen> {
   // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a failure after the reversal's draft
   // INSERTs must roll them back (see customerInvoiceCancelService). One lock budget for the flow (D8 round 10).
@@ -303,7 +303,7 @@ async function cancelSupplierInvoiceInner(
   id: string,
   userId: string,
   // `heldPos`: the POs closed by billing the caller locked before the bill (the bulk route, the MCP tool): not locked again.
-  opts?: PostingActorOpts & { heldPos?: ReadonlySet<string> },
+  opts?: PostingActorOpts & { heldPos?: HeldPos },
 ): Promise<SupplierInvoice & BillGoneReopen> {
   try {
     // The POs closed BY BILLING this bill ties, locked BEFORE the bill (PO -> bill, as link / unlink): one it leaves under-billed reopens.
