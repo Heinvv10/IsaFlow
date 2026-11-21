@@ -37,7 +37,7 @@ import type { ReturnVersion } from '@/modules/accounting/services/returns/return
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
-import { typeLines } from './helpers/lineVatFixture';
+import { typeLines, untypeLines } from './helpers/lineVatFixture';
 import { closePeriod } from '@/modules/accounting/services/gl/fiscalPeriodService';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -56,7 +56,8 @@ async function approvedInvoice(date: string, items: Items, taxRate: number,
   const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
     clientId: f.fx.customerId, invoiceDate: date, taxRate, items,
   }))).id;
-  if (types) await typeLines(id, types, { tax });
+  // No types named: a LEGACY invoice, the shape the legacy writers store (create types its lines since the writer PR).
+  if (types) await typeLines(id, types, { tax }); else await untypeLines(id);
   await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
   return id;
 }

@@ -153,3 +153,58 @@ describe('simulateSequentialApplications', () => {
     ]);
   });
 });
+
+describe('customer credit notes capped at typed invoices\' credit capacity (#1701 round 5 M2)', () => {
+  const caps = new Map<string, number | null>([['b1', 4000], ['b2', null]]);
+  it('a credit-note line takes what fits on a typed invoice; the capacity is consumed for the next note; cash is never capped', () => {
+    const out = simulateSequentialApplications([
+      line(0, 60, { creditNoteLink: null }),
+      line(1, 50, { creditNoteLink: null }),
+      line(2, 30),
+    ], new Map([['sup-1', BILLS]]), caps);
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([
+      [['b1', 40], ['b2', 20]],
+      [['b2', 50]],
+      [['b1', 30]],
+    ]);
+  });
+  it('the note\'s own linked invoice is not capped, nor consumed', () => {
+    const out = simulateSequentialApplications([
+      line(0, 70, { creditNoteLink: 'b1' }),
+      line(1, 30, { creditNoteLink: null }),
+    ], new Map([['sup-1', BILLS]]), caps);
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([[['b1', 70]], [['b1', 30]]]);
+  });
+  it('the caller\'s capacity map is not mutated', () => {
+    simulateSequentialApplications([line(0, 60, { creditNoteLink: null })], new Map([['sup-1', BILLS]]), caps);
+    expect(caps.get('b1')).toBe(4000);
+  });
+});
+
+describe('rule A in the dry run: a note consumes a typed invoice\'s capacity by what its application COUNTS there (#1701 round 6)', () => {
+  const caps = new Map<string, number | null>([['b1', 5750], ['b2', null]]);
+  const noDetached = { detached: 0, reversedOn: ['own'], applications: [{ invoiceId: 'own', cents: 5000 }] };
+  it('a note with no detached gross (D 0) lands on b1 (capped) and leaves its capacity for the next note', () => {
+    const out = simulateSequentialApplications([
+      line(0, 65, { creditNoteLink: 'own', detached: noDetached }),
+      line(1, 115, { creditNoteLink: null, detached: { detached: 11500, reversedOn: [], applications: [] } }),
+    ], new Map([['sup-1', BILLS]]), caps);
+    // Line 0: b1 capped at 57.50, 7.50 to b2. Line 1: b1 still has 57.50 to credit (line 0 counted nothing) but only
+    // 42.50 outstanding; the rest to b2.
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([
+      [['b1', 57.5], ['b2', 7.5]],
+      [['b1', 42.5], ['b2', 72.5]],
+    ]);
+  });
+  it('detached gross part used: only what is left of D counts', () => {
+    const out = simulateSequentialApplications([
+      line(0, 40, { creditNoteLink: null, detached: { detached: 3000, reversedOn: [], applications: [{ invoiceId: 'x', cents: 1000 }] } }),
+      line(1, 100, { creditNoteLink: null }),
+    ], new Map([['sup-1', BILLS]]), caps);
+    // Line 0 counts 20 on b1 (D 30 less 10 used on x): 37.50 left; line 1 (no profile: counts in full) takes it.
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([
+      [['b1', 40]],
+      [['b1', 37.5], ['b2', 62.5]],
+    ]);
+  });
+});

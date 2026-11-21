@@ -21,6 +21,8 @@ interface Props {
   items: CustomerInvoiceItem[];
   /** The invoice's own currency: every amount shows in it ("R" for ZAR, "$" for USD…). */
   currencyCode?: string;
+  /** customer_invoices.amounts_are: 'inclusive' heads the unit price incl. VAT and the amount (its net) excl. VAT. */
+  amountsAre?: string | null;
 }
 
 /**
@@ -50,7 +52,7 @@ export function lineCoding(item: CustomerInvoiceItem): string {
 }
 export function CustomerInvoiceSummary({
   invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-  taxRate, subtotal, taxAmount, totalAmount, balance, notes, items, currencyCode = 'ZAR',
+  taxRate, subtotal, taxAmount, totalAmount, balance, notes, items, currencyCode = 'ZAR', amountsAre = null,
 }: Props) {
   const fmt = (n: number) => formatCurrencyAmount(n, currencyCode);
   const cards = [
@@ -87,7 +89,7 @@ export function CustomerInvoiceSummary({
         <table className="w-full">
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-              {['Description', 'Qty', 'Unit Price', 'Tax Rate', 'Amount'].map(h => (
+              {['Description', 'Qty', amountsAre === 'inclusive' ? 'Unit Price (incl. VAT)' : 'Unit Price', 'Tax Rate', amountsAre === 'inclusive' ? 'Amount (excl. VAT)' : 'Amount'].map(h => (
                 <th key={h} className={`px-4 py-3 text-xs font-medium text-[var(--ff-text-secondary)] uppercase ${h === 'Description' ? 'text-left' : 'text-right'}`}>{h}</th>
               ))}
             </tr>

@@ -100,7 +100,7 @@ describe('create', () => {
   });
 });
 
-it.each(['10000000000000', '1000.005'])('refuses amount %s (beyond numeric(15,2), or below a cent) without sending it', async (value) => {
+it.each(['10000000000000'])('refuses amount %s (beyond numeric(15,2)) without sending it', async (value) => {
   const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
   fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: 'Huge' } });
   fireEvent.change(within(dialog).getByLabelText('Amount (R)'), { target: { value } });
@@ -193,4 +193,19 @@ describe('delete', () => {
     expect(await screen.findByText(message)).toBeDefined();
     expect(sent.map((s) => s.method)).toEqual(['DELETE']);
   });
+});
+
+it('a third decimal (below a cent) is refused at the field: it keeps what is shown, flags it, and Save is blocked', async () => {
+  const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
+  fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: 'Tiny' } });
+  const amount = within(dialog).getByLabelText('Amount (R)') as HTMLInputElement;
+  fireEvent.change(amount, { target: { value: '1000.00' } });
+  fireEvent.change(amount, { target: { value: '1000.005' } });
+  expect(amount.value).toBe('1000.00');
+  expect(amount.getAttribute('aria-invalid')).toBe('true');
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
+  expect(sent).toEqual([]); // the refused entry blocks the save (useAmountGuard); a correct amount then saves
+  fireEvent.change(amount, { target: { value: '1000.50' } });
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
+  expect(JSON.stringify(sent)).toContain('1000.5');
 });

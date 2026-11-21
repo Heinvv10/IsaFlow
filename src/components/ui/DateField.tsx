@@ -139,7 +139,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
             e.preventDefault();
           }
         }}
-        className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums', className)}
+        className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums max-lg:min-h-11', className)}
       />
       {name && <input type="hidden" name={name} value={value ?? ''} />}
     </FieldFrame>

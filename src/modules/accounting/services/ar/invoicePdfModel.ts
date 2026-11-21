@@ -33,7 +33,7 @@ const JOINED_FIELDS = ['project_name', 'client_name', 'client_address', 'client_
   'client_vat', 'client_terms', 'client_terms_immediate'] as const;
 
 export type InvoicePdfHeader = Record<(typeof INVOICE_FIELDS)[number] | (typeof JOINED_FIELDS)[number], unknown>;
-/** `vat_type` / `tax_amount`: the line's own VAT (migration 1008), NULL on a legacy line; absent from an unsaved preview. */
+/** `vat_type` / `tax_amount`: the line's own VAT (migration 1008), NULL on a legacy line; an unsaved preview's as create would store them. */
 export interface InvoicePdfLine {
   description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown;
   vat_type?: unknown; tax_amount?: unknown;

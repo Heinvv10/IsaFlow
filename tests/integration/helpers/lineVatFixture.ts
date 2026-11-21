@@ -1,6 +1,8 @@
 /**
- * Helpers for the per-line VAT suites (migration 1008): type an invoice's stored lines directly (no writer sets
- * vat_type yet) and read a journal's legs with their VAT codes. Built on lineRevenueFixture; disposable databases only.
+ * Helpers for the per-line VAT suites (migration 1008): type an invoice's stored lines directly, or strip their types to
+ * the LEGACY shape (the create service types every line since the writer PR; quote conversion, the recurring run and
+ * the other legacy writers still store untyped lines), and read a journal's legs with their VAT codes. Built on
+ * lineRevenueFixture; disposable databases only.
  */
 import { sql } from '@/lib/neon';
 import type { LineRevenueFixture } from './lineRevenueFixture';
@@ -39,4 +41,14 @@ export async function typeLines(
                   functional_total = subtotal + ${header.tax}::NUMERIC
               WHERE id = ${invoiceId}::UUID`;
   }
+}
+
+/**
+ * The legacy shape a legacy writer stores (vat_type / tax_amount NULL on every line, amounts_are NULL), for a suite whose
+ * subject is a LEGACY invoice made through the create service, which types its lines since the writer PR. The header's
+ * own figures are left as create wrote them (Σ net, Σ VAT: for a single-rate invoice the legacy figures to the cent).
+ */
+export async function untypeLines(invoiceId: string): Promise<void> {
+  await sql`UPDATE customer_invoice_items SET vat_type = NULL, tax_amount = NULL WHERE invoice_id = ${invoiceId}::UUID`;
+  await sql`UPDATE customer_invoices SET amounts_are = NULL WHERE id = ${invoiceId}::UUID`;
 }

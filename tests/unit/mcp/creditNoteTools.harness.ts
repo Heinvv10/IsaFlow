@@ -24,6 +24,13 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   approveCreditNote: vi.fn(),
   cancelCreditNote: vi.fn(),
 }));
+// The rate a note with no rate and no figure is computed at reads the linked document's header (storedCreditNoteRate);
+// its rule is creditNoteTypedVat.test.ts. Here: 15, and no invoice is typed.
+vi.mock('@/modules/accounting/services/ar/creditNoteTypedVat', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteTypedVat')>()),
+  storedCreditNoteRate: vi.fn(async (_c: string, input: { taxRate?: number }) => input.taxRate ?? 15),
+  typedCreditNoteVat: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/ar/creditNoteLinkService', () => ({
   validateCreditNoteLinks: vi.fn(),
   findOpenDuplicateDraft: vi.fn(),

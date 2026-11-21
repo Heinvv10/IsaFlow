@@ -13,6 +13,8 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -85,7 +87,9 @@ export default function StaffCostRatesPage() {
     void loadData();
   }, [loadData]);
 
+  const guard = useAmountGuard();
   async function handleAdd() {
+    if (guard.blocked()) return;
     if (!form.userId || !form.costRate || !form.effectiveFrom) {
       setAddError('User, cost rate, and effective from are required');
       return;
@@ -142,7 +146,7 @@ export default function StaffCostRatesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-teal-500/10">
@@ -180,8 +184,8 @@ export default function StaffCostRatesPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Cost rate/hr *</label>
-                <input type="number" min="0" step="0.01" className={INPUT} value={form.costRate}
-                  onChange={(e) => setField('costRate', e.target.value)} placeholder="0.00" />
+                <AmountInput min={0} decimals={4} className={INPUT} value={form.costRate}
+                  onValueChange={(_n, t) => setField('costRate', t)} placeholder="0.00" />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Currency</label>
