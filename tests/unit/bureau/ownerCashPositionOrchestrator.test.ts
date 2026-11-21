@@ -95,7 +95,7 @@ describe('getOwnerCashPosition', () => {
     const final = { unsafe: expect.stringMatching(/^\(payroll_run_headers\.status IN \('approved', 'paid'\)/) };
     expect(text).toMatch(/AND \(status IN \('draft','calculated','approved'\) OR \?\)/);
     // Then "disbursed": an approval covered the start of payday (approvalCoveredPaydaySql, gate item 1 on 06c106a94d).
-    const disbursed = { unsafe: expect.stringMatching(/approval_history @> \(COALESCE\(payroll_run_headers\.run_date/) };
+    const disbursed = { unsafe: expect.stringMatching(/approval_history @> \(\(COALESCE\(payroll_run_headers\.run_date/) };
     expect(values).toEqual([final, disbursed,
       COMPANY, final, 2026 * 12 + 12, 2027 * 12 + 1, { unsafe: expect.stringMatching(/^\(payroll_run_headers\.period_start, /) }]);
   });
