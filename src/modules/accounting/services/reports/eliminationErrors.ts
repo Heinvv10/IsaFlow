@@ -19,7 +19,7 @@ export class EliminationUnbalancedError extends Error {
  */
 export class EliminationStateError extends Error {
   constructor(readonly adjustmentId: string, readonly requiredStatus: 'draft' | 'posted') {
-    super(`Adjustment ${adjustmentId} is not a ${requiredStatus} adjustment of this group `
+    super(`This elimination is not a ${requiredStatus} adjustment of this group `
       + `(missing, another group's, or already ${requiredStatus === 'draft' ? 'posted' : 'reversed'}).`);
     this.name = 'EliminationStateError';
   }

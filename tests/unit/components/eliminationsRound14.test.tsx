@@ -8,7 +8,7 @@
  *  - a stale FAILED list load does not overwrite the current scope's list or error.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, waitFor, act } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -64,14 +64,16 @@ describe('round 14: the Eliminations page', () => {
     expect(within(msg).getByRole('button', { name: 'Post' })).toBeTruthy();
   });
 
-  it('Auto-Generate lists the rows left to mirroring', async () => {
+  it('Auto-Generate lists the rows left to mirroring, by description, date and amount (never an id)', async () => {
     serve({ post: () => new Response(JSON.stringify({ success: true, data: { items: [], count: 0, flagged: [],
-      skipped: [{ transactionId: 'cccccccc-0000-4000-8000-000000000003', reason: 'eliminated by mirroring', cutover: '2026-03-01' }] } }), { status: 200 }) });
+      skipped: [{ transactionId: 'cccccccc-0000-4000-8000-000000000003', reason: 'eliminated by mirroring (Invoice ICAR-3 (mirrored))', cutover: '2026-03-01',
+        description: 'Manual sale March', date: '2026-03-05', amount: 1000 }] } }), { status: 200 }) });
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
-    expect(n.textContent).toMatch(/1 intercompany row was not drafted, eliminated by mirroring \(the pair mirrors from 2026-03-01\)/);
-    expect(within(n).getByText('cccccccc')).toBeTruthy();
+    expect(n.textContent).toMatch(/1 intercompany row was not drafted: a mirrored document eliminates each of them \(the pair mirrors from 2026-03-01\)/);
+    expect(n.textContent).toMatch(/2026-03-05 Manual sale March \(R\s?1[\s\u00a0]?000\.00\): eliminated by mirroring \(Invoice ICAR-3 \(mirrored\)\)/);
+    expect(n.textContent).not.toMatch(/cccccccc/);
   });
 
   it('from the cutover a manual elimination needs a reason: refused without one, sent with it', async () => {
@@ -124,5 +126,47 @@ describe('round 14: the Eliminations page', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText('G1 load failed')).toBeNull();
     expect(screen.getByText('ELIM-G2')).toBeTruthy();
+  });
+
+  it('a double submit (two submits in one batch) sends ONE create-elimination', async () => {
+    const posts = serve({ list: { reasonRequiredFrom: null } });
+    render(<EliminationsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /manual elimination/i }));
+    const desc = await screen.findByPlaceholderText(/Describe the elimination/);
+    fireEvent.change(desc, { target: { value: 'by hand' } });
+    screen.getAllByPlaceholderText('e.g. 4000').forEach((c) => fireEvent.change(c, { target: { value: '4000' } }));
+    const amounts = screen.getAllByRole('spinbutton');
+    fireEvent.change(amounts[0]!, { target: { value: '10' } });
+    fireEvent.change(amounts[3]!, { target: { value: '10' } });
+    const form = desc.closest('form')!;
+    act(() => { fireEvent.submit(form); fireEvent.submit(form); });
+    await waitFor(() => expect(posts.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts.filter((p) => p.action === 'create-elimination')).toHaveLength(1);
+  });
+
+  it('a 409 that is NOT a possible duplicate is shown as an error, no dialog', async () => {
+    serve({ items: [draft()], post: () => new Response(JSON.stringify({ success: false, error: { code: 'CONFLICT',
+      message: 'This elimination is not a draft adjustment of this group (missing, another group\'s, or already posted).' } }), { status: 409 }) });
+    render(<EliminationsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^post$/i }));
+    expect(await screen.findByText(/This elimination is not a draft adjustment of this group/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('the cutover of the previously loaded group is cleared on a group switch whose load fails', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).includes('company-groups')) return groups();
+      if (String(url).includes(G2)) return new Response(JSON.stringify({ success: false, error: { message: 'G2 failed' } }), { status: 500 });
+      return new Response(JSON.stringify({ success: true, data: { items: [], reasonRequiredFrom: '2026-01-01' } }), { status: 200 });
+    });
+    render(<EliminationsPage />);
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some((c) => String(c[0]).includes('eliminations'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 30));
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
+    await screen.findByText(/G2 failed/);
+    fireEvent.click(screen.getByRole('button', { name: /manual elimination/i }));
+    await screen.findByPlaceholderText(/Describe the elimination/);
+    expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
   });
 });

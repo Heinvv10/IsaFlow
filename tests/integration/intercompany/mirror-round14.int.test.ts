@@ -69,28 +69,35 @@ describe('the pair\'s cutover', () => {
     const id = await conn();
     await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connection_sides SET supplier_id = $2 WHERE connection_id = $1 AND company_id = $3', [id, party.aSupplier, co.A]), true);
     const since = async () => (await pool.query('SELECT mirroring_since FROM intercompany_connection_sides WHERE connection_id = $1 AND company_id = $2', [id, co.A])).rows[0].mirroring_since as Date | null;
-    expect(Math.abs(Date.now() - (await since())!.getTime())).toBeLessThan(120000);
+    // (round 15: from the start of the NEXT Johannesburg day, so it is in the future and within a day)
+    const t = (await since())!.getTime();
+    expect(t > Date.now() && t - Date.now() <= 86_400_000).toBe(true);
     await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connection_sides SET supplier_id = NULL WHERE connection_id = $1 AND company_id = $2', [id, co.A]), true);
     expect(await since()).toBeNull();
   });
 });
 
 describe('the generator from the cutover (2026-03-01)', () => {
+  // (round 15: a row is skipped only when a standing mirror accounts for it, so each skipped row here has one: booked on the row's date)
+  const booked = async (date: string) => { const m = await L.accepted({ date }); await pool.query('UPDATE supplier_invoices SET invoice_date = $2::date, due_date = $2::date + 30 WHERE id = $1', [m.bill, date]); await L.approveBill(m.bill); };
+
   it('the day before is drafted; the day of is skipped, "eliminated by mirroring"', async () => {
     await turnOn();
-    const before = await manual(co.A, co.B, 'sale', '2026-02-28');
-    const on = await manual(co.A, co.B, 'sale', '2026-03-01');
+    await booked('2026-03-01');
+    const before = await manual(co.A, co.B, 'sale', '2026-02-28', 1000);
+    const on = await manual(co.A, co.B, 'sale', '2026-03-01', 1000);
     const g = await generate();
     expect(g.drafted).toContain(before);
     expect(g.drafted).not.toContain(on);
-    expect(g.skipped).toEqual([{ transactionId: on, reason: 'eliminated by mirroring', cutover: '2026-03-01' }]);
+    expect(g.skipped).toEqual([expect.objectContaining({ transactionId: on, reason: expect.stringMatching(/^eliminated by mirroring/), cutover: '2026-03-01' })]);
   });
 
-  it('either direction, sale, purchase and mgmt_fee: skipped; a loan of the pair is not (balances are not mirrored)', async () => {
+  it('either direction (a sale and the purchase of it), and mgmt_fee: skipped; a loan of the pair is not (balances are not mirrored)', async () => {
     await turnOn();
-    const rows = [await manual(co.A, co.B, 'sale', '2026-03-05'), await manual(co.B, co.A, 'purchase', '2026-03-05'),
-      await manual(co.B, co.A, 'sale', '2026-03-06'), await manual(co.A, co.B, 'mgmt_fee', '2026-03-07')];
-    const loan = await manual(co.A, co.B, 'loan', '2026-03-05');
+    await booked('2026-03-05'); await booked('2026-03-07');
+    const rows = [await manual(co.A, co.B, 'sale', '2026-03-05', 1000), await manual(co.B, co.A, 'purchase', '2026-03-05', 1000),
+      await manual(co.A, co.B, 'mgmt_fee', '2026-03-07', 1000)];
+    const loan = await manual(co.A, co.B, 'loan', '2026-03-05', 1000);
     const g = await generate();
     expect(g.skipped.map((s) => s.transactionId).sort()).toEqual([...rows].sort());
     expect(g.skipped.map((s) => s.transactionId)).not.toContain(loan);
@@ -98,8 +105,9 @@ describe('the generator from the cutover (2026-03-01)', () => {
 
   it('a later mirroring_since moves the cutover: 1 March drafted, 10 April skipped', async () => {
     await turnOn({ cutover: '2026-03-01', since: '2026-04-10' });
-    const march = await manual(co.A, co.B, 'sale', '2026-03-01');
-    const april = await manual(co.A, co.B, 'sale', '2026-04-10');
+    await booked('2026-03-01'); await booked('2026-04-10');
+    const march = await manual(co.A, co.B, 'sale', '2026-03-01', 1000);
+    const april = await manual(co.A, co.B, 'sale', '2026-04-10', 1000);
     const g = await generate();
     expect([g.drafted.includes(march), g.skipped.map((s) => s.transactionId)]).toEqual([true, [april]]);
   });

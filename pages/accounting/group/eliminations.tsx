@@ -3,7 +3,7 @@
  * Manage intercompany elimination entries for consolidated reporting.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -45,6 +45,7 @@ export default function EliminationsPage() {
   const [generateNotes, setGenerateNotes] = useState(NO_NOTES);
   const scopeRef = useRef('');
   useEffect(() => { scopeRef.current = `${selectedGroupId}|${periodStart}|${periodEnd}`; setGenerateNotes(NO_NOTES); }, [selectedGroupId, periodStart, periodEnd]);
+  useEffect(() => { setReasonRequiredFrom(null); }, [selectedGroupId]);   // (another group's cutover never applies to this one)
 
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
@@ -74,7 +75,9 @@ export default function EliminationsPage() {
       setDropped(parseDroppedMirrored(data));
       setReasonRequiredFrom(typeof data.reasonRequiredFrom === 'string' ? data.reasonRequiredFrom : null);
     } catch (err) {
-      if (current()) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); setDropped([]); }
+      if (current()) {
+        setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); setDropped([]); setReasonRequiredFrom(null);
+      }
     } finally { if (current()) setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 

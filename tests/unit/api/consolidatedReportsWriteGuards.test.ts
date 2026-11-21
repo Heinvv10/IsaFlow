@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => group
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
 import { EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { MANUAL_REASON_MAX } from '@/modules/accounting/services/reports/manualReason';
 
 const GROUP = '80000000-0000-4000-8000-000000000001';
 const ADJ = '70000000-0000-4000-8000-000000000001';
@@ -184,6 +185,7 @@ describe('expected refusals answer 400 / 409, not 500', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(message(res)).toContain(`is not a ${status} adjustment of this group`);
     expect(message(res)).toContain(why);
+    expect(message(res)).not.toContain(ADJ);   // (round 15: no raw id in a message a person reads)
   });
 
   it('posting a possible duplicate of a mirrored document → 409 naming the mirror; with confirmDuplicate the service is told so', async () => {
@@ -222,6 +224,18 @@ describe('create-elimination after a mirroring cutover', () => {
   it('before any cutover no reason is needed', async () => {
     await call('POST', { group_id: GROUP }, VALID_CREATE);
     expect(svc.createEliminationAdjustment).toHaveBeenCalledWith(GROUP, expect.not.objectContaining({ manualReason: expect.anything() }));
+  });
+  it('a reason over the limit → 400 (never cut silently), with or without a cutover', async () => {
+    const long = 'x'.repeat(MANUAL_REASON_MAX + 1);
+    dupes.cutoverRequiringReason.mockResolvedValue('2026-01-15');
+    const res = await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: long });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(message(res)).toContain(`at most ${MANUAL_REASON_MAX} characters`);
+    dupes.cutoverRequiringReason.mockResolvedValue(null);
+    expect((await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: long })).status).toHaveBeenCalledWith(400);
+    expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+    await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: 'x'.repeat(MANUAL_REASON_MAX) });
+    expect(svc.createEliminationAdjustment).toHaveBeenCalledWith(GROUP, expect.objectContaining({ manualReason: 'x'.repeat(MANUAL_REASON_MAX) }));
   });
   it('a non-string reason → 400', async () => {
     expect((await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: 5 })).status).toHaveBeenCalledWith(400);

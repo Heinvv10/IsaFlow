@@ -46,19 +46,24 @@ async function createUnlessStanding(created: ConsolidationAdjustment[], groupId:
   }
 }
 
-/**
- * An elimination THIS run drafted for a manual row that may be the same sale as a mirrored document (whose elimination is derived): it is
- * marked CHECK BEFORE POSTING, because posting it would eliminate the sale a second time. Never skipped.
- */
-export interface FlaggedEliminationRow { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
+/** What a person recognises a row by (never its id): its description, date and amount. */
+export interface EliminationRowLabel { description: string; date: string; amount: number }
 
 /**
- * A row this run did NOT draft because its pair mirrors (RULING 2026-11-21: a sale-class row of a mirroring pair dated on or after the pair's
- * cutover): the pair's documents are eliminated by mirroring.
+ * An elimination THIS run drafted with a flag, marked CHECK BEFORE POSTING: before its pair's cutover, a manual row that may be the same sale
+ * as a mirrored document (posting it could eliminate the sale twice); on or after it, a row no standing mirrored elimination accounts for.
  */
-export interface SkippedEliminationRow { transactionId: string; reason: string; cutover: string }
+export interface FlaggedEliminationRow extends EliminationRowLabel { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
+
+/**
+ * A row this run did NOT draft (RULING 2026-11-21): a sale-class row of a mirroring pair dated on or after the pair's cutover whose sale a
+ * mirrored document of THIS group eliminates now (intercompany_mirrored_duplicate matches it and intercompany_mirror_stands says the pair
+ * stands). Judged again at every run: if that mirror stops standing (a reversal, a withdrawal), the next run drafts the row.
+ */
+export interface SkippedEliminationRow extends EliminationRowLabel { transactionId: string; reason: string; cutover: string; mirroredRef: string }
 export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
+const label = (tx: DbRow): EliminationRowLabel => ({ description: String(tx.description ?? ''), date: String(tx.td), amount: Number(tx.amount) });
 
 /** `flagged`, when given, receives the eliminations this run drafted with a flag, with why; `skipped` the rows it left to mirroring. */
 export async function autoGenerateEliminations(
@@ -82,21 +87,24 @@ export async function autoGenerateEliminations(
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND NOT public.intercompany_is_mirrored_row(ict.id) -- a mirrored document's elimination is derived from the ledgers (mirrorEliminations.ts), never stored
         AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
+      ORDER BY ict.transaction_date, ict.created_at, ict.id
     `) as DbRow[];
 
     const created: ConsolidationAdjustment[] = [];
     const cutovers = await getPairCutovers(groupId);
+    const cutoverOf = (tx: DbRow): string | null => {
+      const c = pairCutover(cutovers, String(tx.source_company_id), String(tx.target_company_id));
+      return c && SALE_TYPES.has(String(tx.transaction_type)) && String(tx.td) >= c ? c : null;
+    };
+    // whether each mirror a post-cutover row matches is eliminated automatically now: judged once per distinct mirror
+    const mirrors = [...new Set(icTxRows.filter(cutoverOf).flatMap((tx) => (tx.mirror_rows as string[] | null) ?? []))];
+    const stands = new Map(mirrors.length === 0 ? [] : ((await sql`
+      SELECT id::TEXT AS id, COALESCE(public.intercompany_mirror_stands(id), false) AS s FROM unnest(${mirrors}::UUID[]) id
+    `) as DbRow[]).map((r) => [String(r.id), r.s === true] as const));
+    // a mirror accounts for one sale row and one purchase row (the two sides of the same sale), never for two sales
+    const consumed = new Set<string>();
 
     for (const tx of icTxRows) {
-      // RULING 2026-11-21: from the pair's cutover its sales (either direction, sale / purchase / mgmt_fee) are eliminated by mirroring only
-      const cutover = pairCutover(cutovers, String(tx.source_company_id), String(tx.target_company_id));
-      if (cutover && SALE_TYPES.has(String(tx.transaction_type)) && String(tx.td) >= cutover) {
-        skipped.push({ transactionId: String(tx.id), reason: ELIMINATED_BY_MIRRORING, cutover });
-        continue;
-      }
-      // Before the cutover, a manual (P1) row that may be the same sale as a mirrored document is drafted, never skipped (a skip judged once could
-      // not follow the mirror accepted, withdrawn or booked in another month later), and marked for the person who posts it.
-      const mirroredRef = tx.mirror_rows ? String(tx.mirror_ref) : '';
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are serialised by
       // the lock above; where 1019 could build the partial unique index on consolidation_adjustments(source_intercompany_id), a duplicate insert
       // is also refused there (23505, mapped to EliminationAlreadyStandsError) and skipped.
@@ -104,13 +112,31 @@ export async function autoGenerateEliminations(
         SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
       `) as DbRow[];
       if (standing.length > 0) continue;
+      const mirroredRef = tx.mirror_rows ? String(tx.mirror_ref) : '';
+      // RULING 2026-11-21: on or after the pair's cutover a sale-class row is left to mirroring ONLY when a mirror of this group that matches it
+      // stands now; otherwise (rejected, pending, not approved, never sent, another group's) it is drafted, flagged, and the person decides.
+      const cutover = cutoverOf(tx);
+      const mine = ((tx.mirror_rows as string[] | null) ?? []).map((id) => `${id}:${String(tx.transaction_type) === 'purchase' ? 'p' : 's'}`);
+      if (cutover && mine.length > 0 && mine.every((k) => stands.get(k.split(':')[0]!) && !consumed.has(k))) {
+        mine.forEach((k) => consumed.add(k));
+        skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${mirroredRef})`, cutover, mirroredRef, ...label(tx) });
+        continue;
+      }
+      // Before the cutover, a manual (P1) row that may be the same sale as a mirrored document is drafted, never skipped (a skip judged once could
+      // not follow the mirror accepted, withdrawn or booked in another month later), and marked for the person who posts it.
+      const note = cutover
+        ? `CHECK BEFORE POSTING: the pair mirrors from ${cutover} but no mirrored elimination stands for this row${mirroredRef ? ` (mirrored document ${mirroredRef} is not eliminated automatically now, or already accounts for another row)` : ''}: post if correct - `
+        : mirroredRef ? `CHECK BEFORE POSTING: possibly the same sale as mirrored document ${mirroredRef} - ` : '';
+      const reason = cutover
+        ? `the pair mirrors from ${cutover} but no mirrored elimination stands for this row${mirroredRef ? ` (mirrored document ${mirroredRef} is not eliminated automatically now, or already accounts for another row)` : ''}: post it if it is correct`
+        : `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date): posting it would eliminate the sale twice`;
       const txType = String(tx.transaction_type);
       const amount = Number(tx.amount);
       const srcId = String(tx.source_company_id);
       const tgtId = String(tx.target_company_id);
-      const desc = `${mirroredRef ? `CHECK BEFORE POSTING: possibly the same sale as mirrored document ${mirroredRef} - ` : ''}${String(tx.description ?? '')}`;
+      const desc = `${note}${String(tx.description ?? '')}`;
       const flag = (made: ConsolidationAdjustment | null) => {
-        if (made && mirroredRef) flagged.push({ transactionId: String(tx.id), adjustmentId: made.id, mirroredRef, reason: `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date): posting it would eliminate the sale twice` });
+        if (made && note) flagged.push({ transactionId: String(tx.id), adjustmentId: made.id, mirroredRef, reason, ...label(tx) });
       };
 
       if (txType === 'sale' || txType === 'purchase' || txType === 'mgmt_fee') {

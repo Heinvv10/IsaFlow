@@ -19,6 +19,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const G1 = '80000000-0000-4000-8000-000000000001';
 const G2 = '80000000-0000-4000-8000-000000000002';
 const FLAGGED = [{ transactionId: 'bbbbbbbb-0000-4000-8000-000000000002', adjustmentId: 'a1', mirroredRef: 'Invoice ICAR-1 (mirrored)',
+  description: 'Manual sale to B', date: '2026-01-15', amount: 1000,
   reason: 'possibly the same sale as mirrored document Invoice ICAR-1 (mirrored) (same companies, direction, amount and date): posting it would eliminate the sale twice' }];
 
 function serve(post: () => Response, items: unknown[] = []) {
@@ -42,7 +43,9 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
     expect(within(n).getByText(/1 elimination was drafted with a flag/)).toBeTruthy();
     expect(within(n).getByText(/same companies, direction, amount and date/)).toBeTruthy();
-    expect(within(n).getByText('bbbbbbbb')).toBeTruthy();
+    // (round 15: a row is named by its description, date and amount, never by an id prefix)
+    expect(n.textContent).toMatch(/2026-01-15 Manual sale to B \(R\s?1[\s\u00a0]?000\.00\)/);
+    expect(n.textContent).not.toMatch(/bbbbbbbb/);
     fireEvent.click(within(n).getByRole('button', { name: 'Dismiss' }));
     expect(notes()).toBeNull();
   });
@@ -134,7 +137,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
 
   it('parseFlagged keeps only well-formed entries', () => {
     expect(parseFlagged({ data: { flagged: [{ transactionId: 'x', reason: 'r', adjustmentId: 'a', mirroredRef: 'm' }, { reason: 'no id' }, 7] } }))
-      .toEqual([{ transactionId: 'x', adjustmentId: 'a', mirroredRef: 'm', reason: 'r' }]);
+      .toEqual([{ transactionId: 'x', adjustmentId: 'a', mirroredRef: 'm', reason: 'r', description: '', date: '', amount: 0 }]);
     expect(parseFlagged(null)).toEqual([]);
   });
 });

@@ -1,12 +1,21 @@
 /**
  * What the auto-generator did in THIS run beyond drafting: the drafts it flagged (manual rows that may be the same sale as a mirrored document,
  * marked CHECK BEFORE POSTING) and the rows it left to mirroring (RULING 2026-11-21: a mirroring pair's sale-class rows dated on or after the
- * pair's cutover, "eliminated by mirroring").
+ * pair's cutover that a standing mirror of this group eliminates, "eliminated by mirroring"). Rows are named by description, date and
+ * amount, never by id.
  */
 import { AlertTriangle } from 'lucide-react';
 
-export interface FlaggedRow { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
-export interface SkippedRow { transactionId: string; reason: string; cutover: string }
+import { formatMoney } from '@/lib/money/formatMoney';
+
+/** What a person recognises a row by (never its id). */
+interface RowLabel { description: string; date: string; amount: number }
+export interface FlaggedRow extends RowLabel { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
+export interface SkippedRow extends RowLabel { transactionId: string; reason: string; cutover: string }
+
+const labelOf = (x: Partial<RowLabel>): RowLabel => ({ description: typeof x.description === 'string' ? x.description : '',
+  date: typeof x.date === 'string' ? x.date : '', amount: typeof x.amount === 'number' ? x.amount : 0 });
+const rowText = (r: RowLabel) => `${r.date} ${r.description || 'intercompany row'} (${formatMoney(r.amount)})`;
 
 /** The `skipped` list of an auto-eliminate response, keeping only well-formed entries. */
 export function parseSkipped(json: unknown): SkippedRow[] {
@@ -15,7 +24,7 @@ export function parseSkipped(json: unknown): SkippedRow[] {
   return list.flatMap((r: unknown) => {
     const x = r as Partial<SkippedRow>;
     return typeof x?.transactionId === 'string' && typeof x.reason === 'string'
-      ? [{ transactionId: x.transactionId, reason: x.reason, cutover: typeof x.cutover === 'string' ? x.cutover : '' }] : [];
+      ? [{ transactionId: x.transactionId, reason: x.reason, cutover: typeof x.cutover === 'string' ? x.cutover : '', ...labelOf(x) }] : [];
   });
 }
 
@@ -27,7 +36,7 @@ export function parseFlagged(json: unknown): FlaggedRow[] {
     const x = r as Partial<FlaggedRow>;
     if (typeof x?.transactionId !== 'string' || typeof x.reason !== 'string') return [];
     return [{ transactionId: x.transactionId, adjustmentId: typeof x.adjustmentId === 'string' ? x.adjustmentId : '',
-              mirroredRef: typeof x.mirroredRef === 'string' ? x.mirroredRef : '', reason: x.reason }];
+              mirroredRef: typeof x.mirroredRef === 'string' ? x.mirroredRef : '', reason: x.reason, ...labelOf(x) }];
   });
 }
 
@@ -43,14 +52,16 @@ export function EliminationsFlaggedNotice({ rows, skipped = [], onDismiss }: { r
             {rows.length} {rows.length === 1 ? 'elimination was' : 'eliminations were'} drafted with a flag: possibly the same sale as a mirrored
             document. Check each before posting.
             <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
-              {rows.map((r) => <li key={r.transactionId}><span className="font-id">{r.transactionId.slice(0, 8)}</span>: {r.reason}</li>)}
+              {rows.map((r) => <li key={r.transactionId}>{rowText(r)}: {r.reason}</li>)}
             </ul>
           </>}
           {skipped.length > 0 && <p className={rows.length > 0 ? 'mt-2' : ''}>
-            {skipped.length} intercompany {skipped.length === 1 ? 'row was' : 'rows were'} not drafted, eliminated by mirroring (the pair mirrors
-            from {[...new Set(skipped.map((r) => r.cutover))].join(', ')}):{' '}
-            <span className="font-id">{skipped.map((r) => r.transactionId.slice(0, 8)).join(', ')}</span>
+            {skipped.length} intercompany {skipped.length === 1 ? 'row was' : 'rows were'} not drafted: a mirrored document eliminates each of them
+            (the pair mirrors from {[...new Set(skipped.map((r) => r.cutover))].join(', ')}).
           </p>}
+          {skipped.length > 0 && <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
+            {skipped.map((r) => <li key={r.transactionId}>{rowText(r)}: {r.reason}</li>)}
+          </ul>}
         </div>
       </div>
       <button type="button" onClick={onDismiss}

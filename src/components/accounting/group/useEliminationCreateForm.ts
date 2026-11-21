@@ -3,14 +3,13 @@
  * (`reasonRequiredFrom`, the group's earliest) the pair's documents are eliminated by mirroring, so a hand-made elimination dated then needs a
  * typed reason; the form refuses to send without one, and the API refuses it too.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type React from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
+import { manualReasonProblem } from '@/modules/accounting/services/reports/manualReason';
 
-/** Shortest reason the API accepts (consolidated-reports create-elimination). */
-export const MANUAL_REASON_MIN = 5;
 const BLANK_LINES: EliminationLine[] = [{ groupAccountCode: '', debit: 0, credit: 0 }, { groupAccountCode: '', debit: 0, credit: 0 }];
 
 /**
@@ -42,6 +41,8 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
   const [lines, setLines] = useState<EliminationLine[]>(BLANK_LINES);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // `saving` is state: a second submit in the same event batch (Enter, a double click) would pass it, so a ref guards the POST
+  const inFlight = useRef(false);
   const needsReason = reasonRequired(period, reasonRequiredFrom);
 
   const start = () => {
@@ -51,15 +52,14 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
 
   async function submit(e: React.FormEvent<Element>) {
     e.preventDefault();
-    if (!groupId) return;
+    if (!groupId || inFlight.current) return;
     const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.01) { setError(`Debits (${fmt(totalDebit)}) must equal credits (${fmt(totalCredit)})`); return; }
     if (lines.some((l) => !l.groupAccountCode)) { setError('All lines must have a group account code'); return; }
-    if (needsReason && reason.trim().length < MANUAL_REASON_MIN) {
-      setError(`This group's intercompany documents are eliminated by mirroring from ${reasonRequiredFrom}: give a reason (at least ${MANUAL_REASON_MIN} characters) for this manual elimination`);
-      return;
-    }
+    const problem = needsReason ? manualReasonProblem(reason.trim(), reasonRequiredFrom ?? '') : null;
+    if (problem) { setError(problem); return; }
+    inFlight.current = true;
     setSaving(true); setError('');
     try {
       const ids = await groupAccountIds(groupId);
@@ -78,7 +78,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
       setOpen(false); await onCreated();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the elimination - try again'));
-    } finally { setSaving(false); }
+    } finally { inFlight.current = false; setSaving(false); }
   }
 
   return {

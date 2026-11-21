@@ -22,7 +22,8 @@
  *
  * TIME BUDGET. The timer's curl gives up at 300 s, and a message may wait up to 60 s on a statement. So no new message is started once
  * AUTO_ACCEPT_BUDGET_MS has passed: the rest are counted as deferred and wait for the next run. They were already claimed (the queue's
- * fairness rule, at most 10 per receiver per run, is per claim), so each of them has used one attempt and backs off for a minute.
+ * fairness rule, at most 10 per receiver per run, is per claim), so the worker gives their attempt back (intercompany_auto_accept_release):
+ * a message deferred only by the budget is never backed off or exhausted by it.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -72,9 +73,12 @@ export async function runAutoAccept(limit = 50, opts: AutoAcceptOptions = {}): P
   const stuckIds = new Set<string>();
   for (const [index, q] of queue.entries()) {
     if (now() - startedAt >= budgetMs) {
-      const remaining = queue.length - index;
-      run.deferred += remaining;
-      log.warn('Intercompany auto-accept stopped at its time budget; the rest wait for the next run', { processed: index, remaining, budgetMs }, 'intercompany');
+      const rest = queue.slice(index).map((r) => String(r.message_id));
+      run.deferred += rest.length;
+      // the attempt the claim stamped on the messages not started is given back: the budget never uses up (or exhausts) a message
+      const released = (await sql`SELECT public.intercompany_auto_accept_release(${rest}::UUID[]) AS n`) as Row[];
+      log.warn('Intercompany auto-accept stopped at its time budget; the rest wait for the next run', {
+        processed: index, remaining: rest.length, released: Number(released[0]?.n ?? 0), budgetMs }, 'intercompany');
       break;
     }
     const principal = { userId: String(q.actor_user_id), companyId: String(q.to_company_id) };

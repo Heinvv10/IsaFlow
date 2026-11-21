@@ -39,10 +39,15 @@ for group companies and for external companies that run their own IsaFlow tenant
 
 **RULING 2026-11-21 (Hein):** per-pair cutover. A company pair's cutover is the date from which both
 companies of the pair have mirroring switched on: the latest of the connection's cut-over date and the
-two sides' `mirroring_since` (set by the database when a side's customer and supplier links are both
-set; cleared when either is removed). From that date the manual P1 elimination generator never drafts
-an elimination for the pair's sale-class rows (sale, purchase, mgmt_fee; both directions): it skips
-them and the run lists them "eliminated by mirroring". A hand-made (`create-elimination`) adjustment
+two sides' `mirroring_since` (set by the database to the start of the next Johannesburg day when a
+side's customer and supplier links are both set; cleared when either is removed). A pair has a cutover
+only in the group its mirrors go to (the oldest active group with both as members). From that date
+the manual P1 generator does not draft a sale-class row of the pair (sale, purchase, mgmt_fee; both
+directions) that a standing mirrored elimination of that group accounts for: it lists it "eliminated
+by mirroring". A row no standing mirror accounts for (rejected, pending, not approved, never sent) is
+drafted with a CHECK BEFORE POSTING note, so the mirror is the only elimination when one exists and
+no sale goes uneliminated. The skip is judged again at every run (a mirror that stops standing makes
+the next run draft the row). A hand-made (`create-elimination`) adjustment
 dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and
 stored (`consolidation_adjustments.manual_reason`); it names no companies, so any cutover of the group
 on or before its date counts. Before the cutover nothing changes: a manual row can still overlap a

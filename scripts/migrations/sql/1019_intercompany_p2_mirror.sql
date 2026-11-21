@@ -44,7 +44,7 @@
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
 --     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
 --     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid), public.intercompany_mirror_stands(uuid),
---     public.intercompany_pair_cutovers(uuid);
+--     public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[]), public.intercompany_next_sa_midnight();
 
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
@@ -62,7 +62,7 @@
 --     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
 --     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
 --     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid)',
---     'intercompany_mirror_stands(uuid)', 'intercompany_pair_cutovers(uuid)');
+--     'intercompany_mirror_stands(uuid)', 'intercompany_pair_cutovers(uuid)', 'intercompany_auto_accept_release(uuid[])');
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -92,7 +92,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_ic_transactions_first_journal ON intercompa
 -- The exclusivity checks look rows up by their target journal too (every pair, every chain date): without this they scan every tenant's rows.
 CREATE INDEX IF NOT EXISTS idx_ic_transactions_target_journal ON intercompany_transactions (target_journal_entry_id) WHERE target_journal_entry_id IS NOT NULL;
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_since TIMESTAMPTZ;
--- mirroring_since: the moment this side's mirroring was switched ON (its customer AND supplier links both set), NULL while either is missing.
+-- mirroring_since: from when this side mirrors: the start of the day (Johannesburg) AFTER its customer AND supplier links were both set, NULL
+-- while either is missing.
 -- Set by the database only (no app role has a column grant on it), so it is the history the per-pair cutover reads (RULING 2026-11-21).
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS mirroring_since TIMESTAMPTZ;
 -- Why a person made a manual elimination for a pair whose documents are already eliminated by mirroring (required by the API on or after the
@@ -131,9 +132,21 @@ BEGIN
 END $$;
 
 -- A side that has auto-accept on today was switched on at its last change.
+-- The start of tomorrow in Johannesburg: when a side switched on now starts mirroring (a document approved earlier today was not mirrored,
+-- so today is never a cutover day). Pure (no table read), so any role may run it: the sides trigger runs as the writing user.
+CREATE OR REPLACE FUNCTION public.intercompany_next_sa_midnight()
+RETURNS timestamptz
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$ SELECT (date_trunc('day', clock_timestamp() AT TIME ZONE 'Africa/Johannesburg') + interval '1 day') AT TIME ZONE 'Africa/Johannesburg' $$;
+REVOKE ALL ON FUNCTION public.intercompany_next_sa_midnight() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_next_sa_midnight() TO app_user, app_service, migration_admin;   -- (the sides trigger runs as the writer)
 UPDATE intercompany_connection_sides SET auto_accept_since = updated_at WHERE auto_accept AND auto_accept_since IS NULL;
--- A side whose links are both set today switches mirroring on NOW: no document was mirrored before this migration (P2 starts here).
-UPDATE intercompany_connection_sides SET mirroring_since = clock_timestamp()
+-- A side whose links are both set today switches mirroring on from the START OF TOMORROW (Johannesburg): no document was mirrored before
+-- this migration, and one approved earlier today (or before it, dated today or later) never will be, so the first cutover day is tomorrow.
+UPDATE intercompany_connection_sides SET mirroring_since = public.intercompany_next_sa_midnight()
  WHERE customer_id IS NOT NULL AND supplier_id IS NOT NULL AND mirroring_since IS NULL;
 
 -- auto_accept_since is the moment auto-accept was switched ON; the worker takes only messages created after it, so switching it on
@@ -157,7 +170,7 @@ BEGIN
   IF NEW.customer_id IS NULL OR NEW.supplier_id IS NULL THEN
     NEW.mirroring_since := NULL;
   ELSIF TG_OP = 'INSERT' OR OLD.customer_id IS NULL OR OLD.supplier_id IS NULL OR OLD.mirroring_since IS NULL THEN
-    NEW.mirroring_since := clock_timestamp();
+    NEW.mirroring_since := public.intercompany_next_sa_midnight();   -- (from tomorrow: today's earlier approvals were not mirrored)
   ELSE
     NEW.mirroring_since := OLD.mirroring_since;
   END IF;
@@ -1474,7 +1487,8 @@ ALTER FUNCTION public.intercompany_journal_claimed(uuid) OWNER TO migration_admi
 REVOKE ALL ON FUNCTION public.intercompany_journal_claimed(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_claimed(uuid) TO app_user, app_service, migration_admin;
 
--- THE PER-PAIR CUTOVER (RULING 2026-11-21, Hein). For a group the caller is a current member of: each pair of its current members joined by an
+-- THE PER-PAIR CUTOVER (RULING 2026-11-21, Hein). For a group the caller is a current member of, and only when it is the group the pair's
+-- mirrors go to (the oldest active group with both as members, as intercompany_send_for_source picks): each pair of its current members joined by an
 -- ACTIVE group connection with a cut-over date and BOTH sides' mirroring on (customer and supplier links set: mirroring_since), and the pair's
 -- cutover: the latest of the connection's cut-over date and the two sides' mirroring_since dates (Johannesburg). From that date every invoice
 -- and credit note between the pair is mirrored and eliminated from the ledgers, so the manual (P1) generator drafts nothing for a sale-class
@@ -1495,6 +1509,13 @@ AS $$
     JOIN public.intercompany_connection_sides sh ON sh.connection_id = c.id AND sh.company_id = c.company_high_id AND sh.mirroring_since IS NOT NULL
    WHERE c.status = 'active' AND c.kind = 'group' AND c.cutover_date IS NOT NULL
      AND p_group IN (SELECT public.rls_user_group_ids())
+     -- the pair's mirrors are written to ONE group, the oldest active group with both as current members (intercompany_send_for_source):
+     -- only that group's eliminations are derived, so only there does the pair have a cutover
+     AND p_group = (SELECT g.id FROM public.company_groups g
+                     WHERE g.is_active IS NOT FALSE
+                       AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = g.id AND a.company_id = c.company_low_id AND a.left_date IS NULL)
+                       AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = g.id AND b.company_id = c.company_high_id AND b.left_date IS NULL)
+                     ORDER BY g.created_at, g.id LIMIT 1)
      AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = c.company_low_id AND a.left_date IS NULL)
      AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = p_group AND b.company_id = c.company_high_id AND b.left_date IS NULL)
 $$;
@@ -1827,6 +1848,32 @@ REVOKE ALL ON FUNCTION public.intercompany_auto_accept_queue(integer, boolean) F
 REVOKE ALL ON FUNCTION public.intercompany_auto_accept_queue(integer, boolean) FROM app_user;
 GRANT EXECUTE ON FUNCTION public.intercompany_auto_accept_queue(integer, boolean) TO app_service, migration_admin;
 
+-- Gives back the attempt of claimed messages the worker did not start (it stopped at its time budget): the attempt counter goes down by one
+-- and the back-off is cleared, so a message deferred only by the budget is never exhausted by it. Pending messages only. app_service only.
+DROP FUNCTION IF EXISTS public.intercompany_auto_accept_release(uuid[]);
+CREATE OR REPLACE FUNCTION public.intercompany_auto_accept_release(p_messages uuid[])
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_n integer;
+BEGIN
+  PERFORM pg_catalog.set_config('app.intercompany_system_update', 'claim', true);
+  UPDATE public.intercompany_messages m SET auto_attempts = GREATEST(m.auto_attempts - 1, 0), auto_next_attempt_at = NULL
+   WHERE m.id = ANY (p_messages) AND m.status = 'pending' AND m.auto_attempts > 0;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  PERFORM pg_catalog.set_config('app.intercompany_system_update', '', true);
+  RETURN v_n;
+END;
+$$;
+ALTER FUNCTION public.intercompany_auto_accept_release(uuid[]) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_auto_accept_release(uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.intercompany_auto_accept_release(uuid[]) FROM app_user;
+GRANT EXECUTE ON FUNCTION public.intercompany_auto_accept_release(uuid[]) TO app_service, migration_admin;
+
 -- The pending messages the queue has given up on (every attempt used, never a restored one, on a connection that is still active: a revoked
 -- connection's messages can never be accepted, so they are no alert): they sit pending for a person, and the worker reports them as stuck.
 -- Ids only; app_service and migration_admin. (The 8 is the queue's attempt limit above; AUTO_ACCEPT_MAX_ATTEMPTS in inboxRead.ts, held equal by a test.)
@@ -1911,8 +1958,10 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'nothing: for a manual sale-class group row of a group the caller is a current member of, the mirrored sale(s) it may duplicate (the same group, the sale running the way the row''s elimination does, one mirror''s subtotal or total near its date, or the sum of that month''s mirrors): a flag for the elimination generator, the eliminations list and posting, never a skip'),
     ('intercompany_mirror_stands(uuid)', 'public.intercompany_mirror_stands(uuid)',
      'nothing: for a mirrored row of a group the caller is a current member of, whether its pair stands as at the later of its two document dates and as at today (it is eliminated automatically)'),
+    ('intercompany_auto_accept_release(uuid[])', 'public.intercompany_auto_accept_release(uuid[])',
+     'intercompany_messages.auto_attempts / auto_next_attempt_at of PENDING messages the worker claimed but did not start (its time budget): one attempt given back, the back-off cleared; app_service only'),
     ('intercompany_pair_cutovers(uuid)', 'public.intercompany_pair_cutovers(uuid)',
-     'nothing: for a group the caller is a current member of, each mirroring pair of its current members (an active group connection with a cut-over date and both sides'' mirroring on) and the pair''s cutover date (RULING 2026-11-21)'),
+     'nothing: for a group the caller is a current member of that is the group a pair''s mirrors go to (the oldest active common group), each mirroring pair of its current members (an active group connection with a cut-over date and both sides'' mirroring on) and the pair''s cutover date (RULING 2026-11-21)'),
     ('intercompany_journal_claimed(uuid)', 'public.intercompany_journal_claimed(uuid)',
      'nothing: whether a journal of a company in a group the caller is a current member of (false for any other journal) is already the target or first match of an intercompany row, or the journal of a document an accepted mirror message created (a boolean, for the intercompany_transactions INSERT trigger of a writer who may not read those rows)'),
     ('intercompany_is_mirrored_row(uuid)', 'public.intercompany_is_mirrored_row(uuid)',
@@ -1948,6 +1997,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_stands(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_pair_cutovers(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_release(uuid[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_bound_elsewhere(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_eliminations(uuid, date, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric)', 'EXECUTE')

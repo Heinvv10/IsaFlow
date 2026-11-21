@@ -91,7 +91,8 @@ export default function ConsolidatedIncomeStatementPage() {
   /* ---------- Load consolidated income statement ---------- */
   const loadData = useCallback(async () => {
     if (!selectedGroupId) return;
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams({
         group_id: selectedGroupId,
@@ -107,7 +108,9 @@ export default function ConsolidatedIncomeStatementPage() {
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not load the consolidated income statement - try again'));
       setData(null);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [selectedGroupId, periodStart, periodEnd]);
 
   useEffect(() => {
