@@ -13,6 +13,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -81,7 +82,9 @@ export default function StaffCostRatesPage() {
     void loadData();
   }, [loadData]);
 
+  const guard = useAmountGuard();
   async function handleAdd() {
+    if (guard.blocked()) return;
     if (!form.userId || !form.costRate || !form.effectiveFrom) {
       setAddError('User, cost rate, and effective from are required');
       return;
@@ -138,7 +141,7 @@ export default function StaffCostRatesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-teal-500/10">
