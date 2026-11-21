@@ -88,7 +88,9 @@ Decided: read-time resolution, not more link writes. Writing links would need a 
 
 ## Known limits
 
-- **Supplier merge moves bills, not their notes' POs.** The two merge paths (`core/duplicateMergeService.ts` and `pages/api/accounting/supplier-merge.ts`) re-parent `supplier_invoices.supplier_id` and the legacy `supplier_purchase_orders`, but not `purchase_orders.supplier_id`. A merged bill that carries a goods received note is then on the primary supplier while its note's PO stays on the duplicate, so the note no longer agrees with the bill. Nothing refuses it and nothing reports it. The merge code predates goods received notes, and a fix needs a decision on whether a merge moves the duplicate's purchase orders too. Tracked as a separate issue.
+- **Supplier merge moves bills, not their notes' POs.** The two merge paths (`core/duplicateMergeService.ts` and `pages/api/accounting/supplier-merge.ts`) re-parent `supplier_invoices.supplier_id` and the legacy `supplier_purchase_orders`, but not `purchase_orders.supplier_id`. A merged bill that carries a goods received note is then on the primary supplier while its note's PO stays on the duplicate, so the note no longer agrees with the bill. Nothing refuses it and nothing reports it. The merge code predates goods received notes, and a fix needs a decision on whether a merge moves the duplicate's purchase orders too. Tracked as #1708.
+- **A soft-deleted legacy bill whose note was hard-deleted cannot be restored.** `supplier_invoices.grn_id` has no foreign key, and before 1021 app_user could delete notes. Undo refuses a `grn_id` that resolves to no note of the bill's company, so the bill must be entered again.
+- **A third decimal on a 13-digit quantity rounds silently.** Quantities are parsed as JavaScript numbers. At the storage maximum (9999999999999.99) a double cannot hold a third decimal, so `9999999999999.991` reads as `.99` and is stored without a refusal. Smaller quantities with a third decimal are refused.
 
 ## Acceptance tests (integration, app_user role)
 
