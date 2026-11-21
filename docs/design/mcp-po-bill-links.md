@@ -223,7 +223,7 @@ retry in a moment.", or 40P01 rolls one back); nothing half-written survives.
   (review r14). The cancel warning toast is announced (`role="status"`, `notify.warning(..., { live: true })`).
 - A held bill costs a bulk cancel item up to the 5 s row-lock budget before that item fails, the same as a bulk approve
   (Codex gate review L8).
-- A link refuses (retryably, after at most 5 jittered attempts, about 300 ms) while any bill tied to its POs, by a link row, its
+- A link refuses (retryably, after at most 5 jittered attempts: at most about 200 ms of sleeps plus the queries) while any bill tied to its POs, by a link row, its
   header or its lines, is being changed by any concurrent write, even one that could not alter the decision (a payment, a due-date
   edit, a draft edit): breaker r13 / review r14 M3 traded that for no wait and no deadlock (review r15 L6, intended). Each tied bill
   carries a FOR SHARE tuple lock: held until the commit for a real call, released at the rollback for a dry run (its savepoint);

@@ -98,7 +98,8 @@ export async function lockBills(companyId: string, poIds: readonly string[], bil
       const busy = () => new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
       if (attempt >= TIED_BILL_ATTEMPTS) throw busy();
       await jitter(deadline);
-      // The budget spent (by the sleep or before it): the busy tie is the refusal, never "A bill in this call" from a spent budget.
+      // The budget fully spent (by the sleep or before it): the busy tie is the refusal. An own-bill wait cut short NEAR the deadline
+      // on a later attempt can still end in RowLockTimeoutError ("A bill in this call"), which carries the same retryable code.
       if (Date.now() >= deadline) throw busy();
     }
   }

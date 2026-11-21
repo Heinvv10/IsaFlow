@@ -177,7 +177,9 @@ describe('races', () => {
         // PR #1703 r14 M3 / r15: the draft is a tie of the PO the link does not link: taken NOWAIT, retried briefly, still busy, so
         // the call is refused retryably (ROW_LOCK_TIMEOUT: TiedBillBusyError, or under load its own budget), never a 40P01.
         expect(done[0]!.status, 'link: refused, never waiting').toBe('rejected');
-        expect((done[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
+        const reason = (done[0] as PromiseRejectedResult).reason as { code?: string; name?: string };
+        expect(reason).toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
+        expect(['TiedBillBusyError', 'RowLockTimeoutError']).toContain(reason.name);
         expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] })).isError, 'link: the retry').toBe(false);
       } else {
         expect(done[0]!.status, `${leg}: the other call`).toBe('fulfilled');

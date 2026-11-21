@@ -67,4 +67,15 @@ describe('lockBills', () => {
     expect(runs.n).toBeLessThan(5);
     expect(Date.now() - t0).toBeLessThan(200);
   });
+  it('the jitter sleep is capped at the deadline (never the full 10-50 ms past it)', async () => {
+    for (let i = 0; i < 8; i++) attempt(busy());
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const deadline = Date.now() + 5;
+      await call(deadline).catch(() => undefined);
+      const delays = spy.mock.calls.map((c) => Number(c[1] ?? 0));
+      expect(delays.length).toBeGreaterThan(0);
+      for (const d of delays) expect(d).toBeLessThanOrEqual(5);
+    } finally { spy.mockRestore(); }
+  });
 });
