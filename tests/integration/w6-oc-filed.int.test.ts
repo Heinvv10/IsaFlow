@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
+import { approvedOverPayday } from './w6-oc.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
@@ -29,6 +30,7 @@ beforeAll(async () => {
   run = String(made.body.data!.id);
   expect((await a.api.calculate(run)).statusCode).toBe(200);
   expect((await a.api.approve(run)).statusCode).toBe(200);
+  await approvedOverPayday(a, run); // approved on its pay date by the app's clock, so it was paid over payday
   vi.setSystemTime(new Date('2026-11-17T22:05:00Z')); // 00:05 SAST, 18 Nov: paid
 }, 120_000);
 
