@@ -53,11 +53,12 @@ describe('every bill writer refuses a soft-deleted supplier', () => {
   });
 
   it('create_supplier_invoice and bulk_create_supplier_invoices refuse it (their own live-supplier check answers first: Not found)', async () => {
-    const one = await callTool(pool, f, createTool, { supplier_id: gone, invoice_number: number(), invoice_date: '2026-06-15', lines: lines() });
+    const [n1, n2] = [number(), number()];
+    const one = await callTool(pool, f, createTool, { supplier_id: gone, invoice_number: n1, invoice_date: '2026-06-15', lines: lines() });
     expect(one.isError).toBe(true);
-    const bulk = await callTool(pool, f, bulkTool, { invoices: [{ supplier_id: gone, invoice_number: number(), invoice_date: '2026-06-15', lines: lines() }] });
-    expect(bulk.text).not.toContain('"created":1');
-    expect(await billsOf(gone)).toBe(0);
+    const bulk = await callTool(pool, f, bulkTool, { invoices: [{ supplier_id: gone, invoice_number: n2, invoice_date: '2026-06-15', lines: lines() }] });
+    expect(bulk.text).toContain('Not found');
+    expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE invoice_number = ANY($1::text[])', [[n1, n2]])).rows[0].n)).toBe(0);
   });
 
   it('update_supplier_invoice refuses a supplier change onto it (its own check: Not found); the bill keeps its supplier', async () => {
