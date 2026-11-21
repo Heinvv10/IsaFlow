@@ -7,6 +7,7 @@
  *     (UPDATE deleted_at = NULL); a deleted or cancelled bill may still name it;
  *   - a bill INSERT racing goods_received_note_cancel ends consistently in both orders: cancel first, the insert waits on the note and
  *     is refused; insert first, the cancel waits on the note and answers grn_on_bill;
+ *   - a legacy live bill on a missing note (written before the trigger) is untouched by an edit that keeps its grn_id;
  *   - createSupplierInvoice waiting at the trigger on a running cancel answers the typed SupplierInvoiceGrnRefusal;
  *   - a draft edit that puts a note on a bill, and a create naming the note's PO as its header, take the note's PO FOR KEY SHARE before
  *     the statement whose trigger takes the note, so a PO held FOR UPDATE, the cancel's first lock, leaves the note free for the cancel's
@@ -95,6 +96,25 @@ describe('the database refuses a live bill on a cancelled note', () => {
     expect((await callTool(pool, f, cancel, { grn_id: live, reason: 'after the bill was deleted' })).isError).toBe(false);
     expect(await asApp('UPDATE supplier_invoices SET deleted_at = NULL WHERE id = $1', [deleted.id])).toBe('23503:supplier_invoices_grn_live');
     expect(await asApp("UPDATE supplier_invoices SET notes = 'still deleted' WHERE id = $1", [deleted.id])).toBe('ok');
+  });
+});
+
+describe('a stored grn_id the trigger has not judged (a legacy live bill on a missing note)', () => {
+  it('is untouched by an edit that keeps it: the draft edit (which writes grn_id back unchanged) still saves', async () => {
+    const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
+    const dangling = crypto.randomUUID();
+    // As production may hold it from before 1021 (201's column has no FK): written with the trigger off, in one transaction.
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE supplier_invoices DISABLE TRIGGER trg_supplier_invoices_grn_live');
+      await c.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, dangling]);
+      await c.query('ALTER TABLE supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_grn_live');
+      await c.query('COMMIT');
+    } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+    const r = await callTool(pool, f, update, { invoice_id: bill.id, notes: 'kept its old note id' });
+    expect(r.isError, r.text).toBe(false);
+    expect((await pool.query('SELECT grn_id::text AS g, notes FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0]).toEqual({ g: dangling, notes: 'kept its old note id' });
   });
 });
 
