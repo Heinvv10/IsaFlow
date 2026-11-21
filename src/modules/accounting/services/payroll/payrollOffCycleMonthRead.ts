@@ -64,8 +64,10 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
                          WHERE ec.employee_id = l.employee_id AND ec.component_id::text = item->>'componentId'
                            AND ec.amount = (item->>'amount')::numeric
                            AND ec.effective_from <= o.period_end AND (ec.effective_to IS NULL OR ec.effective_to >= o.period_start)
-                           -- As it stood when the line was calculated (review L3): a row added since is not its assignment.
-                           AND ec.created_at <= l.created_at)))
+                           -- As it stood when the line was calculated (review L3): a row added since is not its assignment,
+                           -- nor one superseded before it (L2 of e8a2d72dbc: a package apply had cut it, so it was not paid).
+                           AND ec.created_at <= l.created_at
+                           AND (ec.superseded_at IS NULL OR ec.superseded_at > l.created_at))))
                FROM jsonb_array_elements(l.component_breakdown) AS item
                LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = me.company_id
            ), '[]'::jsonb) AS items

@@ -15,6 +15,7 @@ let a: Awaited<ReturnType<typeof rig>>;
 let emp = '';
 let flatEmp = '';
 let directedEmp = '';
+let supEmp = '';
 let onceOffRow = '';
 let basic = '';
 let regular = '';
@@ -34,6 +35,10 @@ beforeAll(async () => {
   directedEmp = (await a.employee(20_000)).employee;
   await a.pool.query(`INSERT INTO tax_directives (company_id, employee_id, employee_name, directive_type, amount, tax_rate, effective_date, status)
     VALUES ($1, $2, 'Directed', 'fixed_percentage', 0, 0.25, '2026-03-01', 'approved')`, [a.company, directedEmp]);
+  // Review L2 of e8a2d72dbc: a once-off row of the basic pay's amount, superseded before the calculation (so not paid).
+  supEmp = (await a.employee(9_000)).employee;
+  await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring,
+      superseded_at, supersede_inferred) VALUES ($1, $2, 9000, '2026-11-01', '2026-11-20', false, now() - interval '1 hour', false)`, [supEmp, basic]);
   for (const who of [flatEmp, directedEmp]) {
     await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
       VALUES ($1, $2, 700, '2026-11-01', '2026-11-30', false)`, [who, basic]);
@@ -83,6 +88,13 @@ describe('a historical regular line in the month', () => {
       VALUES ($1, $2, 1517, '2026-11-01', true)`, [emp, basic]);
     const earlier = (await loadMonthEarlierLines(a.company, bonusRun, [emp])).get(emp)!;
     expect(earlier.storedClass).toBe('tables');
+  });
+  it('a once-off row superseded before the calculation is not the line\'s assignment (review L2 of e8a2d72dbc)', async () => {
+    const line = (await a.pool.query('SELECT component_breakdown AS b FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [regular, supEmp])).rows[0].b as Array<{ amount: number }>;
+    expect(line.filter((i) => Number(i.amount) === 9000)).toHaveLength(1); // the superseded once-off was not paid
+    const earlier = (await loadMonthEarlierLines(a.company, bonusRun, [supEmp])).get(supEmp)!;
+    expect(earlier.etiComponents.find((c) => c.amount === 9000)?.isRecurring).not.toBe(false);
+    expect(earlier.storedClass).toBeUndefined();
   });
   it('the stored class keeps a flat line flat and a directive line on its directive (review L2)', async () => {
     await a.pool.query(`DELETE FROM payroll_employee_components WHERE employee_id = ANY($1::uuid[]) AND NOT is_recurring`, [[flatEmp, directedEmp]]);
