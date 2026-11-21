@@ -156,6 +156,7 @@ describe('entity change history (census)', () => {
       .flatMap(({ file, text }) => [...code(file, text).matchAll(/\bentity_change\w*/g)].map((m) => `${file}: ${m[0]}`));
     expect([...new Set(naming)].sort()).toEqual([
       'scripts/lib/demoReseed/wipePlan.ts: entity_changes', // kept by the Demo reseed, never written
+      'src/modules/accounting/services/core/auditTrailService.ts: entity_change', // the audit-log filter that hides a payroll reveal row (round 9)
       'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: entity_changes',
       'src/modules/accounting/services/core/entityChanges/entityChangeReveal.ts: entity_change',
     ]);
