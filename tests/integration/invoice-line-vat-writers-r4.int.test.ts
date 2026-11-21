@@ -44,6 +44,7 @@ const tokens: Record<string, string> = {};
 let user = '';
 
 type Res = Awaited<ReturnType<typeof callRoute>>;
+const J = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
 const data = <T>(r: Res) => (r.state.body as { data: T }).data;
 const errorOf = (r: Res) => (r.state.body as { error?: { message?: string; details?: { code?: string } } }).error;
 const post = (route: Parameters<typeof callRoute>[0], url: string, body: Record<string, unknown>) =>
@@ -227,45 +228,58 @@ describeIfDisposable('per-line VAT writers, review round 4', () => {
       SELECT (SELECT COUNT(*)::INT FROM credit_note_allocations WHERE company_id = ${f.fx.companyId}::UUID AND invoice_id = ${y}::UUID) AS rows,
              (SELECT amount_paid::FLOAT8 FROM customer_invoices WHERE id = ${y}::UUID) AS paid`) as Record<string, number>[])[0]!;
 
-    it('REST apply of 115 (200 + 30 note) to it: 400 CREDIT_NOTE_VAT_SPLIT_REFUSED, nothing written', async () => {
+    it('REST apply (no amount) takes the 57.50 left, not the 115 outstanding (round 5 L1); a second note is refused before any write', async () => {
       const y = await overCredited('2026-11-06');
       const u = await approvedNote('2026-11-06', 200);
+      await apply(u.id, y);
+      expect(await sql`SELECT amount_allocated::FLOAT8 AS a FROM credit_note_allocations WHERE credit_note_id = ${u.id}::UUID`).toEqual([{ a: 57.5 }]);
+      expect(await state(y)).toEqual({ remainingNet: 0, remainingVat: 0 });
+      const v = await approvedNote('2026-11-06', 20);
       const before = await written(y);
-      const r = await post(creditNotesAction, '/api/accounting/credit-notes-action', { action: 'apply', creditNoteId: u.id, invoiceId: y });
+      const r = await post(creditNotesAction, '/api/accounting/credit-notes-action', { action: 'apply', creditNoteId: v.id, invoiceId: y });
       expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(400);
       expect(errorOf(r)?.details?.code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');
-      expect(errorOf(r)?.message).toMatch(/^Credit note \S+ cannot apply 115\.00 to invoice \S+: it has 57\.50 left to credit \(50\.00 net and 7\.50 VAT\)/);
+      expect(errorOf(r)?.message).toMatch(/^Credit note \S+ cannot apply 23\.00 more to invoice \S+: it has nothing left to credit; /);
       expect(await written(y)).toEqual(before);
-      expect(await sql`SELECT applied_amount::FLOAT8 AS a FROM credit_notes WHERE id = ${u.id}::UUID`).toEqual([{ a: 0 }]);
+      expect(await sql`SELECT applied_amount::FLOAT8 AS a FROM credit_notes WHERE id = ${v.id}::UUID`).toEqual([{ a: 0 }]);
     });
 
-    it('MCP apply_credit_note: refused live and in its dry run; within the remainder it applies; adjust past it is refused', async () => {
+    it('MCP apply_credit_note: a named amount past it refused live and in its dry run (true message); no amount takes what fits; adjust past it refused', async () => {
       const y = await overCredited('2026-11-07');
       const u = await approvedNote('2026-11-07', 200);
-      const args = { credit_note_id: u.id, invoice_id: y, idempotency_key: crypto.randomUUID() };
+      const args = { credit_note_id: u.id, invoice_id: y, amount: 115, idempotency_key: crypto.randomUUID() };
       const before = await written(y);
       const dry = await inTx(f.fx, () => applyCreditNoteTool.handler({ ...args, dry_run: true }, ctx()));
       expect(dry.isError).toBe(true);
-      expect(dry.content[0]!.text).toMatch(/cannot apply 115\.00 to invoice \S+: it has 57\.50 left to credit/);
+      expect(dry.content[0]!.text).toMatch(/cannot apply 115\.00 more to invoice \S+: it has 57\.50 left to credit \(50\.00 net and 7\.50 VAT\); .* Apply 57\.50 at most/);
       const live = await inTx(f.fx, () => applyCreditNoteTool.handler(args, ctx()));
       expect([live.isError, live.content[0]!.text]).toEqual([true, dry.content[0]!.text]);
       expect(await written(y)).toEqual(before);
 
-      const fits = await inTx(f.fx, () => applyCreditNoteTool.handler({ ...args, amount: 57.5, idempotency_key: crypto.randomUUID() }, ctx()));
-      expect(fits.isError, fits.content[0]!.text).toBeFalsy();
+      const dryFit = J(await inTx(f.fx, () => applyCreditNoteTool.handler({ credit_note_id: u.id, invoice_id: y, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx())));
+      const fits = J(await inTx(f.fx, () => applyCreditNoteTool.handler({ credit_note_id: u.id, invoice_id: y, idempotency_key: crypto.randomUUID() }, ctx())));
+      expect(fits.amount_applied).toBe(57.5);
+      expect(JSON.stringify(dryFit)).toContain('57.5');
       expect(await state(y)).toEqual({ remainingNet: 0, remainingVat: 0 });
       const adjust = await inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
         { credit_note_id: u.id, document_id: y, new_amount: 100, idempotency_key: crypto.randomUUID() }, ctx()));
       expect(adjust.isError).toBe(true);
-      expect(adjust.content[0]!.text).toMatch(/cannot apply 100\.00 to invoice \S+: it has 57\.50 left to credit/);
+      expect(adjust.content[0]!.text).toMatch(/cannot apply 42\.50 more to invoice \S+: it has nothing left to credit/);
       // Down is always allowed: it gives credit back.
       const down = await inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
         { credit_note_id: u.id, document_id: y, new_amount: 20, idempotency_key: crypto.randomUUID() }, ctx()));
       expect(down.isError, down.content[0]!.text).toBeFalsy();
       expect(await state(y)).toEqual({ remainingNet: 32.61, remainingVat: 4.89 });
+      // Up again within what is left now (37.50, this row's 20 counted): 57.50 fits exactly, 57.51 does not.
+      const over = await inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
+        { credit_note_id: u.id, document_id: y, new_amount: 57.51, idempotency_key: crypto.randomUUID() }, ctx()));
+      expect(over.content[0]!.text).toMatch(/cannot apply 37\.51 more to invoice \S+: it has 37\.50 left to credit/);
+      const up = await inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
+        { credit_note_id: u.id, document_id: y, new_amount: 57.5, idempotency_key: crypto.randomUUID() }, ctx()));
+      expect(up.isError, up.content[0]!.text).toBeFalsy();
     });
 
-    it('approve\'s FIFO walk skips the typed invoice it no longer fits and takes the credit to the next one', async () => {
+    it('approve\'s FIFO walk takes nothing to the typed invoice with nothing left and takes the credit to the next one', async () => {
       const other = (await pool.query(`INSERT INTO customers (company_id, name) VALUES ($1, $2) RETURNING id`,
         [f.fx.companyId, `FIFO ${f.fx.tag}`])).rows[0].id as string;
       const y = await typedInvoice('2026-11-08', 100, undefined, other);

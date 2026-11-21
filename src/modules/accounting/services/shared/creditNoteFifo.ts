@@ -50,16 +50,18 @@
  * the correct outcome; catching would commit a half-applied note.
  */
 
-import { firstTypedMisfit } from '../ar/creditNoteTypedApplication';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
+import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
+import { gateNote, type GateNote } from '../ar/creditNoteTypedGate';
 import { invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
   UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate, writeApplication,
 } from './creditNoteApplicationWrites';
+import { planWithinTypedCapacity } from './creditNoteTypedPlan';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'linked', 'none'] as const;
 export type CreditNoteAutoApply = (typeof CREDIT_NOTE_AUTO_APPLY)[number];
@@ -215,24 +217,20 @@ export async function applyCreditNote(args: {
 
   const remaining = round2(totalAmount - consumed);
   if (remaining > invoiceFloor(side)) {
-    let rest = candidates
+    const rest = candidates
       .filter((id) => id !== linkedInvoiceId && locked.has(id))
       .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
-    // A typed invoice takes no more than it has left to credit (ar/creditNoteTypedApplication, #1701 round 4): one the
-    // plan would take past that is SKIPPED and the walk re-planned without it. This runs after the note's journal, so a
-    // skip (the credit goes elsewhere or stays on account), never a refusal. Every candidate here is unlinked to the note.
-    const gate = { id: creditNoteId, number: '', type: side, customerInvoiceId: linkedInvoiceId ?? null };
-    for (;;) {
-      const planned = planGreedyAllocations(remaining, rest, invoiceFloor(side));
-      const misfit = side === 'customer' ? await firstTypedMisfit(companyId, gate, planned) : null;
-      if (misfit === null) {
-        for (const p of planned) {
-          lines.push({ invoiceId: p.invoiceId, amount: p.amount });
-          consumed = round2(consumed + p.amount);
-        }
-        break;
-      }
-      rest = rest.filter((r) => r.invoiceId !== misfit);
+    // A typed invoice takes no more than it has left to credit (ar/creditNoteTypedApplication): its room is capped at
+    // that, so one that fits partly takes what fits (shared/creditNoteTypedPlan, the planner the back-fill's dry run
+    // uses too). After the note's journal, so a cap, never a refusal. Judged by the note's own link, re-read here: the
+    // back-fill passes no linkedInvoiceId.
+    const planned = side === 'customer'
+      ? await planWithinTypedCapacity(async (id) => (await typedCreditCapacity(companyId, id))?.cap ?? null,
+        await gateNoteOf(companyId, creditNoteId), remaining, rest, invoiceFloor(side))
+      : planGreedyAllocations(remaining, rest, invoiceFloor(side));
+    for (const p of planned) {
+      lines.push({ invoiceId: p.invoiceId, amount: p.amount });
+      consumed = round2(consumed + p.amount);
     }
   }
 
@@ -285,3 +283,11 @@ export async function listCreditNoteAllocations(
 export { assertAllocationsMatchApplied } from './creditNoteApplicationWrites';
 export { getUnappliedCreditNotes } from './agedNetting';
 export type { UnappliedCreditNotesSummary } from './agedNetting';
+
+/** The note row's fields the typed gate reads (its own link decides which invoice is not gated). */
+async function gateNoteOf(companyId: string, creditNoteId: string): Promise<GateNote> {
+  const rows = (await sql`
+    SELECT id, credit_note_number, type, customer_invoice_id FROM credit_notes
+    WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  return gateNote(rows[0] ?? { id: creditNoteId, type: 'customer' });
+}

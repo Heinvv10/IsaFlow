@@ -153,3 +153,30 @@ describe('simulateSequentialApplications', () => {
     ]);
   });
 });
+
+describe('customer credit notes capped at typed invoices\' credit capacity (#1701 round 5 M2)', () => {
+  const caps = new Map<string, number | null>([['b1', 4000], ['b2', null]]);
+  it('a credit-note line takes what fits on a typed invoice; the capacity is consumed for the next note; cash is never capped', () => {
+    const out = simulateSequentialApplications([
+      line(0, 60, { creditNoteLink: null }),
+      line(1, 50, { creditNoteLink: null }),
+      line(2, 30),
+    ], new Map([['sup-1', BILLS]]), caps);
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([
+      [['b1', 40], ['b2', 20]],
+      [['b2', 50]],
+      [['b1', 30]],
+    ]);
+  });
+  it('the note\'s own linked invoice is not capped, nor consumed', () => {
+    const out = simulateSequentialApplications([
+      line(0, 70, { creditNoteLink: 'b1' }),
+      line(1, 30, { creditNoteLink: null }),
+    ], new Map([['sup-1', BILLS]]), caps);
+    expect(out.map((l) => l.applications.map((a) => [a.documentId, a.amount]))).toEqual([[['b1', 70]], [['b1', 30]]]);
+  });
+  it('the caller\'s capacity map is not mutated', () => {
+    simulateSequentialApplications([line(0, 60, { creditNoteLink: null })], new Map([['sup-1', BILLS]]), caps);
+    expect(caps.get('b1')).toBe(4000);
+  });
+});

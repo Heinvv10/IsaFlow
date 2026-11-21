@@ -24,7 +24,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
-import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
+import { typedAmountOrRefuse } from '../ar/creditNoteTypedApplication';
+import { lockInvoiceCreditNotes } from '../ar/creditNotePostingChecks';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -94,6 +95,8 @@ export async function applyCreditNoteToDocument(
 ): Promise<CreditNoteToDocumentResult> {
   const note = await lockCreditNoteForUpdate(companyId, input.creditNoteId);
   const checked = checkNote(note, input);
+  // The invoice's credit-note key next (REST apply's order: note row, key, invoice row), so the typed gate's read cannot race an approval.
+  if (checked.side === 'customer') await lockInvoiceCreditNotes(input.invoiceId);
   await lockInvoicesForUpdate('applyCreditNoteToDocument', companyId, checked.side, [input.invoiceId]);
   const plan = await buildPlan(companyId, note, input);
 
@@ -267,15 +270,15 @@ async function buildPlan(
     throw new CreditNoteApplyRefusal(postedCreditRefusal(number, posted.posted, appliedBefore, total));
   }
 
-  const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding, postedLeft));
+  const wanted = round2(Math.min(input.amount ?? remainder, remainder, outstanding, postedLeft));
+  // A typed invoice: no amount named, up to what it has left to credit; a named amount past it refused (round 5 L1).
+  const amount = await typedAmountOrRefuse(companyId, side, note, input.invoiceId, wanted, input.amount !== undefined,
+    (m) => new CreditNoteApplyRefusal(m));
   // The engine writes only lines ABOVE a cent. A plan below that would promise
   // what the live call then cannot do.
   if (amount <= invoiceFloor(side)) {
     throw new CreditNoteApplyRefusal(`The smallest amount that can be applied is R${(invoiceFloor(side) + 0.01).toFixed(2)}.`);
   }
-  // A typed invoice: no more than it has left to credit (ar/creditNoteTypedApplication; #1701 round 4).
-  const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.invoiceId, amount) : null;
-  if (typedRefusal) throw new CreditNoteApplyRefusal(typedRefusal);
   const appliedAfter = round2(appliedBefore + amount);
   return {
     creditNoteId: input.creditNoteId,

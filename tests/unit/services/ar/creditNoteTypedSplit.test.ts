@@ -192,9 +192,8 @@ describe('appliedSettlement: applications use the invoice\'s gross capacity, in 
     ['VAT left below zero (hand-made): net only, up to the net', 5000, 10000, -500, { net: 5000, vat: 0 }],
   ] as const)('%s', (_l, applied, net, vat, expected) => expect(appliedSettlement(applied, net, vat)).toEqual(expected));
 
-  it('rounded once on the sum: 23 applications of 0.05 to 1.00 / 0.15 count exactly 1.00 / 0.15 (each alone would count 0.01 VAT: 0.23)', () => {
+  it('rounded once on the sum: 23 applications of 0.05 to 1.00 / 0.15 count exactly 1.00 / 0.15 (the integration suite pins the basis passing the sum)', () => {
     expect(appliedSettlement(23 * 5, 100, 15)).toEqual({ net: 100, vat: 15 });
-    expect(appliedSettlement(5, 100, 15).vat * 23).toBe(23);
   });
 
   it('never more net than is left nor more VAT than is left, for any amount up to the capacity', () => {

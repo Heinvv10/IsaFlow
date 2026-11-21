@@ -31,6 +31,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
+import { lockInvoiceCreditNotes } from '../ar/creditNotePostingChecks';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -104,6 +105,8 @@ export async function adjustCreditNoteApplication(
   // Note-only refusals before the document's lock: a call against a draft or
   // cancelled note must not hold a row lock on a document it will not touch.
   const side = checkNote(note, input).side;
+  // The invoice's credit-note key next (REST apply's order: note row, key, invoice row), so the typed gate's read cannot race an approval.
+  if (side === 'customer') await lockInvoiceCreditNotes(input.documentId);
   await lockInvoicesForUpdate('adjustCreditNoteApplication', companyId, side, [input.documentId]);
   const plan = await buildPlan(companyId, note, input);
 
@@ -247,8 +250,8 @@ async function buildPlan(
         `Document ${docNumber} has only ${formatMoney(outstanding)} outstanding; ${formatMoney(change)} more cannot be applied.`,
       );
     }
-    // A typed invoice: no more than it has left to credit (ar/creditNoteTypedApplication; #1701 round 4).
-    const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.documentId, appliedAfter) : null;
+    // A typed invoice: the INCREASE no more than it has left to credit now, this row counted (creditNoteTypedApplication).
+    const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.documentId, change) : null;
     if (typedRefusal) throw new CreditNoteAdjustRefusal(typedRefusal);
   }
 

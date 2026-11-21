@@ -38,6 +38,8 @@
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { SimulationDocument } from './autoApplySimulation';
+import { readCapacities, unreadCapacities, type CapacityCache } from './creditNoteTypedPlan';
+import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
 import {
   fetchDocumentFacts,
   fetchOpenDocuments,
@@ -145,9 +147,20 @@ async function planDryRun(req: BackfillRequest, sources: BackfillSource[]): Prom
   const documentDates = new Map(
     [...facts].map(([id, f]) => [id, f.invoiceDate]),
   );
-  return buildBackfillPlan({
-    subledger: req.subledger, sources, openByEntity, oldestFirstByEntity, documentDates,
-  });
+  // The AR credit notes are capped at each typed invoice's credit capacity, as the live walk caps them
+  // (shared/creditNoteTypedPlan): plan, read the capacity of each typed candidate the plan reaches, plan again.
+  const capacity: CapacityCache = new Map();
+  for (;;) {
+    const plan = buildBackfillPlan({ subledger: req.subledger, sources, openByEntity, oldestFirstByEntity, documentDates, capacity });
+    if (req.subledger !== 'ar') return plan;
+    const unread = new Set(plan.applications.flatMap((a) => {
+      const source = sources.find((s) => s.paymentId === a.payment_id && s.kind === a.kind);
+      return a.kind !== 'credit_note' ? [] : unreadCapacities(
+        a.lines.map((l) => ({ invoiceId: l.document_id })), capacity, { type: 'customer', customerInvoiceId: source?.linkedDocumentId ?? null });
+    }));
+    if (unread.size === 0) return plan;
+    await readCapacities(async (id) => (await typedCreditCapacity(req.companyId, id))?.cap ?? null, [...unread], capacity);
+  }
 }
 
 async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise<BackfillPlan> {

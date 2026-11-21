@@ -25,7 +25,7 @@ import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { recordLateLinkExcess, typedInvoiceCreditState } from './invoiceRevenuePosting';
-import { gateNote, typedApplicationRefusal } from './creditNoteTypedApplication';
+import { gateNote, typedApplicationAmount } from './creditNoteTypedApplication';
 import { CreditNoteVatSplitRefusal } from './creditNoteTypedSplit';
 
 export async function applyCreditNoteToInvoice(
@@ -93,8 +93,8 @@ export async function applyCreditNoteToInvoice(
   // A note approved UNLINKED debited default_revenue, none of the invoice's legs. Applied to a TYPED invoice it is applied
   // (as the MCP apply and the FIFO walk apply it) but NOT linked: linked, it would count in that invoice's reversed VAT
   // (invoiceCreditBasis sums tax_amount by link) while its net stayed on every leg, so the invoice could be credited its
-  // full net again on less VAT. Unlinked, invoiceCreditBasis counts the APPLICATION instead (round 3 M1): its net and VAT
-  // in the note's own proportion come off what the invoice has left to credit. A legacy invoice links, as before.
+  // full net again on less VAT. Unlinked, invoiceCreditBasis counts the APPLICATION instead (rounds 3-4): it uses the
+  // invoice's gross credit capacity, split in the INVOICE's own remaining proportion. A legacy invoice links, as before.
   const linkTo = !cn.customer_invoice_id && (await typedInvoiceCreditState(companyId, invoiceId)) ? null : invoiceId;
 
   // FX PR0: neither a foreign note nor a foreign invoice can be settled, whatever the switch.
@@ -117,13 +117,15 @@ export async function applyCreditNoteToInvoice(
   if (available <= 0 && posted < total) {
     throw new CreditNotePostedCreditError(postedCreditRefusal(String(cn.credit_note_number), posted, alreadyApplied, total));
   }
-  const applyAmount = round2(Math.min(available, outstanding));
+  const wanted = round2(Math.min(available, outstanding));
   // Whole cents: a credit note may clear a one-cent remnant (the invoice reads 'partially_paid' until it does).
-  if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
+  if (wanted <= 0) throw new Error('Invoice has no outstanding balance');
 
-  // A typed invoice takes no more than it has left to credit, refused before any write (creditNoteTypedApplication).
-  const typedRefusal = await typedApplicationRefusal(companyId, gateNote(cn), invoiceId, applyAmount);
-  if (typedRefusal) throw new CreditNoteVatSplitRefusal(typedRefusal);
+  // A typed invoice takes no more than it has left to credit (creditNoteTypedApplication): this route names no amount,
+  // so it applies up to that (round 5 L1), and refuses before any write only when nothing is left.
+  const typed = await typedApplicationAmount(companyId, gateNote(cn), invoiceId, wanted, false);
+  if ('refusal' in typed) throw new CreditNoteVatSplitRefusal(typed.refusal);
+  const applyAmount = typed.amount;
 
   // The engine's own row writer (row, then the money, then the status): its UNIQUE refuses a second application to
   // the same pair, and it reports what amount_paid measurably moved for the invariant below.
