@@ -101,7 +101,7 @@ export default function NewOffCycleRunPage() {
           <div className={card}>
             <Select id="oc-month" label="Month (its approved regular run)" required value={runId} loading={loading}
               options={runs.map((r) => ({ value: r.id, label: monthLabel(r) }))} emptyText="No approved regular run yet"
-              onChange={(v) => { setRunId(v); setChosen({}); setRunDate(null); }} />
+              onChange={(v) => { setRunId(v); setChosen({}); setAmounts({}); setRunDate(null); }} /* a month's amounts are its own (gate item 5) */ />
             <Select id="oc-reason" label="Reason" required value={reason} options={REASONS}
               onChange={(v) => { setReason((v ?? 'bonus') as Reason); setChosen({}); }} />
             <DateField id="oc-date" label="Pay date" required value={runDate} onChange={(iso) => setRunDate(iso)}
