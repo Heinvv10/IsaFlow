@@ -35,3 +35,14 @@ export class EliminationAlreadyStandsError extends Error {
     this.name = 'EliminationAlreadyStandsError';
   }
 }
+
+/**
+ * Posting a draft whose row may be the same sale as a live mirrored document (409): posting it would eliminate the sale twice. The person
+ * confirms to post it anyway.
+ */
+export class EliminationPossibleDuplicateError extends Error {
+  constructor(readonly adjustmentId: string, readonly mirroredRef: string) {
+    super(`Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`);
+    this.name = 'EliminationPossibleDuplicateError';
+  }
+}

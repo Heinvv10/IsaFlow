@@ -12,7 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
-import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -66,6 +66,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
   } catch (err) {
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
+    if (err instanceof EliminationPossibleDuplicateError) return apiResponse.conflict(res, err.message);
     throw err;
   }
 }
@@ -164,7 +165,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'post-elimination') {
       return answerRefusals(res, async () => {
-        await postEliminationAdjustment(body.adjustmentId as string, gId);
+        await postEliminationAdjustment(body.adjustmentId as string, gId, body.confirmDuplicate === true);   // (a possible duplicate needs the person's confirm)
         return apiResponse.success(res, { posted: true });
       });
     }

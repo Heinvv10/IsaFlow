@@ -20,6 +20,7 @@ import { EliminationsCreateModal } from '@/components/accounting/group/Eliminati
 import { EliminationsFlaggedNotice, parseFlagged, type FlaggedRow } from '@/components/accounting/group/EliminationsFlaggedNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui/DateField';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 interface EntityGroup { id: string; name: string; }
 
@@ -80,11 +81,13 @@ export default function EliminationsPage() {
   const loadData = useCallback(async () => {
     if (!selectedGroupId) return;
     setLoading(true); setError('');
+    const scope = `${selectedGroupId}|${periodStart}|${periodEnd}`;
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'eliminations', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
       await assertOk(res, 'Could not load the elimination adjustments - try again');
       const json = await res.json();
+      if (scopeRef.current !== scope) return;   // a list for a group or period no longer selected is dropped
       const list: unknown = (json.data || json).items;
       setItems(Array.isArray(list) ? list.map(toEliminationRow) : []);
     } catch (err) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); }
@@ -118,8 +121,15 @@ export default function EliminationsPage() {
       (json) => { if (scopeRef.current === scope) setGenerateNotes(parseFlagged(json)); });   // (a result for another group or period is dropped)
   };
 
-  const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Could not post the elimination - try again');
+  // a draft that may be the same sale as a mirrored document is posted only after the person confirms (the server refuses it otherwise)
+  const [confirmPost, setConfirmPost] = useState<EliminationAdjustment | null>(null);
+  const post = (id: string, confirmDuplicate: boolean) =>
+    postAction(id, { action: 'post-elimination', adjustmentId: id, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }, 'Could not post the elimination - try again');
+  const handlePost = (id: string) => {
+    const item = items.find((i) => i.id === id);
+    if (item?.mirroredDuplicateOf) { setConfirmPost(item); return; }
+    return post(id, false);
+  };
 
   const handleReverse = (id: string) =>
     postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
@@ -227,6 +237,14 @@ export default function EliminationsPage() {
           {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>
 
+        <ConfirmDialog
+          open={confirmPost !== null}
+          title="Post a possible duplicate?"
+          message={confirmPost ? `This elimination is possibly the same sale as mirrored document ${confirmPost.mirroredDuplicateOf}, which is eliminated automatically. Posting it would eliminate the sale twice.` : ''}
+          confirmLabel="Post anyway" confirmTone="danger"
+          onConfirm={() => { const id = confirmPost?.id; setConfirmPost(null); if (id) void post(id, true); }}
+          onCancel={() => setConfirmPost(null)}
+        />
         {showCreateModal && (
           <EliminationsCreateModal
             formType={formType} formDescription={formDescription} formPeriod={formPeriod}

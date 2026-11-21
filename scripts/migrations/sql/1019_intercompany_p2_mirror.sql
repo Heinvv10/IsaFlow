@@ -43,7 +43,7 @@
 --     public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_fiscal_year(uuid, date), public.intercompany_receiver_je(uuid, date, date[], date[]), public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]),
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
 --     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
---     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid);
+--     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid, date);
 
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
@@ -59,7 +59,7 @@
 --   DELETE FROM app_definer_reviews WHERE signature LIKE 'intercompany\_%' AND signature IN ('intercompany_auto_accept_queue(integer,boolean)',
 --     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
 --     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
---     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid)');
+--     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid,date)');
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -1453,38 +1453,51 @@ ALTER FUNCTION public.intercompany_journal_claimed(uuid) OWNER TO migration_admi
 REVOKE ALL ON FUNCTION public.intercompany_journal_claimed(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_claimed(uuid) TO app_user, app_service, migration_admin;
 
--- The mirrored sale a MANUAL (non-mirrored) group row may duplicate, or no row: a mirrored row of the same group, the SAME direction (source
--- and target), the same date and the same signed amount (a credit note never matches a sale), the manual row of a sale type (sale /
--- purchase / mgmt_fee; never a loan or transfer), and the mirror's message accepted with a target document and not withdrawn by the sender.
--- A FLAG only, never a skip: the generator drafts the manual row's elimination as always and marks it for a person to check before posting
--- (posting it would eliminate the sale a second time), and the eliminations list warns on a posted one. A plain lookup (no ledger walk), so
--- it is cheap for every row. A definer (the caller may not read the messages); it answers only for a row of a group the caller is a current
--- member of. Returns the mirrored row and its description (the document it was sent for).
+-- The mirrored sale a MANUAL (non-mirrored) group row may duplicate, or no row. A FLAG only, never a skip, so it is WIDE (a missing flag lets a
+-- person post a double elimination; a spurious one costs a look): a mirrored row of the same group and the SAME direction (source and target),
+-- the manual row of a sale type (sale / purchase / mgmt_fee; never a loan or transfer), its amount the mirror's subtotal OR its total (VAT
+-- inclusive; a credit note's negative, so a credit never matches a sale), its date in the same calendar month as the sender's document date or
+-- the receiver's document date, or within 7 days of either; the mirror's message accepted with a target document and not withdrawn. The
+-- closest candidate first (exact amount and date, then the nearest date). A plain lookup (no ledger walk) for every row. mirror_ref: the
+-- mirror's description, else its id. mirror_stands (only when p_asat is given: the list asks it for a POSTED adjustment): whether the mirror's
+-- pair stands at p_asat, i.e. it is eliminated automatically then (one pair evaluation; without it a posted row would be told to reverse
+-- what may be the only elimination). A definer (the caller may not read the messages); it answers only for a row of a group the caller is a
+-- current member of.
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid);
-CREATE OR REPLACE FUNCTION public.intercompany_mirrored_duplicate(p_row uuid)
-RETURNS TABLE (mirror_row uuid, mirror_ref text)
+DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date);
+CREATE OR REPLACE FUNCTION public.intercompany_mirrored_duplicate(p_row uuid, p_asat date DEFAULT NULL)
+RETURNS TABLE (mirror_row uuid, mirror_ref text, mirror_stands boolean)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT o.id, o.description
-    FROM public.intercompany_transactions r
-    JOIN public.intercompany_transactions o
-      ON o.group_id = r.group_id AND o.id <> r.id AND o.source_company_id = r.source_company_id AND o.target_company_id = r.target_company_id
-     AND o.transaction_date = r.transaction_date AND o.amount = r.amount
-    JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
-   WHERE r.id = p_row AND r.group_id IN (SELECT public.rls_user_group_ids())
-     AND r.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
-     AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = r.id)
-     AND x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL
-   ORDER BY o.created_at, o.id
-   LIMIT 1
+  SELECT c.id, c.ref, CASE WHEN p_asat IS NULL THEN NULL ELSE public.intercompany_mirror_pair_at(c.id, p_asat) IS NOT NULL END
+    FROM (
+      SELECT o.id, COALESCE(o.description, o.id::text) AS ref, r.amount = o.amount AND r.transaction_date = o.transaction_date AS exact,
+             abs(r.transaction_date - o.transaction_date) AS gap, o.created_at
+        FROM public.intercompany_transactions r
+        JOIN public.intercompany_transactions o
+          ON o.group_id = r.group_id AND o.id <> r.id AND o.source_company_id = r.source_company_id AND o.target_company_id = r.target_company_id
+        JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
+        LEFT JOIN LATERAL (
+          SELECT COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE x.target_doc_type = 'supplier_invoice' AND si.id = x.target_doc_id),
+                          (SELECT cn.credit_date FROM public.credit_notes cn WHERE x.target_doc_type = 'credit_note' AND cn.id = x.target_doc_id)) AS d) bill ON true
+       WHERE r.id = p_row AND r.group_id IN (SELECT public.rls_user_group_ids())
+         AND r.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
+         AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = r.id)
+         AND x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL
+         AND (r.amount = o.amount OR r.amount = sign(o.amount) * (x.payload->>'total')::numeric)
+         AND (date_trunc('month', r.transaction_date) = date_trunc('month', o.transaction_date)
+              OR abs(r.transaction_date - o.transaction_date) <= 7
+              OR (bill.d IS NOT NULL AND (date_trunc('month', r.transaction_date) = date_trunc('month', bill.d) OR abs(r.transaction_date - bill.d) <= 7)))
+       ORDER BY exact DESC, gap, o.created_at, o.id
+       LIMIT 1) c
 $$;
-ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid) OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid) TO app_user, app_service, migration_admin;
+ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO app_user, app_service, migration_admin;
 
 -- A request's new row names no match and no reason (the 999r body, plus the two columns of 1019).
 CREATE OR REPLACE FUNCTION public.intercompany_transaction_recorded_fresh()
@@ -1780,7 +1793,7 @@ END $$;
 
 -- ── 7. The definer registry (930) ───────────────────────────────────────────
 
-DELETE FROM public.app_definer_reviews WHERE signature IN ('intercompany_auto_accept_queue(integer)', 'intercompany_mirrored_duplicate(uuid,date,date)');
+DELETE FROM public.app_definer_reviews WHERE signature IN ('intercompany_auto_accept_queue(integer)', 'intercompany_mirrored_duplicate(uuid,date,date)', 'intercompany_mirrored_duplicate(uuid)');
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
@@ -1794,8 +1807,8 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'intercompany_messages (one invoice / credit_note message, its payload built from the session company''s approved customer invoice or customer credit note with a posted, standing approval journal, and recording that journal and the group row) and intercompany_transactions (the sender''s one ''sale'' group row, for a group connection, ZAR) for the session company (a write-role user) and a document of that company whose customer is the partner on an active connection past its cut-over; nothing for any other company or an unapproved document'),
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
-    ('intercompany_mirrored_duplicate(uuid)', 'public.intercompany_mirrored_duplicate(uuid)',
-     'nothing: for a manual group row of a group the caller is a current member of, the mirrored sale it may duplicate (same group, direction, date and signed amount, a sale type, the mirror accepted with a target document and not withdrawn): a flag for the elimination generator and the eliminations list, never a skip'),
+    ('intercompany_mirrored_duplicate(uuid,date)', 'public.intercompany_mirrored_duplicate(uuid, date)',
+     'nothing: for a manual group row of a group the caller is a current member of, the mirrored sale it may duplicate (same group and direction, a sale type, the mirror''s subtotal or total, the same month as or within 7 days of the sender''s or the receiver''s document date, the mirror accepted with a target document and not withdrawn) and, when asked, whether that mirror''s pair stands at a date: a flag for the elimination generator, the eliminations list and posting, never a skip'),
     ('intercompany_journal_claimed(uuid)', 'public.intercompany_journal_claimed(uuid)',
      'nothing: whether a journal of a company in a group the caller is a current member of (false for any other journal) is already the target or first match of an intercompany row, or the journal of a document an accepted mirror message created (a boolean, for the intercompany_transactions INSERT trigger of a writer who may not read those rows)'),
     ('intercompany_is_mirrored_row(uuid)', 'public.intercompany_is_mirrored_row(uuid)',
@@ -1828,7 +1841,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_mirrored_row(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_claimed(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_bound_elsewhere(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_eliminations(uuid, date, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric)', 'EXECUTE')

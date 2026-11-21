@@ -28,7 +28,7 @@ const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
-import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 
 const GROUP = '80000000-0000-4000-8000-000000000001';
 const ADJ = '70000000-0000-4000-8000-000000000001';
@@ -78,7 +78,7 @@ describe('LOW-1: ids are UUID-checked before any query', () => {
   it('a valid group id and adjustment id pass through', async () => {
     const res = await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ });
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(svc.postEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP);
+    expect(svc.postEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP, false);
   });
 });
 
@@ -157,7 +157,7 @@ describe('write gate with the group id in the body only', () => {
     const res = await call('POST', {}, { action: 'post-elimination', groupId: GROUP, adjustmentId: ADJ });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(access.userCanWriteGroup).toHaveBeenCalledWith('u1', GROUP);
-    expect(svc.postEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP);
+    expect(svc.postEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP, false);
   });
 });
 
@@ -181,6 +181,16 @@ describe('expected refusals answer 400 / 409, not 500', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(message(res)).toContain(`is not a ${status} adjustment of this group`);
     expect(message(res)).toContain(why);
+  });
+
+  it('posting a possible duplicate of a mirrored document → 409 naming the mirror; with confirmDuplicate the service is told so', async () => {
+    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationPossibleDuplicateError(ADJ, 'Invoice X (mirrored)'));
+    const res = await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(message(res)).toContain('Possibly the same sale as mirrored document Invoice X (mirrored)');
+    svc.postEliminationAdjustment.mockResolvedValueOnce(undefined);
+    await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ, confirmDuplicate: true });
+    expect(svc.postEliminationAdjustment).toHaveBeenLastCalledWith(ADJ, GROUP, true);
   });
 
   it('an unexpected failure still propagates (a 500 from the error handler)', async () => {
