@@ -54,9 +54,10 @@ export function vatAtLoad(invoice: Pick<InvoiceDetail, 'tax_rate' | 'amounts_are
 /**
  * A LEGACY line's effective type (round 11): on a header that charges VAT, from its OWN stored rate, else whether it
  * carries VAT, else the header's;
- * 0 -> zero_rated, the standard rate on the invoice date -> standard, any other rate (a 14% legacy line) none, so the
- * form's rate check holds the save rather than repricing it. So a mixed legacy draft (R100 at 15% + R100 at 0%) keeps
- * R215; read at the header rate it became R230.
+ * 0 -> zero_rated, the standard rate on the invoice date -> standard, any other rate (a 14% legacy line) none: that line
+ * then prices at the form's rate, so a stored total it no longer matches shows both figures and the stale-priced hold
+ * keeps autosave off until Save Changes reprices it (a hand-made legacy mix only). So a mixed legacy draft (R100 at
+ * 15% + R100 at 0%) keeps R215; read at the header rate it became R230.
  */
 function legacyLineType(it: InvoiceItemRow, vat: { effectiveRate: number; date?: string }): string | null {
   // A header at no VAT decides (round 12): its lines' tax_rate may be the column default 15.00 on a draft that charges
