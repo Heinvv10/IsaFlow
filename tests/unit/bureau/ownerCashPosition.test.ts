@@ -129,6 +129,12 @@ describe('pickPayrollRun', () => {
       const a2 = run({ id: 'a2', total_net: '4000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
       expect(pickPayrollRun([credit, a1], 0, '2026-06-30')).toMatchObject({ runId: 'a1', canPay: true, shortfall: 0 });
       expect(pickPayrollRun([credit, a1, a2], 0, '2026-06-30')).toMatchObject({ runId: 'a2', canPay: false, totalRequired: 100, shortfall: 100, runsCounted: 1 });
+      // ETI offsets PAYE only (gate ruling 2 on e0eec1dea1): R0 PAYE, R200 UIF, R100 SDL and R300 ETI still owes R300.
+      const etiNoPaye = run({ id: 'eti', total_net: '3000', total_paye: '0', total_uif: '200', total_sdl: '100', total_eti: '300', pay_date: '2026-06-15', final: true });
+      expect(pickPayrollRun([etiNoPaye], 0, '2026-06-30')).toMatchObject({ runId: 'eti', canPay: false, totalRequired: 300 });
+      // Nor does a month's ETI credit come off another run's UIF and SDL: only its PAYE.
+      const uifOnly = run({ id: 'uif', total_net: '4000', total_paye: '0', total_uif: '200', total_sdl: '0', total_eti: '0', pay_date: '2026-06-20', final: true });
+      expect(pickPayrollRun([credit, uifOnly], 0, '2026-06-30')).toMatchObject({ runId: 'uif', totalRequired: 200 });
       // Another month's credit is not netted (its own EMP201).
       const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
       expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
