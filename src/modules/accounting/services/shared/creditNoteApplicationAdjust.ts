@@ -112,15 +112,23 @@ export async function adjustCreditNoteApplication(
 
   const line = { invoiceId: plan.documentId };
   let paidMoved = 0;
+  let placed: string | null = null;
   if (plan.appliedBefore > 0) {
     paidMoved += await undoApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedBefore });
-    await sql`
+    placed = ((await sql`
       DELETE FROM credit_note_allocations
       WHERE credit_note_id = ${plan.creditNoteId}::UUID AND invoice_id = ${plan.documentId}::UUID
-        AND company_id = ${companyId}::UUID`;
+        AND company_id = ${companyId}::UUID
+      RETURNING created_at::TEXT AS placed`) as { placed: string }[])[0]?.placed ?? null;
   }
   if (plan.appliedAfter > 0) {
     paidMoved += await writeApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedAfter });
+    // The adjusted application keeps its place in the note's application order (rule A, ar/creditNoteDetached): a
+    // re-dated row would move the note's detached credit onto its later invoices, and an increase reopen this one.
+    if (placed !== null) {
+      await sql`UPDATE credit_note_allocations SET created_at = ${placed}::TIMESTAMPTZ
+        WHERE credit_note_id = ${plan.creditNoteId}::UUID AND invoice_id = ${plan.documentId}::UUID AND company_id = ${companyId}::UUID`;
+    }
   }
   // The invariants. Thrown, never refused: the document has already moved, so the registry must unwind it.
   if (plan.change > 0) {

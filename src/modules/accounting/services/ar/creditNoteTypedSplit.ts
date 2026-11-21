@@ -12,10 +12,13 @@
  *        tax_amount must be EXACTLY requiredCreditNoteVat(R, V, S) = round-half-away(V x S / R) in exact integer cents,
  *        which is V itself when S = R (V x R / R). No tolerance and no rate: the invoice's own VAT, in proportion.
  *
- * NOTES NOT LINKED TO IT (#1701 rounds 3-4): a note applied to the invoice but linked elsewhere or nowhere took none of
- * its legs at approval; its application settles R and V in the invoice's own proportion (appliedSettlement), so R and V
- * shrink together and the argument below holds with them. Apply refuses an application past R + V before any write
- * (REST apply, MCP apply_credit_note, adjust_credit_note_application); approve's FIFO walk skips such an invoice.
+ * NOTES NOT LINKED TO IT (#1701 rounds 3-6): a note applied to the invoice but not linked to it took none of its legs at
+ * approval. What its applications count here is RULE A (creditNoteDetached): its DETACHED gross (the share of its total
+ * that reversed no leg anywhere), consumed in application order by its applications to invoices whose legs it did not
+ * reverse; a linked note's FIFO spillover counts nowhere. The count settles R and V in the invoice's own proportion
+ * (appliedSettlement), so R and V shrink together and the argument below holds with them. Apply refuses an increment
+ * past R + V before any write (REST apply, MCP apply_credit_note, adjust_credit_note_application); the FIFO walks cap
+ * each typed invoice at it (shared/creditNoteTypedPlan).
  *
  * STRANDING IS IMPOSSIBLE. (1) While R > 0 and V >= 0, a note with S = R is accepted with VAT exactly V (the formula,
  * exact in BigInt), and every partial note's VAT is at most V (S < R), so V stays >= 0; (2) the note that brings R to 0
@@ -58,7 +61,7 @@ export const legsAreTyped = (legs: readonly RevenueLeg[]): boolean => legs.lengt
  * a x b / d in integer cents, rounded half away from zero (d > 0). In BigInt: a x b passes 2^53 above ~R2.4M, where a
  * float product rounds the cent wrong.
  */
-const mulDivRound = (a: number, b: number, d: number): number => {
+export const mulDivRound = (a: number, b: number, d: number): number => {
   const n = BigInt(a) * BigInt(b);
   const q = ((n < BigInt(0) ? -n : n) * BigInt(2) + BigInt(d)) / (BigInt(2) * BigInt(d));
   return Number(n < BigInt(0) ? -q : q);

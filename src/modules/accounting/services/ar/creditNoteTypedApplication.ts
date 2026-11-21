@@ -4,7 +4,8 @@
  * VAT as `typedInvoiceCreditState` reads it now, which already counts every application on it, this note's existing
  * row included. So the INCREMENT is judged against what is left, and the resulting row can never take the invoice past
  * it (round 5 H1: comparing an increment with a capacity read WITHOUT the note's existing row let an add-to-existing
- * back-fill credit 161 on a 115 invoice). invoiceCreditBasis counts such applications in the invoice's own proportion
+ * back-fill credit 161 on a 115 invoice). invoiceCreditBasis counts such applications (rule A: creditNoteDetached, at
+ * most each one's amount) in the invoice's own proportion
  * (creditNoteTypedSplit.appliedSettlement), so within the capacity nothing goes below zero and a ratio mismatch (a
  * standard note on a zero-rated invoice) is never refused.
  *

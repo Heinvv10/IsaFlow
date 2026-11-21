@@ -16,6 +16,7 @@ import {
 } from './invoiceRevenueLines';
 import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
 import { allocateTypedCreditNote, appliedSettlement, legsAreTyped } from './creditNoteTypedSplit';
+import { detachedAppliedOn } from './creditNoteDetachedRead';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -115,7 +116,7 @@ export async function typedInvoiceCreditState(companyId: string, invoiceId: stri
 /**
  * The invoice journal's revenue legs (what live earlier notes took recorded on each), the pre-874 notes to replay, and
  * for a typed invoice its remaining VAT (VAT Output legs less the tax of live earlier customer notes; null if legacy).
- * A typed invoice also replays the net, and takes off the VAT, of the live unlinked notes applied to it.
+ * A typed invoice also takes off its net and VAT what the live notes applied to it but not linked to it count (rule A).
  * Live = not draft, not cancelled; `noteId` (the note being approved, a draft at this read) is excluded as well.
  */
 async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: string, defaultRevenueAccountId: string):
@@ -183,23 +184,18 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
   `) as Record<string, unknown>[];
   // One row always (two scalar subqueries).
   const vatLeft = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) : 0;
-  // Live customer notes APPLIED to this typed invoice but not linked to IT (#1701 rounds 3-4): unlinked ones (applying
-  // one here does not link it: creditNoteApplyToInvoice, the MCP apply and the FIFO walk), and ones linked to another
-  // invoice, at creation or by a later apply to a legacy invoice (COALESCE keeps the first link). None took a leg here
-  // at approval, yet each settled this invoice: their applications, summed, use its GROSS credit capacity in its own
-  // remaining proportion (appliedSettlement; the note posted its own VAT at its approval), the net taken off the legs
-  // pro rata as if recorded on them, the VAT off the remaining VAT. A note linked to this invoice counts once, by its
-  // link. Unapply deletes the row and cancel reverses the note, so either gives the share back.
-  const appliedRows = (await sql`
-    SELECT COALESCE(SUM(cna.amount_allocated), 0) AS applied
-    FROM credit_note_allocations cna
-    JOIN credit_notes cn ON cn.id = cna.credit_note_id AND cn.company_id = cna.company_id
-    WHERE cna.company_id = ${companyId}::UUID AND cna.invoice_id = ${invoiceId}::UUID
-      AND cn.type = 'customer' AND cn.customer_invoice_id IS DISTINCT FROM ${invoiceId}::UUID
-      AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
-  `) as Record<string, unknown>[];
+  // Live customer notes APPLIED to this typed invoice but not linked to it (#1701 rounds 3-6; applying one here does
+  // not link it). Each took none of its legs at approval, yet settled it: what its applications count here is RULE A
+  // (creditNoteDetached): its DETACHED gross, the share of its total that reversed no leg anywhere, consumed by its
+  // applications to invoices whose legs it did not reverse, in application order. So a linked note's FIFO spillover
+  // counts nowhere (it reversed its own invoice's legs) and a late link to a legacy invoice cannot make an application
+  // here stop counting. Their sum uses this invoice's GROSS credit capacity in its own remaining proportion
+  // (appliedSettlement; the note posted its own VAT at its approval), the net taken off the legs pro rata as if
+  // recorded on them, the VAT off the remaining VAT. A note linked to this invoice counts once, by its link. Unapply,
+  // cancel and an adjustment down give the share back and re-derive the order.
+  const applied = await detachedAppliedOn(companyId, invoiceId, noteId);
   const carries = remainingCarries(legs, replayed);
-  const share = appliedSettlement(Math.round(Number(appliedRows[0]?.applied ?? 0) * 100), carries.reduce((x, y) => x + y, 0), vatLeft);
+  const share = appliedSettlement(applied, carries.reduce((x, y) => x + y, 0), vatLeft);
   const took = noteShares(carries, share.net);
   const settled = legs.map((l, i) => ({ ...l, taken: (Math.round((l.taken ?? 0) * 100) + took[i]!) / 100 }));
   return { legs: settled, replayed, remainingVat: (vatLeft - share.vat) / 100 };

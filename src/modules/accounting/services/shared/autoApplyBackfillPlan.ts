@@ -31,6 +31,7 @@ import {
   type SimulationDocument,
   type SimulationLine,
 } from './autoApplySimulation';
+import type { DetachedProfile } from '../ar/creditNoteDetached';
 
 export const SUBLEDGERS = ['ap', 'ar'] as const;
 export type Subledger = (typeof SUBLEDGERS)[number];
@@ -71,6 +72,8 @@ export interface BackfillSource {
   skippedReason?: string | null;
   /** A customer credit note's own linked invoice (never capped by the typed gate: shared/creditNoteTypedPlan). */
   linkedDocumentId?: string | null;
+  /** Its rule-A profile (ar/creditNoteDetached): the dry run consumes typed capacity by what it counts. Dry run only. */
+  detached?: DetachedProfile;
 }
 
 /** One document the cash would close, in the wire shape the tool returns. */
@@ -275,7 +278,8 @@ export function buildBackfillPlan(args: {
     cash: source.remainder,
     oldestFirst: source.entityId ? oldestFirstByEntity.get(source.entityId) ?? true : true,
     floor: invoiceFloor(subledger === 'ap' ? 'supplier' : 'customer'),
-    ...(subledger === 'ar' && source.kind === 'credit_note' ? { creditNoteLink: source.linkedDocumentId ?? null } : {}),
+    ...(subledger === 'ar' && source.kind === 'credit_note'
+      ? { creditNoteLink: source.linkedDocumentId ?? null, detached: source.detached } : {}),
   }));
   const simulated = new Map(
     simulateSequentialApplications(simLines, openByEntity, args.capacity).map((l) => [l.index, l]),
