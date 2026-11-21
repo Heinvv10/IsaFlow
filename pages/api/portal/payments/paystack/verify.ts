@@ -121,7 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           const mismatch = mapped === 'completed' ? linkMismatch(pr, live.metadata) : null;
           if (mismatch) logRefusedLink(pr.paystack_reference, pr, mismatch);
           if (mapped === 'completed' && pr.customer_invoice_id && !mismatch) {
-            // census-exempt(recordGatewayInvoiceReceipt): the customer portal: a payer settling an invoice through Paystack, no company member acts; the receipt is idempotent on the gateway reference
+            // census-exempt(recordGatewayInvoiceReceipt, posting): the customer portal: a payer settling an invoice through Paystack, no company member acts; the receipt is idempotent on the gateway reference
             await recordGatewayInvoiceReceipt({
               companyId: pr.company_id,
               invoiceId: pr.customer_invoice_id,

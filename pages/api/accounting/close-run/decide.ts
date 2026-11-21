@@ -46,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (decision === 'approve' && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'close-run journals')) return;
 
   try {
-    // census-exempt(decideProposal): approve asks Chart of Accounts & GL Approve first (above); reject and dismiss post nothing. routeApproveGates (close-run/decide)
+    // census-exempt(decideProposal, posting): approve asks Chart of Accounts & GL Approve first (above); reject and dismiss post nothing. routeApproveGates (close-run/decide)
     const proposal = await withJournalDateRefusal(res, () => decideProposal(companyId, runId, proposalId, decision as Decision, userId));
     if (proposal === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { proposal });

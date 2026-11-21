@@ -161,7 +161,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           case 'approve':
             return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
           case 'cancel':
-            // census-exempt(cancelSupplierInvoice): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+            // census-exempt(cancelSupplierInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
             await cancelSupplierInvoice(companyId, invoiceId, userId);
             return NOTHING;
           case 'post_gl': {

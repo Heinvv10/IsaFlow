@@ -51,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const parsed = RefreshSchema.safeParse(req.body);
       if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
-      // census-exempt(refreshHeadcount): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+      // census-exempt(refreshHeadcount, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
       return apiResponse.success(res, await refreshHeadcount(companyId, userId, parsed.data));
     }
   } catch (err) {

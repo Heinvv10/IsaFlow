@@ -30,7 +30,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
     return apiResponse.success(res, await provider.answer(companyId, q));
   }
-  // census-exempt(answerQuestion): answers with figures from the company's ledger and its EMP201 totals (kind-checked run reads); no one person's pay (the aggregate-totals limit in the PR body)
+  // census-exempt(answerQuestion, payroll-read): answers with figures from the company's ledger and its EMP201 totals (kind-checked run reads); no one person's pay (the aggregate-totals limit in the PR body)
   const answer = await answerQuestion(companyId, q, todayInSast());
   // A metered intent is charged up front; one that returned no figure (a refused period, a missing run) did no billable work.
   if (answer.figure === null) markFlowNoOp(req);

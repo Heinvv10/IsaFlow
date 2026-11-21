@@ -86,7 +86,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     },
   }, 'sage-migration');
 
-  // census-exempt(commitSageMigration): the admin portal (withAdmin: a platform super_admin acting on a company they are not a member of): no company User Access applies; audited by logAdminAction
+  // census-exempt(commitSageMigration, posting): the admin portal (withAdmin: a platform super_admin acting on a company they are not a member of): no company User Access applies; audited by logAdminAction
   const summary = await withJournalDateRefusal(res, () => commitSageMigration({ companyId, userId, pulled }));
   if (summary === JOURNAL_DATE_REFUSED) return;
   // Fails closed: no audit row, no commit (withPlatformAdmin rolls the journals back). Counts only, no record data.

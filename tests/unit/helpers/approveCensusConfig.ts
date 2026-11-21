@@ -34,17 +34,22 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
   postBankTransfer: 'banking', postProvisional: 'banking', reopenReconciliation: 'banking',
   // VAT, items, practice, budgets, approvals
   // finaliseReturn: VAT201 (vat) or EMP501 (payroll), the return's own module
-  approveVATAdjustment: 'vat', finaliseReturn: '*',
+  approveVATAdjustment: 'vat', finaliseReturn: 'returns',
   approveAdjustment: 'items', approveEntries: 'accountant',
   approvePracticeEntries: 'accountant', transitionVersion: 'budgets', decideRequest: '*', approvePurchaseOrder: 'suppliers',
   // payroll
   approvePayrollRun: 'payroll', reopenPayrollRun: 'payroll', postBatch: 'payroll', bookEtiForMonthLocked: 'payroll',
   markUifDeclarationPaid: 'payroll',
+  // money leaving: the EFT batch sent to Netcash
+  submitEftBatch: 'suppliers',
   // recurring templates (the run decides per template type)
   executeRecurring: '*',
 };
 
 export const POSTING_SERVICES = Object.keys(SINK_MODULES);
+
+/** A gate whose module argument is returnApproveModule(<form>) asks the form's module: the census calls it 'returns'. */
+export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, string>> = { returnApproveModule: 'returns' };
 
 /**
  * SQL that makes the function holding it a primitive (matched against the static text of its tagged templates and `.query()` calls, a
@@ -77,9 +82,12 @@ export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   flips('consolidation_adjustments', 'posted|reversed', 'group'),
   flips('budget_versions', 'approved', 'budgets'),
   flips('fiscal_periods', 'closed|locked', 'accounts'),
-  // finaliseReturn, and a filing (Hein's gate-everything ruling, 2026-11-21): the form's module (VAT201 vat; EMP201/EMP501 payroll)
-  flips('tax_return_versions', 'finalised|filed', '*'),
-  flips('sars_submissions', 'submitted', '*'), // the legacy / ISV way of marking a return submitted
+  // A return finalised or filed (Hein's gate-everything ruling, 2026-11-21) takes the FORM's module Approve: 'returns', which only a gate
+  // whose module is returnApproveModule(...) gives (RETURN_MODULE_RESOLVERS; r12 L1: a literal 'vat' or 'budgets' gate is a finding).
+  flips('tax_return_versions', 'finalised|filed', 'returns'),
+  flips('sars_submissions', 'submitted', 'returns'), // the legacy / ISV way of marking a return submitted
+  { module: 'returns', re: /INSERT\s+INTO\s+(?:public\.)?vat_period_locks\b/i }, // a VAT period lock records the filed return
+  flips('uif_declarations', 'submitted', 'payroll'), // the UIF declaration marked submitted (re-arms markPaid)
 ];
 
 /**
@@ -109,8 +117,8 @@ export const ROUTE_WRAPPERS: Readonly<Record<string, string>> = {};
 /**
  * The payroll-READ census (round 6): a route outside pages/api/payroll that returns one person's pay must ask Payroll read. SQL on these
  * per-employee tables makes the function holding it a primitive; the gates are Payroll read (refuseWithoutPayrollRead, mayReadPayroll)
- * and the wrappers that ask it. Aggregate totals (a count, a monthly PAYE sum) are exempted per site with `census-exempt(sql)` or
- * `census-exempt(<callee>)` and a reason.
+ * and the wrappers that ask it. Aggregate totals (a count, a monthly PAYE sum) are exempted per site with `census-exempt(sql, payroll-read)`
+ * or `census-exempt(<callee>, payroll-read)` and a reason.
  */
 export const PAYROLL_DETAIL_SQL: readonly RegExp[] = [
   /\b(?:FROM|JOIN)\s+(?:"?public"?\.)?"?(?:payslips|payroll_payslips|payroll_run_lines|payroll_employees|payroll_employee_components|payroll_irp5\w*|employees)"?\b/i,

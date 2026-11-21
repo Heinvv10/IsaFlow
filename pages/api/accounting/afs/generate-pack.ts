@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const config = await getManagementPackConfig(companyId);
 
   try {
-    // census-exempt(generateManagementPack): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
+    // census-exempt(generateManagementPack, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     const result = await generateManagementPack({
       companyId,
       period,

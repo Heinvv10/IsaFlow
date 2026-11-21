@@ -17,14 +17,14 @@
  *  - A call passing `{ dryRun: true }`, or an `allowReversal` whose value is a GATE RESULT (a gate call, or a variable set from one: the
  *    service refuses under its own row lock), is not dangerous; any other value is not a decision.
  *  - A PARAMETERISED sink whose gate depends on an argument is exempted per CALL SITE by a marker comment above its statement,
- *    `census-exempt(<callee>): reason` (the OUTERMOST call of that name in the statement; in the payroll-read census `census-exempt(sql)`
+ *    `census-exempt(<callee>, <census>): reason` (the OUTERMOST call of that name in the statement; in the payroll-read census `census-exempt(sql, payroll-read)`
  *    binds the one SQL statement below it); used only while the call would otherwise be uncovered, else reported stale (staleMarkers).
  *  - A route file is BAD when a root unit (not called by another unit of the file; the handler) is in D.
  */
 import ts from 'typescript';
 import { resolve } from 'path';
-import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, objectProp, primitiveModule, programFor, ROOT, sqlTextOf, unwrap,
-  type MarkerScope, type SqlPrimitive } from './approveCensusProgram';
+import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, moduleOfArg, objectProp, primitiveModule, programFor, ROOT,
+  sqlTextOf, unwrap, type MarkerScope, type SqlPrimitive } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -41,7 +41,9 @@ export interface CensusConfig {
   /** A route unit running primitive SQL itself is dangerous unless wrapped, a gate dominates it, or a marker sits above it (#1670). */
   flagPrimitiveRoots?: boolean;
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
-  markerScope?: MarkerScope; // the census whose scoped markers apply (`census-exempt(<callee>, <scope>)`); unscoped ones always do
+  markerScope?: MarkerScope; // the census whose markers apply (`census-exempt(<callee>, <scope>)`, scope required); none: every marker
+  moduleResolvers?: Readonly<Record<string, string>>; // a gate's module from a resolver call: returnApproveModule(...) -> 'returns'
+  strictModules?: readonly string[]; // modules a '*' gate (a module the census cannot read) does not cover: 'returns'
 }
 export interface BadRoute { file: string; unit: string; sites: string[] }
 export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; markersUsed: string[]; staleMarkers: string[] }
@@ -58,11 +60,8 @@ export function analyse(cfg: CensusConfig): Census {
   const routeSet = new Set(cfg.routeFiles); // sink modules bind where a route calls them
 
   // ── gate recognition ──────────────────────────────────────────────────────────────────────────
-  const gateModule = (c: ts.CallExpression, spec: GateSpec): string => {
-    if (spec.module !== undefined) return spec.module;
-    const arg = spec.moduleArg !== undefined ? c.arguments[spec.moduleArg] : undefined;
-    return arg && ts.isStringLiteralLike(arg) ? arg.text : '*';
-  };
+  const gateModule = (c: ts.CallExpression, spec: GateSpec): string => spec.module
+    ?? (spec.moduleArg !== undefined && c.arguments[spec.moduleArg] ? moduleOfArg(c.arguments[spec.moduleArg]!, cfg.moduleResolvers ?? {}, constResolver(checker)) : '*');
   const asGate = (e: ts.Expression): { spec: GateSpec; module: string } | null => {
     const x = unwrap(e);
     if (!ts.isCallExpression(x)) return null;
@@ -232,12 +231,13 @@ export function analyse(cfg: CensusConfig): Census {
     if (t && (D.has(t) || t.primNeeds.size > 0)) return new Set([...(D.has(t) ? t.needs : []), ...t.primNeeds]);
     return null;
   };
+  const strict = new Set(cfg.strictModules ?? []);
   const rawCovered = (c: Call, file: string, needs: Set<string>): boolean => {
     const g = new Set(c.gates);
     const w = wrapped.get(file);
     if (w) g.add(w);
     if (g.size === 0) return false;
-    if (g.has('*')) return true;
+    if (g.has('*') && ![...needs].some((m) => strict.has(m))) return true; // a strict module takes its own gate, never 'any'
     return [...needs].filter((m) => m !== '*').every((m) => g.has(m));
   };
   const covered = (c: Call, file: string, needs: Set<string>): boolean => c.exempt !== null || rawCovered(c, file, needs);
@@ -280,7 +280,7 @@ export function analyse(cfg: CensusConfig): Census {
       const sites: string[] = [];
       for (const { node: site, module } of u.primSites) {
         const g = dominating(site, u.node);
-        if (g.has('*') || (module === '*' ? g.size > 0 : g.has(module))) continue;
+        if ((g.has('*') && !strict.has(module)) || (module === '*' ? g.size > 0 : g.has(module))) continue;
         const marker = markersAbove(site, cfg.markerScope).find((m) => m.callee === 'sql');
         if (marker) used.add(`${u.file}:${marker.line}`);
         else sites.push(`sql(primitive)[${module}]@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
@@ -292,7 +292,7 @@ export function analyse(cfg: CensusConfig): Census {
   for (const f of cfg.routeFiles) {
     const sf = program.getSourceFile(virtual ? f : resolve(ROOT, f));
     if (!sf) continue;
-    for (const m of markersIn(sf, cfg.markerScope)) if (!used.has(`${f}:${m.line}`)) staleMarkers.push(`${f}:${m.line} census-exempt(${m.callee})`);
+    for (const m of markersIn(sf, cfg.markerScope)) if (!used.has(`${f}:${m.line}`)) staleMarkers.push(`${f}:${m.line} census-exempt(${m.callee}, ${cfg.markerScope ?? '?'})`);
   }
   const why: Record<string, string[]> = {};
   for (const u of D) why[u.key] = uncovered(u).map((c) => `${c.callee}${c.target ? ` -> ${c.target.key}` : ' (primitive)'} needs ${[...(needsOfCall(c) ?? [])].join('+')}`);

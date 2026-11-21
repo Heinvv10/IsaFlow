@@ -27,7 +27,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const userId = req.user.id;
   try {
-    // census-exempt(executeRecurring): executeRecurring asks the runner's Approve per template type in the service (journal: Accounts, invoice: Customers, bill: Suppliers) and leaves the document a draft without it
+    // census-exempt(executeRecurring, posting): executeRecurring asks the runner's Approve per template type in the service (journal: Accounts, invoice: Customers, bill: Suppliers) and leaves the document a draft without it
     const result = await withJournalDateRefusal(res, () => executeRecurring(companyId, templateId, userId));
     if (result === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, result);

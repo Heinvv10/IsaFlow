@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const q = CompareQuerySchema.safeParse(req.query);
   if (!q.success) return apiResponse.zodValidationError(res, q.error);
   try {
-    // census-exempt(compareView): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
+    // census-exempt(compareView, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     return apiResponse.success(res, await compareView(companyId, q.data.version_ids, localISODate()));
   } catch (err) {
     if (respondThreeWayError(res, err)) return;

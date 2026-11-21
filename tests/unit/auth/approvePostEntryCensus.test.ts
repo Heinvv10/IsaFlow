@@ -19,9 +19,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { UNSCOPED_MARKER } from '../helpers/approveCensusProgram';
 import { analyse } from '../helpers/approveCensusGraph';
 import {
-  GATES, PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, ROUTE_WRAPPERS, SINK_MODULES, SQL_PRIMITIVES,
+  GATES, PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, RETURN_MODULE_RESOLVERS, ROUTE_WRAPPERS, SINK_MODULES, SQL_PRIMITIVES,
 } from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
@@ -42,7 +44,6 @@ const EXEMPT_TOOLS: Readonly<Record<string, string>> = {
   lock_budget_version: 'locks a budget version; no ledger effect',
   submit_budget_for_review: 'submits for review; approving it is approve_budget_version (gated)',
   submit_time_entries: 'submits for review; approving them is the Accountant\'s Area approve (gated on the routes)',
-  lock_vat_period: 'locks a VAT period; posts nothing',
   mark_vat_declared_elsewhere: 'records where a period was declared; posts nothing',
 };
 
@@ -61,7 +62,7 @@ const programFiles = execFileSync('git', ['ls-files', 'pages', 'src'], { encodin
  */
 const POSTING_RULES = {
   sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
-  markerScope: 'posting',
+  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'],
 } as const;
 let memo: ReturnType<typeof analyse> | undefined;
 const census = () => (memo ??= analyse({ routeFiles: apiFiles, programFiles, ...POSTING_RULES }));
@@ -80,8 +81,10 @@ function fixture(route: string) {
     '/fx/lib.ts': `export declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
 export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
 export declare function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string): Promise<boolean>;
+export declare function returnApproveModule(form: string): 'vat' | 'payroll' | null;
+export async function fileIt(id: string) { await client.query("UPDATE tax_return_versions SET status = 'filed' WHERE id = $1", [id]); }
 export async function flipBill(id: string) { await client.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]); }`,
-    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill } from './lib';\ndeclare const res: unknown;
+    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill, returnApproveModule, fileIt } from './lib';\ndeclare const res: unknown;
 const MODULE_Q = "UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1";\n${route}\nexport default handler;`,
   };
   return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
@@ -96,12 +99,12 @@ describe('approve / post entry-point census (#1656)', () => {
 
   it('every route that reaches a posting primitive asks the module Approve before it, on every action', () => {
     expect(census().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
-      'Gate these with refuseWithoutApprove before the call (on every action branch), or mark the one call census-exempt(<callee>): reason').toEqual([]);
+      'Gate these with refuseWithoutApprove before the call (on every action branch), or mark the one call census-exempt(<callee>, posting): reason').toEqual([]);
   }, 180_000);
 
   it('a route outside pages/api/payroll that reads per-employee pay asks Payroll READ (withPayrollDetailAccess / withPayrollModule / refuseWithoutPayrollRead)', () => {
     expect(payrollCensus().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
-      'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>): reason').toEqual([]);
+      'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>, payroll-read): reason').toEqual([]);
     expect(payrollCensus().dangerousRoutes.length).toBeGreaterThan(3);
   }, 180_000);
 
@@ -121,10 +124,22 @@ describe('approve / post entry-point census (#1656)', () => {
     expect(reads('SELECT 1 FROM payroll_company_settings')).toBe(false);
   });
 
-  it('every census-exempt marker is still needed by one of the two censuses: its call would otherwise be uncovered (no stale pin)', () => {
+  it('#1670 r12 M1: every census-exempt marker names its census (posting or payroll-read); an unscoped one fails', () => {
+    const files = execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n').filter((f) => /\.tsx?$/.test(f));
+    const unscoped = files.flatMap((f) => readFileSync(f, 'utf8').split('\n').map((line, i) => ({ line, at: `${f}:${i + 1}` })))
+      .filter(({ line }) => UNSCOPED_MARKER.test(line)).map(({ at }) => at);
+    expect(unscoped, 'write census-exempt(<callee>, posting|payroll-read): reason').toEqual([]);
+    expect(UNSCOPED_MARKER.test('// census-exempt(x): why')).toBe(true);
+    expect(UNSCOPED_MARKER.test('// census-exempt(x, payroll-read): why')).toBe(false);
+  });
+
+  it('every census-exempt marker is still needed by the census it names: its call would otherwise be uncovered (no stale pin)', () => {
+    // r12 M1: each census judges only its own markers, so a marker is stale unless the census it NAMES needs it (it used to pass when
+    // either census did). A payroll-read marker where that census does not run (pages/api/payroll, the employee portal) is stale too.
     const payrollFiles = new Set(payrollReadRoutes);
-    const stale = census().staleMarkers.filter((m) => !payrollFiles.has(m.split(':')[0]!) || payrollCensus().staleMarkers.includes(m));
-    expect(stale).toEqual([]);
+    const misplaced = apiFiles.filter((f) => !payrollFiles.has(f)).flatMap((f) => readFileSync(f, 'utf8').split('\n')
+      .map((line, i) => (/census-exempt\([A-Za-z0-9_-]+,\s*payroll-read\)/.test(line) ? `${f}:${i + 1}` : null)).filter((x): x is string => x !== null));
+    expect([...census().staleMarkers, ...payrollCensus().staleMarkers, ...misplaced]).toEqual([]);
     expect(census().markersUsed.length + payrollCensus().markersUsed.length).toBeGreaterThanOrEqual(17);
   }, 180_000);
 
@@ -163,8 +178,8 @@ describe('approve / post entry-point census (#1656)', () => {
     ['customer_payments', 'confirmed', 'customers'], ['customer_write_offs', 'approved', 'customers'],
     ['payroll_run_headers', 'approved', 'payroll'], ['payroll_batches', 'posted', 'payroll'], ['uif_declarations', 'paid', 'payroll'],
     ['vat_adjustments', 'approved', 'vat'], ['accounting_adjustments', 'approved', 'items'], ['consolidation_adjustments', 'posted', 'group'],
-    ['budget_versions', 'approved', 'budgets'], ['fiscal_periods', 'closed', 'accounts'], ['tax_return_versions', 'finalised', '*'],
-    ['tax_return_versions', 'filed', '*'], ['sars_submissions', 'submitted', '*'],
+    ['budget_versions', 'approved', 'budgets'], ['fiscal_periods', 'closed', 'accounts'], ['tax_return_versions', 'finalised', 'returns'],
+    ['tax_return_versions', 'filed', 'returns'], ['sars_submissions', 'submitted', 'returns'], ['uif_declarations', 'submitted', 'payroll'],
   ])('#1670 breaker L1d: UPDATE %s SET status = %s is a primitive needing %s Approve', (table, status, module) => {
     const flip = `await client.query(\`UPDATE ${table} SET updated_at = NOW(), status = '${status}' WHERE id = $1\`, [id]);`;
     expect(fixture(handler(flip)), 'ungated').toHaveLength(1);
@@ -179,8 +194,24 @@ describe('approve / post entry-point census (#1656)', () => {
     const post = 'await flipBill(id);';
     expect(fixture(handler(`\n// census-exempt(flipBill, payroll-read): a company total\n ${post}`))).toHaveLength(1);
     expect(fixture(handler(`\n// census-exempt(flipBill, posting): the gate is per document, inside\n ${post}`))).toEqual([]);
-    expect(fixture(handler(`\n// census-exempt(flipBill): either census\n ${post}`))).toEqual([]);
+    // r12 M1: an unscoped marker is no marker at all: the call is judged.
+    expect(fixture(handler(`\n// census-exempt(flipBill): either census\n ${post}`))).toHaveLength(1);
     expect(fixture(handler(filed))).toHaveLength(1);
+  });
+
+  it('#1670 r12 L1: a filing needs the gate whose module is returnApproveModule(<form>); a literal module gate is a finding', () => {
+    const filed = "await sql`UPDATE tax_return_versions SET status = 'filed' WHERE id = ${id}`;";
+    const lock = "await sql`INSERT INTO vat_period_locks (company_id) VALUES (${id})`;";
+    const viaResolver = "if (await refuseWithoutApprove(res, 'c', 'u', returnApproveModule('VAT201')!, 'x')) return;";
+    const viaConst = "const m = returnApproveModule(id); if (!m) return; if (await refuseWithoutApprove(res, 'c', 'u', m, 'x')) return;";
+    for (const body of [filed, lock, 'await fileIt(id);']) { // in the handler's own SQL, and through a helper
+      expect(fixture(handler(`${gate('vat')} ${body}`)), `vat: ${body}`).toHaveLength(1);
+      expect(fixture(handler(`${gate('budgets')} ${body}`)), `budgets: ${body}`).toHaveLength(1);
+      expect(fixture(handler(`${viaResolver} ${body}`)), `resolver: ${body}`).toEqual([]);
+      expect(fixture(handler(`${viaConst} ${body}`)), `const: ${body}`).toEqual([]);
+      // A module the census cannot read (any variable) covers other posting, but never a filing: 'returns' is strict.
+      expect(fixture(handler(`const any = id as 'vat'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return; ${body}`)), `any: ${body}`).toHaveLength(1);
+    }
   });
 
   it('#1670 Codex: withPayrollModule (Payroll read / write) is no proof of Payroll Approve in the posting census; it still is for payroll access', () => {

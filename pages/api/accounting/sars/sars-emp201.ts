@@ -37,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      // census-exempt(generateEMP201): the filing's totals for everyone; the per-payment rows (one person's pay) are dropped below without Payroll read. payrollReadRoutes.test
+      // census-exempt(generateEMP201, payroll-read): the filing's totals for everyone; the per-payment rows (one person's pay) are dropped below without Payroll read. payrollReadRoutes.test
       const emp201 = await generateEMP201(companyId, from, to);
       // One directive payment is one person's pay: the breakdown only for the payroll-detail roles
       // (withPayrollDetailAccess's test); everyone sees the totals, which include it.
@@ -61,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      // census-exempt(generateEMP201): the saved draft keeps the totals only; the per-payment rows are dropped below. payrollReadRoutes.test
+      // census-exempt(generateEMP201, payroll-read): the saved draft keeps the totals only; the per-payment rows are dropped below. payrollReadRoutes.test
       const emp201 = await generateEMP201(companyId, periodStart, periodEnd);
       // The saved draft keeps the totals (which include them), not the per-payment breakdown:
       // submissions are readable by roles that may not see one person's pay.

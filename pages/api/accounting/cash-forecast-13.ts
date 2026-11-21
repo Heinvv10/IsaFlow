@@ -23,7 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many forecast requests. Please try again shortly.');
   }
   try {
-    // census-exempt(getCashForecast13): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
+    // census-exempt(getCashForecast13, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     return apiResponse.success(res, await getCashForecast13(companyId, appToday()));
   } catch (err) {
     if (!(err instanceof CashForecastUnavailableError)) throw err;

@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // errors return 400. The service catches per-card errors internally via
   // Promise.allSettled, so getMonthEndWorkbench only throws for things like
   // a missing companyId or DB connectivity loss, which are 500-class.
-  // census-exempt(getMonthEndWorkbench): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  // census-exempt(getMonthEndWorkbench, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const workbench = await getMonthEndWorkbench(companyId, period);
   return apiResponse.success(res, workbench);
 }

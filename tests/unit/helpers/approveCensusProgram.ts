@@ -61,12 +61,15 @@ export function objectProp(o: ts.ObjectLiteralExpression, name: string): { initi
 }
 
 /**
- * `census-exempt(<callee>): reason`, or `census-exempt(<callee>, <census>): reason` for ONE census (`posting` or `payroll-read`):
- * a marker written for the payroll-read census does not exempt the same call from the posting census (#1670: the SARS file route).
+ * `census-exempt(<callee>, <census>): reason`: ONE census's exemption (`posting` or `payroll-read`). The census is REQUIRED
+ * (#1670 breaker r12 M1): an unscoped marker exempted the call from both censuses, so a payroll-read reason silenced the posting
+ * census. An unscoped `census-exempt(<callee>):` is no marker here, and approvePostEntryCensus fails on any left in the tree.
  */
-const MARKER = /census-exempt\(([A-Za-z0-9_-]+)(?:,\s*(posting|payroll-read))?\):\s*(\S[^\n*]*)/g;
+const MARKER = /census-exempt\(([A-Za-z0-9_-]+),\s*(posting|payroll-read)\):\s*(\S[^\n*]*)/g;
+/** Any `census-exempt(` without a census named, for the census that fails on them. */
+export const UNSCOPED_MARKER = /census-exempt\((?![A-Za-z0-9_-]+,\s*(?:posting|payroll-read)\):)/;
 export type MarkerScope = 'posting' | 'payroll-read';
-const applies = (m: RegExpMatchArray, scope?: MarkerScope): boolean => m[2] === undefined || scope === undefined || m[2] === scope;
+const applies = (m: RegExpMatchArray, scope?: MarkerScope): boolean => scope === undefined || m[2] === scope;
 
 /** Every `census-exempt(<callee>): reason` marker in a source file that applies to `scope`, with its line. */
 export function markersIn(sf: ts.SourceFile, scope?: MarkerScope): Array<{ callee: string; line: number }> {
@@ -140,6 +143,19 @@ export function sqlTextOf(n: ts.Node, queryCalls: boolean, r?: ConstResolver): s
     const v = el && !ts.isSpreadElement(el) ? literalOf(el, r) : null;
     return v === null ? m : `'${v}'`;
   });
+}
+
+/**
+ * A gate's module argument: a string literal; a call of a module RESOLVER (`resolvers`: function name -> the module it stands for,
+ * e.g. returnApproveModule -> 'returns'), directly or through a const; else '*' (any module: the census cannot tell which).
+ */
+export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<string, string>>, r: ConstResolver, depth = 0): string {
+  const x = unwrap(arg);
+  if (ts.isStringLiteralLike(x)) return x.text;
+  const nm = ts.isCallExpression(x) ? calleeName(x) : null;
+  if (nm !== null && Object.hasOwn(resolvers, nm)) return resolvers[nm]!;
+  const init = ts.isIdentifier(x) && depth < 3 ? r(x) : undefined;
+  return init ? moduleOfArg(init, resolvers, r, depth + 1) : '*';
 }
 
 /** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */

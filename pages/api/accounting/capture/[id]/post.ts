@@ -257,7 +257,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // At this point gateDecision is guaranteed to be auto_publish | route_review
   // (duplicate_blocked returned early above).
   const publishedDecision = gateDecision as PublishedDecision;
-  // census-exempt(runCapturePostFollowUps): a bill the person may not approve is stored draft (approveWithheld), so the follow-ups settle nothing. captureApprovePermission
+  // census-exempt(runCapturePostFollowUps, posting): a bill the person may not approve is stored draft (approveWithheld), so the follow-ups settle nothing. captureApprovePermission
   const { provisionalAttach, threeWayMatch } = await runCapturePostFollowUps({
     companyId,
     userId,

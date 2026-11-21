@@ -65,7 +65,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.tooManyRequests(res, 'Too many undo requests. Please try again shortly.');
       }
       const runId = body.runId;
-      // census-exempt(undoBulkAcceptBatch): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+      // census-exempt(undoBulkAcceptBatch, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
       const result = await withJournalDateRefusal(res, () => undoBulkAcceptBatch(companyId, runId, userId));
       if (result === JOURNAL_DATE_REFUSED) return;
       log.info('Bulk accept batch undo requested', { companyId, runId, ...result }, 'bank-bulk-accept');

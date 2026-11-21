@@ -61,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // read: a sibling query landing inside it is refused with 25P02 when that
   // read fails, and the route 500s where the pack was built to degrade.
   const company = await getCompanyDetailsFromCompany(companyId);
-  // census-exempt(getReportPackInput): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  // census-exempt(getReportPackInput, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const data = await getReportPackInput(companyId, '', from, to);
 
   // companyName is resolved after the figures, which do not need it.
