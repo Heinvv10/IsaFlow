@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import type { MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
+import { strongestStoredClass, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { earningsOfBreakdown } from '@/modules/accounting/services/payroll/payrollOffCycleMonthRead';
 import type { EmployeeComponent } from '@/modules/accounting/services/payroll/payrollTypes';
 import { bonusLine, earlierFrom, earning, employee, period, regularLine } from './offCycleMonthLine.helpers';
@@ -93,5 +93,23 @@ describe('the stored class: undetermined and directive (review L2 of f37f0f15a6)
     const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'directive' }, undefined, partTime);
     expect(bonus.explanations.paye.steps.find((s) => s.key === 'paye.treatment')?.label).not.toMatch(/Non-standard employment/);
     expect(bonus.validationResults.map((v) => v.code)).not.toContain('EMPLOYMENT_UNDETERMINED');
+  });
+});
+
+// Review L1 of e8a2d72dbc: a known flat line beats a directive line whose real class is unknown. A month with one flat
+// historic line and one directive historic line, and no directive on the bonus, gives a flat bonus.
+describe('the month\'s stored class across its lines (review L1 of e8a2d72dbc)', () => {
+  it('undetermined, then flat, then directive, then tables', () => {
+    expect(strongestStoredClass('directive', 'flat')).toBe('flat');
+    expect(strongestStoredClass('flat', 'directive')).toBe('flat');
+    expect(strongestStoredClass('flat', 'undetermined')).toBe('undetermined');
+    expect(strongestStoredClass('tables', 'directive')).toBe('directive');
+    expect(strongestStoredClass(undefined, 'tables')).toBe('tables');
+  });
+  it('flat and directive lines in the month, no directive on the bonus: the bonus is flat', () => {
+    const partTime = employee({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 300 });
+    const storedClass = strongestStoredClass('directive', 'flat');
+    const bonus = bonusLine(10_000, { uifRemuneration: 3_033, eti: 0, etiComponents: [earning('basic', '3601', 3_033)], storedClass }, undefined, partTime);
+    expect(bonus.explanations.paye.steps.find((s) => s.key === 'paye.treatment')?.label).toMatch(/Non-standard employment/);
   });
 });

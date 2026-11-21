@@ -23,9 +23,16 @@ import { getTaxYearConfig } from './taxTables';
 import { UIF_RATE } from './uifEngine';
 import { formatMoney } from '@/lib/money/formatMoney';
 
-/** An earlier line's class as stored, strongest first when the month holds several (storedClass). */
+/**
+ * An earlier line's class as stored, strongest first when the month holds several (storedClass). A known flat line
+ * beats a directive line, whose real class is unknown (review L1 of e8a2d72dbc).
+ */
 export type StoredClass = 'undetermined' | 'directive' | 'flat' | 'tables';
-export const STORED_CLASS_ORDER: readonly StoredClass[] = ['undetermined', 'directive', 'flat', 'tables'];
+export const STORED_CLASS_ORDER: readonly StoredClass[] = ['undetermined', 'flat', 'directive', 'tables'];
+
+/** The stronger of two stored classes (STORED_CLASS_ORDER): the month's lines together. */
+export const strongestStoredClass = (a?: StoredClass, b?: StoredClass): StoredClass =>
+  STORED_CLASS_ORDER.find((c) => c === a || c === b) ?? 'tables';
 
 /** What the month's earlier final lines of the employee hold (all of them summed; none = zeros and no components). */
 export interface MonthEarlierLines {
