@@ -17,7 +17,8 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
   match (`ap/threeWayMatchState`) judges each line against its PO line and GRN line. Since PR #1703 committed also nets
   HEADER billing (`budgets/remainingHeaderBilled`): a bill tied to a PO only by a link row (its `amount`) or only by
   `purchase_order_id` (its subtotal less what it attributes elsewhere), with no line naming a line of that PO, same statuses,
-  same company and supplier, not deleted, spread pro rata over the PO's lines; lines first, so a bill nets a PO once.
+  same company and supplier, not deleted, spread over each PO line's room left after its line billing; lines first, so a bill
+  nets a PO once.
 - Before this work only the REST create wrote either column (`ap/supplierInvoicePoLinks.assertBillPoLinks`).
 
 ## Decisions
