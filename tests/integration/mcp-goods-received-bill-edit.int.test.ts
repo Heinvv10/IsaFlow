@@ -147,6 +147,22 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
     expect(lines.map((l) => l.line_match_status)).not.toContain('fully_matched');
   });
 
+  it('a supplier change alone (no note) re-judges the stored match: tolerances are the supplier\'s (review L4)', async () => {
+    const req = await openRequest(pool, f, f.owner);
+    let bill: string;
+    try {
+      bill = (await req.run(() => createSupplierInvoice(f.co, {
+        invoiceNumber: `GRN-EDIT-S-${n++}-${Date.now()}`, supplierId: f.supplier, invoiceDate: '2026-06-15',
+        items: [{ description: 'Goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: f.acc.opex }],
+      }, f.owner))).id;
+      await req.commit();
+    } catch (err) { await req.rollback(); throw err; }
+    await pool.query("UPDATE supplier_invoices SET match_status = 'fully_matched' WHERE id = $1", [bill!]);
+    const r = await callTool(pool, f, update, { invoice_id: bill!, supplier_id: supplierB });
+    expect(r.isError, r.text).toBe(false);
+    expect((await pool.query('SELECT match_status FROM supplier_invoices WHERE id = $1', [bill!])).rows[0].match_status).toBe('unmatched');
+  });
+
   it('a cancel of the new note running during the edit: the edit waits on the note and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
     const grn = await noteOf();
     const bill = await draftWith(grn);

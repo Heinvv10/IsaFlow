@@ -24,8 +24,7 @@ import { withContentEditorStamp } from './supplierInvoiceContentEditor';
 import { defaultVatClassification, type SupplierInvoiceTotals } from './supplierInvoiceTotals';
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
-import { SupplierInvoiceGrnRefusal, assertEditedBillGrn } from './billGoodsReceivedLink';
-import { resetMatchState } from './purchaseOrderUnlinkClear';
+import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -56,7 +55,7 @@ export interface SupplierInvoiceDraftPatch {
   items?: SupplierInvoiceItemInput[];
 }
 
-export interface SupplierInvoiceDraftUpdatePlan {
+export interface SupplierInvoiceDraftUpdatePlan extends DraftGrnPlan {
   invoiceId: string;
   supplierId: string;
   invoiceNumber: string;
@@ -67,12 +66,6 @@ export interface SupplierInvoiceDraftUpdatePlan {
   paymentTerms: string | null;
   reference: string | null;
   notes: string | null;
-  /** The goods received note the bill carries after the edit (lower case), or null. */
-  grnId: string | null;
-  /** The note must be held and judged again in the apply, after the links refresh (the supplier or the note changes and one stays). */
-  recheckGrn: boolean;
-  /** The edit changes or clears the note: the stored three-way match state is re-judged in the apply. */
-  grnChanges: boolean;
   totalBefore: number;
   /** The recomputed lines and totals, or null when the lines are untouched or resent unchanged. */
   lines: (SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null;
@@ -175,20 +168,8 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   if (totalChanges || supplierChanges || invoiceNumber !== number) {
     await refuseIfRecordsPinBill(companyId, invoiceId, number, supplierChanges);
   }
-  // Gate finding 3: the note the bill keeps (or is given) must agree with it as it will stand. Only the supplier or the note itself can
-  // move that here: the header PO is not editable, and lines that carry a PO line are never replaced (planLines refuses).
-  const storedGrn = row.grn_id ? String(row.grn_id).toLowerCase() : null;
-  const grnId = patch.grnId === undefined ? storedGrn : patch.grnId === null ? null : patch.grnId.toLowerCase();
-  const grnChanges = grnId !== storedGrn;
-  const recheckGrn = grnId !== null && (supplierChanges || grnChanges);
-  if (recheckGrn) {
-    try {
-      await assertEditedBillGrn(companyId, invoiceId, grnId, supplierId);
-    } catch (err) {
-      if (err instanceof SupplierInvoiceGrnRefusal) throw new SupplierInvoiceDraftUpdateRefusal(`Supplier invoice ${number}: ${err.message}.`);
-      throw err;
-    }
-  }
+  // The bill's goods received note against the bill as it will stand (supplierInvoiceDraftGrn).
+  const grn = await planDraftGrn(companyId, invoiceId, number, row, patch.grnId, supplierId, supplierChanges);
 
   const stored: Record<string, unknown> = {
     supplierId: String(row.supplier_id),
@@ -204,7 +185,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     return next !== undefined && next !== stored[k];
   });
   if (lines) changed.push('lines');
-  if (grnChanges) changed.push('grnId');
+  if (grn.grnChanges) changed.push('grnId');
   // Re-dated by the terms; not twice when the caller also sent that very date (it is already listed as a changed field).
   if (redated.source !== null && dueDate !== storedDueDate && !changed.includes('dueDate')) changed.push('dueDate');
 
@@ -218,9 +199,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     paymentTerms: patch.paymentTerms ?? (row.payment_terms ?? null),
     reference: patch.reference ?? (row.reference ?? null),
     notes: patch.notes ?? (row.notes ?? null),
-    grnId,
-    recheckGrn,
-    grnChanges,
+    ...grn,
     totalBefore,
     lines,
     changed,
@@ -291,10 +270,7 @@ export async function applySupplierInvoiceDraftUpdate(
     }
     // Migration 1006: the bill's `app` links follow its new subtotal and lines (amounts are recomputed, not edited).
     await refreshAppBillLinks(companyId, plan.invoiceId, editedBy, tx);
-    // The note LAST, held FOR SHARE to the commit (bill -> PO -> note, as the create): a cancel of it waits for this edit and then
-    // refuses it as on a bill, or this waits for the cancel and refuses the cancelled note (typed; the transaction takes the edit back).
-    if (plan.recheckGrn && plan.grnId) await assertEditedBillGrn(companyId, plan.invoiceId, plan.grnId, plan.supplierId, { db: tx, lock: true });
-    // The stored match state was judged against the old note (round 3, finding 1): re-judged (performThreeWayMatch, or unmatched).
-    if (plan.grnChanges) await resetMatchState(companyId, plan.invoiceId);
+    // The note LAST (held FOR SHARE to the commit), then the stored match re-judged when the note or supplier moved.
+    await applyDraftGrn(companyId, plan, tx);
   }));
 }
