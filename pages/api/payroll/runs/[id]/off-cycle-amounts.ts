@@ -47,4 +47,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
 // Per-employee pay: payroll-detail roles only, for GET too (review #1620 security). withAuth is a cookie session only,
 // so an agent's bearer token (PAT or OAuth) never reaches this route.
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));
+// The request log masks each employee's amount (review #1679 B1): an employee id beside what they are paid.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler))), { maskBodyKeys: ['amount'] }));

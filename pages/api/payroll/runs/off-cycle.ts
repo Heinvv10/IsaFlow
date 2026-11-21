@@ -46,4 +46,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 }
 
 // Payroll-detail roles, like the run detail routes (review #1620 security).
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));
+// The request log masks each employee's amount (review #1679 B1): an employee id beside what they are paid.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler))), { maskBodyKeys: ['amount'] }));
