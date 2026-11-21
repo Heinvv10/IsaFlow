@@ -94,6 +94,16 @@ describe('drafted and flagged, never skipped', () => {
     expect(flagged).toEqual([]);
   });
 
+  it('direction: B\'s own sale to A of the same amount on the same day is not the mirrored A -> B sale: drafted, not flagged', async () => {
+    const m = await accepted({ date: '2026-01-15' });
+    await redate(m.bill, '2026-01-15');
+    await approveBill(m.bill);
+    const r = await manual(co.B, co.A, 'sale');
+    await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = $1", [r.id]);
+    const { flagged } = await generate();
+    expect(flagged).toEqual([]);
+  });
+
   it('N-M4: the generator walks no ledger chain for the flag (no pair or chain function is called)', async () => {
     const m = await accepted({ date: '2026-01-15' });
     await redate(m.bill, '2026-01-15');
