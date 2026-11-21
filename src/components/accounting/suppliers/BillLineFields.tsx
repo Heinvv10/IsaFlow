@@ -139,7 +139,7 @@ export function billLineFields(line: BillLineItem, index: number, ctx: LineField
       <AmountInput aria-label={`Line ${index + 1} unit price`} min={0} required value={line.unitPrice}
         onValueChange={n => onUpdate(line.key, 'unitPrice', n)} className={`${billInput} text-right`} />
     ),
-    total: formatCurrency(line.quantity * line.unitPrice),
+    total: formatCurrency(Math.round(line.quantity * line.unitPrice * 100) / 100), // as the bill is stored: rounded to the cent
     remove: (
       <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => onRemove(line.key)}
         className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">

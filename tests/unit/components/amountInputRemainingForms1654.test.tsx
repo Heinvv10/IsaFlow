@@ -132,6 +132,29 @@ describe('InvoiceLineItemsTable', () => {
   });
 });
 
+describe('line-total displays round to the cent like the server', () => {
+  it('sales-order modal: qty 0.0001 is allowed (server: > 0, 4 dp) and 1.2345 x 10.01 shows R12.36, not a fraction', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u) => (String(u).includes('/customers') ? ok([{ id: 'c1', name: 'Cust' }]) : ok({ orders: [], total: 0 })));
+    render(<CustomerSalesOrdersPage />);
+    fireEvent.click((await screen.findAllByRole('button', { name: /New Sales Order/ }))[0]!);
+    await screen.findByText('Fill in the order details below');
+    const qtyEl = screen.getByLabelText('Quantity, line 1') as HTMLInputElement;
+    type(qtyEl, '0.0001');
+    expect(qtyEl.validity.valid).toBe(true);
+    fireEvent.change(qtyEl, { target: { value: '' } });
+    type(qtyEl, '1.2345');
+    type(screen.getByLabelText('Unit price, line 1'), '10.01');
+    expect((await screen.findAllByText(/12[.,]36/)).length).toBeGreaterThan(0); // 12.357345 -> 12.36
+    expect(screen.queryByText(/12[.,]357/)).toBeNull();
+  });
+  it('bill line: 1.2345 x 10.01 totals R12.36', () => {
+    render(<BillHarness />);
+    type(screen.getByLabelText('Line 1 quantity'), '1.2345');
+    type(screen.getByLabelText('Line 1 unit price'), '10.01');
+    expect(screen.getAllByText(/12[.,]36/).length).toBeGreaterThan(0);
+  });
+});
+
 describe('InvoiceLineItemsTable decimals', () => {
   it('quantity (numeric(10,2)) and unit price (numeric(15,2)) take 2 decimals', () => {
     render(<InvoiceHarness />);
