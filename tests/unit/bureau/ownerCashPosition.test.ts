@@ -119,6 +119,10 @@ describe('pickPayrollRun', () => {
       const credit = run({ id: 'credit', total_net: '5000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '500', pay_date: '2026-06-15', final: true });
       const june = run({ id: 'june', total_net: '10000', total_paye: '2000', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
       expect(pickPayrollRun([credit, june], 0, '2026-06-30')).toMatchObject({ runId: 'june', canPay: false, totalRequired: 1700, runsCounted: 1 });
+      // ETI offsets the EMP201 only, never net pay (review F1 of 3401802134): an unpaid same-month run of net pay alone
+      // still needs all of it.
+      const unpaidNet = run({ id: 'unpaid', total_net: '10000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-30', final: false });
+      expect(pickPayrollRun([credit, unpaidNet], 0, '2026-06-20')).toMatchObject({ runId: 'unpaid', totalRequired: 10000 });
       // Another month's credit is not netted (its own EMP201).
       const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
       expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });

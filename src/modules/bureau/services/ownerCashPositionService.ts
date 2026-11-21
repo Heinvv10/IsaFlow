@@ -144,13 +144,14 @@ const emp201Due = (r: PayrollRunRow): string =>
  * approval that lasted into its pay date, since reopened): payday settled the net pay, so it needs its PAYE, UIF and SDL (less ETI) until the
  * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
-function owedOf(r: PayrollRunRow, asAt: string | undefined): number {
+function owedOf(r: PayrollRunRow, asAt: string | undefined): { owed: number; statutory: number } {
   const all = shapePayrollAffordability(r, 0)!.totalRequired;
   const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.disbursed === true);
-  if (!paid) return all;
+  // `statutory`: the EMP201 part of what is owed (PAYE, UIF and SDL less ETI), the only part an ETI credit offsets.
+  if (!paid) return { owed: all, statutory: r2(all - num(r.total_net)) };
   const statutory = asAt! <= emp201Due(r) ? r2(all - num(r.total_net)) : 0;
   const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
-  return r2(statutory + above);
+  return { owed: r2(statutory + above), statutory };
 }
 
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
@@ -158,11 +159,12 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   const byPayDate = runs.map((r, i) => ({ r, i }))
     .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
   // A paid run's statutory figure can be negative (ETI above its PAYE, UIF and SDL): the month's EMP201 nets it, so it
-  // is a credit against the month's other runs, never dropped (review L2 of ed7bdab53e). Another month's is not.
+  // is a credit against the statutory part of the month's other runs, never dropped (review L2 of ed7bdab53e; never
+  // against net pay, F1 of 3401802134). Another month's is not.
   const monthOf = (r: PayrollRunRow) => `${r.period_year}-${r.period_month}`;
   const owedBy = new Map(runs.map((r) => [r, owedOf(r, asAt)] as const));
   const credit = new Map<string, number>();
-  for (const [r, owed] of owedBy) if (owed < 0) credit.set(monthOf(r), r2((credit.get(monthOf(r)) ?? 0) + owed));
+  for (const [r, { owed }] of owedBy) if (owed < 0) credit.set(monthOf(r), r2((credit.get(monthOf(r)) ?? 0) + owed));
   let required = 0;
   let counted = 0;
   let latestPaid: CashPositionPayroll | null = null;
@@ -170,10 +172,12 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   for (const r of byPayDate) {
     const full = shapePayrollAffordability(r, cash)!;
     if (full.totalRequired <= 0) continue;
-    let owed = owedBy.get(r)!;
+    const { owed: owes, statutory } = owedBy.get(r)!;
+    let owed = owes;
     const left = credit.get(monthOf(r)) ?? 0;
-    if (owed > 0 && left < 0) {
-      const used = Math.max(left, -owed);
+    // Against the run's statutory part only: ETI offsets the EMP201, never net pay (review F1 of 3401802134).
+    if (owed > 0 && left < 0 && statutory > 0) {
+      const used = Math.max(left, -Math.min(owed, statutory));
       owed = r2(owed + used);
       credit.set(monthOf(r), r2(left - used));
     }
