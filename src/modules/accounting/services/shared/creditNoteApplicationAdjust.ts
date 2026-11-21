@@ -31,7 +31,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
-import { lockInvoiceCreditNotes } from '../ar/creditNotePostingChecks';
+import { detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -106,7 +106,7 @@ export async function adjustCreditNoteApplication(
   // cancelled note must not hold a row lock on a document it will not touch.
   const side = checkNote(note, input).side;
   // The invoice's credit-note key next (REST apply's order: note row, key, invoice row), so the typed gate's read cannot race an approval.
-  if (side === 'customer') await lockInvoiceCreditNotes(input.documentId);
+  if (side === 'customer') await lockNoteApplicationKeys(companyId, input.creditNoteId, [input.documentId]);
   await lockInvoicesForUpdate('adjustCreditNoteApplication', companyId, side, [input.documentId]);
   const plan = await buildPlan(companyId, note, input);
 
@@ -261,6 +261,10 @@ async function buildPlan(
     // A typed invoice: the INCREASE no more than it has left to credit now, this row counted (creditNoteTypedApplication).
     const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.documentId, change) : null;
     if (typedRefusal) throw new CreditNoteAdjustRefusal(typedRefusal);
+  } else if (change < 0 && side === 'customer') {
+    // Down: never moving the note's detached credit onto a later typed invoice past what it has left (rule A).
+    const shifted = await detachedShiftRefusal(companyId, note, new Map([[input.documentId, appliedAfter]]));
+    if (shifted) throw new CreditNoteAdjustRefusal(shifted);
   }
 
   const noteAppliedAfter = round2(rowsBefore + change);

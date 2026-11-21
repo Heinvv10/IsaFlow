@@ -23,6 +23,7 @@ import { UnapplyRefusal } from './unapplyRefusal';
 import { readPostedCreditOrRefuse } from './creditNotePostedCredit';
 import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
+import { detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
 
 export interface CreditNoteUnapplyInput {
   creditNoteId: string;
@@ -67,6 +68,8 @@ export async function unapplyCreditNote(
     SELECT invoice_id FROM credit_note_allocations
     WHERE credit_note_id = ${input.creditNoteId}::UUID AND company_id = ${companyId}::UUID
       AND (${input.invoiceId ?? null}::UUID IS NULL OR invoice_id = ${input.invoiceId ?? null}::UUID)`) as DbRow[];
+  // Customer: the credit-note keys of every invoice the note is applied to, before any invoice row (rule A's guard).
+  if (side === 'customer') await lockNoteApplicationKeys(companyId, input.creditNoteId);
   await lockInvoicesForUpdate('unapplyCreditNote', companyId, side, targets.map((t) => String(t.invoice_id)));
   const plan = await buildPlan(companyId, note, input);
 
@@ -176,6 +179,10 @@ async function buildPlan(
     lines.push({ invoiceId: String(r.invoice_id), invoiceNumber: docNumber, amount, outstandingBefore: before, outstandingAfter: round2(before + amount) });
   }
 
+  // Rule A: taking an earlier application back must not move the note's detached credit onto a later typed invoice
+  // past what it has left (ar/creditNoteDetachedShift). Same check live and dry run.
+  const shifted = await detachedShiftRefusal(companyId, note, new Map(lines.map((l) => [l.invoiceId, 0])));
+  if (shifted) throw new UnapplyRefusal(shifted);
   const amountUnapplied = round2(lines.reduce((s, l) => s + l.amount, 0));
   const appliedAfter = round2(rowsBefore - amountUnapplied);
   return {

@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  detachedCountDelta, detachedCounts, detachedGross, withPlannedApplications, type DetachedProfile,
+  detachedCountChange, detachedCountDelta, detachedCounts, detachedGross, withPlannedApplications, type DetachedProfile,
 } from '@/modules/accounting/services/ar/creditNoteDetached';
 
 const profile = (detached: number, reversedOn: string[], apps: [string, number][]): DetachedProfile =>
@@ -97,5 +97,19 @@ describe('withPlannedApplications / detachedCountDelta (the dry run\'s view of a
     const p = profile(5000, [], [['y', 3000]]);
     withPlannedApplications(p, [{ invoiceId: 'y', cents: 1000 }]);
     expect(p.applications).toEqual([{ invoiceId: 'y', cents: 3000 }]);
+  });
+});
+
+describe('detachedCountChange (what an unapply or adjustment of existing applications moves)', () => {
+  const p = profile(5750, ['x'], [['x', 2000], ['y', 5750], ['w', 9500]]);
+  it('unapplying an earlier application moves D onto the later one', () => {
+    expect(Object.fromEntries(detachedCountChange(p, new Map([['y', 0]])))).toEqual({ y: -5750, w: 5750 });
+  });
+  it('an adjustment down keeps its place and moves only what it frees', () => {
+    expect(Object.fromEntries(detachedCountChange(p, new Map([['y', 3450]])))).toEqual({ y: -2300, w: 2300 });
+  });
+  it('the reversed invoice\'s application moves nothing; taking back everything only lowers', () => {
+    expect(Object.fromEntries(detachedCountChange(p, new Map([['x', 0]])))).toEqual({ y: 0, w: 0 });
+    expect([...detachedCountChange(p, new Map([['x', 0], ['y', 0], ['w', 0]])).values()].every((d) => d <= 0)).toBe(true);
   });
 });

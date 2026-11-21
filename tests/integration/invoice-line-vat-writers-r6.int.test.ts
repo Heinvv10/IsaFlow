@@ -10,6 +10,8 @@
  *     counting U; a linked note on Y is limited to the true remainder.
  * (4) a note linked to legacy X wholly on its legs (D 0): its leftover applied to typed Y counts nowhere.
  * (5) unapply, an adjustment down and cancel give D back and re-derive it in application order.
+ * (5b) ...but never onto a later typed invoice past what it has left: an unapply or an adjustment down that would raise
+ *      another typed invoice's count beyond its capacity is refused before any write, live and dry run.
  * Exact cents (6) is the unit suite (creditNoteDetached.test). Disposable databases only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -21,7 +23,7 @@ import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/cus
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { approveCreditNote, cancelCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
-import { unapplyCreditNote } from '@/modules/accounting/services/shared/creditNoteUnapply';
+import { planCreditNoteUnapply, unapplyCreditNote } from '@/modules/accounting/services/shared/creditNoteUnapply';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
@@ -264,5 +266,49 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
 
     await inTx(f.fx, () => cancelCreditNote(f.fx.companyId, n.id, f.fx.userId, 'round 6'));
     expect(await state(w)).toEqual({ remainingNet: 100, remainingVat: 15 });
+  });
+
+  it('(5b) an unapply or adjustment down that would move D onto a fully credited later typed invoice is refused before any write', async () => {
+    const c = await customer('R6-5b');
+    const x = await legacyInvoice(c, '2026-11-21');
+    const y = await typedInvoice(c, '2026-11-21');
+    const w = await typedInvoice(c, '2026-11-22');
+    const n = await approvedNote(c, '2026-11-23', 150, x);                 // D 57.50
+    await applyAmount(n.id, x, 20);
+    await applyAmount(n.id, y, 57.5);
+    await apply(n.id, w);                                                   // 95, counting nothing on W
+    const r = await approvedNote(c, '2026-11-23', 80, w);                  // a genuine return on W: 80 + 12, 23 left
+    expect(r.taxAmount).toBe(12);
+    expect(await state(w)).toEqual({ remainingNet: 20, remainingVat: 3 });
+    const snapshot = async () => [await rowsOf(n.id), await state(y), await state(w),
+      await sql`SELECT id, amount_paid::FLOAT8 AS paid FROM customer_invoices WHERE id IN (${x}::UUID, ${y}::UUID, ${w}::UUID) ORDER BY id`];
+    const before = await snapshot();
+
+    // Unapply from Y: W would count 57.50 with 23 left.
+    await expect(inTx(f.fx, () => planCreditNoteUnapply(f.fx.companyId, { creditNoteId: n.id, invoiceId: y })))
+      .rejects.toThrow(/would move 57\.50 of its credit onto invoice \S+, which has 23\.00 left to credit/);
+    await expect(inTx(f.fx, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: y }, f.fx.userId)))
+      .rejects.toThrow(/would move 57\.50 of its credit onto invoice \S+, which has 23\.00 left to credit/);
+    expect(await snapshot()).toEqual(before);
+
+    // Adjust Y down to 34.49: W would count 23.01. Refused live and dry run; 34.50 (W exactly full) is allowed.
+    const adjust = (amount: number, dry: boolean) => inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
+      { credit_note_id: n.id, document_id: y, new_amount: amount, idempotency_key: crypto.randomUUID(), ...(dry ? { dry_run: true } : {}) }, ctx()));
+    for (const dry of [true, false]) {
+      const refused = await adjust(34.49, dry);
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0]!.text).toMatch(/would move 23\.01 of its credit onto invoice \S+, which has 23\.00 left to credit/);
+    }
+    expect(await snapshot()).toEqual(before);
+    const ok = await adjust(34.5, false);
+    expect(ok.isError, ok.content[0]!.text).toBeFalsy();
+    expect(await state(w)).toEqual({ remainingNet: 0, remainingVat: 0 });
+    expect(await state(y)).toEqual({ remainingNet: 70, remainingVat: 10.5 });
+
+    // Taking back what reversed X's legs moves no D; taking back everything lowers every count.
+    await inTx(f.fx, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: x }, f.fx.userId));
+    await inTx(f.fx, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id }, f.fx.userId));
+    expect(await state(y)).toEqual({ remainingNet: 100, remainingVat: 15 });
+    expect(await state(w)).toEqual({ remainingNet: 20, remainingVat: 3 });
   });
 });

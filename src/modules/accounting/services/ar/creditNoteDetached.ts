@@ -82,3 +82,19 @@ export function detachedCountDelta(profile: DetachedProfile, planned: readonly D
   for (const id of new Set([...before.keys(), ...after.keys()])) out.set(id, (after.get(id) ?? 0) - (before.get(id) ?? 0));
   return out;
 }
+
+/**
+ * How changing the note's EXISTING applications (invoice -> new cents; 0 takes it back) changes what it counts on each
+ * invoice (after less before, cents). Each keeps its place in the order (an adjustment keeps its created_at). A
+ * reduction of an earlier application frees D for the later ones, so their counts RISE: the unapply / adjust guard
+ * (creditNoteDetachedShift) refuses a rise past a typed invoice's capacity.
+ */
+export function detachedCountChange(profile: DetachedProfile, changes: ReadonlyMap<string, number>): Map<string, number> {
+  const next = new Map([...changes].map(([id, cents]) => [lc(id), cents]));
+  const after = detachedCounts({
+    ...profile,
+    applications: profile.applications.map((a) => ({ ...a, cents: next.get(lc(a.invoiceId)) ?? a.cents })).filter((a) => a.cents > 0),
+  });
+  const before = detachedCounts(profile);
+  return new Map([...before].map(([id, was]) => [id, (after.get(id) ?? 0) - was]));
+}
