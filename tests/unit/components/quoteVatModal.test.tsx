@@ -46,7 +46,7 @@ async function openAndFill(price: string) {
   await waitFor(() => expect(select.querySelectorAll('option').length).toBeGreaterThan(1));
   fireEvent.change(select, { target: { value: 'c1' } });
   fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Widget' } });
-  const priceInput = screen.getAllByRole('spinbutton').find((i) => (i as HTMLInputElement).step === '0.01')!;
+  const priceInput = screen.getByLabelText('Unit price, line 1');
   fireEvent.change(priceInput, { target: { value: price } });
 }
 const create = () => fireEvent.click(screen.getAllByRole('button', { name: /Create Quote/i }).at(-1)!);
@@ -82,7 +82,7 @@ it('Including VAT sends the ex-VAT price', async () => {
   renderPage();
   await openAndFill('100');
   await pickOption('Amounts are', /Including VAT/); // the shown R100 ex becomes R115 incl
-  fireEvent.change(screen.getAllByRole('spinbutton').find((i) => (i as HTMLInputElement).step === '0.01')!, { target: { value: '230' } });
+  fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: '230' } });
   create();
   expect(await sentLines()).toEqual([expect.objectContaining({ unitPrice: 200, taxRate: 15 })]);
 });
