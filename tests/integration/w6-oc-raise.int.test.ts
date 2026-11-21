@@ -89,18 +89,19 @@ describe('a paid off-cycle run is not raised after its pay date (bonus and termi
   });
 
   it('bonus in the same month: a raise is refused at the edit and at approval; lowering it is approved', async () => {
+    const bonusNow = async () => Number((await a.pool.query('SELECT amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [bonus])).rows[0].x);
     // The termination run is later in the month and final: reopen it first, then the bonus.
     expect((await a.api.reopen(term)).statusCode).toBe(200);
     expect((await a.api.reverse(await journalOf(term))).statusCode).toBe(200);
     expect((await a.api.reopen(bonus)).statusCode).toBe(200);
     expect((await a.api.reverse(await journalOf(bonus))).statusCode).toBe(200);
-    const up = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 6_000 } });
+    const up = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 6_000, expectedAmount: await bonusNow() } });
     expect(up.statusCode).toBe(409);
-    expect((await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 4_000 } })).statusCode).toBe(200);
+    expect((await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 4_000, expectedAmount: await bonusNow() } })).statusCode).toBe(200);
     await a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 9000 WHERE run_id = $1', [bonus]); // raised below the service (draft)
     expect((await a.api.calculate(bonus)).statusCode).toBe(200);
     expect((await a.api.approve(bonus)).statusCode).not.toBe(200);
-    expect((await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 4_000 } })).statusCode).toBe(200);
+    expect((await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonus}/off-cycle-amounts`, bonus, { body: { employeeId: young, amount: 4_000, expectedAmount: await bonusNow() } })).statusCode).toBe(200);
     expect((await a.api.calculate(bonus)).statusCode).toBe(200);
     expect((await a.api.approve(bonus)).statusCode).toBe(200);
     expect(await gross(bonus, young)).toBe(4_000);

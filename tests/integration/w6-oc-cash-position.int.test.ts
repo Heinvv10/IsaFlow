@@ -38,4 +38,20 @@ describe('owner cash position: a paid bonus never stands in for the month\'s due
     expect(got.payroll?.totalRequired).toBeCloseTo((alone.payroll?.totalRequired ?? 0) + bonusStatutory, 2);
     expect(got.payroll?.totalRequired).toBeGreaterThan(5_000);
   });
+
+  it('a bonus marked paid still counts its PAYE, UIF and SDL until the EMP201 is due (review of fd9193cc2)', async () => {
+    const PAID: RunSpec = { ...BONUS, status: 'paid', approvedAt: BONUS.runDate };
+    let bonusStatutory = 0;
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, REGULAR);
+      const id = await seedRun(c, A, PAID);
+      bonusStatutory = Number((await c.query(`SELECT (total_paye + total_uif + total_sdl - total_eti)::float8 AS s
+        FROM payroll_run_headers WHERE id = $1`, [id])).rows[0].s);
+    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-20T10:00:00Z')));
+    const alone = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, REGULAR); },
+      () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-20T10:00:00Z')));
+    expect(bonusStatutory).toBeGreaterThan(0);
+    expect(got.payroll?.runsCounted).toBe(2);
+    expect(got.payroll?.totalRequired).toBeCloseTo((alone.payroll?.totalRequired ?? 0) + bonusStatutory, 2);
+  });
 });

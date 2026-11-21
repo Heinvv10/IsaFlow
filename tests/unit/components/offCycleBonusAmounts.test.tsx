@@ -34,7 +34,7 @@ describe('OffCycleBonusAmounts', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
     const call = apiFetch.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')!;
     expect(call[0]).toBe('/api/payroll/runs/r1/off-cycle-amounts');
-    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ employeeId: rows[0]!.employeeId, amount: 5000 });
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ employeeId: rows[0]!.employeeId, amount: 5000, expectedAmount: 50_000 });
   });
 
   it('no Change button on an approved run or for another role; nothing at all for a termination run', async () => {

@@ -25,8 +25,13 @@ let mid = '';
 let bonusComponent = '';
 let run = '';
 
-const patch = (id: string, body: Record<string, unknown>) =>
-  a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${id}/off-cycle-amounts`, id, { body });
+/** The stored amount: the one the editor saw (expectedAmount), unless the test states another. */
+const storedAmount = async (id: string, employeeId: unknown): Promise<number> =>
+  Number((await a.pool.query('SELECT amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1 AND employee_id = $2', [id, employeeId])).rows[0]?.x ?? 0);
+const patch = async (id: string, body: Record<string, unknown>) =>
+  a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${id}/off-cycle-amounts`, id, {
+    body: { expectedAmount: await storedAmount(id, body.employeeId), ...body },
+  });
 /** A statement as app_user in this company (a write below the service, as the breaker's repro makes it). */
 async function asApp(text: string, params: unknown[] = []): Promise<void> {
   const c = await a.pool.connect();
@@ -96,6 +101,11 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect(a.msg(tooBig)).toMatch(/at most R\s100\s000\s000\.00/);
     const reopened = await a.api.reopen(run);
     expect(reopened.statusCode, a.msg(reopened)).toBe(200);
+    // A stale edit (another admin's correction since it was read) is a 409, nothing written.
+    const staleEdit = await patch(run, { employeeId: mid, amount: 5_000, expectedAmount: 40_000 });
+    expect(staleEdit.statusCode).toBe(409);
+    expect(a.msg(staleEdit)).toMatch(/changed by someone else/);
+    expect(await storedAmount(run, mid)).toBe(50_000);
     const changed = await patch(run, { employeeId: mid, amount: 5_000 });
     expect(changed.statusCode, a.msg(changed)).toBe(200);
     expect((await a.header(run)).status).toBe('draft');
@@ -204,13 +214,13 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect(read.statusCode).toBe(403);
     expect(JSON.stringify(read.body)).not.toContain(String(before));
     for (const user of [viewer, manager]) {
-      const w = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${run}/off-cycle-amounts`, run, { user, body: { employeeId: mid, amount: 1 } });
+      const w = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${run}/off-cycle-amounts`, run, { user, body: { employeeId: mid, amount: 1, expectedAmount: before } });
       expect(w.statusCode).toBe(403);
     }
     // An agent (PAT or OAuth bearer, no session cookie) never reaches it: withAuth reads the cookie session only.
     const req = request({}, 'PATCH', run) as unknown as { headers: Record<string, string>; body: unknown; url: string };
     req.headers.authorization = 'Bearer isf_pat_agent_token';
-    req.body = { employeeId: mid, amount: 1 };
+    req.body = { employeeId: mid, amount: 1, expectedAmount: before };
     req.url = `/api/payroll/runs/${run}/off-cycle-amounts`;
     const agent = response();
     await (amounts as Route)(req as never, agent.res as never);

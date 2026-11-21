@@ -206,7 +206,8 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
 // ── Private section helpers ───────────────────────────────────────────────────
 
 /**
- * The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. In pay order
+ * The open runs of `asAt`'s month and the month before, and its final ones (a run marked paid still owes its PAYE, UIF
+ * and SDL until the EMP201 is due, owedOf; review of fd9193cc2): a forgotten 2020 run is not "the next" one. In pay order
  * (runOrderKeySql, wave 6 FQb2), so "earliest" and "latest" name one run when a month holds several.
  */
 async function nextPayrollSection(
@@ -225,7 +226,7 @@ async function nextPayrollSection(
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
-       AND status IN ('draft','calculated','approved')
+       AND (status IN ('draft','calculated','approved') OR ${sql.unsafe(payRunFinalSql('payroll_run_headers'))})
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
      ORDER BY ${runOrderKeySql('payroll_run_headers')}
   `) as unknown as PayrollRunRow[];

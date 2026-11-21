@@ -613,6 +613,7 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":187,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,","class":"S","owner":"OC","why":"each open run's own finality (payRunFinalSql, review #1679 M3): only a final run past its pay date counts as paid"},
    {"line":190,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
+   {"line":229,"text":"AND (status IN ('draft','calculated','approved') OR ${sql.unsafe(payRunFinalSql('payroll_run_headers'))})","class":"S","owner":"OC","why":"the window's open runs and its final ones (payRunFinalSql): a run marked paid still owes its statutory amounts until the EMP201 is due (owedOf)"},
    {"line":194,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [

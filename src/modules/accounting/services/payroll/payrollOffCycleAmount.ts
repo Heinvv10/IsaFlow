@@ -7,6 +7,8 @@
  * lines are removed (a reopened run's approved PSP treatment is kept in the audit row) and it goes back to draft, so
  * nothing costed on the old amount can be approved: the zero-gross refusal holds the approval until it is recalculated. A pending R-035 request is refused here (withdraw it first):
  * its digest was taken on the old figures. Recovering cash already paid is outside payroll.
+ * The caller states the amount it is changing (expected): another admin's correction since it was read is a 409 under
+ * the row lock, so two editors cannot silently overwrite each other (review of fd9193cc2).
  * Every edit writes an audit row (old and new amount). Owner or admin on a cookie session only, never under Login-as
  * and never for an agent (the route takes no bearer token); refused with 409 before any write.
  */
@@ -46,7 +48,7 @@ export async function listOffCycleBonusInputs(companyId: string, runId: string):
 
 /** Set one employee's bonus amount on a draft or calculated bonus run; null when the run is not this company's. */
 export async function setOffCycleBonusAmount(
-  companyId: string, runId: string, employeeId: string, entered: number, userId: string,
+  companyId: string, runId: string, employeeId: string, entered: number, userId: string, expected: number,
 ): Promise<{ runId: string; employeeId: string; amount: number } | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // The same judgment as the create path (judgeOffCycleShape): exact float equality refused R1.15 and R1 000.10.
@@ -78,6 +80,9 @@ export async function setOffCycleBonusAmount(
        FOR UPDATE
     `) as DbRow[])[0];
     if (!before) throw refused('That employee is not on this bonus run.', 400);
+    if (!Number.isFinite(expected) || Math.round(Number(before.amount) * 100) !== Math.round(expected * 100)) {
+      throw refused('This bonus amount was changed by someone else after you opened it: reload the run and try again.');
+    }
     // After its pay date a run's amounts were paid: a correction only lowers them (delta M1).
     const raised = offCycleRaiseRefusal(run, employeeId, amount);
     if (raised) throw refused(raised);
@@ -108,7 +113,7 @@ export async function setOffCycleBonusAmount(
         metadata: { employeeId, previousStatus: String(run.status), ...kept },
       },
     }, tx);
-    log.info('Off-cycle bonus amount changed', { companyId, runId, employeeId, amount, previousStatus: String(run.status), userId }, 'payrollOffCycleAmount');
+    log.info('Off-cycle bonus amount changed', { companyId, runId, employeeId, previousStatus: String(run.status), userId }, 'payrollOffCycleAmount');
     return { runId, employeeId, amount };
   });
 }

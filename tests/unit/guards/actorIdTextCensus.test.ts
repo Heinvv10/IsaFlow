@@ -112,9 +112,9 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     196: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
-    93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
-    233: 'status, submitted_by, updated_at',
-    273: 'submitted_by = ${submittedByUserId},',
+    94: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
+    236: 'status, submitted_by, updated_at',
+    276: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     49: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -164,7 +164,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollRunHeaders.ts`]: { 141: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
-  [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
+  [`${S}payroll/uifDeclarationService.ts`]: { 241: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     134: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },

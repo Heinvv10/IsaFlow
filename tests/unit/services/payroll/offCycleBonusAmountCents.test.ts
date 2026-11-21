@@ -41,14 +41,14 @@ describe('setOffCycleBonusAmount: rand and cents', () => {
   it('an amount in rand and cents is stored whatever its float error', async () => {
     for (const amount of [0.07, 1.15, 4.35, 8.2, 1_000.1, 5_000.1, 99_999.99]) {
       h.calls.length = 0;
-      const out = await setOffCycleBonusAmount(CO, RUN, EMP, amount, USER);
+      const out = await setOffCycleBonusAmount(CO, RUN, EMP, amount, USER, 50_000);
       expect(out, String(amount)).toEqual({ runId: RUN, employeeId: EMP, amount });
       expect(stored(), String(amount)).toBe(amount);
     }
   });
 
   it('float noise is rounded to cents before the UPDATE and in the audit row', async () => {
-    const out = await setOffCycleBonusAmount(CO, RUN, EMP, 0.1 + 0.2, USER);
+    const out = await setOffCycleBonusAmount(CO, RUN, EMP, 0.1 + 0.2, USER, 50_000);
     expect(out?.amount).toBe(0.3);
     expect(stored()).toBe(0.3);
     const audit = vi.mocked(logAuditOrThrow).mock.calls[0]![0] as { changes: { fields: { old: string; new: string }[] } };
@@ -57,11 +57,22 @@ describe('setOffCycleBonusAmount: rand and cents', () => {
 
   it('a third decimal, nil, a negative and a non-number are refused with 400 before any read or write', async () => {
     for (const amount of [1.155, 1.005, 0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      const err = await setOffCycleBonusAmount(CO, RUN, EMP, amount, USER).catch((e: unknown) => e);
+      const err = await setOffCycleBonusAmount(CO, RUN, EMP, amount, USER, 50_000).catch((e: unknown) => e);
       expect(err, String(amount)).toBeInstanceOf(OffCycleRunRefusedError);
       expect((err as OffCycleRunRefusedError).status).toBe(400);
       expect((err as Error).message).toMatch(/rand and cents/);
     }
     expect(h.calls).toEqual([]);
+  });
+});
+
+describe('setOffCycleBonusAmount: a stale edit', () => {
+  it('an amount changed since the editor read it is refused with 409 before any write', async () => {
+    const err = await setOffCycleBonusAmount(CO, RUN, EMP, 5_000, USER, 40_000).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OffCycleRunRefusedError);
+    expect((err as OffCycleRunRefusedError).status).toBe(409);
+    expect((err as Error).message).toMatch(/changed by someone else/);
+    expect(h.calls.some((c) => /^\s*(DELETE|UPDATE)/.test(c.text))).toBe(false);
+    expect(logAuditOrThrow).not.toHaveBeenCalled();
   });
 });

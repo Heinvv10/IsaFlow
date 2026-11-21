@@ -44,13 +44,13 @@ describe('off-cycle run create under Login-as', () => {
     const loginAs = await fx.loginAsTarget();
     const id = crypto.randomUUID();
     const r = await fx.call(amounts as never, loginAs, {
-      method: 'PATCH', query: { id }, url: `/api/payroll/runs/${id}/off-cycle-amounts`, body: { employeeId: crypto.randomUUID(), amount: 5 },
+      method: 'PATCH', query: { id }, url: `/api/payroll/runs/${id}/off-cycle-amounts`, body: { employeeId: crypto.randomUUID(), amount: 5, expectedAmount: 6 },
     });
     expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(403);
     expect(reasonOf(r)).toBe('IMPERSONATION_FORBIDDEN');
     // The target's own session reaches the service: no such run here, a 404.
     const own = await fx.call(amounts as never, await fx.ownSession(), {
-      method: 'PATCH', query: { id }, url: `/api/payroll/runs/${id}/off-cycle-amounts`, body: { employeeId: crypto.randomUUID(), amount: 5 },
+      method: 'PATCH', query: { id }, url: `/api/payroll/runs/${id}/off-cycle-amounts`, body: { employeeId: crypto.randomUUID(), amount: 5, expectedAmount: 6 },
     });
     expect(own.state.statusCode, JSON.stringify(own.state.body)).toBe(404);
   });

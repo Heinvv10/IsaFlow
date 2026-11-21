@@ -8,7 +8,7 @@
  * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). The UIF those lines
  * booked is their STORED contributions (review #1679 codex 1), not a rebuild. A line that paid but rebuilds no earning
  * (an imported line with an empty breakdown) is counted in unrebuiltPay: the ETI cannot be costed on it (review of
- * 99db78312, payrollOffCycleMonth.offCycleEtiRefusal). Scoped by company_id throughout.
+ * 99db78312, payrollOffCycleMonth.offCycleEtiRefusal) and keeps its class as stored (storedClass). Scoped by company_id throughout.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -96,6 +96,9 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
     });
     const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 0, uifEmployer: 0 };
     const earnings = earningsOfBreakdown(items);
+    // A line that paid but rebuilds no earning (an import with an empty breakdown): its paid earnings cannot be
+    // reclassified either, so its class as stored stands (review of fd9193cc2: a flat-25% month stays flat).
+    if (earnings.length === 0 && n(r.gross_pay) > 0) unrecovered = true;
     out.set(id, {
       uifRemuneration: round2(had.uifRemuneration + uifRemunerationOf(items)),
       // What the earlier lines booked, as stored (review #1679 codex 1): an imported line's breakdown may be empty.

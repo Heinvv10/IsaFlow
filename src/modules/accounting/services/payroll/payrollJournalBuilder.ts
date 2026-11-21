@@ -83,7 +83,8 @@ export async function buildPayrollJournalPlan(
 ): Promise<PayrollJournalPlan | null> {
   const headerRows = (await sql`
     SELECT h.*, (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id AND l.net_pay > 0) AS paid_employee_count,
-           (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS line_count
+           (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS line_count,
+           (SELECT COALESCE(SUM(l.uif_employee), 0) FROM payroll_run_lines l WHERE l.run_id = h.id) AS lines_uif_employee
     FROM payroll_run_headers h
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as Row[];
@@ -101,8 +102,8 @@ export async function buildPayrollJournalPlan(
   const eti = Number(hdr.total_eti) || 0;
   const net = Number(hdr.total_net) || 0;
 
-  // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
-  const split = splitRunTotals({ gross, paye, uif, net });
+  // The employee side is the lines' own (an off-cycle line's sides can differ); the two sum to uif exactly.
+  const split = splitRunTotals({ gross, paye, uif, net, uifEmployee: hdr.lines_uif_employee == null ? undefined : Number(hdr.lines_uif_employee) });
   const { employerUif } = split;
   // GA: the garnishee deductions are part of gross − PAYE − UIF − net; they are credited to their payable, not 2175.
   const garnishees = await runGarnisheeCredits(companyId, runId);

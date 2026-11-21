@@ -170,7 +170,9 @@ describe('SDL settled for the month to date', () => {
       expect(reopened.statusCode, t.msg(reopened)).toBe(200);
       expect((await t.api.reverse(await journalOf(id))).statusCode).toBe(200);
     }
-    const edit = await t.call(amounts as Route, 'PATCH', `/api/payroll/runs/${b}/off-cycle-amounts`, b, { body: { employeeId: mid[t.company], amount: 1_000 } });
+    const edit = await t.call(amounts as Route, 'PATCH', `/api/payroll/runs/${b}/off-cycle-amounts`, b, {
+      body: { employeeId: mid[t.company], amount: 1_000, expectedAmount: Number((await t.pool.query('SELECT amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [b])).rows[0].x) },
+    });
     expect(edit.statusCode, t.msg(edit)).toBe(200);
     for (const id of [b, term]) {
       expect((await t.api.calculate(id)).statusCode).toBe(200);

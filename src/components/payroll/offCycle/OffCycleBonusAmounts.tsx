@@ -43,12 +43,13 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
   if (!bonus || inputs.length === 0) return <FocusedAlert message={error} />;
   const canEdit = (run.status === 'draft' || run.status === 'calculated') && (companyRole === 'owner' || companyRole === 'admin');
 
-  const save = async (employeeId: string) => {
+  // expectedAmount: the amount shown, so a save over someone else's correction is refused (409), not silently overwritten.
+  const save = async (employeeId: string, expectedAmount: number) => {
     setBusy(true);
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/off-cycle-amounts`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employeeId, amount: Number(value) }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employeeId, amount: Number(value), expectedAmount }),
       });
       await assertOk(res, 'Could not change the amount - try again');
       setEditing(null);
@@ -80,7 +81,7 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
                 <label className="sr-only" htmlFor={`bonus-${i.employeeId}`}>Bonus amount for {i.employeeName}</label>
                 <input id={`bonus-${i.employeeId}`} type="number" min="0.01" step="0.01" value={value} onChange={(e) => setValue(e.target.value)}
                   className="w-36 min-h-[44px] px-3 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]" />
-                <button type="button" onClick={() => void save(i.employeeId)} disabled={busy || !(Number(value) > 0)}
+                <button type="button" onClick={() => void save(i.employeeId, i.amount)} disabled={busy || !(Number(value) > 0)}
                   className="flex items-center gap-2 px-4 min-h-[44px] rounded-lg bg-brand-700 hover:bg-brand-800 text-white font-medium disabled:opacity-50">
                   {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />} Save
                 </button>

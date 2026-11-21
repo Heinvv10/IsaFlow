@@ -90,9 +90,12 @@ describe('getOwnerCashPosition', () => {
     expect(text).toMatch(/period_year \* 12 \+ period_month\) BETWEEN \?::int AND \?::int/);
     expect(text).toContain('company_id = ?::uuid');
     const values = call!.slice(1);
-    // The final flag (payRunFinalSql, review #1679 M3) first, then the bounds and the pay order.
-    expect(values).toEqual([{ unsafe: expect.stringMatching(/^\(payroll_run_headers\.status IN \('approved', 'paid'\)/) },
-      COMPANY, 2026 * 12 + 12, 2027 * 12 + 1, { unsafe: expect.stringMatching(/^\(payroll_run_headers\.period_start, /) }]);
+    // The final flag (payRunFinalSql, review #1679 M3) first, then the open-or-final filter (a run marked paid still owes
+    // its statutory amounts), the bounds and the pay order.
+    const final = { unsafe: expect.stringMatching(/^\(payroll_run_headers\.status IN \('approved', 'paid'\)/) };
+    expect(text).toMatch(/AND \(status IN \('draft','calculated','approved'\) OR \?\)/);
+    expect(values).toEqual([final,
+      COMPANY, final, 2026 * 12 + 12, 2027 * 12 + 1, { unsafe: expect.stringMatching(/^\(payroll_run_headers\.period_start, /) }]);
   });
 
   it('fails soft when the payroll query throws', async () => {
