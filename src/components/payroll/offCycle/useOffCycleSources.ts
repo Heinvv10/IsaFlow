@@ -62,13 +62,13 @@ export function useOffCycleSources() {
     void (async () => {
       try {
         const all = await data<Array<RegularRunOption & { status: string; final?: boolean; runKind?: string; payFrequency?: string }>>('/api/payroll/runs', 'Could not load the payroll runs');
-        const comps = await data<Array<{ id: string; name: string; sarsSourceCode: string; componentType: string }>>('/api/payroll/components', 'Could not load the pay components');
+        const comps = await data<Array<{ id: string; name: string; sarsSourceCode: string; componentType: string; isTaxable?: boolean }>>('/api/payroll/components', 'Could not load the pay components');
         const people = await data<Array<{ id: string; employeeNumber: string; firstName: string; lastName: string; endDate?: string | null }>>(
           '/api/payroll/employees?include=terminated', 'Could not load the employees');
         if (!live) return;
         setRuns(all.filter((r) => r.final === true && (r.runKind ?? 'regular') === 'regular' && (r.payFrequency ?? 'monthly') === 'monthly'));
         setOffCycle(all.filter((r) => r.runKind === 'off_cycle'));
-        setComponents(comps.filter((c) => c.componentType === 'earning' && c.sarsSourceCode.trim() === '3605').map((c) => ({ id: c.id, name: c.name })));
+        setComponents(comps.filter((c) => c.componentType === 'earning' && c.sarsSourceCode.trim() === '3605' && c.isTaxable === true).map((c) => ({ id: c.id, name: c.name })));
         setLeavers(people.filter((p) => p.endDate).map((p) => ({
           employeeId: p.id, label: `${p.employeeNumber} ${p.firstName} ${p.lastName}`.trim(), endDate: String(p.endDate).slice(0, 10),
         })));

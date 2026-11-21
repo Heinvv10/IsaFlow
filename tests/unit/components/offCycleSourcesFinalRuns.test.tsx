@@ -27,7 +27,12 @@ const runs = [
   run('bonus', { runKind: 'off_cycle' }),
   run('weekly', { payFrequency: 'weekly' }),
 ];
-const reply = (url: string) => (url.startsWith('/api/payroll/runs') ? runs : []);
+const components = [
+  { id: 'taxed', name: 'Annual bonus', sarsSourceCode: '3605', componentType: 'earning', isTaxable: true },
+  { id: 'untaxed', name: 'Untaxed bonus', sarsSourceCode: '3605', componentType: 'earning', isTaxable: false },
+  { id: 'basic', name: 'Basic', sarsSourceCode: '3601', componentType: 'earning', isTaxable: true },
+];
+const reply = (url: string) => (url.startsWith('/api/payroll/runs') ? runs : url.startsWith('/api/payroll/components') ? components : []);
 
 afterEach(() => { cleanup(); apiFetch.mockReset(); });
 
@@ -37,6 +42,8 @@ describe('useOffCycleSources: the final regular runs', () => {
     const { result } = renderHook(() => useOffCycleSources());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.runs.map((r) => r.id)).toEqual(['approved', 'paid']);
+    // The picker offers only what creation accepts (gate nit on e0eec1dea1): a TAXABLE 3605 earning.
+    expect(result.current.components.map((c) => c.id)).toEqual(['taxed']);
   });
 
   it('the shared predicate: approved or paid, with an approval stamp', () => {
