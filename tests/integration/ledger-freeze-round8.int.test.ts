@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
+import { dropAppLogin, FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
 import { asApp, document, dropFreeze, journal, negate, openApp, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -139,7 +139,7 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
       await fresh.connect();
       expect((await fresh.query('SELECT session_user AS u')).rows[0].u).toBe(FIXTURE_LOGIN);
       await fresh.end();
-    } finally { await held.end(); }
+    } finally { await held.end(); await dropAppLogin(url); }
   });
 
   it('F3 the backfill stamps a legacy cancelled document\'s journal only where state identifies it, and counts the rest', async () => {

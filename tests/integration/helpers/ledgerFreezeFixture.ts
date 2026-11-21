@@ -10,6 +10,7 @@ import { expect } from 'vitest';
 import { sql } from '@/lib/neon';
 import { serviceDatabaseUrl } from '@/lib/serviceDatabaseUrl';
 import { isDisposableDb } from '../../helpers/assertDisposableDb';
+import { assertDisposableCluster } from './appLoginWorld';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './lineRevenueFixture';
 
 export type Row = Record<string, unknown>;
@@ -33,6 +34,7 @@ export async function assertFixtureTarget(): Promise<void> {
   }
   const probe = new Pool({ connectionString: validated, max: 1 });
   try {
+    await assertDisposableCluster(probe); // round 12 L2: nothing but disposable databases on that cluster
     const want = (await probe.query('SELECT current_database() AS d, inet_server_port() AS p, pg_postmaster_start_time()::text AS t')).rows[0];
     const got = ((await sql`SELECT current_database() AS d, inet_server_port() AS p, pg_postmaster_start_time()::text AS t`) as Row[])[0]!;
     if (got.d !== want.d || got.p !== want.p || got.t !== want.t) throw new Error('ledgerFreezeFixture: sql is not on the validated database');

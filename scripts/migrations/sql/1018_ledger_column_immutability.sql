@@ -134,6 +134,8 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversed_status_ins ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_created_at_frozen ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_base_check ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_late_claim_base_upd ON public.gl_journal_lines;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_late_claim_base_ins ON public.gl_journal_lines;
 --   DROP INDEX IF EXISTS public.ix_gl_je_reversal_of_lookup;
 --   and, on each of public.customer_invoices, public.supplier_invoices, public.credit_notes:
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_ins ON public.<table>;
@@ -151,7 +153,8 @@
 --     public.doc_cancelled_final(), public.doc_company_frozen(), public.doc_delete_in_force(),
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
 --     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid), public.gl_jl_company_is_journal_company(),
---     public.gl_je_created_at_frozen(), public.gl_je_reversal_base_check(), public.gl_late_claim_bases_negated(uuid, uuid);
+--     public.gl_je_created_at_frozen(), public.gl_je_reversal_base_check(), public.gl_late_claim_bases_negated(uuid, uuid),
+--     public.ledger_lock_journal(uuid), public.gl_jl_late_claim_base_born_here();
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -308,6 +311,21 @@ $$;
 -- judge must be at READ COMMITTED (40001, retry there), as 886 and 1002 refuse for their tables. Census: every app
 -- write runs at READ COMMITTED (withAuth, sql.transaction's default, the scripts and the Demo reseed); the only other
 -- level in the code is the audit snapshot's REPEATABLE READ, which writes none of these tables.
+-- Round 12 L3: a document trigger locks its journal's ROW, then its key, the order the reversal claim takes them (the
+-- claim's UPDATE locks the row, then gl_je_reversed_at_release takes the key). Key-then-row against row-then-key was a
+-- real 40P01 between a claim and a document cancel / unlink / delete. Read as the caller: a row it cannot see locks
+-- nothing, and the rules after the lock fail closed.
+CREATE OR REPLACE FUNCTION public.ledger_lock_journal(p_entry uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  PERFORM 1 FROM public.gl_journal_entries e WHERE e.id = p_entry FOR NO KEY UPDATE;
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(p_entry));
+END
+$$;
+
 CREATE OR REPLACE FUNCTION public.ledger_require_read_committed(p_table text)
 RETURNS void
 LANGUAGE plpgsql
@@ -576,12 +594,14 @@ BEGIN
   -- by the post itself, draft -> posted, before any link).
   -- Round 11 (codex gate): serialised with a reversal link of this journal (gl_je_reversal_link takes this journal's
   -- key) and read at READ COMMITTED, so a stamp change cannot commit past a link it did not see.
-  PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.id));
-  IF (NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by)
-     AND EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
-    RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when'
-      USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_attribution_kept';
+  -- Round 12 L4: only a change of the stamp itself takes the key; a post (posted_at / posted_by) takes none.
+  IF NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by THEN
+    PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
+    PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.id));
+    IF EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
+      RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when'
+        USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_attribution_kept';
+    END IF;
   END IF;
   IF (NEW.posted_at IS DISTINCT FROM OLD.posted_at OR NEW.posted_by IS DISTINCT FROM OLD.posted_by)
      AND public.gl_journal_is_linked(OLD.id) THEN
@@ -717,6 +737,41 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_company_is_journal_company
   BEFORE INSERT OR UPDATE OF company_id, journal_entry_id ON public.gl_journal_lines
   FOR EACH ROW EXECUTE FUNCTION public.gl_jl_company_is_journal_company();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_company_is_journal_company;
+
+-- Round 12 M1: late_claim_base (the base behind a late input-VAT claim, read by the VAT201 15% check: vatInputOverclaim,
+-- vatBoxBasisQuery) is written only on a line of a journal created in this transaction (created_at = now(), which
+-- trg_gl_je_created_at_frozen makes sound). Census of writers: writeLateClaimBases on the companion the split has just
+-- created, and copyLateClaimBaseToReversal on the contra the reversal has just created, each in its own transaction;
+-- nothing else writes it. Read as the caller: a journal it cannot see refuses the write.
+CREATE OR REPLACE FUNCTION public.gl_jl_late_claim_base_born_here()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id AND e.created_at = now()) THEN
+    RAISE EXCEPTION 'gl_journal_lines: a late-claim base is written only on a journal created in this transaction'
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_jl_late_claim_base_born_here';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_jl_late_claim_base_upd
+  BEFORE UPDATE OF late_claim_base ON public.gl_journal_lines
+  FOR EACH ROW
+  WHEN (NEW.late_claim_base IS DISTINCT FROM OLD.late_claim_base)
+  EXECUTE FUNCTION public.gl_jl_late_claim_base_born_here();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_late_claim_base_upd;
+CREATE OR REPLACE TRIGGER trg_gl_jl_late_claim_base_ins
+  BEFORE INSERT ON public.gl_journal_lines
+  FOR EACH ROW
+  WHEN (NEW.late_claim_base IS NOT NULL)
+  EXECUTE FUNCTION public.gl_jl_late_claim_base_born_here();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_late_claim_base_ins;
 
 -- A line's account or VAT type may move on a linked journal only while the pair is still an exact negation at COMMIT:
 -- an account merge moves both sides in one transaction and passes, one side alone is refused. Deferred, once per changed
@@ -880,7 +935,7 @@ BEGIN
       RAISE EXCEPTION '%: a document''s journal cannot be swapped', TG_TABLE_NAME USING ERRCODE = '23514';
     END IF;
     -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this unlink, or this for it.
-    PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.gl_journal_entry_id));
+    PERFORM public.ledger_lock_journal(OLD.gl_journal_entry_id);
     IF public.gl_journal_in_force(OLD.gl_journal_entry_id) THEN
       RAISE EXCEPTION '%: a document''s journal in force cannot be unlinked (reverse it first)', TG_TABLE_NAME
         USING ERRCODE = '23514';
@@ -902,7 +957,7 @@ BEGIN
     RAISE EXCEPTION '%: a document without a status does not link a journal', TG_TABLE_NAME USING ERRCODE = '23514';
   END IF;
   -- One session at a time per journal, so two cannot both pass the "linked by no other document" test.
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
+  PERFORM public.ledger_lock_journal(NEW.gl_journal_entry_id);
   SELECT e.company_id, e.reversal_of_id, e.status INTO v_company, v_contra, v_status
     FROM public.gl_journal_entries e WHERE e.id = NEW.gl_journal_entry_id;
   -- In force = posted, not stamped reversed and no posted contra (gl_journal_in_force); a contra itself is refused here.
@@ -939,7 +994,7 @@ BEGIN
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   -- The journal's lock (rule 1's root lock): a link re-instating its chain waits for this cancel, or this for it.
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
+  PERFORM public.ledger_lock_journal(NEW.gl_journal_entry_id);
   -- Rule 10: a linked document always has a status (NULL leaves every status-filtered AR/AP list).
   IF NEW.status IS NULL THEN
     RAISE EXCEPTION '%: a linked document keeps a status (NULL is refused)', TG_TABLE_NAME USING ERRCODE = '23514';
@@ -1008,7 +1063,7 @@ BEGIN
     RETURN OLD;
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.gl_journal_entry_id));
+  PERFORM public.ledger_lock_journal(OLD.gl_journal_entry_id);
   IF public.gl_journal_in_force(OLD.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not deleted (cancel it, or reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';
@@ -1033,7 +1088,7 @@ BEGIN
     RETURN NEW;
   END IF;
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.gl_journal_entry_id));
+  PERFORM public.ledger_lock_journal(NEW.gl_journal_entry_id);
   IF public.gl_journal_in_force(NEW.gl_journal_entry_id) THEN
     RAISE EXCEPTION '%: a document whose journal is in force is not deleted (reverse the journal first)', TG_TABLE_NAME
       USING ERRCODE = '23514';

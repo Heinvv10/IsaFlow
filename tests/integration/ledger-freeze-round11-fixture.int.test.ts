@@ -8,7 +8,7 @@ import { Client } from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
+import { dropAppLogin, FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
 import { assertFixtureTarget, seedFreeze } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -37,7 +37,25 @@ describeIfDisposable('ledger column immutability, round 11: the fixtures (migrat
       await probe.query('BEGIN');
       await probe.query('SET LOCAL ROLE app_user'); // the request transaction's role, as for isaflow_app
       await probe.query('ROLLBACK');
-    } finally { await probe.end(); }
+    } finally { await probe.end(); await dropAppLogin(url); }
+  });
+
+  it('L2 (round 12) no fixture login, and no fixture write, on a cluster that holds a database other than the disposable ones', async () => {
+    const url = process.env.DATABASE_URL!;
+    const foreign = `r12_foreign_${Date.now()}`;
+    const admin = new URL(url); admin.pathname = '/postgres';
+    const c = new Client({ connectionString: admin.toString() });
+    await c.connect();
+    try {
+      await c.query(`CREATE DATABASE ${foreign}`);
+      await expect(provisionAppLogin(url)).rejects.toThrow(new RegExp(`refusing a fixture login on a cluster that also holds ${foreign}`));
+      await expect(assertFixtureTarget()).rejects.toThrow(/refusing a fixture login on a cluster/);
+      expect((await c.query('SELECT count(*)::int AS n FROM pg_roles WHERE rolname = $1', [FIXTURE_LOGIN])).rows[0].n).toBe(0);
+    } finally {
+      await c.query(`DROP DATABASE IF EXISTS ${foreign}`);
+      await c.end();
+    }
+    await expect(assertFixtureTarget()).resolves.toBeUndefined(); // over-strict check: the disposable cluster passes
   });
 
   it('G6 the fixture refuses to write when sql would use another database than the validated one', async () => {

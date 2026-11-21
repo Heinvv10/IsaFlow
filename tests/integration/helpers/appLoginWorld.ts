@@ -44,12 +44,28 @@ async function logsIn(fixtureUrl: string, password: string): Promise<boolean> {
   }
 }
 
+/** The databases a cluster may hold for the fixture login to exist on it (round 12 L2). */
+export const DISPOSABLE_CLUSTER_DATABASES = ['template0', 'template1', 'postgres', 'isaflow_test', 'isaflow_schema_fixture'];
+
+/**
+ * Round 12 L2: a LOGIN role is cluster-wide, so it is created only on a cluster that holds nothing but disposable
+ * databases (a test database beside a real one would hand the real one a working app login).
+ */
+export async function assertDisposableCluster(c: { query: Client['query'] }): Promise<void> {
+  const { rows } = await c.query<{ datname: string }>('SELECT datname FROM pg_database ORDER BY 1');
+  const other = rows.map((r) => r.datname).filter((d) => !DISPOSABLE_CLUSTER_DATABASES.includes(d));
+  if (other.length > 0) {
+    throw new Error(`appLoginWorld: refusing a fixture login on a cluster that also holds ${other.join(', ')}`);
+  }
+}
+
 export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
   const admin = new URL(fixtureUrl);
   admin.pathname = '/postgres';
   const c = new Client({ connectionString: admin.toString() });
   await c.connect();
   try {
+    await assertDisposableCluster(c);
     await c.query('SELECT pg_advisory_lock(hashtext($1))', [LOGIN_LOCK]);
     await c.query('CREATE TABLE IF NOT EXISTS public.ci_isaflow_app_login (password text NOT NULL)');
     await c.query('REVOKE ALL ON public.ci_isaflow_app_login FROM PUBLIC');
@@ -70,6 +86,25 @@ export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
     await c.query('DELETE FROM public.ci_isaflow_app_login');
     await c.query('INSERT INTO public.ci_isaflow_app_login (password) VALUES ($1)', [password]);
     return password;
+  } finally {
+    await c.query('SELECT pg_advisory_unlock(hashtext($1))', [LOGIN_LOCK]).catch(() => undefined);
+    await c.end();
+  }
+}
+
+/**
+ * Round 12 L2: drop the fixture login and its stored password once a suite is done, so neither outlives it. Suites on
+ * one cluster run one at a time (run.sh, --no-file-parallelism); the next one provisions afresh.
+ */
+export async function dropAppLogin(fixtureUrl: string): Promise<void> {
+  const admin = new URL(fixtureUrl);
+  admin.pathname = '/postgres';
+  const c = new Client({ connectionString: admin.toString() });
+  await c.connect();
+  try {
+    await c.query('SELECT pg_advisory_lock(hashtext($1))', [LOGIN_LOCK]);
+    await c.query('DROP TABLE IF EXISTS public.ci_isaflow_app_login');
+    await c.query(`DROP ROLE IF EXISTS ${FIXTURE_LOGIN}`);
   } finally {
     await c.query('SELECT pg_advisory_unlock(hashtext($1))', [LOGIN_LOCK]).catch(() => undefined);
     await c.end();
@@ -138,6 +173,10 @@ export async function appLoginWorld(): Promise<AppWorld> {
         client.release();
       }
     },
-    close: async () => { vi.unstubAllEnvs(); await (await import('@/lib/neon')).getPoolForTests().end().catch(() => undefined); },
+    close: async () => {
+      await (await import('@/lib/neon')).getPoolForTests().end().catch(() => undefined);
+      vi.unstubAllEnvs();
+      await dropAppLogin(fixtureUrl);
+    },
   };
 }

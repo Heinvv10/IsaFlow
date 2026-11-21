@@ -101,13 +101,14 @@ describeIfDisposable('ledger column immutability, round 11 (migration 1018)', ()
       await c.query('UPDATE gl_journal_lines SET late_claim_base = -100 WHERE journal_entry_id = $1 AND gl_account_id = $2', [copied, z.expense]);
     }, { commit: true });
     expect((await one(sql`SELECT reversal_of_id AS r FROM gl_journal_entries WHERE id = ${copied}::UUID`)).r).toBe(o);
-    // Once linked, the base moves only on both sides together (the deferred line check).
+    // Once linked, the base does not move on one side, nor (round 12 M1) on both: it is written only on a journal
+    // created in the writing transaction.
     expect(await settle(asApp(z, (c) => c.query('UPDATE gl_journal_lines SET late_claim_base = -90 WHERE journal_entry_id = $1 AND late_claim_base IS NOT NULL', [copied]), { commit: true })))
-      .toMatch(/stay the exact negation/);
+      .toMatch(/stay the exact negation|late-claim base is written only on a journal created in this transaction/);
     expect(await settle(asApp(z, async (c) => {
       await c.query('UPDATE gl_journal_lines SET late_claim_base = 90 WHERE journal_entry_id = $1 AND late_claim_base IS NOT NULL', [o]);
       await c.query('UPDATE gl_journal_lines SET late_claim_base = -90 WHERE journal_entry_id = $1 AND late_claim_base IS NOT NULL', [copied]);
-    }, { commit: true }))).toBe('ACCEPTED');
+    }, { commit: true }))).toMatch(/late-claim base is written only on a journal created in this transaction/);
   });
 
   it('G3 the deferred line check refuses a change it cannot judge: a legacy line whose journal the caller cannot see', async () => {
