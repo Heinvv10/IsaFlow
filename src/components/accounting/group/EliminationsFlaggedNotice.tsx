@@ -11,7 +11,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 /** What a person recognises a row by (never its id). */
 interface RowLabel { description: string; date: string; amount: number }
 export interface FlaggedRow extends RowLabel { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
-export interface SkippedRow extends RowLabel { transactionId: string; reason: string; cutover: string }
+export interface SkippedRow extends RowLabel { transactionId: string; reason: string; cutover: string; mirroredRef: string }
 
 const labelOf = (x: Partial<RowLabel>): RowLabel => ({ description: typeof x.description === 'string' ? x.description : '',
   date: typeof x.date === 'string' ? x.date : '', amount: typeof x.amount === 'number' ? x.amount : 0 });
@@ -24,7 +24,8 @@ export function parseSkipped(json: unknown): SkippedRow[] {
   return list.flatMap((r: unknown) => {
     const x = r as Partial<SkippedRow>;
     return typeof x?.transactionId === 'string' && typeof x.reason === 'string'
-      ? [{ transactionId: x.transactionId, reason: x.reason, cutover: typeof x.cutover === 'string' ? x.cutover : '', ...labelOf(x) }] : [];
+      ? [{ transactionId: x.transactionId, reason: x.reason, cutover: typeof x.cutover === 'string' ? x.cutover : '',
+          mirroredRef: typeof x.mirroredRef === 'string' ? x.mirroredRef : '', ...labelOf(x) }] : [];
   });
 }
 
@@ -55,11 +56,10 @@ export function EliminationsFlaggedNotice({ rows, skipped = [], onDismiss }: { r
             </ul>
           </>}
           {skipped.length > 0 && <p className={rows.length > 0 ? 'mt-2' : ''}>
-            {skipped.length} intercompany {skipped.length === 1 ? 'row was' : 'rows were'} not drafted: a mirrored document eliminates each of them
-            (the pair mirrors from {[...new Set(skipped.map((r) => r.cutover))].join(', ')}).
+            {skipped.length} intercompany {skipped.length === 1 ? 'row was' : 'rows were'} not drafted: eliminated by mirroring.
           </p>}
           {skipped.length > 0 && <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
-            {skipped.map((r) => <li key={r.transactionId}>{rowText(r)}: {r.reason}</li>)}
+            {skipped.map((r) => <li key={r.transactionId}>{rowText(r)}: mirrored document {r.mirroredRef || 'unnamed'}</li>)}
           </ul>}
         </div>
       </div>

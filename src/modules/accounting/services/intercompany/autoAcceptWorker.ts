@@ -73,12 +73,19 @@ export async function runAutoAccept(limit = 50, opts: AutoAcceptOptions = {}): P
   const stuckIds = new Set<string>();
   for (const [index, q] of queue.entries()) {
     if (now() - startedAt >= budgetMs) {
-      const rest = queue.slice(index).map((r) => String(r.message_id));
+      const rest = queue.slice(index);
       run.deferred += rest.length;
-      // the attempt the claim stamped on the messages not started is given back: the budget never uses up (or exhausts) a message
-      const released = (await sql`SELECT public.intercompany_auto_accept_release(${rest}::UUID[]) AS n`) as Row[];
-      log.warn('Intercompany auto-accept stopped at its time budget; the rest wait for the next run', {
-        processed: index, remaining: rest.length, released: Number(released[0]?.n ?? 0), budgetMs }, 'intercompany');
+      // the attempt this run's claim stamped on the messages it did not start is given back (only while each is still at that attempt: one
+      // another run has claimed since is left alone), so the budget never uses up or exhausts a message. A failure here is logged and the
+      // run carries on: those messages then just back off as any claim does.
+      let released = 0;
+      try {
+        const r = (await sql`SELECT public.intercompany_auto_accept_release(${rest.map((q2) => String(q2.message_id))}::UUID[], ${rest.map((q2) => Number(q2.attempt))}::INT[]) AS n`) as Row[];
+        released = Number(r[0]?.n ?? 0);
+      } catch (err) {
+        log.error('Intercompany auto-accept: could not give the unstarted messages their attempt back', { remaining: rest.length, error: err instanceof Error ? err.name : 'unknown' }, 'intercompany');
+      }
+      log.warn('Intercompany auto-accept stopped at its time budget; the rest wait for the next run', { processed: index, remaining: rest.length, released, budgetMs }, 'intercompany');
       break;
     }
     const principal = { userId: String(q.actor_user_id), companyId: String(q.to_company_id) };

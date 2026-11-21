@@ -27,7 +27,7 @@ import {
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import type { FlaggedEliminationRow, SkippedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
 import { cutoverRequiringReason } from '@/modules/accounting/services/reports/eliminationDuplicates';
-import { MANUAL_REASON_MAX, manualReasonProblem } from '@/modules/accounting/services/reports/manualReason';
+import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
 import type { DroppedMirroredElimination } from '@/modules/accounting/services/reports/mirrorEliminations';
 
 /**
@@ -170,8 +170,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // dated then needs a typed reason (stored). It names no companies, so any cutover of the group on or before its date counts.
       const reason = typeof body.manualReason === 'string' ? body.manualReason.trim() : '';
       const cutover = await cutoverRequiringReason(gId, typeof periodEnd === 'string' && periodEnd ? periodEnd : null);
-      const problem = cutover ? manualReasonProblem(reason, cutover) : reason.length > MANUAL_REASON_MAX ? manualReasonProblem(reason, '') : null;
-      if (problem) return apiResponse.badRequest(res, problem, { reason: 'manual_reason_required', cutover });
+      const tooLong = manualReasonTooLong(reason);
+      if (tooLong) return apiResponse.badRequest(res, tooLong, { reason: 'manual_reason_too_long' });
+      const missing = cutover ? manualReasonMissing(reason, cutover) : null;
+      if (missing) return apiResponse.badRequest(res, missing, { reason: 'manual_reason_required', cutover });
       return answerRefusals(res, async () => apiResponse.success(res, await createEliminationAdjustment(gId, {
         adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
       })));

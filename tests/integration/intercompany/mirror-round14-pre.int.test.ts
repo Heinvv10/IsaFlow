@@ -71,16 +71,17 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     expect([row.status, row.mirroredDuplicateOf ? 'warned' : 'none', row.mirrorStands]).toEqual(['posted', 'warned', true]);
   });
 
-  it('a mirror whose receiver journal is reversed later (the message stays accepted): no longer eliminated automatically (judged as at today too)', async () => {
+  it('a mirror whose receiver journal is reversed later in the draft\'s own period (the message stays accepted): not eliminated automatically for that period', async () => {
     const m = await bookedOn('2026-01-15');
     const [r1] = await pair(1000, '2026-01-15');
     await gen();
     const d = await draftOf(r1);
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
-    // the receiver's bill journal reversed on 10 March: after the later document date, so only "still today" sees it
+    // the receiver's bill journal reversed on 25 January: after the later document date (15 Jan) and inside the draft's period (January),
+    // so only the period-end judgement sees it (round 16: a reversal AFTER the period is the mirror's own counter-elimination later)
     const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM supplier_invoices WHERE id = $1', [m.bill])).rows[0].je as string;
     const rev = (await pool.query(`INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
-      SELECT '2026-03-10', 'reversal', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).rows[0].id as string;
+      SELECT '2026-01-25', 'reversal', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).rows[0].id as string;
     await pool.query(`INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
       SELECT $2, gl_account_id, credit, debit, company_id, 'reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, rev]);
     await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [rev, je]);

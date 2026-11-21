@@ -15,6 +15,7 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import EliminationsPage from '@/../pages/accounting/group/eliminations';
+import { matchedElsewhereText } from '@/modules/accounting/services/reports/eliminationErrors';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -66,13 +67,15 @@ describe('round 14: the Eliminations page', () => {
 
   it('Auto-Generate lists the rows left to mirroring, by description, date and amount (never an id)', async () => {
     serve({ post: () => new Response(JSON.stringify({ success: true, data: { items: [], count: 0, flagged: [],
-      skipped: [{ transactionId: 'cccccccc-0000-4000-8000-000000000003', reason: 'eliminated by mirroring (Invoice ICAR-3 (mirrored))', cutover: '2026-03-01',
+      skipped: [{ transactionId: 'cccccccc-0000-4000-8000-000000000003', reason: 'eliminated by mirroring (Invoice ICAR-3 (mirrored))', cutover: '2026-03-01', mirroredRef: 'Invoice ICAR-3 (mirrored)',
         description: 'Manual sale March', date: '2026-03-05', amount: 1000 }] } }), { status: 200 }) });
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
-    expect(n.textContent).toMatch(/1 intercompany row was not drafted: a mirrored document eliminates each of them \(the pair mirrors from 2026-03-01\)/);
-    expect(n.textContent).toMatch(/2026-03-05 Manual sale March \(R\s?1[\s\u00a0]?000\.00\): eliminated by mirroring \(Invoice ICAR-3 \(mirrored\)\)/);
+    // (round 16: one heading, then each row with its mirror; no repeated "eliminated by mirroring" per row)
+    expect(n.textContent).toMatch(/1 intercompany row was not drafted: eliminated by mirroring\./);
+    expect(n.textContent).toMatch(/2026-03-05 Manual sale March \(R\s?1[\s\u00a0]?000\.00\): mirrored document Invoice ICAR-3 \(mirrored\)/);
+    expect((n.textContent ?? '').match(/eliminated by mirroring/g)).toHaveLength(1);
     expect(n.textContent).not.toMatch(/cccccccc/);
   });
 
@@ -190,13 +193,15 @@ describe('round 14: the Eliminations page', () => {
     expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
   });
 
-  it('a post-cutover draft whose mirror stands: the badge and the dialog say why it was drafted, and the button is a plain Post', async () => {
+  it('a post-cutover draft whose mirror stands: the badge and the dialog say (in one shared wording) the mirror was matched to a different row, and the button is a plain Post', async () => {
     serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01' })] });
     render(<EliminationsPage />);
-    expect((await screen.findByRole('note')).textContent).toMatch(/the pair mirrors from 2026-03-01, and this row was drafted because that mirror accounts for another row or is not its closest match: check before posting/);
+    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01');
+    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically, but that mirror was matched to a different row (the pair mirrors from 2026-03-01).');
+    expect((await screen.findByRole('note')).textContent).toContain(`${shared} Check before posting.`);
     fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toMatch(/this row was drafted because that mirror accounts for another row.*If it is the same sale, posting this would eliminate it twice/);
+    expect(dialog.textContent).toContain(`${shared} If it is the same sale, posting this would eliminate it twice.`);
     expect(within(dialog).getByRole('button', { name: 'Post' })).toBeTruthy();
   });
 });

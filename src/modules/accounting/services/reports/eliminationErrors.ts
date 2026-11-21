@@ -56,8 +56,14 @@ export function possibleDuplicateMessage(mirroredRef: string, mirrorStands: bool
   if (!mirrorStands) {
     return `Possibly the same sale as mirrored document ${mirroredRef}, which is NOT eliminated automatically at the moment (booked by the receiver in another financial year, not approved yet, or reversed): this may be the sale's only elimination. If the receiver books it in the same financial year later, the two would eliminate it twice. Confirm to post it.`;
   }
-  if (pairCutover) {
-    return `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically; the pair mirrors from ${pairCutover}, and this row was drafted because that mirror accounts for another row or is not its closest match. If it is the same sale, posting this would eliminate it twice. Confirm to post it.`;
-  }
+  if (pairCutover) return `${matchedElsewhereText(mirroredRef, pairCutover)} If it is the same sale, posting this would eliminate it twice. Confirm to post it.`;
   return `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`;
+}
+
+/**
+ * The one wording (the list's badge, the 409 and the confirm) for a row on or after its pair's cutover that was drafted although a mirror it
+ * matches is eliminated automatically: that mirror was matched to a different row.
+ */
+export function matchedElsewhereText(mirroredRef: string, pairCutover: string): string {
+  return `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically, but that mirror was matched to a different row (the pair mirrors from ${pairCutover}).`;
 }

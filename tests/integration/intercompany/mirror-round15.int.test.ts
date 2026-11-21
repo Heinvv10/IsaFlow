@@ -63,7 +63,7 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
     ['rejected by the receiver', async (msg: string) => { expect((await inbox.reject(U.b, co.B, msg, { reason: 'keyed by hand' })).state.statusCode).toBe(200); }],
     ['still pending', async () => undefined],
     ['accepted but the bill never approved', async (msg: string) => { expect((await inbox.accept(U.b, co.B, msg)).state.statusCode).toBe(200); }],
-  ] as const)('the mirror %s: drafted and flagged "no mirrored elimination stands for this row"', async (_n, act) => {
+  ] as const)('the mirror %s: drafted and flagged (round 16 wording: why no mirrored document eliminates it)', async (_n, act) => {
     await turnOn();
     const sent = await sentInvoice(pool, { date: '2026-03-15' });
     await act(sent.id);
@@ -71,7 +71,7 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
     const g = await gen();
     expect(g.skipped).toEqual([]);
     expect(g.drafted).toContain(s);
-    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/the pair mirrors from 2026-03-01 but no mirrored elimination stands for this row/);
+    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/the pair mirrors from 2026-03-01, but (no mirrored document eliminates this row|mirrored document .* is not eliminated automatically for the period to 2026-03-31)/);
   });
 
   it('no mirrored document at all (approved before the pair was on, or never sent): drafted and flagged', async () => {
@@ -79,7 +79,7 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
     const [s] = await matchedPair();
     const g = await gen();
     expect([g.drafted.includes(s), g.skipped]).toEqual([true, []]);
-    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/no mirrored elimination stands/);
+    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/the pair mirrors from 2026-03-01, but no mirrored document eliminates this row/);
   });
 
   it('re-judged at every run: skipped while the mirror stands; after the receiver reverses its bill (20 March) the next run drafts the row', async () => {
@@ -128,7 +128,7 @@ describe('the mirror goes to the row it belongs to', () => {
     const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', '2026-03-31'))).find((a) => a.sourceIntercompanyId === early.id)!;
     expect([row.mirrorStands, row.pairCutover]).toEqual([true, '2026-03-01']);
     const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G)).then(() => '', (e: Error) => e.message);
-    expect(refused).toMatch(/the pair mirrors from 2026-03-01, and this row was drafted because that mirror accounts for another row or is not its closest match/);
+    expect(refused).toMatch(/which is eliminated automatically, but that mirror was matched to a different row \(the pair mirrors from 2026-03-01\)\. If it is the same sale, posting this would eliminate it twice/);
   });
 });
 
@@ -166,14 +166,16 @@ describe('go-live and switching on', () => {
 });
 
 describe('R14 quality M2: the auto-accept attempt given back', () => {
-  it('intercompany_auto_accept_release (app_service) takes one attempt off a pending message and clears its back-off', async () => {
+  it('intercompany_auto_accept_release (app_service) takes one attempt off a pending message still at this run\'s attempt, and clears its back-off', async () => {
     const sent = await sentInvoice(pool, { date: '2026-03-15' });
     await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
       "UPDATE intercompany_messages SET auto_attempts = 7, auto_next_attempt_at = now() + interval '1 hour' WHERE id = $1", [sent.id]));
     const c = await pool.connect();
     try {
       await c.query('BEGIN'); await c.query('SET LOCAL ROLE app_service');
-      expect((await c.query('SELECT public.intercompany_auto_accept_release($1::uuid[]) AS n', [[sent.id]])).rows[0].n).toBe(1);
+      // (round 16: only at the attempt this run's claim gave it; a message another run has claimed since, at 8, is left alone)
+      expect((await c.query('SELECT public.intercompany_auto_accept_release($1::uuid[], $2::int[]) AS n', [[sent.id], [8]])).rows[0].n).toBe(0);
+      expect((await c.query('SELECT public.intercompany_auto_accept_release($1::uuid[], $2::int[]) AS n', [[sent.id], [7]])).rows[0].n).toBe(1);
       await c.query('COMMIT');
     } finally { c.release(); }
     expect((await pool.query('SELECT auto_attempts, auto_next_attempt_at FROM intercompany_messages WHERE id = $1', [sent.id])).rows[0]).toEqual({ auto_attempts: 6, auto_next_attempt_at: null });

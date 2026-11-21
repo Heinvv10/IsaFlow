@@ -54,12 +54,12 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
          AND (${pStart}::DATE IS NULL OR ca.period_start >= ${pStart}::DATE)
          AND (${pEnd}::DATE IS NULL OR ca.period_end <= ${pEnd}::DATE)
     ), st AS MATERIALIZED (
-      -- each distinct mirror judged ONCE, however many adjustments point at it
-      SELECT x.id, COALESCE(public.intercompany_mirror_stands(x.id), false) AS stands
-        FROM (SELECT DISTINCT unnest(s.mirror_rows) AS id FROM s WHERE s.mirror_rows IS NOT NULL) x
+      -- each distinct (mirror, period end) judged ONCE, however many adjustments point at it: eliminated automatically FOR THAT PERIOD
+      SELECT x.id, x.pe, COALESCE(public.intercompany_mirror_stands(x.id, x.pe), false) AS stands
+        FROM (SELECT DISTINCT unnest(s.mirror_rows) AS id, s.period_end::DATE AS pe FROM s WHERE s.mirror_rows IS NOT NULL) x
     )
     SELECT s.*, s.mirror_ref AS mirrored_duplicate_of,
-           CASE WHEN s.mirror_rows IS NOT NULL THEN (SELECT bool_and(st.stands) FROM st WHERE st.id = ANY (s.mirror_rows)) END AS mirror_stands,
+           CASE WHEN s.mirror_rows IS NOT NULL THEN (SELECT bool_and(st.stands) FROM st WHERE st.id = ANY (s.mirror_rows) AND st.pe IS NOT DISTINCT FROM s.period_end::DATE) END AS mirror_stands,
            CASE WHEN s.mirror_rows IS NOT NULL THEN count(*) OVER (PARTITION BY s.mirror_rows) END AS mirror_shared
       FROM s
      ORDER BY s.created_at DESC
@@ -81,7 +81,7 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
     `) as DbRow[];
     if (result.length === 0) {
       const dup = (await sql`
-        SELECT d.mirror_ref, (SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x), false)) FROM unnest(d.mirror_rows) x) AS stands,
+        SELECT d.mirror_ref, (SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x, ca.period_end::DATE), false)) FROM unnest(d.mirror_rows) x) AS stands,
                (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
                   ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
                  WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover

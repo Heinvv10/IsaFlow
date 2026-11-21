@@ -231,6 +231,7 @@ describe('create-elimination after a mirroring cutover', () => {
     const res = await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: long });
     expect(res.status).toHaveBeenCalledWith(400);
     expect(message(res)).toContain(`at most ${MANUAL_REASON_MAX} characters`);
+    expect(res.json.mock.calls[0]![0].error.details).toEqual({ reason: 'manual_reason_too_long' });
     dupes.cutoverRequiringReason.mockResolvedValue(null);
     expect((await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: long })).status).toHaveBeenCalledWith(400);
     expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();

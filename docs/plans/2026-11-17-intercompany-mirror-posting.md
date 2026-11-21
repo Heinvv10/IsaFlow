@@ -43,11 +43,14 @@ two sides' `mirroring_since` (set by the database to the start of the next Johan
 side's customer and supplier links are both set; cleared when either is removed). A pair has a cutover
 only in the group its mirrors go to (the oldest active group with both as members). From that date
 the manual P1 generator does not draft a sale-class row of the pair (sale, purchase, mgmt_fee; both
-directions) that a standing mirrored elimination of that group accounts for: it lists it "eliminated
-by mirroring". A row no standing mirror accounts for (rejected, pending, not approved, never sent) is
-drafted with a CHECK BEFORE POSTING note, so the mirror is the only elimination when one exists and
-no sale goes uneliminated. The skip is judged again at every run (a mirror that stops standing makes
-the next run draft the row). A hand-made (`create-elimination`) adjustment
+directions) that a mirrored document of that group eliminates: it lists it "eliminated by mirroring".
+That answer is a STORED, exclusive link (one mirror accounts for at most one sale row and one purchase
+row across every run and period, given to the closest matching row), judged as at the period being
+generated: a mirror that stops eliminating the row inside that period releases the link and the row is
+drafted; a stop dated after the period is the mirror's own counter-elimination in that later period. A
+mirror whose lines are not all mapped to group accounts does not take a row. A row no mirror accounts
+for (rejected, pending, not approved, never sent) is drafted with a CHECK BEFORE POSTING note saying
+why, so the mirror is the only elimination when one exists and no sale goes uneliminated. A hand-made (`create-elimination`) adjustment
 dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and
 stored (`consolidation_adjustments.manual_reason`); it names no companies, so any cutover of the group
 on or before its date counts. Before the cutover nothing changes: a manual row can still overlap a

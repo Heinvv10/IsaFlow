@@ -126,11 +126,19 @@ describe('runAutoAccept', () => {
     });
 
     it('gives the attempt back on exactly the messages it did not start (the budget never uses one up)', async () => {
-      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b'), queueRow(1, 'c'), queueRow(1, 'd')]).mockResolvedValueOnce([{ n: 2 }]);
+      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b'), queueRow(3, 'c'), queueRow(2, 'd')]).mockResolvedValueOnce([{ n: 2 }]);
       await runAutoAccept(50, { budgetMs: 100_000, now: clock(40_000) });
       const release = m.sql.mock.calls.find((c) => String((c[0] as TemplateStringsArray).join('?')).includes('intercompany_auto_accept_release'));
-      expect(release?.[1]).toEqual(['c', 'd']);
+      expect([release?.[1], release?.[2]]).toEqual([['c', 'd'], [3, 2]]);   // (each with the attempt this run's claim gave it)
       expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/time budget/), expect.objectContaining({ released: 2 }), 'intercompany');
+    });
+
+    it('a failing release is logged and the run still reports (counts and the exhausted messages)', async () => {
+      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b')]).mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '57014' }))
+        .mockResolvedValueOnce([{ message_id: 'x1' }]);
+      const run = await runAutoAccept(50, { budgetMs: 10, now: clock(60_000) });
+      expect(run).toMatchObject({ considered: 2, deferred: 2, exhausted: 1 });
+      expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/could not give the unstarted messages their attempt back/), expect.objectContaining({ remaining: 2 }), 'intercompany');
     });
 
     it('still reports the messages that used every attempt after stopping early', async () => {

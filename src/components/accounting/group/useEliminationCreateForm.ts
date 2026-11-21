@@ -8,7 +8,7 @@ import type React from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
-import { manualReasonProblem } from '@/modules/accounting/services/reports/manualReason';
+import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
 
 const BLANK_LINES: EliminationLine[] = [{ groupAccountCode: '', debit: 0, credit: 0 }, { groupAccountCode: '', debit: 0, credit: 0 }];
 
@@ -57,7 +57,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
     const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.01) { setError(`Debits (${fmt(totalDebit)}) must equal credits (${fmt(totalCredit)})`); return; }
     if (lines.some((l) => !l.groupAccountCode)) { setError('All lines must have a group account code'); return; }
-    const problem = needsReason ? manualReasonProblem(reason.trim(), reasonRequiredFrom ?? '') : null;
+    const problem = manualReasonTooLong(reason.trim()) ?? (needsReason ? manualReasonMissing(reason.trim(), reasonRequiredFrom ?? '') : null);
     if (problem) { setError(problem); return; }
     inFlight.current = true;
     setSaving(true); setError('');

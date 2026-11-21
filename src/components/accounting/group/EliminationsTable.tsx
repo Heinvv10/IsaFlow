@@ -10,6 +10,7 @@ import {
   ELIMINATION_TYPE_LABELS,
   type EliminationAdjustment,
 } from './EliminationsShared';
+import { matchedElsewhereText } from '@/modules/accounting/services/reports/eliminationErrors';
 
 interface Props {
   items: EliminationAdjustment[];
@@ -27,7 +28,7 @@ export function duplicateText(adj: EliminationAdjustment): string {
     return `Possibly the same sale as mirrored document ${m}, which is NOT eliminated automatically at the moment (booked in another financial year, not approved yet, or reversed): this may be its only elimination.${shared}`;
   }
   if (adj.status === 'draft' && adj.pairCutover) {
-    return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically; the pair mirrors from ${adj.pairCutover}, and this row was drafted because that mirror accounts for another row or is not its closest match: check before posting.${shared}`;
+    return `${matchedElsewhereText(m ?? '', adj.pairCutover)} Check before posting.${shared}`;
   }
   if (adj.status === 'draft') return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically: check before posting.${shared}`;
   return shared

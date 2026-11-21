@@ -5,11 +5,14 @@
 export const MANUAL_REASON_MIN = 5;
 export const MANUAL_REASON_MAX = 500;
 
-/** Why `reason` (already trimmed) is not acceptable, or null. */
-export function manualReasonProblem(reason: string, cutover: string): string | null {
-  if (reason.length < MANUAL_REASON_MIN) {
-    return `This group's intercompany documents are eliminated by mirroring from ${cutover}: give a reason (at least ${MANUAL_REASON_MIN} characters) for this manual elimination`;
-  }
-  if (reason.length > MANUAL_REASON_MAX) return `The reason is too long: at most ${MANUAL_REASON_MAX} characters`;
-  return null;
+/** Why a reason (already trimmed) is missing where one is required (on or after `cutover`), or null. */
+export function manualReasonMissing(reason: string, cutover: string): string | null {
+  return reason.length < MANUAL_REASON_MIN
+    ? `This group's intercompany documents are eliminated by mirroring from ${cutover}: give a reason (at least ${MANUAL_REASON_MIN} characters) for this manual elimination`
+    : null;
+}
+
+/** Why a reason (already trimmed) is too long, whether or not one is required, or null. */
+export function manualReasonTooLong(reason: string): string | null {
+  return reason.length > MANUAL_REASON_MAX ? `The reason is too long: at most ${MANUAL_REASON_MAX} characters` : null;
 }
