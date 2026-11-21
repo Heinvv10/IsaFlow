@@ -12,10 +12,10 @@ import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard';
 import {
-  allocateCreditNote, isRevenueCoded, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
+  allocateCreditNote, isRevenueCoded, noteShares, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
 import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
-import { allocateTypedCreditNote, appliedNetAndVat, legsAreTyped } from './creditNoteTypedSplit';
+import { allocateTypedCreditNote, appliedSettlement, legsAreTyped } from './creditNoteTypedSplit';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -102,11 +102,12 @@ const NO_NOTE = '00000000-0000-0000-0000-000000000000';
 /**
  * What a TYPED invoice still has to credit, for a caller raising a note against it (a dispute): its remaining net over
  * every revenue leg and its remaining VAT; null for a legacy invoice (any uncoded leg) or one with no journal.
+ * `withoutNoteId`: leave that note out entirely (the apply guard, judging the note's own application to it).
  */
-export async function typedInvoiceCreditState(companyId: string, invoiceId: string):
+export async function typedInvoiceCreditState(companyId: string, invoiceId: string, withoutNoteId: string = NO_NOTE):
   Promise<{ remainingNet: number; remainingVat: number } | null> {
   // Nothing is posted here, so no leg's post account is read: the default revenue account is not needed.
-  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, invoiceId, NO_NOTE, NO_NOTE);
+  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, invoiceId, withoutNoteId, NO_NOTE);
   if (remainingVat === null) return null;
   return { remainingNet: remainingCarries(legs, replayed).reduce((a, b) => a + b, 0) / 100, remainingVat };
 }
@@ -169,25 +170,6 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
   }));
   const replayed = legacy.map((e) => Number(e.subtotal));
   if (!legsAreTyped(legs)) return { legs, replayed, remainingVat: null };
-  // Live customer notes APPLIED to this typed invoice but not linked to IT (#1701 rounds 3 M1, 4): unlinked ones
-  // (applying one here does not link it: creditNoteApplyToInvoice, the MCP apply and the FIFO walk), and ones linked to
-  // another invoice, at creation or by a later apply to a legacy invoice (COALESCE keeps the first link). Neither its
-  // revenue rows nor its link count it here, yet it settled this invoice: each application is split into the net and
-  // VAT it settles by the note's own subtotal : tax_amount (appliedNetAndVat); the net is taken pro rata like a
-  // replayed note, the VAT off the remaining VAT. A note linked to this invoice counts once, by its link. Unapply
-  // deletes the row and cancel reverses the note, so either gives the share back.
-  const appliedUnlinked = (await sql`
-    SELECT cna.amount_allocated, cn.subtotal, cn.tax_amount
-    FROM credit_note_allocations cna
-    JOIN credit_notes cn ON cn.id = cna.credit_note_id AND cn.company_id = cna.company_id
-    WHERE cna.company_id = ${companyId}::UUID AND cna.invoice_id = ${invoiceId}::UUID
-      AND cn.type = 'customer' AND cn.customer_invoice_id IS DISTINCT FROM ${invoiceId}::UUID
-      AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
-    ORDER BY cn.approved_at NULLS FIRST, cn.id
-  `) as Record<string, unknown>[];
-  const shares = appliedUnlinked.map((r) => appliedNetAndVat(Number(r.amount_allocated), Number(r.subtotal), Number(r.tax_amount)));
-  replayed.push(...shares.map((x) => x.net));
-  const appliedVat = shares.reduce((a, x) => a + Math.round(x.vat * 100), 0) / 100;
   const vat = (await sql`
     SELECT (SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
             FROM customer_invoices ci
@@ -200,8 +182,27 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
               AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID) AS reversed_vat
   `) as Record<string, unknown>[];
   // One row always (two scalar subqueries).
-  const remainingVat = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat) - appliedVat) * 100) / 100 : 0;
-  return { legs, replayed, remainingVat };
+  const vatLeft = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) : 0;
+  // Live customer notes APPLIED to this typed invoice but not linked to IT (#1701 rounds 3-4): unlinked ones (applying
+  // one here does not link it: creditNoteApplyToInvoice, the MCP apply and the FIFO walk), and ones linked to another
+  // invoice, at creation or by a later apply to a legacy invoice (COALESCE keeps the first link). None took a leg here
+  // at approval, yet each settled this invoice: their applications, summed, use its GROSS credit capacity in its own
+  // remaining proportion (appliedSettlement; the note posted its own VAT at its approval), the net taken off the legs
+  // pro rata as if recorded on them, the VAT off the remaining VAT. A note linked to this invoice counts once, by its
+  // link. Unapply deletes the row and cancel reverses the note, so either gives the share back.
+  const appliedRows = (await sql`
+    SELECT COALESCE(SUM(cna.amount_allocated), 0) AS applied
+    FROM credit_note_allocations cna
+    JOIN credit_notes cn ON cn.id = cna.credit_note_id AND cn.company_id = cna.company_id
+    WHERE cna.company_id = ${companyId}::UUID AND cna.invoice_id = ${invoiceId}::UUID
+      AND cn.type = 'customer' AND cn.customer_invoice_id IS DISTINCT FROM ${invoiceId}::UUID
+      AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
+  `) as Record<string, unknown>[];
+  const carries = remainingCarries(legs, replayed);
+  const share = appliedSettlement(Math.round(Number(appliedRows[0]?.applied ?? 0) * 100), carries.reduce((x, y) => x + y, 0), vatLeft);
+  const took = noteShares(carries, share.net);
+  const settled = legs.map((l, i) => ({ ...l, taken: (Math.round((l.taken ?? 0) * 100) + took[i]!) / 100 }));
+  return { legs: settled, replayed, remainingVat: (vatLeft - share.vat) / 100 };
 }
 
 /**

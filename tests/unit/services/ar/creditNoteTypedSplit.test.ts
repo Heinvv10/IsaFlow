@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CreditNoteVatSplitRefusal, PROPORTIONAL, RECREATE, allocateTypedCreditNote, appliedNetAndVat, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
+  CreditNoteVatSplitRefusal, PROPORTIONAL, RECREATE, allocateTypedCreditNote, appliedSettlement, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
 } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { RevenueLeg } from '@/modules/accounting/services/ar/invoiceRevenueLines';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
@@ -181,15 +181,33 @@ describe('splitGrossProportionally (dispute notes)', () => {
     });
 });
 
-describe('appliedNetAndVat (an unlinked note applied to a typed invoice, #1701 round 3 M1)', () => {
+describe('appliedSettlement: applications use the invoice\'s gross capacity, in its own proportion (#1701 round 4)', () => {
+  // Cents in, cents out.
   it.each([
-    ['all of a 50 + 7.50 note', 57.5, 50, 7.5, { net: 50, vat: 7.5 }],
-    ['115 of a 200 + 30 note', 115, 200, 30, { net: 100, vat: 15 }],
-    ['half of a 50 + 7.50 note', 28.75, 50, 7.5, { net: 25, vat: 3.75 }],
-    ['one cent of a 100 + 15 note: VAT 0.0013 rounds to 0', 0.01, 100, 15, { net: 0.01, vat: 0 }],
-    ['a cent edge, 10 of a 33.30 + 5.00 note: VAT 1.3054 -> 1.31', 10, 33.3, 5, { net: 8.69, vat: 1.31 }],
-    ['a zero-VAT note: all net', 40, 40, 0, { net: 40, vat: 0 }],
-  ] as const)('%s', (_l, applied, subtotal, tax, expected) => expect(appliedNetAndVat(applied, subtotal, tax)).toEqual(expected));
+    ['57.50 on 100 / 15', 5750, 10000, 1500, { net: 5000, vat: 750 }],
+    ['a standard note\'s 100 on a zero-rated 200 / 0: net only', 10000, 20000, 0, { net: 10000, vat: 0 }],
+    ['100 on the mixed 1500 / 150: 100 x 150 / 1650 = 9.09 VAT', 10000, 150000, 15000, { net: 9091, vat: 909 }],
+    ['past the capacity: 200 on 100 / 15 counts 115', 20000, 10000, 1500, { net: 10000, vat: 1500 }],
+    ['nothing left', 5000, 0, 0, { net: 0, vat: 0 }],
+    ['VAT left below zero (hand-made): net only, up to the net', 5000, 10000, -500, { net: 5000, vat: 0 }],
+  ] as const)('%s', (_l, applied, net, vat, expected) => expect(appliedSettlement(applied, net, vat)).toEqual(expected));
+
+  it('rounded once on the sum: 23 applications of 0.05 to 1.00 / 0.15 count exactly 1.00 / 0.15 (each alone would count 0.01 VAT: 0.23)', () => {
+    expect(appliedSettlement(23 * 5, 100, 15)).toEqual({ net: 100, vat: 15 });
+    expect(appliedSettlement(5, 100, 15).vat * 23).toBe(23);
+  });
+
+  it('never more net than is left nor more VAT than is left, for any amount up to the capacity', () => {
+    for (const [r, v] of [[10000, 1500], [150000, 15000], [3330, 500], [1, 1], [9999, 1]] as const) {
+      for (let a = 1; a <= r + v; a += Math.max(1, Math.floor((r + v) / 97))) {
+        const s = appliedSettlement(a, r, v);
+        expect(s.net + s.vat).toBe(a);
+        expect(s.net).toBeLessThanOrEqual(r);
+        expect(s.vat).toBeLessThanOrEqual(v);
+      }
+      expect(appliedSettlement(r + v, r, v)).toEqual({ net: r, vat: v });
+    }
+  });
 });
 
 describe('legsAreTyped', () => {

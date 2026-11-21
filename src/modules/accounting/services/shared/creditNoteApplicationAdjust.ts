@@ -30,6 +30,7 @@ import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
+import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -246,6 +247,9 @@ async function buildPlan(
         `Document ${docNumber} has only ${formatMoney(outstanding)} outstanding; ${formatMoney(change)} more cannot be applied.`,
       );
     }
+    // A typed invoice: no more than it has left to credit (ar/creditNoteTypedApplication; #1701 round 4).
+    const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.documentId, appliedAfter) : null;
+    if (typedRefusal) throw new CreditNoteAdjustRefusal(typedRefusal);
   }
 
   const noteAppliedAfter = round2(rowsBefore + change);

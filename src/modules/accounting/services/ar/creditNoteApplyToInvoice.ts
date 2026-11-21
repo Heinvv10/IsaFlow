@@ -25,6 +25,8 @@ import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { recordLateLinkExcess, typedInvoiceCreditState } from './invoiceRevenuePosting';
+import { gateNote, typedApplicationRefusal } from './creditNoteTypedApplication';
+import { CreditNoteVatSplitRefusal } from './creditNoteTypedSplit';
 
 export async function applyCreditNoteToInvoice(
   companyId: string,
@@ -118,6 +120,10 @@ export async function applyCreditNoteToInvoice(
   const applyAmount = round2(Math.min(available, outstanding));
   // Whole cents: a credit note may clear a one-cent remnant (the invoice reads 'partially_paid' until it does).
   if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
+
+  // A typed invoice takes no more than it has left to credit, refused before any write (creditNoteTypedApplication).
+  const typedRefusal = await typedApplicationRefusal(companyId, gateNote(cn), invoiceId, applyAmount);
+  if (typedRefusal) throw new CreditNoteVatSplitRefusal(typedRefusal);
 
   // The engine's own row writer (row, then the money, then the status): its UNIQUE refuses a second application to
   // the same pair, and it reports what amount_paid measurably moved for the invariant below.

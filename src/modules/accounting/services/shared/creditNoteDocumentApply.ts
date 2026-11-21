@@ -24,6 +24,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
+import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -272,6 +273,9 @@ async function buildPlan(
   if (amount <= invoiceFloor(side)) {
     throw new CreditNoteApplyRefusal(`The smallest amount that can be applied is R${(invoiceFloor(side) + 0.01).toFixed(2)}.`);
   }
+  // A typed invoice: no more than it has left to credit (ar/creditNoteTypedApplication; #1701 round 4).
+  const typedRefusal = side === 'customer' ? await typedApplicationRefusal(companyId, gateNote(note), input.invoiceId, amount) : null;
+  if (typedRefusal) throw new CreditNoteApplyRefusal(typedRefusal);
   const appliedAfter = round2(appliedBefore + amount);
   return {
     creditNoteId: input.creditNoteId,

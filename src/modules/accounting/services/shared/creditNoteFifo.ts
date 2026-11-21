@@ -50,6 +50,7 @@
  * the correct outcome; catching would commit a half-applied note.
  */
 
+import { firstTypedMisfit } from '../ar/creditNoteTypedApplication';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -214,12 +215,24 @@ export async function applyCreditNote(args: {
 
   const remaining = round2(totalAmount - consumed);
   if (remaining > invoiceFloor(side)) {
-    const rest = candidates
+    let rest = candidates
       .filter((id) => id !== linkedInvoiceId && locked.has(id))
       .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
-    for (const planned of planGreedyAllocations(remaining, rest, invoiceFloor(side))) {
-      lines.push({ invoiceId: planned.invoiceId, amount: planned.amount });
-      consumed = round2(consumed + planned.amount);
+    // A typed invoice takes no more than it has left to credit (ar/creditNoteTypedApplication, #1701 round 4): one the
+    // plan would take past that is SKIPPED and the walk re-planned without it. This runs after the note's journal, so a
+    // skip (the credit goes elsewhere or stays on account), never a refusal. Every candidate here is unlinked to the note.
+    const gate = { id: creditNoteId, number: '', type: side, customerInvoiceId: linkedInvoiceId ?? null };
+    for (;;) {
+      const planned = planGreedyAllocations(remaining, rest, invoiceFloor(side));
+      const misfit = side === 'customer' ? await firstTypedMisfit(companyId, gate, planned) : null;
+      if (misfit === null) {
+        for (const p of planned) {
+          lines.push({ invoiceId: p.invoiceId, amount: p.amount });
+          consumed = round2(consumed + p.amount);
+        }
+        break;
+      }
+      rest = rest.filter((r) => r.invoiceId !== misfit);
     }
   }
 

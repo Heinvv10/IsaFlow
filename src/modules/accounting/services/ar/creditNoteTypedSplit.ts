@@ -12,10 +12,16 @@
  *        tax_amount must be EXACTLY requiredCreditNoteVat(R, V, S) = round-half-away(V x S / R) in exact integer cents,
  *        which is V itself when S = R (V x R / R). No tolerance and no rate: the invoice's own VAT, in proportion.
  *
+ * NOTES NOT LINKED TO IT (#1701 rounds 3-4): a note applied to the invoice but linked elsewhere or nowhere took none of
+ * its legs at approval; its application settles R and V in the invoice's own proportion (appliedSettlement), so R and V
+ * shrink together and the argument below holds with them. Apply refuses an application past R + V before any write
+ * (REST apply, MCP apply_credit_note, adjust_credit_note_application); approve's FIFO walk skips such an invoice.
+ *
  * STRANDING IS IMPOSSIBLE. (1) While R > 0 and V >= 0, a note with S = R is accepted with VAT exactly V (the formula,
  * exact in BigInt), and every partial note's VAT is at most V (S < R), so V stays >= 0; (2) the note that brings R to 0
- * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT.
- * Negative V (hand-made data) is refused.
+ * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT, and
+ * an unapplied application its share; (4) applications count at most R + V, in proportion, so neither goes below
+ * zero. Negative V (hand-made data) is refused.
  *
  * NAMED LIMIT: a tiny note can need no VAT (0.03 against the mixed 1000 / 300 / 200 invoice: 0.02 standard, VAT 0.00),
  * so its standard debit posts with no VAT leg and field 1 does not see it: at most half a cent of VAT per note, and the
@@ -68,16 +74,21 @@ export function requiredCreditNoteVat(input: { remainingNet: number; remainingVa
 }
 
 /**
- * What an UNLINKED customer note's application to an invoice (credit_note_allocations.amount_allocated, a gross figure)
- * settles of that invoice's net and VAT: split by the note's own subtotal : tax_amount, VAT rounded half away from zero
- * to the cent and the net the rest, so the two add up to the applied amount exactly. All of a 50 + 7.50 note is
- * 50 / 7.50; 115 of a 200 + 30 note is 100 / 15 (#1701 round 3 M1: invoiceCreditBasis counts it against the invoice).
+ * What the applications of notes NOT linked to a typed invoice (credit_note_allocations rows, gross) settle of its
+ * remaining net and VAT (#1701 rounds 3-4, decided): its GROSS credit capacity, split in the INVOICE's OWN remaining
+ * proportion, never the note's. An application moves no revenue and no VAT; the note posted its own VAT at its own
+ * approval. So a standard note applied to a zero-rated invoice takes net only, and nothing turns negative on a ratio.
+ * `applied` is the SUM of those applications: rounded once (the VAT half away from zero, the net the rest), so many
+ * small applications count exactly what one would. Capped at the capacity (an over-application, which apply now
+ * refuses, counts as clearing the invoice). VAT left below zero (hand-made data) takes none. Cents in, cents out.
  */
-export function appliedNetAndVat(applied: number, subtotal: number, taxAmount: number): { net: number; vat: number } {
-  const a = cents(applied);
-  const gross = cents(subtotal) + cents(taxAmount);
-  const vat = gross > 0 ? mulDivRound(a, cents(taxAmount), gross) : 0;
-  return { net: (a - vat) / 100, vat: vat / 100 };
+export function appliedSettlement(applied: number, remainingNet: number, remainingVat: number): { net: number; vat: number } {
+  const vatLeft = Math.max(remainingVat, 0);
+  const capacity = remainingNet + vatLeft;
+  const counted = Math.min(applied, Math.max(capacity, 0));
+  if (counted <= 0) return { net: 0, vat: 0 };
+  const vat = mulDivRound(counted, vatLeft, capacity);
+  return { net: counted - vat, vat };
 }
 
 /**

@@ -288,7 +288,7 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
       return cn.id;
     };
 
-    it('round 2: applied but NOT linked; round 3: its application counts (100 / 15 off), a later linked note defaults on what is left; a legacy invoice links', async () => {
+    it('round 2: applied but NOT linked; rounds 3-4: its application counts (in the invoice\'s proportion), a later linked note defaults on what is left; a legacy invoice links', async () => {
       const typed = await approvedInvoice('2026-09-10', MIXED());
       const before = await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id));
       expect(before).toEqual({ remainingNet: 1500, remainingVat: 150 });
@@ -301,15 +301,15 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
       expect(await sql`SELECT amount_allocated::FLOAT8 AS amount FROM credit_note_allocations WHERE credit_note_id = ${noteId}::UUID AND invoice_id = ${typed.id}::UUID`)
         .toEqual([{ amount: 115 }]);
       expect(await sql`SELECT COUNT(*)::INT AS n FROM credit_note_revenue_allocations WHERE credit_note_id = ${noteId}::UUID`).toEqual([{ n: 0 }]);
-      // Round 3 M1: the 115 applied is 100 net + 15 VAT of the note's own 100 : 15, off what the invoice has left.
-      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual({ remainingNet: 1400, remainingVat: 135 });
+      // Rounds 3-4: the 115 applied uses the invoice's gross capacity in ITS proportion (1500 : 150): VAT 115 x 150 / 1650 = 10.45.
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual({ remainingNet: 1395.45, remainingVat: 139.55 });
 
       const later = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {
         type: 'customer', clientId: f.fx.customerId, customerInvoiceId: typed.id, creditDate: '2026-09-21', subtotal: 150,
       }, f.fx.userId));
-      expect(later.taxAmount).toBe(14.46); // 135 x 150 / 1400 = 14.4643
+      expect(later.taxAmount).toBe(15); // 139.55 x 150 / 1395.45 = 15.0005
       await inTx(f.fx, () => approveCreditNote(f.fx.companyId, later.id, f.fx.userId));
-      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual({ remainingNet: 1250, remainingVat: 120.54 });
+      expect(await inTx(f.fx, () => typedInvoiceCreditState(f.fx.companyId, typed.id))).toEqual({ remainingNet: 1245.45, remainingVat: 124.55 });
 
       const legacyId = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
         clientId: f.fx.customerId, invoiceDate: '2026-09-11', taxRate: 15, items: [{ description: 'L', quantity: 1, unitPrice: 1000 }],
