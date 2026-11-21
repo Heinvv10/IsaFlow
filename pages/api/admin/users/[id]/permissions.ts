@@ -50,9 +50,11 @@ async function refusedWrite(res: NextApiResponse, write: () => Promise<void>): P
     await write();
     return false;
   } catch (err) {
-    if (!(err instanceof CompanyMembershipError)) throw err;
-    apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
-    return true;
+    if (err instanceof CompanyMembershipError) {
+      apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
+      return true;
+    }
+    throw err;
   }
 }
 
