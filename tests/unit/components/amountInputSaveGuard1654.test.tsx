@@ -34,6 +34,7 @@ import { ApprovalStarterPanel } from '@/components/accounting/approvals/Approval
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
 const writes: string[] = [];
+const SUP = '10000000-0000-4000-8000-000000000001';
 const ITEM = { id: 'i1', item_code: 'D2-001', name: 'Widget', item_name: 'Widget', category: 'c', uom: 'ea', selling_price: 10, cost_price: 5, quantity_on_hand: 3, current_quantity: 3 };
 beforeEach(() => { writes.length = 0; route.query = {}; vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { cleanup(); });
@@ -89,9 +90,9 @@ describe('a lone "." never reaches a save', () => {
 
   it('purchase order edit: "." in a unit price is not saved as a null price', async () => {
     route.query = { poId: 'po1' };
-    const PO = { id: 'po1', po_number: 'PO-1', status: 'draft', supplier_id: 's1', supplier_name: 'Acme', order_date: '2026-10-01', expected_delivery_date: null,
+    const PO = { id: 'po1', po_number: 'PO-1', status: 'draft', supplier_id: SUP, supplier_name: 'Acme', order_date: '2026-10-01', expected_delivery_date: null,
       items: [{ id: 'l1', description: 'Cable', quantity: '1', unit_price: '5', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }] };
-    serve((u) => (/purchase-orders\/po1/.test(u) ? PO : []));
+    serve((u) => (/purchase-orders\/po1/.test(u) ? PO : u.includes('suppliers-list') ? { id: SUP, name: 'Acme' } : []));
     render(<PoEditPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }));
     const el = await screen.findByLabelText('Line 1 unit price') as HTMLInputElement;
@@ -125,7 +126,7 @@ describe('a lone "." never reaches a save', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Dispose Asset/ }));
     const el = document.querySelector('input[name="disposal_amount"]') as HTMLInputElement;
     fireEvent.change(el, { target: { value: '.' } });
-    fireEvent.click(screen.getAllByRole('button', { name: /Dispose/ }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm Disposal/ }));
     expect(writes).toEqual([]);
     expect(el.validity.valid).toBe(false);
   });
