@@ -26,9 +26,9 @@ beforeEach(L.reset);
 
 const conn = async () => (await pool.query("SELECT id FROM intercompany_connections WHERE status <> 'revoked' AND $1 IN (company_low_id, company_high_id) AND $2 IN (company_low_id, company_high_id)", [co.A, co.B])).rows[0].id as string;
 /** Both sides' links set (L.reset's connect sets A's customer and B's supplier only), mirroring_since back-dated, the cut-over date set. */
-async function turnOn(o: { cutover?: string; since?: string; bOn?: boolean } = {}) {
+async function turnOn(o: { cutover?: string; since?: string; aOn?: boolean; bOn?: boolean } = {}) {
   const id = await conn();
-  await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connection_sides SET supplier_id = $2 WHERE connection_id = $1 AND company_id = $3', [id, party.aSupplier, co.A]), true);
+  if (o.aOn !== false) await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connection_sides SET supplier_id = $2 WHERE connection_id = $1 AND company_id = $3', [id, party.aSupplier, co.A]), true);
   if (o.bOn !== false) await asAppUser(pool, U.ab, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET customer_id = $2 WHERE connection_id = $1 AND company_id = $3', [id, party.bCustomer, co.B]), true);
   await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connections SET cutover_date = $2 WHERE id = $1', [id, o.cutover ?? '2026-03-01']), true);
   // (a fixture: back-date the stamp the database wrote, past both side triggers, re-enabled in the same transaction)
@@ -58,8 +58,8 @@ describe('the pair\'s cutover', () => {
     expect([...(await asService(pool, U.ab, co.A, () => getPairCutovers(co.G))).values()]).toEqual(['2026-04-10']);
   });
 
-  it('one company on, the other off (B has no customer link): no cutover, the rows are drafted as before', async () => {
-    await turnOn({ bOn: false });
+  it.each([['B', { bOn: false }], ['A', { aOn: false }]] as const)('one company on, the other off (%s lacks a link): no cutover, the rows are drafted as before', async (_who, off) => {
+    await turnOn(off);
     expect((await asService(pool, U.ab, co.A, () => getPairCutovers(co.G))).size).toBe(0);
     const r = await manual(co.A, co.B, 'sale', '2026-03-05');
     expect((await generate()).drafted).toContain(r);

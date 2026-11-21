@@ -18,7 +18,6 @@ import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/servic
 import { approveCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteApproveService';
 import { approveCreditNoteRow, asService, co, groupAccounts, inbox, plantArCreditNote, sentInvoice, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
-import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -78,8 +77,13 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     await gen();
     const d = await draftOf(r1);
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
+    // the receiver's bill journal reversed on 10 March: after the later document date, so only "still today" sees it
     const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM supplier_invoices WHERE id = $1', [m.bill])).rows[0].je as string;
-    await asService(pool, U.b, co.B, () => reverseJournalEntry(co.B, je, U.b));
+    const rev = (await pool.query(`INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
+      SELECT '2026-03-10', 'reversal', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je])).rows[0].id as string;
+    await pool.query(`INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
+      SELECT $2, gl_account_id, credit, debit, company_id, 'reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, rev]);
+    await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [rev, je]);
     const row = (await list()).find((a) => a.id === d)!;
     expect([row.mirroredDuplicateOf ? 'warned' : 'none', row.mirrorStands]).toEqual(['warned', false]);
   });
