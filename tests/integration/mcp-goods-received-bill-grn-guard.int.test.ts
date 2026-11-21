@@ -27,10 +27,13 @@ import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 let f: BillFixture;
+let other: BillFixture;
 
-beforeAll(async () => { f = await seedBillFixture(pool, 'grn-db-guard'); }, 60_000);
+beforeAll(async () => { f = await seedBillFixture(pool, 'grn-db-guard'); other = await seedBillFixture(pool, 'grn-db-guard-other'); }, 60_000);
 afterAll(async () => {
-  try { await dropGrnExtras(pool, f); await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await pool.end(); }
+  try {
+    for (const x of [f, other]) { await dropGrnExtras(pool, x); await dropMaintExtras(pool, x); await dropBillFixture(pool, x); }
+  } finally { await pool.end(); }
 }, 60_000);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -73,7 +76,11 @@ describe('the database refuses a live bill on a cancelled note', () => {
     expect(await asApp(INSERT, [f.co, number(), f.supplier, f.owner, dead])).toBe('23503:supplier_invoices_grn_live');
     expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE grn_id = $1', [dead])).rows[0].n)).toBe(0);
     expect(await asApp(INSERT, [f.co, number(), f.supplier, f.owner, await note()])).toBe('ok');
-    // A note that is not this company's (or none at all) is refused as well.
+    // A note that is not this company's (another company's live note, or none at all) is refused as well.
+    const po = await seedQtyPo(pool, other, { lines: [{ qty: 4, price: 10 }] });
+    const theirs = await callTool(pool, other, create, grnArgs(po, [[0, 4]]));
+    expect(theirs.isError, theirs.text).toBe(false);
+    expect(await asApp(INSERT, [f.co, number(), f.supplier, f.owner, String(theirs.body.grn_id)])).toBe('23503:supplier_invoices_grn_live');
     expect(await asApp(INSERT, [f.co, number(), f.supplier, f.owner, crypto.randomUUID()])).toBe('23503:supplier_invoices_grn_live');
   });
 

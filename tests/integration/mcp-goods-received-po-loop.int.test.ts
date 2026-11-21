@@ -11,7 +11,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { callRoute, dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { updatePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
 import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, poState, seedQtyPo, type QtyPo } from './helpers/grnHarness';
 import { poLines, poRow } from './helpers/poMaintHarness';
 import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGoodsReceived';
@@ -83,6 +84,12 @@ describe('a PO whose every note is cancelled (M2)', () => {
     expect(mcp.isError).toBe(true);
     expect(mcp.text).toContain('cancelled goods received note');
     expect(mcp.text).toContain('its supplier cannot change');
+    // The service decides it again under the PO lock, whatever its caller checked first.
+    const req = await openRequest(pool, f, f.owner);
+    const direct = await req.run(() => updatePurchaseOrder(f.co, { poId: po.po, header: { supplierId: other }, replace: null },
+      { userId: f.owner, via: 'test', budgetFigures: true, mayEditApproved: true })).then(() => 'updated', (e: unknown) => (e as Error).message);
+    await req.rollback();
+    expect(direct).toContain('its supplier cannot change');
     // The PUT edits only a draft / submitted PO; one put back to draft by hand still holds the cancelled note.
     await pool.query("UPDATE purchase_orders SET status = 'draft' WHERE id = $1", [po.po]);
     const put = await callRoute(poRoute as never, f, f.owner, `/api/accounting/purchase-orders/${po.po}`, { supplier_id: other }, { method: 'PUT', id: po.po });
