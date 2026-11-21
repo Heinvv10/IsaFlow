@@ -12,6 +12,7 @@ import type { StaffCostRate } from '@/modules/accounting/services/practice/pract
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -166,8 +167,8 @@ export default function StaffCostRatesPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Cost rate/hr *</label>
-                <input type="number" min="0" step="0.01" className={INPUT} value={form.costRate}
-                  onChange={(e) => setField('costRate', e.target.value)} placeholder="0.00" />
+                <AmountInput min={0} className={INPUT} value={form.costRate}
+                  onValueChange={(_n, t) => setField('costRate', t)} placeholder="0.00" />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Currency</label>

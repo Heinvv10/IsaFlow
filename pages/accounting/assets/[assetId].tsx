@@ -18,6 +18,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 // ---- Types ----
 
@@ -238,7 +239,7 @@ export default function AssetDetailPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Amount (ZAR)</label>
-                  <input type="number" name="disposal_amount" min="0" step="0.01" value={form.disposal_amount} onChange={e => setForm(f => ({ ...f, disposal_amount: e.target.value }))} className="ff-input w-full" placeholder="0.00" />
+                  <AmountInput min={0} name="disposal_amount" value={form.disposal_amount} onValueChange={(_n, t) => setForm(f => ({ ...f, disposal_amount: t }))} className="ff-input w-full" placeholder="0.00" />
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Reason / Notes (optional)</label>

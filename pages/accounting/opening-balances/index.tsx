@@ -10,6 +10,7 @@ import { BookMarked, Loader2, AlertCircle, Save } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface AccountBalance {
   id: string;
@@ -167,23 +168,17 @@ export default function OpeningBalancesPage() {
                       <td className="py-2 px-4 text-[var(--ff-text-primary)]">{acct.account_name}</td>
                       <td className="py-2 px-4 text-[var(--ff-text-secondary)] capitalize">{acct.account_type}</td>
                       <td className="py-2 px-4 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <AmountInput min={0}
                           value={acct.opening_debit || ''}
-                          onChange={(e) => updateBalance(acct.id, 'opening_debit', e.target.value)}
+                          onValueChange={(_n, t) => updateBalance(acct.id, 'opening_debit', t)}
                           className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                           placeholder="0.00"
                         />
                       </td>
                       <td className="py-2 px-4 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <AmountInput min={0}
                           value={acct.opening_credit || ''}
-                          onChange={(e) => updateBalance(acct.id, 'opening_credit', e.target.value)}
+                          onValueChange={(_n, t) => updateBalance(acct.id, 'opening_credit', t)}
                           className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                           placeholder="0.00"
                         />

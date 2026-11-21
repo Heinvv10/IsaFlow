@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Category { id: string; name: string; code: string; }
 
@@ -75,8 +76,8 @@ export default function NewProductPage() {
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Pricing & Costing</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label><input type="number" name="costPrice" step="0.01" min="0" value={form.costPrice} onChange={e => update('costPrice', e.target.value)} className="ff-input w-full" /></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Selling Price (ZAR)</label><input type="number" name="sellingPrice" step="0.01" min="0" value={form.sellingPrice} onChange={e => update('sellingPrice', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label><AmountInput min={0} name="costPrice" value={form.costPrice} onValueChange={(_n, t) => update('costPrice', t)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Selling Price (ZAR)</label><AmountInput min={0} name="sellingPrice" value={form.sellingPrice} onValueChange={(_n, t) => update('sellingPrice', t)} className="ff-input w-full" /></div>
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Method</label><select name="costMethod" value={form.costMethod} onChange={e => update('costMethod', e.target.value)} className="ff-select w-full"><option value="weighted_average">Weighted Average</option><option value="fifo">FIFO</option></select></div>
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT Rate (%)</label><input type="number" name="taxRate" step="0.01" value={form.taxRate} onChange={e => update('taxRate', e.target.value)} className="ff-input w-full" /></div>
             </div>

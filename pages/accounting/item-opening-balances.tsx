@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageOpen, Save, Loader2, Search } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -145,13 +146,13 @@ export default function ItemOpeningBalancesPage() {
                         <td className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{item.uom}</td>
                         <td className="px-4 py-2 text-right">
-                          <input type="number" step="0.0001" min="0" value={e?.quantity ?? (item.quantity_on_hand ?? '')}
-                            onChange={ev => setField(item.id, 'quantity', ev.target.value)}
+                          <AmountInput min={0} decimals={4} value={e?.quantity ?? (item.quantity_on_hand ?? '')}
+                            onValueChange={(_n, t) => setField(item.id, 'quantity', t)}
                             className={`w-28 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
                         <td className="px-4 py-2 text-right">
-                          <input type="number" step="0.01" min="0" value={e?.unitCost ?? (item.cost_price ?? '')}
-                            onChange={ev => setField(item.id, 'unitCost', ev.target.value)}
+                          <AmountInput min={0} value={e?.unitCost ?? (item.cost_price ?? '')}
+                            onValueChange={(_n, t) => setField(item.id, 'unitCost', t)}
                             className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(qty * cost)}</td>

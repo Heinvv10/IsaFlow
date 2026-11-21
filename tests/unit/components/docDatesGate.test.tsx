@@ -123,7 +123,7 @@ const cases: GateCase[] = [
       await screen.findByRole('option', { name: 'Acme' });
       change(document.querySelector('select[name="clientId"]')!, 'c1');
       change(byPlaceholder('Description *'), 'Retainer');
-      change(screen.getAllByRole('spinbutton')[1]!, '100');
+      change(screen.getByLabelText('Line 1 unit price'), '100');
     },
     submit: submitForm },
   { page: 'recurring-journals', required: true, element: <RecurringJournals />, field: 'First Run Date',

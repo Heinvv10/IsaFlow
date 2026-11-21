@@ -19,6 +19,7 @@ import {
 } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
 import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Props {
   actorRole: string;
@@ -107,8 +108,8 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
           </div>
           <div>
             <label htmlFor="rule-amount" className={LABEL}>Amount (R)</label>
-            <input id="rule-amount" type="number" min={0} step="0.01" value={operator === 'any' ? '0' : amount}
-              disabled={operator === 'any'} onChange={(e) => setAmount(e.target.value)} className={FIELD} />
+            <AmountInput min={0} id="rule-amount" value={operator === 'any' ? '0' : amount}
+              disabled={operator === 'any'} onValueChange={(_n, t) => setAmount(t)} className={FIELD} />
           </div>
         </div>
         <div>
