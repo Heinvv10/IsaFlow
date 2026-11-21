@@ -6,9 +6,11 @@
  *   so a side left on the merged-away supplier silently stops pairing. At most one side per (company, supplier) holds it
  *   (intercompany_sides_supplier_uq): when the survivor already has one too, the merge is refused (`sideRefusal`), as moving
  *   would break that index. The side guard needs a session user with a write role in the company, which a merge has.
- * - supplier_expectations (one per company + supplier) and the OPEN expected_invoice_alerts (pending / chased; unique per
- *   company + supplier + expected_by): moved to the survivor. Where the survivor already has an expectation, or an alert for the
- *   same date, the survivor's row stays and the source's is dropped. Resolved and dismissed alerts are history and stay.
+ * - supplier_expectations (one per company + supplier) and the expected_invoice_alerts (unique per company + supplier +
+ *   expected_by): moved to the survivor. Where the survivor already has an expectation, or an alert for the same date, the
+ *   survivor's row stays and the source's open one is dropped. A resolved or dismissed alert moves too when the survivor has none
+ *   for its date: the gap scan keys on (supplier, date), so one left on the source would let it raise that date again on the
+ *   survivor, and the chase send a reminder someone dismissed (Codex gate at ecc452ea6b, finding 1).
  *
  * supplier_id tables a merge deliberately does NOT move (every supplier_id column in the schema was checked):
  * - supplier_bank_verifications: append-only, a verification of THAT supplier's bank details; it must not vouch for the survivor's.
@@ -101,8 +103,9 @@ export interface MergeActor { userId: string; via: string }
  * Moves the expectation and the open alerts to the survivor, and the chase opt-out with them. Returns the rows changed (not
  * transactions: the caller keeps them out of its moved-transactions count).
  *
- * - The open alerts of both suppliers are locked FOR UPDATE first (id order), so a cron stamp that arrives meanwhile waits and
- *   then lands on the merged row. The cron itself does not lock: it reads a pending alert, sends, then stamps by id
+ * - The alerts of both suppliers are locked FOR UPDATE first (id order), so a cron stamp that arrives meanwhile waits and
+ *   then lands on the merged row. The gap scan (detectGaps) takes the supplier row before it writes an alert, so it waits for the
+ *   merge's supplier lock instead (lock order: supplier rows, then alerts, then expectations, in both). The cron itself does not lock: it reads a pending alert, sends, then stamps by id
  *   (missingInvoiceChaseService), so a chase already on its way when the merge commits can still go out; stated in the PR.
  * - suppliers.chase_opted_out: if the source is muted the survivor becomes muted (the safe default for outbound messages),
  *   with an audit row; a muted survivor stays muted. Never refused.
@@ -111,10 +114,10 @@ export interface MergeActor { userId: string; via: string }
  *   source's only where its own are empty: a chased source alert must not
  *   lose to a pending survivor one (the cron would chase again), and a resolved one (its bill now on the survivor) must not
  *   leave a pending survivor alert to be chased for an invoice that arrived. The source's open duplicate is then dropped; its
- *   resolved / dismissed one stays as history.
- * - The survivor's expectation wins over the source's, and the moved open alerts follow it. History alerts stay on the source
- *   and are never pointed at an expectation of the survivor: their expectation link is cleared when the expectation moves or
- *   goes, so an alert's supplier_id and its expectation's supplier_id never disagree.
+ *   resolved / dismissed one stays on the source as history (the survivor's row for that date now carries its state).
+ * - The survivor's expectation wins over the source's, and the moved alerts follow it. An alert left on the source is never
+ *   pointed at an expectation of the survivor: its expectation link is cleared when the expectation moves (or goes, ON DELETE SET
+ *   NULL), so an alert's supplier_id and its expectation's supplier_id never disagree.
  */
 export async function moveExpectationsAndAlerts(
   companyId: string, sourceId: string, targetId: string, actor: MergeActor,
@@ -122,7 +125,7 @@ export async function moveExpectationsAndAlerts(
   let moved = 0;
   await sql`
     SELECT id FROM expected_invoice_alerts
-     WHERE company_id = ${companyId}::UUID AND supplier_id = ANY(${[sourceId, targetId]}::UUID[]) AND status IN ('pending', 'chased')
+     WHERE company_id = ${companyId}::UUID AND supplier_id = ANY(${[sourceId, targetId]}::UUID[])
      ORDER BY id FOR UPDATE
   `;
   const muted = (await sql`
@@ -155,12 +158,6 @@ export async function moveExpectationsAndAlerts(
        WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID RETURNING id
     `) as DbRow[];
     moved += e.length;
-    // The history alerts stay on the source, so they must not name an expectation that is now the survivor's.
-    await sql`
-      UPDATE expected_invoice_alerts SET expectation_id = NULL
-       WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID AND expectation_id = ${String(src[0].id)}::UUID
-         AND status IN ('resolved', 'dismissed')
-    `;
   }
 
   // Same-date clash: the survivor's alert takes the more advanced state, then (equal chased) the chase facts it lacks.
@@ -195,13 +192,24 @@ export async function moveExpectationsAndAlerts(
      RETURNING a.id
   `) as DbRow[];
   moved += dropped.length;
+  // Every source alert the survivor has no row for that date moves: the open ones (their duplicates were dropped above) and the
+  // resolved / dismissed ones, which are what keeps the gap scan from raising that date again.
   const alerts = (await sql`
-    UPDATE expected_invoice_alerts SET supplier_id = ${targetId}::UUID, updated_at = NOW(),
-           expectation_id = CASE WHEN ${ownId}::UUID IS NULL THEN expectation_id ELSE ${ownId}::UUID END
-     WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID AND status IN ('pending', 'chased')
-     RETURNING id
+    UPDATE expected_invoice_alerts a SET supplier_id = ${targetId}::UUID, updated_at = NOW(),
+           expectation_id = CASE WHEN ${ownId}::UUID IS NULL THEN a.expectation_id ELSE ${ownId}::UUID END
+     WHERE a.company_id = ${companyId}::UUID AND a.supplier_id = ${sourceId}::UUID
+       AND NOT EXISTS (SELECT 1 FROM expected_invoice_alerts t
+                        WHERE t.company_id = a.company_id AND t.supplier_id = ${targetId}::UUID AND t.expected_by = a.expected_by)
+     RETURNING a.id
   `) as DbRow[];
   moved += alerts.length;
+  // What stays on the source (history of a date the survivor holds) must not name the expectation that is now the survivor's.
+  if (src[0] && !ownId) {
+    await sql`
+      UPDATE expected_invoice_alerts SET expectation_id = NULL
+       WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID AND expectation_id = ${String(src[0].id)}::UUID
+    `;
+  }
 
   if (src[0] && ownId) {
     await sql`DELETE FROM supplier_expectations WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID`;

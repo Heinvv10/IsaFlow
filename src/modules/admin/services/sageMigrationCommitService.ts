@@ -39,7 +39,7 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { resolveSageCustomer, resolveSageSupplier, sageRef, type SameNameRefusal } from './sagePartyMatch';
+import { resolveLockedSageSupplier, resolveSageCustomer, resolveSageSupplier, sageRef, type SameNameRefusal } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -228,7 +228,7 @@ export async function commitAPInvoice(
 
   // Stamped like the supplier sync (upsertSupplier), so whether bills or suppliers are imported first
   // makes no difference to which row a Sage id ends up on.
-  const matched = await resolveSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
+  const matched = await resolveLockedSageSupplier(companyId, { name: inv.supplierName, sageId: inv.supplierSageId });
   if (!matched) throw new Error(`Supplier not found: ${inv.supplierName}`);
   const supplierId = matched.id;
 

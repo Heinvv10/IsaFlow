@@ -128,6 +128,30 @@ describe('the Sage commit brings every Sage supplier across (#1655)', () => {
       .toEqual({ created: 0, skipped: 2, failed: [] });
   });
 
+  it('an older row carrying another system\'s reference does not hide a newer unstamped one: the Sage party claims that (Codex finding 5)', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO suppliers(company_id, name, external_system, external_ref, created_at) VALUES($1, 'Iris Timber', 'xero', 'X-3', now() - interval '1 day')", [c]);
+    await pool.query("INSERT INTO suppliers(company_id, name) VALUES($1, 'Iris Timber')", [c]);
+    const s = await commit(c, { suppliers: { records: [party(481, 'Iris Timber')] } });
+    expect(s.suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await live('suppliers', c)).toEqual([
+      { name: 'Iris Timber', external_system: 'sage', external_ref: '481' },
+      { name: 'Iris Timber', external_system: 'xero', external_ref: 'X-3' },
+    ]);
+  });
+
+  it('customers: an older row carrying another system\'s reference does not hide a newer unstamped one either', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO customers(company_id, name, external_system, external_ref, created_at) VALUES($1, 'Jade Retail', 'xero', 'X-4', now() - interval '1 day')", [c]);
+    await pool.query("INSERT INTO customers(company_id, name) VALUES($1, 'Jade Retail')", [c]);
+    const s = await commit(c, { customers: { records: [party(491, 'Jade Retail')] } });
+    expect(s.customers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect(await live('customers', c)).toEqual([
+      { name: 'Jade Retail', external_system: 'sage', external_ref: '491' },
+      { name: 'Jade Retail', external_system: 'xero', external_ref: 'X-4' },
+    ]);
+  });
+
   it('customers take the same rule: a deleted twin and a case twin do not swallow a Sage customer', async () => {
     const c = await newCompany(pool, [[admin, 'admin']], companies);
     await pool.query("INSERT INTO customers(company_id, name, deleted_at) VALUES($1, 'Echo Retail', now())", [c]);

@@ -26,12 +26,16 @@
  *   pull's: that row belongs to another Sage party. A conflict row is kept whatever its chain passes, so the
  *   same-survivor check above still sees it.
  * - A 'sage' row with no external_ref is unstamped, never a conflict.
+ * - Among name hits of one kind (live, or merged-away), one the claim can stamp (no external_ref) ranks before an older one
+ *   carrying another system's ref, which the claim refuses: else that row hides the claimable one and the party gets a third
+ *   row (Codex gate at ecc452ea6b, finding 5).
  * - A pull without a Sage id still reaches the survivor by name and stamps nothing.
  *
  * Known: a bill imported before its supplier sync throws "Supplier not found" where the name is ambiguous.
  */
 
 import { sql } from '@/lib/neon';
+import { lockSupplierIfLive } from '@/modules/accounting/services/core/supplierLiveLock';
 import type { Row } from './sageMigrationTypes';
 
 /** The Sage id as stored in external_ref, or null when the pull carried none. */
@@ -103,7 +107,7 @@ export async function matchSageSupplier(
     SELECT c.id, h.id AS hit_id, h.hit_ref, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
     FROM chain c JOIN hit h ON h.id = c.start_id
     WHERE c.deleted_at IS NULL AND (h.by_ref OR h.conflict OR NOT c.blocked)
-    ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
+    ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, (${ref}::TEXT IS NULL OR h.hit_ref IS NULL) DESC, h.created_at, h.id
   `) as Row[];
   // Merged-away rows of this name already stamped with ANOTHER Sage id: matched only to spot a conflict.
   const conflicts = rows.filter((r) => r.conflict === true);
@@ -169,6 +173,22 @@ export async function resolveSageSupplier(
   return null;
 }
 
+/**
+ * resolveSageSupplier for a writer filing a bill (commitAPInvoice): the match is locked FOR KEY SHARE and re-checked live
+ * (supplierLiveLock; Codex gate at ecc452ea6b, finding 4). A merge that soft-deleted it after the match is waited for, and the party
+ * is matched again (it then reaches the survivor); no merge can move it before the caller's transaction ends.
+ */
+export async function resolveLockedSageSupplier(
+  companyId: string, party: { name: string; sageId?: number | string | null },
+): Promise<SageSupplierMatch | null> {
+  let match = await resolveSageSupplier(companyId, party);
+  for (let attempt = 0; match && !(await lockSupplierIfLive(companyId, match.id)); attempt++) {
+    if (attempt >= 2) throw new Error(`Sage supplier ${party.name}: merged again while importing; retry`);
+    match = await resolveSageSupplier(companyId, party);
+  }
+  return match;
+}
+
 export async function findSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null },
 ): Promise<string | null> {
@@ -187,7 +207,8 @@ export async function findSageCustomer(
         OR (LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
             AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL))
       )
-    ORDER BY (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE DESC, created_at, id
+    ORDER BY (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE DESC,
+             (${ref}::TEXT IS NULL OR external_ref IS NULL) DESC, created_at, id
     LIMIT 1
   `) as Row[];
   return rows.length ? String(rows[0]!.id) : null;

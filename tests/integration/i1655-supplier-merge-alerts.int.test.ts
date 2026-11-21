@@ -27,7 +27,7 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     [companyId, supplierId, expectationId, expectedBy, status])).rows[0].id);
   const alertRow = async (id: string) => (await pool.query('SELECT supplier_id, expectation_id FROM expected_invoice_alerts WHERE id = $1', [id])).rows[0] ?? null;
 
-  it('moves the expectation and the open alerts; resolved and dismissed alerts stay as history', async () => {
+  it('moves the expectation and every alert of a date the survivor has none for, resolved and dismissed too (Codex finding 1)', async () => {
     const survivor = await insPlain('Exp Survivor');
     const gone = await insPlain('Exp Gone');
     const e = await expect_(gone);
@@ -39,9 +39,9 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     expect(String((await pool.query('SELECT supplier_id FROM supplier_expectations WHERE id = $1', [e])).rows[0].supplier_id)).toBe(survivor);
     expect(await alertRow(open)).toEqual({ supplier_id: survivor, expectation_id: e });
     expect(await alertRow(chased)).toEqual({ supplier_id: survivor, expectation_id: e });
-    // History stays on the source and no longer names an expectation that is now the survivor's.
-    expect(await alertRow(resolved)).toEqual({ supplier_id: gone, expectation_id: null });
-    expect(await alertRow(dismissed)).toEqual({ supplier_id: gone, expectation_id: null });
+    // A resolved or dismissed date stays settled on the survivor: the gap scan keys on (supplier, date).
+    expect(await alertRow(resolved)).toEqual({ supplier_id: survivor, expectation_id: e });
+    expect(await alertRow(dismissed)).toEqual({ supplier_id: survivor, expectation_id: e });
   });
 
   it('where the survivor has its own expectation and an alert for the same date, the survivor\'s rows stay and the source\'s duplicates go', async () => {
@@ -123,16 +123,20 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     expect((await pool.query('SELECT chase_opted_out FROM suppliers WHERE id = $1', [mutedSurvivor])).rows[0].chase_opted_out).toBe(true);
   });
 
-  it('history alerts keep their supplier and are not re-pointed at the survivor\'s expectation', async () => {
+  it('a history alert moves and follows the survivor\'s expectation; one whose date the survivor holds stays, unlinked', async () => {
     const survivor = await insPlain('Hist Survivor');
     const gone = await insPlain('Hist Gone');
     const own = await expect_(survivor, 10);
     const theirs = await expect_(gone, 20);
     const history = await alert(gone, '2026-03-05', 'resolved', theirs);
     const open = await alert(gone, '2026-07-05', 'pending', theirs);
+    await alert(survivor, '2026-02-05', 'pending', own);
+    const shadowed = await alert(gone, '2026-02-05', 'dismissed', theirs);
     await merge(survivor, gone);
-    expect(await alertRow(history)).toEqual({ supplier_id: gone, expectation_id: null });
+    expect(await alertRow(history)).toEqual({ supplier_id: survivor, expectation_id: own });
     expect(await alertRow(open)).toEqual({ supplier_id: survivor, expectation_id: own });
+    // The survivor's 02-05 alert took the dismissal (more advanced state); the source's row stays as history, its expectation gone.
+    expect(await alertRow(shadowed)).toEqual({ supplier_id: gone, expectation_id: null });
   });
 
   it('a resolved source alert never erases the chase a chased survivor alert really sent; the resolution is carried', async () => {

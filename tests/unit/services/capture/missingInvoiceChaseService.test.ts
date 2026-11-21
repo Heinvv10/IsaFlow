@@ -21,7 +21,8 @@ const { sqlMock, sendEmailMock, sendWhatsAppMock } = vi.hoisted(() => {
   return { sqlMock, sendEmailMock, sendWhatsAppMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// withTransaction hands its callback the same mock: the gap write (gapAlertWrite) runs its statements on `tx`.
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: (fn: (tx: typeof sqlMock) => unknown) => fn(sqlMock) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -177,7 +178,10 @@ describe('detectGaps', () => {
     // Query 1: SELECT locked expectations → 1 row, last_invoice_date 35 days ago
     vi.mocked(sqlMock)
       .mockResolvedValueOnce([makeExpectationRow({ last_invoice_date: '2026-03-15' })] as never)
-      // Query 2 (per expectation): check supplier_invoices within ±7 days of nextExpectedBy → no match
+      // Per expectation, in its transaction: the supplier row (live) and the expectation (still its, locked)
+      .mockResolvedValueOnce([{ id: 'sup' }] as never)
+      .mockResolvedValueOnce([{ id: 'exp' }] as never)
+      // Then: check supplier_invoices within ±7 days of nextExpectedBy → no match
       .mockResolvedValueOnce([] as never)
       // Query 3: INSERT alert ON CONFLICT DO NOTHING → returns 1 row (inserted)
       .mockResolvedValueOnce([makeAlertRow()] as never);
@@ -193,6 +197,8 @@ describe('detectGaps', () => {
 
     vi.mocked(sqlMock)
       .mockResolvedValueOnce([makeExpectationRow({ last_invoice_date: '2026-03-15' })] as never)
+      .mockResolvedValueOnce([{ id: 'sup' }] as never)
+      .mockResolvedValueOnce([{ id: 'exp' }] as never)
       // A matching invoice IS found within the ±7 day window
       .mockResolvedValueOnce([{ id: 'inv-001', invoice_date: '2026-04-13' }] as never);
 
@@ -208,6 +214,8 @@ describe('detectGaps', () => {
     // Second run: INSERT returns 0 rows (conflict not inserted)
     vi.mocked(sqlMock)
       .mockResolvedValueOnce([makeExpectationRow({ last_invoice_date: '2026-03-15' })] as never)
+      .mockResolvedValueOnce([{ id: 'sup' }] as never)
+      .mockResolvedValueOnce([{ id: 'exp' }] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never); // INSERT returns nothing → unchanged
 
@@ -215,6 +223,18 @@ describe('detectGaps', () => {
 
     expect(result.created).toBe(0);
     expect(result.unchanged).toBe(1);
+  });
+
+  it('writes nothing when the supplier was merged away meanwhile (its row no longer live under the lock)', async () => {
+    const today = new Date('2026-04-19');
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([makeExpectationRow({ last_invoice_date: '2026-03-15' })] as never)
+      .mockResolvedValueOnce([] as never); // the supplier row: deleted_at set by the merge
+
+    const result = await detectGaps(COMPANY_ID, today);
+
+    expect(result).toEqual({ created: 0, unchanged: 1 });
+    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(2);
   });
 });
 
