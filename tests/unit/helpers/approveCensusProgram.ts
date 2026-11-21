@@ -86,24 +86,64 @@ export const exits = (s: ts.Statement | undefined): boolean => {
   return ts.isBlock(s) && s.statements.length > 0 && exits(s.statements[s.statements.length - 1]);
 };
 
-/**
- * The static SQL text of a node: a tagged template (the parts joined by ?), and, when `queryCalls`, a `<x>.query('...')` / `<x>.query(`...`)` call
- * whose first argument is a string or template without substitutions (the pg client and pool style, which a tagged-template-only census misses).
- */
-export function sqlTextOf(n: ts.Node, queryCalls: boolean): string | null {
-  if (ts.isTaggedTemplateExpression(n)) return templateText(n);
-  if (queryCalls && ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'query') {
-    const a = n.arguments[0];
-    if (a && ts.isStringLiteralLike(a)) return a.text;
-    if (a && ts.isTemplateExpression(a)) return `${a.head.text}?${a.templateSpans.map((x) => x.literal.text).join('?')}`;
-  }
-  return null;
+/** The initializer of a `const` an identifier names (the census reads a const's SQL text, or a bind's value, as if written in place). */
+export type ConstResolver = (id: ts.Identifier) => ts.Expression | undefined;
+
+/** `const` initializers, through the type checker (aliases are not followed: a const SQL text is read where the const is declared). */
+export const constResolver = (checker: ts.TypeChecker): ConstResolver => (id) => {
+  const d = checker.getSymbolAtLocation(id)?.declarations?.[0];
+  return d && ts.isVariableDeclaration(d) && ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const ? d.initializer : undefined;
+};
+
+/** A bind's static value: a string literal, or a const bound to one. Anything else is unknown (null). */
+function literalOf(e: ts.Expression, resolveConst?: ConstResolver, depth = 0): string | null {
+  const x = unwrap(e);
+  if (ts.isStringLiteralLike(x)) return x.text;
+  const init = ts.isIdentifier(x) && resolveConst && depth < 3 ? resolveConst(x) : undefined;
+  return init ? literalOf(init, resolveConst, depth + 1) : null;
+}
+const bindText = (e: ts.Expression, r?: ConstResolver): string => { const v = literalOf(e, r); return v === null ? '?' : `'${v}'`; };
+
+/** A template's text, each substitution read as its static value ('posted') where it has one, else `?` (#1670 breaker L1a). */
+function templateOf(t: ts.TemplateLiteral, r?: ConstResolver): string {
+  return ts.isNoSubstitutionTemplateLiteral(t) ? t.text
+    : `${t.head.text}${t.templateSpans.map((sp) => `${bindText(sp.expression, r)}${sp.literal.text}`).join('')}`;
 }
 
-/** The static text of a tagged template (the parts joined by ?). */
-export const templateText = (t: ts.TaggedTemplateExpression): string =>
-  ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text
-    : `${t.template.head.text}?${t.template.templateSpans.map((s) => s.literal.text).join('?')}`;
+/** The text of a `.query()` first argument: a string, a template, or a const naming one (L1b); null when it is not static. */
+function queryText(a: ts.Expression, r?: ConstResolver, depth = 0): string | null {
+  const x = unwrap(a);
+  if (ts.isStringLiteralLike(x)) return x.text;
+  if (ts.isTemplateExpression(x)) return templateOf(x, r);
+  const init = ts.isIdentifier(x) && r && depth < 3 ? r(x) : undefined;
+  return init ? queryText(init, r, depth + 1) : null;
+}
+
+/**
+ * The static SQL text of a node: a tagged template, and, when `queryCalls`, a `<x>.query(text, values?)` call (the pg client and pool
+ * style). A bind with a static value reads as that value: `${'posted'}`, a const, or a `$n` whose values-array element is one.
+ */
+export function sqlTextOf(n: ts.Node, queryCalls: boolean, r?: ConstResolver): string | null {
+  if (ts.isTaggedTemplateExpression(n)) return templateOf(n.template, r);
+  if (!queryCalls || !ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression) || n.expression.name.text !== 'query') return null;
+  const text = n.arguments[0] ? queryText(n.arguments[0], r) : null;
+  const values = n.arguments[1] && ts.isArrayLiteralExpression(unwrap(n.arguments[1])) ? (unwrap(n.arguments[1]) as ts.ArrayLiteralExpression).elements : null;
+  if (text === null || !values) return text;
+  return text.replace(/\$(\d+)\b/g, (m, i: string) => {
+    const el = values[Number(i) - 1];
+    const v = el && !ts.isSpreadElement(el) ? literalOf(el, r) : null;
+    return v === null ? m : `'${v}'`;
+  });
+}
+
+/** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */
+export type SqlPrimitive = RegExp | { re: RegExp; module: string };
+
+/** The module the first matching primitive needs, or null when none matches. */
+export function primitiveModule(prims: readonly SqlPrimitive[], text: string): string | null {
+  for (const p of prims) if ((p instanceof RegExp ? p : p.re).test(text)) return p instanceof RegExp ? '*' : p.module;
+  return null;
+}
 
 /** The calls that enclose `node` inside its own statement (a call nested in another call's arguments). */
 export function callAncestors(node: ts.Node): ts.CallExpression[] {

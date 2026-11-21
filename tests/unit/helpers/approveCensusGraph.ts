@@ -4,20 +4,18 @@
  *
  *  - A unit is a named function (declaration, method, or a variable holding an arrow/function expression). Calls are resolved with
  *    the type checker (aliases and barrel re-exports followed). Anonymous callbacks belong to the unit around them.
- *  - Dangerous callee: a SINK (named; its module is enforced where a route calls it directly, '*' inside services), a unit running
- *    posting SQL (module '*'), or a unit already in D. A unit is in D when one of its dangerous calls is not covered; it needs the modules of those calls.
+ *  - Dangerous callee: a SINK (named; its module is enforced where a route calls it directly, '*' inside services), a unit running posting
+ *    SQL (the pattern's module: sqlPrimitives), or a unit in D. A unit is in D when a dangerous call of its is not covered; it needs their modules.
  *  - Covered: the gates that DOMINATE the call give modules that include each module the call needs ('*' on either side matches).
  *    A gate dominates only where its refusal is unconditional on the path to the call:
  *      refuse gate  `if (await refuse(...)) return|throw ...;`          covers the statements after it in the block
  *      allow gate   `if (!(await mayApprove(...))) return|throw ...;`   likewise (`!ident` of a const set from it too)
  *      assert gate  `await assertMayApprove(...);`                        likewise (it throws)
- *      allow gate as a condition: the call sits in the THEN branch of `if (... && allow)`, the true arm of `... && allow ? x : y`,
- *      or right of `&&` after it.
- *    NOT a gate: `if (cond && await refuse(...)) return;`, a bare `await mayApprove(...)` whose result is dropped, a gate in a sibling
- *    `case` or an `if` body, one after the call.
+ *      allow gate as a condition: the call in the THEN branch of `if (... && allow)`, the true arm of `... && allow ? x : y`, right of `&&`.
+ *    NOT a gate: `if (cond && await refuse(...)) return;`, a dropped `await mayApprove(...)`, a gate in a sibling `case` / `if` body or after.
  *  - A route wrapped by a ROUTE_WRAPPERS name is gated for that wrapper's module for the whole file.
  *  - A call passing `{ dryRun: true }`, or an `allowReversal` whose value is a GATE RESULT (a gate call, or a variable set from one: the
- *    service refuses under its own row lock), is not dangerous. A literal, or any other value, is not a decision.
+ *    service refuses under its own row lock), is not dangerous; any other value is not a decision.
  *  - A PARAMETERISED sink whose gate depends on an argument is exempted per CALL SITE by a marker comment above its statement,
  *    `census-exempt(<callee>): reason` (the OUTERMOST call of that name in the statement; in the payroll-read census `census-exempt(sql)`
  *    binds the one SQL statement below it); used only while the call would otherwise be uncovered, else reported stale (staleMarkers).
@@ -25,7 +23,8 @@
  */
 import ts from 'typescript';
 import { resolve } from 'path';
-import { calleeName, callAncestors, exits, markersAbove, markersIn, objectProp, programFor, ROOT, sqlTextOf, unwrap } from './approveCensusProgram';
+import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, objectProp, primitiveModule, programFor, ROOT, sqlTextOf, unwrap,
+  type SqlPrimitive } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -38,8 +37,7 @@ export interface CensusConfig {
   sinks: Readonly<Record<string, string>>;
   gates: Readonly<Record<string, GateSpec>>;
   routeWrappers: Readonly<Record<string, string>>;
-  /** Static SQL text that makes the unit holding it a primitive (module '*'). */
-  sqlPrimitives?: readonly RegExp[];
+  sqlPrimitives?: readonly SqlPrimitive[]; // static SQL that makes its unit a primitive, needing the pattern's module (bare RegExp: '*')
   /** A route unit running primitive SQL itself is dangerous unless wrapped, a gate dominates it, or a marker sits above it (#1670). */
   flagPrimitiveRoots?: boolean;
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
@@ -47,7 +45,7 @@ export interface CensusConfig {
 
 export interface BadRoute { file: string; unit: string; sites: string[] }
 export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; markersUsed: string[]; staleMarkers: string[] }
-interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primitive: boolean; primSites: ts.Node[]; needs: Set<string> }
+interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primSites: Array<{ node: ts.Node; module: string }>; primNeeds: Set<string>; needs: Set<string> }
 interface Call { node: ts.CallExpression; callee: string; target: Unit | null; sinkModule: string | null; gates: Set<string>; exempt: { line: number } | null }
 
 export function analyse(cfg: CensusConfig): Census {
@@ -163,11 +161,11 @@ export function analyse(cfg: CensusConfig): Census {
   const moduleUnits = new Map<string, Unit>();
   const unitOfFile = (sf: ts.SourceFile): Unit => {
     let u = moduleUnits.get(sf.fileName);
-    if (!u) { u = { key: `${rel(sf.fileName)}::<module>`, file: rel(sf.fileName), name: '<module>', node: sf, calls: [], primitive: false, primSites: [], needs: new Set() }; moduleUnits.set(sf.fileName, u); }
+    if (!u) { u = { key: `${rel(sf.fileName)}::<module>`, file: rel(sf.fileName), name: '<module>', node: sf, calls: [], primSites: [], primNeeds: new Set(), needs: new Set() }; moduleUnits.set(sf.fileName, u); }
     return u;
   };
   const add = (decl: ts.Node, name: string, sf: ts.SourceFile) => {
-    units.set(decl, { key: `${rel(sf.fileName)}::${name}`, file: rel(sf.fileName), name, node: decl, calls: [], primitive: false, primSites: [], needs: new Set() });
+    units.set(decl, { key: `${rel(sf.fileName)}::${name}`, file: rel(sf.fileName), name, node: decl, calls: [], primSites: [], primNeeds: new Set(), needs: new Set() });
   };
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || sf.fileName.includes('node_modules')) continue;
@@ -185,6 +183,7 @@ export function analyse(cfg: CensusConfig): Census {
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     return sym?.declarations?.[0] ?? null;
   };
+  const constInit = constResolver(checker);
   const enclosing = (n: ts.Node): Unit | null => {
     for (let p = n.parent; p; p = p.parent) { const u = units.get(p); if (u) return u; }
     return null;
@@ -198,11 +197,12 @@ export function analyse(cfg: CensusConfig): Census {
       if (new RegExp(`export default[^;]*\\b${w}\\(`).test(sf.text)) wrapped.set(rel(sf.fileName), cfg.routeWrappers[w]!);
     }
     const visit = (n: ts.Node) => {
-      const text = cfg.sqlPrimitives ? sqlTextOf(n, cfg.queryCalls === true) : null;
-      if (text !== null && cfg.sqlPrimitives!.some((re) => re.test(text))) {
+      const text = cfg.sqlPrimitives ? sqlTextOf(n, cfg.queryCalls === true, constInit) : null;
+      const module = text === null ? null : primitiveModule(cfg.sqlPrimitives!, text);
+      if (module !== null) {
         const u = enclosing(n) ?? unitOfFile(sf);
-        u.primitive = true;
-        u.primSites.push(n);
+        u.primSites.push({ node: n, module });
+        u.primNeeds.add(module);
       }
       if (ts.isCallExpression(n)) {
         const name = calleeName(n);
@@ -228,7 +228,8 @@ export function analyse(cfg: CensusConfig): Census {
   const D = new Set<Unit>();
   const needsOfCall = (c: Call): Set<string> | null => {
     if (c.sinkModule !== null) return new Set([c.sinkModule]);
-    if (c.target && (D.has(c.target) || c.target.primitive)) return c.target.primitive && !D.has(c.target) ? new Set(['*']) : c.target.needs;
+    const t = c.target; // a primitive needs its SQL's modules (#1670 L1c) on top of its uncovered calls'
+    if (t && (D.has(t) || t.primNeeds.size > 0)) return new Set([...(D.has(t) ? t.needs : []), ...t.primNeeds]);
     return null;
   };
   const rawCovered = (c: Call, file: string, needs: Set<string>): boolean => {
@@ -273,16 +274,16 @@ export function analyse(cfg: CensusConfig): Census {
     if (c.exempt && needs && !rawCovered(c, u.file, needs)) used.add(`${u.file}:${c.exempt.line}`);
   }
   if (cfg.flagPrimitiveRoots) {
-    // Covered only where a gate DOMINATES it (or the route is wrapped), or a marker sits above its own statement; any gate (SQL is '*').
+    // Covered only where a gate for the SQL's module DOMINATES it (or the route is wrapped), or a marker sits above its own statement.
     for (const u of all) {
       if (!routes.has(u.file) || calledInFile.has(u) || wrapped.has(u.file)) continue;
       const sites: string[] = [];
-      for (const site of u.primSites) {
+      for (const { node: site, module } of u.primSites) {
         const g = dominating(site, u.node);
-        if (g.size > 0) continue;
+        if (g.has('*') || (module === '*' ? g.size > 0 : g.has(module))) continue;
         const marker = markersAbove(site).find((m) => m.callee === 'sql');
         if (marker) used.add(`${u.file}:${marker.line}`);
-        else sites.push(`sql(primitive)@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
+        else sites.push(`sql(primitive)[${module}]@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
       }
       if (sites.length > 0) bad.push({ file: u.file, unit: u.name, sites });
     }

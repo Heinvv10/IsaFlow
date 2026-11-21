@@ -8,6 +8,7 @@
  * is caught without being named here (round 4, F-M2).
  */
 import type { GateSpec } from './approveCensusGraph';
+import type { SqlPrimitive } from './approveCensusProgram';
 
 export const SINK_MODULES: Readonly<Record<string, string>> = {
   // GL / accounts
@@ -46,13 +47,37 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
 export const POSTING_SERVICES = Object.keys(SINK_MODULES);
 
 /**
- * SQL that makes the function holding it a primitive (matched against the static text of its tagged templates): a journal posted,
- * or a customer / supplier invoice flipped to approved.
+ * SQL that makes the function holding it a primitive (matched against the static text of its tagged templates and `.query()` calls, a
+ * bind with a static value read in place), and the module whose Approve the route reaching it must hold (#1670 breaker L1c/d): a
+ * Budgets gate does not cover a bill flipped to approved. '*' where the document decides the module (a journal, posted by every module;
+ * a credit note; a tax return). The documents and modules follow APPROVE_MODULE_BY_DOCUMENT and SINK_MODULES above.
  */
-export const SQL_PRIMITIVES: readonly RegExp[] = [
-  /UPDATE\s+(?:public\.)?gl_journal_entries[^;]{0,400}?status\s*=\s*'posted'/i,
-  /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i,
-  /UPDATE\s+(?:public\.)?(?:customer_invoices|supplier_invoices)[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i,
+const flips = (tables: string, statuses: string, module: string) => ({
+  module,
+  // `SET ... status = '<s>'` before any WHERE: a cancel `WHERE status = 'approved'` is not an approval
+  re: new RegExp(`UPDATE\\s+(?:public\\.)?(?:${tables})\\b(?:(?!\\bWHERE\\b)[^;]){0,300}?\\bSET\\b(?:(?!\\bWHERE\\b)[^;]){0,600}?\\bstatus\\s*=\\s*'(?:${statuses})'`, 'i'),
+});
+export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
+  { module: '*', re: /UPDATE\s+(?:public\.)?gl_journal_entries[^;]{0,400}?status\s*=\s*'posted'/i },
+  { module: '*', re: /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i },
+  { module: 'customers', re: /UPDATE\s+(?:public\.)?customer_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
+  { module: 'suppliers', re: /UPDATE\s+(?:public\.)?supplier_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
+  flips('credit_notes', 'approved', '*'),
+  flips('supplier_payments', 'approved|processed', 'suppliers'),
+  flips('supplier_payment_batches', 'approved|processed|reversed', 'suppliers'),
+  flips('purchase_orders', 'approved', 'suppliers'),
+  flips('expense_claims', 'approved|posted', 'suppliers'),
+  flips('customer_payments', 'confirmed', 'customers'),
+  flips('customer_write_offs', 'approved', 'customers'),
+  flips('payroll_run_headers', 'approved', 'payroll'),
+  flips('payroll_batches', 'posted', 'payroll'),
+  flips('uif_declarations', 'paid', 'payroll'),
+  flips('vat_adjustments', 'approved', 'vat'),
+  flips('accounting_adjustments', 'approved', 'items'),
+  flips('consolidation_adjustments', 'posted|reversed', 'group'),
+  flips('budget_versions', 'approved', 'budgets'),
+  flips('fiscal_periods', 'closed|locked', 'accounts'),
+  flips('tax_return_versions', 'finalised', '*'), // finaliseReturn; a filing (status 'filed') records a submission, not in the approve map
 ];
 
 /**
