@@ -57,12 +57,22 @@ describe('registration', () => {
   });
 });
 
+describe('create_goods_received schema', () => {
+  it('both quantities carry the storage maximum, NUMERIC(15,2)\'s (review of fba543d5, finding 3)', () => {
+    const line = (create.inputSchema.properties as Record<string, { items: { properties: Record<string, { maximum?: number }> } }>).lines.items.properties;
+    expect(line.quantity_received!.maximum).toBe(9999999999999.99);
+    expect(line.quantity_rejected!.maximum).toBe(9999999999999.99);
+  });
+});
+
 describe('create_goods_received', () => {
   it.each([
     [{ po_id: 'nope' }, 'po_id is required'],
     [{ received_date: '2026-02-31' }, 'received_date is required'],
     [{ lines: [] }, 'lines is required'],
-    [{ lines: [{ po_item_id: LINE, quantity_received: -1 }] }, 'lines[0].quantity_received is required: a number of at least 0'],
+    // A given but bad value says what is wrong with it, not that it is missing (review of fba543d5, finding 3).
+    [{ lines: [{ po_item_id: LINE, quantity_received: -1 }] }, 'lines[0].quantity_received must be a number of at least 0'],
+    [{ lines: [{ po_item_id: LINE, quantity_received: 'two' }] }, 'lines[0].quantity_received must be a number of at least 0'],
     [{ lines: [{ po_item_id: LINE, quantity_received: 1, colour: 'red' }] }, 'lines[0].colour is not a field'],
     // A rejection-only line still states its received count: omitted or null is not zero.
     [{ lines: [{ po_item_id: LINE, quantity_rejected: 2 }] }, 'lines[0].quantity_received is required'],

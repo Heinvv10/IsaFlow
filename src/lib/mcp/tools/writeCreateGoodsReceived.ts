@@ -9,6 +9,7 @@
  */
 import type { McpTool } from '../types';
 import { receiveGoods } from '@/modules/accounting/services/ap/goodsReceivedService';
+import { GRN_QUANTITY_MAX } from '@/modules/accounting/services/ap/goodsReceivedValidation';
 import {
   GRN_TEXT_MAX, MAX_GRN_LINES, grnDryRunNeedsTx, grnDryRunResult, isGrnToolResult, parseCreateGrnArgs, runGrn,
 } from './goodsReceivedArgs';
@@ -42,8 +43,8 @@ export const createGoodsReceivedTool: McpTool = {
           type: 'object',
           properties: {
             po_item_id: { type: 'string', description: 'A line of this purchase order' },
-            quantity_received: { type: 'number', minimum: 0, description: 'At most two decimals' },
-            quantity_rejected: { type: 'number', minimum: 0, description: 'Delivered and refused; does not count as received' },
+            quantity_received: { type: 'number', minimum: 0, maximum: GRN_QUANTITY_MAX, description: 'At most two decimals' },
+            quantity_rejected: { type: 'number', minimum: 0, maximum: GRN_QUANTITY_MAX, description: 'Delivered and refused; does not count as received' },
             notes: { type: 'string', maxLength: GRN_TEXT_MAX },
           },
           required: ['po_item_id', 'quantity_received'],
