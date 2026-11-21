@@ -30,6 +30,8 @@ interface Props {
   /** Bumped by the page when it resets the form, to clear refused date text. */
   resetKey?: number;
   taxMode: TaxMode;
+  /** The "Amounts are" options offered (taxModeSwitch.taxModesFor: No VAT only for a company not registered for VAT). */
+  taxModes?: typeof TAX_MODE_OPTIONS;
   onTaxModeChange: (mode: TaxMode) => void;
   /** Muted notes saying where a default came from (useContactDefaults). */
   hints?: { dueDate?: string; taxMode?: string };
@@ -54,7 +56,7 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
+export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, taxModes = TAX_MODE_OPTIONS, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
   const vatNoteId = useId();
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
@@ -80,7 +82,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
             onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…"
             labelClassName="after:ml-0.5 after:text-red-600 dark:after:text-red-400 after:content-['*']" />
           <div>
-            <Select label="Amounts are" options={TAX_MODE_OPTIONS} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
+            <Select label="Amounts are" options={taxModes} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
               describedBy={hints?.taxMode || vatWarning ? vatNoteId : undefined} />
             <div id={vatNoteId} role="status">
               {hints?.taxMode && <p className={hint}>{hints.taxMode}</p>}
