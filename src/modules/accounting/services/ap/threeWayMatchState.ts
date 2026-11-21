@@ -42,7 +42,7 @@ export async function readMatchInputs(
     ? ((await sql`
         SELECT gi.* FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::UUID
-        WHERE gi.grn_id = ${invoice.grnId}::UUID
+        WHERE gi.grn_id = ${invoice.grnId}::UUID AND g.status <> 'cancelled'
       `) as DbRow[])
     : [];
   return {

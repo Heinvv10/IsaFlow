@@ -2,7 +2,6 @@
  * Create Loan Form
  * Route: /accounting/loans/new
  */
-
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -12,6 +11,7 @@ import { log } from '@/lib/logger';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -166,15 +166,15 @@ export default function NewLoanPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Principal (ZAR) *</label>
-                  <input type="number" step="0.01" min="1" className="ff-input w-full text-sm" placeholder="1000000.00" value={form.principal} onChange={e => set('principal', e.target.value)} required />
+                  <AmountInput min={1} className="ff-input w-full text-sm" placeholder="1000000.00" value={form.principal} onValueChange={(_n, t) => set('principal', t)} required />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Residual (ZAR)</label>
-                  <input type="number" step="0.01" min="0" className="ff-input w-full text-sm" placeholder="0.00" value={form.residual} onChange={e => set('residual', e.target.value)} />
+                  <AmountInput min={0} className="ff-input w-full text-sm" placeholder="0.00" value={form.residual} onValueChange={(_n, t) => set('residual', t)} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Origination Fee (ZAR, excl VAT)</label>
-                  <input type="number" step="0.01" min="0" className="ff-input w-full text-sm" placeholder="0.00" value={form.originationFee} onChange={e => set('originationFee', e.target.value)} />
+                  <AmountInput min={0} className="ff-input w-full text-sm" placeholder="0.00" value={form.originationFee} onValueChange={(_n, t) => set('originationFee', t)} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Origination Fee VAT</label>

@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/ar/invoicePreviewModel', () => ({ buildIn
 
 import handler, { config } from '../../../pages/api/accounting/invoice-pdf-preview';
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { PREVIEW_RATE_LIMIT, previewRateLimitName } from '@/modules/accounting/services/ar/invoicePreviewBody';
 
 const CO = '00000000-0000-4000-8000-0000000000c0';
@@ -92,5 +93,15 @@ describe('the body', () => {
     const res = await call(BODY);
     expect(res.status).toBe(400);
     expect(JSON.stringify(res.body)).toContain('The invoice total is too large');
+  });
+
+  it.each([
+    ['INVOICE_LINE_VAT_REFUSED', new InvoiceLineVatRefusal('taxRate 14 is neither …')],
+    ['INVOICE_VAT_NOT_REGISTERED', new InvoiceVatNotRegisteredRefusal('not registered …')],
+  ])('create\'s VAT refusal is a 400 with its code (%s), #1701', async (code, err) => {
+    m.build.mockRejectedValueOnce(err);
+    const res = await call(BODY);
+    expect(res.status).toBe(400);
+    expect((res.body as { error: { details: { code: string } } }).error.details.code).toBe(code);
   });
 });

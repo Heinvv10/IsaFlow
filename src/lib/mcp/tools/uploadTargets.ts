@@ -19,7 +19,7 @@ export const MAX_UPLOAD_FILE_NAME = 200;
 export const MAX_UPLOAD_ITEMS = 100;
 
 export const ENTITY_TARGET_KINDS = [
-  'supplier_invoice', 'customer_invoice', 'credit_note', 'supplier_payment', 'customer_payment', 'purchase_order',
+  'supplier_invoice', 'customer_invoice', 'credit_note', 'supplier_payment', 'customer_payment', 'purchase_order', 'goods_received',
 ] as const satisfies readonly AccountingEntityType[];
 
 export const isBankKind = (k: UploadTargetKind): boolean => k === 'bank_transaction';
@@ -44,6 +44,7 @@ export function defaultDocumentType(kind: UploadTargetKind): string | null {
     case 'supplier_payment':
     case 'customer_payment': return 'proof_of_payment';
     case 'purchase_order': return 'purchase_order';
+    case 'goods_received': return 'delivery_note';
     default: return 'invoice';
   }
 }

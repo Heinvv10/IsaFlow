@@ -27,8 +27,8 @@ try{
   await page.goto(origin+'/accounting/opening-balances',{waitUntil:'domcontentloaded',timeout:120000});
   const asset=page.getByRole('row').filter({hasText:'Browser asset'});
   await asset.waitFor({timeout:120000});
-  await asset.getByRole('spinbutton').nth(0).fill('123.45');
-  await page.getByRole('row').filter({hasText:'Browser equity'}).getByRole('spinbutton').nth(1).fill('123.45');
+  await asset.locator('input[data-amount-input]').nth(0).fill('123.45');
+  await page.getByRole('row').filter({hasText:'Browser equity'}).locator('input[data-amount-input]').nth(1).fill('123.45');
   const saved=page.waitForResponse(response=>response.url().endsWith('/api/accounting/opening-balances')&&response.request().method()==='POST');
   await page.getByRole('button',{name:'Save Opening Balances',exact:true}).click();
   assert.equal((await saved).status(),200);

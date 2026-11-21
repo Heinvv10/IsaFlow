@@ -63,6 +63,7 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed. '
     + 'Known limits: credit notes do not reduce what is billed; a header-only link (no lines) does not reduce budget committed for a still-open PO; '
     + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
+    + 'A bill carrying a goods received note must still name that note\'s purchase order after the call: include it for that bill in the same call (note_po_not_named). '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',
   scope: 'write:invoices',
   write: true,
