@@ -189,3 +189,18 @@ describe('(round 10) the held refusal is dropped for good when anything it was d
     await waitFor(() => expect(modeShown()).toMatch(/No VAT/));
   });
 });
+
+describe('(round 11) a LEGACY mixed-rate draft on the edit page', () => {
+  it('R100 at 15% + R100 at 0% loads at R215 and an unchanged save keeps it (it repriced to R230)', async () => {
+    serve(undefined, { ...INV, total_amount: 215, items: [
+      { description: 'Std', quantity: 1, unit_price: 100, amount: 100, tax_rate: 15 },
+      { description: 'Zero', quantity: 1, unit_price: 100, amount: 100, tax_rate: 0 },
+    ] });
+    render(<EditPage />);
+    await screen.findByDisplayValue('Zero');
+    expect(totalText()).toMatch(/215\.00/);
+    expect(screen.queryByText(/these lines price to/)).toBeNull();
+    await save();
+    expect(sentBody('PUT').items.map((i) => [i.unitPrice, i.vatType])).toEqual([[100, 'standard'], [100, 'zero_rated']]);
+  });
+});

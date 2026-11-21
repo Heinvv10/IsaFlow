@@ -4,6 +4,7 @@
  */
 import { discountFromAmount } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import type { EditLine } from './invoicePutBody';
+import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { effectiveTaxRate, type TaxMode } from './taxMode';
 
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
@@ -40,17 +41,32 @@ export type InvoiceDetail = {
  * keeps 0), and the effective rate the
  * lines load at (formVat keeps each loaded type while the form stays at it).
  */
-export function vatAtLoad(invoice: Pick<InvoiceDetail, 'tax_rate' | 'amounts_are'>): { mode: TaxMode; formRate: number; effectiveRate: number } {
+export function vatAtLoad(invoice: Pick<InvoiceDetail, 'tax_rate' | 'amounts_are'> & { invoice_date?: string }):
+  { mode: TaxMode; formRate: number; effectiveRate: number; date?: string } {
   const storedRate = Number(invoice.tax_rate ?? 15);
   const mode: TaxMode = invoice.amounts_are === 'inclusive' ? 'inclusive' : storedRate === 0 ? 'none' : 'exclusive';
   // No VAT keeps the standard rate behind it; an INCLUSIVE draft stored at 0% keeps its 0 (#1701 round 8: it reloaded at 15%,
   // so a line added to it went standard and carried VAT).
   const formRate = storedRate === 0 && mode !== 'inclusive' ? 15 : storedRate;
-  return { mode, formRate, effectiveRate: effectiveTaxRate(mode, formRate) };
+  return { mode, formRate, effectiveRate: effectiveTaxRate(mode, formRate), ...(invoice.invoice_date ? { date: String(invoice.invoice_date).slice(0, 10) } : {}) };
 }
 
 /** The stored lines as the form holds them; an invoice with none starts with one empty line on the invoice's job. */
-export function linesFromStoredItems(items: InvoiceItemRow[], projectId: string, vat?: { mode: TaxMode; effectiveRate: number }): EditLine[] {
+/**
+ * A LEGACY line's effective type (round 11): from its OWN stored rate, else whether it carries VAT, else the header's;
+ * 0 -> zero_rated, the standard rate on the invoice date -> standard, any other rate (a 14% legacy line) none, so the
+ * form's rate check holds the save rather than repricing it. So a mixed legacy draft (R100 at 15% + R100 at 0%) keeps
+ * R215; read at the header rate it became R230.
+ */
+function legacyLineType(it: InvoiceItemRow, vat: { effectiveRate: number; date?: string }): string | null {
+  const rate = it.tax_rate != null && it.tax_rate !== '' ? Number(it.tax_rate)
+    : it.tax_amount != null ? (Number(it.tax_amount) > 0 ? null : 0) : vat.effectiveRate;
+  if (rate === 0) return 'zero_rated';
+  if (rate === null) return 'standard'; // VAT on it, no rate stored: the standard rate is the only one a sale carries
+  return vat.date && isRatedDate(vat.date) && rate === standardVatRatePctOn(vat.date) ? 'standard' : null;
+}
+
+export function linesFromStoredItems(items: InvoiceItemRow[], projectId: string, vat?: { mode: TaxMode; effectiveRate: number; date?: string }): EditLine[] {
   // The schema has no `discount` column — it is folded into `amount`.
   // Reverse-engineer percent discount from amount vs (qty × unitPrice) so a
   // saved-then-reopened invoice round-trips without silently zeroing it —
@@ -76,7 +92,7 @@ export function linesFromStoredItems(items: InvoiceItemRow[], projectId: string,
       cc1Id: it.cc1_id ?? null,
       cc2AtLoad: it.cc2_id ?? '',
       timeEntryId: it.time_entry_id ?? null,
-      ...(it.vat_type && vat ? { vatType: it.vat_type, vatRateAtLoad: vat.effectiveRate } : {}),
+      ...(vat && (it.vat_type ?? legacyLineType(it, vat)) ? { vatType: (it.vat_type ?? legacyLineType(it, vat))!, vatRateAtLoad: vat.effectiveRate } : {}),
     };
   }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId }];
 }

@@ -103,7 +103,7 @@ describe('a legacy invoice (no types)', () => {
       { description: 'A', quantity: '2', unit_price: '100', amount: '180', tax_rate: '15' },
     ] };
     const { v, lines, body } = roundTrip(detail);
-    expect(v).toEqual({ mode: 'exclusive', formRate: 15, effectiveRate: 15 });
+    expect(v).toEqual({ mode: 'exclusive', formRate: 15, effectiveRate: 15, date: DATE });
     expect(lines[0]).toMatchObject({ unitPrice: 100, discount: 10 });
     expect(body.items[0]).toMatchObject({ unitPrice: 100, discount: 10, vatType: 'standard' });
     expect(body.amountsAre).toBe('exclusive');
@@ -116,7 +116,7 @@ describe('an inclusive invoice stored at 0% (#1701 review)', () => {
   it('reloads at 0%, not the standard rate: a line added at R115 is not typed standard and carries no VAT', () => {
     expect(detail.tax_rate).toBe('0');
     const v = vatAtLoad(detail);
-    expect(v).toEqual({ mode: 'inclusive', formRate: 0, effectiveRate: 0 });
+    expect(v).toEqual({ mode: 'inclusive', formRate: 0, effectiveRate: 0, date: DATE });
     const lines = [...linesFromStoredItems(detail.items ?? [], '', v), { key: 'n', description: 'New', quantity: 1, unitPrice: 115, discount: 0,
       glAccountId: '', projectId: '', cc2Id: '', buId: '' }];
     const body = invoicePutBody('inv-1', { form: FORM(v.formRate), lines, taxMode: v.mode });
@@ -126,5 +126,32 @@ describe('an inclusive invoice stored at 0% (#1701 review)', () => {
 
   it('an exclusive invoice at 0% still loads as No VAT with the standard rate behind it', () => {
     expect(vatAtLoad({ tax_rate: '0', amounts_are: null })).toEqual({ mode: 'none', formRate: 15, effectiveRate: 0 });
+  });
+});
+
+describe('round 11 MAJOR 1: a LEGACY mixed-rate draft keeps each line\'s effective type when loaded', () => {
+  const legacy = (lines: { description: string; amount: number; tax_rate: number | null; tax_amount?: number | null }[], headerRate = 15): InvoiceDetail => ({
+    id: 'inv-1', status: 'draft', invoice_number: 'INV-1', invoice_date: DATE, tax_rate: String(headerRate), amounts_are: null,
+    total_amount: String(lines.reduce((s, l) => s + l.amount + (l.tax_amount ?? l.amount * (l.tax_rate ?? headerRate) / 100), 0)),
+    items: lines.map((l) => ({ description: l.description, quantity: '1', unit_price: String(l.amount), amount: String(l.amount),
+      tax_rate: l.tax_rate === null ? null : String(l.tax_rate), tax_amount: l.tax_amount ?? null, vat_type: null })),
+  });
+  it('R100 at 15% + R100 at 0%: R215 loaded and saved (it repriced to R230 at the header rate), each line typed by its own rate', () => {
+    const d = legacy([{ description: 'Std', amount: 100, tax_rate: 15 }, { description: 'Zero', amount: 100, tax_rate: 0 }]);
+    const v = vatAtLoad(d);
+    const lines = linesFromStoredItems(d.items ?? [], '', v);
+    expect(formTotals(lines, v.effectiveRate, v.mode, DATE).total).toBe(215);
+    const body = invoicePutBody('inv-1', { form: FORM(v.formRate), lines, taxMode: v.mode });
+    expect(body.items.map((i) => [i.unitPrice, i.vatType])).toEqual([[100, 'standard'], [100, 'zero_rated']]);
+  });
+  it('a line with no rate of its own reads it from its tax_amount; one with neither, from the header', () => {
+    const d = legacy([{ description: 'A', amount: 100, tax_rate: null, tax_amount: 0 }, { description: 'B', amount: 100, tax_rate: null, tax_amount: 15 },
+      { description: 'C', amount: 100, tax_rate: null }]);
+    const lines = linesFromStoredItems(d.items ?? [], '', vatAtLoad(d));
+    expect(lines.map((l) => l.vatType)).toEqual(['zero_rated', 'standard', 'standard']);
+  });
+  it('a legacy rate that is neither the standard rate on the date nor 0 (14%) stays untyped, so the rate check holds the save', () => {
+    const d = legacy([{ description: 'Old', amount: 100, tax_rate: 14 }], 14);
+    expect(linesFromStoredItems(d.items ?? [], '', vatAtLoad(d)).map((l) => l.vatType)).toEqual([undefined]);
   });
 });
