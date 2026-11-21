@@ -145,7 +145,7 @@ const emp201Due = (r: PayrollRunRow): string =>
  * below nil), UIF and SDL until the
  * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
-function owedOf(r: PayrollRunRow, asAt: string | undefined): { owed: number; paye: number; credit: number } {
+function owedOf(r: PayrollRunRow, asAt: string | undefined): { owed: number; paye: number; credit: number; paid: boolean } {
   // ETI offsets PAYE only (gate ruling 2 on e0eec1dea1): PAYE less ETI, floored at nil; what ETI leaves beyond PAYE is a
   // credit against the month's other PAYE. UIF and SDL stay owed in full.
   const payeNet = r2(num(r.total_paye) - num(r.total_eti));
@@ -153,10 +153,10 @@ function owedOf(r: PayrollRunRow, asAt: string | undefined): { owed: number; pay
   const credit = Math.min(0, payeNet);
   const other = r2(num(r.total_uif) + num(r.total_sdl));
   const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.disbursed === true);
-  if (!paid) return { owed: r2(num(r.total_net) + paye + other), paye, credit };
+  if (!paid) return { owed: r2(num(r.total_net) + paye + other), paye, credit, paid };
   const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
-  if (asAt! > emp201Due(r)) return { owed: above, paye: 0, credit: 0 };
-  return { owed: r2(paye + other + above), paye, credit };
+  if (asAt! > emp201Due(r)) return { owed: above, paye: 0, credit: 0, paid };
+  return { owed: r2(paye + other + above), paye, credit, paid };
 }
 
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
@@ -176,8 +176,10 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   let latestDue: CashPositionPayroll | null = null;
   for (const r of byPayDate) {
     const full = shapePayrollAffordability(r, cash)!;
-    if (full.totalRequired <= 0) continue;
-    const { owed: owes, paye } = owedBy.get(r)!;
+    const { owed: owes, paye, paid } = owedBy.get(r)!;
+    // Judged on what it owes (owedOf: ETI off PAYE only, review L1 of f37f0f15a6), never on the whole run netted: a run
+    // not paid that owes nothing (a draft with no totals) needs nothing and hides nothing.
+    if (!paid && owes <= 0) continue;
     let owed = owes;
     const left = credit.get(monthOf(r)) ?? 0;
     // Against the run's PAYE only: ETI offsets PAYE, never net pay, UIF or SDL (review F1 of 3401802134, gate ruling 2).
@@ -194,7 +196,11 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
     if (!judged.canPay) return judged;
     latestDue = judged;
   }
-  return latestDue ?? latestPaid ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
+  if (latestDue || latestPaid) return latestDue ?? latestPaid;
+  const first = runs[0];
+  if (!first) return null;
+  const owedFirst = Math.max(0, owedBy.get(first)!.owed);
+  return { ...shapePayrollAffordability(first, cash)!, totalRequired: owedFirst, canPay: cash >= owedFirst, shortfall: cash >= owedFirst ? 0 : r2(owedFirst - cash) };
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────

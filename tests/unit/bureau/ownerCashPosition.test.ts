@@ -135,6 +135,17 @@ describe('pickPayrollRun', () => {
       // Nor does a month's ETI credit come off another run's UIF and SDL: only its PAYE.
       const uifOnly = run({ id: 'uif', total_net: '4000', total_paye: '0', total_uif: '200', total_sdl: '0', total_eti: '0', pay_date: '2026-06-20', final: true });
       expect(pickPayrollRun([credit, uifOnly], 0, '2026-06-30')).toMatchObject({ runId: 'uif', totalRequired: 200 });
+      // Review L1 of f37f0f15a6: a run whose ETI nets the whole run to nil (net 100, PAYE 0, UIF 50, SDL 30, ETI 500)
+      // is not skipped: its UIF and SDL, R80, stay owed before the due date.
+      const small = run({ id: 'small', total_net: '100', total_paye: '0', total_uif: '50', total_sdl: '30', total_eti: '500', pay_date: '2026-06-15', final: true });
+      expect(pickPayrollRun([small], 0, '2026-06-30')).toMatchObject({ runId: 'small', canPay: false, totalRequired: 80 });
+      // ... and counts beside a run due after it: R80 + R1 000.
+      const july = run({ id: 'july', period_month: 7, total_net: '1000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-07-01' });
+      expect(pickPayrollRun([small, july], 0, '2026-06-30')).toMatchObject({ runId: 'small', totalRequired: 80 });
+      expect(pickPayrollRun([small, july], 80, '2026-06-30')).toMatchObject({ runId: 'july', totalRequired: 1080, runsCounted: 2 });
+      // The fallback (nothing owed anywhere) states what is owed, never the run netted below nil.
+      const etiOnly = run({ id: 'etiOnly', status: 'calculated', total_net: '0', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '100', pay_date: '2026-07-25' });
+      expect(pickPayrollRun([etiOnly], 0, '2026-06-30')).toMatchObject({ runId: 'etiOnly', totalRequired: 0, canPay: true });
       // Another month's credit is not netted (its own EMP201).
       const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
       expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
