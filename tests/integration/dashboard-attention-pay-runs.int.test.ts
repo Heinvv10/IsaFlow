@@ -89,8 +89,10 @@ describeIfDb('dashboard attention list: pay runs anchored on the current period'
              ($5,$7,$8,$9,'draft',0,0,NULL)`,
       [RUN.old, RUN.now, RUN.prev, RUN.future, RUN.other, C, D, T_YEAR, T_MONTH, P_YEAR, P_MONTH, T_YEAR + 2]);
     await pool.query(
+      // Last month's 400 is all net pay: its PAYE would stay owed until its EMP201 is due (the 7th), and the test runs
+      // on any day.
       `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status,total_net,total_paye,approved_at)
-       VALUES($1,$3,$6,$7,'approved',300,100,now()),($2,$3,$4,$5,'approved',4000,1000,now())`,
+       VALUES($1,$3,$6,$7,'approved',400,0,now()),($2,$3,$4,$5,'approved',4000,1000,now())`,
       [RUN.ePrev, RUN.eNow, E, T_YEAR, T_MONTH, P_YEAR, P_MONTH]);
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')

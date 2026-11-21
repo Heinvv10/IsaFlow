@@ -41,6 +41,10 @@ export interface PayrollRunRow {
   pay_date?: string | null;
   /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
   final?: boolean;
+  /** Gate rulings on 7630d9379f: approved before (a reopened run), its gross, and an off-cycle run's paid gross (999x). */
+  approved_before?: boolean;
+  total_gross?: string | number;
+  paid_gross?: string | number | null;
 }
 
 export interface CashPositionPayroll {
@@ -114,18 +118,35 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  * (runOrderKeySql puts a regular run before its month's off-cycle runs): rows are taken in pay-date order, the given
  * order breaking ties. A run whose pay date is today or later is STILL DUE: each is judged against what the due runs
  * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
- * A FINAL run whose pay date has passed has been paid (nothing marks a run paid, review #1549 N-H1; an overdue run that
- * is not final is still owed, review #1679 M3), so it is never added to
- * the due runs and never produces a shortfall (review #1679 codex 4): it is reported only when no due run has totals,
- * as covered. The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
+ * Each run counts what it still needs (owedOf): a run paid on its pay date (final, or reopened after it) needs only its
+ * statutory amounts until its EMP201 is due, and a reopened bonus the gross above what was paid; a run that needs
+ * nothing more is reported only when no run needs anything, as covered (review #1679 codex 4). The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
  * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
  * no totals at all, the earliest run. No `asAt`: every run is due.
  */
+/** The day a month's EMP201 is due: the 7th of the next month (after it the 13-week forecast assumes it paid, readSars). */
+const emp201Due = (r: PayrollRunRow): string => {
+  const next = r.period_month === 12 ? { y: r.period_year + 1, m: 1 } : { y: r.period_year, m: r.period_month + 1 };
+  return `${next.y}-${String(next.m).padStart(2, '0')}-07`;
+};
+
+/**
+ * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Before its pay date, or overdue and
+ * neither final nor approved before (review #1679 M3): all of it. Once its pay date has passed and it was approved (final,
+ * or reopened after being paid): payday settled the net pay, so it needs its PAYE, UIF and SDL (less ETI) until the
+ * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
+ */
+function owedOf(r: PayrollRunRow, asAt: string | undefined): number {
+  const all = shapePayrollAffordability(r, 0)!.totalRequired;
+  const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.approved_before === true);
+  if (!paid) return all;
+  const statutory = asAt! <= emp201Due(r) ? r2(all - num(r.total_net)) : 0;
+  const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
+  return r2(statutory + above);
+}
+
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
   const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
-  // Still owed: due today or later, or overdue and not final (a calculated run past its pay date awaits approval, so
-  // its salaries have not left the bank; review #1679 M3). Only a final run past its pay date has been paid.
-  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || payDate(r) >= asAt || r.final !== true;
   const byPayDate = runs.map((r, i) => ({ r, i }))
     .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
   let required = 0;
@@ -133,10 +154,12 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   let latestPaid: CashPositionPayroll | null = null;
   let latestDue: CashPositionPayroll | null = null;
   for (const r of byPayDate) {
-    const own = shapePayrollAffordability(r, cash)!;
-    if (own.totalRequired <= 0) continue;
-    if (!due(r)) { latestPaid = { ...own, canPay: true, shortfall: 0 }; continue; }
-    required = r2(required + own.totalRequired);
+    const full = shapePayrollAffordability(r, cash)!;
+    if (full.totalRequired <= 0) continue;
+    const owed = owedOf(r, asAt);
+    if (owed <= 0) { latestPaid = { ...full, canPay: true, shortfall: 0 }; continue; }
+    const own = { ...full, totalRequired: owed };
+    required = r2(required + owed);
     counted += 1;
     const judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
     if (!judged.canPay) return judged;
@@ -161,7 +184,9 @@ async function nextPayrollSection(
     SELECT id, period_month, period_year, status,
            total_net, total_paye, total_uif, total_sdl, total_eti,
            COALESCE(run_date, period_end)::text AS pay_date,
-           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final
+           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,
+           total_gross, (approval_history IS NOT NULL AND NOT isempty(approval_history)) AS approved_before,
+           (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')
