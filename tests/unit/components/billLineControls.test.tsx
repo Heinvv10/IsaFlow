@@ -113,12 +113,15 @@ describe.each(LAYOUTS)('line controls in the %s layout', (name, width) => {
     expect(onUpdate).toHaveBeenLastCalledWith('a', 'quantity', 4);
   });
 
-  it('names the description and keeps a quantity step of 0.01', () => {
+  it('names the description and takes a quantity to 4 decimals (numeric(12,4)), no less than 0.01', () => {
     mount(width, [line('a', { quantity: 1.25 })]);
     expect(screen.getByRole('textbox', { name: 'Line 1 description' })).toBeTruthy();
-    const qty = screen.getByRole('spinbutton', { name: 'Line 1 quantity' }) as HTMLInputElement;
-    // A browser refuses 1.25 on submit under step 1; happy-dom's step check misreads decimals, so the step itself is pinned.
-    expect([qty.step, qty.min, qty.value]).toEqual(['0.01', '0.01', '1.25']);
+    const qty = screen.getByRole('textbox', { name: 'Line 1 quantity' }) as HTMLInputElement;
+    expect([qty.value, qty.validity.valid]).toEqual(['1.25', true]);
+    fireEvent.change(qty, { target: { value: '0' } });
+    expect(qty.validity.valid).toBe(false); // below the 0.01 minimum
+    fireEvent.change(qty, { target: { value: '1.25555' } });
+    expect(qty.value).toBe('0'); // a fifth decimal is refused
   });
 
   it('is a tab stop only as a table, where it scrolls sideways', () => {
