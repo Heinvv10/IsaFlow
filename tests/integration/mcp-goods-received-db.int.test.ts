@@ -125,6 +125,18 @@ describe('as app_user, only the cancel changes a note (M3)', () => {
   });
 });
 
+describe('a note is never inserted cancelled (gate round 3, finding 3)', () => {
+  it('as app_user, an INSERT of a cancelled note with cancel columns of its own choosing is refused; nothing is written', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const before = await grnRows(pool, f);
+    const forged = await asApp(f, `INSERT INTO goods_received_notes (company_id, grn_number, purchase_order_id, received_by, status, cancelled_at, cancelled_by, cancel_reason)
+      VALUES ($1, 'GRN-99999', $2, 'x', 'cancelled', now() - interval '1 year', $3, 'forged')`, [f.co, po.po, other.owner]);
+    expect(forged.code).toBe('23514');
+    expect(forged.message).toContain('is never inserted cancelled');
+    expect(await grnRows(pool, f)).toEqual(before);
+  });
+});
+
 describe('the cancel function enforces the tool\'s role rule (gate finding 1)', () => {
   it('a viewer of the company is refused role_not_allowed, directly and through the service, with nothing written; a manager cancels', async () => {
     const viewer = crypto.randomUUID();

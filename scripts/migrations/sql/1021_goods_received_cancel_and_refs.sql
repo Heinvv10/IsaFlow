@@ -77,6 +77,8 @@
 --   DROP POLICY IF EXISTS tenant_isolation_via_parent ON public.grn_items;
 --   ALTER TABLE public.grn_items NO FORCE ROW LEVEL SECURITY;
 --   ALTER TABLE public.grn_items DISABLE ROW LEVEL SECURITY;
+--   DROP TRIGGER IF EXISTS trg_goods_received_notes_insert_guard ON public.goods_received_notes;
+--   DROP FUNCTION IF EXISTS public.goods_received_notes_insert_guard();
 --   DROP TRIGGER IF EXISTS trg_goods_received_notes_guard ON public.goods_received_notes;
 --   DROP TRIGGER IF EXISTS trg_grn_items_cancelled_guard ON public.grn_items;
 --   DROP FUNCTION IF EXISTS public.goods_received_notes_guard();
@@ -147,6 +149,27 @@ DROP TRIGGER IF EXISTS trg_goods_received_notes_guard ON public.goods_received_n
 CREATE TRIGGER trg_goods_received_notes_guard BEFORE UPDATE ON public.goods_received_notes
   FOR EACH ROW EXECUTE FUNCTION public.goods_received_notes_guard();
 ALTER TABLE public.goods_received_notes ENABLE ALWAYS TRIGGER trg_goods_received_notes_guard;
+
+-- A note is never INSERTED cancelled (Codex gate round 3, finding 3): only goods_received_note_cancel cancels, by an UPDATE with its own
+-- role check and cancelled_by = auth.uid(). An insert of status cancelled, or of any cancelled_* column, would choose its own canceller
+-- and time and skip both. BEFORE INSERT only, so the definer's UPDATE is untouched; ALWAYS, so every role meets it.
+CREATE OR REPLACE FUNCTION public.goods_received_notes_insert_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.status = 'cancelled' OR NEW.cancelled_at IS NOT NULL OR NEW.cancelled_by IS NOT NULL OR NEW.cancel_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'a goods received note is never inserted cancelled; cancel it with cancel_goods_received' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_goods_received_notes_insert_guard ON public.goods_received_notes;
+CREATE TRIGGER trg_goods_received_notes_insert_guard BEFORE INSERT ON public.goods_received_notes
+  FOR EACH ROW EXECUTE FUNCTION public.goods_received_notes_insert_guard();
+ALTER TABLE public.goods_received_notes ENABLE ALWAYS TRIGGER trg_goods_received_notes_insert_guard;
 
 CREATE OR REPLACE FUNCTION public.grn_items_cancelled_guard()
 RETURNS trigger
@@ -231,6 +254,7 @@ CREATE TRIGGER trg_grn_items_same_transaction_guard BEFORE INSERT ON public.grn_
 ALTER TABLE public.grn_items ENABLE ALWAYS TRIGGER trg_grn_items_same_transaction_guard;
 
 REVOKE ALL ON FUNCTION public.goods_received_notes_guard() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.goods_received_notes_insert_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.grn_items_cancelled_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.grn_items_same_transaction_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.goods_received_notes_po_guard() FROM PUBLIC;
