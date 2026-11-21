@@ -19,6 +19,22 @@ interface Props {
   onReverse: (id: string) => void;
 }
 
+/** What the list says about a possible duplicate of a mirrored document: what is true, and "reverse" only for a posted row whose mirror is eliminated. */
+export function duplicateText(adj: EliminationAdjustment): string {
+  const m = adj.mirroredDuplicateOf;
+  const shared = (adj.mirrorShared ?? 1) > 1 ? ` ${adj.mirrorShared} listed eliminations point at this mirror: at most one of them can be its duplicate.` : '';
+  if (!adj.mirrorStands) {
+    return `Possibly the same sale as mirrored document ${m}, which is NOT eliminated automatically at the moment (booked in another financial year, not approved yet, or reversed): this may be its only elimination.${shared}`;
+  }
+  if (adj.status === 'draft' && adj.pairCutover) {
+    return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically; the pair mirrors from ${adj.pairCutover}, and this row was drafted because that mirror accounts for another row or is not its closest match: check before posting.${shared}`;
+  }
+  if (adj.status === 'draft') return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically: check before posting.${shared}`;
+  return shared
+    ? `Posted, and possibly the same sale as mirrored document ${m}, which is eliminated automatically.${shared} Check which, and reverse that one only.`
+    : `Posted, and possibly the same sale as mirrored document ${m}, which is eliminated automatically: check, and reverse this one if so.`;
+}
+
 export function EliminationsTable({ items, loading, actionLoading, onPost, onReverse }: Props) {
   if (loading) {
     return (
@@ -64,15 +80,24 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                 {ELIMINATION_TYPE_LABELS[adj.type] || adj.type}
               </td>
-              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs truncate">
-                {adj.description}
+              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs">
+                <div className="truncate" title={adj.description}>{adj.description}</div>
+                {adj.manualReason && <div className="mt-0.5 text-xs text-[var(--ff-text-secondary)]">Reason: {adj.manualReason}</div>}
+                {adj.mirroredDuplicateOf && (
+                  <div role="note" className="mt-1 text-xs text-[var(--ff-text-primary)] border-l-2 border-amber-500/60 pl-2">
+                    <span className="mr-1 inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold">
+                      Possible duplicate
+                    </span>
+                    {duplicateText(adj)}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">
                 {adj.period}
               </td>
               <td className="px-4 py-3">
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[adj.status]}`}>
-                  {adj.status}
+                  {adj.automatic ? 'automatic' : adj.status}
                 </span>
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
@@ -80,7 +105,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-1">
-                  {adj.status === 'draft' && (
+                  {!adj.automatic && adj.status === 'draft' && (
                     <button
                       onClick={() => onPost(adj.id)}
                       disabled={actionLoading === adj.id}
@@ -93,7 +118,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                       Post
                     </button>
                   )}
-                  {adj.status === 'posted' && (
+                  {!adj.automatic && adj.status === 'posted' && (
                     <button
                       onClick={() => onReverse(adj.id)}
                       disabled={actionLoading === adj.id}

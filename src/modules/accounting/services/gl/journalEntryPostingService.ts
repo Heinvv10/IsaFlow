@@ -21,6 +21,7 @@ import { refuseReversingCompletedCash } from '../bank/reconciledCash';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
+import { journalChainChanged } from '../intercompany/mirrorHooks';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
@@ -251,6 +252,8 @@ async function reverseJournalEntryInner(
       }
       throw err;
     }
+    // Intercompany P2: a message / group row that records this journal follows the ledger (a reversal done directly, not through a cancel, is no hook).
+    await journalChainChanged(companyId, id);
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).
     if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 

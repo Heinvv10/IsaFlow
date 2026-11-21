@@ -3,44 +3,33 @@
  * Manage intercompany elimination entries for consolidated reporting.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import {
-  fmt,
-  selectClass,
-  type EliminationType,
-  type EliminationLine,
-  type EliminationAdjustment,
-  toEliminationRow,
-} from '@/components/accounting/group/EliminationsShared';
+import { selectClass, type EliminationAdjustment, toEliminationRow } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
+import {
+  EliminationsFlaggedNotice, parseFlagged, parseSkipped, type FlaggedRow, type SkippedRow,
+} from '@/components/accounting/group/EliminationsFlaggedNotice';
+import { MirroredDroppedNotice, parseDroppedMirrored, type DroppedMirrored } from '@/components/accounting/group/MirroredDroppedNotice';
+import { useEliminationCreateForm } from '@/components/accounting/group/useEliminationCreateForm';
+import { possibleDuplicateMessage } from '@/modules/accounting/services/reports/eliminationErrors';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui/DateField';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 interface EntityGroup { id: string; name: string; }
+interface PossibleDuplicate { id: string; ref: string; stands: boolean; cutover: string | null }
+const NO_NOTES = { flagged: [] as FlaggedRow[], skipped: [] as SkippedRow[] };
 
-/**
- * The group's account code → id. Elimination lines are stored by group account ID (the
- * consolidated reports look them up by id), but the form takes the code a person knows.
- */
-async function groupAccountIds(groupId: string): Promise<Map<string, string>> {
-  const res = await apiFetch(`/api/accounting/company-groups?action=accounts&group_id=${encodeURIComponent(groupId)}`);
-  await assertOk(res, 'Could not load the group chart of accounts');
-  const json = (await res.json()) as { data?: { items?: Array<{ id?: unknown; accountCode?: unknown }> } };
-  const map = new Map<string, string>();
-  for (const a of json.data?.items ?? []) {
-    if (typeof a.id === 'string' && typeof a.accountCode === 'string') map.set(a.accountCode, a.id);
-  }
-  return map;
+/** The possible duplicate a 409 body names (a post refused because the list was stale: the mirror was accepted after it loaded), or null. */
+function possibleDuplicateIn(body: unknown, id: string): PossibleDuplicate | null {
+  const d = (body as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown; pairCutover?: unknown } } } | null)?.error?.details;
+  return d?.reason === 'possible_duplicate' && typeof d.mirroredRef === 'string'
+    ? { id, ref: d.mirroredRef, stands: d.mirrorStands === true, cutover: typeof d.pairCutover === 'string' ? d.pairCutover : null } : null;
 }
-
-const BLANK_LINES: EliminationLine[] = [
-  { groupAccountCode: '', debit: 0, credit: 0 },
-  { groupAccountCode: '', debit: 0, credit: 0 },
-];
 
 export default function EliminationsPage() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
@@ -48,17 +37,16 @@ export default function EliminationsPage() {
   const [periodStart, setPeriodStart] = useState(() => `${new Date().getFullYear()}-01-01`);
   const [periodEnd, setPeriodEnd] = useState(() => localISODate());
   const [items, setItems] = useState<EliminationAdjustment[]>([]);
+  const [dropped, setDropped] = useState<DroppedMirrored[]>([]);
+  const [reasonRequiredFrom, setReasonRequiredFrom] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [formType, setFormType] = useState<EliminationType>('interco_revenue');
-  const [formDescription, setFormDescription] = useState('');
-  const [formPeriod, setFormPeriod] = useState(() => localISODate());
-  const [formLines, setFormLines] = useState<EliminationLine[]>(BLANK_LINES);
-  const [formError, setFormError] = useState('');
-  const [formSaving, setFormSaving] = useState(false);
+  // the run's flagged drafts and the rows it left to mirroring, for the group and period they were generated for (cleared when either changes)
+  const [generateNotes, setGenerateNotes] = useState(NO_NOTES);
+  const scopeRef = useRef('');
+  useEffect(() => { scopeRef.current = `${selectedGroupId}|${periodStart}|${periodEnd}`; setGenerateNotes(NO_NOTES); }, [selectedGroupId, periodStart, periodEnd]);
+  useEffect(() => { setReasonRequiredFrom(null); }, [selectedGroupId]);   // (another group's cutover never applies to this one)
 
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
@@ -75,90 +63,70 @@ export default function EliminationsPage() {
   const loadData = useCallback(async () => {
     if (!selectedGroupId) return;
     setLoading(true); setError('');
+    const scope = `${selectedGroupId}|${periodStart}|${periodEnd}`;
+    const current = () => scopeRef.current === scope;   // a response for a group or period no longer selected is dropped, success or failure
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'eliminations', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
       await assertOk(res, 'Could not load the elimination adjustments - try again');
       const json = await res.json();
-      const list: unknown = (json.data || json).items;
-      setItems(Array.isArray(list) ? list.map(toEliminationRow) : []);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); }
-    finally { setLoading(false); }
+      if (!current()) return;
+      const data = json.data || json;
+      setItems(Array.isArray(data.items) ? data.items.map(toEliminationRow) : []);
+      setDropped(parseDroppedMirrored(data));
+      setReasonRequiredFrom(typeof data.reasonRequiredFrom === 'string' ? data.reasonRequiredFrom : null);
+    } catch (err) {
+      if (current()) {
+        setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); setDropped([]); setReasonRequiredFrom(null);
+      }
+    } finally { if (current()) setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  const form = useEliminationCreateForm(selectedGroupId, reasonRequiredFrom, loadData);
+
+  // a draft that may be the same sale as a mirrored document is posted only after the person confirms (the server refuses it otherwise)
+  const [confirmPost, setConfirmPost] = useState<PossibleDuplicate | null>(null);
 
   /* Shared action helper — avoids triple-duplicating fetch + error handling */
-  const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string) => {
+  const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string, onResult?: (json: unknown) => void) => {
     setActionLoading(loadingKey);
     try {
       const res = await apiFetch(
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
+      // a stale list's post refused as a possible duplicate: ask now, with what the server found (any other failure is shown below)
+      const dup = res.status === 409 ? possibleDuplicateIn(await res.clone().json().catch(() => null), loadingKey) : null;
+      if (dup) { setConfirmPost(dup); await loadData(); return; }
       await assertOk(res, errMsg);
+      // a committed generation always reloads: a body that does not parse gives no notes, never an error
+      if (onResult) onResult(await res.json().catch(() => null));
       await loadData();
     } catch (err) {
       setError(apiErrorMessage(err, errMsg));
     } finally { setActionLoading(null); }
   }, [selectedGroupId, loadData]);
 
-  const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again');
+  const handleAutoGenerate = () => {
+    setGenerateNotes(NO_NOTES);
+    const scope = `${selectedGroupId}|${periodStart}|${periodEnd}`;
+    return postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again',
+      (json) => { if (scopeRef.current === scope) setGenerateNotes({ flagged: parseFlagged(json), skipped: parseSkipped(json) }); });   // (another scope's result is dropped)
+  };
 
-  const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Could not post the elimination - try again');
+  const post = (id: string, confirmDuplicate: boolean) =>
+    postAction(id, { action: 'post-elimination', adjustmentId: id, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }, 'Could not post the elimination - try again');
+  const handlePost = (id: string) => {
+    const item = items.find((i) => i.id === id);
+    if (item?.mirroredDuplicateOf) {
+      setConfirmPost({ id, ref: item.mirroredDuplicateOf, stands: item.mirrorStands === true, cutover: item.pairCutover ?? null }); return;
+    }
+    return post(id, false);
+  };
 
   const handleReverse = (id: string) =>
     postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
-
-  function resetForm() {
-    setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
-    setFormLines(BLANK_LINES.map((l) => ({ ...l }))); setFormError('');
-  }
-
-  async function handleCreateSubmit(e: React.FormEvent<Element>) {
-    e.preventDefault();
-    if (!selectedGroupId) return;
-    const totalDebit = formLines.reduce((s, l) => s + Number(l.debit || 0), 0);
-    const totalCredit = formLines.reduce((s, l) => s + Number(l.credit || 0), 0);
-    if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      setFormError(`Debits (${fmt(totalDebit)}) must equal credits (${fmt(totalCredit)})`);
-      return;
-    }
-    if (formLines.some((l) => !l.groupAccountCode)) {
-      setFormError('All lines must have a group account code');
-      return;
-    }
-    setFormSaving(true); setFormError('');
-    try {
-      const ids = await groupAccountIds(selectedGroupId);
-      const unknown = formLines.map((l) => l.groupAccountCode.trim()).filter((c) => !ids.has(c));
-      if (unknown.length > 0) {
-        setFormError(`Not a group account code: ${[...new Set(unknown)].join(', ')}`);
-        return;
-      }
-      const res = await apiFetch(
-        `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
-        {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            // The field names the route reads; the elimination is dated on the chosen day.
-            action: 'create-elimination', adjustmentType: formType,
-            description: formDescription, periodStart: formPeriod, periodEnd: formPeriod,
-            lines: formLines.map((l) => ({
-              groupAccountId: ids.get(l.groupAccountCode.trim()),
-              debit: Number(l.debit || 0), credit: Number(l.credit || 0),
-            })),
-          }),
-        }
-      );
-      await assertOk(res, 'Could not create the elimination - try again');
-      setShowCreateModal(false); resetForm(); await loadData();
-    } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not create the elimination - try again'));
-    } finally { setFormSaving(false); }
-  }
 
   return (
     <AppLayout>
@@ -195,7 +163,7 @@ export default function EliminationsPage() {
                 Auto-Generate
               </button>
               <button
-                onClick={() => { resetForm(); setShowCreateModal(true); }}
+                onClick={form.start}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> Manual Elimination
@@ -210,20 +178,31 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
+          <MirroredDroppedNotice rows={dropped} />
+          <EliminationsFlaggedNotice rows={generateNotes.flagged} skipped={generateNotes.skipped} onDismiss={() => setGenerateNotes(NO_NOTES)} />
           {/* a failed load must not also say "none found" */}
           {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>
 
-        {showCreateModal && (
+        <ConfirmDialog
+          open={confirmPost !== null}
+          title="Post a possible duplicate?"
+          message={confirmPost ? possibleDuplicateMessage(confirmPost.ref, confirmPost.stands, confirmPost.cutover) : ''}
+          confirmLabel={confirmPost?.stands && !confirmPost.cutover ? 'Post anyway' : 'Post'} confirmTone={confirmPost?.stands && !confirmPost.cutover ? 'danger' : 'primary'}
+          onConfirm={() => { const id = confirmPost?.id; setConfirmPost(null); if (id) void post(id, true); }}
+          onCancel={() => setConfirmPost(null)}
+        />
+        {form.open && (
           <EliminationsCreateModal
-            formType={formType} formDescription={formDescription} formPeriod={formPeriod}
-            formLines={formLines} formError={formError} formSaving={formSaving}
-            onClose={() => setShowCreateModal(false)}
-            onSubmit={handleCreateSubmit}
-            onTypeChange={setFormType} onDescriptionChange={setFormDescription} onPeriodChange={setFormPeriod}
-            onAddLine={() => setFormLines((p) => [...p, { groupAccountCode: '', debit: 0, credit: 0 }])}
-            onRemoveLine={(idx) => setFormLines((p) => p.filter((_, i) => i !== idx))}
-            onUpdateLine={(idx, field, value) => setFormLines((p) => p.map((l, i) => i === idx ? { ...l, [field]: value } : l))}
+            formType={form.type} formDescription={form.description} formPeriod={form.period}
+            formLines={form.lines} formError={form.error} formSaving={form.saving}
+            formReason={form.reason} onReasonChange={form.setReason} reasonRequiredFrom={form.needsReason ? reasonRequiredFrom : null}
+            onClose={() => form.setOpen(false)}
+            onSubmit={form.submit}
+            onTypeChange={form.setType} onDescriptionChange={form.setDescription} onPeriodChange={form.setPeriod}
+            onAddLine={() => form.setLines((p) => [...p, { groupAccountCode: '', debit: 0, credit: 0 }])}
+            onRemoveLine={(idx) => form.setLines((p) => p.filter((_, i) => i !== idx))}
+            onUpdateLine={(idx, field, value) => form.setLines((p) => p.map((l, i) => i === idx ? { ...l, [field]: value } : l))}
           />
         )}
       </div>

@@ -9,6 +9,7 @@
  * Re-exported through creditNoteService — see creditNoteApproveService.ts.
  */
 
+import { syncGroupRowFor, withdrawForCancelledDocument } from '../intercompany/mirrorHooks';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
@@ -166,6 +167,10 @@ async function cancelCreditNoteInner(
         rowsMoved: -restored.reduce((t, l) => round2(t + l.amount), 0), paidMoved: restoredPaid, appliedAfter: 0,
       });
     }
+
+    // Intercompany P2: a customer note's message is withdrawn / flagged; a supplier note an accepted message created un-matches its group row.
+    if (String(updated.type) === 'customer') await withdrawForCancelledDocument(companyId, 'credit_note', id);
+    else await syncGroupRowFor(companyId, 'credit_note', id);
 
     log.info('Cancelled credit note', {
       id, reason, restoredDocuments: restored.length,

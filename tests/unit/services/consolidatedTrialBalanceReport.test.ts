@@ -20,11 +20,11 @@ vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
 
 const getGroupMembers = vi.fn();
 const getCoaMappingsForCompanies = vi.fn();
-const getPostedEliminations = vi.fn();
+const getPostedEliminationsSplit = vi.fn();
 vi.mock('@/modules/accounting/services/reports/consolidatedTrialBalanceService', () => ({
   getGroupMembers: (...a: unknown[]) => getGroupMembers(...a),
   getCoaMappingsForCompanies: (...a: unknown[]) => getCoaMappingsForCompanies(...a),
-  getPostedEliminations: (...a: unknown[]) => getPostedEliminations(...a),
+  getPostedEliminationsSplit: (...a: unknown[]) => getPostedEliminationsSplit(...a),
 }));
 
 import { sql } from '@/lib/neon';
@@ -75,7 +75,7 @@ beforeEach(() => {
     { companyId: CO_A, companyName: 'Co A', ownershipPct: 100, consolidationMethod: 'full' },
   ]);
   getCoaMappingsForCompanies.mockResolvedValue(mappings([['acc-bank', BANK_MAPPING]]));
-  getPostedEliminations.mockResolvedValue([]);
+  getPostedEliminationsSplit.mockResolvedValue({ cumulative: [], inRange: [] });
 });
 
 /**
@@ -181,27 +181,41 @@ describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)'
 
 describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () => {
   it('takes balance-sheet eliminations cumulatively and income-statement ones over the range', async () => {
-    getPostedEliminations.mockImplementation(async (_g: string, start: string) =>
-      start === '1900-01-01'
-        ? [
-            { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 500 },
-            { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 9999, credit: 0 },
-          ]
-        : [
-            { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 111 },
-            { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 300, credit: 0 },
-          ],
-    );
+    getPostedEliminationsSplit.mockResolvedValue({
+      cumulative: [
+        { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 500 },
+        { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 9999, credit: 0 },
+      ],
+      inRange: [
+        { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 111 },
+        { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 300, credit: 0 },
+      ],
+    });
     primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
 
     const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
-    expect(getPostedEliminations).toHaveBeenCalledWith(GROUP_ID, '1900-01-01', PERIOD_END);
-    expect(getPostedEliminations).toHaveBeenCalledWith(GROUP_ID, PERIOD_START, PERIOD_END);
+    expect(getPostedEliminationsSplit).toHaveBeenCalledTimes(1);   // one derived read per report
+    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, PERIOD_START, PERIOD_END, '1900-01-01', []);
 
     const bank = tb.groupAccounts.find(a => a.groupAccountId === GROUP_BANK)!;
     expect(bank.eliminationCredit).toBe(500);   // cumulative, not the 111 in-range figure
     const revenue = tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!;
     expect(revenue.eliminationDebit).toBe(300); // in-range, not the 9999 cumulative figure
+  });
+
+  it('B-M3: a mid-year range takes the income-statement eliminations from the members\' fiscal year start (the window of their P&L columns), not periodStart', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
+    expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
+    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, '2025-03-01', '2025-06-30', '1900-01-01', []);
+  });
+
+  it('R13 quality M2: the mirrored eliminations the derivation could not apply (unmapped account) are returned for the page', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    const gone = { transactionId: 't9', keyDate: '2025-06-10', description: 'Automatic: mirrored intercompany documents - Invoice 9', amount: 750 };
+    getPostedEliminationsSplit.mockImplementation(async (...a: unknown[]) => { (a[4] as unknown[]).push(gone); return { cumulative: [], inRange: [] }; });
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
+    expect(tb.droppedMirrored).toEqual([gone]);
   });
 });
 

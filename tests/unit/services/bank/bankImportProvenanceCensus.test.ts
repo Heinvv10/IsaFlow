@@ -180,7 +180,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
       'src/modules/accounting/services/core/paymentVoidService.ts': 'void: a bank-linked payment goes through the choke point',
       'src/modules/accounting/services/ap/batchPaymentReversal.ts': "a batch's own reversal (via the choke point when bank-linked)",
       'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "R-127 settlement undo: the provisional's reversal judged by assertMayReverse under the line lock, audited",
-      'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': "a bill's own journal",
+      'src/modules/accounting/services/ap/supplierInvoiceCancelFlow.ts': "a bill's own journal (cancel; split out of supplierInvoiceWorkflowService)",
       'src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts': "a payment document's own reversal",
       'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': 'a receipt (money in: ungated)',
       'src/modules/accounting/services/ar/creditNoteCancelService.ts': "a credit note's own journal",

@@ -208,10 +208,11 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
   });
 
   it('includes groupId in all SQL calls', async () => {
-    // SELECT source, SELECT target, UPDATE — 3 sql calls total
+    // SELECT source, SELECT target, the mirrored-row check, UPDATE — 4 sql calls total
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: 'src', amount: '100', group_id: GROUP_A }] as never) // source SELECT
       .mockResolvedValueOnce([{ id: 'tgt', amount: '100', group_id: GROUP_A }] as never) // target SELECT
+      .mockResolvedValueOnce([] as never) // neither is a row the mirror recorded
       .mockResolvedValueOnce([{ id: 'src' }, { id: 'tgt' }] as never); // UPDATE ... RETURNING id
 
     await matchIntercompanyTransactions('src', 'tgt', GROUP_A, 'u1');
@@ -253,6 +254,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: B186_SOURCE_B, amount: '200', group_id: GROUP_A }] as never)
       .mockResolvedValueOnce([{ id: B186_TARGET_B, amount: '200', group_id: GROUP_A }] as never)
+      .mockResolvedValueOnce([] as never) // the mirrored-row check
       .mockResolvedValueOnce([{ id: B186_SOURCE_B }, { id: B186_TARGET_B }] as never);
 
     await matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A, 'u1');

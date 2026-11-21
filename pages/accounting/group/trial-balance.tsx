@@ -12,6 +12,7 @@ import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsoli
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui/DateField';
+import { MirroredDroppedNotice, parseDroppedMirrored } from '@/components/accounting/group/MirroredDroppedNotice';
 
 interface EntityBalance { debit: number; credit: number }
 
@@ -178,6 +179,7 @@ export default function ConsolidatedTrialBalancePage() {
         </div>
 
         <div className="p-6">
+          {!loading && data && <MirroredDroppedNotice rows={parseDroppedMirrored(data)} />}
           {!loading && data && (
             <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} />
           )}
