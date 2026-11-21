@@ -88,6 +88,9 @@ describe('the stored class: undetermined and directive (review L2 of f37f0f15a6)
   it('undetermined: the bonus carries EMPLOYMENT_UNDETERMINED, as the regular line did', () => {
     const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'undetermined' }, undefined, partTime);
     expect(bonus.validationResults.map((v) => v.code)).toContain('EMPLOYMENT_UNDETERMINED');
+    // The remedy is the regular run's (review L5 of e8a2d72dbc): recalculating the bonus alone changes nothing.
+    expect(bonus.validationResults.find((v) => v.code === 'EMPLOYMENT_UNDETERMINED')?.message)
+      .toMatch(/reopen the month's regular run, record the terms of work and recalculate it/i);
   });
   it('directive: the bonus is not made flat on its rebuilt pay', () => {
     const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'directive' }, undefined, partTime);

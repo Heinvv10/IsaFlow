@@ -65,7 +65,11 @@ export function storedClassification(stored: StoredClass): EmploymentClassificat
   const as = 'Classified as the month\'s regular line was';
   switch (stored) {
     case 'undetermined':
-      return { kind: 'undetermined', reason: `${as}: G21 p. 28 could not say whether the employment is standard.`, hoursNotRecorded: false };
+      return {
+        kind: 'undetermined', reason: `${as}: G21 p. 28 could not say whether the employment is standard.`, hoursNotRecorded: false,
+        // Its terms are the regular line's (review L5 of e8a2d72dbc): recalculating this run alone changes nothing.
+        remedy: 'Reopen the month\'s regular run, record the terms of work and recalculate it, then recalculate this run.',
+      };
     case 'flat':
       return { kind: 'non_standard_flat', reason: `${as}: non-standard employment (G21 p. 28).`, hoursNotRecorded: false };
     case 'directive':
