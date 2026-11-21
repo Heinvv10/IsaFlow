@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
@@ -18,7 +18,7 @@ const SOFT: Array<'customer_invoices' | 'supplier_invoices'> = ['customer_invoic
 let z: Freeze;
 let legs: Leg[];
 const app = (q: string, v: unknown[] = []) => asApp(z, (c: PoolClient) => c.query(q, v), { commit: true });
-const link = (contra: string, original: string) => app('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => asApp(z, (c: PoolClient) => linkAsApp(c, contra, original), { commit: true });
 const inForce = async (je: string) => ((await sql`SELECT public.gl_journal_in_force(${je}::UUID) AS f`) as Row[])[0]!.f;
 const NO_LINK = /a cancelled or deleted document does not link a journal/;
 const REINSTATE = /journal of a cancelled document back in force/;
@@ -90,7 +90,7 @@ describeIfDisposable('ledger column immutability, round 5 (migration 1018)', () 
     await link(r, o);
     await app(`UPDATE ${kind} SET deleted_at = now() WHERE id = $1`, [doc]);
     const r2 = await journal(z, legs);
-    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [r, r2])), REINSTATE);
+    await refused(asApp(z, (c) => linkAsApp(c, r2, r)), REINSTATE);
     expect(await inForce(o)).toBe(false);
     await app(`UPDATE ${kind} SET deleted_at = NULL WHERE id = $1`, [doc]); // the undo's order: restore, then re-reverse
     await link(r2, r);

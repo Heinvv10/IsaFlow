@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
@@ -20,7 +20,7 @@ let z: Freeze;
 let legs: Leg[];
 let bUser = '';
 const app = (q: string, v: unknown[] = []) => asApp(z, (c: PoolClient) => c.query(q, v), { commit: true });
-const link = (contra: string, original: string) => app('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => asApp(z, (c: PoolClient) => linkAsApp(c, contra, original), { commit: true });
 const inForce = async (je: string) => ((await sql`SELECT public.gl_journal_in_force(${je}::UUID) AS f`) as Row[])[0]!.f;
 const BACK = /a linked document is not sent back to draft or pending approval/;
 
@@ -73,7 +73,7 @@ describeIfDisposable('ledger column immutability, round 6 (migration 1018)', () 
     await refused(asApp(z, (c) => c.query(`UPDATE ${kind} SET status = 'draft' WHERE id = $1`, [doc])), BACK);
     await refused(asApp(z, (c) => c.query(`UPDATE ${kind} SET status = 'draft', deleted_at = NULL WHERE id = $1`, [doc])), BACK);
     const r2 = await journal(z, legs);
-    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [r, r2])), /journal of a cancelled document back in force/);
+    await refused(asApp(z, (c) => linkAsApp(c, r2, r)), /journal of a cancelled document back in force/);
     expect(await inForce(o)).toBe(false);
   });
 

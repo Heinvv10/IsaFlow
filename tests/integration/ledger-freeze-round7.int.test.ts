@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
@@ -19,7 +19,7 @@ const KINDS: Kind[] = ['customer_invoices', 'supplier_invoices', 'credit_notes']
 let z: Freeze;
 let legs: Leg[];
 const app = (q: string, v: unknown[] = []) => asApp(z, (c: PoolClient) => c.query(q, v), { commit: true });
-const link = (contra: string, original: string) => app('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => asApp(z, (c: PoolClient) => linkAsApp(c, contra, original), { commit: true });
 const inForce = async (je: string) => ((await sql`SELECT public.gl_journal_in_force(${je}::UUID) AS f`) as Row[])[0]!.f;
 const NULL_STATUS = /a linked document keeps a status/;
 
@@ -83,9 +83,9 @@ describeIfDisposable('ledger column immutability, round 7 (migration 1018)', () 
 
   it.each(KINDS)('%s: over-strict check, a legacy NULL-status holder is issued, so its chain still re-instates', async (kind) => {
     await withLegacyNull(kind, async (c, { o, r }) => {
-      await c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [o, r]); // out: allowed
+      await linkAsApp(c, r, o); // out: allowed
       const r2 = await journal(z, legs);
-      expect(await settle(c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [r, r2]))).toBe('ACCEPTED');
+      expect(await settle(linkAsApp(c, r2, r))).toBe('ACCEPTED');
     });
   });
 

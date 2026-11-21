@@ -11,15 +11,14 @@ import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import {
-  asApp, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
+  asApp, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row, linkAsApp,
 } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
 let z: Freeze;
 let legs: Leg[];
-const link = (contra: string, original: string) => (c: PoolClient) =>
-  c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => (c: PoolClient) => linkAsApp(c, contra, original);
 /** What each cancel service writes: the invoice and bill cancels clear the link, the credit-note cancel keeps it. */
 const cancel = (kind: Kind, doc: string) => (c: PoolClient) => c.query(kind === 'credit_notes'
   ? `UPDATE ${kind} SET status = 'cancelled' WHERE id = $1`

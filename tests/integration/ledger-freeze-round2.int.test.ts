@@ -9,7 +9,7 @@ import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import {
-  asApp, asRole, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
+  asApp, asRole, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row, linkAsApp,
 } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -23,8 +23,7 @@ const setLink = (kind: Kind, id: string, je: string | null) => (c: PoolClient) =
   : c.query(`UPDATE ${kind} SET gl_journal_entry_id = $1 WHERE id = $2`, [je, id]));
 const setStatus = (kind: Kind, id: string, status: string) => (c: PoolClient) =>
   c.query(`UPDATE ${kind} SET status = $2 WHERE id = $1`, [id, status]);
-const link = (contra: string, original: string) => (c: PoolClient) =>
-  c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => (c: PoolClient) => linkAsApp(c, contra, original);
 const accountsOf = async (je: string) => ((await sql`SELECT gl_account_id FROM gl_journal_lines WHERE journal_entry_id = ${je}::UUID ORDER BY debit DESC`) as Row[]).map((r) => String(r.gl_account_id));
 
 describeIfDisposable('ledger column immutability, round 2 (migration 1018)', () => {
@@ -84,7 +83,7 @@ describeIfDisposable('ledger column immutability, round 2 (migration 1018)', () 
         await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, $4, $5)', [je, z.f.fx.companyId, acct, d, cr]);
       }
       await c.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [je]);
-      await c.query('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [je, original]);
+      await linkAsApp(c, je, original);
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 0, 0)', [je, z.f.fx.companyId, z.ap]);
     }), /are closed/);
   });

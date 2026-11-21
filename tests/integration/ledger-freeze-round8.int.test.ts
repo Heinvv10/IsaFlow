@@ -12,15 +12,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { provisionAppLogin } from './helpers/appLoginWorld';
-import { asApp, document, dropFreeze, journal, negate, openApp, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
+import { asApp, document, dropFreeze, journal, negate, openApp, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let z: Freeze;
 let legs: Leg[];
 const app = (q: string, v: unknown[] = []) => asApp(z, (c: PoolClient) => c.query(q, v), { commit: true });
-const link = (contra: string, original: string) => (c: PoolClient) =>
-  c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => (c: PoolClient) => linkAsApp(c, contra, original);
 const moveRevenue = (je: string) => (c: PoolClient) =>
   c.query('UPDATE gl_journal_lines SET gl_account_id = $1 WHERE journal_entry_id = $2 AND gl_account_id = $3', [z.expense, je, z.revenue]);
 const settle = (p: Promise<unknown>) => p.then(() => 'ACCEPTED', (e: { message: string }) => e.message);
@@ -125,12 +124,12 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
     await app('UPDATE gl_journal_entries SET reversed_at = NULL, reversed_by = NULL WHERE id = $1', [o]);
   });
 
-  it('F5 the isaflow_app login is provisioned once per cluster: concurrent and later callers get the same working password', async () => {
+  it('F5 the fixture login is provisioned once per cluster: concurrent and later callers get the same working password', async () => {
     const url = process.env.DATABASE_URL!;
     const [p1, p2, p3] = await Promise.all([provisionAppLogin(url), provisionAppLogin(url), provisionAppLogin(url)]);
     expect(new Set([p1, p2, p3]).size).toBe(1);
     const login = new URL(url);
-    login.username = 'isaflow_app';
+    login.username = FIXTURE_LOGIN;
     login.password = p1;
     const held = new Client({ connectionString: login.toString() }); // a connection opened before a later caller
     await held.connect();
@@ -138,7 +137,7 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
       expect(await provisionAppLogin(url)).toBe(p1); // a later suite does not rotate it
       const fresh = new Client({ connectionString: login.toString() }); // so a NEW connection still logs in
       await fresh.connect();
-      expect((await fresh.query('SELECT session_user AS u')).rows[0].u).toBe('isaflow_app');
+      expect((await fresh.query('SELECT session_user AS u')).rows[0].u).toBe(FIXTURE_LOGIN);
       await fresh.end();
     } finally { await held.end(); }
   });
@@ -206,7 +205,7 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: fx.userId, role: 'authenticated' })]);
       await c.query("SELECT set_config('app.current_company_id', $1, true)", [fx.companyId]);
       const r = String((await c.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1', [ar.je])).rows[0].id);
-      expect(await settle(c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [r, r2]))).toMatch(/cancelled document back in force/);
+      expect(await settle(linkAsApp(c, r2, r))).toMatch(/cancelled document back in force/);
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
   }, 60000);
 });

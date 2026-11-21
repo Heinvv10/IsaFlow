@@ -8,15 +8,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Kind = 'customer_invoices' | 'supplier_invoices' | 'credit_notes';
 const KINDS: Kind[] = ['customer_invoices', 'supplier_invoices', 'credit_notes'];
 let z: Freeze;
 let legs: Leg[];
-const link = (contra: string, original: string) => (c: PoolClient) =>
-  c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+const link = (contra: string, original: string) => (c: PoolClient) => linkAsApp(c, contra, original);
 const write = (q: string, params: unknown[]) => (c: PoolClient) => c.query(q, params);
 
 /** An approved document holding O, and O reversed by R, both written as app_user. */

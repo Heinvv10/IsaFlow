@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { appLoginWorld, type AppWorld } from './helpers/appLoginWorld';
+import { appLoginWorld, type AppWorld, FIXTURE_LOGIN } from './helpers/appLoginWorld';
 import { dropFreeze, seedFreeze, type Freeze, type Row } from './helpers/ledgerFreezeFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -43,8 +43,8 @@ describeIfDisposable('ledger column immutability, round 5: soft delete and undo 
     expect(await inForce(o)).toBe(true);
   }
 
-  it('the transaction is isaflow_app -> app_user and not a superuser', async () => {
-    expect(await world.probe(who)).toEqual({ sessionUser: 'isaflow_app', currentUser: 'app_user', superuser: 'off' });
+  it('the transaction is the production-shaped login -> app_user and not a superuser', async () => {
+    expect(await world.probe(who)).toEqual({ sessionUser: FIXTURE_LOGIN, currentUser: 'app_user', superuser: 'off' });
   });
 
   it('N2 a customer invoice: soft delete, a refused hand re-reversal, undo', async () => {

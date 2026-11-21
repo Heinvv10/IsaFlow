@@ -1,5 +1,5 @@
 /**
- * Migration 1018 against the real services as the PRODUCTION login (helpers/appLoginWorld: session_user isaflow_app, a
+ * Migration 1018 against the real services as the PRODUCTION login (helpers/appLoginWorld: session_user the fixture's isaflow_app-shaped login, a
  * request transaction as app_user, never the fixture superuser): each ledger writer once. A refusal here is a rule that
  * is wrong or a writer that must change. Covers the document approve/cancel services, journal reversal (the service and
  * the MCP tool), the recurring journal run and a re-reversal that re-instates a document's journal.
@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { appLoginWorld, type AppWorld } from './helpers/appLoginWorld';
+import { appLoginWorld, type AppWorld, FIXTURE_LOGIN } from './helpers/appLoginWorld';
 import { dropFreeze, seedFreeze, type Freeze, type Row } from './helpers/ledgerFreezeFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -29,8 +29,8 @@ describeIfDisposable('ledger column immutability: the real services as the produ
   }, 240000);
   afterAll(async () => { if (world) await world.close(); if (z) await dropFreeze(z); }, 120000);
 
-  it('the transaction is isaflow_app -> app_user and not a superuser', async () => {
-    expect(await world.probe(who)).toEqual({ sessionUser: 'isaflow_app', currentUser: 'app_user', superuser: 'off' });
+  it('the transaction is the production-shaped login -> app_user and not a superuser', async () => {
+    expect(await world.probe(who)).toEqual({ sessionUser: FIXTURE_LOGIN, currentUser: 'app_user', superuser: 'off' });
   });
 
   it('a customer invoice approves (posts and links), and cancels (reverses, unlinks, cancels)', async () => {

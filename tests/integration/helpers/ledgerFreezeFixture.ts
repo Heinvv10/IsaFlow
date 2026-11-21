@@ -8,6 +8,8 @@ import { randomUUID } from 'crypto';
 import { Pool, type PoolClient } from 'pg';
 import { expect } from 'vitest';
 import { sql } from '@/lib/neon';
+import { serviceDatabaseUrl } from '@/lib/serviceDatabaseUrl';
+import { isDisposableDb } from '../../helpers/assertDisposableDb';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './lineRevenueFixture';
 
 export type Row = Record<string, unknown>;
@@ -15,7 +17,30 @@ export interface Freeze { f: LineRevenueFixture; pool: Pool; ar: string; revenue
 /** [account id, debit, credit] */
 export type Leg = [string, number, number];
 
+const target = (url: string) => { const u = new URL(url); return `${u.hostname}:${u.port || '5432'}${u.pathname}`; };
+
+/**
+ * Round 11 (codex gate): every fixture write goes through `sql`, whose pool logs in with SERVICE_DATABASE_URL when it is
+ * set (serviceDatabaseUrl), while the suites' guard reads DATABASE_URL. So, before any write, the URL `sql` uses must be
+ * the very database DATABASE_URL names and that database must be disposable; then the live connection is checked too.
+ */
+export async function assertFixtureTarget(): Promise<void> {
+  const validated = process.env.DATABASE_URL;
+  const used = serviceDatabaseUrl();
+  if (!validated || !isDisposableDb(validated) || !isDisposableDb(used) || target(used) !== target(validated)) {
+    throw new Error(`ledgerFreezeFixture: refusing to write: sql would use ${target(used)}, the validated disposable database is `
+      + `${validated ? target(validated) : '(none)'}`);
+  }
+  const probe = new Pool({ connectionString: validated, max: 1 });
+  try {
+    const want = (await probe.query('SELECT current_database() AS d, inet_server_port() AS p, pg_postmaster_start_time()::text AS t')).rows[0];
+    const got = ((await sql`SELECT current_database() AS d, inet_server_port() AS p, pg_postmaster_start_time()::text AS t`) as Row[])[0]!;
+    if (got.d !== want.d || got.p !== want.p || got.t !== want.t) throw new Error('ledgerFreezeFixture: sql is not on the validated database');
+  } finally { await probe.end(); }
+}
+
 export async function seedFreeze(): Promise<Freeze> {
+  await assertFixtureTarget();
   const f = await seedLineRevenue(process.env.DATABASE_URL!);
   const id = async (code: string) => String(((await sql`
     SELECT id FROM gl_accounts WHERE company_id = ${f.fx.companyId}::UUID AND account_code = ${code}`) as Row[])[0]!.id);
@@ -27,6 +52,7 @@ export async function seedFreeze(): Promise<Freeze> {
 
 export async function dropFreeze(z: Freeze): Promise<void> {
   await z.pool.end();
+  await assertFixtureTarget();
   for (const fx of [z.f.fx, z.f.other]) {
     const c = fx.companyId;
     await sql`DELETE FROM recurring_journals WHERE company_id = ${c}::UUID`;
@@ -147,4 +173,21 @@ export async function reverseAsSuperuser(z: Freeze, original: string, legs: Leg[
   const contra = await journal(z, negate(legs));
   await sql`UPDATE gl_journal_entries SET reversal_of_id = ${original}::UUID, reversed_at = now() WHERE id = ${contra}::UUID`;
   return contra;
+}
+
+/**
+ * Link `contra` as the reversal of `original` by hand as app_user, inside the caller's app_user transaction (`c`).
+ * Round 11 (M1): the link is accepted only in the transaction that claimed the original (reversed_at = now()) and
+ * created the contra (created_at = now()), as reverseJournalEntry does. A fixture contra was written earlier by the
+ * superuser, so this first stages that state as the session's superuser (SET LOCAL ROLE NONE) in the SAME transaction,
+ * then links as the caller's role again: every other rule of the link is still judged as that role. It re-stamps the
+ * contra's created_at, which ledger_link_key reads, so a race test must not hold the contra's key from another session.
+ */
+export async function linkAsApp(c: PoolClient, contra: string, original: string) {
+  const role = String((await c.query("SELECT current_setting('role') AS r")).rows[0].r); // app_user, or asRole's role
+  await c.query('SET LOCAL ROLE NONE');
+  await c.query('UPDATE gl_journal_entries SET created_at = now() WHERE id = $1', [contra]);
+  await c.query('UPDATE gl_journal_entries SET reversed_at = now(), reversed_by = COALESCE(reversed_by, created_by) WHERE id = $1', [original]);
+  await c.query(`SET LOCAL ROLE ${role}`);
+  return c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
 }

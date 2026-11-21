@@ -156,7 +156,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
     };
     await expect(attempt("entry_date = DATE '2099-06-16'")).rejects.toThrow(/posted payroll journal keeps its date/);
     await expect(attempt("company_id = (SELECT id FROM companies WHERE id <> company_id LIMIT 1)")).rejects.toThrow(/posted journal keeps its company/);
-    await expect(attempt("created_at = created_at - interval '1 day'")).rejects.toThrow(/created_at is frozen/);
+    await expect(attempt("created_at = created_at - interval '1 day'")).rejects.toThrow(/created_at is frozen|created_at is never changed/); // 999n, or 1018 round 11 first
   });
   it('H3: reversed never hops back to posted; a legacy NULL-status journal moved into posted must balance', async () => {
     const je = await mkJournal('reversed');

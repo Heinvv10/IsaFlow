@@ -8,14 +8,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { asApp, asRole, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { asApp, asRole, document, dropFreeze, journal, negate, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 import { inAppUserTx } from './helpers/appUserTx';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let z: Freeze;
 let legs: Leg[];
 const link = (contra: string, original: string) => (c: import('pg').PoolClient) =>
-  c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [original, contra]);
+  linkAsApp(c, contra, original);
 const linkOf = async (id: string) => ((await sql`SELECT reversal_of_id FROM gl_journal_entries WHERE id = ${id}::UUID`) as Row[])[0]!.reversal_of_id;
 /** An original already claimed as reversed, and a posted journal that is (or is not) its contra. */
 async function pair(contraLegs?: Leg[]): Promise<{ original: string; contra: string }> {
@@ -93,10 +93,11 @@ describeIfDisposable('ledger column immutability: the reversal link (migration 1
     }
   });
 
-  it('the reversed_at stamp is not what makes a link: an unstamped original links, a stamped one is not enough', async () => {
+  it('the reversed_at stamp alone does not make a link: an original claimed in another transaction does not link (round 11), a stamped one is not enough', async () => {
     const unstamped = await journal(z, legs);
     const contra = await journal(z, negate(legs));
-    await asApp(z, link(contra, unstamped), { commit: true });
+    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [unstamped, contra])), /claimed the journal and created the reversal/);
+    await asApp(z, link(contra, unstamped), { commit: true }); // claimed and born in the linking transaction
     expect(await linkOf(contra)).toBe(unstamped);
     const stamped = await journal(z, legs, { claimed: true });
     await refused(asApp(z, link(await journal(z, legs), stamped)), /exact negation/);
@@ -111,30 +112,9 @@ describeIfDisposable('ledger column immutability: the reversal link (migration 1
       await refused(asApp(z, link(held, original)), /a document holds/);
       expect(await linkOf(held), kind).toBeNull();
     }
-    // Race: session 1 links a free journal to a document and has not committed; session 2 turns that journal into a contra.
-    const free = await journal(z, negate(legs));
-    const other = await document(z, 'customer_invoices', { status: 'draft' });
-    const open = async () => {
-      const c = await z.pool.connect();
-      await c.query('BEGIN');
-      await c.query('SET LOCAL ROLE app_user');
-      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: z.f.fx.userId, role: 'authenticated' })]);
-      await c.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.fx.companyId]);
-      return c;
-    };
-    const [first, second] = [await open(), await open()];
-    try {
-      await first.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [free, other]);
-      const racing = link(free, original)(second).then(() => 'linked', (e: { message: string }) => e.message);
-      await new Promise((r) => setTimeout(r, 400));
-      await first.query('COMMIT');
-      expect(await racing).toMatch(/a document holds/);
-    } finally {
-      await first.query('ROLLBACK').catch(() => undefined);
-      await second.query('ROLLBACK').catch(() => undefined);
-      first.release(); second.release();
-    }
-    expect(await linkOf(free)).toBeNull();
+    // Round 11 M1: the old race here (a document linking a free journal in one session while another session made it a
+    // contra) is unreachable now: a contra is born in the transaction that links it, so no other session can see it,
+    // let alone link a document to it. The advisory lock the race tested still serialises the link with the root's.
     expect(doc).toBeTruthy();
   });
 
