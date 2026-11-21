@@ -149,7 +149,8 @@ export async function runMonthlyReports(
     try {
       [utilisationRows, clientRows, wipRows] = await Promise.all([
         getStaffUtilisation(company.id, { dateFrom: periodStart, dateTo: periodEnd }),
-        getClientProfitability(company.id, { dateFrom: periodStart, dateTo: periodEnd }),
+        // The monthly e-mail is a system run to the recipients the practice's owner or admin configured: the margin stays in it.
+        getClientProfitability(company.id, { dateFrom: periodStart, dateTo: periodEnd }, true),
         getWipAging(company.id, { asOfDate: periodEnd }),
       ]);
 

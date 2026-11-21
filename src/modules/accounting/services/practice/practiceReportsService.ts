@@ -127,9 +127,14 @@ export async function getStaffUtilisation(
   });
 }
 
+/**
+ * `costVisible` (required): the caller holds Payroll read. `practice_staff_cost_rates.cost_rate` is one person's internal cost per hour, so
+ * without it the cost query is not run and timeCost, margin and marginPct are null (#1656 round 9).
+ */
 export async function getClientProfitability(
   companyId: string,
   input: { dateFrom: string; dateTo: string; practiceClientId?: string },
+  costVisible: boolean,
 ): Promise<ProfitabilityRow[]> {
   const { dateFrom, dateTo } = input;
   const clientId = input.practiceClientId ?? null;
@@ -148,7 +153,7 @@ export async function getClientProfitability(
       GROUP BY te.practice_client_id, pc.legal_name
       ORDER BY revenue DESC
     ` as Promise<DbRow[]>,
-    sql`
+    !costVisible ? Promise.resolve([] as DbRow[]) : sql`
       SELECT te.practice_client_id,
              SUM(te.hours * COALESCE(
                (SELECT cr.cost_rate FROM practice_staff_cost_rates cr
@@ -177,6 +182,9 @@ export async function getClientProfitability(
 
   return (revenueRows as DbRow[]).map((r) => {
     const revenue = Number(r.revenue);
+    if (!costVisible) {
+      return { practiceClientId: String(r.practice_client_id), legalName: String(r.legal_name), revenue, hours: Number(r.hours), timeCost: null, margin: null, marginPct: null };
+    }
     const timeCost = costMap.get(String(r.practice_client_id)) ?? 0;
     const margin = Math.round((revenue - timeCost) * 100) / 100;
     const marginPct = revenue > 0 ? Math.round(((revenue - timeCost) / revenue) * 10000) / 100 : 0;

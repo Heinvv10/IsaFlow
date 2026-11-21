@@ -87,7 +87,7 @@ describe('approve / post entry-point census (#1656)', () => {
     const reads = (sql: string) => PAYROLL_DETAIL_SQL.some((re) => re.test(sql));
     for (const t of ['payslips', 'payroll_employees', 'payroll_bank_details', 'payroll_bank_file_items', 'tax_directive_payments', 'tax_directives',
       'payroll_loans', 'payroll_loan_payments', 'payroll_garnishee_orders', 'payroll_garnishee_deductions', 'payroll_external_payslips',
-      'payroll_batch_lines', 'payroll_employee_history', 'payroll_employee_fringe_benefits', 'pay_packages', 'payslip_deliveries']) {
+      'payroll_batch_lines', 'payroll_employee_history', 'payroll_employee_fringe_benefits', 'pay_packages', 'payslip_deliveries', 'practice_staff_cost_rates']) {
       expect(reads(`SELECT x FROM ${t} WHERE company_id = ?`), t).toBe(true);
       expect(reads(`SELECT x FROM a JOIN public.${t} b ON b.id = a.id`), `JOIN ${t}`).toBe(true);
     }
