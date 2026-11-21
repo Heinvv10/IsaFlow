@@ -27,7 +27,8 @@ import { assertPreparerSupported, PreparerIdNotSupportedError } from '@/modules/
 import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
 import { assertFrequencyCostable, frequencyRunOf, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
-import { runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
+import { runKindOf, runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
+import { listOffCycleEmployees } from '@/modules/accounting/services/payroll/payrollOffCyclePopulation';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { assertOffCycleBeforeClose, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 
@@ -99,7 +100,10 @@ export const calculatePayRunTool: McpTool = {
         try {
           // The run's own period and frequency, read from its row as calculatePayrollRun reads it (wave 6 FQc, review #1575 L2).
           const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${ctx.companyId}::uuid`) as DbRow[])[0] ?? {};
-          const employees = await listPayrollRunEmployees(ctx.companyId, runPeriodOf(row), run.payFrequency);
+          // An off-cycle run costs its own chosen employees, as calculatePayrollRun does (review #1679 N7).
+          const employees = runKindOf(row.run_kind) === 'off_cycle'
+            ? await listOffCycleEmployees(ctx.companyId, runId)
+            : await listPayrollRunEmployees(ctx.companyId, runPeriodOf(row), run.payFrequency);
           await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
           // Wave 6 FQc: then the frequency guard, as the live call runs it (a mid-year frequency change refuses a monthly run too).
           const frequencyRun = frequencyRunOf(row);
