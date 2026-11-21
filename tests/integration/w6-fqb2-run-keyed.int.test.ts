@@ -118,9 +118,11 @@ describe('owner cash position: the next pay run', () => {
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
   });
 
-  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) is judged alone; only the bonus is still due (seeded reversed: %s)', async (flip) => {
+  // Gate ruling 4 on 7630d9379f: the regular run's net pay left on the 25th, but its PAYE (R2 000; no UIF or SDL seeded)
+  // stays owed until May's EMP201 is due (7 June), so it counts that beside the bonus still due.
+  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) counts only its PAYE; the bonus is still due (seeded reversed: %s)', async (flip) => {
     const { got, ids } = await position(flip, 22_000, new Date('2026-05-27T10:00:00Z'));
-    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 5000, runsCounted: 1 });
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 7000, runsCounted: 2 });
   });
 
   it.each(BOTH_ORDERS)('cash covers neither: the earliest short run is the regular run (seeded reversed: %s)', async (flip) => {

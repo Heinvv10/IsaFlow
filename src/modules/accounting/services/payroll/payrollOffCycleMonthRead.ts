@@ -1,0 +1,82 @@
+/**
+ * The month's earlier final lines of each employee on an off-cycle run (wave 6 OC; the rules are payrollOffCycleMonth.ts):
+ * the lines of this company's FINAL runs (payRunFinalSql) of the same pay month and frequency that come before this
+ * run in pay order (runOrderKeySql: the regular run first, then earlier off-cycle runs). Their stored ETI, and the
+ * earnings they paid, rebuilt from the stored breakdown as the line costed them: an item is an earning when its
+ * component is one (joined by id within the company) or it is a termination pay-out (synthetic:termination:*). From
+ * those earnings: the month's ETI base, hours and wage, and the UIF remuneration (the UIF-applicable ones at their PAYE
+ * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). The UIF those lines
+ * booked is their STORED contributions (review #1679 codex 1), not a rebuild. A line that paid but rebuilds no earning
+ * (an imported line with an empty breakdown) is counted in unrebuiltPay: the ETI cannot be costed on it (review of
+ * 99db78312, payrollOffCycleMonth.offCycleEtiRefusal). Scoped by company_id throughout.
+ */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { payRunFinalSql } from './payRunFinalSql';
+import { runOrderKeySql } from './payrollRunOrder';
+import type { MonthEarlierLines } from './payrollOffCycleMonth';
+import type { ComponentBreakdownItem, EmployeeComponent } from './payrollTypes';
+
+const n = (v: unknown): number => Number(v) || 0;
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/** The UIF remuneration a stored breakdown levied on: its UIF-applicable earnings, at their PAYE share where stored. */
+export function uifRemunerationOf(items: Array<ComponentBreakdownItem & { isEarning?: boolean }>): number {
+  return items.filter((i) => i.isEarning === true && i.isUifApplicable === true)
+    .reduce((t, i) => t + n(i.payeIncludedAmount ?? i.amount), 0);
+}
+
+/** The earnings a stored breakdown paid, as components (only what the ETI base, hours and wage read). */
+export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEarning?: boolean }>): EmployeeComponent[] {
+  return items.filter((i) => i.isEarning === true).map((i) => ({
+    component: {
+      id: i.componentId, name: i.componentName, sarsSourceCode: i.sarsSourceCode, componentType: 'earning' as const,
+      isTaxable: i.isTaxable, isUifApplicable: i.isUifApplicable, isSdlApplicable: i.isSdlApplicable === true,
+    },
+    amount: Number(i.amount) || 0,
+    ...(i.isNonCash ? { isNonCash: true } : {}),
+    ...(i.onceOff ? { isRecurring: false } : {}), // a once-off is not time-worked pay (timeWorkedEarnings)
+    ...(i.payeInclusionRate !== undefined ? { payeInclusionRate: i.payeInclusionRate } : {}),
+    ...(i.quantity !== undefined ? { quantity: i.quantity, quantityUnit: i.quantityUnit ?? null } : {}),
+  }));
+}
+
+export async function loadMonthEarlierLines(companyId: string, runId: string, employeeIds: string[]): Promise<Map<string, MonthEarlierLines>> {
+  if (employeeIds.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT l.employee_id, l.gross_pay, l.eti, l.uif_employee, l.uif_employer,
+           COALESCE((
+             SELECT jsonb_agg(item || jsonb_build_object('isEarning',
+                      pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%'))
+               FROM jsonb_array_elements(l.component_breakdown) AS item
+               LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = me.company_id
+           ), '[]'::jsonb) AS items
+      FROM payroll_run_headers me
+      JOIN payroll_run_headers o
+        ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
+       AND o.pay_frequency = me.pay_frequency AND o.id <> me.id
+      JOIN payroll_run_lines l ON l.run_id = o.id
+     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
+       AND ${sql.unsafe(payRunFinalSql('o'))}
+       AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}
+       AND l.employee_id = ANY(${employeeIds}::uuid[])
+  `) as DbRow[];
+  const out = new Map<string, MonthEarlierLines>();
+  for (const r of rows) {
+    const id = String(r.employee_id);
+    const items = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>;
+    const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 0, uifEmployer: 0 };
+    const earnings = earningsOfBreakdown(items);
+    out.set(id, {
+      uifRemuneration: round2(had.uifRemuneration + uifRemunerationOf(items)),
+      // What the earlier lines booked, as stored (review #1679 codex 1): an imported line's breakdown may be empty.
+      uifEmployee: round2((had.uifEmployee ?? 0) + n(r.uif_employee)),
+      uifEmployer: round2((had.uifEmployer ?? 0) + n(r.uif_employer)),
+      eti: round2(had.eti + n(r.eti)),
+      etiComponents: [...had.etiComponents, ...earnings],
+      // A line that paid but whose breakdown rebuilds no earning (an import): the month's ETI base cannot be told.
+      unrebuiltPay: round2((had.unrebuiltPay ?? 0) + (earnings.length === 0 ? Math.max(0, n(r.gross_pay)) : 0)),
+    });
+  }
+  return out;
+}

@@ -14,6 +14,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { PayrollRunLockedError, PayrollRunNotFoundError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
@@ -68,6 +69,8 @@ async function handler(
     // An ever-approved run that would lose a directive it was approved with (DR round 3): before anything is written.
     if (err instanceof PayrollRunDirectiveUseError) return apiResponse.conflict(res, err.message, { code: err.code });
     // Raised before anything is written; the message says what is missing.
+    // Wave 6 OC: an off-cycle run paid on or after its month's closing regular run; raised before any write.
+    if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code });
     if (err instanceof UnsupportedTaxYearError) {
       return apiResponse.badRequest(res, err.message, { code: 'UNSUPPORTED_TAX_YEAR', taxYear: err.taxYear });
     }

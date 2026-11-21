@@ -32,5 +32,9 @@
  * 19: weekly and fortnightly regular runs are costed (FQd lifts the run-kind `frequency` clause; a run straddling an employee's
  *    frequency change is refused until acknowledged); SDL is the month's 1% across its runs, floored at the month, so a run
  *    may carry a negative SDL refunding an earlier run's over-catch-up (FQd).
+ * 20: monthly off-cycle bonus and termination runs are costed (OC lifts the run-kind off-cycle clause): a bonus line pays its
+ *    3605 amount alone, a termination line the leaver's pay-outs; PAYE taxes the annual payment on the month's annual
+ *    equivalent, UIF is capped on the month to date and ETI recomputed for the month (the line carries the difference), SDL
+ *    joins the month's catch-up; an off-cycle line takes no garnishee instalment (the month's is the regular run's) (OC, migration 999x).
  */
-export const PAYROLL_CALCULATION_VERSION = 19;
+export const PAYROLL_CALCULATION_VERSION = 20;

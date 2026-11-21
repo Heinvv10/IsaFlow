@@ -10,6 +10,7 @@ import { closesPayMonth, dayNumber, isoOfDay, PERIOD_DAYS, periodShareOf } from 
 import { addEtiMonthParts, NO_ETI_PARTS } from '@/modules/accounting/services/payroll/payrollLineEtiMonth';
 import { withFringeBenefits } from './fringeInput';
 import type { OracleCase, OraclePriorPeriod } from './oracle';
+import type { MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { costRfi, withEmployerRetirement } from './rfiInput';
 import { hoursAmountCents } from '@/modules/accounting/services/payroll/payrollRunHours';
 import { overtimeAmountCents, overtimeHourlyRate } from '@/modules/accounting/services/payroll/payrollRunInputUnits';
@@ -127,15 +128,44 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const components = [...costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
     ...runInputUnitRows(c, employee, basic[0]?.amount ?? 0)];
   const cadence = caseCadence(c, employee);
+  const monthEarlier = caseMonthEarlier(c);
   return {
-    // The run kind does not reach the calculator yet (OC). A weekly or fortnightly case's frequency and dates do (FQc).
+    // A weekly or fortnightly case's frequency and dates reach the calculator (FQc); a bonus or termination case's month (OC).
     employee, components, taxYear: input.taxYear,
     period: { year: input.period.year, month: input.period.month, ...(cadence ? { start: cadence.periodStart, end: cadence.periodEnd } : {}) },
     annualPayrollEstimate: input.employerAnnualRemuneration,
     ...(input.priorPeriods ? { ytd: priorYearToDate(input.priorPeriods, employee) } : {}),
     ...(cadence ? { cadence } : {}),
+    ...(monthEarlier ? { monthEarlier } : {}),
     ...oracleDirective(c),
     ...oracleGarnishees(c),
+  };
+}
+
+/**
+ * A bonus or termination case's month (OC), as payrollOffCycleMonthRead builds it from the stored lines: the priors paid
+ * in the case's month (spec F1: the month's regular line), their UIF remuneration (`uifLeviable`, the figure the line
+ * levied; at or below the ceiling the same as the remuneration) and their earnings.
+ * NAMED LIMIT: a prior stores no ETI figure, so the month's earlier ETI is nil; no off-cycle case is ETI-eligible today
+ * (the integration suite w6-oc-off-cycle proves the ETI difference on real lines).
+ */
+function caseMonthEarlier(c: OracleCase): MonthEarlierLines | undefined {
+  const { period } = c.input;
+  if (period.runKind !== 'bonus' && period.runKind !== 'termination') return undefined;
+  if ((period.frequency ?? 'monthly') !== 'monthly') throw new Error(`${c.id}: an off-cycle case is monthly (OC)`);
+  const month = `${period.year}-${String(period.month).padStart(2, '0')}`;
+  const sameMonth = (c.input.priorPeriods ?? []).filter(p => priorEnd(p).slice(0, 7) === month);
+  if (sameMonth.length === 0) throw new Error(`${c.id}: an off-cycle case carries its month's regular line as a prior (spec F1)`);
+  return {
+    uifRemuneration: sumOf(sameMonth.map(p => p.uifLeviable)),
+    eti: 0,
+    etiComponents: sameMonth.flatMap((p, k) => p.components.filter(x => x.type === 'earning').map((x, i) => ({
+      component: {
+        id: `${c.id}-prior${k}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
+        isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
+      },
+      amount: x.amount,
+    }))),
   };
 }
 

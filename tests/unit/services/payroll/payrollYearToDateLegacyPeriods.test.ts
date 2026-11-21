@@ -47,7 +47,8 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     expect(remuneration).toContain("= '3605'");
     // Each line counts the share of its period worked (1 a month; a weekly starter's 0.4285; wave 6 FQc).
     expect(query).toContain('COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods');
-    expect(query).toContain('periodic_before_deductions > 0 OR annual_before_deductions > 0');
+    // A bonus alone advances the cap on a regular run's line only (review #1679 M2: an off-cycle bonus beside it does not).
+    expect(query.replace(/\s+/g, ' ')).toContain("periodic_before_deductions > 0 OR (annual_before_deductions > 0 AND run_kind = 'regular')");
     expect(query).toContain('FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines');
     expect(query).toContain('AS uncounted_cap_lines');
   });

@@ -139,7 +139,8 @@ function recomputePaye(fig: FigureExplanation): number {
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));
     annual = round2(Math.min(due, Math.max(0, taxAll - taxEarlier)));
-    regular = round2(due - annual);
+    // A line with no regular pay takes none of the regular catch-up (payeCumulative, review #1620 L2).
+    regular = r.has('paye.noRegularPay') ? 0 : round2(due - annual);
   }
   return round2(regular + annual + directive);
 }
@@ -151,6 +152,26 @@ function recomputeUif(fig: FigureExplanation): number {
   const room = Math.max(0, r.amt('uif.ceiling') - (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0));
   const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), room));
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
+  if (r.has('uif.monthLiabilityEmployee')) {
+    // An off-cycle line (review #1679): each side's earlier pay is the larger of the rebuilt pay and booked ÷ rate; the
+    // month's liability on it plus this run's pay is rounded once, less what that side booked.
+    const side = (s: 'Employee' | 'Employer'): number => {
+      const rebuilt = r.amt('uif.earlierRebuilt');
+      const booked = r.amt(`uif.booked${s}`);
+      const own = round2(Math.min(rebuilt, r.amt('uif.ceiling')) * r.amt('uif.rate'));
+      const earlier = booked > own ? Math.max(rebuilt, round2(booked / r.amt('uif.rate'))) : rebuilt;
+      expect(cents(r.amt(`uif.earlier${s}`))).toBe(cents(earlier));
+      // Each side's own room and cap (fix check L2).
+      expect(cents(r.amt(`uif.leviable${s}`))).toBe(cents(Math.max(0, Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling') - earlier))));
+      expect(r.amt(`uif.capped${s}`)).toBe(earlier + Math.max(0, r.amt('uif.remuneration')) > r.amt('uif.ceiling') ? 1 : 0);
+      const liability = round2(Math.min(earlier + r.amt('uif.remuneration'), r.amt('uif.ceiling')) * r.amt('uif.rate'));
+      expect(cents(r.amt(`uif.monthLiability${s}`))).toBe(cents(liability));
+      return Math.max(0, round2(liability - r.amt(`uif.booked${s}`)));
+    };
+    expect(cents(r.amt('uif.monthToDate'))).toBe(cents(Math.max(r.amt('uif.earlierEmployee'), r.amt('uif.earlierEmployer'))));
+    expect(cents(r.amt('uif.employer'))).toBe(cents(side('Employer')));
+    return side('Employee');
+  }
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));
   return each;
@@ -170,6 +191,15 @@ export function recomputeSdl(fig: FigureExplanation): number {
 }
 
 function recomputeEti(fig: FigureExplanation): number {
+  const r = reader(fig);
+  const month = recomputeMonthEti(fig);
+  if (!r.has('eti.month.total')) return month;
+  // An off-cycle line (OC; ETI Act s7): the month's ETI on everything it paid, less the earlier runs' claim.
+  expect(cents(r.amt('eti.month.total'))).toBe(cents(month));
+  return round2(month - r.amt('eti.month.earlier'));
+}
+
+function recomputeMonthEti(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('eti.ineligible')) return 0;
   // With the hours known, the table reads the remuneration grossed up to 160 hours, and the result is grossed down by

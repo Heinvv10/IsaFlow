@@ -27,8 +27,10 @@ import { assertPreparerSupported, PreparerIdNotSupportedError } from '@/modules/
 import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
 import { assertFrequencyCostable, frequencyRunOf, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
-import { runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
+import { runKindOf, runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
+import { listOffCycleEmployees } from '@/modules/accounting/services/payroll/payrollOffCyclePopulation';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { assertOffCycleBeforeClose, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 
 /** The run, as every tool here reports it. */
 export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
@@ -98,17 +100,25 @@ export const calculatePayRunTool: McpTool = {
         try {
           // The run's own period and frequency, read from its row as calculatePayrollRun reads it (wave 6 FQc, review #1575 L2).
           const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${ctx.companyId}::uuid`) as DbRow[])[0] ?? {};
-          const employees = await listPayrollRunEmployees(ctx.companyId, runPeriodOf(row), run.payFrequency);
+          // An off-cycle run costs its own chosen employees, as calculatePayrollRun does (review #1679 N7).
+          const employees = runKindOf(row.run_kind) === 'off_cycle'
+            ? await listOffCycleEmployees(ctx.companyId, runId)
+            : await listPayrollRunEmployees(ctx.companyId, runPeriodOf(row), run.payFrequency);
           await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
           // Wave 6 FQc: then the frequency guard, as the live call runs it (a mid-year frequency change refuses a monthly run too).
           const frequencyRun = frequencyRunOf(row);
           if (frequencyRun) await assertFrequencyCostable(ctx.companyId, frequencyRun, employees.map((e) => e.id));
+          // Wave 6 OC: then the month's close, as the live call checks it (an off-cycle run paid after its regular run).
+          await assertOffCycleBeforeClose(ctx.companyId, row);
         } catch (err) {
-          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
+          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError) return toolError(err.message);
           throw err;
         }
       }
-      const blocked = !refusal && run.journalEntryId != null
+      // An off-cycle run pays no loan instalment (calculatePayrollRun skips loans for it, review #1679): neither the
+      // posted-journal loan refusal nor the roster's withheld loans apply to it.
+      const offCycle = run.runKind === 'off_cycle';
+      const blocked = !refusal && !offCycle && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
@@ -122,7 +132,7 @@ export const calculatePayRunTool: McpTool = {
           ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
           ...(refusal ? [refusal] : []),
         ],
-        withheld_loans: blocked || refusal ? [] : await withheldLoans(ctx.companyId, run),
+        withheld_loans: blocked || refusal || offCycle ? [] : await withheldLoans(ctx.companyId, run),
         current: runPayload(run),
       });
     }
@@ -131,7 +141,7 @@ export const calculatePayRunTool: McpTool = {
       const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
-        withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
+        withheld_loans: costed.runKind === 'off_cycle' ? [] : await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
           : 'approve_pay_run posts this to the ledger.',
@@ -142,7 +152,8 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || err instanceof PreparerIdNotSupportedError
-        || isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof PspComponentRefused || err instanceof PspStatusChangedSinceApproval) return toolError(err.message);
+        || isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError
+        || err instanceof PspComponentRefused || err instanceof PspStatusChangedSinceApproval) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError

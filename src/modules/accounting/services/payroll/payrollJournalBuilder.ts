@@ -93,6 +93,7 @@ export async function buildPayrollJournalPlan(
   const status = String(hdr.status);
   const periodYear = Number(hdr.period_year);
   const periodMonth = Number(hdr.period_month);
+  const offCycleReason = hdr.run_kind === 'off_cycle' ? String(hdr.off_cycle_reason ?? 'off-cycle') : null;
   const gross = Number(hdr.total_gross) || 0;
   const paye = Number(hdr.total_paye) || 0;
   const uif = Number(hdr.total_uif) || 0; // combined employee + employer
@@ -249,7 +250,7 @@ export async function buildPayrollJournalPlan(
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
     entryDate,
     description: runJournalDescriptionOf(hdr), // wave 6 FQc: a weekly, fortnightly or off-cycle run's names its kind and pay date
-    reference: `PAY-${periodYear}-${mm}`,
+    reference: `PAY-${periodYear}-${mm}${offCycleReason ? `-${offCycleReason.toUpperCase()}` : ''}`,
     lines,
     totalDebit,
     totalCredit,
