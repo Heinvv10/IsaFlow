@@ -26,6 +26,7 @@ import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
 import { ledgerLinkRefusal } from './journalReinstateRefusal';
+import { lockJournalChains } from './ledgerLinkKeys';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -77,15 +78,14 @@ export async function reverseJournalEntry(
   // journal-reversal gate locked (`bank/reconciledCash`, D12); a tied line outside it is a retry.
   opts?: ReverseOpts,
 ): Promise<ReversalWithLateClaim> {
-  // One transaction around the whole reversal. Inside a request there already
-  // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
-  // commits its own. That is what keeps the claim below from outliving the
-  // contra it stands for: a crash anywhere in between rolls both back, and a
-  // rerun repairs the entry instead of finding it permanently marked reversed.
+  // One transaction around the whole reversal (a request's, or its own for scripts and cron), so the claim below never
+  // outlives the contra it stands for: a crash in between rolls both back, and a rerun repairs the entry.
   return withReversalTransaction({ companyId, userId }, async () => {
     // A late-claim original reverses its companion with it, all or nothing; the
     // companion's reversal is planned (and refused) before any write.
     const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
+    // 1018 round 13 L1: every chain this reversal touches (and the companion's), rows and keys, sorted, before the claim.
+    await lockJournalChains([id, ...(companion ? [companion.id] : [])], () => new JournalReversalLockTimeoutError(id));
     const body = () => reverseJournalEntryInner(companyId, id, userId, opts, companion);
     return companion ? withSavepoint('reverse_late_claim', body) : body();
   });

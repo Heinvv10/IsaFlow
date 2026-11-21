@@ -27,6 +27,8 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
 // Step 6: a share journal with live undo-share journals is refused (gl/shareUndoReversalGuard, real-ledger proof in
 // breaker6-r2.int.test.ts); none here, and the positional sql queue must not see its read.
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
+// 1018 round 13: the sorted chain locks before the claim (gl/ledgerLinkKeys); the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/ledgerLinkKeys', () => ({ lockJournalChains: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),

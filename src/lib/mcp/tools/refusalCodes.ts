@@ -300,6 +300,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'JOURNAL_REINSTATES_CANCELLED_DOCUMENT', // 1018 round 3: re-reversal of a cancelled document's journal (gl/journalReinstateRefusal)
   'JOURNAL_REVERSAL_CHAIN_FULL', // 1018 round 4: a reversal onto a full or branched chain (gl/journalReinstateRefusal)
   'JOURNAL_REVERSAL_REFUSED', // 1018 round 10: any other refusal of the reversal link, in the user's words (gl/journalReinstateRefusal)
+  'JOURNAL_LINK_KEYS_LOCK_TIMEOUT', // 1018 round 13: a merge met a journal's link key held past the 5 s bound (gl/ledgerLinkKeys)
   'PREPARER_ID_NOT_SUPPORTED', // wave 6 HYb: a non-UUID preparer of a pay run R-035 governs (payrollPreparerGuard)
   'LEAVER_EXIT_AMBIGUOUS', // two live leaver-exit audit rows for a directive's current expiry: nothing restored
   'LEAVER_EXIT_WINDOW_TAKEN', // undoing a leaver exit when another run taxed the employee inside the restored window

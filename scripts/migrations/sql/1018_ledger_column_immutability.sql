@@ -136,6 +136,8 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_base_check ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_late_claim_base_upd ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_late_claim_base_ins ON public.gl_journal_lines;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_late_claim_base_move ON public.gl_journal_lines;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_based_vat_type_frozen ON public.gl_journal_lines;
 --   DROP INDEX IF EXISTS public.ix_gl_je_reversal_of_lookup;
 --   and, on each of public.customer_invoices, public.supplier_invoices, public.credit_notes:
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_ins ON public.<table>;
@@ -155,7 +157,8 @@
 --     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid), public.gl_jl_company_is_journal_company(),
 --     public.gl_je_created_at_frozen(), public.gl_je_reversal_base_check(), public.gl_late_claim_bases_negated(uuid, uuid),
 --     public.ledger_lock_journal(uuid), public.gl_jl_late_claim_base_born_here(),
---     public.ledger_lock_key(uuid), public.ledger_bound_lock_wait(), public.gl_reversal_reinstates_cancelled_document(uuid, integer);
+--     public.ledger_lock_key(uuid), public.ledger_bound_lock_wait(), public.gl_reversal_reinstates_cancelled_document(uuid, integer),
+--     public.ledger_lock_chains(uuid[]), public.gl_jl_based_vat_type_frozen();
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -361,6 +364,28 @@ BEGIN
   PERFORM 1 FROM public.gl_journal_entries e WHERE e.id = p_entry FOR NO KEY UPDATE;
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(p_entry));
   PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
+END
+$$;
+
+-- Round 13 L1: the rows and keys of several journals AND their chain roots, in one sorted (uuid) order: the order a
+-- reversal link takes its keys and an account merge its sweep. The reversal service takes it for the journal it
+-- reverses (and a late-claim companion with it) BEFORE its claim, so no transaction holds one chain key while it waits
+-- for a lower one. Each take is ledger_lock_journal: row, then key, bounded.
+CREATE OR REPLACE FUNCTION public.ledger_lock_chains(p_entries uuid[])
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  FOR v_id IN SELECT DISTINCT s.x FROM (
+                SELECT e.id AS x FROM unnest(p_entries) e(id)
+                UNION
+                SELECT a.id FROM unnest(p_entries) e(id) CROSS JOIN LATERAL public.gl_journal_ancestors(e.id) a WHERE a.is_root) s
+               WHERE s.x IS NOT NULL ORDER BY s.x LOOP
+    PERFORM public.ledger_lock_journal(v_id);
+  END LOOP;
 END
 $$;
 
@@ -633,6 +658,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  v_key uuid;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
@@ -646,7 +673,12 @@ BEGIN
   -- Round 12 L4: only a change of the stamp itself takes the key; a post (posted_at / posted_by) takes none.
   IF NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by THEN
     PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-    PERFORM public.ledger_lock_key(OLD.id);
+    -- Round 13 L1: this journal's key AND its chain root's, sorted, so a claim and the link that follows never hold
+    -- one chain key while waiting for a lower one (an account merge's sorted sweep would deadlock against that).
+    FOR v_key IN SELECT DISTINCT s.k FROM (SELECT OLD.id AS k UNION SELECT a.id FROM public.gl_journal_ancestors(OLD.id) a WHERE a.is_root) s
+                  ORDER BY s.k LOOP
+      PERFORM public.ledger_lock_key(v_key);
+    END LOOP;
     IF EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
       RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when'
         USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_attribution_kept';
@@ -821,6 +853,40 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_late_claim_base_ins
   WHEN (NEW.late_claim_base IS NOT NULL)
   EXECUTE FUNCTION public.gl_jl_late_claim_base_born_here();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_late_claim_base_ins;
+-- Round 13 L2: nor by moving a based line (made on a journal born here) into an older journal.
+CREATE OR REPLACE TRIGGER trg_gl_jl_late_claim_base_move
+  BEFORE UPDATE OF journal_entry_id ON public.gl_journal_lines
+  FOR EACH ROW
+  WHEN (NEW.late_claim_base IS NOT NULL AND NEW.journal_entry_id IS DISTINCT FROM OLD.journal_entry_id)
+  EXECUTE FUNCTION public.gl_jl_late_claim_base_born_here();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_late_claim_base_move;
+
+-- Round 13 I3: a based line of a posted journal keeps its VAT type (the type picks the VAT201 box its base counts in).
+-- Census of vat_type writers on lines: the late-claim split's original-side rewrite (vatLateClaimSplit, on lines with no
+-- base, before the post) and nothing else; the account merge moves gl_account_id only.
+CREATE OR REPLACE FUNCTION public.gl_jl_based_vat_type_frozen()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = OLD.journal_entry_id AND e.status IS NOT DISTINCT FROM 'draft') THEN
+    RAISE EXCEPTION 'gl_journal_lines: a line carrying a late-claim base keeps its VAT type once its journal is posted'
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_jl_based_vat_type_frozen';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_jl_based_vat_type_frozen
+  BEFORE UPDATE OF vat_type ON public.gl_journal_lines
+  FOR EACH ROW
+  WHEN (OLD.late_claim_base IS NOT NULL AND NEW.vat_type IS DISTINCT FROM OLD.vat_type)
+  EXECUTE FUNCTION public.gl_jl_based_vat_type_frozen();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_based_vat_type_frozen;
 
 -- A line's account or VAT type may move on a linked journal only while the pair is still an exact negation at COMMIT:
 -- an account merge moves both sides in one transaction and passes, one side alone is refused. Deferred, once per changed

@@ -8,7 +8,7 @@
  * superuser pool), call `appLoginWorld()`, then import the services DYNAMICALLY from the returned `load`, which resets
  * the module registry so the services get a fresh `@/lib/neon` pool that logs in as the suite's login.
  */
-import { randomUUID } from 'crypto';
+import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { vi } from 'vitest';
 
@@ -41,6 +41,22 @@ export async function assertDisposableCluster(c: { query: Client['query'] }): Pr
   }
 }
 
+/**
+ * The SCRAM-SHA-256 verifier PostgreSQL stores for `password` (RFC 5802 / 7677, as libpq's PQencryptPasswordConn):
+ * `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`. A role created with it logs in with `password`, while
+ * the server never sees the password. Printable ASCII only (SASLprep is the identity on it): a random uuid.
+ */
+export function scramVerifier(password: string, iterations = 4096): string {
+  if (!/^[\x21-\x7e]+$/.test(password)) throw new Error('scramVerifier: printable ASCII only');
+  const salt = randomBytes(16);
+  const salted = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
+  const clientKey = createHmac('sha256', salted).update('Client Key').digest();
+  const storedKey = createHash('sha256').update(clientKey).digest();
+  const serverKey = createHmac('sha256', salted).update('Server Key').digest();
+  const b64 = (b: Buffer) => b.toString('base64');
+  return ['SCRAM-SHA-256', `${iterations}:${b64(salt)}`, `${b64(storedKey)}:${b64(serverKey)}`].join('$');
+}
+
 const adminClient = async (fixtureUrl: string): Promise<Client> => {
   const admin = new URL(fixtureUrl);
   admin.pathname = '/postgres';
@@ -56,7 +72,8 @@ export async function provisionAppLogin(fixtureUrl: string): Promise<{ role: str
     await assertDisposableCluster(c);
     const role = `${FIXTURE_LOGIN_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const password = randomUUID();
-    await c.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${password}'`);
+    // Round 13 I1: the server gets the SCRAM verifier, never the password, so no statement log or stats view holds it.
+    await c.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${scramVerifier(password)}'`);
     const grants = (await c.query<{ role: string; inherit: boolean; set: boolean }>(`
       SELECT g.rolname AS role, m.inherit_option AS inherit, m.set_option AS set
         FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid

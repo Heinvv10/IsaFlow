@@ -51,6 +51,7 @@ function makeClient(opts: {
   events: string[];
   membershipRows?: Array<{ role: string; account_user_id: string | null; is_active: boolean | null; status: string | null; suspended_at: Date | null }>;
   commitThrows?: boolean;
+  commitCode?: string;
 }): MockClient {
   // Default: an active member. The membership lookup now LEFT JOINs
   // public.users, so the row must carry the account-standing columns or
@@ -65,7 +66,7 @@ function makeClient(opts: {
       }
       if (verb === 'COMMIT' && opts.commitThrows) {
         opts.events.push('COMMIT_THROW');
-        throw new Error('commit failed: serialization');
+        throw Object.assign(new Error('commit failed'), opts.commitCode ? { code: opts.commitCode } : {});
       }
       if (verb === 'BEGIN' || verb === 'COMMIT' || verb === 'ROLLBACK') {
         opts.events.push(verb);
@@ -165,6 +166,20 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(res.statusCode).toBe(500);
     // The 500 body is still delivered, after the rollback.
     expect(events.indexOf('ROLLBACK')).toBeLessThan(events.indexOf('FLUSH'));
+  });
+
+  it.each(['55P03', '40P01'])('turns a COMMIT that failed on a lock (%s: a deferred check waiting at COMMIT) into a retryable 503 (1018 round 13)', async (code) => {
+    const events: string[] = [];
+    currentClient = makeClient({ events, commitThrows: true, commitCode: code });
+    const { res, state } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const tok = await makeToken('user-1');
+    await withAuth(async (_req: never, r: NextApiResponse) => {
+      r.status(200).json({ ok: true });
+    })(mkReq(tok, COMPANY_ID), res);
+    expect(events).toContain('COMMIT_THROW');
+    expect(state.statusCode).toBe(503);
+    expect(state.finished).toBe(true);
   });
 
   it('turns a failed COMMIT after a 2xx into a 500 (no silent lie)', async () => {
