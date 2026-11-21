@@ -22,17 +22,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const itemId = req.query.item_id as string | undefined;
     const format = req.query.format as string;
 
-    // Get GRN (goods received) as stock IN
+    // Get GRN (goods received) as stock IN. grn_items.product_id references PRODUCTS (its FK, and what the receipt copies from the PO
+    // line's product_id); this used to join stock_items, a separate catalogue no receipt ever names (Codex gate at 1cf5bdc1, 1).
     let grnRows;
     if (itemId) {
       grnRows = await sql`
         SELECT g.received_date AS move_date, 'GRN' AS move_type,
-          g.grn_number AS reference, si.name AS item_name, si.item_code,
+          g.grn_number AS reference, p.name AS item_name, p.code AS item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
-        JOIN goods_received_notes g ON g.id = gi.grn_id
-        JOIN stock_items si ON si.id = gi.product_id
-        WHERE si.company_id = ${companyId}
+        JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}
+        JOIN products p ON p.id = gi.product_id
+        WHERE p.company_id = ${companyId}
           AND gi.product_id = ${itemId}
           AND g.status <> 'cancelled'
           AND g.received_date >= ${from} AND g.received_date <= ${to}
@@ -40,19 +41,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } else {
       grnRows = await sql`
         SELECT g.received_date AS move_date, 'GRN' AS move_type,
-          g.grn_number AS reference, si.name AS item_name, si.item_code,
+          g.grn_number AS reference, p.name AS item_name, p.code AS item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
-        JOIN goods_received_notes g ON g.id = gi.grn_id
-        JOIN stock_items si ON si.id = gi.product_id
-        WHERE si.company_id = ${companyId}
+        JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}
+        JOIN products p ON p.id = gi.product_id
+        WHERE p.company_id = ${companyId}
           AND g.received_date IS NOT NULL
           AND g.status <> 'cancelled'
           AND g.received_date >= ${from} AND g.received_date <= ${to}
       `;
     }
 
-    // No sales rows — customer_invoice_items don't link to stock_items
+    // No sales rows — customer_invoice_items don't link to products
     const salesRows: typeof grnRows = [];
 
     // Merge and sort by date

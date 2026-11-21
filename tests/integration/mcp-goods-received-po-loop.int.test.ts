@@ -35,7 +35,7 @@ afterAll(async () => {
   try {
     await dropGrnExtras(pool, f);
     await dropMaintExtras(pool, f);
-    await pool.query('DELETE FROM stock_items WHERE id = ANY($1::UUID[])', [stock]);
+    await pool.query('UPDATE po_items SET product_id = NULL WHERE product_id = ANY($1::UUID[])', [stock]);
     await pool.query('DELETE FROM products WHERE id = ANY($1::UUID[])', [stock]);
     await dropBillFixture(pool, f);
   } finally { await pool.end(); }
@@ -117,18 +117,21 @@ describe('the reads that leave a cancelled note out (L4)', () => {
     const product = crypto.randomUUID();
     stock.push(product);
     await pool.query("INSERT INTO products (id, company_id, code, name) VALUES ($1, $2, 'GRN-MOVE', 'Moved item')", [product, f.co]);
-    await pool.query("INSERT INTO stock_items (id, company_id, item_code, name) VALUES ($1, $2, 'GRN-MOVE', 'Moved item')", [product, f.co]);
+    // A product-backed PO line: the receipt itself copies the line's product onto its items (Codex gate at 1cf5bdc1, 1); the test no
+    // longer sets grn_items.product_id by hand, and no stock_items row shares the product's id (the report reads products).
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 10, price: 1 }] });
+    await pool.query('UPDATE po_items SET product_id = $2 WHERE id = $1', [po.items[0], product]);
     const live = await receive(po, 2);
     const gone = await receive(po, 5);
-    await pool.query('UPDATE grn_items SET product_id = $2 WHERE grn_id = ANY($1::UUID[])', [[live.id, gone.id], product]);
+    expect((await pool.query('SELECT DISTINCT product_id::text AS p FROM grn_items WHERE grn_id = ANY($1::UUID[])', [[live.id, gone.id]])).rows)
+      .toEqual([{ p: product }]);
     await cancelNote(gone.id);
     for (const query of [{ item_id: product }, {}]) {
       const r = await callRoute(itemMovementRoute as never, f, f.owner, '/api/accounting/reports/item-movement', undefined,
         { method: 'GET', query: { from: '2026-06-01', to: '2026-06-30', ...query } });
       expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
       const rows = (r.body.data as Array<{ reference: string; qtyIn: number }>).filter((m) => [live.number, gone.number].includes(m.reference));
-      expect(rows, JSON.stringify(query)).toEqual([expect.objectContaining({ reference: live.number, qtyIn: 2 })]);
+      expect(rows, JSON.stringify(query)).toEqual([expect.objectContaining({ reference: live.number, qtyIn: 2, itemName: 'Moved item', itemCode: 'GRN-MOVE' })]);
     }
   });
 });

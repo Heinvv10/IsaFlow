@@ -128,8 +128,11 @@ export async function receiveGoods(companyId: string, userId: string, input: unk
     `) as DbRow[])[0]!;
     for (const line of body.items) {
       await sql`
-        INSERT INTO grn_items (grn_id, po_item_id, quantity_received, quantity_rejected, notes)
-        SELECT g.id, pi.id, ${line.quantityReceived}, ${line.quantityRejected}, ${line.notes ?? null}
+        INSERT INTO grn_items (grn_id, po_item_id, product_id, quantity_received, quantity_rejected, notes)
+        -- The PO line's product, if it is one of this company's (po_items.product_id's FK is tenant-agnostic): the item-movement
+        -- report reads grn_items.product_id (Codex gate at 1cf5bdc1, 1).
+        SELECT g.id, pi.id, (SELECT p.id FROM products p WHERE p.id = pi.product_id AND p.company_id = ${companyId}::uuid),
+               ${line.quantityReceived}, ${line.quantityRejected}, ${line.notes ?? null}
           FROM goods_received_notes g JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
           JOIN po_items pi ON pi.purchase_order_id = po.id
          WHERE g.id = ${receipt.id as string}::uuid AND g.company_id = ${companyId}::uuid AND pi.id = ${line.poItemId}::uuid
