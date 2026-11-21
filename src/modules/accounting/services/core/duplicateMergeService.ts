@@ -64,6 +64,30 @@ export async function assertSupplierMergeKeepsDrcFlag(
   }
 }
 
+const NOTED_BILLS_SHOWN = 10;
+
+/**
+ * A bill's goods received note ties it to the note's PO as a link row does (gate at c63b1e26; #1708): a merge moves the bill to the
+ * target but never the source's purchase orders, so the bill would carry a note on another supplier's PO. Both merge paths refuse,
+ * as the REST route refuses a source with PO links (refusing, not moving the PO: a PO carries its other notes, links and commitment,
+ * and a merge never moves purchase_orders). Live bills only (not deleted, not cancelled: the cancel's rule). Before anything moves.
+ */
+export async function assertSupplierMergeMovesNoNotedBill(companyId: string, sourceId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT si.invoice_number, count(*) OVER ()::INT AS n FROM supplier_invoices si
+     WHERE si.company_id = ${companyId}::UUID AND si.supplier_id = ${sourceId}::UUID AND si.grn_id IS NOT NULL
+       AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'
+     ORDER BY si.invoice_number, si.id LIMIT ${NOTED_BILLS_SHOWN}
+  `) as Array<{ invoice_number: string; n: number }>;
+  if (rows.length === 0) return;
+  const total = Number(rows[0]!.n);
+  const named = rows.map((r) => String(r.invoice_number)).join(', ') + (total > rows.length ? ` and ${total - rows.length} more` : '');
+  throw new SupplierMergeRefusal(
+    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}) whose purchase order stays with this supplier. `
+    + 'Take the note off each bill before merging (a draft: update_supplier_invoice with grn_id null; an approved bill: cancel it), so no bill names another supplier\'s note.',
+  );
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function mergeEntities(
@@ -96,6 +120,7 @@ export async function mergeEntities(
 async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
+  await assertSupplierMergeMovesNoNotedBill(companyId, duplicateId);
 
   let count = 0;
 

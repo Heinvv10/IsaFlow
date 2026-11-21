@@ -16,7 +16,7 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
+  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -44,6 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Before the transaction: a refusal moves nothing.
     await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id, source_id);
+    // A bill tied to a PO only by its goods received note is refused as a PO link is (#1708).
+    await assertSupplierMergeMovesNoNotedBill(companyId, source_id);
     await withTransaction(async (tx) => {
       // 1. Validate both suppliers belong to this company and are active
       const suppliers = await tx`
