@@ -45,10 +45,12 @@ only in the group its mirrors go to (the oldest active group with both as member
 the manual P1 generator does not draft a sale-class row of the pair (sale, purchase, mgmt_fee; both
 directions) that a mirrored document of that group eliminates: it lists it "eliminated by mirroring".
 That answer is a STORED, exclusive link (one mirror accounts for at most one sale row and one purchase
-row across every run and period, given to the closest matching row), judged as at the period being
+row across every run and period; a row takes the closest of its matching mirrors that is free), judged as at the period being
 generated: a mirror that stops eliminating the row inside that period releases the link and the row is
 drafted; a stop dated after the period is the mirror's own counter-elimination in that later period. A
-mirror whose lines are not all mapped to group accounts does not take a row. A row no mirror accounts
+mirror whose lines are not all mapped to group accounts does not take a row. A sender's cancel counts by
+the date of its reversal, like any stop (a cancel rolled past a VAT-locked period leaves that period
+eliminated by the mirror). A row no mirror accounts
 for (rejected, pending, not approved, never sent) is drafted with a CHECK BEFORE POSTING note saying
 why, so the mirror is the only elimination when one exists and no sale goes uneliminated. A hand-made (`create-elimination`) adjustment
 dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and

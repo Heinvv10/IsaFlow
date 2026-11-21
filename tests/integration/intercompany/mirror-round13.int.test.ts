@@ -75,13 +75,13 @@ describe('R12-M1: the flag is wide', () => {
     expect([(await dup(a.id)).length, (await dup(b.id)).length]).toEqual([0, 0]);
   });
 
-  it('a mirror with no description is named by its id', async () => {
+  it('a mirror with no description is named by a plain label, never its id (round 17)', async () => {
     const m = await mirrored();
     const row = m.message.payload.groupTransactionId as string;
     await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
       'UPDATE intercompany_transactions SET description = NULL WHERE id = $1', [row]));
     const r = await manualSale(1000, '2026-01-15');
-    expect((await dup(r.id))[0]?.mirror_ref).toBe(row);
+    expect((await dup(r.id))[0]?.mirror_ref).toBe('an unnamed mirrored document');
   });
 });
 

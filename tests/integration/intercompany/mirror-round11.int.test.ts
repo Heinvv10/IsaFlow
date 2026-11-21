@@ -78,7 +78,9 @@ describe('B-M1: a rejected or cancelled mirror, or a loan, never touches a manua
     await L.cancelSender(m.inv.id);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
     const { made, flagged } = await manualPair('sale', 'purchase');
-    expect(flagged).toEqual([]);
+    // round 17 (R16 breaker H1): a cancelled mirror stays a candidate, judged as at the period, never by today's cancel stamp; so the draft
+    // is flagged, and its confirm says the mirror is NOT eliminated automatically (round-17 test: a cancel reversed inside the period)
+    expect(flagged.length).toBeGreaterThan(0);
     expect(made.length).toBeGreaterThan(0);
   });
 

@@ -44,7 +44,7 @@
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
 --     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
 --     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid), public.intercompany_mirror_stands(uuid, date),
---     public.intercompany_mirror_link(uuid, date), public.intercompany_mirror_link_holds(uuid, uuid, date), public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[], integer[]), public.intercompany_next_sa_midnight();
+--     public.intercompany_mirror_link(uuid, date), public.intercompany_mirror_link_holds(uuid, uuid, date), public.intercompany_mirror_candidates(uuid), public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[], integer[]), public.intercompany_next_sa_midnight();
 
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
@@ -1536,6 +1536,45 @@ GRANT EXECUTE ON FUNCTION public.intercompany_pair_cutovers(uuid) TO app_user, a
 -- id) or "N mirrored documents of <month>". A plain lookup and one aggregate (no ledger walk). Whether the mirrors are eliminated is
 -- intercompany_mirror_stands. A definer (the caller may not read the messages); it answers only for a row of a group the caller is a current
 -- member of.
+-- Every SINGLE mirrored document a manual sale-class row may be, closest first (rank 1 = the best): the same group, the sale running the way
+-- the row's elimination does (a purchase in reverse), its subtotal or total (signed) the row's amount, its date in the same calendar month as
+-- or within 7 days of the row's by the sender's or the receiver's document date, its message accepted with a target document. A CANCELLED
+-- sender (source_cancelled_at) is NOT left out: whether it eliminates anything is judged as at a period (intercompany_mirror_stands), never by
+-- the stamp, which is today's state. Named by description, else a plain label (never an id). SECURITY INVOKER, migration_admin only: the
+-- duplicate flag and the link function call it after their own membership checks.
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_candidates(p_row uuid)
+RETURNS TABLE (mirror_row uuid, mirror_ref text, rank bigint)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH r AS (
+    SELECT r.id, r.group_id, r.amount, r.transaction_date AS td,
+           CASE WHEN r.transaction_type = 'purchase' THEN r.target_company_id ELSE r.source_company_id END AS seller,
+           CASE WHEN r.transaction_type = 'purchase' THEN r.source_company_id ELSE r.target_company_id END AS buyer
+      FROM public.intercompany_transactions r
+     WHERE r.id = p_row AND r.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
+       AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = r.id)
+  ), m AS (
+    SELECT o.id, COALESCE(NULLIF(btrim(o.description), ''), 'an unnamed mirrored document') AS ref, o.amount AS sub,
+           sign(o.amount) * (x.payload->>'total')::numeric AS tot, o.transaction_date AS od, o.created_at,
+           COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE x.target_doc_type = 'supplier_invoice' AND si.id = x.target_doc_id),
+                    (SELECT cn.credit_date FROM public.credit_notes cn WHERE x.target_doc_type = 'credit_note' AND cn.id = x.target_doc_id)) AS bd
+      FROM r
+      JOIN public.intercompany_transactions o ON o.group_id = r.group_id AND o.id <> r.id AND o.source_company_id = r.seller AND o.target_company_id = r.buyer
+      JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
+     WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL
+  )
+  SELECT m.id, m.ref, row_number() OVER (ORDER BY (r.amount = m.sub AND r.td = m.od) DESC, abs(r.td - m.od), m.created_at, m.id)
+    FROM r, m
+   WHERE (r.amount = m.sub OR r.amount = m.tot)
+     AND (date_trunc('month', r.td) = date_trunc('month', m.od) OR abs(r.td - m.od) <= 7
+          OR (m.bd IS NOT NULL AND (date_trunc('month', r.td) = date_trunc('month', m.bd) OR abs(r.td - m.bd) <= 7)))
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_candidates(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_candidates(uuid) TO migration_admin;
+
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid);
@@ -1555,21 +1594,13 @@ AS $$
        AND r.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
        AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = r.id)
   ), m AS (
-    SELECT o.id, COALESCE(o.description, o.id::text) AS ref, o.amount AS sub, sign(o.amount) * (x.payload->>'total')::numeric AS tot,
-           o.transaction_date AS od, o.created_at,
-           COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE x.target_doc_type = 'supplier_invoice' AND si.id = x.target_doc_id),
-                    (SELECT cn.credit_date FROM public.credit_notes cn WHERE x.target_doc_type = 'credit_note' AND cn.id = x.target_doc_id)) AS bd
+    SELECT o.id, o.amount AS sub, sign(o.amount) * (x.payload->>'total')::numeric AS tot, o.transaction_date AS od
       FROM r
       JOIN public.intercompany_transactions o ON o.group_id = r.group_id AND o.id <> r.id AND o.source_company_id = r.seller AND o.target_company_id = r.buyer
       JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
-     WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL
+     WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL
   ), one AS (
-    SELECT ARRAY[m.id] AS rows, m.ref FROM r, m
-     WHERE (r.amount = m.sub OR r.amount = m.tot)
-       AND (date_trunc('month', r.td) = date_trunc('month', m.od) OR abs(r.td - m.od) <= 7
-            OR (m.bd IS NOT NULL AND (date_trunc('month', r.td) = date_trunc('month', m.bd) OR abs(r.td - m.bd) <= 7)))
-     ORDER BY (r.amount = m.sub AND r.td = m.od) DESC, abs(r.td - m.od), m.created_at, m.id
-     LIMIT 1
+    SELECT ARRAY[c.mirror_row] AS rows, c.mirror_ref AS ref FROM r CROSS JOIN LATERAL public.intercompany_mirror_candidates(r.id) c ORDER BY c.rank LIMIT 1
   ), summed AS (
     SELECT array_agg(m.id ORDER BY m.od, m.id) AS rows, count(*) AS n, sum(m.sub) AS sub, sum(m.tot) AS tot
       FROM r, m WHERE date_trunc('month', m.od) = date_trunc('month', r.td)
@@ -1659,8 +1690,8 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON intercompany_mirror_links FROM app_us
 GRANT SELECT ON intercompany_mirror_links TO app_user;
 
 -- Whether stored link k (row r -> mirror o) still accounts for r in a period ending p_asat: the mirror is a mirrored document of the same group,
--- its sale runs the way r's elimination does, its subtotal or total (signed) is r's amount, its message is accepted and not withdrawn, and it is
--- eliminated automatically for that period (intercompany_mirror_stands). SECURITY INVOKER, migration_admin only (the link function's helper).
+-- its sale runs the way r's elimination does, its subtotal or total (signed) is r's amount, its message is accepted, and it is eliminated
+-- automatically for that period (intercompany_mirror_stands: a sender cancel reversed AFTER the period leaves the period eliminated). SECURITY INVOKER, migration_admin only (the link function's helper).
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_link_holds(p_row uuid, p_mirror uuid, p_asat date)
 RETURNS boolean
 LANGUAGE sql
@@ -1674,7 +1705,7 @@ AS $$
        AND o.source_company_id = CASE WHEN r.transaction_type = 'purchase' THEN r.target_company_id ELSE r.source_company_id END
        AND o.target_company_id = CASE WHEN r.transaction_type = 'purchase' THEN r.source_company_id ELSE r.target_company_id END
       JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
-     WHERE r.id = p_row AND x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL
+     WHERE r.id = p_row AND x.status = 'accepted' AND x.target_doc_id IS NOT NULL   -- (a cancelled sender is judged as at the period, by stands)
        AND (r.amount = o.amount OR r.amount = sign(o.amount) * (x.payload->>'total')::numeric))
     AND COALESCE(public.intercompany_mirror_stands(p_mirror, p_asat), false)
 $$;
@@ -1685,9 +1716,12 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirror_link_holds(uuid, uuid, date
 -- is it eliminated by a mirrored document? The answer is STORED (intercompany_mirror_links), so it holds across runs and periods:
 --   'linked'   the row's link holds (kept), or a new link was made: leave the row to mirroring;
 --   'released' its link no longer holds for this period (the mirror stopped eliminating it): the link is released and the row is drafted;
---   'taken'    the matching mirror already accounts for another row of the same role;
---   'closer'   another unlinked row matches that mirror more closely (nearer date, then the earlier row): it gets the mirror when its period runs;
---   'none'     no single mirror matches it, or the one that does is not eliminated automatically for the period.
+--   'taken'    every mirror that matches it and eliminates it for the period already accounts for another row of the same role;
+--   'closer'   ... or belongs to a closer row ON OR AFTER the cutover with no elimination of its own (it gets the mirror when its period runs);
+--   'none'     no single mirror matches it and eliminates it for the period (or the row is before its pair's cutover, or not the caller's).
+-- The candidates are tried in closeness order (intercompany_mirror_candidates), so a second equal sale takes its own free mirror. The run takes
+-- the generator's per-group advisory lock, so a direct call is serialised with a run; p_asat is held to [the row's date, today] (a later stop is
+-- judged by its own counter-elimination; a forged later date can only release a link, which the next proper run makes again).
 -- mirror_ref names the mirror concerned. For a row of a group the caller WRITES in (the generator's caller); otherwise 'none'.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_link(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_link(p_row uuid, p_asat date)
@@ -1701,57 +1735,75 @@ AS $$
 DECLARE
   r record;
   k record;
+  c record;
   v_role text;
-  v_best uuid;
-  v_ref text;
+  v_cutover date;
+  v_asat date;
   v_mdate date;
   v_id uuid;
+  v_state text := 'none';
+  v_ref text;
+  v_mid uuid;
 BEGIN
   SELECT t.id, t.group_id, t.amount, t.transaction_date AS td, t.created_at, t.transaction_type,
          CASE WHEN t.transaction_type = 'purchase' THEN t.target_company_id ELSE t.source_company_id END AS seller,
          CASE WHEN t.transaction_type = 'purchase' THEN t.source_company_id ELSE t.target_company_id END AS buyer
     INTO r FROM public.intercompany_transactions t
-   WHERE t.id = p_row AND t.group_id IN (SELECT public.rls_user_write_group_ids()) AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee');
+   WHERE t.id = p_row AND t.group_id IN (SELECT public.rls_user_write_group_ids()) AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
+     AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages rm WHERE rm.group_transaction_id = t.id);
   IF NOT FOUND THEN RETURN QUERY SELECT 'none'::text, NULL::uuid, NULL::text; RETURN; END IF;
+  -- only a row on or after its pair's cutover (in this group) is ever left to mirroring
+  SELECT pc.cutover INTO v_cutover FROM public.intercompany_pair_cutovers(r.group_id) pc
+   WHERE pc.company_low_id = LEAST(r.seller, r.buyer) AND pc.company_high_id = GREATEST(r.seller, r.buyer);
+  IF v_cutover IS NULL OR r.td < v_cutover THEN RETURN QUERY SELECT 'none'::text, NULL::uuid, NULL::text; RETURN; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('consolidation-eliminations:' || r.group_id::text));
   v_role := CASE WHEN r.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END;
+  v_asat := LEAST(GREATEST(COALESCE(p_asat, CURRENT_DATE), r.td), CURRENT_DATE);
 
-  SELECT l.id, l.mirror_row AS mid, COALESCE(o.description, o.id::text) AS ref INTO k
+  SELECT l.id, l.mirror_row AS mid, COALESCE(NULLIF(btrim(o.description), ''), 'an unnamed mirrored document') AS ref INTO k
     FROM public.intercompany_mirror_links l JOIN public.intercompany_transactions o ON o.id = l.mirror_row
    WHERE l.row_id = p_row AND l.released_at IS NULL;
   IF FOUND THEN
-    IF public.intercompany_mirror_link_holds(p_row, k.mid, p_asat) THEN
+    IF public.intercompany_mirror_link_holds(p_row, k.mid, v_asat) THEN
       RETURN QUERY SELECT 'linked'::text, k.mid, k.ref; RETURN;
     END IF;
-    UPDATE public.intercompany_mirror_links SET released_at = clock_timestamp(), released_for = p_asat WHERE id = k.id;
+    UPDATE public.intercompany_mirror_links SET released_at = clock_timestamp(), released_for = v_asat WHERE id = k.id;
     RETURN QUERY SELECT 'released'::text, k.mid, k.ref; RETURN;
   END IF;
 
-  SELECT d.mirror_rows[1], d.mirror_ref INTO v_best, v_ref FROM public.intercompany_mirrored_duplicate(p_row) d WHERE cardinality(d.mirror_rows) = 1;
-  IF v_best IS NULL THEN RETURN QUERY SELECT 'none'::text, NULL::uuid, NULL::text; RETURN; END IF;
-  IF NOT public.intercompany_mirror_link_holds(p_row, v_best, p_asat) THEN RETURN QUERY SELECT 'none'::text, v_best, v_ref; RETURN; END IF;
-  IF EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.mirror_row = v_best AND l.role = v_role AND l.released_at IS NULL) THEN
-    RETURN QUERY SELECT 'taken'::text, v_best, v_ref; RETURN;
-  END IF;
-  SELECT o.transaction_date INTO v_mdate FROM public.intercompany_transactions o WHERE o.id = v_best;
-  -- a closer row that matches the same mirror and has no elimination of its own yet gets it (cheap filters first, the match last)
-  IF EXISTS (
-    SELECT 1 FROM public.intercompany_transactions c
-     WHERE c.group_id = r.group_id AND c.id <> r.id AND c.match_status = 'matched' AND c.amount = r.amount
-       AND CASE WHEN c.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END = v_role AND c.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
-       AND CASE WHEN c.transaction_type = 'purchase' THEN c.target_company_id ELSE c.source_company_id END = r.seller
-       AND CASE WHEN c.transaction_type = 'purchase' THEN c.source_company_id ELSE c.target_company_id END = r.buyer
-       AND c.transaction_date BETWEEN v_mdate - 38 AND v_mdate + 38
-       AND (abs(c.transaction_date - v_mdate), c.transaction_date, c.created_at, c.id) < (abs(r.td - v_mdate), r.td, r.created_at, r.id)
-       AND NOT EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.row_id = c.id AND l.released_at IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM public.consolidation_adjustments ca WHERE ca.source_intercompany_id = c.id AND ca.status IN ('draft', 'posted'))
-       AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages cm WHERE cm.group_transaction_id = c.id)
-       AND EXISTS (SELECT 1 FROM public.intercompany_mirrored_duplicate(c.id) cd WHERE cd.mirror_rows = ARRAY[v_best]))
-  THEN
-    RETURN QUERY SELECT 'closer'::text, v_best, v_ref; RETURN;
-  END IF;
-  INSERT INTO public.intercompany_mirror_links (group_id, row_id, mirror_row, role, linked_by)
-  VALUES (r.group_id, p_row, v_best, v_role, auth.uid()) ON CONFLICT DO NOTHING RETURNING id INTO v_id;
-  RETURN QUERY SELECT CASE WHEN v_id IS NULL THEN 'taken' ELSE 'linked' END, v_best, v_ref;
+  FOR c IN SELECT * FROM public.intercompany_mirror_candidates(p_row) ORDER BY rank LOOP
+    IF NOT public.intercompany_mirror_link_holds(p_row, c.mirror_row, v_asat) THEN
+      IF v_mid IS NULL THEN v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;   -- ('none', naming the closest)
+      CONTINUE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.mirror_row = c.mirror_row AND l.role = v_role AND l.released_at IS NULL) THEN
+      IF v_state <> 'closer' THEN v_state := 'taken'; v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;
+      CONTINUE;
+    END IF;
+    SELECT o.transaction_date INTO v_mdate FROM public.intercompany_transactions o WHERE o.id = c.mirror_row;
+    -- a closer row ON OR AFTER the cutover that matches this mirror and has no elimination of its own yet gets it (cheap filters first)
+    IF EXISTS (
+      SELECT 1 FROM public.intercompany_transactions x
+       WHERE x.group_id = r.group_id AND x.id <> r.id AND x.match_status = 'matched' AND x.amount = r.amount AND x.transaction_date >= v_cutover
+         AND CASE WHEN x.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END = v_role AND x.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
+         AND CASE WHEN x.transaction_type = 'purchase' THEN x.target_company_id ELSE x.source_company_id END = r.seller
+         AND CASE WHEN x.transaction_type = 'purchase' THEN x.source_company_id ELSE x.target_company_id END = r.buyer
+         AND x.transaction_date BETWEEN v_mdate - 38 AND v_mdate + 38
+         AND (abs(x.transaction_date - v_mdate), x.transaction_date, x.created_at, x.id) < (abs(r.td - v_mdate), r.td, r.created_at, r.id)
+         AND NOT EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.row_id = x.id AND l.released_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM public.consolidation_adjustments ca WHERE ca.source_intercompany_id = x.id AND ca.status IN ('draft', 'posted'))
+         AND NOT EXISTS (SELECT 1 FROM public.intercompany_messages xm WHERE xm.group_transaction_id = x.id)
+         AND EXISTS (SELECT 1 FROM public.intercompany_mirror_candidates(x.id) xc WHERE xc.mirror_row = c.mirror_row AND xc.rank = 1))
+    THEN
+      v_state := 'closer'; v_mid := c.mirror_row; v_ref := c.mirror_ref;
+      CONTINUE;
+    END IF;
+    INSERT INTO public.intercompany_mirror_links (group_id, row_id, mirror_row, role, linked_by)
+    VALUES (r.group_id, p_row, c.mirror_row, v_role, auth.uid()) ON CONFLICT DO NOTHING RETURNING id INTO v_id;
+    IF v_id IS NOT NULL THEN RETURN QUERY SELECT 'linked'::text, c.mirror_row, c.mirror_ref; RETURN; END IF;
+    IF v_state <> 'closer' THEN v_state := 'taken'; v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;
+  END LOOP;
+  RETURN QUERY SELECT v_state, v_mid, v_ref;
 END;
 $$;
 ALTER FUNCTION public.intercompany_mirror_link(uuid, date) OWNER TO migration_admin;
@@ -2101,7 +2153,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_mirror_stands(uuid,date)', 'public.intercompany_mirror_stands(uuid, date)',
      'nothing: for a mirrored row of a group the caller is a current member of, whether it is eliminated automatically for a period: its pair stands as at the later of its two document dates and as at the later of that and the period end (or today), and its revenue and expense lines are mapped to group accounts'),
     ('intercompany_mirror_link(uuid,date)', 'public.intercompany_mirror_link(uuid, date)',
-     'intercompany_mirror_links (one active link per manual row and per mirror and role; a link released when its mirror no longer eliminates the row for the period): for a manual sale-class row of a group the caller writes in, the stored answer whether a mirrored document eliminates it'),
+     'intercompany_mirror_links (one active link per manual row and per mirror and role; a link released when its mirror no longer eliminates the row for the period): for a manual sale-class row on or after its pair''s cutover in a group the caller writes in, the stored answer whether a mirrored document eliminates it. Callable by any writer of the group (the generator calls it per row); it takes the generator''s per-group advisory lock and holds the date to [the row''s date, today], so a direct call can do nothing a generator run would not'),
     ('intercompany_auto_accept_release(uuid[],integer[])', 'public.intercompany_auto_accept_release(uuid[], integer[])',
      'intercompany_messages.auto_attempts / auto_next_attempt_at of PENDING messages the worker claimed but did not start (its time budget), still at the attempt its claim gave them: one attempt given back, the back-off cleared; app_service only'),
     ('intercompany_pair_cutovers(uuid)', 'public.intercompany_pair_cutovers(uuid)',
