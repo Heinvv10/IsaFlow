@@ -1,11 +1,13 @@
 /**
- * The AI invoice pipeline never matches a soft-deleted (merged-away) supplier (review of b4741393, M2): its candidate list is live
- * suppliers only (deleted_at IS NULL, not only is_active), so a document naming a merged-away supplier goes to manual review
- * instead of writing a bill onto it (which 1021's supplier-live trigger would refuse). Real PG, through the real withAuth route.
+ * The AI invoice pipeline and the capture inbox's post never match a soft-deleted (merged-away) supplier (reviews of b4741393, M2,
+ * and 95ef48f8, L2): their candidate lists are live suppliers only (deleted_at IS NULL, not only is_active), so a document naming a
+ * merged-away supplier goes to manual review instead of writing a bill onto it (which 1021's supplier-live trigger would refuse).
+ * Real PG, through the real withAuth routes.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
+import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { company, pool, today, useR127Fixture, user } from './r127-double-booking.helpers';
 
@@ -41,5 +43,34 @@ describe('a document naming a merged-away supplier', () => {
     expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
     expect((out.state.body as { data: { status: string } }).data.status).toBe('manual_review');
     expect((await pool.query('SELECT count(*)::int AS n FROM supplier_invoices WHERE source_document_id = $1', [id])).rows[0].n).toBe(0);
+  });
+});
+
+describe('a captured event naming a merged-away supplier (capture/[id]/post)', () => {
+  it('goes to manual review; no bill is written', async () => {
+    const doc = crypto.randomUUID();
+    const event = crypto.randomUUID();
+    const extracted = {
+      documentType: 'invoice', vendorName: goneName, date: today, referenceNumber: `R164C-${doc.slice(0, 8)}`, currency: 'ZAR',
+      subtotal: 100, vatAmount: 15, vatRate: 15, totalAmount: 115, lineItems: [{ description: 'Widgets', quantity: 1, unitPrice: 100, total: 100 }],
+      rawText: 'TAX INVOICE\nSub Total 100\nVAT 15\nTotal 115', confidence: 0.9, warnings: [], extractionMethod: 'vlm',
+    };
+    await pool.query(
+      `INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status)
+       VALUES($1,$2,$3,'application/pdf','invoice',$4::jsonb,'pending')`, [doc, company, `r164c-${doc}.pdf`, JSON.stringify(extracted)]);
+    await pool.query(
+      `INSERT INTO capture_events(id,company_id,channel,status,captured_document_id) VALUES($1,$2,'pwa','extracted',$3)`, [event, company, doc]);
+    try {
+      const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
+      req.url = `/api/accounting/capture/${event}/post`;
+      (req as { query: Record<string, string> }).query = { id: event };
+      const out = response();
+      await capturePostRoute(req as never, out.res as never);
+      expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
+      expect((out.state.body as { data: { status: string } }).data.status).toBe('manual_review');
+      expect((await pool.query('SELECT count(*)::int AS n FROM supplier_invoices WHERE source_document_id = $1', [doc])).rows[0].n).toBe(0);
+    } finally {
+      await pool.query('DELETE FROM capture_events WHERE id = $1', [event]);
+    }
   });
 });

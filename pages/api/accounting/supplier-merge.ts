@@ -120,10 +120,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await tx`
         UPDATE suppliers
         SET is_active = false,
-            name = name || ' [MERGED]',
-            -- Soft-deleted too, as the duplicates merge does (review of b4741393, M1): a bill create racing this merge waits on the
-            -- supplier row (the FK) and is then refused by 1021's supplier-live trigger, which reads deleted_at.
-            deleted_at = NOW()
+            name = name || ' [MERGED]'
+        -- NOT soft-deleted (review of 95ef48f8, M1): the merge leaves credit notes, bank and coding rules, unlinked POs, statement
+        -- reconciliations and intercompany sides on the source, and deleting it hid them. A bill create racing this merge waits on
+        -- the supplier row (the FK), then lands on this inactive source with its note's PO, so nothing is cross-supplier (Known limits).
         WHERE id = ${source_id}
           AND company_id = ${companyId}
       `;
