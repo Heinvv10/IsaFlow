@@ -112,7 +112,7 @@ export async function assertBillGrn(
  * with it (another supplier's PO, or a PO other than the ones it names: its header, its lines' PO lines, its link rows). The bill row
  * FIRST (`FOR UPDATE`, the row the restore then updates), then the note FOR SHARE: bill -> note, as a draft edit takes bill -> PO and
  * the cancel PO -> note, so no cycle; a cancel cannot slip between this check and the restore. A grn_id naming no note of this company
- * is left as it was (the cancel never sees it).
+ * (missing, or another company's) refuses the restore too (round 5, finding 1), as the create refuses it.
  */
 /** The POs a stored bill names: its header PO, its lines' PO lines' POs and its link rows (this company's), lower case. */
 async function storedBillNamedPos(db: Db, companyId: string, billId: string, headerPo: unknown): Promise<Set<string>> {
@@ -183,7 +183,10 @@ export async function assertBillRestorableGrn(companyId: string, billId: string)
   `) as DbRow[], () => new RowLockTimeoutError(`Supplier invoice ${billId}`)))[0];
   if (!bill || bill.grn_id == null) return;
   const note = await noteFacts(sql, companyId, String(bill.grn_id), true);
-  if (note === null) return;
+  // Round 5, finding 1: a grn_id naming no note of this company (missing, or another company's) refuses the restore, as the create does.
+  if (note === null) {
+    throw new SoftDeleteRefusalError('This bill names a goods received note that is not one of this company\'s (or no longer exists), so it cannot be restored; enter the bill again as a new one (naming a live note, or none)');
+  }
   if (note.status === 'cancelled') {
     throw new SoftDeleteRefusalError('This bill names a goods received note that has since been cancelled, so it cannot be restored; enter the bill again as a new one (naming a live note, or none)');
   }

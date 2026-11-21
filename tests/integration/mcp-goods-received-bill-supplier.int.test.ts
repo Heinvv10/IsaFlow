@@ -21,15 +21,19 @@ import billsRoute from '../../pages/api/accounting/supplier-invoices';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 let f: BillFixture;
+let other: BillFixture;
 let otherSupplier: string;
 let n = 0;
 
 beforeAll(async () => {
   f = await seedBillFixture(pool, 'grn-bill-supplier');
+  other = await seedBillFixture(pool, 'grn-bill-supplier-other');
   otherSupplier = await seedSupplier(pool, f, 'Supplier B');
 }, 60_000);
 afterAll(async () => {
-  try { await dropGrnExtras(pool, f); await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await pool.end(); }
+  try {
+    for (const x of [f, other]) { await dropGrnExtras(pool, x); await dropMaintExtras(pool, x); await dropBillFixture(pool, x); }
+  } finally { await pool.end(); }
 }, 60_000);
 
 /** A PO of supplier A (the fixture's) with one line, and a live note receiving it. */
@@ -114,6 +118,23 @@ describe('the undo of a deleted bill keeps the same rule', () => {
     expect(stillDeleted.rows[0].n).toBe(2);
     expect(await undo(await deletedBill(grn, { po: po.po }))).toBe('true');
     expect(await undo(await deletedBill(grn))).toBe('true');
+  });
+});
+
+describe('the undo refuses a grn_id that names no note of the bill\'s company (gate round 5, finding 1)', () => {
+  it('a missing note and another company\'s note both keep the bill deleted, typed', async () => {
+    const po = await seedQtyPo(pool, other, { lines: [{ qty: 4, price: 10 }] });
+    const theirs = await callTool(pool, other, create, grnArgs(po, [[0, 4]]));
+    expect(theirs.isError, theirs.text).toBe(false);
+    const missing = await deletedBill(crypto.randomUUID());
+    const foreign = await deletedBill(String(theirs.body.grn_id));
+    for (const bill of [missing, foreign]) {
+      const out = await undo(bill);
+      expect(out).toContain('not one of this company\'s');
+      expect(out).toContain('enter the bill again');
+    }
+    const stillDeleted = await pool.query('SELECT count(*)::INT AS n FROM supplier_invoices WHERE id = ANY($1::UUID[]) AND deleted_at IS NOT NULL', [[missing, foreign]]);
+    expect(stillDeleted.rows[0].n).toBe(2);
   });
 });
 
