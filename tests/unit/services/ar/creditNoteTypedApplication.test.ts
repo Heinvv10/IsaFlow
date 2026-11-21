@@ -20,7 +20,10 @@ const CO = '11111111-1111-4111-8111-111111111111';
 const Y = '22222222-2222-4222-8222-222222222222';
 const note = (over: Record<string, unknown> = {}) => ({ id: 'n1', number: 'CN-1', type: 'customer', customerInvoiceId: null, ...over });
 
-beforeEach(() => { h.state = { remainingNet: 50, remainingVat: 7.5 }; h.calls = []; });
+beforeEach(() => {
+  h.state = { remainingNet: 50, remainingVat: 7.5 }; h.calls = [];
+  vi.mocked(typedInvoiceCreditState).mockImplementation(async (...args: unknown[]) => { h.calls.push(args); return h.state; });
+});
 
 describe('typedApplicationRefusal', () => {
   it('judges against the CURRENT state, the note\'s own row counted (round 5 H1: without it 57.51 more would pass)', async () => {
