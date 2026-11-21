@@ -118,9 +118,10 @@ describe('owner cash position: the next pay run', () => {
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
   });
 
-  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) is judged alone; only the bonus is still due (seeded reversed: %s)', async (flip) => {
+  // Review #1679 Codex of 7630d9379: its salaries left on the 25th, its PAYE (2 000) is owed until the EMP201 on 7 June.
+  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) needs only its PAYE; the bonus is still due in full (seeded reversed: %s)', async (flip) => {
     const { got, ids } = await position(flip, 22_000, new Date('2026-05-27T10:00:00Z'));
-    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 5000, runsCounted: 1 });
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 7000, runsCounted: 2 });
   });
 
   it.each(BOTH_ORDERS)('cash covers neither: the earliest short run is the regular run (seeded reversed: %s)', async (flip) => {

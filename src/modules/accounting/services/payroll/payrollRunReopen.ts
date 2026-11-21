@@ -17,6 +17,7 @@ import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { laterOffCycleRefusal, offCyclePaidReopenRefusal } from './payrollOffCycleGates';
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { laterMonthFinalRefusal } from './payrollOffCycleOrder';
 import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
 import { restoreRunGarnishees } from './payrollGarnisheeRun';
@@ -65,6 +66,11 @@ export async function reopenPayrollRun(opts: {
   // Wave 6 OC: an off-cycle run is reopened only while its month's EMP201 is not filed, before or after payday (409, #1679 M4).
   const paid = await offCyclePaidReopenRefusal(opts.companyId, run);
   if (paid) throw new OffCycleRunRefusedError(paid, 409);
+  // A later month of the tax year is final (review #1679 Codex of 7630d9379): reopening would drop the run from the month's
+  // totals while recalculation and reapproval refuse it (laterMonthFinalRefusal). Refused before the status changes.
+  const laterMonth = run.run_kind === 'off_cycle'
+    ? await laterMonthFinalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) }) : null;
+  if (laterMonth) throw new OffCycleRunRefusedError(laterMonth, 409);
   // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.
   const offCycleLater = await laterOffCycleRefusal(opts.companyId, opts.runId); // wave 6 OC
   if (offCycleLater) throw new PayrollRunReopenRefusedError(offCycleLater);

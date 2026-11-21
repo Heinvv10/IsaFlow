@@ -19,17 +19,18 @@ beforeAll(async () => { A = await seedTenant(pool, 'w6 oc cash position A'); });
 afterAll(async () => { try { await dropTenants(pool, [A]); } finally { await pool.end(); } });
 
 describe('owner cash position: a paid bonus never stands in for the month\'s due runs', () => {
-  it('20 May: the regular run due 31 May is the summary (one run counted, its own figure), not the bonus paid 15 May', async () => {
+  // Review #1679 Codex of 7630d9379: the bonus's salaries left on 15 May, its PAYE (700) is owed until the EMP201 on 7 June.
+  it('20 May: the regular run due 31 May is the summary (its figure and the paid bonus\'s PAYE), not the bonus paid 15 May', async () => {
     const ids: Record<string, string> = {};
     const got = await twoRunsInMonth(pool, A, async (c) => {
       ids.regular = await seedRun(c, A, REGULAR);
       ids.bonus = await seedRun(c, A, BONUS);
     }, () => getOwnerCashPosition(A.company, 22_000, new Date('2026-05-20T10:00:00Z')));
-    expect(got.payroll).toMatchObject({ runId: ids.regular, canPay: true, runsCounted: 1 });
-    // The regular run alone, as the cash position shapes it, is what the month still needs.
+    expect(got.payroll).toMatchObject({ runId: ids.regular, canPay: true, runsCounted: 2 });
+    // The regular run alone, as the cash position shapes it, plus the bonus's PAYE is what the month still needs.
     const alone = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, REGULAR); },
       () => getOwnerCashPosition(A.company, 22_000, new Date('2026-05-20T10:00:00Z')));
-    expect(got.payroll?.totalRequired).toBe(alone.payroll?.totalRequired);
+    expect(got.payroll?.totalRequired).toBe((alone.payroll?.totalRequired ?? 0) + 700);
     expect(got.payroll?.totalRequired).toBeGreaterThan(5_000);
   });
 });

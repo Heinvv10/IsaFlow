@@ -41,6 +41,11 @@ export interface PayrollRunRow {
   pay_date?: string | null;
   /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
   final?: boolean;
+  /**
+   * An approval of the run lasted to its pay date or past it (approval_history): its salaries were disbursed even if it
+   * has since been reopened for correction (review #1679 Codex of 7630d9379); absent = never.
+   */
+  disbursed?: boolean;
 }
 
 export interface CashPositionPayroll {
@@ -109,23 +114,35 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
   return { periodLabel, dueDate: period.dueDate, netVat };
 }
 
+/** The run's PAYE, UIF and SDL less its ETI: what the EMP201 remits, apart from the salaries. */
+const statutoryOf = (r: PayrollRunRow): number => r2(num(r.total_paye) + num(r.total_uif) + num(r.total_sdl) - num(r.total_eti));
+
+/** The EMP201 due date of the run's month, the 7th of the month after it (YYYY-MM-DD). */
+function emp201DueOf(r: PayrollRunRow): string {
+  const next = r.period_month === 12 ? { y: r.period_year + 1, m: 1 } : { y: r.period_year, m: r.period_month + 1 };
+  return `${next.y}-${String(next.m).padStart(2, '0')}-07`;
+}
+
 /**
  * Which run of the window to report. Cash pays runs by PAY DATE (review #1679 codex 3), whatever order costs them
  * (runOrderKeySql puts a regular run before its month's off-cycle runs): rows are taken in pay-date order, the given
  * order breaking ties. A run whose pay date is today or later is STILL DUE: each is judged against what the due runs
  * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
- * A FINAL run whose pay date has passed has been paid (nothing marks a run paid, review #1549 N-H1; an overdue run that
- * is not final is still owed, review #1679 M3), so it is never added to
- * the due runs and never produces a shortfall (review #1679 codex 4): it is reported only when no due run has totals,
- * as covered. The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
- * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
- * no totals at all, the earliest run. No `asAt`: every run is due.
+ * A run past its pay date that is final, or whose approval lasted to its pay date (`disbursed`: reopened after its
+ * salaries left, review #1679 Codex of 7630d9379), has paid its salaries (nothing marks a run paid, review #1549 N-H1;
+ * an overdue run never approved is still owed in full, review #1679 M3). Its PAYE, UIF and SDL less ETI are still owed
+ * until the month's EMP201 is due (the 7th of the next month; nothing records the remittance): until then they are added
+ * to the due runs like any other requirement, after it the run needs nothing. A paid run needing nothing is reported
+ * only when no due run has totals, as covered. The first due run cash cannot cover is reported; when every due run is
+ * covered, the latest one (its cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a
+ * shortfall on another run; with no totals at all, the earliest run. No `asAt`: every run is due in full.
  */
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
   const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
-  // Still owed: due today or later, or overdue and not final (a calculated run past its pay date awaits approval, so
-  // its salaries have not left the bank; review #1679 M3). Only a final run past its pay date has been paid.
-  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || payDate(r) >= asAt || r.final !== true;
+  // Salaries paid: past the pay date, and final or approved over it. A calculated run past its pay date that was never
+  // approved over it awaits approval, so its salaries have not left the bank (review #1679 M3).
+  const salariesPaid = (r: PayrollRunRow): boolean => asAt !== undefined && r.pay_date != null && payDate(r) < asAt
+    && (r.final === true || r.disbursed === true);
   const byPayDate = runs.map((r, i) => ({ r, i }))
     .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
   let required = 0;
@@ -133,12 +150,14 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   let latestPaid: CashPositionPayroll | null = null;
   let latestDue: CashPositionPayroll | null = null;
   for (const r of byPayDate) {
-    const own = shapePayrollAffordability(r, cash)!;
-    if (own.totalRequired <= 0) continue;
-    if (!due(r)) { latestPaid = { ...own, canPay: true, shortfall: 0 }; continue; }
-    required = r2(required + own.totalRequired);
+    const full = shapePayrollAffordability(r, cash)!;
+    if (full.totalRequired <= 0) continue;
+    const paid = salariesPaid(r);
+    const needs = !paid ? full.totalRequired : asAt! <= emp201DueOf(r) ? Math.max(0, statutoryOf(r)) : 0;
+    if (needs <= 0) { latestPaid = { ...full, canPay: true, shortfall: 0 }; continue; }
+    required = r2(required + needs);
     counted += 1;
-    const judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
+    const judged = { ...full, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
     if (!judged.canPay) return judged;
     latestDue = judged;
   }
@@ -161,7 +180,9 @@ async function nextPayrollSection(
     SELECT id, period_month, period_year, status,
            total_net, total_paye, total_uif, total_sdl, total_eti,
            COALESCE(run_date, period_end)::text AS pay_date,
-           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final
+           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,
+           COALESCE(approval_history && tstzrange((COALESCE(run_date, period_end)::timestamp AT TIME ZONE 'Africa/Johannesburg'), NULL),
+                    false) AS disbursed
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')

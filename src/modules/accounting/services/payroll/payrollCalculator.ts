@@ -90,7 +90,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
   // stays out of every later table month's base.
   const cadence = cadenceTermsOf(input); // wave 6 FQc: weekly and fortnightly (payrollLineCadence)
-  const classification = classifyEmployment(employee, taxYear, cadence.dayPay(timeWorkedEarnings(components)));
+  // Off-cycle: the month's day pay includes the earlier lines' basic pay and overtime (#1679 Codex of 7630d9379; a stored once-off 3601 counts).
+  const timeWorked = timeWorkedEarnings(components) + (input.monthEarlier ? timeWorkedEarnings(input.monthEarlier.etiComponents) : 0);
+  const classification = classifyEmployment(employee, taxYear, cadence.dayPay(timeWorked));
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
   const psp = pspFacts(employee, taxYear); // a personal service provider's entity and rate (wave 6 PSP), else null
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.

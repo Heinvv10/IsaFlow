@@ -116,4 +116,13 @@ describe('a later month of the tax year is final (breaker, bonus after a later m
     expect(calc.statusCode).toBe(409);
     expect(a.msg(calc)).toMatch(/Reopen December 2026's run first/);
   });
+  it('an approved November bonus is not reopened once December\'s run is approved (review #1679 Codex of 7630d9379)', async () => {
+    // Reopening would drop it from November's totals while recalculation and reapproval refuse it (the test above).
+    const approved = String((await a.pool.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND run_kind = 'off_cycle'
+      AND period_year = 2026 AND period_month = 11 AND status = 'approved' ORDER BY run_date DESC, created_at DESC LIMIT 1`, [a.company])).rows[0].id);
+    const refused = await a.api.reopen(approved);
+    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(409);
+    expect(a.msg(refused)).toMatch(/^December 2026's run is approved, and its PAYE year to date would miss this November 2026 off-cycle run/);
+    expect((await a.pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [approved])).rows[0].status).toBe('approved');
+  });
 });

@@ -149,9 +149,10 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
     const ok = (await tx`
       SELECT id FROM payroll_components
        WHERE company_id = ${companyId}::uuid AND id = ANY(${componentIds}::uuid[])
-         AND component_type = 'earning' AND btrim(sars_source_code) = '3605'
+         AND component_type = 'earning' AND btrim(sars_source_code) = '3605' AND is_taxable
     `) as DbRow[];
-    if (ok.length !== componentIds.length) throw bad('A bonus must be paid on one of the company\'s annual-payment earnings (SARS code 3605).');
+    // Taxable only (review #1679 Codex of 7630d9379): a 3605 marked not taxable adds to gross and nothing to PAYE.
+    if (ok.length !== componentIds.length) throw bad('A bonus must be paid on one of the company\'s taxable annual-payment earnings (SARS code 3605).');
     return;
   }
   const notLeaving = named((p) => typeof p.end_date !== 'string' || String(p.end_date).slice(0, 7) !== monthName(period));

@@ -14,6 +14,21 @@ import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import { offCycleRaiseRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleCorrection';
 
+/** A connection URL as libpq environment variables (PGHOST, PGPASSWORD, ...), so no credential reaches a command line. */
+function libpqEnv(url: string): NodeJS.ProcessEnv {
+  const u = new URL(url);
+  const env: NodeJS.ProcessEnv = { ...process.env, PGHOST: decodeURIComponent(u.hostname), PGDATABASE: decodeURIComponent(u.pathname.slice(1)) };
+  if (u.port) env.PGPORT = u.port;
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  const pass = decodeURIComponent(u.password);
+  if (pass) env.PGPASSWORD = pass;
+  const sslmode = u.searchParams.get('sslmode');
+  if (sslmode) env.PGSSLMODE = sslmode;
+  const host = u.searchParams.get('host'); // a Unix socket directory: postgresql://user@/db?host=/var/run/postgresql
+  if (host) env.PGHOST = host;
+  return env;
+}
+
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
 let a: Awaited<ReturnType<typeof rig>>;
@@ -192,13 +207,14 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     const before = await rows();
     expect(before.map((r) => r.run_id)).toContain(id);
     // The table's data as pg_dump writes it, this company's rows only (the shard's database holds other suites' too).
-    const url = String(process.env.DATABASE_URL);
-    const dump = execFileSync('pg_dump', ['--data-only', '--table=public.payroll_off_cycle_employees', `--dbname=${url}`], { encoding: 'utf8' })
+    // Credentials through libpq's environment, never the command line (process listings, execFileSync's error text).
+    const env = libpqEnv(String(process.env.DATABASE_URL));
+    const dump = execFileSync('pg_dump', ['--data-only', '--table=public.payroll_off_cycle_employees'], { encoding: 'utf8', env })
       .split('\n').filter((l) => !/^[0-9a-f]{8}-[0-9a-f-]{27}\t/.test(l) || l.includes(a.company)).join('\n');
     expect(dump).toContain('COPY public.payroll_off_cycle_employees');
     await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]);
     // Restored by a NOSUPERUSER ops role (as postgres is on Supabase): COPY fires the ALWAYS row trigger.
-    execFileSync('psql', ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q', `--dbname=${url}`], { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8' });
+    execFileSync('psql', ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q'], { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8', env });
     expect(await rows()).toEqual(before);
     // The app still cannot write an input onto that run.
     await expect(asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 1)',

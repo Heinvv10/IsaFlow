@@ -99,6 +99,28 @@ describe('pickPayrollRun', () => {
       const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
       expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, shortfall: 0 });
     });
+    // Review #1679 Codex of 7630d9379: salaries paid, PAYE / UIF / SDL still owed until the month's EMP201 is due.
+    it('a paid run keeps its PAYE, UIF and SDL less ETI in the requirement until the 7th of the next month', () => {
+      const paid = run({ id: 'paid', period_month: 6, total_net: '9000', total_paye: '1400', total_uif: '180', total_sdl: '100', total_eti: '80', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([paid], 1000, '2026-06-26')).toMatchObject({ runId: 'paid', canPay: false, totalRequired: 1600, shortfall: 600 });
+      expect(pickPayrollRun([paid], 1600, '2026-07-07')).toMatchObject({ runId: 'paid', canPay: true, totalRequired: 1600 });
+      expect(pickPayrollRun([paid, regular], 1700, '2026-06-26')).toMatchObject({ runId: 'regular', canPay: false, totalRequired: 2200, shortfall: 500, runsCounted: 2 });
+      // After the due date the remittance is taken as made: the run needs nothing.
+      expect(pickPayrollRun([paid], 0, '2026-07-08')).toMatchObject({ runId: 'paid', canPay: true, shortfall: 0 });
+      // December's EMP201 is due in January of the next year.
+      const december = { ...paid, period_month: 12, pay_date: '2026-12-24' };
+      expect(pickPayrollRun([december], 0, '2027-01-07')).toMatchObject({ canPay: false, shortfall: 1600 });
+      expect(pickPayrollRun([december], 0, '2027-01-08')).toMatchObject({ canPay: true, shortfall: 0 });
+    });
+    it('a run reopened after its salaries left (approved over its pay date) is not counted as a new net payment', () => {
+      const reopened = run({ id: 'bonus', status: 'calculated', total_net: '20000', total_paye: '500', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false, disbursed: true });
+      expect(pickPayrollRun([reopened], 500, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, totalRequired: 500 });
+      expect(pickPayrollRun([reopened], 0, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: false, shortfall: 500 });
+      // Never approved over its pay date: still owed in full (review #1679 M3).
+      expect(pickPayrollRun([{ ...reopened, disbursed: false }], 0, '2026-06-11')).toMatchObject({ canPay: false, shortfall: 20500 });
+      // Before its pay date it is due in full whatever its history.
+      expect(pickPayrollRun([reopened], 0, '2026-06-10')).toMatchObject({ canPay: false, shortfall: 20500 });
+    });
   });
 
   it('cash that covers each run alone but not both is short on the second', () => {

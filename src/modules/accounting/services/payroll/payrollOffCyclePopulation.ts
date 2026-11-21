@@ -16,6 +16,8 @@ import { appendTerminationIfEndingThisPeriod } from './payrollRunTermination';
 import { loadRegularPayDirectives } from './payrollRunRegularDirective';
 import { loadMonthEarlierLines } from './payrollOffCycleMonthRead';
 import { NO_EARLIER_LINES, type MonthEarlierLines } from './payrollOffCycleMonth';
+import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { normaliseSarsCode } from './payeAnnualPayment';
 import type { PreparedRunEmployee } from './payrollRunComponents';
 import type { PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -49,6 +51,13 @@ export async function prepareOffCycleComponents(args: {
   for (const employee of employees) {
     const terminationWarnings: ValidationResult[] = [];
     const bonus = bonuses.get(employee.id);
+    // The component may have changed since creation (review #1679 Codex of 7630d9379): a bonus is costed only on a
+    // taxable 3605 earning, else it would add to gross pay and nothing to PAYE.
+    if (reason === 'bonus' && bonus && !(bonus.component_type === 'earning' && bonus.is_taxable === true
+      && normaliseSarsCode(String(bonus.sars_source_code ?? '')) === '3605')) {
+      throw new OffCycleRunRefusedError(`${employee.firstName} ${employee.lastName}'s bonus component "${String(bonus.name)}" is no longer `
+        + 'a taxable annual-payment earning (SARS code 3605): correct the component before calculating.', 409);
+    }
     const components = reason === 'bonus'
       ? (bonus ? [{ component: mapComponent(bonus), amount: Number(bonus.amount) }] : [])
       : await appendTerminationIfEndingThisPeriod(companyId, runId, employee, [], period, terminationWarnings);

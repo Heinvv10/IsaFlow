@@ -172,6 +172,16 @@ describe('M2: every create refusal writes nothing', () => {
     expect(await runs(a)).toBe(before);
   });
 
+  it('a bonus on a 3605 earning marked not taxable: 400 (review #1679 Codex of 7630d9379: it would withhold no PAYE)', async () => {
+    const untaxed = String((await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+      VALUES ($1, 'Untaxed bonus', '3605', 'earning', false) RETURNING id`, [a.company])).rows[0].id);
+    const before = await runs(a);
+    const made = await create(a, { reason: 'bonus', employees: [{ employeeId: p.stayer, componentId: untaxed, amount: 10_000 }] });
+    expect(made.statusCode).toBe(400);
+    expect(a.msg(made)).toMatch(/taxable annual-payment earnings \(SARS code 3605\)/);
+    expect(await runs(a)).toBe(before);
+  });
+
   it('a termination run for an employee with no end date in the month: 409', async () => {
     const before = await runs(a);
     const made = await create(a, { reason: 'termination', employees: [{ employeeId: p.stayer }] });
