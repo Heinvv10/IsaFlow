@@ -10,8 +10,9 @@ export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
 
 /** A PO is fully billed from this many cents short of its subtotal (Hein, 19 Nov). */
 export const FULLY_BILLED_TOLERANCE_CENTS = 1;
+/** Fully billed within the tolerance, and only once something is billed (Codex gate: a R0.01 order with no bills is not). */
 export const isFullyBilled = (billedCents: number, subtotalCents: number): boolean =>
-  billedCents >= subtotalCents - FULLY_BILLED_TOLERANCE_CENTS;
+  billedCents > 0 && billedCents >= subtotalCents - FULLY_BILLED_TOLERANCE_CENTS;
 /** Fully billed against a billing basis, never when that basis is 0 (as 1022 closes: review r8 L5). */
 export const isFullyBilledBasis = (billedCents: number, basisCents: number): boolean => basisCents > 0 && isFullyBilled(billedCents, basisCents);
 

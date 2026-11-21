@@ -34,7 +34,7 @@
 --          nets their bills, by lines or, for every legacy bill, by header (budgets/remainingHeaderBilled, this PR). A copy is
 --          CLOSED, from the status it would have had, only when (a) it is fully billed: the same billing committed nets (bills
 --          approved / paid / partially_paid of its company and supplier: by lines first, else the link amount, else the
---          subtotal less what the bill attributes elsewhere) reaches its subtotal less 1 cent; or (b) its legacy status was
+--          subtotal less what the bill attributes elsewhere) reaches its subtotal less 1 cent, and is above 0; or (b) its legacy status was
 --          invoiced and no live bill (not cancelled, not deleted, any status) of its company and supplier names it. "Fully"
 --          is against the larger of the subtotal and the lines' total, and never when that is 0. A NOTICE per closed copy. A
 --          fully billed close records itself on the copy (closed_by_billing, 1016, + closed_from_status), as
@@ -354,8 +354,8 @@ BEGIN
         THEN 'Cost centre (from the retired supplier purchase order; not a CC1 / CC2 of this company): ' || h.cost_center_id::TEXT END
     ), '');
 
-    -- One sub-transaction per order: a row an unforeseen constraint or overflow refuses becomes a WARNING and a skip, never an
-    -- aborted release.
+    -- One sub-transaction per order: a row an unforeseen constraint or overflow refuses is named in a WARNING, and then the whole
+    -- migration fails (review M1, after the loop): nothing is copied rather than a green release with orders behind it.
     BEGIN
       INSERT INTO public.purchase_orders (
         id, company_id, po_number, supplier_id, order_date, expected_delivery_date, status,
@@ -379,8 +379,12 @@ BEGIN
              CASE WHEN l.as_unit THEN 1 ELSE l.q2 END,
              CASE WHEN l.as_unit THEN l.line_total ELSE round(l.line_total / l.q2, 6) END,
              l.rate, l.line_total, COALESCE(l.tax_amount, round(l.line_total * l.rate / 100, 2)),
-             CASE WHEN l.as_unit THEN round(LEAST(COALESCE(l.qty_received, 0) / NULLIF(l.quantity, 0), 1), 2) ELSE round(COALESCE(l.qty_received, 0), 2) END,
-             CASE WHEN l.as_unit THEN round(LEAST(COALESCE(l.qty_invoiced, 0) / NULLIF(l.quantity, 0), 1), 2) ELSE round(COALESCE(l.qty_invoiced, 0), 2) END,
+             -- A unit line's received / invoiced is the fraction of its legacy quantity; ordered 0 is 0 received and invoiced (Codex gate:
+             -- NULLIF made the ratio NULL and LEAST(NULL, 1) is 1).
+             CASE WHEN NOT l.as_unit THEN round(COALESCE(l.qty_received, 0), 2) WHEN COALESCE(l.quantity, 0) = 0 THEN 0
+                  ELSE round(LEAST(COALESCE(l.qty_received, 0) / l.quantity, 1), 2) END,
+             CASE WHEN NOT l.as_unit THEN round(COALESCE(l.qty_invoiced, 0), 2) WHEN COALESCE(l.quantity, 0) = 0 THEN 0
+                  ELSE round(LEAST(COALESCE(l.qty_invoiced, 0) / l.quantity, 1), 2) END,
              (SELECT g.id FROM public.gl_accounts g WHERE g.id = l.gl_account_id AND g.company_id = h.company_id),
              (SELECT it.id FROM public.items it WHERE it.id = l.item_id AND it.company_id = h.company_id),
              v_cc1, v_cc2, (row_number() OVER (ORDER BY l.created_at, l.id) - 1)::INT, l.created_at
@@ -498,14 +502,14 @@ BEGIN
      WHERE p.id = ANY(v_copied) AND p.status IN ('approved', 'partially_received', 'received')
      ORDER BY p.company_id, p.id
   LOOP
-    IF (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
+    IF (h.sub_c > 0 AND h.billed_c > 0 AND h.billed_c >= h.sub_c - 1) OR (h.legacy = 'invoiced' AND NOT h.live_bill) THEN
       -- Breaker R4-1: a fully billed close is recorded on the copy itself (closed_by_billing, 1016), as link_bills_to_purchase_order records
       -- its own, so removing any counted tie that leaves it under-billed reopens it to h.status (ap/purchaseOrderBillingClose).
       UPDATE public.purchase_orders SET status = 'closed', closed_from_status = h.status,
-             closed_by_billing = (h.sub_c > 0 AND h.billed_c >= h.sub_c - 1)
+             closed_by_billing = (h.sub_c > 0 AND h.billed_c > 0 AND h.billed_c >= h.sub_c - 1)
        WHERE id = h.id;
       RAISE NOTICE '1022: company % purchase order % (%) copied as closed from %: %', h.company_id, h.id, h.po_number, h.status,
-        CASE WHEN h.sub_c > 0 AND h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)
+        CASE WHEN h.sub_c > 0 AND h.billed_c > 0 AND h.billed_c >= h.sub_c - 1 THEN format('fully billed (R %s of R %s)', h.billed_c / 100.0, h.sub_c / 100.0)
              ELSE 'legacy invoiced, and no live bill names it' END;
       v_closed := v_closed + 1;
     END IF;

@@ -69,8 +69,10 @@ gains no statuses, so billed, closed and cancelled POs commit nothing). Attachme
   partially_invoiced open by quantity (received / partially_received / approved). Copies keep their unbilled remainder in
   committed (Hein, 20 Nov): committed now nets header billing (`budgets/remainingHeaderBilled`; a legacy bill can name a legacy
   order only by its header), so a partly billed copy commits exactly what is left. A copy is closed only when it is fully
-  billed (the billing committed nets reaches its subtotal) or when it was invoiced and no live bill names it, with a NOTICE.
-  No app path reopens a closed copy today (`set_purchase_order_status` needs an `external_ref`, which no copy carries). A
+  billed (the billing committed nets reaches its billing basis, and is above 0) or when it was invoiced and no live bill names
+  it, with a NOTICE. A copy closed as fully billed is closed BY BILLING (`closed_by_billing`, migration 1016): an unlink, a bill
+  cancel or a bill delete that leaves it under-billed reopens it, and until then it commits whatever becomes unbilled; a copy
+  closed as invoiced-with-no-bill is not, and no app path reopens it (`set_purchase_order_status` needs an `external_ref`). A
   NOTICE per company and order month gives what entered committed and the billing that nets it;
 - puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every
   line (another company's centre goes to `notes`, where the cost-centre usage guard no longer sees it); `approved_by` /
@@ -79,9 +81,10 @@ gains no statuses, so billed, closed and cancelled POs commit nothing). Attachme
 - never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with "was SPO <number>" in its
   notes and a NOTICE. No copy carries `external_ref`;
 - skips with a WARNING, leaving the row in the legacy table: another company's supplier, an id that is another company's
-  purchase order, a negative line total, a line id `po_items` holds, or (each order in its own sub-transaction) any order a
-  check / not-null / unique / foreign-key constraint or a numeric overflow refuses. A NOTICE counts them per reason, and the
-  migration RAISES unless copied + skipped = the legacy orders it set out to copy. It refuses to run at all for a role that
+  purchase order, a negative line total, or a line id `po_items` holds. A NOTICE counts them per reason, and the migration
+  RAISES unless copied + skipped = the legacy orders it set out to copy. Any OTHER refusal (each order copies in its own
+  sub-transaction: a check / not-null / unique / foreign-key constraint or a numeric overflow) is named in a WARNING and then
+  ABORTS the migration (nothing copied, the legacy tables stay writable), rather than a green release with orders behind it. It refuses to run at all for a role that
   does not bypass row security (it would see no rows); production's deploy role `postgres` is BYPASSRLS;
 - raises the `purchase_order` counter past a copied number of its own form (never back) and runs
   `purchase_order_bill_links_backfill` for each company copied;

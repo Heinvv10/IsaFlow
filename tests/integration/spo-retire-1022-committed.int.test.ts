@@ -50,6 +50,9 @@ beforeAll(async () => {
     const two = [{ qty: 1, price: 500, gl }, { qty: 1, price: 500, gl }];
     await at('R', 'sent', two);
     await at('S', 'sent', two);
+    // Codex gate: a legacy line of 0 ordered / received / invoiced stays 0 received and invoiced; a R0.01 order with no bill stays open.
+    await at('QZ', 'sent', [{ qty: 0, price: 100, lineTotal: 100, received: 0, invoiced: 0, gl }]);
+    await at('ONE', 'sent', [{ qty: 1, price: 0.01, gl }]);
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
@@ -103,7 +106,7 @@ describe('committed spend after the copy', () => {
   it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
     // The copies closed by billing (A, C, N) are fully billed at PO level, so they commit 0 and contribute no row (review r6 M5).
     expect(await committedByOrder()).toEqual({
-      'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004, 'CM-R': 45000, 'CM-S': 100000,
+      'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004, 'CM-R': 45000, 'CM-S': 100000, 'CM-QZ': 10000, 'CM-ONE': 1,
     });
   });
 
@@ -115,7 +118,7 @@ describe('committed spend after the copy', () => {
       FROM purchase_orders p JOIN supplier_purchase_orders s ON s.id = p.id
      WHERE p.company_id = $1 AND p.status IN ('approved', 'partially_received', 'received', 'closed')`, [f.co])).rows;
     const billed = await billedCentsByPo(f.co, pos.map((p) => String(p.id)));
-    const fully = (p: { id: string; sub: number }) => (billed.get(String(p.id)) ?? 0) >= p.sub - 1 && p.sub > 0;
+    const fully = (p: { id: string; sub: number }) => (billed.get(String(p.id)) ?? 0) > 0 && (billed.get(String(p.id)) ?? 0) >= p.sub - 1 && p.sub > 0;
     const legacyNoBill = (p: { status: string; legacy: string; closed_by_billing: boolean }) => p.legacy === 'invoiced' && p.status === 'closed' && !p.closed_by_billing;
     expect(pos.filter((p) => (p.status === 'closed') !== fully(p) && !legacyNoBill(p))).toEqual([]);
     expect(pos.filter((p) => p.closed_by_billing !== (p.status === 'closed' && fully(p)))).toEqual([]);
@@ -132,6 +135,9 @@ describe('committed spend after the copy', () => {
     expect(await st('D')).toEqual({ status: 'approved', closed_from_status: null });
     expect(await st('N')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('NG')).toEqual({ status: 'closed', closed_from_status: 'received' });
+    expect(await st('ONE')).toEqual({ status: 'approved', closed_from_status: null });
+    expect((await pool.query('SELECT quantity::TEXT AS q, quantity_received::TEXT AS r, quantity_invoiced::TEXT AS i FROM po_items WHERE purchase_order_id = $1', [S.QZ!.id])).rows)
+      .toEqual([{ q: '1.00', r: '0.00', i: '0.00' }]);
   });
 });
 

@@ -133,7 +133,9 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     // is no header tie at all (review r4 M1).
     const firm = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
     const header = (input.heldByHeader?.get(bill.id) ?? []).find((h) => h.poId !== po.id && !callLinks.has(`${h.poId}\u0000${bill.id}`));
-    const headerHolds = header ? Math.max(0, bill.subtotalCents - firm) : 0;
+    // What the header PO holds BEFORE this row: the subtotal less the firm ties elsewhere AND what the bill's lines already hold on
+    // this PO (Codex gate: a link written for lines that already name this PO takes nothing more from the header).
+    const headerHolds = header ? Math.max(0, bill.subtotalCents - firm - (att(bill.id).get(po.id) ?? 0)) : 0;
     // Review r5 H1: an amount may take a header residual only from a COMMITTING PO; one closed or cancelled would be left
     // under-billed, so it is refused (unlink it from that PO first: the unlink re-judges it). Lines still win (they posted there).
     const headerOpen = !header || (COMMITTING_PO_STATUSES as readonly string[]).includes(header.status);
@@ -163,7 +165,8 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(firm)} is already linked; ${fmt(amount)} more would pass it`);
       continue;
     }
-    const taken = headerHolds - Math.max(0, bill.subtotalCents - firm - amount);
+    // The transfer is the change in the header residual, before vs after this row (not the link's amount).
+    const taken = Math.max(0, headerHolds - Math.max(0, bill.subtotalCents - firm - amount));
     if (taken > 0 && !headerOpen && linked.length === 0) { refuse(headerShut); continue; }
     const takesFromHeader = header && taken > 0 ? { poId: header.poId, poNumber: header.poNumber, cents: taken } : null;
     att(bill.id).set(po.id, amount);

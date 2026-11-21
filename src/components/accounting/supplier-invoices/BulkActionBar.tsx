@@ -21,10 +21,15 @@ const MAX_BUDGET_PREVIEW = 50;
  * warning for a line outside every budgeted slice starts `OFF_SLICE_WARNING_PREFIX` (`decideBudgetOutcome`); the
  * title says which kinds the batch had.
  */
-function notifyBudgetWarnings(data: BulkActionResult): void {
+function notifyBudgetWarnings(data: BulkActionResult, action: BulkAction): void {
   const warned = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
   if (warned.length === 0) return;
   const all = warned.flatMap((r) => r.budgetWarnings ?? []);
+  // A cancel's warnings are the purchase orders it reopened (PR #1703), not an over-budget approval.
+  if (action === 'cancel') {
+    notify.warning(`${warned.length === 1 ? '1 bill' : `${warned.length} bills`} cancelled: a purchase order reopened`, all.join(' '));
+    return;
+  }
   const offSlice = all.some((w) => w.startsWith(OFF_SLICE_WARNING_PREFIX));
   const over = all.some((w) => !w.startsWith(OFF_SLICE_WARNING_PREFIX));
   const what = offSlice ? (over ? 'over budget or outside a budgeted slice' : 'outside a budgeted slice') : 'over budget';
@@ -151,7 +156,7 @@ export function BulkActionBar({
       await onComplete();
       notifyLateClaims(json); // bills whose VAT was claimed in a later period (s16(3))
       notifyPostingWarnings(json); // bills posted without a cost centre that could not be applied
-      notifyBudgetWarnings(data); // P5-2 (warn): bills approved over budget
+      notifyBudgetWarnings(data, action); // P5-2 (warn): bills approved over budget; a cancel: the POs it reopened
       if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');

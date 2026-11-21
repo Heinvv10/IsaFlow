@@ -29,7 +29,7 @@ import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
-import { lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
+import { lockLateClosedByBilling, lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
 
 type Row = DbRow;
 
@@ -327,6 +327,8 @@ async function cancelSupplierInvoiceInner(
     // Every refusal the MCP tool's plan makes, on the row just locked, before
     // any write — the UI Cancel button and the bulk action reach only this.
     await planSupplierInvoiceCancel(companyId, id);
+    // A link that closed one of the bill's POs by billing while this waited on the bill (Codex gate).
+    const allBillingClosed = await lockLateClosedByBilling(companyId, id, billingClosed);
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
@@ -358,7 +360,7 @@ async function cancelSupplierInvoiceInner(
     if (cancelledSourceDoc) {
       await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
     }
-    const reopen = await reopenAfterBillGone(companyId, billingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
+    const reopen = await reopenAfterBillGone(companyId, allBillingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
     return { ...mapInvoiceRow(rows[0]!), ...reopen };
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');

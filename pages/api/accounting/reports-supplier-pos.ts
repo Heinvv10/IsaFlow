@@ -1,7 +1,8 @@
 /**
  * Supplier POs by Supplier Report API
  * GET /api/accounting/reports-supplier-pos
- *   ?status=draft|submitted|approved|partially_received|received|closed|cancelled
+ *   ?status=draft|submitted|approved|partially_received|received|closed|cancelled (retired sent -> approved, invoiced -> closed;
+ *    partially_invoiced or an unknown status -> 400)
  *   &date_from=YYYY-MM-DD
  *   &date_to=YYYY-MM-DD
  *
@@ -17,6 +18,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import sql from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { reportStatusFilter } from '@/modules/accounting/services/ap/supplierPoReportStatus';
 
 export interface SupplierPoRow {
   id: string;
@@ -133,7 +135,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const { status, date_from, date_to } = req.query;
 
-  const statusVal = status && typeof status === 'string' ? status : null;
+  // A retired SPO status is translated or refused, never compared literally into an empty report (Codex gate).
+  const filter = reportStatusFilter(status && typeof status === 'string' ? status : null);
+  if ('refusal' in filter) return apiResponse.badRequest(res, filter.refusal);
+  const statusVal = filter.status;
   const dateFromVal = date_from && typeof date_from === 'string' ? date_from : null;
   const dateToVal = date_to && typeof date_to === 'string' ? date_to : null;
 

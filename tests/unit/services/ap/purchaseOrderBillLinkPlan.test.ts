@@ -165,6 +165,19 @@ describe('a header tie is a residual, never a hold (breaker R4-4, review r4 M1 /
     });
     expect(r.plan!.poAfter.get('p2')).toMatchObject({ billedCents: 1, fullyBilled: false, statusAfter: 'approved' });
   });
+  it('Codex gate: lines that already name a PO take nothing more from the header residual when linked (no double deduction)', () => {
+    // b1 (R100) names p1 by a R30 line already and p2 in its header: p2 holds the residual R70. A R30 bill b2 completes p2.
+    const lines = [{ id: 'b1-l1', poItemId: 'i1', poItemPoId: 'p1', postedCents: 3000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 7000 }];
+    const bills = new Map([['b1', bill('b1', { subtotalCents: 10000, lines })], ['b2', bill('b2', { subtotalCents: 3000, lines: [{ id: 'b2-l1', poItemId: null, poItemPoId: null, postedCents: 3000 }] })]]);
+    const pos = new Map([['p1', po('p1', { subtotalCents: 3000 })], ['p2', po('p2', { subtotalCents: 10000 })]]);
+    const held = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', status: 'approved', cents: 7000 }]]]);
+    const r = plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] }), req(1, 'p2', 'b2', { amountCents: 3000 })], {
+      pos, bills, heldByHeader: held, closeWhenFullyBilled: true, unlinkedBilled: new Map([['p2', [{ billId: 'b1', cents: 7000 }]]]),
+    });
+    expect(r.refusals).toEqual([]);
+    expect(planned(r)).toEqual([['p1', 3000, 0], ['p2', 3000, 0]]);
+    expect(r.plan!.poAfter.get('p2')).toMatchObject({ billedCents: 10000, fullyBilled: true, statusAfter: 'closed' });
+  });
   it('M1, no amount: after the header PO\'s own row the default is what is left; before it, the default takes the whole bill', () => {
     expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1')], { heldByHeader }))).toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
     expect(reasons(plan([req(0, 'p1', 'b1'), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
@@ -249,6 +262,8 @@ describe('billed and close_when_fully_billed (decisions 5 and 6)', () => {
   it('fully billed is within one cent of the subtotal', () => {
     expect(isFullyBilled(29999, 30000)).toBe(true);
     expect(isFullyBilled(29998, 30000)).toBe(false);
+    // Codex gate: the 1 c tolerance needs billing above 0: a R0.01 order with nothing billed is not fully billed.
+    expect([isFullyBilled(0, 1), isFullyBilled(1, 1), isFullyBilled(0, 0)]).toEqual([false, true, false]);
   });
   it('billed counts links on approved / paid / partially_paid bills only, existing and new', () => {
     const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { existing: [
