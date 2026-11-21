@@ -107,6 +107,17 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
   });
 });
 
+describe('the mirror goes to the row it belongs to', () => {
+  it('a mirror of 10 March and manual sales of 5 and 10 March (both match it, same month): the 10 March row is skipped, the 5 March row drafted', async () => {
+    await turnOn();
+    const m = await L.accepted({ date: '2026-03-10' }); await redate(m.bill, '2026-03-10'); await L.approveBill(m.bill);
+    const early = await manual(co.A, co.B, 'sale', '2026-03-05'); const exact = await manual(co.A, co.B, 'sale', '2026-03-10');
+    await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = ANY($1)", [[early.id, exact.id]]);
+    const g = await gen();
+    expect([g.skipped, g.drafted.includes(early.id)]).toEqual([[exact.id], true]);
+  });
+});
+
 describe('R14-H2: a pair in two groups has a cutover only in the group its mirrors go to (the oldest)', () => {
   it('the younger group G2 sees no cutover and skips nothing', async () => {
     await turnOn();

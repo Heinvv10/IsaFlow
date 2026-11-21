@@ -96,13 +96,24 @@ export async function autoGenerateEliminations(
       const c = pairCutover(cutovers, String(tx.source_company_id), String(tx.target_company_id));
       return c && SALE_TYPES.has(String(tx.transaction_type)) && String(tx.td) >= c ? c : null;
     };
-    // whether each mirror a post-cutover row matches is eliminated automatically now: judged once per distinct mirror
+    // whether each mirror a post-cutover row matches is eliminated automatically now (judged once per distinct mirror), and its date
     const mirrors = [...new Set(icTxRows.filter(cutoverOf).flatMap((tx) => (tx.mirror_rows as string[] | null) ?? []))];
-    const stands = new Map(mirrors.length === 0 ? [] : ((await sql`
-      SELECT id::TEXT AS id, COALESCE(public.intercompany_mirror_stands(id), false) AS s FROM unnest(${mirrors}::UUID[]) id
-    `) as DbRow[]).map((r) => [String(r.id), r.s === true] as const));
-    // a mirror accounts for one sale row and one purchase row (the two sides of the same sale), never for two sales
+    const mirrorInfo = new Map(mirrors.length === 0 ? [] : ((await sql`
+      SELECT m.id::TEXT AS id, m.transaction_date::TEXT AS d, COALESCE(public.intercompany_mirror_stands(m.id), false) AS s
+        FROM intercompany_transactions m WHERE m.id = ANY(${mirrors}::UUID[])
+    `) as DbRow[]).map((r) => [String(r.id), { stands: r.s === true, date: String(r.d) }] as const));
+    // A mirror accounts for one sale row and one purchase row (the two sides of the same sale), never for two sales: each goes to the CLOSEST
+    // post-cutover row that matches it (nearest date, then the earlier row), so a wide match never takes a mirror from the row it belongs to.
+    const keysOf = (tx: DbRow) => ((tx.mirror_rows as string[] | null) ?? []).map((id) => `${id}:${String(tx.transaction_type) === 'purchase' ? 'p' : 's'}`);
+    const gap = (tx: DbRow) => keysOf(tx).reduce((n, k) => n + Math.abs(Date.parse(String(tx.td)) - Date.parse(mirrorInfo.get(k.split(':')[0]!)?.date ?? String(tx.td))), 0);
+    const leftToMirror = new Set<string>();
     const consumed = new Set<string>();
+    for (const tx of icTxRows.filter((t) => cutoverOf(t) && keysOf(t).length > 0 && keysOf(t).every((k) => mirrorInfo.get(k.split(':')[0]!)?.stands))
+      .sort((a, b) => gap(a) - gap(b))) {
+      if (keysOf(tx).some((k) => consumed.has(k))) continue;
+      keysOf(tx).forEach((k) => consumed.add(k));
+      leftToMirror.add(String(tx.id));
+    }
 
     for (const tx of icTxRows) {
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are serialised by
@@ -116,9 +127,7 @@ export async function autoGenerateEliminations(
       // RULING 2026-11-21: on or after the pair's cutover a sale-class row is left to mirroring ONLY when a mirror of this group that matches it
       // stands now; otherwise (rejected, pending, not approved, never sent, another group's) it is drafted, flagged, and the person decides.
       const cutover = cutoverOf(tx);
-      const mine = ((tx.mirror_rows as string[] | null) ?? []).map((id) => `${id}:${String(tx.transaction_type) === 'purchase' ? 'p' : 's'}`);
-      if (cutover && mine.length > 0 && mine.every((k) => stands.get(k.split(':')[0]!) && !consumed.has(k))) {
-        mine.forEach((k) => consumed.add(k));
+      if (cutover && leftToMirror.has(String(tx.id))) {
         skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${mirroredRef})`, cutover, mirroredRef, ...label(tx) });
         continue;
       }

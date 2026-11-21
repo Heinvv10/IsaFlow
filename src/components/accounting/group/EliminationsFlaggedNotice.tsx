@@ -49,8 +49,7 @@ export function EliminationsFlaggedNotice({ rows, skipped = [], onDismiss }: { r
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" aria-hidden="true" />
         <div>
           {rows.length > 0 && <>
-            {rows.length} {rows.length === 1 ? 'elimination was' : 'eliminations were'} drafted with a flag: possibly the same sale as a mirrored
-            document. Check each before posting.
+            {rows.length} {rows.length === 1 ? 'elimination was' : 'eliminations were'} drafted with a flag. Check each before posting:
             <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
               {rows.map((r) => <li key={r.transactionId}>{rowText(r)}: {r.reason}</li>)}
             </ul>
