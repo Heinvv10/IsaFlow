@@ -69,7 +69,7 @@ export async function importAPInvoices(
 
   const supRows = (await sql`
     SELECT id, COALESCE(company_name, name) AS name, vat_number FROM suppliers
-    WHERE company_id = ${companyId}::UUID
+    WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
   `) as Row[];
 
   for (let i = 0; i < invoices.length; i++) {

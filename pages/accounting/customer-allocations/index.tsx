@@ -10,6 +10,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { fetchAllPayments, fetchCustomerOpenInvoices } from '@/components/accounting/allocations/openInvoiceFetch';
 import { customerOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
@@ -29,22 +30,21 @@ export default function CustomerAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [paymentCut, setPaymentCut] = useState<{ shown: number; total: number } | null>(null);
+  const loadSeq = useRef(0); // the latest invoice load wins; an older one that finishes later is ignored
+  const [cutOff, setCutOff] = useState<{ shown: number; total: number } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
-      await assertOk(res, 'Could not load receipts - try again');
-      const json = await res.json();
-      const d = json.data;
-      const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
-      // API mapper returns `totalAmount` (camelCase of total_amount), not `amount`.
-      // Filter unallocated client-side because the `?unallocated=true` query param
-      // is not yet honoured by the customer-payments service.
-      const mapped = raw.map(p => ({
-        ...p,
+      const all = await fetchAllPayments('customer', 'Could not load receipts - try again');
+      setPaymentCut(all.truncated ? { shown: all.rows.length, total: all.total } : null);
+      // API mapper returns `totalAmount` / `paymentDate`; `?unallocated=true` is not honoured server-side, so filter here.
+      const mapped: Payment[] = all.rows.map(p => ({
+        id: String(p.id), paymentNumber: String(p.paymentNumber ?? ''), clientName: String(p.clientName ?? ''), clientId: String(p.clientId ?? ''),
+        date: String(p.paymentDate ?? p.date ?? ''),
         amount: Number(p.totalAmount ?? p.amount ?? 0),
         allocatedAmount: Number(p.allocatedAmount ?? 0),
       }));
@@ -60,18 +60,19 @@ export default function CustomerAllocationsPage() {
   useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   const selectPayment = async (p: Payment) => {
-    setSelected(p); setAllocs({}); setMsg(''); setError(''); setLoadingInv(true);
+    setSelected(p); setAllocs({}); setMsg(''); setError(''); setCutOff(null); setLoadingInv(true);
+    const seq = ++loadSeq.current;
     try {
-      const res = await apiFetch(`/api/accounting/customer-invoices-list?client_id=${p.clientId}&status=approved&status=sent&status=partially_paid&status=overdue&limit=200`, { credentials: 'include' });
-      await assertOk(res, 'Could not load invoices for this receipt - try again');
-      const json = await res.json();
-      const raw: Record<string, unknown>[] = json.data?.invoices || json.data?.items || [];
-      setInvoices(customerOpenRows(raw));
+      const all = await fetchCustomerOpenInvoices(p.clientId);
+      if (seq !== loadSeq.current) return;
+      setInvoices(customerOpenRows(all.rows));
+      setCutOff(all.truncated ? { shown: all.rows.length, total: all.total } : null);
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load invoices for this receipt - try again'));
     } finally {
-      setLoadingInv(false);
+      if (seq === loadSeq.current) setLoadingInv(false);
     }
   };
 
@@ -97,6 +98,7 @@ export default function CustomerAllocationsPage() {
         credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
       });
       await assertOk(res, 'Could not allocate the receipt - try again');
+      ++loadSeq.current; setLoadingInv(false); // an invoice load still in flight predates this allocation: drop it, and its finally no longer clears the spinner
       setMsg('Allocated successfully'); setSelected(null); setAllocs({});
       await loadPayments();
     } catch (err) { setError(apiErrorMessage(err, 'Could not allocate the receipt - try again')); }
@@ -134,6 +136,7 @@ export default function CustomerAllocationsPage() {
             {/* Unallocated Receipts */}
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">Unallocated Receipts</div>
+              {paymentCut && <div role="status" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {paymentCut.shown} of {paymentCut.total} receipts. The rest are not listed here.</div>}
               {loading ? (
                 <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
               ) : payments.length === 0 ? (
@@ -167,6 +170,7 @@ export default function CustomerAllocationsPage() {
                 <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No outstanding invoices</div>
               ) : (
                 <>
+                  {cutOff && <div role="alert" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {cutOff.shown} of {cutOff.total} invoices. The rest are not listed here: narrow it down in the invoice list.</div>}
                   <div className="divide-y divide-[var(--ff-border-light)] max-h-[50vh] overflow-y-auto">
                     {invoices.map(inv => (
                       <label key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">

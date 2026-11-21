@@ -30,6 +30,46 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-20 — Payroll Wave 6 (FQd/RI/DBF/PSP-H/EZF), VAT201 Nil Pair, Mobile Cards
+
+**Payroll — Wave 6**
+
+- FQd (frequency-keyed runs): calculation version 19; weekly garnishee refused for `garnishee_frequency` alone; `EmployeeWorkCard` PSP-then-frequency order (#1622)
+- RI run inputs: per-employee run input units; RI calculation version 18; overtime cell with no hourly rate rendered as a one-line link, not a disabled input (#1580, #1692)
+- DBF DB fund factor table (migration 1014) (#1571)
+- PSP-H entity particulars: certified PSP ids bound as text; company-format vs trust number validation; `PSP_REGISTRATION_NOT_FOR_ENTITY` refusal; particulars role-gated, logged, injection-safe; modulus-10 check; H record on EZF code map (migration 1015) (#1689)
+- EZF BRS codes: portal never refuses a filed certificate; `@1` versions cannot be marked filed; leaver tax period fix; BRS-field warning on every e@syFile export (wave-7 warn-not-refuse) (#1688)
+
+**VAT201**
+
+- Nil-rated cancelled pair rule fix; pair rule review round 1 (#1698)
+
+**AmountInput / AR**
+
+- `AmountInput` min/max compared in units of 10^decimals (not raw cents); submit guard scoped to the form/modal (#1696)
+- Allocation invoice shape fix (#1686)
+
+**Sage**
+
+- Sage supplier sync fix (#1693)
+
+**GL**
+
+- Reclassification line-lock fixture seeds a draft journal (`999n` refuses lines on a posted journal); fixture cleanup failures now fail the test (#1690)
+
+**Mobile**
+
+- Supplier statement balances as cards below `lg`; 44 px touch targets (#1702)
+- Bureau clients as cards below `lg`; 44 px touch targets (#1700)
+
+**CI**
+
+- Advisory job: migrations tested against prod schema (phase A) (#1694)
+
+Migrations: **1011** (`payroll_run_lines_rls`), **1012** (`intercompany_pairing`), **1013** (`payroll_psp_tax_status`), **1014** (`payroll_db_fund_factor`), **1015** (`payroll_psp_entity_particulars`), **1017** (`payroll_run_input_units`)
+
+---
+
 ## 2026-11-19 — MCP PO-Bill Links & Maintenance, Intercompany P1, Payroll OC, VAT201 Rate-Check
 
 **MCP / AP — PO-Bill Links**
@@ -43,6 +83,15 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - New MCP tools: `update_purchase_order`, `cancel_purchase_order`, `close_purchase_order`, `set_purchase_order_status`; bulk import budget_check and skip flag (#1665)
 - Approved edit restricted to owner/admin with restamp; `set_status` clears link closing records and closes from approved only; REST draft edit returns 503 on a held PO
 - `purchase_orders.closed_from_status` for short-close and set-status reopen (migration 1007)
+
+**MCP / AP — Goods Received Notes**
+
+- New MCP tools: `create_goods_received`, `cancel_goods_received`, `list_goods_received`, `get_goods_received`; `goods_received` as an upload / attach / `find_by_external_ref` kind; optional `external_system` + `external_ref` per note (#1697, migration 1021)
+- Cancel keeps the note (status `cancelled`), takes its quantities back off the PO lines and recomputes the PO status, through the definer `goods_received_note_cancel`; app_user can no longer UPDATE or DELETE notes or their items, and `grn_items` is under row security through its note
+- A bill names only a live goods received note of its company, on a PO of the bill's supplier (one the bill names, when it names any) (create and undo of a deleted bill), held `FOR SHARE` while it commits; a cancelled or deleted bill frees its note for cancel
+- Cancel takes no number lock and bounds its row-lock waits (5 s, typed); a note with an item of a line on another PO is refused `items_not_on_po`
+- A bill's documents include its note's and POs' documents (read-time, company-fenced), whenever they were filed; the legacy `goods_receipt_note` type is readable through the note
+- A PO whose notes are all cancelled can be cancelled and its header edited; its lines stay fixed (the cancelled notes keep their items) and an imported one cannot go back to draft
 
 **Intercompany — P1 Connections**
 

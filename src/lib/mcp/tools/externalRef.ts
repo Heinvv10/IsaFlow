@@ -118,6 +118,7 @@ export const KIND_SCOPE: Record<ExternalRefKind, string> = {
   item: 'read:items',
   purchase_order: 'read:invoices',
   po_bill_link: 'read:invoices',
+  goods_received: 'read:invoices',
 };
 
 export const findByExternalRefTool: McpTool = {
@@ -127,6 +128,7 @@ export const findByExternalRefTool: McpTool = {
     + `kind: ${EXTERNAL_REF_KINDS.join(', ')}, or a Sage code (${Object.keys(EXTERNAL_REF_KIND_ALIASES).join(', ')}; ret/cret = supplier/customer credit notes; po = purchase orders). `
     + 'Returns found: false, or the live match (record) plus any superseded (cancelled, reversed or deleted) rows carrying the same reference. '
     + 'po_bill_link finds a purchase order <-> bill link by the external_ref it was made with (link_bills_to_purchase_order): number reads "PO <- bill", status is the PO\'s, total_amount the linked ex-VAT amount. '
+    + 'goods_received finds a goods received note by the external_ref it was created with (create_goods_received): number is its GRN number; a cancelled note is listed as superseded. '
     + 'A cancelled purchase order is listed as superseded (bulk_create_purchase_orders still will not create it again). '
     + 'Only records created or imported with external_ref are found; older loads that put the Sage id in a description are not. '
     + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts, read:items for item). For an item, number is its code and status is active or inactive.',

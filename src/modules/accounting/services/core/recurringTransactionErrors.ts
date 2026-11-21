@@ -59,3 +59,17 @@ export class RecurringTemplateLineAccountError extends Error {
     this.name = 'RecurringTemplateLineAccountError';
   }
 }
+
+/**
+ * A bill template names a supplier that has been merged into another or deleted (review of b4741393, M2). A merge does not repoint
+ * templates, and migration 1021's supplier-live trigger would refuse the bill at its INSERT (a 500 there). Raised before the first
+ * INSERT of the run, so the route may answer 400: the operator re-points the template at the live supplier.
+ */
+export class RecurringTemplateSupplierDeletedError extends Error {
+  readonly code = 'RECURRING_TEMPLATE_SUPPLIER_DELETED';
+  constructor(public readonly templateId: string, templateName: string) {
+    super(`Recurring template "${templateName}" names a supplier that has been merged into another or deleted. `
+      + 'Edit the template to name the supplier it was merged into (or another live supplier), then run it again.');
+    this.name = 'RecurringTemplateSupplierDeletedError';
+  }
+}

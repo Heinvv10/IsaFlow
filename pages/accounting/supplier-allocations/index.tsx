@@ -9,6 +9,7 @@ import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { fetchAllPayments, fetchSupplierOpenBills } from '@/components/accounting/allocations/openInvoiceFetch';
 import { supplierOpenRows, type OpenInvoiceRow } from '@/components/accounting/allocations/openInvoiceRows';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { blockOnInvalidAmount } from '@/components/ui/amountInputText';
@@ -28,21 +29,21 @@ export default function SupplierAllocationsPage() {
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [paymentCut, setPaymentCut] = useState<{ shown: number; total: number } | null>(null);
+  const loadSeq = useRef(0); // the latest invoice load wins; an older one that finishes later is ignored
+  const [cutOff, setCutOff] = useState<{ shown: number; total: number } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
-      await assertOk(res, 'Could not load the unallocated payments - try again');
-      const json = await res.json();
-      const d = json.data;
-      const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
-      // API mapper returns `totalAmount`, not `amount`. Filter unallocated client-side
-      // because the `?unallocated=true` query param isn't yet honoured server-side.
-      const mapped = raw.map(p => ({
-        ...p,
+      const all = await fetchAllPayments('supplier', 'Could not load the unallocated payments - try again');
+      setPaymentCut(all.truncated ? { shown: all.rows.length, total: all.total } : null);
+      // API mapper returns `totalAmount` / `paymentDate`; `?unallocated=true` is not honoured server-side, so filter here.
+      const mapped: Payment[] = all.rows.map(p => ({
+        id: String(p.id), paymentNumber: String(p.paymentNumber ?? ''), supplierName: String(p.supplierName ?? ''), supplierId: String(p.supplierId ?? ''),
+        date: String(p.paymentDate ?? p.date ?? ''),
         amount: Number(p.totalAmount ?? p.amount ?? 0),
         allocatedAmount: Number(p.allocatedAmount ?? 0),
       }));
@@ -58,18 +59,19 @@ export default function SupplierAllocationsPage() {
   useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   const selectPayment = async (p: Payment) => {
-    setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
+    setSelected(p); setAllocs({}); setMsg(''); setCutOff(null); setLoadingInv(true);
+    const seq = ++loadSeq.current;
     try {
-      const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
-      await assertOk(res, 'Could not load the supplier invoices - try again');
-      const json = await res.json();
-      const rawInv: Record<string, unknown>[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.invoices || []; })();
-      setInvoices(supplierOpenRows(rawInv));
+      const all = await fetchSupplierOpenBills(p.supplierId);
+      if (seq !== loadSeq.current) return;
+      setInvoices(supplierOpenRows(all.rows));
+      setCutOff(all.truncated ? { shown: all.rows.length, total: all.total } : null);
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setInvoices([]);
       setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
     } finally {
-      setLoadingInv(false);
+      if (seq === loadSeq.current) setLoadingInv(false);
     }
   };
 
@@ -95,6 +97,7 @@ export default function SupplierAllocationsPage() {
         credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
       });
       await assertOk(res, 'Could not allocate the payment - try again');
+      ++loadSeq.current; setLoadingInv(false); // an invoice load still in flight predates this allocation: drop it, and its finally no longer clears the spinner
       setMsg('Allocated successfully'); setSelected(null); setAllocs({});
       await loadPayments();
     } catch (err) {
@@ -132,6 +135,7 @@ export default function SupplierAllocationsPage() {
             {/* Unallocated Payments */}
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-secondary)]">Unallocated Payments</div>
+              {paymentCut && <div role="status" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {paymentCut.shown} of {paymentCut.total} payments. The rest are not listed here.</div>}
               {loading ? (
                 <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
               ) : payments.length === 0 ? (
@@ -165,6 +169,7 @@ export default function SupplierAllocationsPage() {
                 <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No outstanding invoices</div>
               ) : (
                 <>
+                  {cutOff && <div role="alert" className="px-4 py-2 text-xs text-amber-400 border-b border-[var(--ff-border-light)]">Showing {cutOff.shown} of {cutOff.total} invoices. The rest are not listed here: narrow it down in the invoice list.</div>}
                   <div className="divide-y divide-[var(--ff-border-light)] max-h-[50vh] overflow-y-auto">
                     {invoices.map(inv => (
                       <label key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">

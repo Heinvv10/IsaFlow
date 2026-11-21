@@ -23,7 +23,12 @@ const url='/api/accounting/capture/inbound/whatsapp';
 const migration=readFileSync('scripts/migrations/sql/617_capture_whatsapp_destination_identity.sql','utf8');
 // 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
 const restore937=()=>pool.query(readFileSync('scripts/migrations/sql/937_credential_tables_off_app_pools.sql','utf8'));
+// 937 redefines app_pool_reach_violations() with ITS rules; 945, 946 and later add theirs. This file is not
+// rolled back, so it puts the live body back afterwards or a later suite on the same database sees 937's.
+const reachFn="SELECT pg_get_functiondef('public.app_pool_reach_violations()'::regprocedure) AS def";
+let reachDef='';
 beforeAll(async()=>{
+  reachDef=(await pool.query(reachFn)).rows[0].def as string;
   // Run alone on the explicit disposable fixture; restore the index after cleanup.
   await pool.query('DROP INDEX IF EXISTS ux_capture_inboxes_whatsapp_address');
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
@@ -47,7 +52,7 @@ afterAll(async()=>{
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[]) AND user_id=ANY($2::text[])',[companies,[userA,userB]]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',[[userA,userB]]);
-  }finally{try{await pool.query(migration);}finally{await pool.end();}}
+  }finally{try{if(reachDef)await pool.query(reachDef);}finally{try{await pool.query(migration);}finally{await pool.end();}}}
 });
 async function configure(company:string,address:string){
   const req=request({'sb-access-token':tokens.get(company)!,active_company_id:company},'POST');
