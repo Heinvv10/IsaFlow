@@ -44,7 +44,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.client_id = ${filters.clientId}::UUID AND cp.company_id = ${companyId}
-        ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY cp.payment_date DESC, cp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM customer_payments WHERE client_id = ${filters.clientId}::UUID AND company_id = ${companyId}
@@ -55,7 +55,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.status = ${filters.status} AND cp.company_id = ${companyId}
-        ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY cp.payment_date DESC, cp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM customer_payments WHERE status = ${filters.status} AND company_id = ${companyId}
@@ -66,7 +66,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.company_id = ${companyId}
-        ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY cp.payment_date DESC, cp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_payments WHERE company_id = ${companyId}`) as Row[];
     }
