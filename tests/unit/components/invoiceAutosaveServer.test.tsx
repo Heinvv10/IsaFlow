@@ -66,25 +66,30 @@ describe('edit page autosave', () => {
     await advance(1_500);
     expect(puts()).toHaveLength(1);
     const body = bodyOf(puts()[0]!);
-    expect(body).toMatchObject({ id: 'inv-1', clientId: 'c-1', invoiceDate: '2026-09-15', taxRate: 15 });
+    // Per-line VAT: the line carries its type (the form's 15% is the standard rate on 2026-09-15); no header rate.
+    expect(body).toMatchObject({ id: 'inv-1', clientId: 'c-1', invoiceDate: '2026-09-15', amountsAre: 'exclusive' });
+    expect('taxRate' in body).toBe(false);
     expect('dueDate' in body).toBe(false); // an untouched due date is the page's old copy: left out, the server keeps its own
-    expect(body.items).toEqual([expect.objectContaining({ description: 'C12345', quantity: 1, unitPrice: 100, taxRate: 15, discount: 0 })]);
+    expect(body.items).toEqual([expect.objectContaining({ description: 'C12345', quantity: 1, unitPrice: 100, vatType: 'standard', discount: 0 })]);
     expect(status()).toMatch(/^Saved/);
     expect(screen.getByTestId('preview').textContent).toBe('preview v1');
     await advance(10_000);
     expect(puts()).toHaveLength(1);
   });
 
-  it('choosing Including VAT alone sends nothing: the shown gross converts back to the stored price', async () => {
+  it('choosing Including VAT saves it once: the shown gross goes as entered, with its mode (it is stored now)', async () => {
     serveInvoice();
     await open();
     await pick('Amounts are', /Including VAT/);
     expect(price().value).toBe('115');
     await advance(5_000);
-    expect(puts()).toHaveLength(0);
+    expect(puts()).toHaveLength(1);
+    const body = bodyOf(puts()[0]!);
+    expect(body.amountsAre).toBe('inclusive');
+    expect(body.items).toEqual([expect.objectContaining({ unitPrice: 115, vatType: 'standard' })]);
   });
 
-  it('a VAT rate edit under way saves nothing; leaving the field saves the finished rate once, gross held', async () => {
+  it('a VAT rate edit under way saves nothing; a rate the server refuses is held, and 0 saves once, gross held', async () => {
     serveInvoice();
     await open();
     await pick('Amounts are', /Including VAT/);
@@ -98,10 +103,17 @@ describe('edit page autosave', () => {
     expect(puts()).toHaveLength(0);
     fireEvent.blur(rate());
     await advance(1_500);
+    // 14% is not the VAT rate on 2026-09-15: the server would refuse it, so autosave holds and says why.
+    expect(puts()).toHaveLength(0);
+    expect(screen.getByText(/Check the VAT rate: it is the standard rate on the invoice date, or 0/)).toBeTruthy();
+    fireEvent.focus(rate());
+    type(rate(), '0');
+    fireEvent.blur(rate());
+    await advance(1_500);
     expect(puts()).toHaveLength(1);
     const body = bodyOf(puts()[0]!);
-    expect(body.taxRate).toBe(14);
-    expect(body.items[0]!.unitPrice).toBe(100.88); // R115 incl at 14%
+    expect(body.amountsAre).toBe('inclusive');
+    expect(body.items[0]).toMatchObject({ unitPrice: 115, vatType: 'zero_rated' }); // the gross held, as entered
   });
 
   it('one PUT at a time; a reply for an older body never marks the newer one saved, and the newest goes next', async () => {

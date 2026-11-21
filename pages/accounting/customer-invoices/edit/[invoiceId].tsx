@@ -13,7 +13,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
-import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { switchTaxMode, taxModesFor, useVatChoice } from '@/components/accounting/customer-invoices/useVatMode';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
@@ -24,13 +25,13 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 import { useWipLines } from '@/components/accounting/customer-invoices/useWipLines';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 import { useDueDateFollowsTerms } from '@/components/accounting/customer-invoices/useDueDateFollowsTerms';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { invoiceSavesSettled, takeUnsavedLeave } from '@/lib/pendingInvoiceSaves';
-import { linesFromStoredItems, type InvoiceDetail } from '@/components/accounting/customer-invoices/editInvoiceLoad';
+import { linesFromStoredItems, vatAtLoad, type InvoiceDetail } from '@/components/accounting/customer-invoices/editInvoiceLoad';
 import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 // CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
@@ -109,10 +110,9 @@ export default function EditCustomerInvoicePage() {
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
       const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id) ?? takeUnsavedLeave(id, invoice.invoice_number);
       if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
-      // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
-      // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
-      const storedRate = Number(invoice.tax_rate ?? 15);
-      setTaxMode(storedRate === 0 ? 'none' : 'exclusive'); // this invoice's own mode, not the one opened before it
+      // No VAT at a stored rate of 0 (the standard rate kept behind it), Including VAT as stored (editInvoiceLoad.vatAtLoad).
+      const loadedVat = vatAtLoad(invoice);
+      setTaxMode(loadedVat.mode); // this invoice's own mode, not the one opened before it
       clearDates();
       const clientId = String(invoice.client_id || invoice.customer_id || '');
       loadDueTerms({ invoiceDate: String(invoice.invoice_date || '').slice(0, 10), clientId, dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '', source: invoice.due_date_source ?? null });
@@ -123,13 +123,13 @@ export default function EditCustomerInvoicePage() {
         dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '',
         billingPeriodStart: invoice.billing_period_start ? String(invoice.billing_period_start).slice(0, 10) : '',
         billingPeriodEnd: invoice.billing_period_end ? String(invoice.billing_period_end).slice(0, 10) : '',
-        taxRate: storedRate === 0 ? 15 : storedRate,
+        taxRate: loadedVat.formRate,
         notes: invoice.notes || '',
         currencyCode: invoice.currency_code || 'ZAR',
         exchangeRate: Number(invoice.exchange_rate ?? 1),
         projectId: invoice.project_id ?? '',
       });
-      const stored = linesFromStoredItems(invoice.items || [], invoice.project_id ?? '');
+      const stored = linesFromStoredItems(invoice.items || [], invoice.project_id ?? '', loadedVat);
       setLines(stored); wipLoaded(stored, Number(invoice.unlinked_time_entries ?? 0));
       setLoading(false);
     }).catch((err: unknown) => {
@@ -146,15 +146,16 @@ export default function EditCustomerInvoicePage() {
   const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
 
-  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
-  const taxRate = effectiveTaxRate(taxMode, form.taxRate);
-  const lineTotal = (l: LineItem) => lineTotalForMode(taxMode, taxRate, l);
-  const pickTaxMode = (mode: TaxMode) => { setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
-  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
+  // Priced as the server stores it (formVat: per-line VAT; no VAT for a company not registered for it); a half-typed field previews as 0.
+  const { vatMode, registered } = useVatChoice(taxMode);
+  const taxRate = effectiveTaxRate(vatMode, form.taxRate);
+  const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
+  const pickTaxMode = (mode: TaxMode) => { const s = switchTaxMode(lines, { from: taxMode, to: mode, formRate: form.taxRate, date: form.invoiceDate, customerVat: customer.defaults?.vatType, registered }); if ('problem' in s) { setError(s.problem); return; } setLines(s.lines); setTaxMode(s.mode); }; // taxModeSwitch: per-line rate, refused when a line would move
+  const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
 
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
   const id = String(invoiceId ?? '');
-  const draft = { form, lines, taxMode };
+  const draft = { form, lines, taxMode: vatMode, customerVat: customer.defaults?.vatType };
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved
@@ -264,7 +265,7 @@ export default function EditCustomerInvoicePage() {
 
               <fieldset disabled={approve.busy || approved} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={vatMode} taxModes={taxModesFor(registered)} onTaxModeChange={pickTaxMode} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

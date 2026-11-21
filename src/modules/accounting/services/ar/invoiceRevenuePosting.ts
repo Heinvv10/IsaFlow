@@ -12,10 +12,11 @@ import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard';
 import {
-  allocateCreditNote, isRevenueCoded, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
+  allocateCreditNote, isRevenueCoded, noteShares, remainingCarries, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
 import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
-import { allocateTypedCreditNote, legsAreTyped } from './creditNoteTypedSplit';
+import { allocateTypedCreditNote, appliedSettlement, legsAreTyped } from './creditNoteTypedSplit';
+import { detachedAppliedOn } from './creditNoteDetachedRead';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -102,11 +103,12 @@ const NO_NOTE = '00000000-0000-0000-0000-000000000000';
 /**
  * What a TYPED invoice still has to credit, for a caller raising a note against it (a dispute): its remaining net over
  * every revenue leg and its remaining VAT; null for a legacy invoice (any uncoded leg) or one with no journal.
+ * `withoutNoteId`: leave that note out entirely (the apply guard, judging the note's own application to it).
  */
-export async function typedInvoiceCreditState(companyId: string, invoiceId: string):
+export async function typedInvoiceCreditState(companyId: string, invoiceId: string, withoutNoteId: string = NO_NOTE):
   Promise<{ remainingNet: number; remainingVat: number } | null> {
   // Nothing is posted here, so no leg's post account is read: the default revenue account is not needed.
-  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, invoiceId, NO_NOTE, NO_NOTE);
+  const { legs, replayed, remainingVat } = await invoiceCreditBasis(companyId, invoiceId, withoutNoteId, NO_NOTE);
   if (remainingVat === null) return null;
   return { remainingNet: remainingCarries(legs, replayed).reduce((a, b) => a + b, 0) / 100, remainingVat };
 }
@@ -114,10 +116,11 @@ export async function typedInvoiceCreditState(companyId: string, invoiceId: stri
 /**
  * The invoice journal's revenue legs (what live earlier notes took recorded on each), the pre-874 notes to replay, and
  * for a typed invoice its remaining VAT (VAT Output legs less the tax of live earlier customer notes; null if legacy).
+ * A typed invoice also takes off its net and VAT what the live notes applied to it but not linked to it count (rule A).
  * Live = not draft, not cancelled; `noteId` (the note being approved, a draft at this read) is excluded as well.
  */
 async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: string, defaultRevenueAccountId: string):
-  Promise<{ legs: RevenueLeg[]; replayed: number[]; remainingVat: number | null }> {
+  Promise<{ legs: RevenueLeg[]; replayed: number[]; remainingVat: number | null; pre?: { carries: number[]; vat: number; applied: number } }> {
   // One leg per revenue journal line, keyed by the line itself: a re-tag or an account merge moves
   // the line in place, so what earlier notes took from it moves with it (two lines merged into one
   // group, then one re-tagged, reopened the group's capacity — review #685).
@@ -180,8 +183,32 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
               AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID) AS reversed_vat
   `) as Record<string, unknown>[];
   // One row always (two scalar subqueries).
-  const remainingVat = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) / 100 : 0;
-  return { legs, replayed, remainingVat };
+  const vatLeft = vat[0] ? Math.round((Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat)) * 100) : 0;
+  // Live customer notes APPLIED to this typed invoice but not linked to it (#1701 rounds 3-6; applying one here does
+  // not link it). Each took none of its legs at approval, yet settled it: what its applications count here is RULE A
+  // (creditNoteDetached): its DETACHED gross, the share of its total that reversed no leg anywhere, consumed by its
+  // applications to invoices whose legs it did not reverse, in application order. So a linked note's FIFO spillover
+  // counts nowhere (it reversed its own invoice's legs) and a late link to a legacy invoice cannot make an application
+  // here stop counting. Their sum uses this invoice's GROSS credit capacity in its own remaining proportion
+  // (appliedSettlement; the note posted its own VAT at its approval), the net taken off the legs pro rata as if
+  // recorded on them, the VAT off the remaining VAT. A note linked to this invoice counts once, by its link. Unapply,
+  // cancel and an adjustment down give the share back and re-derive the order.
+  const applied = await detachedAppliedOn(companyId, invoiceId, noteId);
+  const carries = remainingCarries(legs, replayed);
+  const share = appliedSettlement(applied, carries.reduce((x, y) => x + y, 0), vatLeft);
+  const took = noteShares(carries, share.net);
+  const settled = legs.map((l, i) => ({ ...l, taken: (Math.round((l.taken ?? 0) * 100) + took[i]!) / 100 }));
+  return { legs: settled, replayed, remainingVat: (vatLeft - share.vat) / 100, pre: { carries, vat: vatLeft, applied } };
+}
+
+/**
+ * The figures bulk_approve_credit_notes' dry run simulates a batch from (cents, before any application is counted):
+ * each leg's carry, and for a typed invoice its VAT left and what applications count on it (rule A). Reads only.
+ */
+export async function invoiceCreditFigures(companyId: string, invoiceId: string):
+  Promise<{ carries: number[]; typed: { vat: number; applied: number } | null }> {
+  const b = await invoiceCreditBasis(companyId, invoiceId, NO_NOTE, NO_NOTE);
+  return { carries: b.pre?.carries ?? remainingCarries(b.legs, b.replayed), typed: b.pre ? { vat: b.pre.vat, applied: b.pre.applied } : null };
 }
 
 /**

@@ -57,7 +57,7 @@ const matchOut = (m: ExternalRefMatch) => ({
 });
 
 /** What the request says, compared with the stored record on a replay (only the fields known before the create). */
-export interface ReplayExpectation { number?: string | null; date?: string | null; totalAmount?: number | null }
+export interface ReplayExpectation { number?: string | null; date?: string | null; totalAmount?: number | null; subtotal?: number | null }
 
 function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ field: string; existing: unknown; requested: unknown }> {
   const out: Array<{ field: string; existing: unknown; requested: unknown }> = [];
@@ -65,6 +65,9 @@ function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ fi
   if (expect.date != null && m.date !== expect.date) out.push({ field: 'date', existing: m.date, requested: expect.date });
   if (expect.totalAmount != null && m.totalAmount != null && Math.abs(m.totalAmount - expect.totalAmount) >= 0.005) {
     out.push({ field: 'total_amount', existing: m.totalAmount, requested: expect.totalAmount });
+  }
+  if (expect.subtotal != null && m.subtotal != null && Math.abs(m.subtotal - expect.subtotal) >= 0.005) {
+    out.push({ field: 'subtotal', existing: m.subtotal, requested: expect.subtotal });
   }
   return out;
 }

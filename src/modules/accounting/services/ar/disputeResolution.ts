@@ -7,7 +7,7 @@ import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
-import { splitGrossProportionally } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
+import { PROPORTIONAL, splitGrossProportionally } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { ArRequestError } from './arErrors';
 import {
   mapRow,
@@ -177,8 +177,7 @@ function typedDisputeSplit(gross: number, left: { remainingNet: number; remainin
     ? `is more than the ${leftGross.toFixed(2)} the invoice has left`
     : `cannot be split in proportion across the invoice's lines${near.length ? `; ${near.map((g) => g.toFixed(2)).join(' or ')} can` : ''}`;
   throw new ArRequestError(
-    `Cannot auto-create credit note: the disputed ${gross.toFixed(2)} ${why}. `
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.',
+    `Cannot auto-create credit note: the disputed ${gross.toFixed(2)} ${why}. ${PROPORTIONAL}`,
     400,
     'DISPUTE_CREDIT_NOT_PROPORTIONAL',
   );

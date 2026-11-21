@@ -4,27 +4,38 @@
  * prices change together (linesForModeChange), so a body that took its lines from one render and its mode from another
  * would read gross prices as ex-VAT (PR D's warning).
  *
+ * Per-line VAT (formVat): prices go as typed with the mode (`amountsAre`). Each line carries its `vatType` (the type it
+ * loaded with while the form's rate is unchanged, else the one the rate gives) and the header no rate; when the form's
+ * rate gives no type (neither the standard rate nor 0) the header `taxRate` goes instead, lines untyped, and the server
+ * refuses it saying why. No per-line `taxRate`.
+ *
  * Pure: safe in a client bundle.
  */
 import { invoiceDateProblem, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
-import { effectiveTaxRate, pricesToNothing, pricesToNothingMessage, storedUnitPrice, type TaxMode } from './taxMode';
+import { effectiveTaxRate, pricesToNothing, pricesToNothingMessage, type TaxMode } from './taxMode';
+import { amountsAreFor, formLineTypes, NO_VAT_TYPE_PROBLEM } from './formVat';
+import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
-/** CC1 is re-sent only while the line's CC2 is the one it loaded with; otherwise null, so derivation sets it. */
-export type EditLine = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string; timeEntryId?: string | null };
+/**
+ * CC1 is re-sent only while the line's CC2 is the one it loaded with; otherwise null, so derivation sets it. `vatType` /
+ * `vatRateAtLoad`: the type the line loaded with and the form's effective rate then (formVat).
+ */
+export type EditLine = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string; timeEntryId?: string | null; vatType?: string | null; vatRateAtLoad?: number };
 
 export interface InvoicePutItem {
-  description: string; quantity: number; unitPrice: number; taxRate: number; discount: number;
+  description: string; quantity: number; unitPrice: number; vatType?: string; discount: number;
   glAccountId: string | null; projectId: string | null; cc2Id: string | null; buId: string | null; cc1Id: string | null;
   timeEntryId: string | null;
 }
 
 export interface InvoicePutBody {
   id: string; clientId: string; invoiceDate: string; dueDate?: string; billingPeriodStart?: string; billingPeriodEnd?: string;
-  taxRate: number; notes?: string; currencyCode: string; exchangeRate: number; projectId: string | null; items: InvoicePutItem[];
+  taxRate?: number; amountsAre: AmountsAre; notes?: string; currencyCode: string; exchangeRate: number; projectId: string | null; items: InvoicePutItem[];
 }
 
-interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode }
+/** `customerVat`: the customer's default VAT type as read (an exempt customer's lines go exempt at rate 0, formVat). */
+interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode; customerVat?: string | null }
 
 /**
  * Every line with something in it. A line that cannot be stored (droppedLineProblem) stays in the body, so the body
@@ -42,8 +53,11 @@ const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEnt
  * with the date untouched, or autosave sees no change and never says why it holds); that body is never sent, since
  * clearedDateProblem refuses it first.
  */
-export function invoicePutBody(id: string, { form, lines, taxMode }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
+export function invoicePutBody(id: string, { form, lines, taxMode, customerVat }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
+  const sent = savedLines(lines);
+  const types = formLineTypes(sent, taxRate, form.invoiceDate, customerVat);
+  const typed = types.every((t) => t !== null);
   return {
     id,
     clientId: form.clientId,
@@ -51,14 +65,15 @@ export function invoicePutBody(id: string, { form, lines, taxMode }: Draft, opts
     dueDate: opts.omitDueDate ? undefined : form.dueDate || (opts.markClearedDue ? '' : undefined),
     billingPeriodStart: form.billingPeriodStart || undefined,
     billingPeriodEnd: form.billingPeriodEnd || undefined,
-    taxRate,
+    ...(typed ? {} : { taxRate }),
+    amountsAre: amountsAreFor(taxMode),
     notes: form.notes, // '' clears them; left out, the server would keep the old notes and Saved would be untrue
     currencyCode: form.currencyCode,
     exchangeRate: form.exchangeRate,
     projectId: form.projectId || null,
-    items: savedLines(lines).map((l) => ({
-      description: l.description, quantity: l.quantity,
-      unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate), taxRate,
+    items: sent.map((l, i) => ({
+      description: l.description, quantity: l.quantity, unitPrice: l.unitPrice,
+      ...(typed ? { vatType: types[i]! } : {}),
       discount: l.discount || 0,
       glAccountId: l.glAccountId || null,
       projectId: l.projectId || null,
@@ -103,16 +118,19 @@ function clearedDateProblem(form: InvoiceHeaderForm, stored: StoredDates): strin
 }
 
 /** Why the Save button (and Approve & email) refuses this draft, or null. Shown on screen. */
-export function saveProblem({ form, lines, taxMode }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
+export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   if (!form.clientId) return 'Select a client';
   if (lines.some((l) => l.timeEntryId && !l.description && !l.unitPrice)) return 'A time-entry line is blank: describe and price it, or remove it';
-  const rate = effectiveTaxRate(taxMode, form.taxRate);
-  const tooSmall = lines.find((l) => l.description && pricesToNothing(taxMode, l.unitPrice, rate));
+  const tooSmall = lines.find((l) => l.description && pricesToNothing(l.unitPrice));
   if (tooSmall) return pricesToNothingMessage(tooSmall.description);
   const dropped = droppedLineProblem(lines, true);
   if (dropped) return dropped;
   if (!lines.some((l) => l.description)) return 'Add at least one line item';
-  return invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
+  const dateOrCleared = invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
+  if (dateOrCleared) return dateOrCleared;
+  // A rate that gives a line no VAT type: the server refuses it (the rate comes from the type), so Save holds and says why.
+  const rate = effectiveTaxRate(taxMode, form.taxRate);
+  return finite(rate) && formLineTypes(savedLines(lines), rate, form.invoiceDate, customerVat).some((t) => t === null) ? NO_VAT_TYPE_PROBLEM : null;
 }
 
 /**

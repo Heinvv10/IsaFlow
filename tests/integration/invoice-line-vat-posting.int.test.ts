@@ -1,8 +1,8 @@
 /**
- * Migration 1008, the posting half: a customer invoice whose lines carry their VAT type (inserted directly: no writer
- * sets the type yet) approves through the real service into one revenue leg per type and one VAT Output leg per rated
- * type, each coded; the VAT201 the route serves (getVat201Return) then reads it into fields 1, 2, 3 and 5. A legacy
- * invoice made by the create service keeps NULL line VAT and posts the old shape. A partly typed invoice is refused
+ * Migration 1008, the posting half: a customer invoice whose lines carry their VAT type (set directly by typeLines; the
+ * writers' own suite is invoice-line-vat-writers) approves through the real service into one revenue leg per type and
+ * one VAT Output leg per rated type, each coded; the VAT201 the route serves (getVat201Return) then reads it into fields
+ * 1, 2, 3 and 5. A legacy invoice (untyped lines, as the legacy writers store them) posts the old shape. A partly typed invoice is refused
  * at approve with nothing written. The two report reads this PR touched read both shapes: generateVAT201's drill-down
  * label and getVATReturn's standard-rated base.
  *
@@ -19,7 +19,7 @@ import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnSer
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
-import { journalLegs, L, typeLines } from './helpers/lineVatFixture';
+import { journalLegs, L, typeLines, untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -62,8 +62,9 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-07-01', '2026-07-31'))).standardRatedSupplies).toBe(1000);
   });
 
-  it('a legacy invoice from the create service keeps NULL line VAT and posts the old shape; the reports read it as before', async () => {
+  it('a legacy invoice (untyped lines, as the legacy writers store them) posts the old shape; the reports read it as before', async () => {
     const id = await draft('2026-08-15', [{ description: 'A', unitPrice: 600 }, { description: 'B', unitPrice: 400 }]);
+    await untypeLines(id); // the create service types its lines since the writer PR (invoice-line-vat-writers)
     expect((await sql`SELECT vat_type, tax_amount FROM customer_invoice_items WHERE invoice_id = ${id}::UUID`))
       .toEqual([{ vat_type: null, tax_amount: null }, { vat_type: null, tax_amount: null }]);
     expect(((await sql`SELECT amounts_are FROM customer_invoices WHERE id = ${id}::UUID`) as { amounts_are: unknown }[])[0]!.amounts_are)
@@ -78,7 +79,7 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
   });
 
   it('a wholly exempt typed invoice posts no VAT leg; its drill-down label and standard-rated base say so', async () => {
-    // The header keeps the 15% the create service wrote: a legacy read would call it standard-rated.
+    // The header keeps the 15% create wrote for the standard line typeLines re-types exempt: a legacy read would call it standard-rated.
     const id = await draft('2026-09-15', [{ description: 'Rent', unitPrice: 1000 }]);
     await typeLines(id, { Rent: ['exempt', 0] }, { tax: 0 });
     const { glJournalEntryId } = await approve(id);
@@ -110,6 +111,7 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
       clientId: f.fx.customerId, invoiceDate: '2026-12-05', taxRate: 0, items: [{ description: 'Export', unitPrice: 500 }],
     }))).id;
+    await untypeLines(id); // legacy: create would type it zero_rated
     const { glJournalEntryId } = await approve(id);
     expect(await journalLegs(f, glJournalEntryId!)).toEqual([L('1100', 500, 0), L('4000', 0, 500)]);
     const vat201 = await inTx(f.fx, () => getVat201Return(f.fx.companyId, '2026-12-01', '2026-12-31'));
@@ -141,6 +143,7 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
 
   it('refuses a partly typed invoice at approve, writing nothing', async () => {
     const id = await draft('2026-10-15', [{ description: 'Typed', unitPrice: 100 }, { description: 'Plain', unitPrice: 100 }]);
+    await untypeLines(id);
     await typeLines(id, { Typed: ['standard', 15] });
     const err = await approve(id).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);

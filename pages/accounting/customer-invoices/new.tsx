@@ -14,7 +14,8 @@ import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { switchTaxMode, taxModesFor, useVatChoice } from '@/components/accounting/customer-invoices/useVatMode';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
@@ -23,7 +24,7 @@ import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/In
 import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
@@ -53,7 +54,13 @@ export default function NewCustomerInvoicePage() {
   const { scanned, lookupSeq, scanLookup, setScanLookup, matchScannedClient } = useScannedClientMatch(setForm, setError);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
-  const pickTaxMode = (mode: TaxMode) => { contact.touch('taxMode'); setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
+  const { vatMode, registered } = useVatChoice(taxMode);
+  // taxModeSwitch: each line at its own rate; refused (prices and mode kept) when a line would come to another figure.
+  const pickTaxMode = (mode: TaxMode) => {
+    const s = switchTaxMode(lines, { from: taxMode, to: mode, formRate: form.taxRate, date: form.invoiceDate, customerVat: contact.vatType, registered });
+    if ('problem' in s) { setError(s.problem); return; }
+    contact.touch('taxMode'); setLines(s.lines); setTaxMode(s.mode);
+  };
 
   useEffect(() => {
     apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }).then(json => {
@@ -73,15 +80,16 @@ export default function NewCustomerInvoicePage() {
   };
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
-  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
-  const taxRate = effectiveTaxRate(taxMode, form.taxRate);
-  const lineTotal = (l: LineItem) => lineTotalForMode(taxMode, taxRate, l);
-  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
+  // Priced as the server stores it (formVat: per-line VAT); a half-typed field previews as 0, not a crash. A company not
+  // registered for VAT prices and sends no VAT, as the server forces it.
+  const taxRate = effectiveTaxRate(vatMode, form.taxRate);
+  const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
+  const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
   // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
-  const built = createBody(form, lines, taxMode, taxRate, dates.refused);
+  const built = createBody(form, lines, vatMode, taxRate, dates.refused, contact.vatType);
 
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
@@ -103,7 +111,8 @@ export default function NewCustomerInvoicePage() {
     // A scan reads the rate and ex-VAT prices off the document, so the form goes back to taking them as they are; with
     // no lines on the scan, the gross prices already typed stay gross.
     const keepsTypedGross = taxMode === 'inclusive' && data.lineItems.length === 0;
-    if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) pickTaxMode('exclusive');
+    // Nothing to convert (taken from the gate fixer's round 8): inclusive only changes here when the scan's lines replace the typed ones.
+    if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) { contact.touch('taxMode'); setTaxMode('exclusive'); }
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);
     const seq = ++lookupSeq.current;
@@ -223,7 +232,7 @@ export default function NewCustomerInvoicePage() {
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) { lookupSeq.current++; setScanLookup(null); } if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
-                taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
+                taxMode={vatMode} taxModes={taxModesFor(registered)} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

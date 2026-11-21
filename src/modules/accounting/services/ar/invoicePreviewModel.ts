@@ -3,8 +3,9 @@
  * create takes, for POST /api/accounting/invoice-pdf-preview. Read-only: one SELECT, no row written, no number taken,
  * nothing metered.
  *
- * - Priced by create's own code (`priceDraftLines`, `draftTaxRate`, `draftTotals`), so a preview and a create of the
- *   same body agree to the cent. The client's own totals are never read.
+ * - Priced by create's own code (`priceDraftLines`, the per-line VAT contract `resolveInvoiceVatFor` and its pricing
+ *   `priceInvoiceVat`, `assertDraftTotalFits`), so a preview and a create of the same body agree to the cent. The
+ *   client's own totals are never read.
  * - Every id is resolved within the company, in the one statement: the customer (another company's, or none → null,
  *   which the route answers 404) and the header job (another company's, or none → printed as no job, with a note).
  *   The company record is the caller's own. The line coding is not read (invoicePreviewBody).
@@ -16,7 +17,11 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 import { checkDocumentCurrency } from '../shared/documentCurrency';
-import { draftTaxRate, draftTotals, priceDraftLines } from './customerInvoiceCreateService';
+import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
+import { assertDraftTotalFits, draftAmountsAre, priceDraftLines } from './customerInvoiceCreateService';
+import { assertPricedPostable, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
+import { priceInvoiceVat } from './invoiceLineVatPricing';
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 import { companyOf, printedTerms, settingsCompany, type InvoicePdfHeader, type InvoicePdfModel } from './invoicePdfModel';
 import type { PreviewBody } from './invoicePreviewBody';
 
@@ -28,9 +33,9 @@ type Row = Record<string, unknown>;
 
 /** The preview of `body` for `companyId`, or null when the customer is not this company's. Throws create's 400s. */
 export async function buildInvoicePreviewModel(companyId: string, body: PreviewBody): Promise<InvoicePreview | null> {
-  // Create's validation, in create's order where it can be: lines, then the rate (pure, before the read).
+  // Create's validation, in create's order where it can be: the lines (pure, before the read), then their VAT.
   const priced = priceDraftLines(body.items);
-  const rate = draftTaxRate(body.taxRate);
+  const amountsAre = draftAmountsAre(body.amountsAre);
 
   const rows = (await sql`
     SELECT c.name AS client_name, c.billing_address AS client_address, c.contact_person AS client_contact,
@@ -38,6 +43,7 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
            c.payment_terms AS contact_terms_days, c.payment_terms_type AS contact_terms_type,
            ds.value AS company_default_terms, p.name AS project_name,
            co.id IS NOT NULL AS company_found, co.functional_currency, co.fx_documents_enabled,
+           c.default_vat_type AS customer_vat, co.vat_period, co.vat_system_type,
            co.name AS company_name, co.address_line1, co.address_line2, co.city, co.province, co.postal_code,
            co.phone AS company_phone, co.email AS company_email, co.vat_number AS company_vat, co.bank_name,
            co.bank_account_number, co.bank_branch_code, co.primary_color, co.logo_data AS company_logo
@@ -51,14 +57,26 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
   const r = rows[0];
   if (!r) return null;
 
+  const invoiceDate = body.invoiceDate ?? fmtDate(new Date());
+  // Create's item refusal (an inactive, deleted or foreign item, or an item whose sales account is unusable), read only.
+  await applyItemLineDefaults(companyId, body.items.map((l) => ({ itemId: l.itemId as string | null | undefined,
+    glAccountId: typeof l.glAccountId === 'string' ? l.glAccountId : null })), 'sales', (i) => `items[${i}]`);
+  const vat = await resolveInvoiceVatFor(companyId, {
+    registered: isVatRegistered((r.vat_period ?? null) as string | null, (r.vat_system_type ?? null) as string | null),
+    customerVat: r.customer_vat ?? null,
+  }, { invoiceDate, headerTaxRate: body.taxRate, lines: body.items });
   const currency = checkDocumentCurrency(
     { functionalCurrency: r.functional_currency ? String(r.functional_currency) : 'ZAR', fxDocumentsEnabled: r.fx_documents_enabled === true },
     body.currencyCode, body.exchangeRate, 'invoice',
   );
+  const vatPriced = priceInvoiceVat(body.items.map((item, i) => ({
+    quantity: priced[i]!.qty, unitPrice: priced[i]!.price, discount: Number(item.discount ?? 0),
+  })), vat, invoiceDate, amountsAre);
+  const { subtotal, tax, total, taxRate: rate } = vatPriced.header;
   // Create's totals cap too (1e13, on the total and its functional amount): a 400 here as there.
-  const { subtotal, tax, total } = draftTotals(priced.map((p) => p.amount), rate, currency.exchangeRate);
+  assertDraftTotalFits(total, currency.exchangeRate);
+  assertPricedPostable(vatPriced, invoiceDate); // create's refusal of what approve would refuse
 
-  const invoiceDate = body.invoiceDate ?? fmtDate(new Date());
   const dueDate = body.dueDate ?? dueDateWithDefault(invoiceDate,
     r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
     companyTermsFromSetting(r.company_default_terms, companyId));
@@ -69,15 +87,17 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
     invoice_number: null, invoice_date: invoiceDate, due_date: dueDate, status: 'preview', payment_terms: null,
     subtotal, tax_rate: rate, tax_amount: tax, total_amount: total, amount_paid: 0,
     currency_code: currency.currencyCode, exchange_rate: currency.exchangeRate, notes: body.notes,
-    // amounts_are: the preview prices legacy lines only (no VAT type), so the legacy table prints.
-    billing_period_start: null, billing_period_end: null, amounts_are: null, project_name: r.project_name ?? null,
+    billing_period_start: null, billing_period_end: null, amounts_are: vatPriced.header.amountsAre, project_name: r.project_name ?? null,
     client_name: r.client_name ?? null, client_address: r.client_address ?? null, client_contact: r.client_contact ?? null,
     client_email: r.client_email ?? null, client_phone: r.client_phone ?? null, client_vat: r.client_vat ?? null,
     ...printedTerms({ ...r, invoice_date: invoiceDate, due_date: dueDate }, companyId),
   };
-  const items = body.items.map((item, i) => ({
-    description: item.description, quantity: priced[i]!.qty, unit_price: priced[i]!.price, amount: priced[i]!.amount, tax_rate: rate,
-  }));
+  // Each line as create stores it: its net, its VAT and type (the PDF prints a typed line's own; invoicePdfTypedLines).
+  const items = body.items.map((item, i) => {
+    const l = vatPriced.lines[i]!;
+    return { description: item.description, quantity: l.qty, unit_price: l.price, amount: l.amount, tax_rate: l.taxRate,
+      tax_amount: l.taxAmount, vat_type: l.vatType };
+  });
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, 'preview', false);
   return { model: { company, invoice, items }, notes };
 }

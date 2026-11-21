@@ -12,10 +12,19 @@
  *        tax_amount must be EXACTLY requiredCreditNoteVat(R, V, S) = round-half-away(V x S / R) in exact integer cents,
  *        which is V itself when S = R (V x R / R). No tolerance and no rate: the invoice's own VAT, in proportion.
  *
+ * NOTES NOT LINKED TO IT (#1701 rounds 3-6): a note applied to the invoice but not linked to it took none of its legs at
+ * approval. What its applications count here is RULE A (creditNoteDetached): its DETACHED gross (the share of its total
+ * that reversed no leg anywhere), consumed in application order by its applications to invoices whose legs it did not
+ * reverse; a linked note's FIFO spillover counts nowhere. The count settles R and V in the invoice's own proportion
+ * (appliedSettlement), so R and V shrink together and the argument below holds with them. Apply refuses an increment
+ * past R + V before any write (REST apply, MCP apply_credit_note, adjust_credit_note_application); the FIFO walks cap
+ * each typed invoice at it (shared/creditNoteTypedPlan).
+ *
  * STRANDING IS IMPOSSIBLE. (1) While R > 0 and V >= 0, a note with S = R is accepted with VAT exactly V (the formula,
  * exact in BigInt), and every partial note's VAT is at most V (S < R), so V stays >= 0; (2) the note that brings R to 0
- * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT.
- * Negative V (hand-made data) is refused.
+ * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT, and
+ * an unapplied application its share; (4) applications count at most R + V, in proportion, so neither goes below
+ * zero. Negative V (hand-made data) is refused.
  *
  * NAMED LIMIT: a tiny note can need no VAT (0.03 against the mixed 1000 / 300 / 200 invoice: 0.02 standard, VAT 0.00),
  * so its standard debit posts with no VAT leg and field 1 does not see it: at most half a cent of VAT per note, and the
@@ -52,7 +61,7 @@ export const legsAreTyped = (legs: readonly RevenueLeg[]): boolean => legs.lengt
  * a x b / d in integer cents, rounded half away from zero (d > 0). In BigInt: a x b passes 2^53 above ~R2.4M, where a
  * float product rounds the cent wrong.
  */
-const mulDivRound = (a: number, b: number, d: number): number => {
+export const mulDivRound = (a: number, b: number, d: number): number => {
   const n = BigInt(a) * BigInt(b);
   const q = ((n < BigInt(0) ? -n : n) * BigInt(2) + BigInt(d)) / (BigInt(2) * BigInt(d));
   return Number(n < BigInt(0) ? -q : q);
@@ -65,6 +74,24 @@ const mulDivRound = (a: number, b: number, d: number): number => {
  */
 export function requiredCreditNoteVat(input: { remainingNet: number; remainingVat: number; subtotal: number }): number {
   return mulDivRound(cents(input.remainingVat), cents(input.subtotal), cents(input.remainingNet)) / 100;
+}
+
+/**
+ * What the applications of notes NOT linked to a typed invoice (credit_note_allocations rows, gross) settle of its
+ * remaining net and VAT (#1701 rounds 3-4, decided): its GROSS credit capacity, split in the INVOICE's OWN remaining
+ * proportion, never the note's. An application moves no revenue and no VAT; the note posted its own VAT at its own
+ * approval. So a standard note applied to a zero-rated invoice takes net only, and nothing turns negative on a ratio.
+ * `applied` is the SUM of those applications: rounded once (the VAT half away from zero, the net the rest), so many
+ * small applications count exactly what one would. Capped at the capacity (an over-application, which apply now
+ * refuses, counts as clearing the invoice). VAT left below zero (hand-made data) takes none. Cents in, cents out.
+ */
+export function appliedSettlement(applied: number, remainingNet: number, remainingVat: number): { net: number; vat: number } {
+  const vatLeft = Math.max(remainingVat, 0);
+  const capacity = remainingNet + vatLeft;
+  const counted = Math.min(applied, Math.max(capacity, 0));
+  if (counted <= 0) return { net: 0, vat: 0 };
+  const vat = mulDivRound(counted, vatLeft, capacity);
+  return { net: counted - vat, vat };
 }
 
 /**
@@ -86,7 +113,13 @@ export function splitGrossProportionally(gross: number, remainingNet: number, re
   return null;
 }
 
-const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
+/** The one wording of the proportional-only rule, on every surface that refuses by it (#1701 round 3 Q4). */
+export const PROPORTIONAL = 'An invoice with a VAT type per line is credited in proportion across its lines.';
+/**
+ * What to do about it (#1701 round 2): a draft whose VAT was right when it was created goes stale when a sibling draft on
+ * the same invoice is approved first (the invoice's remaining VAT moved), and approve stays exact.
+ */
+export const RECREATE = 'Delete this draft (or cancel it) and create it again with no VAT given: its VAT then defaults to the figure required.';
 
 /** The note's revenue debits and allocation rows against a typed invoice's legs. Throws CreditNoteVatSplitRefusal. */
 export function allocateTypedCreditNote(
@@ -107,7 +140,7 @@ export function allocateTypedCreditNote(
   const required = cents(requiredCreditNoteVat({ remainingNet: r / 100, remainingVat: v / 100, subtotal: s / 100 }));
   if (cents(note.taxAmount) !== required) {
     refuse(`reverses ${money(s)} of an invoice with ${money(r)} left, so its VAT must be ${money(required)}, `
-      + `not ${money(cents(note.taxAmount))}. ${PROPORTIONAL}`);
+      + `not ${money(cents(note.taxAmount))}. ${PROPORTIONAL} ${RECREATE}`);
   }
   // Each leg as allocateCreditNote reads it: `taken` set so that what it carries is exactly what remains.
   const settled = legs.map((l, i) => ({ ...l, taken: (cents(l.net) - carries[i]!) / 100 }));

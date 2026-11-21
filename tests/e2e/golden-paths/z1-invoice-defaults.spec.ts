@@ -2,9 +2,10 @@
  * Golden path Z1 - the invoice editor's customer defaults and tax mode (master plan wave 3, PR D).
  *
  * Pick a customer with 30-day terms and a 10% discount: Due date and the discount appear with nothing typed. Type 115
- * including VAT: the summary shows 100.00 + 15.00 and the draft stores unit_price 100. A zero-rated customer stores
- * tax_rate 0. Three units at R10 incl shows the difference from what was typed. A stored 1000 + 500 at 15% saves
- * unchanged through "Including VAT" and back. axe reports nothing serious in either theme on the new and edit pages, and
+ * including VAT: the summary shows 100.00 + 15.00 and the draft stores unit_price 115 as entered with amounts_are
+ * inclusive (per-line VAT writer PR: the server backs the VAT out; it used to store the converted 100). A zero-rated
+ * customer stores tax_rate 0. Three units at R10 incl total exactly the R30.00 typed (it showed a R30.02 difference). A
+ * stored 1000 + 500 at 15% saves unchanged through "Including VAT" and back, and saved while inclusive keeps its totals. axe reports nothing serious in either theme on the new and edit pages, and
  * at 390 px the page does not scroll sideways.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots at 390 and 1568 in both themes.
  */
@@ -92,9 +93,9 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: true });
 };
 
-interface StoredInvoice { status: string; due_date: string; tax_rate: string | number; subtotal: string | number; total_amount: string | number; items: { unit_price: string | number; amount: string | number }[] }
+interface StoredInvoice { status: string; due_date: string; tax_rate: string | number; subtotal: string | number; total_amount: string | number; amounts_are?: string | null; items: { unit_price: string | number; amount: string | number; vat_type?: string | null; tax_amount?: string | number | null }[] }
 
-test('a customer with terms and a discount fills the form; 115 incl stores unit_price 100', async ({ page, context, baseURL }) => {
+test('a customer with terms and a discount fills the form; 115 incl stores unit_price 115, inclusive', async ({ page, context, baseURL }) => {
   const api = await sandbox(context, baseURL!);
   await open(page);
   await pickClient(page, TERMS.name);
@@ -119,7 +120,10 @@ test('a customer with terms and a discount fills the form; 115 incl stores unit_
   try {
     const inv = await api.get<StoredInvoice>(`/api/accounting/customer-invoices-detail?id=${id}`);
     expect(inv.status).toBe('draft');
-    expect(Number(inv.items[0]!.unit_price)).toBe(100);
+    expect(Number(inv.items[0]!.unit_price)).toBe(115);
+    expect(Number(inv.items[0]!.amount)).toBe(100);
+    expect([inv.items[0]!.vat_type, Number(inv.items[0]!.tax_amount)]).toEqual(['standard', 15]); // typed per line, end to end
+    expect(inv.amounts_are).toBe('inclusive');
     expect(Number(inv.tax_rate)).toBe(15);
     expect(Number(inv.total_amount)).toBe(115);
     expect(String(inv.due_date).slice(0, 10)).toBe(expectedDue);
@@ -127,15 +131,15 @@ test('a customer with terms and a discount fills the form; 115 incl stores unit_
     await page.goto(`/accounting/customer-invoices/edit/${id}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1 })).not.toHaveText('', { timeout: 60_000 });
     await settle(page);
-    await expect(page.getByLabel('Unit price')).toHaveValue('100'); // stored ex-VAT, shown exclusive
-    await expect(page.getByRole('combobox', { name: 'Amounts are' })).toContainText('Excluding VAT');
+    await expect(page.getByLabel('Unit price')).toHaveValue('115'); // stored as entered, shown inclusive
+    await expect(page.getByRole('combobox', { name: 'Amounts are' })).toContainText('Including VAT');
   } finally {
     // One draft per run in the sandbox company: cancel it (a draft has no journal to reverse) so dev data does not grow unbounded.
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
 });
 
-test('a discount with inclusive prices reaches the stored row: 115 incl at 10% off is 100, 90 + 13.50', async ({ page, context, baseURL }) => {
+test('a discount with inclusive prices reaches the stored row: 115 incl at 10% off is 103.50, net 90 + 13.50', async ({ page, context, baseURL }) => {
   const api = await sandbox(context, baseURL!);
   await open(page);
   await pickClient(page, TERMS.name);
@@ -147,7 +151,7 @@ test('a discount with inclusive prices reaches the stored row: 115 incl at 10% o
   const id = await saveDraft(page);
   try {
     const inv = await api.get<StoredInvoice>(`/api/accounting/customer-invoices-detail?id=${id}`);
-    expect(Number(inv.items[0]!.unit_price)).toBe(100);
+    expect(Number(inv.items[0]!.unit_price)).toBe(115);
     expect(Number(inv.items[0]!.amount)).toBe(90);
     expect(Number(inv.subtotal)).toBe(90);
     expect(Number(inv.total_amount)).toBe(103.5);
@@ -156,7 +160,7 @@ test('a discount with inclusive prices reaches the stored row: 115 incl at 10% o
   }
 });
 
-test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back, and after saving while inclusive', async ({ page, context, baseURL }) => {
+test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back; saved while inclusive it keeps its totals', async ({ page, context, baseURL }) => {
   const api = await sandbox(context, baseURL!);
   await open(page);
   await pickClient(page, PLAIN.name);
@@ -167,9 +171,11 @@ test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back, and a
   await page.getByLabel('Unit price').nth(1).fill('500');
   const id = await saveDraft(page);
 
-  const expectStored = async () => {
+  const expectStored = async (prices = [1000, 500]) => {
     const inv = await api.get<StoredInvoice>(`/api/accounting/customer-invoices-detail?id=${id}`);
-    expect(inv.items.map((i) => Number(i.unit_price)).sort((a, b) => b - a)).toEqual([1000, 500]);
+    expect(inv.items.map((i) => Number(i.unit_price)).sort((a, b) => b - a)).toEqual(prices);
+    expect(inv.items.map((i) => Number(i.amount)).sort((a, b) => b - a)).toEqual([1000, 500]);
+    expect(inv.items.map((i) => i.vat_type)).toEqual(['standard', 'standard']);
     expect([Number(inv.subtotal), Number(inv.tax_rate), Number(inv.total_amount)]).toEqual([1500, 15, 1725]);
   };
   const edit = async () => {
@@ -195,7 +201,7 @@ test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back, and a
 
     await edit();
     await save();
-    await expectStored();
+    await expectStored([1150, 575]); // saved while inclusive: the prices as shown, the net and totals unchanged
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
@@ -226,13 +232,14 @@ test('a zero-rated customer selects No VAT and stores tax_rate 0', async ({ page
     expect(Number(inv.tax_rate)).toBe(0);
     expect(Number(inv.total_amount)).toBe(115);
     expect(Number(inv.items[0]!.unit_price)).toBe(115);
+    expect([inv.items[0]!.vat_type, Number(inv.items[0]!.tax_amount)]).toEqual(['zero_rated', 0]); // a zero-rated customer's line
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
 });
 
 for (const theme of THEMES) {
-  test(`${theme}: new and edit at 1568 and 390 px, the typed-total difference on screen, axe clean, no sideways scroll`, async ({ page, context, baseURL }) => {
+  test(`${theme}: new and edit at 1568 and 390 px, the typed total exact, axe clean, no sideways scroll`, async ({ page, context, baseURL }) => {
     await seedTheme(page, theme);
     const api = await sandbox(context, baseURL!);
     await page.setViewportSize({ width: 1568, height: 900 });
@@ -247,12 +254,13 @@ for (const theme of THEMES) {
     await pickMode(page, 'Including VAT');
     await page.getByLabel('Quantity').fill('3');
     await page.getByLabel('Unit price').fill('10');
-    await expect(summary(page).getByText(/these prices come to/i)).toContainText(/These prices come to .*30\.00 incl\. VAT; the invoice total is .*30\.02/);
+    await expect(summaryFigure(page, 'Total')).toHaveText(/^R\s?30\.00$/);
+    await expect(summary(page).getByText(/these prices come to/i)).toHaveCount(0);
     await shot(page, `invoice-defaults-1568-${theme}`);
     await expectNoSeriousA11yViolations(page, { key: NEW });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(summary(page).getByText(/these prices come to/i)).toBeVisible();
+    await expect(summaryFigure(page, 'Total')).toBeVisible();
     expect(await sideways(page), 'the page must not scroll sideways').toBeLessThanOrEqual(390);
     await shot(page, `invoice-defaults-390-${theme}`);
 
@@ -260,7 +268,7 @@ for (const theme of THEMES) {
     const id = await saveDraft(page);
     try {
       await page.goto(`/accounting/customer-invoices/edit/${id}`, { waitUntil: 'domcontentloaded' });
-      await expect(page.getByLabel('Unit price')).toHaveValue('8.7', { timeout: 60_000 });
+      await expect(page.getByLabel('Unit price')).toHaveValue('10', { timeout: 60_000 }); // as entered, inclusive
       await settle(page);
       await shot(page, `invoice-edit-1568-${theme}`);
       await expectNoSeriousA11yViolations(page, { key: EDIT_KEY });
