@@ -23,7 +23,7 @@ export function EliminationsSkippedNotice({ rows, onDismiss }: { rows: SkippedRo
   const flagged = rows.filter((r) => r.action === 'flagged');
   const list = (items: SkippedRow[]) => (
     <ul className="mt-1 space-y-0.5 list-disc pl-5">
-      {items.map((r) => <li key={`${r.action}:${r.transactionId}`}><span className="font-mono">{r.transactionId.slice(0, 8)}</span>: {r.reason}</li>)}
+      {items.map((r) => <li key={`${r.action}:${r.transactionId}`}><span className="font-id">{r.transactionId.slice(0, 8)}</span>: {r.reason}</li>)}
     </ul>
   );
   return (
