@@ -50,9 +50,11 @@ export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
 }
 
 /**
- * An off-cycle refusal as the calculate route answers it (review L4 of f37f0f15a6, L3 of e8a2d72dbc): a named one
- * (refusal, e.g. TERMINATION_REASON_MISSING) as the route's envelope, CONFLICT (BAD_REQUEST for a 400) with details
- * { code: OFF_CYCLE_RUN_REFUSED, refusal }; the rest as its message.
+ * An off-cycle refusal in the routes' envelope (review L4 of f37f0f15a6, L3 of e8a2d72dbc): a named one (refusal, e.g.
+ * TERMINATION_REASON_MISSING) with details { code: OFF_CYCLE_RUN_REFUSED, refusal }; the rest as its message. The error
+ * code follows the refusal's status as the create route (runs/off-cycle.ts) maps it: BAD_REQUEST for a 400, CONFLICT
+ * for a 409. The calculate route (runs/[id]/calculate.ts) answers every off-cycle refusal 409 CONFLICT; a calculation
+ * only raises 409 ones, so this tool answers it the same.
  */
 function offCycleToolError(err: OffCycleRunRefusedError) {
   if (!err.refusal) return toolError(err.message);
