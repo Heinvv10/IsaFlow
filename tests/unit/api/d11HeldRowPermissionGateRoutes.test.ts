@@ -23,7 +23,6 @@ import { checkPermission } from '@/lib/auth/permissionService';
 import payrollCalculate from '../../../pages/api/payroll/runs/[id]/calculate';
 import payrollApprove from '../../../pages/api/payroll/runs/[id]/approve';
 import recurringInvoicesRun from '../../../pages/api/accounting/recurring-invoices-run';
-import capturePostExpense from '../../../pages/api/accounting/capture/[id]/post-expense';
 import belowThreshold from '../../../pages/api/accounting/assets/below-threshold';
 import bankAction from '../../../pages/api/accounting/bank-transactions-action';
 import receiptMatchConfirm from '../../../pages/api/accounting/ar/receipt-match/confirm';
@@ -50,7 +49,6 @@ describe('a person without the module permission is refused 403 before any read 
     ['payroll/runs/[id]/calculate (Payroll module, write)', payrollCalculate, {}, 'payroll', 'write'],
     ['payroll/runs/[id]/approve (Payroll module, write)', payrollApprove, { expectedPlanHash: 'h' }, 'payroll', 'write'],
     ['recurring-invoices-run (Customers approve)', recurringInvoicesRun, {}, 'customers', 'approve'],
-    ['capture/[id]/post-expense (Suppliers approve)', capturePostExpense, {}, 'suppliers', 'approve'],
     ['assets/below-threshold (Chart of Accounts approve)', belowThreshold, { assetId: ID }, 'accounts', 'approve'],
     ['bank-transactions-action reverse (Banking approve)', bankAction, { action: 'reverse', bankTransactionId: ID }, 'banking', 'approve'],
     ['ar/receipt-match/confirm (Banking approve)', receiptMatchConfirm, {}, 'banking', 'approve'],

@@ -53,7 +53,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId = req.user?.id ?? '';
-  if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense receipts')) return; // #1656 (Hein: gate everything), before any write
   const eventId = req.query.id as string;
 
   if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
@@ -150,6 +149,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ------------------------------------------------------------------
   // 3b. Anonymous path → direct GL journal (petty cash / company card)
   // ------------------------------------------------------------------
+  // #1656 (Hein: gate everything): this branch POSTS a journal, so it takes Suppliers & AP Approve, here, before its first
+  // write (nothing above writes: locks and reads). The employee branch above only submits a claim to the approval queue,
+  // which a person without Approve may do (#1670 Codex).
+  if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense receipts')) return;
   // A mis-extracted receipt is a 400, not a 500. The service throws before its
   // first write, so answering 4xx here commits nothing — see the error's own
   // doc-comment for why that ordering is what makes this safe.
