@@ -11,7 +11,11 @@
  * (4) a note linked to legacy X wholly on its legs (D 0): its leftover applied to typed Y counts nowhere.
  * (5) unapply, an adjustment down and cancel give D back and re-derive it in application order.
  * (5b) ...but never onto a later typed invoice past what it has left: an unapply or an adjustment down that would raise
- *      another typed invoice's count beyond its capacity is refused before any write, live and dry run.
+ *      another typed invoice's count beyond its capacity is refused before any write (read from COMMITTED state), live
+ *      and dry run, through the services and the MCP tools.
+ * (7) round 7: that guard and a FIFO walk on the invoice whose count rises are serialised by its row (two connections,
+ *     both orders). (8) on a typed invoice the link and the allocation rows agree. (9) the back-fill's dry run equals its
+ *     live run over a seeded mix.
  * Exact cents (6) is the unit suite (creditNoteDetached.test). Disposable databases only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -26,11 +30,13 @@ import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoic
 import { planCreditNoteUnapply, unapplyCreditNote } from '@/modules/accounting/services/shared/creditNoteUnapply';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, runOn } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 import { untypeLines } from './helpers/lineVatFixture';
 import { applyCreditNoteTool } from '@/lib/mcp/tools/writeApplyCreditNote';
 import { adjustCreditNoteApplicationTool } from '@/lib/mcp/tools/writeAdjustCreditNoteApplication';
+import { unapplyCreditNoteTool } from '@/lib/mcp/tools/writeUnapply';
+import { adjustCreditNoteApplication } from '@/modules/accounting/services/shared/creditNoteApplicationAdjust';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { callRoute, createUser } from './r035-approval.helpers';
 
@@ -100,6 +106,20 @@ const approvedNote = async (c: string, date: string, subtotal: number, linkedTo?
   }, f.fx.userId));
   await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cn.id, f.fx.userId, { autoApply: 'none' }));
   return cn;
+};
+/**
+ * Runs `fn` in a transaction that is COMMITTED whatever it throws, and returns what it threw: a refusal "before any write"
+ * is then proved by reading the committed state (inTx rolls a throw back, which would hide a write made before it).
+ */
+const committed = async (fn: () => Promise<unknown>): Promise<unknown> => {
+  const c = await f.fx.pool.connect();
+  await c.query('BEGIN');
+  let thrown: unknown = null;
+  try { await runOn(f.fx, c, fn); } catch (err) { thrown = err; }
+  await c.query('COMMIT');
+  c.release();
+  expect(thrown, 'expected a refusal').not.toBeNull();
+  return thrown;
 };
 const revenueTakes = async (noteId: string) => sql`
   SELECT is_excess, SUM(amount)::FLOAT8 AS amount FROM credit_note_revenue_allocations
@@ -280,25 +300,35 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
     const r = await approvedNote(c, '2026-11-23', 80, w);                  // a genuine return on W: 80 + 12, 23 left
     expect(r.taxAmount).toBe(12);
     expect(await state(w)).toEqual({ remainingNet: 20, remainingVat: 3 });
+    // Read from the pool, outside any request: what the refused calls COMMITTED (a refusal commits like a 4xx does).
     const snapshot = async () => [await rowsOf(n.id), await state(y), await state(w),
-      await sql`SELECT id, amount_paid::FLOAT8 AS paid FROM customer_invoices WHERE id IN (${x}::UUID, ${y}::UUID, ${w}::UUID) ORDER BY id`];
+      await sql`SELECT id, amount_paid::FLOAT8 AS paid, status FROM customer_invoices WHERE id IN (${x}::UUID, ${y}::UUID, ${w}::UUID) ORDER BY id`,
+      await sql`SELECT applied_amount::FLOAT8 AS applied, status FROM credit_notes WHERE id = ${n.id}::UUID`];
     const before = await snapshot();
+    const moved = /^Credit note \S+ cannot be taken back this far: it would move 57\.50 of its credit onto invoice \S+, which has 23\.00 left to credit \(other credit notes credited it since\)\. Take back less, or take this note's application to that invoice back first\.$/;
 
-    // Unapply from Y: W would count 57.50 with 23 left.
-    await expect(inTx(f.fx, () => planCreditNoteUnapply(f.fx.companyId, { creditNoteId: n.id, invoiceId: y })))
-      .rejects.toThrow(/would move 57\.50 of its credit onto invoice \S+, which has 23\.00 left to credit/);
-    await expect(inTx(f.fx, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: y }, f.fx.userId)))
-      .rejects.toThrow(/would move 57\.50 of its credit onto invoice \S+, which has 23\.00 left to credit/);
+    // Unapply from Y: W would count 57.50 with 23 left. The service (its refusal caught and the transaction COMMITTED)
+    // and the MCP tool, live and dry run.
+    expect(String(await committed(() => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: y }, f.fx.userId)))).toMatch(/would move 57\.50/);
+    expect(await snapshot()).toEqual(before);
+    for (const dry of [true, false]) {
+      const t = await inTx(f.fx, () => unapplyCreditNoteTool.handler(
+        { credit_note_id: n.id, invoice_id: y, idempotency_key: crypto.randomUUID(), ...(dry ? { dry_run: true } : {}) }, ctx()));
+      expect(t.isError).toBe(true);
+      expect(t.content[0]!.text).toMatch(moved);
+    }
+    await expect(inTx(f.fx, () => planCreditNoteUnapply(f.fx.companyId, { creditNoteId: n.id, invoiceId: y }))).rejects.toThrow(moved);
     expect(await snapshot()).toEqual(before);
 
-    // Adjust Y down to 34.49: W would count 23.01. Refused live and dry run; 34.50 (W exactly full) is allowed.
+    // Adjust Y down to 34.49: W would count 23.01. Refused live and dry run (the tool commits); 34.50 (W exactly full) is allowed.
     const adjust = (amount: number, dry: boolean) => inTx(f.fx, () => adjustCreditNoteApplicationTool.handler(
       { credit_note_id: n.id, document_id: y, new_amount: amount, idempotency_key: crypto.randomUUID(), ...(dry ? { dry_run: true } : {}) }, ctx()));
     for (const dry of [true, false]) {
       const refused = await adjust(34.49, dry);
       expect(refused.isError).toBe(true);
-      expect(refused.content[0]!.text).toMatch(/would move 23\.01 of its credit onto invoice \S+, which has 23\.00 left to credit/);
+      expect(refused.content[0]!.text).toMatch(/^Credit note \S+ cannot be taken back this far: it would move 23\.01 of its credit onto invoice \S+, which has 23\.00 left to credit/);
     }
+    expect(String(await committed(() => adjustCreditNoteApplication(f.fx.companyId, { creditNoteId: n.id, documentId: y, newAmount: 34.49 }, f.fx.userId)))).toMatch(/would move 23\.01/);
     expect(await snapshot()).toEqual(before);
     const ok = await adjust(34.5, false);
     expect(ok.isError, ok.content[0]!.text).toBeFalsy();
@@ -311,4 +341,145 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
     expect(await state(y)).toEqual({ remainingNet: 100, remainingVat: 15 });
     expect(await state(w)).toEqual({ remainingNet: 20, remainingVat: 3 });
   });
+
+  describe('(7) race: an unapply moving D onto typed W against a FIFO walk landing on W (two connections)', () => {
+    /** W typed 200 + 30 (oldest); N linked to legacy X 200 + 30 (D 115) applied 50 to X, 115 to legacy Z (D used), 65
+     *  to W (counting nothing); a linked return 100 + 15 on W leaves it 115 to credit, 165 outstanding. */
+    const setup = async (name: string, d: string) => {
+      const c = await customer(name);
+      const w = await typedInvoice(c, `${d}-01`, 200);
+      const x = await legacyInvoice(c, `${d}-02`);
+      const z = await legacyInvoice(c, `${d}-03`);
+      const n = await approvedNote(c, `${d}-04`, 200, x);
+      await applyAmount(n.id, x, 50);
+      await apply(n.id, z);
+      await apply(n.id, w);
+      expect(await rowsOf(n.id)).toEqual([{ invoice_id: x, amount: 50 }, { invoice_id: z, amount: 115 }, { invoice_id: w, amount: 65 }]);
+      await approvedNote(c, `${d}-04`, 100, w);
+      expect(await state(w)).toEqual({ remainingNet: 100, remainingVat: 15 });
+      const m = await inTx(f.fx, () => createCreditNote(f.fx.companyId, { type: 'customer', clientId: c, creditDate: `${d}-05`, subtotal: 100, taxRate: 15 }, f.fx.userId));
+      return { c, w, x, z, n, m };
+    };
+    const open = async () => {
+      const client = await f.fx.pool.connect();
+      await client.query('BEGIN');
+      const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      return { client, pid };
+    };
+    /** Until `pid` waits on a lock or `p` settles (4 s at most): whether it waited. */
+    const waitsOnLock = async (pid: number, p: Promise<unknown>) => {
+      let settled = false;
+      void p.then(() => { settled = true; }, () => { settled = true; });
+      for (let i = 0; i < 80 && !settled; i++) {
+        const r = await pool.query(`SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'`, [pid]);
+        if (r.rowCount) return true;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      return false;
+    };
+
+    it('the unapply first: the walk waits for W, then sees what is left (50), never 115', async () => {
+      const { w, x, z, n, m } = await setup('R6-7a', '2026-10');
+      const a = await open();
+      await runOn(f.fx, a.client, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: z }, f.fx.userId));
+      const b = await open();
+      const walk = runOn(f.fx, b.client, () => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }));
+      const waited = await waitsOnLock(b.pid, walk);
+      await a.client.query('COMMIT'); a.client.release();
+      await walk; await b.client.query('COMMIT'); b.client.release();
+      expect(waited).toBe(true);
+      expect(await rowsOf(m.id)).toEqual([{ invoice_id: w, amount: 50 }, { invoice_id: x, amount: 65 }].sort((p, q) => (p.invoice_id < q.invoice_id ? -1 : 1)));
+      expect(await state(w)).toEqual({ remainingNet: 0, remainingVat: 0 });
+    });
+
+    it('the walk first: the unapply waits for W, then is refused (W has nothing left for the 65)', async () => {
+      const { w, z, n, m } = await setup('R6-7b', '2026-09');
+      const b = await open();
+      await runOn(f.fx, b.client, () => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }));
+      const a = await open();
+      const unapply = runOn(f.fx, a.client, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: z }, f.fx.userId));
+      const waited = await waitsOnLock(a.pid, unapply);
+      await b.client.query('COMMIT'); b.client.release();
+      await expect(unapply).rejects.toThrow(/would move 65\.00 of its credit onto invoice \S+, which has 0\.00 left to credit/);
+      await a.client.query('ROLLBACK'); a.client.release();
+      expect(waited).toBe(true);
+      expect(await rowsOf(m.id)).toEqual([{ invoice_id: w, amount: 115 }]);
+      expect((await rowsOf(n.id)).map((r) => (r as { invoice_id: string }).invoice_id)).toContain(z);
+    });
+  });
+
+  it('(7c) race, adjust: the walk first; the adjustment of Z down to 0 waits for W, then is refused', async () => {
+    const c = await customer('R6-7c');
+    const w = await typedInvoice(c, '2026-08-21', 200);
+    const x = await legacyInvoice(c, '2026-08-22');
+    const z = await legacyInvoice(c, '2026-08-23');
+    const n = await approvedNote(c, '2026-08-24', 200, x);
+    await applyAmount(n.id, x, 50);
+    await apply(n.id, z);
+    await apply(n.id, w);
+    await approvedNote(c, '2026-08-24', 100, w);
+    const m = await inTx(f.fx, () => createCreditNote(f.fx.companyId, { type: 'customer', clientId: c, creditDate: '2026-08-25', subtotal: 100, taxRate: 15 }, f.fx.userId));
+    const b = await f.fx.pool.connect(); await b.query('BEGIN');
+    await runOn(f.fx, b, () => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }));
+    const a = await f.fx.pool.connect(); await a.query('BEGIN');
+    const pid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+    const adjusting = runOn(f.fx, a, () => adjustCreditNoteApplication(f.fx.companyId, { creditNoteId: n.id, documentId: z, newAmount: 0 }, f.fx.userId));
+    let settled = false; void adjusting.then(() => { settled = true; }, () => { settled = true; });
+    let waited = false;
+    for (let i = 0; i < 80 && !settled && !waited; i++) {
+      waited = ((await pool.query(`SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'`, [pid])).rowCount ?? 0) > 0;
+      if (!waited) await new Promise((res) => setTimeout(res, 50));
+    }
+    await b.query('COMMIT'); b.release();
+    await expect(adjusting).rejects.toThrow(/would move 65\.00 of its credit onto invoice \S+, which has 0\.00 left to credit/);
+    await a.query('ROLLBACK'); a.release();
+    expect(waited).toBe(true);
+    expect(await rowsOf(m.id)).toEqual([{ invoice_id: w, amount: 115 }]);
+  });
+
+  it('(8) the link and the allocation rows agree on a typed invoice: a linked note reversed its legs; an applied one is never linked there', async () => {
+    const c = await customer('R6-8');
+    const y = await typedInvoice(c, '2026-08-01', 300);
+    const l = await approvedNote(c, '2026-08-02', 50, y);
+    expect(await sql`SELECT DISTINCT invoice_id, is_excess FROM credit_note_revenue_allocations WHERE credit_note_id = ${l.id}::UUID`)
+      .toEqual([{ invoice_id: y, is_excess: false }]);
+    const viaRest = await approvedNote(c, '2026-08-03', 10);
+    await apply(viaRest.id, y);
+    const viaMcp = await approvedNote(c, '2026-08-03', 10);
+    await applyAmount(viaMcp.id, y, 11.5);
+    const viaFifo = await inTx(f.fx, () => createCreditNote(f.fx.companyId, { type: 'customer', clientId: c, creditDate: '2026-08-04', subtotal: 10, taxRate: 15 }, f.fx.userId));
+    await inTx(f.fx, () => approveCreditNote(f.fx.companyId, viaFifo.id, f.fx.userId, { autoApply: 'fifo' }));
+    for (const u of [viaRest, viaMcp, viaFifo]) {
+      expect(await rowsOf(u.id)).toEqual([{ invoice_id: y, amount: 11.5 }]);
+      expect(await sql`SELECT customer_invoice_id FROM credit_notes WHERE id = ${u.id}::UUID`).toEqual([{ customer_invoice_id: null }]);
+      expect(await revenueTakes(u.id)).toEqual([]);
+    }
+  });
+
+  it('(9) the back-fill\'s dry run plans exactly what its live run writes over a seeded mix of notes and invoices', async () => {
+    let seed = 1701;
+    const pick = <T>(xs: readonly T[]): T => { seed = (seed * 1103515245 + 12345) % 2147483648; return xs[seed % xs.length]!; };
+    for (let k = 0; k < 4; k++) {
+      const c = await customer(`R6-9-${k}`);
+      const days = pick([['01', '02', '03'], ['03', '01', '02'], ['02', '03', '01']] as const);
+      const t1 = await typedInvoice(c, `2026-07-${days[0]}`, pick([100, 200]));
+      const t2 = await typedInvoice(c, `2026-07-${days[1]}`, pick([100, 150]));
+      const l1 = await legacyInvoice(c, `2026-07-${days[2]}`);
+      await approvedNote(c, '2026-07-10', pick([20, 50]), t1);                  // a return on T1, on account
+      const n = await approvedNote(c, '2026-07-11', pick([150, 200]), l1);      // linked to legacy L1 with excess
+      if (pick([true, false])) await applyAmount(n.id, t2, pick([10, 30]));
+      await approvedNote(c, '2026-07-12', pick([40, 100]));                     // unlinked
+      if (pick([true, false])) await approvedNote(c, '2026-07-13', pick([10, 30]), t2);
+      const req = { companyId: f.fx.companyId, subledger: 'ar' as const, entityId: c, userId: f.fx.userId };
+      const lines = (p: Awaited<ReturnType<typeof autoApplyUnapplied>>) => p.applications.map((a) => [a.payment_id, a.lines.map((x) => [x.document_id, x.amount])]);
+      const dry = await inTx(f.fx, () => autoApplyUnapplied({ ...req, dryRun: true }));
+      const live = await inTx(f.fx, () => autoApplyUnapplied({ ...req, dryRun: false }));
+      expect(lines(live), `seed case ${k}`).toEqual(lines(dry));
+      for (const t of [t1, t2]) {
+        const s = await state(t);
+        expect(s!.remainingNet).toBeGreaterThanOrEqual(0);
+        expect(s!.remainingVat).toBeGreaterThanOrEqual(0);
+      }
+    }
+  }, 120_000);
 });

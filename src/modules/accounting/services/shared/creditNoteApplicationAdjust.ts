@@ -16,13 +16,15 @@
  * recompute) — so `cancel_credit_note` and `unapply_credit_note` reverse what it
  * leaves like anything the approval wrote.
  *
- * An increase is bounded THREE ways and never silently capped (the caller named
- * an exact amount): the note's unapplied credit, the document's outstanding
- * balance, and what the note's journal POSTED (`creditNotePostedCredit`). Every
- * refusal is decided from reads by `buildPlan`, which the dry run runs as is;
- * the live call plans on rows it holds (note first, then the document — the
- * order approve, apply, unapply and cancel take) and checks the posted-credit
- * invariant before the note records the new figure.
+ * An increase is bounded FOUR ways and never silently capped (the caller named an exact amount): the note's unapplied
+ * credit, the document's outstanding balance, what the note's journal POSTED (`creditNotePostedCredit`) and, on a typed
+ * invoice the note is not linked to, what it has left to credit (`ar/creditNoteTypedApplication`). A decrease is
+ * refused when it would move the note's detached credit onto a later typed invoice past what that invoice has left
+ * (rule A, `ar/creditNoteDetachedShift`). The row is re-written with its ORIGINAL created_at, so the application keeps
+ * its place in the note's order. Every refusal is decided from reads by `buildPlan`, which the dry run runs as is; the
+ * live call plans on what it holds (note row, the credit-note keys of the note's invoices, then the document's row and
+ * the rows of the invoices whose count would rise, id order: apply's order) and checks the posted-credit invariant
+ * before the note records the new figure.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -31,7 +33,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { gateNote, typedApplicationRefusal } from '../ar/creditNoteTypedApplication';
-import { detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
+import { detachedRisingInvoices, detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
@@ -107,7 +109,9 @@ export async function adjustCreditNoteApplication(
   const side = checkNote(note, input).side;
   // The invoice's credit-note key next (REST apply's order: note row, key, invoice row), so the typed gate's read cannot race an approval.
   if (side === 'customer') await lockNoteApplicationKeys(companyId, input.creditNoteId, [input.documentId]);
-  await lockInvoicesForUpdate('adjustCreditNoteApplication', companyId, side, [input.documentId]);
+  // With the document's row, those of the invoices whose count a reduction would raise (ar/creditNoteDetachedShift).
+  const rising = side === 'customer' ? await detachedRisingInvoices(companyId, note!, new Map([[input.documentId, input.newAmount]])) : [];
+  await lockInvoicesForUpdate('adjustCreditNoteApplication', companyId, side, [...new Set([input.documentId, ...rising])]);
   const plan = await buildPlan(companyId, note, input);
 
   const line = { invoiceId: plan.documentId };

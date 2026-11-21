@@ -23,7 +23,7 @@ import { UnapplyRefusal } from './unapplyRefusal';
 import { readPostedCreditOrRefuse } from './creditNotePostedCredit';
 import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
-import { detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
+import { detachedRisingInvoices, detachedShiftRefusal, lockNoteApplicationKeys } from '../ar/creditNoteDetachedShift';
 
 export interface CreditNoteUnapplyInput {
   creditNoteId: string;
@@ -68,9 +68,12 @@ export async function unapplyCreditNote(
     SELECT invoice_id FROM credit_note_allocations
     WHERE credit_note_id = ${input.creditNoteId}::UUID AND company_id = ${companyId}::UUID
       AND (${input.invoiceId ?? null}::UUID IS NULL OR invoice_id = ${input.invoiceId ?? null}::UUID)`) as DbRow[];
-  // Customer: the credit-note keys of every invoice the note is applied to, before any invoice row (rule A's guard).
-  if (side === 'customer') await lockNoteApplicationKeys(companyId, input.creditNoteId);
-  await lockInvoicesForUpdate('unapplyCreditNote', companyId, side, targets.map((t) => String(t.invoice_id)));
+  // Customer: the credit-note keys of every invoice the note is applied to, then with the targets' rows those of the
+  // invoices whose count would rise, one id-ordered call (rule A's guard: ar/creditNoteDetachedShift).
+  const ids = targets.map((t) => String(t.invoice_id));
+  if (side === 'customer' && note) await lockNoteApplicationKeys(companyId, input.creditNoteId);
+  const rising = side === 'customer' && note ? await detachedRisingInvoices(companyId, note, new Map(ids.map((id) => [id, 0]))) : [];
+  await lockInvoicesForUpdate('unapplyCreditNote', companyId, side, [...new Set([...ids, ...rising])]);
   const plan = await buildPlan(companyId, note, input);
 
   let paidMoved = 0;

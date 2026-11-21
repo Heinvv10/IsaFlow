@@ -14,6 +14,7 @@ vi.mock('@/modules/accounting/services/ar/invoiceRevenuePosting', () => ({
 import {
   typedApplicationAmount, typedApplicationLimit, typedApplicationRefusal, typedAmountOrRefuse,
 } from '@/modules/accounting/services/ar/creditNoteTypedApplication';
+import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const Y = '22222222-2222-4222-8222-222222222222';
@@ -22,9 +23,14 @@ const note = (over: Record<string, unknown> = {}) => ({ id: 'n1', number: 'CN-1'
 beforeEach(() => { h.state = { remainingNet: 50, remainingVat: 7.5 }; h.calls = []; });
 
 describe('typedApplicationRefusal', () => {
-  it('reads the CURRENT state (the note is not left out: its existing row counts)', async () => {
-    await typedApplicationRefusal(CO, note(), Y, 1);
-    expect(h.calls).toEqual([[CO, Y]]);
+  it('judges against the CURRENT state, the note\'s own row counted (round 5 H1: without it 57.51 more would pass)', async () => {
+    // The state WITHOUT the note's existing 57.50 row would leave 115 to credit; the current one leaves 57.50.
+    vi.mocked(typedInvoiceCreditState).mockImplementation(async (...args: unknown[]) => {
+      h.calls.push(args);
+      return args[2] === 'n1' ? { remainingNet: 100, remainingVat: 15 } : h.state;
+    });
+    expect(await typedApplicationRefusal(CO, note(), Y, 57.51)).toMatch(/has 57\.50 left to credit/);
+    expect((await typedApplicationAmount(CO, note(), Y, 115, false))).toEqual({ amount: 57.5 });
   });
   it('exactly the capacity is allowed; a cent more is refused with the true message', async () => {
     expect(await typedApplicationRefusal(CO, note(), Y, 57.5)).toBeNull();
