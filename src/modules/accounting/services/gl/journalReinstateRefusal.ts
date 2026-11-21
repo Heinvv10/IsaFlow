@@ -6,6 +6,8 @@
  * statement error has already aborted the transaction (or its savepoint), so nothing the reversal wrote survives.
  */
 
+import { sql } from '@/lib/neon';
+
 /** The CONSTRAINT name gl_je_reversal_link raises the refusal with. */
 export const REINSTATES_CANCELLED_DOCUMENT = 'gl_je_reinstates_cancelled_document';
 
@@ -66,7 +68,8 @@ export function ledgerLinkRefusal(err: unknown, entryNumber: string, retry: () =
   const { constraint, code, message } = err as { constraint?: unknown; code?: unknown; message?: unknown };
   if (constraint === REINSTATES_CANCELLED_DOCUMENT) return new JournalReinstatesCancelledDocumentError(entryNumber);
   if (constraint === REVERSAL_CHAIN_FULL) return new JournalReversalChainFullError(entryNumber);
-  if (constraint === REVERSAL_CHAIN_CHANGED || code === '40001') return retry();
+  // 55P03: a journal's row or link key held past 1018's 5 s bound (round 12), a retry passes once the holder is done.
+  if (constraint === REVERSAL_CHAIN_CHANGED || code === '40001' || code === '55P03') return retry();
   if (constraint === REVERSAL_NOT_NEGATION) {
     return new JournalReversalRefusedError(entryNumber, 'its reversal would not mirror it line for line (an account '
       + 'or VAT type differs). Correct it with a new journal instead.');
@@ -75,4 +78,17 @@ export function ledgerLinkRefusal(err: unknown, entryNumber: string, retry: () =
     return new JournalReversalRefusedError(entryNumber, `${message.slice('gl_journal_entries: '.length)}.`);
   }
   return null;
+}
+
+/**
+ * Round 12 (codex gate): would reversing `entryId` put a cancelled document's journal back in force? The same predicate
+ * migration 1018's link trigger applies (gl_reversal_reinstates_cancelled_document, a new contra being one journal
+ * long), asked read-only so a dry run refuses what the write refuses. The trigger remains the guard against a cancel
+ * that commits in between.
+ */
+export async function reinstatesCancelledDocument(companyId: string, entryId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT public.gl_reversal_reinstates_cancelled_document(e.id, 1) AS r
+      FROM gl_journal_entries e WHERE e.id = ${entryId}::UUID AND e.company_id = ${companyId}::UUID`) as { r: boolean }[];
+  return rows[0]?.r === true;
 }

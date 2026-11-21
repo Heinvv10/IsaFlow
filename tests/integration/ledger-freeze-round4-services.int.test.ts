@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { appLoginWorld, type AppWorld, FIXTURE_LOGIN } from './helpers/appLoginWorld';
+import { appLoginWorld, type AppWorld } from './helpers/appLoginWorld';
 import { dropFreeze, journal, negate, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -32,7 +32,7 @@ describeIfDisposable('ledger column immutability, round 4: the real services as 
   afterAll(async () => { if (world) await world.close(); if (z) await dropFreeze(z); }, 120000);
 
   it('the transaction is the production-shaped login -> app_user at READ COMMITTED and not a superuser', async () => {
-    expect(await world.probe(who)).toEqual({ sessionUser: FIXTURE_LOGIN, currentUser: 'app_user', superuser: 'off' });
+    expect(await world.probe(who)).toEqual({ sessionUser: world.login, currentUser: 'app_user', superuser: 'off' });
     const { sql: appSql } = await world.load(() => import('@/lib/neon'));
     const [row] = (await world.run(who, () => appSql`SELECT current_setting('transaction_isolation') AS iso`)) as Row[];
     expect(row!.iso).toBe('read committed');

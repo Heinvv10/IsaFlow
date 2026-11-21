@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { appLoginWorld, type AppWorld, FIXTURE_LOGIN } from './helpers/appLoginWorld';
+import { appLoginWorld, type AppWorld } from './helpers/appLoginWorld';
 import { dropFreeze, seedFreeze, type Freeze, type Row } from './helpers/ledgerFreezeFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -45,7 +45,7 @@ describeIfDisposable('ledger column immutability, round 3: the real services as 
   afterAll(async () => { if (world) await world.close(); if (z) await dropFreeze(z); }, 120000);
 
   it('the transaction is the production-shaped login -> app_user and not a superuser', async () => {
-    expect(await world.probe(who)).toEqual({ sessionUser: FIXTURE_LOGIN, currentUser: 'app_user', superuser: 'off' });
+    expect(await world.probe(who)).toEqual({ sessionUser: world.login, currentUser: 'app_user', superuser: 'off' });
   });
 
   it('M1 a customer invoice approved and cancelled: re-reversing the cancel is refused', async () => {

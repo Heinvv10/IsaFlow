@@ -36,6 +36,9 @@ import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
+import {
+  JournalReinstatesCancelledDocumentError, reinstatesCancelledDocument,
+} from '@/modules/accounting/services/gl/journalReinstateRefusal';
 
 const TOOL = 'reverse_journal_entry';
 
@@ -173,6 +176,12 @@ export const reverseJournalEntryTool: McpTool = {
     } catch (err) {
       if (err instanceof BankControlError) return toolError(err.message);
       throw err;
+    }
+
+    // 1018 round 12 (codex gate): the link's cancelled-document rule, asked read-only, so the dry run refuses what the
+    // write refuses (the trigger stays the guard against a concurrent cancel).
+    if (await reinstatesCancelledDocument(ctx.companyId, id)) {
+      return toolError(new JournalReinstatesCancelledDocumentError(entry.entryNumber).message);
     }
 
     if (args.dry_run === true) {

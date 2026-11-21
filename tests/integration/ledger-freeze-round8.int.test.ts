@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { dropAppLogin, FIXTURE_LOGIN, provisionAppLogin } from './helpers/appLoginWorld';
+import { dropAppLogin, provisionAppLogin } from './helpers/appLoginWorld';
 import { asApp, document, dropFreeze, journal, negate, openApp, refused, seedFreeze, type Freeze, type Leg, type Row, linkAsApp } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -124,22 +124,22 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
     await app('UPDATE gl_journal_entries SET reversed_at = NULL, reversed_by = NULL WHERE id = $1', [o]);
   });
 
-  it('F5 the fixture login is provisioned once per cluster: concurrent and later callers get the same working password', async () => {
+  it('F5 (round 12) each caller gets its own login: concurrent callers never share or rotate one another\'s password', async () => {
     const url = process.env.DATABASE_URL!;
-    const [p1, p2, p3] = await Promise.all([provisionAppLogin(url), provisionAppLogin(url), provisionAppLogin(url)]);
-    expect(new Set([p1, p2, p3]).size).toBe(1);
-    const login = new URL(url);
-    login.username = FIXTURE_LOGIN;
-    login.password = p1;
-    const held = new Client({ connectionString: login.toString() }); // a connection opened before a later caller
-    await held.connect();
+    const logins = await Promise.all([provisionAppLogin(url), provisionAppLogin(url), provisionAppLogin(url)]);
     try {
-      expect(await provisionAppLogin(url)).toBe(p1); // a later suite does not rotate it
-      const fresh = new Client({ connectionString: login.toString() }); // so a NEW connection still logs in
-      await fresh.connect();
-      expect((await fresh.query('SELECT session_user AS u')).rows[0].u).toBe(FIXTURE_LOGIN);
-      await fresh.end();
-    } finally { await held.end(); await dropAppLogin(url); }
+      expect(new Set(logins.map((l) => l.role)).size).toBe(3);
+      const as = (l: { role: string; password: string }) => { const u = new URL(url); u.username = l.role; u.password = l.password; return u.toString(); };
+      const held = new Client({ connectionString: as(logins[0]!) });
+      await held.connect();
+      try {
+        await dropAppLogin(url, logins[1]!.role); // another suite finishing
+        const fresh = new Client({ connectionString: as(logins[0]!) }); // a NEW connection of the first still logs in
+        await fresh.connect();
+        expect((await fresh.query('SELECT session_user AS u')).rows[0].u).toBe(logins[0]!.role);
+        await fresh.end();
+      } finally { await held.end(); }
+    } finally { for (const l of logins) await dropAppLogin(url, l.role); }
   });
 
   it('F3 the backfill stamps a legacy cancelled document\'s journal only where state identifies it, and counts the rest', async () => {

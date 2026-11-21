@@ -154,7 +154,8 @@
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
 --     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid), public.gl_jl_company_is_journal_company(),
 --     public.gl_je_created_at_frozen(), public.gl_je_reversal_base_check(), public.gl_late_claim_bases_negated(uuid, uuid),
---     public.ledger_lock_journal(uuid), public.gl_jl_late_claim_base_born_here();
+--     public.ledger_lock_journal(uuid), public.gl_jl_late_claim_base_born_here(),
+--     public.ledger_lock_key(uuid), public.ledger_bound_lock_wait(), public.gl_reversal_reinstates_cancelled_document(uuid, integer);
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -315,14 +316,51 @@ $$;
 -- claim's UPDATE locks the row, then gl_je_reversed_at_release takes the key). Key-then-row against row-then-key was a
 -- real 40P01 between a claim and a document cancel / unlink / delete. Read as the caller: a row it cannot see locks
 -- nothing, and the rules after the lock fail closed.
+-- Round 12 (codex gate): every runtime take of a journal's row or key waits at most 5 s, whatever the caller's
+-- lock_timeout (0 waits forever; the migration's own 5 s ends with it), then fails with the retryable 55P03 that the
+-- API answers 503. Tighten-only: a caller already bounded more tightly keeps its bound, and the caller's setting is put
+-- back after the take (an error aborts the transaction, or rolls back to the caller's savepoint, which restores it).
+CREATE OR REPLACE FUNCTION public.ledger_bound_lock_wait()
+RETURNS text
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_prev text := pg_catalog.current_setting('lock_timeout');
+  v_ms bigint;
+BEGIN
+  SELECT s.setting::bigint INTO v_ms FROM pg_catalog.pg_settings s WHERE s.name = 'lock_timeout';
+  IF v_ms = 0 OR v_ms > 5000 THEN
+    PERFORM pg_catalog.set_config('lock_timeout', '5000', true);
+  END IF;
+  RETURN v_prev;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.ledger_lock_key(p_entry uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_prev text := public.ledger_bound_lock_wait();
+BEGIN
+  PERFORM pg_advisory_xact_lock(public.ledger_link_key(p_entry));
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
+END
+$$;
+
 CREATE OR REPLACE FUNCTION public.ledger_lock_journal(p_entry uuid)
 RETURNS void
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  v_prev text := public.ledger_bound_lock_wait();
 BEGIN
   PERFORM 1 FROM public.gl_journal_entries e WHERE e.id = p_entry FOR NO KEY UPDATE;
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(p_entry));
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
 END
 $$;
 
@@ -363,6 +401,26 @@ CREATE OR REPLACE TRIGGER trg_gl_je_reversal_no_insert
   EXECUTE FUNCTION public.gl_je_reversal_no_insert();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_reversal_no_insert;
 
+-- Would a contra linked to p_entry (p_below journals long, itself included) put the journal of a cancelled document
+-- back in force? Rule 1's last test, also asked read-only by the reversal's dry run (round 12, codex gate). As the caller.
+CREATE OR REPLACE FUNCTION public.gl_reversal_reinstates_cancelled_document(p_entry uuid, p_below integer)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.gl_journal_ancestors(p_entry) a
+               JOIN public.gl_journal_entries j ON j.id = a.id
+              WHERE (a.dist + p_below) % 2 = 1
+                AND (j.document_cancelled_at IS NOT NULL
+                     OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
+                     OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id
+                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
+                     OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id
+                                 AND d.status = 'cancelled')));
+$$;
+
 CREATE OR REPLACE FUNCTION public.gl_je_reversal_link()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -402,7 +460,7 @@ BEGIN
   SELECT a.id INTO v_root FROM public.gl_journal_ancestors(NEW.reversal_of_id) a WHERE a.is_root;
   FOR v_key IN SELECT DISTINCT k FROM unnest(ARRAY[NEW.id::text, NEW.reversal_of_id::text, v_root::text]) k
                 WHERE k IS NOT NULL ORDER BY k LOOP
-    PERFORM pg_advisory_xact_lock(public.ledger_link_key(v_key::uuid));
+    PERFORM public.ledger_lock_key(v_key::uuid);
   END LOOP;
   IF EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = NEW.id)
      OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = NEW.id)
@@ -469,16 +527,7 @@ BEGIN
   END IF;
   -- After the link, a journal dist journals above the contra's place heads a chain of dist + v_below journals: in force
   -- when that is odd. None whose document was cancelled comes back in force.
-  IF EXISTS (SELECT 1 FROM public.gl_journal_ancestors(NEW.reversal_of_id) a
-               JOIN public.gl_journal_entries j ON j.id = a.id
-              WHERE (a.dist + v_below) % 2 = 1
-                AND (j.document_cancelled_at IS NOT NULL
-                     OR EXISTS (SELECT 1 FROM public.customer_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
-                     OR EXISTS (SELECT 1 FROM public.supplier_invoices d WHERE d.gl_journal_entry_id = a.id
-                                 AND (d.status = 'cancelled' OR d.deleted_at IS NOT NULL))
-                     OR EXISTS (SELECT 1 FROM public.credit_notes d WHERE d.gl_journal_entry_id = a.id
-                                 AND d.status = 'cancelled'))) THEN
+  IF public.gl_reversal_reinstates_cancelled_document(NEW.reversal_of_id, v_below) THEN
     -- (round 5 N2) A soft-deleted invoice or bill counts as cancelled while it stays deleted: the undo clears deleted_at
     -- (restoreRow) BEFORE it re-reverses, so a restored document re-instates and a deleted one does not.
     RAISE EXCEPTION 'gl_journal_entries: this reversal would put the journal of a cancelled document back in force'
@@ -597,7 +646,7 @@ BEGIN
   -- Round 12 L4: only a change of the stamp itself takes the key; a post (posted_at / posted_by) takes none.
   IF NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by THEN
     PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-    PERFORM pg_advisory_xact_lock(public.ledger_link_key(OLD.id));
+    PERFORM public.ledger_lock_key(OLD.id);
     IF EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
       RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when'
         USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_attribution_kept';
@@ -794,7 +843,7 @@ BEGIN
   -- journal reversed and the root), then read at READ COMMITTED: a link that committed while this change was open is
   -- seen, and a link still open waits for this check to commit, then reads the changed lines.
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
-  PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.journal_entry_id));
+  PERFORM public.ledger_lock_key(NEW.journal_entry_id);
   -- The JOURNAL's company, never the line's (round 10 M2: a line of another company inside the journal found no contra).
   SELECT e.reversal_of_id, e.company_id INTO v_original, v_company FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id;
   -- Round 11 (codex gate): a header the caller cannot see (RLS: a legacy line of another company) gave NULLs and passed.
@@ -1282,7 +1331,10 @@ BEGIN
          (CASE d.side WHEN 'ar' THEN 'auto_invoice' ELSE 'auto_supplier_invoice' END,
           CASE d.side WHEN 'ar' THEN 'Customer invoice ' ELSE 'Supplier invoice ' END || d.n),
          ('auto_migration', CASE d.side WHEN 'ar' THEN 'Take-on AR invoice ' ELSE 'Take-on AP invoice ' END || d.n)) AS k(source, description))
-    SELECT k.doc, e.id AS je
+    -- Round 12 (codex gate): both match counts in the same set-based pass (window counts over the matches), so the
+    -- stamp and the ambiguity report below read them instead of rescanning the table once per row (quadratic).
+    SELECT m.doc, m.je, count(*) OVER (PARTITION BY m.doc) AS per_doc, count(*) OVER (PARTITION BY m.je) AS per_je
+      FROM (SELECT k.doc, e.id AS je
       FROM keys k
       JOIN public.gl_journal_entries e
         ON e.company_id = k.company_id AND e.source = k.source AND e.description = k.description
@@ -1292,16 +1344,12 @@ BEGIN
        AND NOT public.gl_journal_in_force(e.id)
        AND NOT EXISTS (SELECT 1 FROM public.customer_invoices x WHERE x.gl_journal_entry_id = e.id)
        AND NOT EXISTS (SELECT 1 FROM public.supplier_invoices x WHERE x.gl_journal_entry_id = e.id)
-       AND NOT EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.gl_journal_entry_id = e.id);
+       AND NOT EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.gl_journal_entry_id = e.id)) m;
 
   UPDATE public.gl_journal_entries e SET document_cancelled_at = now()
-   WHERE e.id IN (SELECT c.je FROM ledger_1018_cancel_candidates c
-                   WHERE (SELECT count(*) FROM ledger_1018_cancel_candidates c2 WHERE c2.doc = c.doc) = 1
-                     AND (SELECT count(*) FROM ledger_1018_cancel_candidates c3 WHERE c3.je = c.je) = 1);
+   WHERE e.id IN (SELECT c.je FROM ledger_1018_cancel_candidates c WHERE c.per_doc = 1 AND c.per_je = 1);
   GET DIAGNOSTICS v_by_identity = ROW_COUNT;
-  SELECT count(DISTINCT c.je) INTO v_ambiguous FROM ledger_1018_cancel_candidates c
-   WHERE (SELECT count(*) FROM ledger_1018_cancel_candidates c2 WHERE c2.doc = c.doc) > 1
-      OR (SELECT count(*) FROM ledger_1018_cancel_candidates c3 WHERE c3.je = c.je) > 1;
+  SELECT count(DISTINCT c.je) INTO v_ambiguous FROM ledger_1018_cancel_candidates c WHERE c.per_doc > 1 OR c.per_je > 1;
   DROP TABLE ledger_1018_cancel_candidates;
 
   RAISE NOTICE '1018 backfill: % journal(s) of a cancelled document that still links them, % found by approval identity, % ambiguous left unstamped',

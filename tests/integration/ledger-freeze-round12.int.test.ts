@@ -9,7 +9,7 @@ import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import {
-  asApp, document, dropFreeze, journal, negate, openApp, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
+  asApp, document, dropFreeze, journal, linkAsApp, negate, openApp, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
 } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -100,4 +100,49 @@ describeIfDisposable('ledger column immutability, round 12 (migration 1018)', ()
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
     expect(negate(legs)).toHaveLength(2);
   });
+
+  /** Session `holder` keeps X's link key; `fn` runs as app_user with lock_timeout = `timeout`; returns its outcome and time. */
+  async function againstHeldKey(x: string, timeout: string, fn: (c: PoolClient) => Promise<unknown>) {
+    const holder = await z.pool.connect();
+    const c = await openApp(z);
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(public.ledger_link_key($1))', [x]);
+      await c.query(`SET LOCAL lock_timeout = '${timeout}'`);
+      const t0 = Date.now();
+      const err = await fn(c).then(() => null, (e: { code?: string }) => e.code ?? 'no code');
+      return { err, ms: Date.now() - t0 };
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined); await c.query('ROLLBACK').catch(() => undefined);
+      holder.release(); c.release();
+    }
+  }
+
+  it('B every runtime take of a link key is bounded: a caller with lock_timeout 0 gets the retryable 55P03 after 5 s', async () => {
+    const x = await journal(z, legs);
+    const doc = await document(z, 'customer_invoices', { status: 'approved' });
+    const link = await againstHeldKey(x, '0', (c) => c.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [x, doc]));
+    expect(link.err).toBe('55P03');
+    expect(link.ms).toBeGreaterThanOrEqual(4500);
+    expect(link.ms).toBeLessThan(9000);
+    const claim = await againstHeldKey(x, '0', (c) => c.query('UPDATE gl_journal_entries SET reversed_at = now(), reversed_by = $2 WHERE id = $1', [x, z.f.fx.userId]));
+    expect(claim.err).toBe('55P03');
+    const contra = await journal(z, negate(legs));
+    const rev = await againstHeldKey(x, '0', (c) => linkAsApp(c, contra, x));
+    expect(rev.err).toBe('55P03');
+  }, 60000);
+
+  it('B over-strict check: a tighter caller bound is kept, and the caller\'s lock_timeout is restored after an uncontended take', async () => {
+    const x = await journal(z, legs);
+    const doc = await document(z, 'customer_invoices', { status: 'approved' });
+    const tight = await againstHeldKey(x, '1s', (c) => c.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [x, doc]));
+    expect(tight.err).toBe('55P03');
+    expect(tight.ms).toBeLessThan(3000);
+    const c = await openApp(z);
+    try {
+      await c.query("SET LOCAL lock_timeout = '0'");
+      await c.query('UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [x, doc]);
+      expect((await c.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe('0');
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+  }, 30000);
 });

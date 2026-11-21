@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
  */
 export async function lockLinkKeysOfAccountJournals(companyId: string, accountId: string): Promise<void> {
   await sql`
-    SELECT pg_advisory_xact_lock(public.ledger_link_key(j.id))
+    SELECT public.ledger_lock_key(j.id) -- bounded to 5 s (1018 round 12), the order a link takes them
       FROM (SELECT DISTINCT journal_entry_id AS id FROM gl_journal_lines
              WHERE company_id = ${companyId}::UUID AND gl_account_id = ${accountId}::UUID
              ORDER BY 1 OFFSET 0) j

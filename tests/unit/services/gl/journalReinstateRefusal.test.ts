@@ -25,6 +25,8 @@ describe('ledgerLinkRefusal (migration 1018 round 10)', () => {
     expect((changed as { code: string }).code).toMatch(/_LOCK_TIMEOUT$/); // lib/lockTimeout: a 503 with Retry-After
     expect(ledgerLinkRefusal(pg({ code: '40001', message: 'gl_journal_entries: ledger links are written at READ COMMITTED only' }), 'JE-1', retry))
       .toBeInstanceOf(JournalReversalLockTimeoutError);
+    expect(ledgerLinkRefusal(pg({ code: '55P03', message: 'canceling statement due to lock timeout' }), 'JE-1', retry)) // round 12
+      .toBeInstanceOf(JournalReversalLockTimeoutError);
   });
 
   it('words the exact-negation refusal for a person, with no table name', () => {

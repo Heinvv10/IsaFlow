@@ -1,50 +1,32 @@
 /**
  * Run the app's real services through a login of the production login's shape, not the fixture superuser: session_user
- * is FIXTURE_LOGIN (isaflow_app's memberships, non-superuser, NOINHERIT; never isaflow_app itself, round 11), and every request transaction does `SET LOCAL ROLE app_user` with the member's claims and
+ * is the suite's login (isaflow_app's memberships, non-superuser, NOINHERIT; never isaflow_app itself, round 11), and every request transaction does `SET LOCAL ROLE app_user` with the member's claims and
  * the active company, as withAuth does. So the ledger rules of migration 1018 (which exempt only a superuser) bind
  * every write here, including the writes of a service that opens its own transaction through the app's pool.
  *
  * Usage: seed with the fixture helpers (they use the module instance loaded at the top of the file, on the fixture's
  * superuser pool), call `appLoginWorld()`, then import the services DYNAMICALLY from the returned `load`, which resets
- * the module registry so the services get a fresh `@/lib/neon` pool that logs in as FIXTURE_LOGIN.
+ * the module registry so the services get a fresh `@/lib/neon` pool that logs in as the suite's login.
  */
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { vi } from 'vitest';
 
-const LOGIN_LOCK = 'ci:isaflow_app_login';
 /**
  * The fixture's own login (round 11, codex gate): a localhost test database can share its cluster with a running app, so
- * the cluster-wide isaflow_app password is never touched. This role has the production login's SHAPE: LOGIN, not a
- * superuser, NOINHERIT, and exactly isaflow_app's memberships with the same INHERIT / SET options (app_user, SET only),
- * copied from pg_auth_members, and no grant of its own. The rules of 1018 read is_superuser and the role a request SETs,
- * never the login's name.
+ * the cluster-wide isaflow_app password is never touched. Each suite's login has the production login's SHAPE: LOGIN,
+ * not a superuser, NOINHERIT, and exactly isaflow_app's memberships with the same INHERIT / SET options (app_user, SET
+ * only), copied from pg_auth_members, and no grant of its own. The rules of 1018 read is_superuser and the role a
+ * request SETs, never the login's name.
+ *
+ * Round 12 (breaker L2, codex blocker): one role PER SUITE (`ci_lf_app_<random>`), its random password held in this
+ * process's memory only and stored nowhere (the server keeps only its SCRAM verifier, readable by superusers alone),
+ * created only on a cluster that holds nothing but disposable databases, and dropped when the suite's world closes. No
+ * suite reads or changes another suite's login.
  */
-export const FIXTURE_LOGIN = 'ci_ledger_freeze_app';
+export const FIXTURE_LOGIN_PREFIX = 'ci_lf_app_';
 
-/**
- * Its password, provisioned ONCE per cluster and shared (round 8): a role and its password are cluster-wide, so a
- * suite that rotated it would cut off another suite's NEW connections on the same cluster (its open ones keep
- * working). Kept in a superuser-only table of the cluster's `postgres` database, under a session advisory lock, so the
- * first caller sets it and every later or concurrent caller reads the same value.
- */
-async function logsIn(fixtureUrl: string, password: string): Promise<boolean> {
-  const url = new URL(fixtureUrl);
-  url.username = FIXTURE_LOGIN;
-  url.password = password;
-  const probe = new Client({ connectionString: url.toString() });
-  try {
-    await probe.connect();
-    return true;
-  } catch (err) {
-    if ((err as { code?: string }).code === '28P01') return false;
-    throw err;
-  } finally {
-    await probe.end().catch(() => undefined);
-  }
-}
-
-/** The databases a cluster may hold for the fixture login to exist on it (round 12 L2). */
+/** The databases a cluster may hold for a fixture login to exist on it (round 12 L2). */
 export const DISPOSABLE_CLUSTER_DATABASES = ['template0', 'template1', 'postgres', 'isaflow_test', 'isaflow_schema_fixture'];
 
 /**
@@ -59,73 +41,63 @@ export async function assertDisposableCluster(c: { query: Client['query'] }): Pr
   }
 }
 
-export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
+const adminClient = async (fixtureUrl: string): Promise<Client> => {
   const admin = new URL(fixtureUrl);
   admin.pathname = '/postgres';
   const c = new Client({ connectionString: admin.toString() });
   await c.connect();
+  return c;
+};
+
+/** A fresh login of isaflow_app's shape for one suite: its name and its password (in memory only). */
+export async function provisionAppLogin(fixtureUrl: string): Promise<{ role: string; password: string }> {
+  const c = await adminClient(fixtureUrl);
   try {
     await assertDisposableCluster(c);
-    await c.query('SELECT pg_advisory_lock(hashtext($1))', [LOGIN_LOCK]);
-    await c.query('CREATE TABLE IF NOT EXISTS public.ci_isaflow_app_login (password text NOT NULL)');
-    await c.query('REVOKE ALL ON public.ci_isaflow_app_login FROM PUBLIC');
-    const exists = (await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [FIXTURE_LOGIN])).rowCount === 1;
-    if (!exists) await c.query(`CREATE ROLE ${FIXTURE_LOGIN} LOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS`);
+    const role = `${FIXTURE_LOGIN_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const password = randomUUID();
+    await c.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${password}'`);
     const grants = (await c.query<{ role: string; inherit: boolean; set: boolean }>(`
       SELECT g.rolname AS role, m.inherit_option AS inherit, m.set_option AS set
         FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid
        WHERE m.member = 'isaflow_app'::regrole`)).rows;
     for (const g of grants) {
-      await c.query(`GRANT ${g.role} TO ${FIXTURE_LOGIN} WITH INHERIT ${g.inherit ? 'TRUE' : 'FALSE'}, SET ${g.set ? 'TRUE' : 'FALSE'}`);
+      await c.query(`GRANT ${g.role} TO ${role} WITH INHERIT ${g.inherit ? 'TRUE' : 'FALSE'}, SET ${g.set ? 'TRUE' : 'FALSE'}`);
     }
-    const { rows } = await c.query<{ password: string }>('SELECT password FROM public.ci_isaflow_app_login LIMIT 1');
-    // The stored one, while it still logs in (anything that rotated the role outside this helper made it stale).
-    if (exists && rows[0] && await logsIn(fixtureUrl, rows[0].password)) return rows[0].password;
-    const password = randomUUID();
-    await c.query(`ALTER ROLE ${FIXTURE_LOGIN} PASSWORD '${password}'`);
-    await c.query('DELETE FROM public.ci_isaflow_app_login');
-    await c.query('INSERT INTO public.ci_isaflow_app_login (password) VALUES ($1)', [password]);
-    return password;
+    return { role, password };
   } finally {
-    await c.query('SELECT pg_advisory_unlock(hashtext($1))', [LOGIN_LOCK]).catch(() => undefined);
     await c.end();
   }
 }
 
-/**
- * Round 12 L2: drop the fixture login and its stored password once a suite is done, so neither outlives it. Suites on
- * one cluster run one at a time (run.sh, --no-file-parallelism); the next one provisions afresh.
- */
-export async function dropAppLogin(fixtureUrl: string): Promise<void> {
-  const admin = new URL(fixtureUrl);
-  admin.pathname = '/postgres';
-  const c = new Client({ connectionString: admin.toString() });
-  await c.connect();
+/** Drop one suite's login (round 12 L2). Only a fixture login: the name must carry the prefix. */
+export async function dropAppLogin(fixtureUrl: string, role: string): Promise<void> {
+  if (!role.startsWith(FIXTURE_LOGIN_PREFIX) || !/^[a-z0-9_]+$/.test(role)) throw new Error(`not a fixture login: ${role}`);
+  const c = await adminClient(fixtureUrl);
   try {
-    await c.query('SELECT pg_advisory_lock(hashtext($1))', [LOGIN_LOCK]);
-    await c.query('DROP TABLE IF EXISTS public.ci_isaflow_app_login');
-    await c.query(`DROP ROLE IF EXISTS ${FIXTURE_LOGIN}`);
+    await c.query(`DROP ROLE IF EXISTS ${role}`);
   } finally {
-    await c.query('SELECT pg_advisory_unlock(hashtext($1))', [LOGIN_LOCK]).catch(() => undefined);
     await c.end();
   }
 }
 
 export interface AppWorld {
-  /** A fresh import of a module, bound to the FIXTURE_LOGIN pool. */
+  /** A fresh import of a module, bound to the suite's login pool. */
   load: <T>(importer: () => Promise<T>) => Promise<T>;
-  /** One request transaction as FIXTURE_LOGIN -> app_user, committed on success, rolled back on a throw. */
+  /** One request transaction as the suite's login -> app_user, committed on success, rolled back on a throw. */
   run: <T>(who: { userId: string; companyId: string }, fn: () => Promise<T>) => Promise<T>;
   /** session_user, current_user and is_superuser as the request transaction sees them. */
   probe: (who: { userId: string; companyId: string }) => Promise<{ sessionUser: string; currentUser: string; superuser: string }>;
   close: () => Promise<void>;
+  /** This suite's login (session_user of every request transaction). */
+  login: string;
 }
 
 export async function appLoginWorld(): Promise<AppWorld> {
   const fixtureUrl = process.env.DATABASE_URL!;
-  const password = await provisionAppLogin(fixtureUrl);
+  const { role: login, password } = await provisionAppLogin(fixtureUrl);
   const url = new URL(fixtureUrl);
-  url.username = FIXTURE_LOGIN;
+  url.username = login;
   url.password = password;
   vi.stubEnv('DATABASE_URL', url.toString());
   vi.stubEnv('SERVICE_DATABASE_URL', url.toString());
@@ -149,6 +121,7 @@ export async function appLoginWorld(): Promise<AppWorld> {
   };
 
   return {
+    login,
     load: (importer) => importer(),
     run: async (who, fn) => {
       const client = await open(who);
@@ -176,7 +149,7 @@ export async function appLoginWorld(): Promise<AppWorld> {
     close: async () => {
       await (await import('@/lib/neon')).getPoolForTests().end().catch(() => undefined);
       vi.unstubAllEnvs();
-      await dropAppLogin(fixtureUrl);
+      await dropAppLogin(fixtureUrl, login);
     },
   };
 }

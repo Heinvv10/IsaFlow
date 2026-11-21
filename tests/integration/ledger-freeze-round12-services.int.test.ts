@@ -9,8 +9,8 @@ import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { appLoginWorld, FIXTURE_LOGIN, type AppWorld } from './helpers/appLoginWorld';
-import { dropFreeze, journal, negate, openApp, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
+import { appLoginWorld, type AppWorld } from './helpers/appLoginWorld';
+import { document, dropFreeze, journal, negate, openApp, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let z: Freeze;
@@ -80,8 +80,8 @@ describeIfDisposable('ledger column immutability, round 12: services as the prod
       // The merge waits for LOW's key in its up-front, sorted key statement, before it moves a line (not at COMMIT,
       // in the deferred checks, holding whichever keys its line order reached first).
       const waiting = (await sql`SELECT query FROM pg_stat_activity
-        WHERE usename = ${FIXTURE_LOGIN} AND wait_event_type = 'Lock' AND wait_event = 'advisory'`) as Row[];
-      expect(waiting.map((w) => String(w.query))).toEqual([expect.stringMatching(/SELECT pg_advisory_xact_lock\(public\.ledger_link_key\(j\.id\)\)/)]);
+        WHERE usename = ${world.login} AND wait_event_type = 'Lock' AND wait_event = 'advisory'`) as Row[];
+      expect(waiting.map((w) => String(w.query))).toEqual([expect.stringMatching(/SELECT public\.ledger_lock_key\(j\.id\)/)]);
       const second = settle(link.query('SELECT pg_advisory_xact_lock(public.ledger_link_key($1))', [high]));
       expect(await second).toBe('ACCEPTED');
       await link.query('COMMIT');
@@ -90,11 +90,32 @@ describeIfDisposable('ledger column immutability, round 12: services as the prod
     expect((await one(sql`SELECT count(*)::int AS n FROM gl_journal_lines WHERE gl_account_id = ${target}::UUID`)).n).toBe(2);
   }, 60000);
 
-  it('L2 closing the world drops the fixture login and its stored password', async () => {
+  it('N the MCP reverse dry run refuses what the write refuses: re-reversing the contra of a cancelled invoice', async () => {
+    const legs: Leg[] = [[z.ar, 100, 0], [z.revenue, 0, 100]];
+    const o = await journal(z, legs);
+    const doc = await document(z, 'customer_invoices', { link: o });
+    const r = await journal(z, negate(legs));
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${o}::UUID WHERE id = ${r}::UUID`;
+    await sql`UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = ${doc}::UUID`;
+    await sql`UPDATE gl_journal_entries SET document_cancelled_at = now() WHERE id = ${o}::UUID`; // the cancel's stamp
+    const { reverseJournalEntryTool } = await world.load(() => import('@/lib/mcp/tools/writeJournalReverse'));
+    const ctx = { userId: who.userId, companyId: who.companyId, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'r12', oauthAppId: null };
+    const reply = await world.run(who, () => reverseJournalEntryTool.handler({ journal_entry_id: r, dry_run: true, idempotency_key: randomUUID() }, ctx as never));
+    expect(JSON.stringify(reply)).toMatch(/would put the journal of a cancelled document back/);
+    expect(JSON.stringify(reply)).not.toMatch(/dryRun\W+true/);
+    // Over-strict check: a plain posted journal still previews.
+    const plain = await journal(z, legs);
+    const ok = await world.run(who, () => reverseJournalEntryTool.handler({ journal_entry_id: plain, dry_run: true, idempotency_key: randomUUID() }, ctx as never));
+    expect(JSON.stringify(ok)).toMatch(/dryRun\W+true/);
+  });
+
+  it('L2 closing the world drops the suite\'s login, and no password is stored in the cluster', async () => {
+    const login = world.login;
+    expect((await one(sql`SELECT count(*)::int AS n FROM pg_roles WHERE rolname = ${login}`)).n).toBe(1);
     await world.close();
     world = undefined as unknown as AppWorld;
     const url = process.env.DATABASE_URL!; // the fixture superuser's again, once the world is closed
-    expect((await one(sql`SELECT count(*)::int AS n FROM pg_roles WHERE rolname = ${FIXTURE_LOGIN}`)).n).toBe(0);
+    expect((await one(sql`SELECT count(*)::int AS n FROM pg_roles WHERE rolname = ${login}`)).n).toBe(0);
     const admin = new URL(url); admin.pathname = '/postgres';
     const { Client } = await import('pg');
     const c = new Client({ connectionString: admin.toString() });
