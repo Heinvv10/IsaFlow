@@ -76,7 +76,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                 <div className="truncate" title={adj.description}>{adj.description}</div>
                 {adj.mirroredDuplicateOf && (
                   <div role="note" className="mt-1 text-xs text-[var(--ff-text-primary)] border-l-2 border-amber-500/60 pl-2">
-                    <span className="mr-1 inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                    <span className="mr-1 inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold">
                       Possible duplicate
                     </span>
                     {duplicateText(adj)}
