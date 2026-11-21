@@ -69,7 +69,7 @@ describe('getMirroredEliminations', () => {
   it('a row with an account that has no group account is left out whole and logged', async () => {
     m.sql.mockResolvedValueOnce([line('t3', 50, 'revenue', 'a-rev', 50), line('t3', 50, 'expense', 'b-unmapped', 50)]).mockResolvedValueOnce(MAPPINGS);
     expect(await getMirroredEliminations(G, '2026-01-01', '2026-12-31')).toEqual([]);
-    expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/left out/), { groupId: G, transactionId: 't3' }, 'accounting');
+    expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/left out/), { groupId: G, transactionId: 't3' }, 'accounting');
   });
 
   it('nothing derived: one query, no mapping lookup', async () => {

@@ -14,14 +14,17 @@ interface Props {
 export function InboxRejectModal({ item, onClose, onDone }: Props) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // `busy` is state: a second submit in the same event batch still sees the enabled button. The ref is read at once.
+  const submitting = useRef(false);
   const [error, setError] = useState('');
   const field = useRef<HTMLTextAreaElement>(null);
   // Another message, another reason: never carry one message's text (or its error) to the next.
   useEffect(() => { setReason(''); setError(''); }, [item?.id]);
 
   async function submit() {
-    if (!item) return;
+    if (!item || submitting.current) return;
     if (reason.trim() === '') { setError('Say why you are rejecting it: the sender will read this.'); return; }
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
@@ -32,6 +35,7 @@ export function InboxRejectModal({ item, onClose, onDone }: Props) {
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not reject this message - try again'));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }

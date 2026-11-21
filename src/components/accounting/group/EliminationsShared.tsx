@@ -41,8 +41,12 @@ export interface EliminationAdjustment {
   automatic?: boolean;
   /** A draft or posted adjustment whose row now matches a live mirrored sale: the mirrored document it may be eliminating a second time. */
   mirroredDuplicateOf?: string;
-  /** For a posted one: whether that mirror is eliminated automatically (its pair stands at the period end). */
+  /** Whether that mirror is eliminated automatically (its pair stands at its later document date and today); drafts and posted rows. */
   mirrorStands?: boolean;
+  /** How many listed adjustments point at the same mirror (more than one: at most one of them can be its duplicate). */
+  mirrorShared?: number;
+  /** Why it was made by hand (required on or after a mirroring cutover). */
+  manualReason?: string;
 }
 
 export const ELIMINATION_TYPE_LABELS: Record<EliminationType, string> = {
@@ -85,5 +89,7 @@ export function toEliminationRow(raw: unknown): EliminationAdjustment {
     automatic: r.automatic === true,
     mirroredDuplicateOf: typeof r.mirroredDuplicateOf === 'string' && r.mirroredDuplicateOf ? r.mirroredDuplicateOf : undefined,
     mirrorStands: r.mirrorStands === true,
+    mirrorShared: typeof r.mirrorShared === 'number' ? r.mirrorShared : undefined,
+    manualReason: typeof r.manualReason === 'string' && r.manualReason ? r.manualReason : undefined,
   };
 }

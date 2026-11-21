@@ -95,7 +95,7 @@ export default function IntercompanyInboxPage() {
   return (
     <AppLayout>
       {notice && (
-        <div role="status" className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg border flex items-start gap-2 ${
+        <div role={notice.ok ? 'status' : 'alert'} className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg border flex items-start gap-2 ${
           notice.ok ? 'bg-emerald-900/90 border-emerald-700 text-emerald-100' : 'bg-red-900/90 border-red-700 text-red-100'}`}>
           <span className="flex-1 text-sm">{notice.msg}{notice.href && <> <Link href={notice.href} className="underline font-medium">Open the draft</Link></>}</span>
           <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button>

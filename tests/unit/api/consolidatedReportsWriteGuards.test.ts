@@ -24,6 +24,8 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => access);
 vi.mock('@/modules/accounting/services/reports/consolidatedReportingService', () => svc);
+const dupes = vi.hoisted(() => ({ cutoverRequiringReason: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock('@/modules/accounting/services/reports/eliminationDuplicates', () => dupes);
 const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
@@ -47,6 +49,7 @@ beforeEach(() => {
   access.userBelongsToGroup.mockReset().mockResolvedValue(true);
   access.userCanWriteGroup.mockReset().mockResolvedValue(true);
   groupAccounts.getGroupAccounts.mockReset().mockResolvedValue([{ id: ACCT, groupId: GROUP }]);
+  dupes.cutoverRequiringReason.mockReset().mockResolvedValue(null);
 });
 
 const VALID_CREATE = { action: 'create-elimination', adjustmentType: 'interco_revenue', description: 'x',
@@ -184,10 +187,11 @@ describe('expected refusals answer 400 / 409, not 500', () => {
   });
 
   it('posting a possible duplicate of a mirrored document → 409 naming the mirror; with confirmDuplicate the service is told so', async () => {
-    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationPossibleDuplicateError(ADJ, 'Invoice X (mirrored)'));
+    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationPossibleDuplicateError(ADJ, 'Invoice X (mirrored)', true));
     const res = await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ });
     expect(res.status).toHaveBeenCalledWith(409);
     expect(message(res)).toContain('Possibly the same sale as mirrored document Invoice X (mirrored)');
+    expect(res.json.mock.calls[0]![0].error.details).toEqual({ reason: 'possible_duplicate', mirroredRef: 'Invoice X (mirrored)', mirrorStands: true });
     svc.postEliminationAdjustment.mockResolvedValueOnce(undefined);
     await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ, confirmDuplicate: true });
     expect(svc.postEliminationAdjustment).toHaveBeenLastCalledWith(ADJ, GROUP, true);
@@ -196,5 +200,30 @@ describe('expected refusals answer 400 / 409, not 500', () => {
   it('an unexpected failure still propagates (a 500 from the error handler)', async () => {
     svc.postEliminationAdjustment.mockRejectedValue(new Error('connection reset'));
     await expect(call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ })).rejects.toThrow('connection reset');
+  });
+});
+
+// RULING 2026-11-21: on or after a mirroring pair's cutover, a hand-made elimination needs a typed reason, which is stored
+describe('create-elimination after a mirroring cutover', () => {
+  it('without a reason → 400 naming the cutover; nothing created', async () => {
+    dupes.cutoverRequiringReason.mockResolvedValue('2026-01-15');
+    const res = await call('POST', { group_id: GROUP }, VALID_CREATE);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(message(res)).toContain('eliminated by mirroring from 2026-01-15');
+    expect(dupes.cutoverRequiringReason).toHaveBeenCalledWith(GROUP, '2026-01-31');
+    expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+  });
+  it('a blank reason → 400; a typed one is trimmed and stored', async () => {
+    dupes.cutoverRequiringReason.mockResolvedValue('2026-01-15');
+    expect((await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: '   ' })).status).toHaveBeenCalledWith(400);
+    await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: '  loan interest not invoiced  ' });
+    expect(svc.createEliminationAdjustment).toHaveBeenCalledWith(GROUP, expect.objectContaining({ manualReason: 'loan interest not invoiced' }));
+  });
+  it('before any cutover no reason is needed', async () => {
+    await call('POST', { group_id: GROUP }, VALID_CREATE);
+    expect(svc.createEliminationAdjustment).toHaveBeenCalledWith(GROUP, expect.not.objectContaining({ manualReason: expect.anything() }));
+  });
+  it('a non-string reason → 400', async () => {
+    expect((await call('POST', { group_id: GROUP }, { ...VALID_CREATE, manualReason: 5 })).status).toHaveBeenCalledWith(400);
   });
 });

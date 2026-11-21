@@ -30,12 +30,16 @@ interface Props {
   onAddLine: () => void;
   onRemoveLine: (idx: number) => void;
   onUpdateLine: (idx: number, field: keyof EliminationLine, value: string | number) => void;
+  /** Why this elimination is made by hand (RULING 2026-11-21): required when `reasonRequiredFrom` is set (the group's mirroring cutover). */
+  formReason: string;
+  onReasonChange: (v: string) => void;
+  reasonRequiredFrom: string | null;
 }
 
 export function EliminationsCreateModal({
   formType, formDescription, formPeriod, formLines, formError, formSaving,
   onClose, onSubmit, onTypeChange, onDescriptionChange, onPeriodChange,
-  onAddLine, onRemoveLine, onUpdateLine,
+  onAddLine, onRemoveLine, onUpdateLine, formReason, onReasonChange, reasonRequiredFrom,
 }: Props) {
   const dateGate = useDateGate();
   const totalDebit = formLines.reduce((s, l) => s + Number(l.debit || 0), 0);
@@ -92,6 +96,19 @@ export function EliminationsCreateModal({
               required
             />
           </div>
+
+          {reasonRequiredFrom && (
+            <div>
+              <label htmlFor="elimination-manual-reason" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">
+                Reason for a manual elimination (required)
+              </label>
+              <input id="elimination-manual-reason" type="text" value={formReason} onChange={(e) => onReasonChange(e.target.value)} required minLength={5} maxLength={500}
+                aria-describedby="elimination-manual-reason-help" className={inputClass + ' w-full'} />
+              <p id="elimination-manual-reason-help" className="mt-1 text-xs text-[var(--ff-text-secondary)]">
+                From {reasonRequiredFrom} this group&apos;s intercompany invoices and credit notes are eliminated by mirroring. Say why this one is made by hand.
+              </p>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">

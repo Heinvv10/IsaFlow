@@ -37,6 +37,18 @@ for group companies and for external companies that run their own IsaFlow tenant
 10. Duplicate protection: one message per (from company, source doc type, source doc id, kind) — DB
     unique — plus the normal supplier + invoice-number duplicate check on the receiver.
 
+**RULING 2026-11-21 (Hein):** per-pair cutover. A company pair's cutover is the date from which both
+companies of the pair have mirroring switched on: the latest of the connection's cut-over date and the
+two sides' `mirroring_since` (set by the database when a side's customer and supplier links are both
+set; cleared when either is removed). From that date the manual P1 elimination generator never drafts
+an elimination for the pair's sale-class rows (sale, purchase, mgmt_fee; both directions): it skips
+them and the run lists them "eliminated by mirroring". A hand-made (`create-elimination`) adjustment
+dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and
+stored (`consolidation_adjustments.manual_reason`); it names no companies, so any cutover of the group
+on or before its date counts. Before the cutover nothing changes: a manual row can still overlap a
+mirror (a document dated after the cut-over date but approved once both sides were on is mirrored), so
+the duplicate flag, the list's badge and the post confirm stay for those rows.
+
 ## Existing code we build on (surveyed on origin/master 43f99f41ca)
 
 - `approveCustomerInvoice` (`services/ar/customerInvoiceApprovalService.ts`) — finalise; seals a PDF

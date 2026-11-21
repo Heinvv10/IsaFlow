@@ -3,7 +3,7 @@
  * each line (the one used last time for that description, else this connection's default; change any), and whatever blocks Accept.
  * Accepting creates a DRAFT only; nothing is approved or posted.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
@@ -25,6 +25,8 @@ export function InboxReviewModal({ item, canWrite, onClose, onReject, onAccepted
   const [loadError, setLoadError] = useState('');
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
+  // `busy` is state: a second click in the same event batch still sees the enabled button. The ref is read at once.
+  const submitting = useRef(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -42,7 +44,8 @@ export function InboxReviewModal({ item, canWrite, onClose, onReject, onAccepted
   const blocked = !detail || detail.blockers.length > 0 || missing;
 
   async function accept() {
-    if (!item || !detail) return;
+    if (!item || !detail || submitting.current) return;
+    submitting.current = true;
     setBusy(true); setError('');
     try {
       const body = isNote ? { accountId: chosen[0] } : { lineAccounts: chosen };
@@ -52,6 +55,7 @@ export function InboxReviewModal({ item, canWrite, onClose, onReject, onAccepted
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not accept this message - try again'));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }

@@ -116,10 +116,13 @@ export default function SupplierInvoicesPage() {
   }, []);
 
   // The Intercompany tab (P2): shown only for a company that has an intercompany connection; its badge counts what needs a person.
+  // `live` drops an answer that arrives after this effect run was cleaned up (unmount, or a remount's newer run).
   useEffect(() => {
+    let live = true;
     apiJson('/api/accounting/intercompany/inbox-count', undefined, 'Could not load the intercompany count')
-      .then((s) => setIntercompany(s.enabled ? { count: s.openCount, active: false } : null))
+      .then((s) => { if (live) setIntercompany(s.enabled ? { count: s.openCount, active: false } : null); })
       .catch((err: unknown) => log.warn('Failed to load the intercompany inbox count', { error: err }, 'supplier-invoices'));
+    return () => { live = false; };
   }, []);
 
   useEffect(() => { if (hydrated) void loadInvoices(); }, [hydrated, loadInvoices]);

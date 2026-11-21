@@ -50,10 +50,13 @@ export function StatusTabs({ active, counts, onChange, intercompany }: Props) {
         >
           <span>Intercompany</span>
           {intercompany.count > 0 && (
-            <span data-testid="intercompany-badge" aria-label={`${intercompany.count} waiting`}
-              className={`text-xs tabular-nums px-1.5 py-0.5 rounded ${intercompany.active ? 'bg-brand-800 text-white' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'}`}>
-              {intercompany.count}
-            </span>
+            <>
+              <span data-testid="intercompany-badge" aria-hidden="true"
+                className={`text-xs tabular-nums px-1.5 py-0.5 rounded ${intercompany.active ? 'bg-brand-800 text-white' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'}`}>
+                {intercompany.count}
+              </span>
+              <span className="sr-only"> ({intercompany.count} waiting)</span>
+            </>
           )}
         </Link>
       )}

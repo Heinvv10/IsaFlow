@@ -8,7 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { getMirroredEliminations, mirroredLinesReachBalanceSheet } from './mirrorEliminations';
+import { getMirroredEliminations, mirroredLinesReachBalanceSheet, type DroppedMirroredElimination } from './mirrorEliminations';
 
 type Row = DbRow;
 
@@ -161,10 +161,10 @@ const asLines = (m: Awaited<ReturnType<typeof getMirroredEliminations>>): Elimin
  * group accounts only (the balance sheet), so the derived ones are read only when one can land there (mirroredLinesReachBalanceSheet).
  */
 export async function getPostedEliminations(
-  groupId: string, periodStart: string, periodEnd: string, opts: { balanceSheetOnly?: boolean } = {},
+  groupId: string, periodStart: string, periodEnd: string, opts: { balanceSheetOnly?: boolean; dropped?: DroppedMirroredElimination[] } = {},
 ): Promise<EliminationLineWithAccount[]> {
   const derive = !opts.balanceSheetOnly || await mirroredLinesReachBalanceSheet(groupId);
-  return [...await storedEliminations(groupId, periodStart, periodEnd), ...(derive ? asLines(await getMirroredEliminations(groupId, periodStart, periodEnd)) : [])];
+  return [...await storedEliminations(groupId, periodStart, periodEnd), ...(derive ? asLines(await getMirroredEliminations(groupId, periodStart, periodEnd, opts.dropped)) : [])];
 }
 
 /**
@@ -174,14 +174,15 @@ export async function getPostedEliminations(
  * events dated in the period (an event's netting depends on the window, so neither is a filter of the other).
  */
 export async function getPostedEliminationsSplit(
-  groupId: string, periodStart: string, periodEnd: string, inception: string,
+  groupId: string, periodStart: string, periodEnd: string, inception: string, dropped?: DroppedMirroredElimination[],
 ): Promise<{ cumulative: EliminationLineWithAccount[]; inRange: EliminationLineWithAccount[] }> {
   // the cumulative window is read for balance-sheet group accounts only: derived lines reach one only through an odd mapping, so the
   // inception-to-end derivation (the group's whole mirrored history) runs only then
   const reachBalanceSheet = await mirroredLinesReachBalanceSheet(groupId);
   const [storedAll, storedRange, mirroredAll, mirroredRange] = await Promise.all([
     storedEliminations(groupId, inception, periodEnd), storedEliminations(groupId, periodStart, periodEnd),
-    reachBalanceSheet ? getMirroredEliminations(groupId, inception, periodEnd) : Promise.resolve([]), getMirroredEliminations(groupId, periodStart, periodEnd),
+    // (what the in-period derivation could not apply is what the page reports: the cumulative one repeats the same rows)
+    reachBalanceSheet ? getMirroredEliminations(groupId, inception, periodEnd) : Promise.resolve([]), getMirroredEliminations(groupId, periodStart, periodEnd, dropped),
   ]);
   return {
     cumulative: [...storedAll, ...asLines(mirroredAll)],

@@ -91,8 +91,10 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
 
   it.each([
     ['posted, the mirror eliminated automatically', { status: 'posted', mirrorStands: true }, /Posted, and possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\).*reverse this one if so/],
-    ['posted, the mirror NOT eliminated', { status: 'posted', mirrorStands: false }, /not currently eliminated; do not reverse this one/],
-    ['a draft', { status: 'draft' }, /Possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\).*check before posting/],
+    ['posted, the mirror NOT eliminated', { status: 'posted', mirrorStands: false }, /NOT eliminated automatically at the moment.*this may be its only elimination/],
+    ['a draft, the mirror eliminated', { status: 'draft', mirrorStands: true }, /Possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\), which is eliminated automatically: check before posting/],
+    ['a draft, the mirror NOT eliminated (a cut-off sale)', { status: 'draft', mirrorStands: false }, /NOT eliminated automatically at the moment.*this may be its only elimination/],
+    ['two posted rows share the mirror', { status: 'posted', mirrorStands: true, mirrorShared: 2 }, /2 listed eliminations point at this mirror: at most one of them can be its duplicate\. Check which, and reverse that one only/],
   ])('%s: a "Possible duplicate" badge and the right advice', async (_n, o, text) => {
     serve(ok([]), [adj(o)]);
     render(<EliminationsPage />);
@@ -103,7 +105,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
 
   it('Post on a possible-duplicate draft asks first; Post anyway sends confirmDuplicate', async () => {
     const posts: unknown[] = [];
-    serve(() => new Response(JSON.stringify({ success: true, data: { posted: true } }), { status: 200 }), [adj({ status: 'draft', id: '70000000-0000-4000-8000-000000000007' })]);
+    serve(() => new Response(JSON.stringify({ success: true, data: { posted: true } }), { status: 200 }), [adj({ status: 'draft', mirrorStands: true, id: '70000000-0000-4000-8000-000000000007' })]);
     const inner = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation(async (url, init) => { if (init?.method === 'POST') posts.push(JSON.parse(String(init.body))); return inner(url, init); });
     render(<EliminationsPage />);

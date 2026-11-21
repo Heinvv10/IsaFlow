@@ -39,6 +39,15 @@ export interface MirroredElimination {
 
 interface GroupAccount { id: string; code: string; name: string; type: string; subtype: string }
 
+/**
+ * A mirrored row's elimination event that could NOT be applied: one of its accounts has no group account mapped, so the group figures keep that
+ * intercompany revenue / expense. The reports and the eliminations page show these (the mirror is automatic: nobody would see it otherwise).
+ */
+export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number }
+
+/** Money to cents, as the consolidated reports round (the derived lines are summed by the reports, so each is rounded here once). */
+const cents = (n: number): number => Math.round(n * 100) / 100;
+
 const dateText = (d: unknown): string => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d ?? '').slice(0, 10));
 
 /** Every company account mapped to a group account of this group, in one query: `company:account` -> its group account. */
@@ -52,8 +61,13 @@ async function loadMappings(groupId: string): Promise<Map<string, GroupAccount>>
     { id: String(r.id), code: String(r.account_code), name: String(r.account_name), type: String(r.account_type ?? ''), subtype: String(r.account_subtype ?? '') }]));
 }
 
-/** The mirrored documents' elimination events dated in [periodStart, periodEnd]. A row with an account that has no group account is logged and left out whole (as the manual generator does). */
-export async function getMirroredEliminations(groupId: string, periodStart: string, periodEnd: string): Promise<MirroredElimination[]> {
+/**
+ * The mirrored documents' elimination events dated in [periodStart, periodEnd]. An event with an account that has no group account is left out
+ * whole (half an elimination would unbalance the group) and reported: logged at ERROR and, when `dropped` is given, pushed there for the page.
+ */
+export async function getMirroredEliminations(
+  groupId: string, periodStart: string, periodEnd: string, dropped?: DroppedMirroredElimination[],
+): Promise<MirroredElimination[]> {
   const rows = (await sql`
     SELECT transaction_id, source_company_id, target_company_id, amount, key_date, description, side, gl_account_id, net, receiver_journal_id, kind
       FROM public.intercompany_mirror_eliminations(${groupId}::UUID, ${periodStart}::DATE, ${periodEnd}::DATE)
@@ -70,7 +84,7 @@ export async function getMirroredEliminations(groupId: string, periodStart: stri
     if (!e) {
       const keyDate = dateText(r.key_date);
       e = { transactionId: id, receiverJournalId: String(r.receiver_journal_id), kind, keyDate, skip: false, lines: [],
-            amount: kind === 'reverse' ? -Number(r.amount) : Number(r.amount),
+            amount: cents(kind === 'reverse' ? -Number(r.amount) : Number(r.amount)),
             description: kind === 'reverse'
               ? `${MIRRORED_REVERSAL_LABEL} - ${String(r.description ?? '')} (no longer standing from ${keyDate})`.trim()
               : `${MIRRORED_LABEL} - ${String(r.description ?? '')}`.trim() };
@@ -79,7 +93,7 @@ export async function getMirroredEliminations(groupId: string, periodStart: stri
     const revenue = String(r.side) === 'revenue';
     const ga = mappings.get(`${String(revenue ? r.source_company_id : r.target_company_id)}:${String(r.gl_account_id)}`);
     if (!ga) { e.skip = true; continue; }
-    const net = Number(r.net);
+    const net = cents(Number(r.net));
     // revenue: debited by what the sender booked as revenue; expense: credited by what the receiver booked as expense (a credit note, or a
     // counter-elimination, whose net the database has already negated: swapped)
     const debit = revenue ? Math.max(net, 0) : Math.max(-net, 0);
@@ -89,8 +103,10 @@ export async function getMirroredEliminations(groupId: string, periodStart: stri
   }
   const out: MirroredElimination[] = [];
   for (const { skip, ...e } of byRow.values()) {
-    if (skip) log.warn('Mirrored elimination left out: an account has no group account mapped', { groupId, transactionId: e.transactionId }, 'accounting');
-    else out.push(e);
+    if (skip) {
+      log.error('Mirrored elimination left out: an account has no group account mapped', { groupId, transactionId: e.transactionId }, 'accounting');
+      dropped?.push({ transactionId: e.transactionId, keyDate: e.keyDate, description: e.description, amount: e.amount });
+    } else out.push(e);
   }
   return out;
 }

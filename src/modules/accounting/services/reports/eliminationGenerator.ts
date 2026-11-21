@@ -10,6 +10,7 @@ import type { DbRow } from '@/types/db';
 import { createEliminationAdjustment } from './consolidatedReportingService';
 import type { ConsolidationAdjustment, CreateEliminationInput, EliminationLine } from './consolidatedReportingService';
 import { EliminationAlreadyStandsError } from './eliminationErrors';
+import { getPairCutovers, pairCutover } from './eliminationDuplicates';
 
 async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
   const rows = (await sql`
@@ -51,9 +52,17 @@ async function createUnlessStanding(created: ConsolidationAdjustment[], groupId:
  */
 export interface FlaggedEliminationRow { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
 
-/** `flagged`, when given, receives the eliminations this run drafted with a flag, with why. */
+/**
+ * A row this run did NOT draft because its pair mirrors (RULING 2026-11-21: a sale-class row of a mirroring pair dated on or after the pair's
+ * cutover): the pair's documents are eliminated by mirroring.
+ */
+export interface SkippedEliminationRow { transactionId: string; reason: string; cutover: string }
+export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
+const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
+
+/** `flagged`, when given, receives the eliminations this run drafted with a flag, with why; `skipped` the rows it left to mirroring. */
 export async function autoGenerateEliminations(
-  groupId: string, periodStart: string, periodEnd: string, flagged: FlaggedEliminationRow[] = [],
+  groupId: string, periodStart: string, periodEnd: string, flagged: FlaggedEliminationRow[] = [], skipped: SkippedEliminationRow[] = [],
 ): Promise<ConsolidationAdjustment[]> {
   try {
     // Two runs for one group are serialised (the request transaction holds this to commit), so the per-row skip below sees the other run's rows
@@ -67,7 +76,7 @@ export async function autoGenerateEliminations(
     if (held.length === 0) throw new Error('autoGenerateEliminations must run inside a transaction (its per-group advisory lock is transaction-scoped)');
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description, dup.mirror_row, dup.mirror_ref
+             ict.transaction_type, ict.amount, ict.description, ict.transaction_date::TEXT AS td, dup.mirror_rows, dup.mirror_ref
       FROM intercompany_transactions ict
       LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ict.id) dup ON true
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
@@ -76,11 +85,18 @@ export async function autoGenerateEliminations(
     `) as DbRow[];
 
     const created: ConsolidationAdjustment[] = [];
+    const cutovers = await getPairCutovers(groupId);
 
     for (const tx of icTxRows) {
-      // A manual (P1) row that may be the same sale as a mirrored document is drafted as always, never skipped (a skip judged once, here, could
+      // RULING 2026-11-21: from the pair's cutover its sales (either direction, sale / purchase / mgmt_fee) are eliminated by mirroring only
+      const cutover = pairCutover(cutovers, String(tx.source_company_id), String(tx.target_company_id));
+      if (cutover && SALE_TYPES.has(String(tx.transaction_type)) && String(tx.td) >= cutover) {
+        skipped.push({ transactionId: String(tx.id), reason: ELIMINATED_BY_MIRRORING, cutover });
+        continue;
+      }
+      // Before the cutover, a manual (P1) row that may be the same sale as a mirrored document is drafted, never skipped (a skip judged once could
       // not follow the mirror accepted, withdrawn or booked in another month later), and marked for the person who posts it.
-      const mirroredRef = tx.mirror_row ? String(tx.mirror_ref ?? tx.mirror_row) : '';
+      const mirroredRef = tx.mirror_rows ? String(tx.mirror_ref) : '';
       // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are serialised by
       // the lock above; where 1019 could build the partial unique index on consolidation_adjustments(source_intercompany_id), a duplicate insert
       // is also refused there (23505, mapped to EliminationAlreadyStandsError) and skipped.
@@ -94,7 +110,7 @@ export async function autoGenerateEliminations(
       const tgtId = String(tx.target_company_id);
       const desc = `${mirroredRef ? `CHECK BEFORE POSTING: possibly the same sale as mirrored document ${mirroredRef} - ` : ''}${String(tx.description ?? '')}`;
       const flag = (made: ConsolidationAdjustment | null) => {
-        if (made && mirroredRef) flagged.push({ transactionId: String(tx.id), adjustmentId: made.id, mirroredRef, reason: `possibly the same sale as mirrored document ${mirroredRef} (same companies, direction, amount and date): posting it would eliminate the sale twice` });
+        if (made && mirroredRef) flagged.push({ transactionId: String(tx.id), adjustmentId: made.id, mirroredRef, reason: `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date): posting it would eliminate the sale twice` });
       };
 
       if (txType === 'sale' || txType === 'purchase' || txType === 'mgmt_fee') {
@@ -120,7 +136,7 @@ export async function autoGenerateEliminations(
       }
     }
 
-    log.info('Auto-generated elimination adjustments', { groupId, count: created.length, flagged: flagged.length }, 'accounting');
+    log.info('Auto-generated elimination adjustments', { groupId, count: created.length, flagged: flagged.length, skipped: skipped.length }, 'accounting');
     return created;
   } catch (err) {
     log.error('Failed to auto-generate eliminations', { groupId, error: err }, 'accounting');

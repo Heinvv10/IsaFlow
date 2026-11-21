@@ -54,6 +54,7 @@ import {
   type EntityBalance,
   type MappingEntry,
 } from './consolidatedTrialBalanceService';
+import type { DroppedMirroredElimination } from './mirrorEliminations';
 
 /** The earliest date the ledger can hold — "since inception" for a range query. */
 const INCEPTION = '1900-01-01';
@@ -112,6 +113,8 @@ export interface ConsolidatedTrialBalance {
    * cover different windows and are not additive without adjustment.
    */
   coterminous: boolean;
+  /** Mirrored eliminations in the period that could not be applied (an account with no group account mapped): the figures keep them. */
+  droppedMirrored: DroppedMirroredElimination[];
 }
 
 function blankRow(
@@ -147,9 +150,9 @@ function addEntityNet(row: ConsolidatedTrialBalanceRow, companyId: string, net: 
 /** plStart: where the members' income-statement columns start (their fiscal year start), so P&L eliminations cover the same window. */
 async function applyEliminations(
   accountMap: Map<string, ConsolidatedTrialBalanceRow>,
-  groupId: string, plStart: string, periodEnd: string,
+  groupId: string, plStart: string, periodEnd: string, dropped: DroppedMirroredElimination[],
 ): Promise<void> {
-  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, plStart, periodEnd, INCEPTION);
+  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, plStart, periodEnd, INCEPTION, dropped);
   const applicable = [
     ...cumulative.filter(e => BALANCE_SHEET_TYPES.has(e.groupAccountType)),
     ...inRange.filter(e => !BALANCE_SHEET_TYPES.has(e.groupAccountType)),
@@ -228,7 +231,8 @@ export async function getConsolidatedTrialBalance(
     }
 
     const starts = Object.values(fiscalYearStarts).sort();
-    await applyEliminations(accountMap, groupId, starts[0] ?? periodStart, periodEnd);
+    const droppedMirrored: DroppedMirroredElimination[] = [];
+    await applyEliminations(accountMap, groupId, starts[0] ?? periodStart, periodEnd, droppedMirrored);
 
     const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
     const totals: ConsolidatedTrialBalanceTotals = {
@@ -278,6 +282,7 @@ export async function getConsolidatedTrialBalance(
       entityNames,
       fiscalYearStarts,
       coterminous: years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5)),
+      droppedMirrored,
     };
   } catch (err) {
     log.error('Failed to generate consolidated trial balance', { groupId, error: err }, 'accounting');

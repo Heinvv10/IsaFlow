@@ -10,16 +10,10 @@ import { log } from '@/lib/logger';
 import { ConnectionRefusal } from './connectionTypes';
 import { loadInboxRow } from './inboxRead';
 
-const REASON_MAX = 2000;
+// checkReason lives in inboxValidation (pure, no database import); re-exported so existing callers keep working.
+export { checkReason } from './inboxValidation';
 
 type Row = Record<string, unknown>;
-
-/** A reason the sender will read: required, trimmed, bounded. Returns the reason or a sentence saying what is wrong. */
-export function checkReason(reason: unknown): { ok: true; reason: string } | { ok: false; error: string } {
-  if (typeof reason !== 'string' || reason.trim() === '') return { ok: false, error: 'A reason is required to reject a message' };
-  if (reason.trim().length > REASON_MAX) return { ok: false, error: `The reason is too long (at most ${REASON_MAX} characters)` };
-  return { ok: true, reason: reason.trim() };
-}
 
 /** The database's refusal of a guarded change, as a sentence: 42501 a role, 23514 the message's or connection's state. */
 function refusalOf(err: unknown): ConnectionRefusal | null {

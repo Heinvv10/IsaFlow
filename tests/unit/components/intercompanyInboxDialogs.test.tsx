@@ -1,6 +1,6 @@
 // Bills > Intercompany inbox: the list and its dialogs keep to the message in front of them (an emptied page, a filter switch, a stale
 // answer, the reject dialog between messages, a credit note's one account).
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -109,3 +109,46 @@ describe('the list and its dialogs keep to the message in front of them', () => 
     expect([...select.options].map((o) => o.value)).toContain('acc-1');
   });
 });
+
+describe('a double submit sends one request', () => {
+  /** A POST held open, so the first submit is still in flight when the second arrives. */
+  const slowPost = () => { let release: (r: Response) => void = () => undefined; const held = new Promise<Response>((r) => { release = r; }); return { held, release }; };
+
+  it('Accept: two clicks in the same event batch (before React re-renders the disabled button) post once', async () => {
+    const slow = slowPost();
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
+      const u = String(url);
+      if ((init as RequestInit | undefined)?.method === 'POST') return slow.held;
+      if (u.includes('/inbox?')) return envelope({ items: [item()], total: 1, openCount: 1 });
+      return envelope(detail());
+    });
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    await screen.findByText('Draft goes on supplier');
+    fireEvent.change(screen.getByLabelText('Account for line 2'), { target: { value: 'acc-2' } });
+    const accept = screen.getByRole('button', { name: 'Accept as draft' });
+    act(() => { fireEvent.click(accept); fireEvent.click(accept); });
+    expect(posts()).toHaveLength(1);
+    await act(async () => { slow.release(envelope({ messageId: 'm-1', targetDocType: 'supplier_invoice', targetDocId: 'bill-1', linkId: 'l-1', pdfCopied: true })); });
+    await screen.findByText(/Accepted INV-100 as a draft/);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it('Reject: two submits in the same event batch post once', async () => {
+    const slow = slowPost();
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
+      if ((init as RequestInit | undefined)?.method === 'POST') return slow.held;
+      return String(url).includes('/inbox?') ? envelope({ items: [item()], total: 1, openCount: 1 }) : envelope(detail());
+    });
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+    fireEvent.change(await screen.findByLabelText(/Reason/), { target: { value: 'Not ours' } });
+    const submit = screen.getByRole('button', { name: 'Reject message' });
+    act(() => { fireEvent.click(submit); fireEvent.click(submit); });
+    expect(posts()).toHaveLength(1);
+    await act(async () => { slow.release(envelope({})); });
+    await screen.findByText(/Rejected INV-100/);
+    expect(posts()).toHaveLength(1);
+  });
+});
+

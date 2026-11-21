@@ -195,7 +195,7 @@ describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () 
 
     const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
     expect(getPostedEliminationsSplit).toHaveBeenCalledTimes(1);   // one derived read per report
-    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, PERIOD_START, PERIOD_END, '1900-01-01');
+    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, PERIOD_START, PERIOD_END, '1900-01-01', []);
 
     const bank = tb.groupAccounts.find(a => a.groupAccountId === GROUP_BANK)!;
     expect(bank.eliminationCredit).toBe(500);   // cumulative, not the 111 in-range figure
@@ -207,7 +207,15 @@ describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () 
     primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
     const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
     expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
-    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, '2025-03-01', '2025-06-30', '1900-01-01');
+    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, '2025-03-01', '2025-06-30', '1900-01-01', []);
+  });
+
+  it('R13 quality M2: the mirrored eliminations the derivation could not apply (unmapped account) are returned for the page', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    const gone = { transactionId: 't9', keyDate: '2025-06-10', description: 'Automatic: mirrored intercompany documents - Invoice 9', amount: 750 };
+    getPostedEliminationsSplit.mockImplementation(async (...a: unknown[]) => { (a[4] as unknown[]).push(gone); return { cumulative: [], inRange: [] }; });
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
+    expect(tb.droppedMirrored).toEqual([gone]);
   });
 });
 

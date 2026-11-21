@@ -37,12 +37,20 @@ export class EliminationAlreadyStandsError extends Error {
 }
 
 /**
- * Posting a draft whose row may be the same sale as a live mirrored document (409): posting it would eliminate the sale twice. The person
- * confirms to post it anyway.
+ * Posting a draft whose row may be the same sale as a live mirrored document (409). The message says what is true: when the mirror is
+ * eliminated automatically, posting this would eliminate the sale twice; when it is not (booked by the receiver in another financial year,
+ * not approved, or reversed), this may be the sale's only elimination. Either way the person confirms to post it.
  */
 export class EliminationPossibleDuplicateError extends Error {
-  constructor(readonly adjustmentId: string, readonly mirroredRef: string) {
-    super(`Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`);
+  constructor(readonly adjustmentId: string, readonly mirroredRef: string, readonly mirrorStands: boolean) {
+    super(possibleDuplicateMessage(mirroredRef, mirrorStands));
     this.name = 'EliminationPossibleDuplicateError';
   }
+}
+
+/** The one wording of a possible duplicate (the 409 and the page's confirm both use it). */
+export function possibleDuplicateMessage(mirroredRef: string, mirrorStands: boolean): string {
+  return mirrorStands
+    ? `Possibly the same sale as mirrored document ${mirroredRef}, which is eliminated automatically: posting this would eliminate the sale twice. Confirm to post it anyway.`
+    : `Possibly the same sale as mirrored document ${mirroredRef}, which is NOT eliminated automatically at the moment (booked by the receiver in another financial year, not approved yet, or reversed): this may be the sale's only elimination. If the receiver books it in the same financial year later, the two would eliminate it twice. Confirm to post it.`;
 }

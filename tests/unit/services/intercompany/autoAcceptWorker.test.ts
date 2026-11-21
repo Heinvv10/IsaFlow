@@ -19,7 +19,7 @@ vi.mock('@/modules/accounting/services/intercompany/acceptService', () => ({ acc
 vi.mock('@/modules/accounting/services/intercompany/handleService', () => ({ markMessageFailed: m.failed }));
 vi.mock('@/modules/accounting/services/intercompany/receiverTx', () => ({ withReceiverTx: m.tx }));
 
-import { GENERIC, STUCK_AT, runAutoAccept } from '@/modules/accounting/services/intercompany/autoAcceptWorker';
+import { AUTO_ACCEPT_BUDGET_MS, GENERIC, STUCK_AT, runAutoAccept } from '@/modules/accounting/services/intercompany/autoAcceptWorker';
 import { ConnectionRefusal } from '@/modules/accounting/services/intercompany/connectionTypes';
 
 const queueRow = (attempt: number, id = 'm1') => ({ message_id: id, to_company_id: 'co-b', actor_user_id: 'u1', attempt });
@@ -110,5 +110,37 @@ describe('runAutoAccept', () => {
 
   it('the generic sentence names nothing', () => {
     expect(GENERIC).toBe('Could not create the draft; the receiving company must review it.');
+  });
+
+  describe('the time budget (the timer\'s curl gives up at 300 s)', () => {
+    /** A clock that moves `step` ms each time the worker reads it. */
+    const clock = (step: number) => { let t = 0; return () => { const now = t; t += step; return now; }; };
+
+    it('stops starting messages once the budget is spent; the rest are deferred to the next run and logged', async () => {
+      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b'), queueRow(1, 'c'), queueRow(1, 'd')]);
+      // reads: start (0), before a (40 s), before b (80 s), before c (120 s): over a 100 s budget
+      const run = await runAutoAccept(50, { budgetMs: 100_000, now: clock(40_000) });
+      expect(m.accept.mock.calls.map((c) => c[2])).toEqual(['a', 'b']);
+      expect(run).toMatchObject({ considered: 4, accepted: 2, deferred: 2 });
+      expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/time budget/), expect.objectContaining({ processed: 2, remaining: 2 }), 'intercompany');
+    });
+
+    it('still reports the messages that used every attempt after stopping early', async () => {
+      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b')]).mockResolvedValueOnce([{ message_id: 'x1' }]);
+      const run = await runAutoAccept(50, { budgetMs: 10, now: clock(60_000) });
+      expect(m.accept).not.toHaveBeenCalled();
+      expect(run).toMatchObject({ considered: 2, accepted: 0, deferred: 2, exhausted: 1, stuck: 1 });
+    });
+
+    it('a run inside the budget processes everything and logs no budget warning', async () => {
+      m.sql.mockResolvedValueOnce([queueRow(1, 'a'), queueRow(1, 'b')]);
+      const run = await runAutoAccept(50, { budgetMs: 100_000, now: clock(1) });
+      expect(run).toMatchObject({ considered: 2, accepted: 2, deferred: 0 });
+      expect(m.log.warn).not.toHaveBeenCalledWith(expect.stringMatching(/time budget/), expect.anything(), 'intercompany');
+    });
+
+    it('the default budget is well under the 300 s the timer waits', () => {
+      expect(AUTO_ACCEPT_BUDGET_MS).toBeLessThanOrEqual(240_000);
+    });
   });
 });

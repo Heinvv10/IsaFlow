@@ -19,6 +19,10 @@
  * ONE MESSAGE, ONE TRANSACTION. A refusal (no supplier linked, a duplicate number, foreign currency, an unreadable payload) marks
  * the message `failed` with a plain sentence, in its own transaction, so it is not retried every run and a person sees why
  * (Accept in the inbox retries it by hand). A transient lock or serialisation fault leaves it pending for the next run.
+ *
+ * TIME BUDGET. The timer's curl gives up at 300 s, and a message may wait up to 60 s on a statement. So no new message is started once
+ * AUTO_ACCEPT_BUDGET_MS has passed: the rest are counted as deferred and wait for the next run. They were already claimed (the queue's
+ * fairness rule, at most 10 per receiver per run, is per claim), so each of them has used one attempt and backs off for a minute.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -44,16 +48,35 @@ export const STUCK_AT = 4;
  */
 export const GENERIC = 'Could not create the draft; the receiving company must review it.';
 
+/** No new message is started after this long. Comfortably under the timer's 300 s `curl --max-time`, which leaves room for the one in flight. */
+export const AUTO_ACCEPT_BUDGET_MS = 200_000;
+
 type Row = Record<string, unknown>;
 
-export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
+export interface AutoAcceptOptions {
+  /** How long a run may keep starting messages. */
+  budgetMs?: number;
+  /** The clock, in ms (injected by tests). */
+  now?: () => number;
+}
+
+export async function runAutoAccept(limit = 50, opts: AutoAcceptOptions = {}): Promise<AutoAcceptRun> {
+  const now = opts.now ?? Date.now;
+  const budgetMs = opts.budgetMs ?? AUTO_ACCEPT_BUDGET_MS;
+  const startedAt = now();
   // The service login, in its own autocommit statement: the claim (an attempt stamp) is committed before any message is touched.
   const queue = (await sql`
     SELECT message_id, to_company_id, actor_user_id, attempt FROM public.intercompany_auto_accept_queue(${limit}::INT, true)
   `) as Row[];
   const run: AutoAcceptRun = { considered: queue.length, accepted: 0, failed: 0, deferred: 0, stuck: 0, exhausted: 0 };
   const stuckIds = new Set<string>();
-  for (const q of queue) {
+  for (const [index, q] of queue.entries()) {
+    if (now() - startedAt >= budgetMs) {
+      const remaining = queue.length - index;
+      run.deferred += remaining;
+      log.warn('Intercompany auto-accept stopped at its time budget; the rest wait for the next run', { processed: index, remaining, budgetMs }, 'intercompany');
+      break;
+    }
     const principal = { userId: String(q.actor_user_id), companyId: String(q.to_company_id) };
     const messageId = String(q.message_id);
     try {

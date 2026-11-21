@@ -22,4 +22,11 @@ describe('the Intercompany tab on the Bills strip', () => {
     render(<StatusTabs active={null} counts={{}} onChange={() => undefined} intercompany={{ count: 0, active: true }} />);
     expect(screen.getByTestId('intercompany-tab')).toHaveAttribute('aria-current', 'page');
   });
+
+  it('announces the count to a screen reader as text in the link, not as an aria-label on a bare span', () => {
+    render(<StatusTabs active="all" counts={{}} onChange={() => undefined} intercompany={{ count: 3, active: false }} />);
+    expect(screen.getByRole('link', { name: /Intercompany.*3 waiting/ })).toBe(screen.getByTestId('intercompany-tab'));
+    expect(screen.getByTestId('intercompany-tab')).toHaveTextContent('(3 waiting)'); // real text, which every screen reader reads
+    expect(screen.getByTestId('intercompany-badge')).toHaveAttribute('aria-hidden', 'true'); // the visual number is not read twice
+  });
 });

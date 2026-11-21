@@ -9,12 +9,13 @@ import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
-import { getMirroredEliminations } from './mirrorEliminations';
+import { getMirroredEliminations, type DroppedMirroredElimination } from './mirrorEliminations';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { EliminationAlreadyStandsError, EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { storedEliminationRows } from './eliminationDuplicates';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ export { getConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export type { ConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export { getConsolidatedIncomeStatement, getConsolidatedBalanceSheet } from './consolidatedStatementsService';
 export { autoGenerateEliminations } from './eliminationGenerator';
+export { postEliminationAdjustment } from './eliminationDuplicates';
 export type { ConsolidatedIncomeStatement, ConsolidatedBalanceSheet } from './consolidatedStatementsService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -46,17 +48,21 @@ export interface ConsolidationAdjustment {
   automatic?: boolean;
   /** A draft or posted stored adjustment whose source row now matches a live mirrored sale (intercompany_mirrored_duplicate): the mirror named. */
   mirroredDuplicateOf?: string | null;
-  /** For a POSTED one: whether that mirror is eliminated automatically at the adjustment's period end (its pair stands); null for a draft. */
+  /** Whether that mirror (all of them, for a sum) is eliminated automatically: its pair stands at its later document date and today. */
   mirrorStands?: boolean | null;
+  /** How many listed adjustments point at the same mirror(s): more than one means at most one of them can be the duplicate. */
+  mirrorShared?: number | null;
+  /** Why a person made this elimination by hand for a group whose pairs mirror (required on or after a pair's cutover). */
+  manualReason?: string | null;
 }
 export interface CreateEliminationInput {
   adjustmentType: string; description: string; periodStart: string; periodEnd: string;
-  lines: EliminationLine[]; sourceIntercompanyId?: string;
+  lines: EliminationLine[]; sourceIntercompanyId?: string; manualReason?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
+export function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
   const rawLines = typeof r.lines === 'string' ? JSON.parse(r.lines) : r.lines;
   return {
     id: String(r.id), groupId: String(r.group_id),
@@ -67,6 +73,7 @@ function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
     sourceIntercompanyId: r.source_intercompany_id ? String(r.source_intercompany_id) : null,
     postedBy: r.posted_by ? String(r.posted_by) : null,
     postedAt: r.posted_at ? toIsoTimestamp(r.posted_at as Date | string) : null, createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
+    manualReason: r.manual_reason ? String(r.manual_reason) : null,
   };
 }
 
@@ -176,11 +183,11 @@ export async function createEliminationAdjustment(
     try {
       rows = await withSavepoint('consolidation_adjustment_insert', async () => (await sql`
         INSERT INTO consolidation_adjustments (
-          group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id
+          group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id, manual_reason
         ) VALUES (
           ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
           ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
-          ${input.sourceIntercompanyId ?? null}::UUID
+          ${input.sourceIntercompanyId ?? null}::UUID, ${input.manualReason ?? null}
         ) RETURNING *
       `) as DbRow[]);
     } catch (err) {
@@ -193,34 +200,6 @@ export async function createEliminationAdjustment(
   } catch (err) {
     if (err instanceof EliminationAlreadyStandsError) log.info('Elimination already stands for this row', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
     else log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-/**
- * Posts a draft. A draft whose row may be the same sale as a live mirrored document (intercompany_mirrored_duplicate) is refused with that
- * reason unless `confirmDuplicate` (the person saw it and confirmed): posting it would eliminate the sale twice.
- */
-export async function postEliminationAdjustment(adjustmentId: string, groupId: string, confirmDuplicate = false): Promise<void> {
-  try {
-    const result = (await sql`
-      UPDATE consolidation_adjustments ca SET status='posted', posted_at=NOW(), updated_at=NOW()
-      WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft'
-        AND (${confirmDuplicate}::BOOLEAN OR ca.source_intercompany_id IS NULL
-             OR NOT EXISTS (SELECT 1 FROM public.intercompany_mirrored_duplicate(ca.source_intercompany_id)))
-      RETURNING ca.id
-    `) as DbRow[];
-    if (result.length === 0) {
-      const dup = (await sql`
-        SELECT d.mirror_ref FROM consolidation_adjustments ca CROSS JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) d
-        WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft' AND ca.source_intercompany_id IS NOT NULL
-      `) as DbRow[] | undefined;
-      if (!confirmDuplicate && Array.isArray(dup) && dup.length > 0) throw new EliminationPossibleDuplicateError(adjustmentId, String(dup[0]!.mirror_ref));
-      throw new EliminationStateError(adjustmentId, 'draft');
-    }
-    log.info('Posted elimination adjustment', { adjustmentId, groupId, confirmDuplicate }, 'accounting');
-  } catch (err) {
-    log.error('Failed to post elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
     throw err;
   }
 }
@@ -239,31 +218,20 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
   }
 }
 
+/** `dropped`, when given, receives the period's mirrored eliminations that could not be applied (an account with no group account). */
 export async function getEliminationAdjustments(
-  groupId: string, periodStart?: string, periodEnd?: string
+  groupId: string, periodStart?: string, periodEnd?: string, dropped?: DroppedMirroredElimination[],
 ): Promise<ConsolidationAdjustment[]> {
   try {
     const pStart = periodStart ?? null; const pEnd = periodEnd ?? null;
-    // A draft or posted manual adjustment whose row now matches a live mirrored sale may be eliminating that sale a second time (the mirror was
-    // accepted after it was drafted or posted, or it was posted despite its flag): the list says so. For a posted one, whether the mirror's pair
-    // stands at its period end (so it is eliminated automatically) decides what the list tells the person to do.
-    const rows = (await sql`
-      SELECT ca.*, dup.mirror_ref AS mirrored_duplicate_of, dup.mirror_stands
-      FROM consolidation_adjustments ca
-      LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id, CASE WHEN ca.status = 'posted' THEN ca.period_end::DATE END) dup
-        ON ca.source_intercompany_id IS NOT NULL AND ca.status IN ('draft', 'posted')
-      WHERE group_id=${groupId}::UUID
-        -- a stored adjustment of a MIRRORED row (written by an older generator, e.g. after a code rollback) is never shown: its figure is derived
-        AND (source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(source_intercompany_id))
-        AND (${pStart}::DATE IS NULL OR period_start >= ${pStart}::DATE)
-        AND (${pEnd}::DATE IS NULL OR period_end <= ${pEnd}::DATE)
-      ORDER BY created_at DESC
-    `) as DbRow[];
+    // A draft or posted manual adjustment whose row now matches a live mirrored sale may be eliminating that sale a second time
+    // (eliminationDuplicates.ts): the list says so, with whether the mirror is eliminated automatically and how many share it.
+    const rows = await storedEliminationRows(groupId, pStart, pEnd);
     const stored = rows.map((r) => ({ ...mapAdjustmentRow(r), mirroredDuplicateOf: r.mirrored_duplicate_of ? String(r.mirrored_duplicate_of) : null,
-      mirrorStands: typeof r.mirror_stands === 'boolean' ? r.mirror_stands : null }));
+      mirrorStands: typeof r.mirror_stands === 'boolean' ? r.mirror_stands : null, mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared) }));
     // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
     // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
-    const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd) : [];
+    const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd, dropped) : [];
     return [...derived.map((m): ConsolidationAdjustment => ({
       id: `mirror:${m.transactionId}:${m.receiverJournalId}:${m.kind}`, groupId, adjustmentNumber: 'AUTO', adjustmentType: 'interco_revenue', description: m.description,
       periodStart: m.keyDate, periodEnd: m.keyDate, status: 'posted', automatic: true,

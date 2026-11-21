@@ -166,4 +166,20 @@ describe('IntercompanyInboxPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/boom|Could not load/);
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
+
+  it('a failed action is announced as an alert, not a polite status', async () => {
+    serve({ post: (u) => (u.endsWith('/dismiss') ? failure('Could not dismiss this message - try again', 500) : envelope({})) });
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not dismiss');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('a success is announced as a status, not an alert', async () => {
+    serve();
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Dismissed INV-100');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

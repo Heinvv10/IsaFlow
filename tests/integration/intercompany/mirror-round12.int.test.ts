@@ -100,7 +100,7 @@ describe('drafted and flagged, never skipped', () => {
     await approveBill(m.bill);
     const r = await manual(co.B, co.A, 'sale');
     const same = await manual(co.A, co.B, 'sale');   // (the control: the same direction does match)
-    const dup = (id: string) => asService(pool, U.ab, co.A, async (q) => (await q.query('SELECT mirror_row FROM public.intercompany_mirrored_duplicate($1)', [id])).rows.length);
+    const dup = (id: string) => asService(pool, U.ab, co.A, async (q) => (await q.query('SELECT mirror_rows FROM public.intercompany_mirrored_duplicate($1)', [id])).rows.length);
     expect([await dup(r.id), await dup(same.id)]).toEqual([0, 1]);
   });
 
@@ -125,7 +125,7 @@ describe('drafted and flagged, never skipped', () => {
       const n = (await c.query(`SELECT count(*)::int AS n FROM intercompany_transactions ict
                                  CROSS JOIN LATERAL public.intercompany_mirrored_duplicate(ict.id) d WHERE ict.group_id = $1`, [co.G])).rows[0].n;
       await c.query('COMMIT');
-      expect(n).toBe(1);
+      expect(n).toBe(2);   // the pair's sale and its purchase (B -> A, the same sale seen from B: round 14, R13-M4)
       expect((await calls()) - before).toBe(0);
     } finally {
       await c.query('ROLLBACK').catch(() => undefined);

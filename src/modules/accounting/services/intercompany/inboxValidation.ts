@@ -1,11 +1,19 @@
 /** Pure: the request shapes of the intercompany inbox routes (400 before any cast reaches SQL). */
 import { isUuidParam } from '@/lib/validation';
-import { checkReason } from './handleService';
 import type { AcceptInput, InboxFilter } from './inboxTypes';
+
+const REASON_MAX = 2000;
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** A reason the sender will read: required, trimmed, bounded. Returns the reason or a sentence saying what is wrong. */
+export function checkReason(reason: unknown): { ok: true; reason: string } | { ok: false; error: string } {
+  if (typeof reason !== 'string' || reason.trim() === '') return { ok: false, error: 'A reason is required to reject a message' };
+  if (reason.trim().length > REASON_MAX) return { ok: false, error: `The reason is too long (at most ${REASON_MAX} characters)` };
+  return { ok: true, reason: reason.trim() };
+}
 
 export function parseInboxQuery(query: Record<string, unknown>): Parsed<{ filter: InboxFilter; limit: number; offset: number }> {
   const one = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);

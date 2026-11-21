@@ -8,6 +8,8 @@ Wants=network-online.target
 # credit note, nothing approved. The X-Cron-Secret header reaches curl on stdin (-H @-), never
 # its argv, which /proc/<pid>/cmdline shows every local account
 # (scripts/isaflow-management-packs.service). CRON_SECRET must never be written here.
+# --max-time 300 is the ceiling: the worker starts no new message after AUTO_ACCEPT_BUDGET_MS (200 s,
+# autoAcceptWorker.ts) and leaves the rest to the next run, so keep that constant below this value.
 
 [Service]
 Type=oneshot
