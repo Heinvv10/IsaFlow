@@ -40,6 +40,27 @@ describeIfDisposable('ledger column immutability, round 9 (migration 1018)', () 
     await refused(asApp(z, (c) => c.query('UPDATE gl_journal_lines SET vat_type = NULL WHERE journal_entry_id = $1', [o]), { commit: true }), /exact negation/);
   });
 
+  it('a re-run replaces an earlier lax NULLIF form of the deferred check with the strict one, and asserts it', async () => {
+    const file = readFileSync(path.resolve(__dirname, '../../scripts/migrations/sql/1018_ledger_column_immutability.sql'), 'utf8');
+    const start = file.indexOf('DO $$\nDECLARE\n  v_def text;');
+    const block = file.slice(start, file.indexOf('\n$$;', start) + 4);
+    expect(block).toMatch(/DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check/);
+    const c = await z.pool.connect();
+    const def = async () => String((await c.query("SELECT pg_get_triggerdef(oid) AS d FROM pg_trigger WHERE tgname = 'trg_gl_jl_linked_account_check'")).rows[0].d);
+    try {
+      await c.query('BEGIN');
+      await c.query('DROP TRIGGER trg_gl_jl_linked_account_check ON public.gl_journal_lines');
+      await c.query(`CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
+        DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+        WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR NULLIF(OLD.vat_type, '') IS DISTINCT FROM NULLIF(NEW.vat_type, ''))
+        EXECUTE FUNCTION public.gl_jl_linked_account_check()`);
+      expect(await def()).toMatch(/NULLIF/i); // the earlier revision's lax form
+      await c.query(block);
+      expect(await def()).not.toMatch(/NULLIF/i);
+      expect(await def()).toMatch(/\(old\.vat_type IS DISTINCT FROM new\.vat_type\)/);
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+  });
+
   it('the stamp guard exempts the table owner (a non-superuser member of it), and still refuses app_user', async () => {
     const o = await journal(z, legs);
     const role = `r9_owner_${randomUUID().slice(0, 8)}`;

@@ -105,9 +105,11 @@
 -- claims (reversed_at), creates and posts the contra, then links it; approve posts then links; cancel reverses then
 -- clears. A legacy document whose linked journal has a posted contra but whose own link was never cleared still clears.
 --
--- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
+-- LOCKS. No DROP TRIGGER but one (below): CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
 -- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
+-- The one DROP TRIGGER (the deferred account check, a constraint trigger: no CREATE OR REPLACE) takes ACCESS EXCLUSIVE on
+-- gl_journal_lines for an instant, bounded the same way; it is recreated in the same transaction.
 -- The backfill (end of file) takes ROW EXCLUSIVE on gl_journal_entries for its two UPDATEs and scans the cancelled
 -- invoices and bills once (an equality hash join); every lock is held to the migration's COMMIT, as the trigger DDL's are.
 --
@@ -635,19 +637,26 @@ BEGIN
 END
 $$;
 
+-- A constraint trigger has no CREATE OR REPLACE, so it is dropped and created every time this file runs (in its one
+-- transaction): an earlier revision's definition (round 9's lax NULLIF form) never survives a re-run. Then the result
+-- is checked: the strict WHEN, no NULLIF.
 DO $$
+DECLARE
+  v_def text;
 BEGIN
-  -- A constraint trigger has no CREATE OR REPLACE: (re)create it unless it already carries this definition (vat_type).
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
-                  WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_linked_account_check'
-                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%vat_type%') THEN
-    DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
-    CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check
-      AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
-      DEFERRABLE INITIALLY DEFERRED
-      FOR EACH ROW
-      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR OLD.vat_type IS DISTINCT FROM NEW.vat_type)
-      EXECUTE FUNCTION public.gl_jl_linked_account_check();
+  DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
+  CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check
+    AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR OLD.vat_type IS DISTINCT FROM NEW.vat_type)
+    EXECUTE FUNCTION public.gl_jl_linked_account_check();
+  SELECT pg_catalog.pg_get_triggerdef(t.oid) INTO v_def FROM pg_catalog.pg_trigger t
+   WHERE t.tgrelid = 'public.gl_journal_lines'::regclass AND t.tgname = 'trg_gl_jl_linked_account_check';
+  IF v_def IS NULL OR v_def ILIKE '%nullif%'
+     OR v_def NOT LIKE '%(old.vat_type IS DISTINCT FROM new.vat_type)%'
+     OR v_def NOT LIKE '%(old.gl_account_id IS DISTINCT FROM new.gl_account_id)%' THEN
+    RAISE EXCEPTION '1018: trg_gl_jl_linked_account_check does not carry the strict definition: %', v_def;
   END IF;
 END
 $$;
