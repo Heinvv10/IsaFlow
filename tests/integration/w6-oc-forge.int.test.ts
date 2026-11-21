@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
+import { offCycleRaiseRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleCorrection';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
@@ -160,7 +161,10 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       .rejects.toThrow(/approval history grows only when the run is reopened/);
     // In the same UPDATE as a flip out of 'approved' (the accepted-limit shape), a range that is not the approval it
     // ends (not from approved_at) is refused too.
-    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() - interval '5 days' WHERE id = $1`, [id]);
+    // A backdated approval time is refused outright (review #1679 codex M5: it would claim an approval through payday).
+    await expect(asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() - interval '5 days' WHERE id = $1`, [id]))
+      .rejects.toThrow(/an off-cycle run's approval time is the time it is approved, never earlier/);
+    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [id]);
     await expect(asApp(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL,
       approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now() - interval '1 day')) WHERE id = $1`, [id]))
       .rejects.toThrow(/a reopen adds the approval it ends, from the run's approved_at/);
@@ -312,5 +316,43 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       await c.query('ROLLBACK');
       c.release();
     }
+  });
+  it('the snapshot is the gross approved for payment as of payday (review #1679 codex M5): R100, then R200 before payday, paid at R200', async () => {
+    // The restore test's approved December bonus, driven below the service: the trigger reads the DATABASE clock, so its
+    // pay date is set from that clock (three days ahead, then yesterday) by a trusted identity, and app_user flips it.
+    const run = (await a.pool.query(`SELECT h.id, x.employee_id FROM payroll_run_headers h JOIN payroll_off_cycle_employees x ON x.run_id = h.id
+      WHERE h.company_id = $1 AND h.run_kind = 'off_cycle' AND h.status = 'approved' AND h.period_month = 12 LIMIT 1`, [a.company])).rows[0];
+    const [id, emp] = [String(run.id), String(run.employee_id)];
+    const sastToday = "(now() AT TIME ZONE 'Africa/Johannesburg')::date";
+    const gross = (g: number) => a.pool.query('UPDATE payroll_run_lines SET gross_pay = $2 WHERE run_id = $1', [id, g]);
+    const flip = (status: string) => asApp(`UPDATE payroll_run_headers SET status = $2::text,
+      approved_at = CASE WHEN $2::text = 'approved' THEN clock_timestamp() END WHERE id = $1`, [id, status]);
+    const snap = async () => (await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s;
+    await a.pool.query(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, off_cycle_paid_gross = NULL,
+      run_date = ${sastToday} + 3 WHERE id = $1`, [id]);
+    await gross(100);
+    await flip('approved');
+    await flip('calculated'); // reopened before payday
+    expect(await snap()).toEqual({ [emp]: 100 });
+    await gross(200); // corrected to R200 before payday and approved for payment at R200 ...
+    await flip('approved');
+    // ... and payday passes (the approval and pay date moved back together, by a trusted identity).
+    await a.pool.query(`UPDATE payroll_run_headers SET run_date = ${sastToday} - 1, approved_at = approved_at - interval '3 days' WHERE id = $1`, [id]);
+    await flip('calculated'); // reopened after payday: the paid R200 is the ceiling, not the pre-payday R100 (not LEAST)
+    expect(await snap()).toEqual({ [emp]: 200 });
+    const header = (await a.pool.query('SELECT run_kind, run_date, off_cycle_paid_gross, approval_history FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
+    const today = String((await a.pool.query(`SELECT ${sastToday}::text AS d`)).rows[0].d);
+    expect(offCycleRaiseRefusal(header, emp, 180, today)).toBeNull();
+    expect(offCycleRaiseRefusal(header, emp, 250, today)).toMatch(/can't be raised after the pay date/);
+    // From then on LEAST: corrected to R180, approved after payday and reopened, the ceiling is R180.
+    await gross(180);
+    await flip('approved');
+    await flip('calculated');
+    expect(await snap()).toEqual({ [emp]: 180 });
+    // A raise below the service, approved after payday: the snapshot never rises.
+    await gross(250);
+    await flip('approved');
+    await flip('calculated');
+    expect(await snap()).toEqual({ [emp]: 180 });
   });
 });
