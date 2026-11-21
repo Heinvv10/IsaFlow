@@ -22,7 +22,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
-import { ROW_LOCK_BUDGET_MS, RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { SoftDeleteRefusalError } from '../core/softDeleteErrors';
 
 export class SupplierInvoiceGrnRefusal extends Error {
@@ -171,27 +171,21 @@ export async function unlinkNoteRefusal(companyId: string, billId: string, poId:
  * Before a soft-deleted bill is restored (undo): a bill that names a note of this company that is now cancelled stays deleted
  * (`SoftDeleteRefusalError`, 400), since a cancel only ever passed it because it was deleted; so does one whose note does not agree
  * with it (another supplier's PO, or a PO other than the ones it names: its header, its lines' PO lines, its link rows). Locks: the
- * bill's supplier FOR KEY SHARE (serialises with a supplier merge), then the bill row FOR UPDATE (the row the restore then updates),
- * then the note FOR SHARE: supplier -> bill -> note, as a merge takes suppliers -> bills and the cancel PO -> note, so no cycle; neither a
- * cancel nor a merge can slip between this check and the restore. A grn_id naming no note of this company
+ * bill row FOR UPDATE (5 s budget; the row the restore then updates), then the note FOR SHARE (noteFacts, its own 5 s budget): bill ->
+ * note, as the cancel takes PO -> note, so no cycle; a cancel cannot slip between this check and the restore, and a supplier merge meets
+ * it on the bill row (see the comment below). A grn_id naming no note of this company
  * (missing, or another company's) refuses the restore too (round 5, finding 1), as the create refuses it.
  */
 export async function assertBillRestorableGrn(companyId: string, billId: string): Promise<void> {
-  // The bill's supplier FOR KEY SHARE FIRST (review of 3010bf7e, M1): the restore makes a noted bill live without the FK taking it
-  // (supplier_id is unchanged), so a merge of that supplier could pass its noted-bill check and then move the restored bill. With it,
-  // a merge (suppliers FOR UPDATE -> bills) waits for this restore and then sees the bill, or this waits for the merge and then reads
-  // the bill on the target, where its note disagrees and the restore is refused. Supplier -> bill -> note: the merge's order.
-  const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
-  await withRowLockBudget(async () => sql`
-    SELECT s.id FROM suppliers s JOIN supplier_invoices si ON si.supplier_id = s.id AND si.company_id = s.company_id
-     WHERE si.id = ${billId}::uuid AND si.company_id = ${companyId}::uuid
-       FOR KEY SHARE OF s
-  `, () => new RowLockTimeoutError(`The supplier of supplier invoice ${billId}`), { deadline });
+  // No supplier lock here (review of 0d51f4a5, M1): a merge's bill UPDATE moves deleted bills too, so a restore and a merge always meet
+  // on this bill row: the merge waits for the restore and its RETURNING then refuses the moved live noted bill, or the restore waits for
+  // the merge and then reads the bill on the target, where its note disagrees and it is refused. A supplier KEY SHARE here was
+  // redundant and closed a cycle with the journal number lock 857 the undo takes afterwards (reinstateInvoiceJournal).
   const bill = (await withRowLockBudget(async () => (await sql`
     SELECT grn_id::text AS grn_id, supplier_id::text AS supplier_id, purchase_order_id::text AS purchase_order_id FROM supplier_invoices
      WHERE id = ${billId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NOT NULL
        FOR UPDATE
-  `) as DbRow[], () => new RowLockTimeoutError(`Supplier invoice ${billId}`), { deadline }))[0];
+  `) as DbRow[], () => new RowLockTimeoutError(`Supplier invoice ${billId}`)))[0];
   if (!bill || bill.grn_id == null) return;
   const note = await noteFacts(sql, companyId, String(bill.grn_id), true);
   // Round 5, finding 1: a grn_id naming no note of this company (missing, or another company's) refuses the restore, as the create does.

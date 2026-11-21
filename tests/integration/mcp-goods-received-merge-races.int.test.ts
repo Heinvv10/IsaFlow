@@ -5,8 +5,9 @@
  *     noted-bill check cannot see it; its bill UPDATE waits on the row and, after the write commits, EvalPlanQual moves the now-noted
  *     bill. The UPDATE's RETURNING catches that: the merge is refused and rolls back, also when the caller commits a 4xx (as withAuth
  *     does), in both paths;
- *   - R2: the undo of a deleted noted bill is uncommitted while the merge runs. The restore takes the supplier row FOR KEY SHARE first,
- *     so the merge waits on the supplier, then sees the live noted bill and refuses;
+ *   - R2: the undo of a deleted noted bill and a merge, both orders: they always meet on the bill row (the merge moves deleted bills
+ *     too). Restore first: the merge's RETURNING refuses the moved live noted bill. Merge first: the restore reads the bill on the
+ *     target, where its note disagrees, and is refused. Never a live noted bill on the target;
  *   - L1: the refusal names the exit for the bill's state (a paid bill: reverse its payments, then cancel it), in UI terms.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -44,10 +45,12 @@ async function inReq<T>(fx: BillFixture, fn: () => Promise<T>): Promise<T> {
   const r = await openRequest(pool, fx, fx.owner);
   try { const v = await r.run(fn); await r.commit(); return v; } catch (e) { await r.rollback(); throw e; }
 }
-/** Bills on the target whose note's PO is still the source supplier's: what a merge must never leave. */
+/** LIVE bills on the target whose note's PO is still the source supplier's: what a merge must never leave (a deleted or cancelled one
+ * moves with the merge by design, and cannot be restored there). */
 const stranded = async (fx: BillFixture, target: string) => (await pool.query(
   `SELECT si.id::text FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id JOIN purchase_orders po ON po.id = g.purchase_order_id
-    WHERE si.company_id = $1 AND si.supplier_id = $2 AND po.supplier_id = $3`, [fx.co, target, fx.supplier])).rows;
+    WHERE si.company_id = $1 AND si.supplier_id = $2 AND po.supplier_id = $3
+      AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'`, [fx.co, target, fx.supplier])).rows;
 const noteOf = async (fx: BillFixture) => {
   const po = await seedQtyPo(pool, fx, { lines: [{ qty: 4, price: 10 }] });
   return String((await callTool(pool, fx, create, grnArgs(po, [[0, 4]]))).body.grn_id);
@@ -108,23 +111,49 @@ describe('R1: a writer adding grn_id without the supplier lock races a merge (th
   }, 30_000);
 });
 
-describe('R2: the undo of a deleted noted bill races a merge (the restore\'s supplier KEY SHARE)', () => {
-  it('the merge waits on the supplier row while the restore is open, then sees the live noted bill and refuses', async () => {
-    await withFixture('race-r2', async (fx, target) => {
-      const note = await noteOf(fx);
-      const bill = await inReq(fx, () => createSupplierInvoice(fx.co, billInput(fx, note), fx.owner));
-      await inReq(fx, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner));
+describe('R2: the undo of a deleted noted bill races a merge, both orders (outcome, not the wait; review of 0d51f4a5)', () => {
+  /** A deleted draft bill of the source carrying a live note on its PO. */
+  async function deletedNotedBill(fx: BillFixture): Promise<string> {
+    const note = await noteOf(fx);
+    const bill = await inReq(fx, () => createSupplierInvoice(fx.co, billInput(fx, note), fx.owner));
+    await inReq(fx, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner));
+    return bill.id;
+  }
+  const settle = <T>(p: Promise<T>) => p.then((v) => ({ v, e: undefined as unknown }), (e: unknown) => ({ v: undefined, e }));
+
+  it('restore first: the merge meets the restored row, its RETURNING refuses it; the bill stays live on the source', async () => {
+    await withFixture('race-r2-restore-first', async (fx, target) => {
+      const bill = await deletedNotedBill(fx);
       const r = await openRequest(pool, fx, fx.owner);
-      expect(await r.run(() => undoDelete(fx.co, 'supplier_invoice', bill.id, fx.owner))).toBe(true);
+      expect(await r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner))).toBe(true);
       const m = await openRequest(pool, fx, fx.owner);
-      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))
-        .then(async (x) => { await m.commit(); return x; }, async (err) => { await m.commit(); return err; });
-      try {
-        expect(await waitsOnLock('FROM suppliers')).toBe(true);
-      } finally { await r.commit(); }
+      const merging = settle(m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner)))
+        .then(async (x) => { await m.commit(); return x; });
+      await sleep(300);
+      await r.commit();
       const out = await merging;
-      expect(out).toBeInstanceOf(SupplierMergeRefusal);
+      expect(out.e).toBeInstanceOf(SupplierMergeRefusal);
       expect(await stranded(fx, target)).toEqual([]);
+      expect((await pool.query('SELECT supplier_id::text AS s, deleted_at IS NULL AS live FROM supplier_invoices WHERE id = $1', [bill])).rows[0])
+        .toEqual({ s: fx.supplier, live: true });
+    });
+  }, 30_000);
+
+  it('merge first: the restore meets the moved row, reads it on the target and is refused; the bill stays deleted', async () => {
+    await withFixture('race-r2-merge-first', async (fx, target) => {
+      const bill = await deletedNotedBill(fx);
+      const m = await openRequest(pool, fx, fx.owner);
+      expect(await m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))).toMatchObject({ reassignedTransactions: expect.any(Number) });
+      const r = await openRequest(pool, fx, fx.owner);
+      const restoring = settle(r.run(() => undoDelete(fx.co, 'supplier_invoice', bill, fx.owner)))
+        .then(async (x) => { await r.commit(); return x; });
+      await sleep(300);
+      await m.commit();
+      const out = await restoring;
+      expect(out.e, String(out.v)).toBeInstanceOf(Error);
+      expect((out.e as Error).message).toContain('cannot be restored');
+      expect(await stranded(fx, target)).toEqual([]);
+      expect((await pool.query('SELECT deleted_at IS NULL AS live FROM supplier_invoices WHERE id = $1', [bill])).rows[0].live).toBe(false);
     });
   }, 30_000);
 });
