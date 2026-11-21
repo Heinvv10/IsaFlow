@@ -4,8 +4,8 @@
  * payrollOffCycleGates.offCyclePaidReopenRefusal), change the amount here, recalculate and approve it again.
  *
  * Only a draft or calculated BONUS run's amount changes (the 999x guard holds the same rule for app_user). The run's
- * lines are removed and it goes back to draft, so nothing costed on the old amount can be approved: the zero-gross
- * refusal holds the approval until it is recalculated. A pending R-035 request is refused here (withdraw it first):
+ * lines are removed (a reopened run's approved PSP treatment is kept in the audit row) and it goes back to draft, so
+ * nothing costed on the old amount can be approved: the zero-gross refusal holds the approval until it is recalculated. A pending R-035 request is refused here (withdraw it first):
  * its digest was taken on the old figures. Recovering cash already paid is outside payroll.
  * Every edit writes an audit row (old and new amount). Owner or admin on a cookie session only, never under Login-as
  * and never for an agent (the route takes no bearer token); refused with 409 before any write.
@@ -18,6 +18,7 @@ import { isWholeCents, MAX_BONUS, OffCycleRunRefusedError } from './payrollOffCy
 import { offCycleRaiseRefusal } from './payrollOffCycleCorrection';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { PSP_TREATMENT_KEPT, pspTreatmentsAtApproval } from './pspComponentGuard';
 
 const refused = (m: string, status: 400 | 409 = 409) => new OffCycleRunRefusedError(m, status);
 
@@ -56,7 +57,7 @@ export async function setOffCycleBonusAmount(
   const amount = Math.round(entered * 100) / 100;
   return withTransaction(async (tx) => {
     const run = ((await tx`
-      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.off_cycle_paid_gross, h.approval_history, h.off_cycle_payday_at
+      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.off_cycle_paid_gross, h.approval_history, h.off_cycle_payday_at, h.reopened_at
         FROM payroll_run_headers h
        WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
        FOR UPDATE OF h
@@ -80,6 +81,12 @@ export async function setOffCycleBonusAmount(
     // After its pay date a run's amounts were paid: a correction only lowers them (delta M1).
     const raised = offCycleRaiseRefusal(run, employeeId, amount);
     if (raised) throw refused(raised);
+    // A reopened run's PSP treatment as approved (review #1679 Codex M): read before its lines go and kept in the audit
+    // row, so the recalculation's guard (assertReopenedRunKeepsPspTreatment) still compares against it.
+    const kept: Record<string, string> = {};
+    if (run.reopened_at != null) {
+      for (const t of await pspTreatmentsAtApproval(companyId, runId, null, tx)) kept[`${PSP_TREATMENT_KEPT}${String(t.employee_id)}`] = String(t.was);
+    }
     // Nothing costed on the old amount can be approved: back to draft and no lines FIRST (the 999x guard changes an
     // amount on a draft run only, delta L1), until it is recalculated.
     await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
@@ -98,7 +105,7 @@ export async function setOffCycleBonusAmount(
       companyId, userId, action: 'update', entityType: 'payroll_run', entityId: runId,
       changes: {
         fields: [{ field: 'off_cycle_bonus_amount', old: String(before.amount), new: amount.toFixed(2), label: 'Bonus amount' }],
-        metadata: { employeeId, previousStatus: String(run.status) },
+        metadata: { employeeId, previousStatus: String(run.status), ...kept },
       },
     }, tx);
     log.info('Off-cycle bonus amount changed', { companyId, runId, employeeId, amount, previousStatus: String(run.status), userId }, 'payrollOffCycleAmount');

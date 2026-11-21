@@ -115,7 +115,10 @@ export const calculatePayRunTool: McpTool = {
           throw err;
         }
       }
-      const blocked = !refusal && run.journalEntryId != null
+      // An off-cycle run pays no loan instalment (calculatePayrollRun skips loans for it, review #1679): neither the
+      // posted-journal loan refusal nor the roster's withheld loans apply to it.
+      const offCycle = run.runKind === 'off_cycle';
+      const blocked = !refusal && !offCycle && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
@@ -129,7 +132,7 @@ export const calculatePayRunTool: McpTool = {
           ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
           ...(refusal ? [refusal] : []),
         ],
-        withheld_loans: blocked || refusal ? [] : await withheldLoans(ctx.companyId, run),
+        withheld_loans: blocked || refusal || offCycle ? [] : await withheldLoans(ctx.companyId, run),
         current: runPayload(run),
       });
     }
@@ -138,7 +141,7 @@ export const calculatePayRunTool: McpTool = {
       const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
-        withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
+        withheld_loans: costed.runKind === 'off_cycle' ? [] : await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
           : 'approve_pay_run posts this to the ledger.',

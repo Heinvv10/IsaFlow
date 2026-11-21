@@ -170,11 +170,25 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   }
 }
 
+/**
+ * The month's EMP201 filing keys, in the filing paths' order, before the month is judged (review #1679 Codex M): the
+ * finalise and legacy draft key (takeDraftPeriodLock: sars-draft:<company>:EMP201:<month>) and the legacy mark-submitted
+ * key (lockCompanyFilingReferences: efa-prn:<company>). A filing that started first commits before the filed-month check
+ * reads; one that starts after waits for this run, and its run scan then sees the new draft (not final: refused).
+ */
+async function lockMonthFilings(tx: TxSql, companyId: string, period: PayrollPeriod): Promise<void> {
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended('sars-draft:' || ${companyId}::uuid::text || ':EMP201:'
+    || make_date(${period.year}::int, ${period.month}::int, 1)::text || ':'
+    || (make_date(${period.year}::int, ${period.month}::int, 1) + INTERVAL '1 month - 1 day')::date::text, 0))`;
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`efa-prn:${companyId}`}, 0))`;
+}
+
 export async function createOffCycleRun(companyId: string, input: OffCycleRunInput, createdBy: string | null): Promise<PayrollRunSummary> {
   await assertNotImpersonating(); // R-032 L5 / rule 14: a money-moving write, never under Login-as; before any read or write
   judgeOffCycleShape(input, todayInSast());
   const { period, reason, runDate, employees } = input;
   return await withTransaction(async (tx) => {
+    await lockMonthFilings(tx, companyId, period);
     await judgeOffCycleState(tx, companyId, input);
     const rows = (await tx`
       INSERT INTO payroll_run_headers (

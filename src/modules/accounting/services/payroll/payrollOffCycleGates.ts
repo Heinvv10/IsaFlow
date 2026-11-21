@@ -94,7 +94,10 @@ export async function offCycleBasisRefusal(companyId: string, run: DbRow, db: Tx
       FROM payroll_run_headers me
       JOIN payroll_run_headers o
         ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
-       AND o.pay_frequency = me.pay_frequency AND o.id <> me.id AND o.status NOT IN ('draft', 'cancelled')
+       AND o.pay_frequency = me.pay_frequency AND o.id <> me.id AND o.status <> 'cancelled'
+       -- A draft that was calculated (a bonus amount edit returns the run to draft, review #1679 Codex M) still holds
+       -- the month this run was costed on: not approved. A draft never calculated costed nothing.
+       AND (o.status <> 'draft' OR o.calculated_at IS NOT NULL)
      WHERE me.id = ${String(run.id)}::uuid AND me.company_id = ${companyId}::uuid
        AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}
      ORDER BY ${runOrderKeySql('o')}
