@@ -13,7 +13,8 @@
  *
  * Pure: safe in a client bundle.
  */
-import { formatMoney } from '@/lib/money/formatMoney';
+import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { formLineTypes, formTotals, type FormVatLine } from './formVat';
 import { effectiveTaxRate, exVatUnitPrice, grossUnitPrice, TAX_MODE_OPTIONS, type TaxMode } from './taxMode';
 
@@ -26,6 +27,8 @@ export const taxModesFor = (registered: boolean): typeof TAX_MODE_OPTIONS =>
 
 export interface ModeSwitch {
   from: TaxMode; to: TaxMode; formRate: number; date: string; customerVat?: string | null; registered: boolean;
+  /** The invoice's currency, for the refusal's amounts (default ZAR). */
+  currencyCode?: string;
 }
 
 /** The lines once the mode changes, or why the change is refused (see the header). */
@@ -39,7 +42,10 @@ export function switchTaxMode<L extends FormVatLine & { description?: string }>(
   const types = formLineTypes(lines, s.formRate, s.date, s.customerVat);
   const convert = s.to === 'inclusive' ? grossUnitPrice : exVatUnitPrice;
   const converted = lines.map((l, i) => {
-    const rate = types[i] === 'zero_rated' || types[i] === 'exempt' ? 0 : s.formRate;
+    // A standard line at the standard rate on the INVOICE DATE, what the server prices it at (round 11); an untyped one at
+    // the form's rate (the rate check holds its save).
+    const rate = types[i] === 'zero_rated' || types[i] === 'exempt' ? 0
+      : types[i] === 'standard' && isRatedDate(s.date) ? standardVatRatePctOn(s.date) : s.formRate;
     return readable(l.unitPrice) ? { ...l, unitPrice: convert(l.unitPrice, rate) } : l;
   });
   const bothRated = s.from !== 'none' && s.to !== 'none';
@@ -50,8 +56,8 @@ export function switchTaxMode<L extends FormVatLine & { description?: string }>(
     if (!same) {
       const [was, now] = bothRated ? [before.total, after.total] : [before.subtotal, after.subtotal];
       const name = lines[i]!.description ? `"${lines[i]!.description}"` : `line ${i + 1}`;
-      return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${formatMoney(was)} to `
-        + `${formatMoney(now)}: its unit price cannot carry the VAT to the cent at that quantity. Change its quantity or price first, or keep ${LABEL[s.from]}.` };
+      return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${formatCurrencyAmount(was, s.currencyCode ?? 'ZAR')} to `
+        + `${formatCurrencyAmount(now, s.currencyCode ?? 'ZAR')}: its unit price cannot carry the VAT to the cent at that quantity. Change its quantity or price first, or keep ${LABEL[s.from]}.` };
     }
   }
   return { mode: s.to, lines: converted };

@@ -53,4 +53,13 @@ describe('switchTaxMode', () => {
         .toEqual({ mode: 'inclusive', lines: [{ quantity: 1, unitPrice: 100 }] });
     }
   });
+  it('round 11 nit a: a standard line converts at the standard rate ON THE INVOICE DATE (14% before April 2018), not the form\'s', () => {
+    const out = switchTaxMode([{ description: 'S', quantity: 1, unitPrice: 100, vatType: 'standard', vatRateAtLoad: 15 }],
+      { ...base, date: '2018-03-01', from: 'exclusive', to: 'inclusive' });
+    expect('lines' in out && out.lines[0]!.unitPrice).toBe(114);
+  });
+  it('round 11 nit a: the refusal names the amounts in the invoice\'s currency', () => {
+    expect(switchTaxMode([{ description: 'Tiny', quantity: 1000, unitPrice: 0.03 }], { ...base, currencyCode: 'USD', from: 'exclusive', to: 'inclusive' }))
+      .toEqual({ problem: expect.stringMatching(/from \$\s?34\.50 to \$\s?30\.00/) });
+  });
 });

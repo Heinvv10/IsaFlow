@@ -147,7 +147,7 @@ export default function EditCustomerInvoicePage() {
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
 
   // Priced as the server stores it (formVat: per-line VAT; no VAT for a company not registered for it); a half-typed field previews as 0.
-  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, customerVat: customer.defaults?.vatType });
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, currencyCode: form.currencyCode, customerVat: customer.defaults?.vatType });
   const { vatMode } = modeSwitch;
   const taxRate = effectiveTaxRate(vatMode, form.taxRate);
   const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);

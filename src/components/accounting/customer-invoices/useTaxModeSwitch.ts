@@ -17,7 +17,7 @@ import type { TaxMode } from './taxMode';
 export interface TaxModeSwitchArgs<L extends FormVatLine & { description?: string }> {
   lines: L[]; setLines: (lines: L[]) => void;
   taxMode: TaxMode; setTaxMode: (mode: TaxMode) => void;
-  formRate: number; date: string; customerVat?: string | null;
+  formRate: number; date: string; customerVat?: string | null; currencyCode?: string;
   /** After a switch that went through (the new page records that the user chose the mode). */
   onSwitched?: () => void;
 }
@@ -25,10 +25,10 @@ export interface TaxModeSwitchArgs<L extends FormVatLine & { description?: strin
 export function useTaxModeSwitch<L extends FormVatLine & { description?: string }>(a: TaxModeSwitchArgs<L>) {
   const registered = useVatRegistrationOrDefault().isRegistered;
   const [refused, setRefused] = useState<{ text: string; input: string } | null>(null);
-  const input = JSON.stringify([a.lines.map((l) => [l.quantity, l.unitPrice, l.discount ?? 0]), a.formRate, a.date, a.customerVat ?? null, a.taxMode, registered]);
+  const input = JSON.stringify([a.lines.map((l) => [l.quantity, l.unitPrice, l.discount ?? 0]), a.formRate, a.date, a.customerVat ?? null, a.taxMode, registered, a.currencyCode ?? 'ZAR']);
   useEffect(() => { if (refused && refused.input !== input) setRefused(null); }, [input, refused]);
   const pick = (mode: TaxMode) => {
-    const s = switchTaxMode(a.lines, { from: a.taxMode, to: mode, formRate: a.formRate, date: a.date, customerVat: a.customerVat, registered });
+    const s = switchTaxMode(a.lines, { from: a.taxMode, to: mode, formRate: a.formRate, date: a.date, customerVat: a.customerVat, registered, currencyCode: a.currencyCode });
     if ('problem' in s) { setRefused({ text: s.problem, input }); return; }
     setRefused(null);
     a.onSwitched?.();

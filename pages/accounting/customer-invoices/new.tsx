@@ -55,7 +55,7 @@ export default function NewCustomerInvoicePage() {
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
   // taxModeSwitch: each line at its own rate; refused (prices and mode kept) when a line would come to another figure.
-  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, customerVat: contact.vatType, onSwitched: () => contact.touch('taxMode') });
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, currencyCode: form.currencyCode, customerVat: contact.vatType, onSwitched: () => contact.touch('taxMode') });
   const { vatMode } = modeSwitch;
 
   useEffect(() => {
