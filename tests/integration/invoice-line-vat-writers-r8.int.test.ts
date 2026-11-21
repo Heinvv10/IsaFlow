@@ -26,6 +26,7 @@ import { untypeLines } from './helpers/lineVatFixture';
 import { applyCreditNoteTool } from '@/lib/mcp/tools/writeApplyCreditNote';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { createCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotesCreate';
+import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { callRoute, createUser } from './r035-approval.helpers';
 
@@ -158,40 +159,56 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
   };
 
   describe('(1) race: a linked approval (auto_apply none) and a FIFO walk on typed Y with 115 left', () => {
-    const setup = async (name: string, d: string) => {
+    const setup = async (name: string, d: string, approvedM: boolean) => {
       const c = await customer(name);
       const y = await typedInvoice(c, d);
       const l = await draft(c, d, 100, y);                                   // 100 + 15: all of Y
       expect(l.taxAmount).toBe(15);
-      const m = await draft(c, d, 100);                                      // unlinked 115
-      return { y, l, m };
+      // Unlinked 115: a draft for approve's walk, or approved with nothing applied for auto_apply_unapplied's (which
+      // posts no journal, so no journal-number lock can serialise the two for it).
+      const m = approvedM ? await approvedNote(c, d, 100) : await draft(c, d, 100);
+      return { c, y, l, m };
     };
-    it('the linked approval first: the walk waits for Y\'s key, then finds nothing left there', async () => {
-      const { y, l, m } = await setup('R8-1a', '2026-06-01');
+    const backfill = (c: string) => autoApplyUnapplied({ companyId: f.fx.companyId, subledger: 'ar', entityId: c, userId: f.fx.userId, dryRun: false });
+    /** Runs `first` to completion on one connection, then `second` on another; commits the first; settles both. */
+    const race = async (first: () => Promise<unknown>, second: () => Promise<unknown>) => {
       const a = await open();
-      await runOn(f.fx, a.client, () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
       const b = await open();
-      const walk = runOn(f.fx, b.client, () => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }));
-      const waited = await waitsOnLock(b.pid, walk);
-      await a.client.query('COMMIT'); a.client.release();
-      await walk; await b.client.query('COMMIT'); b.client.release();
-      expect(waited).toBe(true);
-      expect(await rowsOf(m.id)).toEqual([]);                                // on account
+      try {
+        await runOn(f.fx, a.client, first);
+        const p = runOn(f.fx, b.client, second);
+        const waited = await waitsOnLock(b.pid, p);
+        await a.client.query('COMMIT');
+        const outcome = await p.then(() => null, (err: unknown) => err);
+        await b.client.query(outcome ? 'ROLLBACK' : 'COMMIT');
+        return { waited, outcome };
+      } finally {
+        await a.client.query('ROLLBACK').catch(() => {}); a.client.release();
+        await b.client.query('ROLLBACK').catch(() => {}); b.client.release();
+      }
+    };
+    it('the linked approval first, the back-fill\'s walk second: it waits for Y\'s key, then finds nothing left there', async () => {
+      const { c, y, l, m } = await setup('R8-1a', '2026-06-01', true);
+      const r = await race(() => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }), () => backfill(c));
+      expect(r).toEqual({ waited: true, outcome: null });
+      expect(await rowsOf(m.id)).toEqual([]);
       expect(await state(y)).toEqual({ remainingNet: 0, remainingVat: 0 });
     });
-    it('the walk first: the linked approval waits for Y\'s key, then is refused (nothing left)', async () => {
-      const { y, l, m } = await setup('R8-1b', '2026-06-02');
-      const b = await open();
-      await runOn(f.fx, b.client, () => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }));
-      const a = await open();
-      const approving = runOn(f.fx, a.client, () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
-      const waited = await waitsOnLock(a.pid, approving);
-      await b.client.query('COMMIT'); b.client.release();
-      await expect(approving).rejects.toThrow(/credits 100\.00, but the invoice has 0\.00 left to credit/);
-      await a.client.query('ROLLBACK'); a.client.release();
-      expect(waited).toBe(true);
+    it('the back-fill\'s walk first, the linked approval second: it waits for Y\'s key, then is refused (nothing left)', async () => {
+      const { c, y, l, m } = await setup('R8-1b', '2026-06-01', true);
+      const r = await race(() => backfill(c), () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
+      expect(r.waited).toBe(true);
+      expect(String(r.outcome)).toMatch(/credits 100\.00, but the invoice has 0\.00 left to credit/);
       expect(await rowsOf(m.id)).toEqual([{ invoice_id: y, amount: 115 }]);
       expect(await sql`SELECT status FROM credit_notes WHERE id = ${l.id}::UUID`).toEqual([{ status: 'draft' }]);
+    });
+    it('approve\'s own walk first, the linked approval second: refused the same way', async () => {
+      const { y, l, m } = await setup('R8-1c', '2026-06-02', false);
+      const r = await race(() => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }),
+        () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
+      expect(r.waited).toBe(true);
+      expect(String(r.outcome)).toMatch(/credits 100\.00, but the invoice has 0\.00 left to credit/);
+      expect(await rowsOf(m.id)).toEqual([{ invoice_id: y, amount: 115 }]);
     });
   });
 
