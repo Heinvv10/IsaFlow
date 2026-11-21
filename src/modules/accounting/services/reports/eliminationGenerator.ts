@@ -71,6 +71,13 @@ const NOT_LEFT_TO_MIRROR: Record<string, (ref: string, periodEnd: string) => str
   closer: (ref) => `mirrored document ${ref} belongs to a closer row`,
   none: (ref, end) => ref ? `mirrored document ${ref} is not eliminated automatically for the period to ${end}` : 'no mirrored document eliminates this row',
 };
+/** Whether every named mirror is eliminated automatically for the period ending `periodEnd` (intercompany_mirror_stands). */
+async function mirrorsStand(rows: unknown, periodEnd: string): Promise<boolean> {
+  const ids = Array.isArray(rows) ? rows.map(String) : [];
+  if (ids.length === 0) return false;
+  const r = (await sql`SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x, ${periodEnd}::DATE), false)) AS s FROM unnest(${ids}::UUID[]) x`) as DbRow[];
+  return r[0]?.s === true;
+}
 const label = (tx: DbRow): EliminationRowLabel => ({ description: String(tx.description ?? ''), date: String(tx.td), amount: Number(tx.amount) });
 
 /** `flagged`, when given, receives the eliminations this run drafted with a flag, with why; `skipped` the rows it left to mirroring. */
@@ -89,9 +96,8 @@ export async function autoGenerateEliminations(
     if (held.length === 0) throw new Error('autoGenerateEliminations must run inside a transaction (its per-group advisory lock is transaction-scoped)');
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description, ict.transaction_date::TEXT AS td, dup.mirror_rows, dup.mirror_ref
+             ict.transaction_type, ict.amount, ict.description, ict.transaction_date::TEXT AS td
       FROM intercompany_transactions ict
-      LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ict.id) dup ON true
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND NOT public.intercompany_is_mirrored_row(ict.id) -- a mirrored document's elimination is derived from the ledgers (mirrorEliminations.ts), never stored
         AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
@@ -112,7 +118,10 @@ export async function autoGenerateEliminations(
         SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
       `) as DbRow[];
       if (standing.length > 0) continue;
-      let mirroredRef = tx.mirror_rows ? String(tx.mirror_ref) : '';
+      // the possible mirrored duplicate, judged as at the period (only for a row this run may draft: a row left to mirroring needs none)
+      const dupOf = async () => ((await sql`SELECT mirror_rows, mirror_ref FROM public.intercompany_mirrored_duplicate(${String(tx.id)}::UUID, ${periodEnd}::DATE)`) as DbRow[])[0];
+      let mirroredRef = '';
+      let mirrorRows: unknown = null;
       // RULING 2026-11-21: on or after the pair's cutover a sale-class row is left to mirroring ONLY when a mirrored document of this group
       // eliminates it for this period, and that answer is STORED (intercompany_mirror_link): one mirror accounts for at most one sale row and
       // one purchase row across every run and period, so a later run reads the link instead of matching again. Otherwise the row is drafted.
@@ -122,17 +131,25 @@ export async function autoGenerateEliminations(
         const link = ((await sql`SELECT state, mirror_ref FROM public.intercompany_mirror_link(${String(tx.id)}::UUID, ${periodEnd}::DATE)`) as DbRow[])[0];
         const state = String(link?.state ?? 'none');
         if (link?.mirror_ref) mirroredRef = String(link.mirror_ref);
+        else { const d = await dupOf(); if (d?.mirror_rows) mirroredRef = String(d.mirror_ref); }
         if (state === 'linked') {
           skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${mirroredRef})`, cutover, mirroredRef, ...label(tx) });
           continue;
         }
         why = (NOT_LEFT_TO_MIRROR[state] ?? NOT_LEFT_TO_MIRROR.none!)(mirroredRef, periodEnd);
+      } else {
+        const d = await dupOf();
+        if (d?.mirror_rows) { mirroredRef = String(d.mirror_ref); mirrorRows = d.mirror_rows; }
       }
       // Before the cutover, a manual (P1) row that may be the same sale as a mirrored document is drafted, never skipped (a skip judged once could
-      // not follow the mirror accepted, withdrawn or booked in another month later), and marked for the person who posts it.
+      // not follow the mirror accepted, withdrawn or booked in another month later), and marked for the person who posts it, saying whether
+      // that mirror is eliminated automatically for the period (a cancelled or unapproved one is not: then this may be the sale's only elimination).
+      const preStands = !cutover && mirroredRef ? await mirrorsStand(mirrorRows, periodEnd) : false;
       const reason = cutover
         ? `the pair mirrors from ${cutover}, but ${why}: post it if it is correct`
-        : `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date): posting it would eliminate the sale twice`;
+        : preStands
+          ? `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date): posting it would eliminate the sale twice`
+          : `possibly the same sale as mirrored document ${mirroredRef} (the same companies and direction, and its amount and date), which is NOT eliminated automatically for the period to ${periodEnd}: this may be the sale's only elimination`;
       const note = cutover || mirroredRef ? `CHECK BEFORE POSTING: ${reason} - ` : '';
       const txType = String(tx.transaction_type);
       const amount = Number(tx.amount);

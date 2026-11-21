@@ -28,7 +28,7 @@ export function duplicateText(adj: EliminationAdjustment): string {
     return `Possibly the same sale as mirrored document ${m}, which is NOT eliminated automatically at the moment (booked in another financial year, not approved yet, or reversed): this may be its only elimination.${shared}`;
   }
   if (adj.status === 'draft' && adj.pairCutover) {
-    return `${matchedElsewhereText(m ?? '', adj.pairCutover)} Check before posting.${shared}`;
+    return `${matchedElsewhereText(m ?? '', adj.pairCutover, adj.mirrorLinked === true)} Check before posting.${shared}`;
   }
   if (adj.status === 'draft') return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically: check before posting.${shared}`;
   return shared

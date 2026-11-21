@@ -95,9 +95,10 @@ describe('H1: a cancel reversed after the period leaves the period eliminated by
     await turnOn();
     const m = await booked('2026-03-15');
     const s = await manual(co.A, co.B, 'sale', '2026-03-15'); await matchRows([s.id]);
-    await L.cancelSender(m.inv.id);   // (reversal dated today: inside the period only when today is in it, so judge March as at today)
-    const d = (await pool.query("SELECT entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [m.message.source_journal_entry_id])).rows[0]?.d as string;
-    const end = d > '2026-03-31' ? d : '2026-03-31';
+    await L.cancelSender(m.inv.id);
+    // the cancel's reversal is dated on the invoice's own date (an open period), so inside March whatever today is
+    expect((await pool.query("SELECT entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [m.message.source_journal_entry_id])).rows.map((r) => r.d)).toEqual(['2026-03-15']);
+    const end = '2026-03-31';
     const g = await gen('2026-03-01', end);
     expect([g.skipped, g.drafted.includes(s.id)]).toEqual([[], true]);
     const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', end))).find((a) => a.sourceIntercompanyId === s.id)!;

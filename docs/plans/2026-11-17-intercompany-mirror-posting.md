@@ -47,7 +47,8 @@ directions) that a mirrored document of that group eliminates: it lists it "elim
 That answer is a STORED, exclusive link (one mirror accounts for at most one sale row and one purchase
 row across every run and period; a row takes the closest of its matching mirrors that is free), judged as at the period being
 generated: a mirror that stops eliminating the row inside that period releases the link and the row is
-drafted; a stop dated after the period is the mirror's own counter-elimination in that later period. A
+drafted, unless another of its matching mirrors takes it (a cancel and re-issue inside the period); a
+stop dated after the period is the mirror's own counter-elimination in that later period. A
 mirror whose lines are not all mapped to group accounts does not take a row. A sender's cancel counts by
 the date of its reversal, like any stop (a cancel rolled past a VAT-locked period leaves that period
 eliminated by the mirror). A row no mirror accounts

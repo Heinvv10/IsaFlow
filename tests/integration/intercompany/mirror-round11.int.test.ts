@@ -1,7 +1,7 @@
 /**
  * Intercompany P2, round 11 (the round-10 breaker review):
- *  B-M1  a rejected mirror (A1), a loan (A2) and a cancelled mirror (A3) never touch a genuine manual elimination: drafted, not flagged
- *        (round 12: the generator never skips a manual row at all; see mirror-round12 for the flag);
+ *  B-M1  a rejected mirror (A1) and a loan (A2) never touch a genuine manual elimination: drafted, not flagged; a cancelled mirror (A3) is
+ *        drafted and flagged with the truthful NOT-eliminated confirm (round 17) (round 12: the generator never skips a manual row at all);
  *  B-M2  a reversal chain is walked once per row, so the cost of a period is linear in its depth (counted calls, not seconds);
  *  B-L1  a row whose own journal carries a reversal_of_id is still found from a reversal dated in the period (months add up to the year).
  */
@@ -10,6 +10,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { createIntercompanyTransaction, matchIntercompanyTransactions } from '../../../src/modules/accounting/services/reports/intercompanyService';
 import { autoGenerateEliminations, type FlaggedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
+import { getEliminationAdjustments, postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asService, co, groupAccounts as ga, inbox, sentInvoice, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
 
@@ -42,7 +43,7 @@ async function manualPair(type: string, back: string) {
 const net = (lines: Array<{ groupAccountId: string; debit: number; credit: number }>, id: string) =>
   lines.filter((l) => l.groupAccountId === id).reduce((n, l) => n + l.debit - l.credit, 0);
 
-describe('B-M1: a rejected or cancelled mirror, or a loan, never touches a manual elimination (round 12: never a skip, and no flag either)', () => {
+describe('B-M1: a rejected mirror or a loan never touches a manual elimination; a cancelled mirror flags it truthfully (never a skip)', () => {
   it('A1: the mirror REJECTED by B, then the sale captured as a manual P1 pair: eliminated, nothing skipped', async () => {
     const s = await sentInvoice(pool, { date: '2026-01-15' });
     expect((await inbox.reject(U.b, co.B, s.id, { reason: 'booked by hand' })).state.statusCode).toBe(200);
@@ -73,15 +74,22 @@ describe('B-M1: a rejected or cancelled mirror, or a loan, never touches a manua
     }
   });
 
-  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: eliminated', async () => {
+  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: drafted, flagged with that mirror, and its confirm says the mirror is NOT eliminated', async () => {
     const m = await bookedOn('2026-01-15');
     await L.cancelSender(m.inv.id);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
     const { made, flagged } = await manualPair('sale', 'purchase');
     // round 17 (R16 breaker H1): a cancelled mirror stays a candidate, judged as at the period, never by today's cancel stamp; so the draft
-    // is flagged, and its confirm says the mirror is NOT eliminated automatically (round-17 test: a cancel reversed inside the period)
-    expect(flagged.length).toBeGreaterThan(0);
-    expect(made.length).toBeGreaterThan(0);
+    // is flagged with it, and its confirm says the mirror is NOT eliminated automatically (the sale's own elimination is this draft)
+    const ref = (await pool.query('SELECT description FROM intercompany_transactions WHERE id = $1', [m.message.group_transaction_id])).rows[0].description as string;
+    expect(made.length).toBe(1);   // (the matched pair is one elimination)
+    expect(flagged.map((f) => [f.adjustmentId, f.mirroredRef])).toEqual([[made[0]!.id, ref]]);
+    expect(flagged[0]!.reason).toBe(`possibly the same sale as mirrored document ${ref} (the same companies and direction, and its amount and date), which is NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination`);
+    const sale = made.find((a) => flagged[0]!.adjustmentId === a.id)!;
+    const listed = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-01-01', '2026-01-31'))).find((a) => a.id === sale.id)!;
+    expect([listed.mirroredDuplicateOf, listed.mirrorStands]).toEqual([ref, false]);
+    const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(sale.id, co.G)).then(() => 'posted', (e: Error) => e.message);
+    expect(refused).toMatch(/which is NOT eliminated automatically at the moment .*: this may be the sale's only elimination/);
   });
 
 });

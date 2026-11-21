@@ -35,18 +35,26 @@ export async function cutoverRequiringReason(groupId: string, date: string | nul
   return cutovers[0] ?? null;
 }
 
-/** The stored adjustments of the list, each with its possible mirrored duplicate (draft or posted), whether that is eliminated automatically, and how many listed adjustments point at the same mirror(s). */
+/**
+ * The stored adjustments of the list, each with its possible mirrored duplicate (draft or posted; among several candidates, the closest eliminated
+ * automatically for the adjustment's period), whether that is eliminated automatically for that period, whether another row's active link holds
+ * it, and how many listed adjustments point at the same mirror(s).
+ */
 export async function storedEliminationRows(groupId: string, pStart: string | null, pEnd: string | null): Promise<DbRow[]> {
   return (await sql`
     WITH pc AS MATERIALIZED (SELECT * FROM public.intercompany_pair_cutovers(${groupId}::UUID)
     ), s AS MATERIALIZED (
       SELECT ca.*, dup.mirror_rows, dup.mirror_ref,
+             -- another row's active link holds the mirror (the only case the list may say it "was matched to a different row")
+             CASE WHEN dup.mirror_rows IS NOT NULL THEN (SELECT EXISTS (SELECT 1 FROM intercompany_transactions t JOIN intercompany_mirror_links l ON l.mirror_row = ANY (dup.mirror_rows) AND l.released_at IS NULL AND l.row_id <> t.id
+                                 AND l.role = CASE WHEN t.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END
+                WHERE t.id = ca.source_intercompany_id)) END AS mirror_linked,
              -- the row is on or after its pair's cutover (sale class): it was drafted because no standing mirror is left to it
              (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN pc
                 ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
                WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
         FROM consolidation_adjustments ca
-        LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) dup
+        LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id, ca.period_end::DATE) dup
           ON ca.source_intercompany_id IS NOT NULL AND ca.status IN ('draft', 'posted')
        WHERE ca.group_id = ${groupId}::UUID
          -- a stored adjustment of a MIRRORED row (written by an older generator, e.g. after a code rollback) is never shown: its figure is derived
@@ -76,7 +84,7 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
       UPDATE consolidation_adjustments ca SET status='posted', posted_at=NOW(), updated_at=NOW()
       WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft'
         AND (${confirmDuplicate}::BOOLEAN OR ca.source_intercompany_id IS NULL
-             OR NOT EXISTS (SELECT 1 FROM public.intercompany_mirrored_duplicate(ca.source_intercompany_id)))
+             OR NOT EXISTS (SELECT 1 FROM public.intercompany_mirrored_duplicate(ca.source_intercompany_id, ca.period_end::DATE)))
       RETURNING ca.id
     `) as DbRow[];
     if (result.length === 0) {
@@ -84,13 +92,16 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
         SELECT d.mirror_ref, (SELECT bool_and(COALESCE(public.intercompany_mirror_stands(x, ca.period_end::DATE), false)) FROM unnest(d.mirror_rows) x) AS stands,
                (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
                   ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
-                 WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
-          FROM consolidation_adjustments ca CROSS JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) d
+                 WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover,
+               (SELECT EXISTS (SELECT 1 FROM intercompany_transactions t JOIN intercompany_mirror_links l ON l.mirror_row = ANY (d.mirror_rows) AND l.released_at IS NULL AND l.row_id <> t.id
+                                 AND l.role = CASE WHEN t.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END
+                WHERE t.id = ca.source_intercompany_id)) AS linked
+          FROM consolidation_adjustments ca CROSS JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id, ca.period_end::DATE) d
          WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft' AND ca.source_intercompany_id IS NOT NULL
       `) as DbRow[] | undefined;
       if (!confirmDuplicate && Array.isArray(dup) && dup.length > 0) {
         const d = dup[0]!;
-        throw new EliminationPossibleDuplicateError(adjustmentId, String(d.mirror_ref), d.stands === true, d.pair_cutover ? String(d.pair_cutover) : null);
+        throw new EliminationPossibleDuplicateError(adjustmentId, String(d.mirror_ref), d.stands === true, d.pair_cutover ? String(d.pair_cutover) : null, d.linked === true);
       }
       throw new EliminationStateError(adjustmentId, 'draft');
     }

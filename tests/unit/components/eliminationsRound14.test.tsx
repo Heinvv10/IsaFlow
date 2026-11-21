@@ -193,15 +193,29 @@ describe('round 14: the Eliminations page', () => {
     expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
   });
 
-  it('a post-cutover draft whose mirror stands: the badge and the dialog say (in one shared wording) the mirror was matched to a different row, and the button is a plain Post', async () => {
-    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01' })] });
+  it('a post-cutover draft whose mirror stands and is linked to another row: the badge and the dialog say (in one shared wording) the mirror was matched to a different row, and the button is a plain Post', async () => {
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01', mirrorLinked: true })] });
     render(<EliminationsPage />);
-    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01');
+    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01', true);
     expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically, but that mirror was matched to a different row (the pair mirrors from 2026-03-01).');
     expect((await screen.findByRole('note')).textContent).toContain(`${shared} Check before posting.`);
     fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog.textContent).toContain(`${shared} If it is the same sale, posting this would eliminate it twice.`);
     expect(within(dialog).getByRole('button', { name: 'Post' })).toBeTruthy();
+  });
+
+  it('round 18: a post-cutover draft whose standing mirror NO row holds: "not matched to any row yet", never "matched to a different row"', async () => {
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01', mirrorLinked: false })] });
+    render(<EliminationsPage />);
+    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01', false);
+    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically and is not matched to any row yet (the pair mirrors from 2026-03-01).');
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toContain(`${shared} Check before posting.`);
+    expect(note.textContent).not.toMatch(/matched to a different row/);
+    fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain(`${shared} If it is the same sale, posting this would eliminate it twice.`);
+    expect(dialog.textContent).not.toMatch(/matched to a different row/);
   });
 });
