@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // PR #1703 R4-1 / r5: the POs a bill keeps closed by billing are locked first and re-judged after; none here.
 vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({
   lockPosClosedByBilling: vi.fn(async () => new Map()),
-  lockLateClosedByBilling: vi.fn(async (_c: string, _b: string, known: Map<string, number>) => known),
   previewReopenOnBillGone: vi.fn(async () => []),
   reopenAfterBillGone: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [] })),
 }));

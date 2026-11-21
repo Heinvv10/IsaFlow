@@ -2,8 +2,8 @@
  * PR #1703, the merge-queue Codex gate at 70c74adf42, real PostgreSQL 16:
  *   1  a link written for lines that already name its PO takes nothing more from the bill's header PO (the transfer is the change
  *      in the header residual), so a batch that completes the header PO closes it;
- *   2  a cancel waiting on its bill while a link call closes the bill's PO by billing re-reads the POs once it holds the bill, and
- *      reopens that one;
+ *   2  a cancel (2b: a soft delete) waiting on its bill while a link call closes the bill's PO by billing re-reads the POs once it
+ *      holds the bill (the shared lockPosClosedByBilling), and reopens that one;
  *   4  the 1 c tolerance needs billing above 0: a R0.01 order with nothing billed is not fully billed.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -17,6 +17,7 @@ import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkB
 import { cancelSupplierInvoiceTool as cancelBill } from '@/lib/mcp/tools/writeCancelSupplierInvoice';
 import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder';
 import { linkBillsToPurchaseOrders } from '@/modules/accounting/services/ap/purchaseOrderBillLink';
+import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -64,6 +65,27 @@ describe('2: a cancel racing a billing close', () => {
     expect(r.isError, r.text).toBe(false);
     expect(await flag(p)).toEqual({ status: 'approved', closed_by_billing: false });
     expect(r.body.reopened_purchase_orders).toEqual([{ purchase_order_id: p.po, po_number: p.number, reopened_to: 'approved' }]);
+  });
+});
+
+describe('2b: a soft delete racing a billing close (the shared re-read, lockPosClosedByBilling)', () => {
+  it('a link call closes P on bill H while the delete of H waits on H: once it holds H, the delete reopens P', async () => {
+    const p = await seedPo(pool, f, { lines: [1000] });
+    const h = await seedBill(pool, f, { status: 'draft', lines: [1000] });
+    await approveBill(pool, f, h.id);
+    const l = await openRequest(pool, f, f.owner);
+    await l.run(() => linkBillsToPurchaseOrders(f.co, [{ index: 0, poId: p.po, poNumber: null, billId: h.id, amountCents: null, lines: [], ref: null }],
+      { userId: f.owner, source: 'mcp', via: 'link_bills_to_purchase_order', closeWhenFullyBilled: true }));
+    const d = await openRequest(pool, f, f.owner);
+    const del = d.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner));
+    let res: Awaited<ReturnType<typeof softDelete>>;
+    try {
+      try { await waitForLockWait(); } finally { await l.commit(); }
+      res = await del;
+      await d.commit();
+    } catch (e) { await d.rollback(); throw e; }
+    expect(await flag(p)).toEqual({ status: 'approved', closed_by_billing: false });
+    expect(res.reopenedPurchaseOrders.map((r) => r.poNumber)).toEqual([p.number]);
   });
 });
 

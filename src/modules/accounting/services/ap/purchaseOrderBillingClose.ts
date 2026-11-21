@@ -45,8 +45,10 @@ export function isClosedUnderBilled(po: { status: string; closedByBilling: boole
 
 /**
  * The POs closed by billing that these bills tie (a link, a header, a line naming one of their lines), locked FOR NO KEY UPDATE in id
- * order, and what each is billed now: taken BEFORE any of the bills is locked (PO -> bill). A tie written after this read is on a PO
- * this call does not re-judge; its own writer (the link) locked that PO first.
+ * order, and what each is billed now: taken BEFORE any of the bills is locked (PO -> bill). Then the bills themselves are locked
+ * (FOR UPDATE, id order: the cancel / delete locks them next anyway, a no-op then) and the POs re-read: a link call that closed one
+ * by billing while this waited on a bill was invisible to the first read, so it is locked late (`lockLateClosedByBilling`; Codex
+ * gate). The cancel, the soft delete and the bulk cancel all start here, so all get the re-read.
  */
 export async function lockPosClosedByBilling(companyId: string, billIds: string | readonly string[]): Promise<Map<string, number>> {
   const ids = typeof billIds === 'string' ? [billIds] : [...billIds];
@@ -60,23 +62,28 @@ export async function lockPosClosedByBilling(companyId: string, billIds: string 
   `) as DbRow[], () => new RowLockTimeoutError('A purchase order of this bill'));
   const poIds = rows.map((r) => String(r.id).toLowerCase());
   const billed = await billedCentsByPo(companyId, poIds);
-  return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
+  const known = new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
+  await withRowLockBudget(async () => (await sql`
+    SELECT id FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) ORDER BY id FOR UPDATE
+  `) as DbRow[], () => new RowLockTimeoutError('The bill'));
+  return lockLateClosedByBilling(companyId, ids, known);
 }
 
 /**
- * After the bill itself is locked (Codex gate): a link call that closed one of its POs by billing while this call waited on the bill
+ * After the bills themselves are locked (Codex gate): a link call that closed one of its POs by billing while this call waited on the bill
  * was invisible to `lockPosClosedByBilling`'s read. Re-read; lock each new PO (FOR NO KEY UPDATE, in its own savepoint, under the
  * row-lock budget) and read what it is billed before the change. A lock that times out (or a deadlock) leaves that PO as it is,
  * logged: committed still counts a PO closed by billing at its remainder (`remainingCommitted.commitsSpend`), so no figure is lost.
  */
-export async function lockLateClosedByBilling(companyId: string, billId: string, known: ReadonlyMap<string, number>): Promise<Map<string, number>> {
+async function lockLateClosedByBilling(companyId: string, billIds: readonly string[], known: ReadonlyMap<string, number>): Promise<Map<string, number>> {
+  const ids = [...billIds];
   const out = new Map(known);
   const now = ((await sql`
     SELECT po.id::TEXT AS id FROM purchase_orders po
      WHERE po.company_id = ${companyId}::UUID AND po.status = 'closed' AND po.closed_by_billing AND po.id IN (
-         SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${[billId]}::UUID[])
-         UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${[billId]}::UUID[])
-         UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${[billId]}::UUID[]))
+         SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${ids}::UUID[])
+         UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${ids}::UUID[])
+         UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${ids}::UUID[]))
      ORDER BY po.id
   `) as DbRow[]).map((r) => String(r.id).toLowerCase()).filter((id) => !known.has(id));
   for (const id of now) {
@@ -88,7 +95,7 @@ export async function lockLateClosedByBilling(companyId: string, billId: string,
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (!(err instanceof RowLockTimeoutError) && code !== '40P01' && code !== '55P03') throw err;
-      log.warn('A purchase order closed by billing meanwhile could not be locked; left closed', { companyId, billId, poId: id, code }, 'accounting');
+      log.warn('A purchase order closed by billing meanwhile could not be locked; left closed', { companyId, billIds: ids, poId: id, code }, 'accounting');
     }
   }
   return out;
