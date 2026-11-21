@@ -40,10 +40,7 @@ export interface CensusConfig {
   routeWrappers: Readonly<Record<string, string>>;
   /** Static SQL text that makes the unit holding it a primitive (module '*'). */
   sqlPrimitives?: readonly RegExp[];
-  /**
-   * A route unit running primitive SQL itself is dangerous unless wrapped, or a gate dominates the statement, or a marker sits above
-   * it (both censuses: a handler that posts a journal in its own SQL calls no sink, #1670 Codex).
-   */
+  /** A route unit running primitive SQL itself is dangerous unless wrapped, a gate dominates it, or a marker sits above it (#1670). */
   flagPrimitiveRoots?: boolean;
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
 }
@@ -276,8 +273,7 @@ export function analyse(cfg: CensusConfig): Census {
     if (c.exempt && needs && !rawCovered(c, u.file, needs)) used.add(`${u.file}:${c.exempt.line}`);
   }
   if (cfg.flagPrimitiveRoots) {
-    // Primitive SQL in a route unit is covered only where a gate DOMINATES it (or the route is wrapped), or a marker sits directly above
-    // its own statement. Any configured gate covers it: the SQL names no module ('*'), and the payroll-read gates are all Payroll's.
+    // Covered only where a gate DOMINATES it (or the route is wrapped), or a marker sits above its own statement; any gate (SQL is '*').
     for (const u of all) {
       if (!routes.has(u.file) || calledInFile.has(u) || wrapped.has(u.file)) continue;
       const sites: string[] = [];
