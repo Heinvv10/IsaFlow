@@ -79,3 +79,19 @@ describe('a historical regular line that cannot be rebuilt: its stored class (re
     expect(treatmentOf(bonus)).toMatch(/Non-standard employment/);
   });
 });
+
+// Review L2 of f37f0f15a6: the stored class is the line's own as stored: undetermined stays undetermined (its terms
+// warning blocks, as on the regular line), a directive line is not reclassified flat.
+describe('the stored class: undetermined and directive (review L2 of f37f0f15a6)', () => {
+  const partTime = employee({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 300 });
+  const month = [earning('basic', '3601', 3_033), earning('overtime', '3607', 1_517)]; // R450 a day if all counted: flat
+  it('undetermined: the bonus carries EMPLOYMENT_UNDETERMINED, as the regular line did', () => {
+    const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'undetermined' }, undefined, partTime);
+    expect(bonus.validationResults.map((v) => v.code)).toContain('EMPLOYMENT_UNDETERMINED');
+  });
+  it('directive: the bonus is not made flat on its rebuilt pay', () => {
+    const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: month, storedClass: 'directive' }, undefined, partTime);
+    expect(bonus.explanations.paye.steps.find((s) => s.key === 'paye.treatment')?.label).not.toMatch(/Non-standard employment/);
+    expect(bonus.validationResults.map((v) => v.code)).not.toContain('EMPLOYMENT_UNDETERMINED');
+  });
+});

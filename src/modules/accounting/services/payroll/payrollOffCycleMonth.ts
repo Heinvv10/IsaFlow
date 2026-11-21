@@ -23,6 +23,10 @@ import { getTaxYearConfig } from './taxTables';
 import { UIF_RATE } from './uifEngine';
 import { formatMoney } from '@/lib/money/formatMoney';
 
+/** An earlier line's class as stored, strongest first when the month holds several (storedClass). */
+export type StoredClass = 'undetermined' | 'directive' | 'flat' | 'tables';
+export const STORED_CLASS_ORDER: readonly StoredClass[] = ['undetermined', 'directive', 'flat', 'tables'];
+
 /** What the month's earlier final lines of the employee hold (all of them summed; none = zeros and no components). */
 export interface MonthEarlierLines {
   /** The UIF remuneration those lines levied on (uifEngine's month to date), rebuilt from their breakdown. */
@@ -40,19 +44,28 @@ export interface MonthEarlierLines {
   unrebuiltPay?: number;
   /**
    * An earlier line costed before the onceOff marker whose once-off basic pay could not be told from its recurring pay
-   * (gate ruling 1 on e0eec1dea1): its own class as stored (flat: PAYE outside the tables at 25%), which the off-cycle
-   * line takes rather than reclassifying.
+   * (gate ruling 1 on e0eec1dea1): its own class as stored, which the off-cycle line takes rather than reclassifying
+   * (review L2 of f37f0f15a6): undetermined (EMPLOYMENT_UNDETERMINED on it), costed under a regular-pay directive, flat
+   * (PAYE outside the tables at 25%), else the tables.
    */
-  storedClass?: 'flat' | 'tables';
+  storedClass?: StoredClass;
 }
 
 export const NO_EARLIER_LINES: MonthEarlierLines = { uifRemuneration: 0, eti: 0, etiComponents: [] };
 
 /** The class of the month's regular line as stored (storedClass), as the classifier states one. */
-export function storedClassification(stored: 'flat' | 'tables'): EmploymentClassification {
-  return stored === 'flat'
-    ? { kind: 'non_standard_flat', reason: 'Classified as the month\'s regular line was: non-standard employment (G21 p. 28).', hoursNotRecorded: false }
-    : { kind: 'standard', reason: 'Classified as the month\'s regular line was: taxed on the tables.', hoursNotRecorded: false };
+export function storedClassification(stored: StoredClass): EmploymentClassification {
+  const as = 'Classified as the month\'s regular line was';
+  switch (stored) {
+    case 'undetermined':
+      return { kind: 'undetermined', reason: `${as}: G21 p. 28 could not say whether the employment is standard.`, hoursNotRecorded: false };
+    case 'flat':
+      return { kind: 'non_standard_flat', reason: `${as}: non-standard employment (G21 p. 28).`, hoursNotRecorded: false };
+    case 'directive':
+      return { kind: 'standard', reason: `${as}: under a regular-pay tax directive, so not reclassified on its rebuilt pay.`, hoursNotRecorded: false };
+    default:
+      return { kind: 'standard', reason: `${as}: taxed on the tables.`, hoursNotRecorded: false };
+  }
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;

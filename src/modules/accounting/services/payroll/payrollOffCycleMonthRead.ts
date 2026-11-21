@@ -15,7 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql } from './payrollRunOrder';
 import { ONCE_OFF_MARKER_VERSION } from './payrollCalculationVersion';
-import type { MonthEarlierLines } from './payrollOffCycleMonth';
+import { STORED_CLASS_ORDER, type MonthEarlierLines, type StoredClass } from './payrollOffCycleMonth';
 import type { ComponentBreakdownItem, EmployeeComponent } from './payrollTypes';
 
 const n = (v: unknown): number => Number(v) || 0;
@@ -42,12 +42,21 @@ export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEa
   }));
 }
 
+/** The stronger of two stored classes (STORED_CLASS_ORDER): the month's lines together. */
+const strongest = (a?: StoredClass, b?: StoredClass): StoredClass =>
+  STORED_CLASS_ORDER.find((c) => c === a || c === b) ?? 'tables';
+
 export async function loadMonthEarlierLines(companyId: string, runId: string, employeeIds: string[]): Promise<Map<string, MonthEarlierLines>> {
   if (employeeIds.length === 0) return new Map();
   const rows = (await sql`
     SELECT l.employee_id, l.gross_pay, l.eti, l.uif_employee, l.uif_employer,
            COALESCE(o.calculation_version, 0) < ${ONCE_OFF_MARKER_VERSION} AS historic,
-           COALESCE(l.validation_results @> '[{"code": "PAYE_OUTSIDE_TABLES", "treatment": "flat_25"}]'::jsonb, false) AS flat,
+           -- The line's class as stored (review L2 of f37f0f15a6), strongest first: undetermined, a regular-pay directive
+           -- (its PAYE explanation's directive steps), flat (PAYE outside the tables at 25%), else the tables.
+           CASE WHEN COALESCE(l.validation_results @> '[{"code": "EMPLOYMENT_UNDETERMINED"}]'::jsonb, false) THEN 'undetermined'
+                WHEN COALESCE(jsonb_path_exists(l.explanation, 'lax $.paye.**.key ? (@ starts with "paye.regularDirective")'), false) THEN 'directive'
+                WHEN COALESCE(l.validation_results @> '[{"code": "PAYE_OUTSIDE_TABLES", "treatment": "flat_25"}]'::jsonb, false) THEN 'flat'
+                ELSE 'tables' END AS stored_class,
            COALESCE((
              SELECT jsonb_agg(item || jsonb_build_object('isEarning',
                       pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%',
@@ -58,7 +67,9 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
                           FROM payroll_employee_components ec
                          WHERE ec.employee_id = l.employee_id AND ec.component_id::text = item->>'componentId'
                            AND ec.amount = (item->>'amount')::numeric
-                           AND ec.effective_from <= o.period_end AND (ec.effective_to IS NULL OR ec.effective_to >= o.period_start))))
+                           AND ec.effective_from <= o.period_end AND (ec.effective_to IS NULL OR ec.effective_to >= o.period_start)
+                           -- As it stood when the line was calculated (review L3): a row added since is not its assignment.
+                           AND ec.created_at <= l.created_at)))
                FROM jsonb_array_elements(l.component_breakdown) AS item
                LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = me.company_id
            ), '[]'::jsonb) AS items
@@ -96,7 +107,7 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
       etiComponents: [...had.etiComponents, ...earnings],
       // A line that paid but whose breakdown rebuilds no earning (an import): the month's ETI base cannot be told.
       unrebuiltPay: round2((had.unrebuiltPay ?? 0) + (earnings.length === 0 ? Math.max(0, n(r.gross_pay)) : 0)),
-      ...(unrecovered || had.storedClass ? { storedClass: had.storedClass === 'flat' || (unrecovered && r.flat === true) ? 'flat' as const : 'tables' as const } : {}),
+      ...(unrecovered || had.storedClass ? { storedClass: strongest(had.storedClass, unrecovered ? r.stored_class as StoredClass : undefined) } : {}),
     });
   }
   return out;

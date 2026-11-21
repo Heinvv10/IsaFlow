@@ -13,7 +13,10 @@ vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: tru
 
 let a: Awaited<ReturnType<typeof rig>>;
 let emp = '';
+let flatEmp = '';
+let directedEmp = '';
 let onceOffRow = '';
+let basic = '';
 let regular = '';
 let bonusRun = '';
 
@@ -21,9 +24,20 @@ beforeAll(async () => {
   a = await rig('w6-oc-historic');
   await a.setup();
   emp = (await a.employee(12_000)).employee;
-  const basic = (await a.pool.query(`SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Basic Salary'`, [a.company])).rows[0].id;
+  basic = String((await a.pool.query(`SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Basic Salary'`, [a.company])).rows[0].id);
   onceOffRow = String((await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
     VALUES ($1, $2, 1517, '2026-11-01', '2026-11-30', false) RETURNING id`, [emp, basic])).rows[0].id);
+  // Review L2 of f37f0f15a6: a real flat regular line (under 6 hours a day: non-standard, G21 p. 28) and a real line
+  // under a regular-pay directive, each with a once-off basic pay item that is later lost (unrecoverable).
+  flatEmp = (await a.employee(9_000)).employee;
+  await a.pool.query('UPDATE payroll_employees SET hours_per_week = 20, hours_per_day = 4 WHERE id = $1', [flatEmp]);
+  directedEmp = (await a.employee(20_000)).employee;
+  await a.pool.query(`INSERT INTO tax_directives (company_id, employee_id, employee_name, directive_type, amount, tax_rate, effective_date, status)
+    VALUES ($1, $2, 'Directed', 'fixed_percentage', 0, 0.25, '2026-03-01', 'approved')`, [a.company, directedEmp]);
+  for (const who of [flatEmp, directedEmp]) {
+    await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+      VALUES ($1, $2, 700, '2026-11-01', '2026-11-30', false)`, [who, basic]);
+  }
   const bonus = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
     VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [a.company])).rows[0].id;
   regular = await a.calculatedRun(11);
@@ -40,6 +54,9 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  await a.pool.query('DELETE FROM payroll_run_directive_uses WHERE directive_id IN (SELECT id FROM tax_directives WHERE company_id = $1)', [a.company]).catch(() => undefined);
+  await a.pool.query('DELETE FROM tax_directive_payments WHERE company_id = $1', [a.company]).catch(() => undefined);
+  await a.pool.query('DELETE FROM tax_directives WHERE company_id = $1', [a.company]).catch(() => undefined);
   await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]).catch(() => undefined);
   await a.pool.query('DELETE FROM audit_log WHERE company_id = $1', [a.company]).catch(() => undefined);
   await a.teardown();
@@ -60,5 +77,19 @@ describe('a historical regular line in the month', () => {
     await a.pool.query('DELETE FROM payroll_employee_components WHERE id = $1', [onceOffRow]);
     const earlier = (await loadMonthEarlierLines(a.company, bonusRun, [emp])).get(emp)!;
     expect(earlier.storedClass).toBe('tables');
+  });
+  it('a recurring row of the same amount added after the line was calculated is not its assignment (review L3)', async () => {
+    await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, is_recurring)
+      VALUES ($1, $2, 1517, '2026-11-01', true)`, [emp, basic]);
+    const earlier = (await loadMonthEarlierLines(a.company, bonusRun, [emp])).get(emp)!;
+    expect(earlier.storedClass).toBe('tables');
+  });
+  it('the stored class keeps a flat line flat and a directive line on its directive (review L2)', async () => {
+    await a.pool.query(`DELETE FROM payroll_employee_components WHERE employee_id = ANY($1::uuid[]) AND NOT is_recurring`, [[flatEmp, directedEmp]]);
+    const earlier = await loadMonthEarlierLines(a.company, bonusRun, [flatEmp, directedEmp]);
+    expect(earlier.get(flatEmp)?.storedClass).toBe('flat');
+    const paye = (await a.pool.query(`SELECT l.explanation->'paye' AS p FROM payroll_run_lines l WHERE l.run_id = $1 AND l.employee_id = $2`, [regular, directedEmp])).rows[0]?.p;
+    expect(JSON.stringify(paye), 'the regular line was costed under the directive').toMatch(/paye\.regularDirective/);
+    expect(earlier.get(directedEmp)?.storedClass).toBe('directive');
   });
 });
