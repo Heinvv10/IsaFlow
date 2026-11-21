@@ -155,6 +155,21 @@ describe('an older document_links row lends a bill only its own company\'s docum
   });
 });
 
+describe('a note\'s own listing includes its legacy documents (review L3)', () => {
+  it('listEntityDocuments(goods_received, note) lists goods_received and goods_receipt_note documents of this company\'s note', async () => {
+    const ours = await noteOnPo(f);
+    await fileOn(f, 'goods_received', ours.grn, 'NOTE-new.pdf');
+    await legacyDoc(ours.grn, 'NOTE-legacy.pdf');
+    const req = await openRequest(pool, f, f.owner);
+    try {
+      const r = await req.run(() => listEntityDocuments(f.co, 'goods_received', ours.grn, 50, 0));
+      expect(r.ok && r.documents.map((d) => `${d.source}:${d.documentName}`).sort()).toEqual(['direct:NOTE-legacy.pdf', 'direct:NOTE-new.pdf']);
+      const theirs = await noteOnPo(other);
+      expect(await req.run(() => listEntityDocuments(f.co, 'goods_received', theirs.grn, 50, 0))).toEqual({ ok: false, reason: 'entity_not_found' });
+    } finally { await req.rollback(); }
+  });
+});
+
 describe('the legacy goods_receipt_note document type (finding 2)', () => {
   it('app_user sees (and may deactivate) a legacy document of this company\'s note, never one of another company\'s note', async () => {
     const ours = await noteOnPo(f);

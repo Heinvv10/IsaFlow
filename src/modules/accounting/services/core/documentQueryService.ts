@@ -61,9 +61,13 @@ export async function listEntityDocuments(
     return { ok: false, reason: 'entity_not_found' };
   }
 
+  // A goods received note's documents are filed under both its entity type and the legacy goods_receipt_note (review L3); a legacy
+  // row counts only when the id is a note of this company (verifyEntityOwnership proves only that SOME parent row is ours).
   const directRows = (await sql`
     SELECT * FROM procurement_documents
-    WHERE entity_type = ${entityType}
+    WHERE (entity_type = ${entityType}
+           OR (${entityType}::text = 'goods_received' AND entity_type = 'goods_receipt_note'
+               AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = ${entityId}::uuid AND g.company_id = ${companyId}::uuid)))
       AND entity_id = ${entityId}::uuid
       AND is_active = true
     ORDER BY uploaded_at DESC, id DESC
