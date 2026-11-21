@@ -20,6 +20,7 @@
 import type { EmployeeComponent, UifResult } from './payrollTypes';
 import { getTaxYearConfig } from './taxTables';
 import { UIF_RATE } from './uifEngine';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 /** What the month's earlier final lines of the employee hold (all of them summed; none = zeros and no components). */
 export interface MonthEarlierLines {
@@ -100,7 +101,7 @@ export class OffCycleEtiBasisError extends Error {
  */
 export function offCycleEtiRefusal(monthEti: number, earlier: MonthEarlierLines, employeeName: string): string | null {
   if ((earlier.unrebuiltPay ?? 0) <= 0 || (earlier.eti === 0 && monthEti === 0)) return null;
-  return `${employeeName}'s earlier pay this month (R${(earlier.unrebuiltPay ?? 0).toFixed(2)}) was recorded without its earnings `
+  return `${employeeName}'s earlier pay this month (${formatMoney(earlier.unrebuiltPay ?? 0)}) was recorded without its earnings `
     + 'breakdown (an imported line), so the month\'s Employment Tax Incentive cannot be costed on this run. Recalculate the '
     + 'month\'s regular run in IsaFlow first, or pay this amount on the regular run.';
 }
