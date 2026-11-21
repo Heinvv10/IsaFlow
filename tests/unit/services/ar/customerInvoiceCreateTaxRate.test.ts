@@ -6,9 +6,13 @@
  * return and the GL leg go negative.
  *
  * The same audit that added the line guards here ("the July-4 audit created a
- * -R115.00 invoice through this handler") left this field open. Thrown as an
- * InvoiceLineValidationError so the route answers 400 rather than the 500 the
- * database trigger would otherwise produce.
+ * -R115.00 invoice through this handler") left this field open. Refused so the
+ * route answers 400 rather than the 500 the database trigger would otherwise produce.
+ *
+ * Per-line VAT (the writer PR): the header rate is a LEGACY input now, the
+ * standard rate on the invoice date or 0 only (invoiceLineVatTypes), so a
+ * negative, NaN or 150% rate is refused as InvoiceLineVatRefusal, and so is
+ * 100 (it was let through before).
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
@@ -28,6 +32,7 @@ import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 
@@ -51,9 +56,10 @@ describe('createDraftCustomerInvoice — R-119 tax rate', () => {
     ['negative', -50],
     ['above 100', 150],
     ['not a number', Number.NaN],
+    ['100% (neither the standard rate nor 0)', 100],
   ])('refuses a %s tax rate before writing anything', async (_label, rate) => {
     await expect(createDraftCustomerInvoice(COMPANY, USER, input(rate)))
-      .rejects.toBeInstanceOf(InvoiceLineValidationError);
+      .rejects.toBeInstanceOf(InvoiceLineVatRefusal);
 
     // Refused before the first write: no INSERT, so the operator gets the 400
     // the route maps this error to, not the trigger's 23514 as a 500.
@@ -62,11 +68,13 @@ describe('createDraftCustomerInvoice — R-119 tax rate', () => {
     expect(inserts).toHaveLength(0);
   });
 
-  it.each([15, 0, 100, undefined])('lets rate %s past the guard', async (rate) => {
+  it.each([15, 0, undefined])('lets rate %s past the guard', async (rate) => {
     // `sql` is mocked to return [], so the call fails LATER, reading the
     // inserted row back. What this asserts is that it gets past the guard —
     // the failure is anything but an InvoiceLineValidationError.
     const err = await createDraftCustomerInvoice(COMPANY, USER, input(rate)).then(() => null, (e: unknown) => e);
     expect(err).not.toBeInstanceOf(InvoiceLineValidationError);
+    expect(err).not.toBeInstanceOf(InvoiceLineVatRefusal);
+    expect(err).not.toBeInstanceOf(InvoiceVatNotRegisteredRefusal); // the sibling refusal (a company not registered for VAT)
   });
 });

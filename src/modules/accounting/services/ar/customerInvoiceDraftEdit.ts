@@ -30,7 +30,7 @@ import { releaseDroppedWipEntries, wipLinks, type WipLinkCheck } from './custome
 import { draftDigestMoved } from './invoicePdfModel';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
-import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
+import { applyRetaxedLines, draftEditVat } from './customerInvoiceDraftVat';
 import { toFunctional } from '../shared/functionalAmounts';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
@@ -68,7 +68,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
+      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id, amounts_are,
              to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(due_date, 'YYYY-MM-DD') AS due_date, due_date_source,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
@@ -203,16 +203,11 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
-    // Priced as create prices them (invoiceLineAmount.ts): Σ of the stored line amounts.
-    const lineAmounts = (items ?? []).map((it) => invoiceLineAmount(it.quantity, it.unitPrice, it.discount ?? 0));
-    if (items) {
-      // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
-      // recomputed totals stay correct when the caller doesn't re-send taxRate.
-      const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
-      const rate = taxRate ?? existingTaxRate;
-      computed = { ...invoiceTotals(lineAmounts, rate), rate };
-    }
+    // Per-line VAT, priced as create prices it (customerInvoiceDraftVat): the new lines by their types, or a typed
+    // invoice's stored lines re-taxed when only its date moved.
+    const vat = await draftEditVat(tx, companyId, id, { items, invoiceDate, headerTaxRate: taxRate, amountsAre: edit.amountsAre, customerId: clientId ?? String(ownedRows[0]!.customer_id), stored: ownedRows[0]! });
+    if (vat.kind === 'refused') return { kind: 'vat_refused' as const, message: vat.message, code: vat.code };
+    const computed = vat.kind === 'unchanged' ? null : { ...vat.header, rate: vat.header.taxRate };
     // numeric(15,2), as create checks it: the total, and functional_total = fx_functional(total, rate) when
     // the UPDATE below rewrites it (new lines or a new rate — a rate alone re-derives it from the stored
     // total). Before the first write.
@@ -238,6 +233,7 @@ export async function editDraftCustomerInvoice(
              billing_period_start = COALESCE(${billingPeriodStart ?? null}, billing_period_start),
              billing_period_end = COALESCE(${billingPeriodEnd ?? null}, billing_period_end),
              tax_rate = COALESCE(${computed?.rate ?? null}, tax_rate),
+             amounts_are = COALESCE(${computed?.amountsAre ?? null}, amounts_are),
              subtotal = COALESCE(${computed?.subtotal ?? null}, subtotal),
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),
@@ -252,7 +248,8 @@ export async function editDraftCustomerInvoice(
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;
 
-    if (lines && computed) {
+    await applyRetaxedLines(tx, companyId, id, vat); // a date-only edit of a typed invoice: its lines at the new date's rate
+    if (lines && vat.kind === 'priced') {
       // Tenant ownership is already enforced by the FOR UPDATE select above,
       // so a plain delete by invoice_id is sufficient here.
       await tx`DELETE FROM customer_invoice_items WHERE invoice_id = ${id}::UUID`;
@@ -262,18 +259,18 @@ export async function editDraftCustomerInvoice(
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
       const lineCurrency = nextCode ?? existingCurrency;
       for (const [i, it] of lines.entries()) {
-        const qty = it.quantity;
-        const lineAmount = lineAmounts[i]!;
+        const { qty, price, amount: lineAmount, taxRate: lineRate, taxAmount: lineTax, vatType } = vat.lines[i]!;
         const coding = codings[i]!;
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, line_position, item_id
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, line_position, item_id, tax_amount, vat_type
           ) VALUES (
-            ${id}::UUID, ${it.description}, ${it.unitPrice},
-            ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
+            ${id}::UUID, ${it.description}, ${price},
+            ${qty}, ${lineAmount}, ${lineRate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i}, ${it.itemId ?? null}::UUID -- line_position is the entry order (956)
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i}, ${it.itemId ?? null}::UUID, -- line_position is the entry order (956)
+            ${lineTax}, ${vatType}
           )
         `;
       }

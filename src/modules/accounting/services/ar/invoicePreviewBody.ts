@@ -4,9 +4,12 @@
  *
  * Caps: 64 KB of JSON and 200 lines; a line description and the notes at most 2,000 characters and 20 line breaks each
  * (a PDF page per few breaks: 200 lines of 120 breaks drew 327 pages). Dates are real calendar dates (create's
- * assertDraftDates rule); a null taxRate is create's default. The line coding (glAccountId, projectId, cc1Id, cc2Id, buId on a line) is not
- * read at all: the PDF prints none of it, so a preview never looks it up. The header projectId is read: the PDF prints
- * the job's name (invoicePreviewModel looks it up within the company).
+ * assertDraftDates rule); a null taxRate is not given (create's per-line VAT default chain). The line's job and
+ * dimensions (projectId, cc1Id, cc2Id, buId) are not read at all: the PDF prints none of them. A line's vatType, taxRate
+ * (the legacy per-line rate) and itemId are carried as sent for create's VAT refusals and default chain (invoiceLineVatTypes,
+ * read within the company), and its glAccountId only so create's item refusal (itemLineDefaults: an item whose sales
+ * account a line without its own account would take) refuses what create refuses (#1701 round 2). The header projectId is read: the PDF prints the job's name (invoicePreviewModel
+ * looks it up within the company).
  */
 import { isRealCalendarDate, UUID_RE } from '@/lib/validation';
 
@@ -26,13 +29,19 @@ export const previewRateLimitName = (userId: string): string => `invoice-pdf-pre
 /** 300 per 15 min: the most the new page's 3 s refetch can ask for in the window. */
 export const PREVIEW_RATE_LIMIT = { max: 300, windowSecs: 900 } as const;
 
-export interface PreviewLine { description: string; quantity: unknown; unitPrice: unknown; discount: unknown }
+export interface PreviewLine {
+  description: string; quantity: unknown; unitPrice: unknown; discount: unknown;
+  /** For the line's VAT type only (invoiceLineVatTypes): as sent. */
+  vatType: unknown; taxRate: unknown; itemId: unknown; glAccountId: unknown;
+}
 
 export interface PreviewBody {
   clientId: string;
   invoiceDate: string | null;
   dueDate: string | null;
   taxRate: number | undefined;
+  /** As sent; create's rule refuses anything but 'exclusive' / 'inclusive' (draftAmountsAre). */
+  amountsAre: unknown;
   notes: string | null;
   items: PreviewLine[];
   currencyCode: unknown;
@@ -99,9 +108,12 @@ export function parsePreviewBody(raw: unknown): PreviewBody {
     capText(item.description, `Line ${i + 1}'s description is`, `Line ${i + 1}'s description has`);
     totalChars += item.description.length;
     totalBreaks += lineBreaks(item.description);
-    return { description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount };
+    return {
+      description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount,
+      vatType: item.vatType, taxRate: item.taxRate, itemId: item.itemId, glAccountId: item.glAccountId,
+    };
   });
-  // null is create's default (15), as `taxRate ?? 15` takes it.
+  // null is not given, as create takes it: the per-line VAT default chain (invoiceLineVatTypes), never a rate of 15.
   if (!(taxRate === undefined || taxRate === null || typeof taxRate === 'number')) throw new PreviewBodyError('taxRate must be a number');
   if (!(blank(notes) || typeof notes === 'string')) throw new PreviewBodyError('notes must be text');
   if (typeof notes === 'string') {
@@ -126,6 +138,7 @@ export function parsePreviewBody(raw: unknown): PreviewBody {
     invoiceDate: optionalDate(raw.invoiceDate, 'invoiceDate'),
     dueDate: optionalDate(raw.dueDate, 'dueDate'),
     taxRate: taxRate ?? undefined,
+    amountsAre: raw.amountsAre,
     notes: typeof notes === 'string' && notes !== '' ? notes : null,
     items: lines,
     currencyCode: raw.currencyCode,

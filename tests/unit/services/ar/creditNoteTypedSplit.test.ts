@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CreditNoteVatSplitRefusal, allocateTypedCreditNote, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
+  CreditNoteVatSplitRefusal, PROPORTIONAL, RECREATE, allocateTypedCreditNote, appliedSettlement, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
 } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { RevenueLeg } from '@/modules/accounting/services/ar/invoiceRevenueLines';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
@@ -95,19 +95,19 @@ describe('the proportional rule, case by case', () => {
   it.each([
     ['mixed: 150 + 22.50 (15% of 150)', MIXED(), 150, 150, 22.5,
       'Credit note CN-9 reverses 150.00 of an invoice with 1500.00 left, so its VAT must be 15.00, not 22.50. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 50.50 + 7.58 (the rate on 50.50)', TEN_X_10_10(), 15.2, 50.5, 7.58,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.58. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.03: 50.15 + 7.52', TEN_X_10_03(), 15, 50.15, 7.52,
       'Credit note CN-9 reverses 50.15 of an invoice with 100.30 left, so its VAT must be 7.50, not 7.52. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 50.50 + 7.59 (one cent under)', TEN_X_10_10(), 15.2, 50.5, 7.59,
       'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.59. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['ten x 10.10: 101.00 + 15.21 (clearing, one cent over)', TEN_X_10_10(), 15.2, 101, 15.21,
       'Credit note CN-9 reverses 101.00 of an invoice with 101.00 left, so its VAT must be 15.20, not 15.21. '
-      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+      + `${PROPORTIONAL} ${RECREATE}`],
     ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
       'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
     ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 must credit a positive amount.'],
@@ -179,6 +179,34 @@ describe('splitGrossProportionally (dispute notes)', () => {
     'null, not a throw, for gross %s against net %s and VAT %s left', (g, r, v) => {
       expect(splitGrossProportionally(g, r, v)).toBeNull();
     });
+});
+
+describe('appliedSettlement: applications use the invoice\'s gross capacity, in its own proportion (#1701 round 4)', () => {
+  // Cents in, cents out.
+  it.each([
+    ['57.50 on 100 / 15', 5750, 10000, 1500, { net: 5000, vat: 750 }],
+    ['a standard note\'s 100 on a zero-rated 200 / 0: net only', 10000, 20000, 0, { net: 10000, vat: 0 }],
+    ['100 on the mixed 1500 / 150: 100 x 150 / 1650 = 9.09 VAT', 10000, 150000, 15000, { net: 9091, vat: 909 }],
+    ['past the capacity: 200 on 100 / 15 counts 115', 20000, 10000, 1500, { net: 10000, vat: 1500 }],
+    ['nothing left', 5000, 0, 0, { net: 0, vat: 0 }],
+    ['VAT left below zero (hand-made): net only, up to the net', 5000, 10000, -500, { net: 5000, vat: 0 }],
+  ] as const)('%s', (_l, applied, net, vat, expected) => expect(appliedSettlement(applied, net, vat)).toEqual(expected));
+
+  it('rounded once on the sum: 23 applications of 0.05 to 1.00 / 0.15 count exactly 1.00 / 0.15 (the integration suite pins the basis passing the sum)', () => {
+    expect(appliedSettlement(23 * 5, 100, 15)).toEqual({ net: 100, vat: 15 });
+  });
+
+  it('never more net than is left nor more VAT than is left, for any amount up to the capacity', () => {
+    for (const [r, v] of [[10000, 1500], [150000, 15000], [3330, 500], [1, 1], [9999, 1]] as const) {
+      for (let a = 1; a <= r + v; a += Math.max(1, Math.floor((r + v) / 97))) {
+        const s = appliedSettlement(a, r, v);
+        expect(s.net + s.vat).toBe(a);
+        expect(s.net).toBeLessThanOrEqual(r);
+        expect(s.vat).toBeLessThanOrEqual(v);
+      }
+      expect(appliedSettlement(r + v, r, v)).toEqual({ net: r, vat: v });
+    }
+  });
 });
 
 describe('legsAreTyped', () => {

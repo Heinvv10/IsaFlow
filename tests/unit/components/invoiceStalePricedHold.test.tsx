@@ -29,7 +29,9 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.mocked(apiFetch).mockReset()
 const settle = async () => { for (let i = 0; i < 8; i++) await advance(0); };
 const card = () => screen.queryByText(/Stored total/);
 const statusText = () => screen.getAllByRole('status').map((e) => e.textContent).join(' | ');
-const QUOTED = { ...DRAFT, tax_rate: 15, total_amount: 1000, items: [{ description: 'Quoted work', quantity: 1, unit_price: 1000, amount: 1000, tax_rate: 0 }] };
+// Stored without its VAT: its line at 15% prices to R1 150. (A line stored at 0% is read at its OWN rate since #1701 round 11
+// and prices to its stored R1 000, so it is no longer stale.)
+const QUOTED = { ...DRAFT, tax_rate: 15, total_amount: 1000, items: [{ description: 'Quoted work', quantity: 1, unit_price: 1000, amount: 1000, tax_rate: 15 }] };
 const WIP = { ...DRAFT, tax_rate: 15, total_amount: 115, items: [{ description: 'Time 1', quantity: 3, unit_price: 33.33, amount: 99.99, time_entry_id: 'te-1' }] };
 
 describe('a stale-priced draft and autosave', () => {

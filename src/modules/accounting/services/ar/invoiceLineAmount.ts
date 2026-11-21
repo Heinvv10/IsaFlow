@@ -1,8 +1,9 @@
 /**
- * The one pricing of a customer-invoice line and of the totals over its lines,
- * shared by create (customerInvoiceCreateService), the draft edit
- * (customerInvoiceDraftEdit) and the new / edit page previews, so the figure
- * the operator sees is the figure stored and posted.
+ * The one pricing of a customer-invoice LINE (qty x price less discount), used by
+ * the per-line VAT pricing (invoiceLineVatPricing: create, the draft edit, the
+ * preview and the pages' totals) and by the legacy writers. `invoiceTotals`, VAT
+ * on the subtotal, is the LEGACY header rule: the typed writers round VAT per line
+ * (shared/vatLineAmounts); quotes and the untyped (non-vendor) shape still use it.
  *
  *   line     = ROUND(q × p × (100 − discount%) / 100, 2),
  *              q, p = ROUND(qty, 2), ROUND(price, 2) — as their numeric(…, 2) columns store them,

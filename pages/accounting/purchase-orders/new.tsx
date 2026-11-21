@@ -18,6 +18,7 @@ import { useDateGate } from '@/hooks/useDateGate';
 import { useOverflowX } from '@/hooks/useOverflowX';
 import { PoDimensionCells, PoDimensionHeaders, usePoDimensionOptions, type PoLineDims } from '@/components/accounting/purchase-orders/PoLineDimensions';
 import { newPoLineKey } from '@/components/accounting/purchase-orders/poLineKey';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string; dims: PoLineDims }
 
@@ -176,7 +177,7 @@ export default function NewPurchaseOrderPage() {
                         <tr key={item.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(item.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
                           <td className="px-3 py-2"><input type="number" required name="quantity" aria-label={`Line ${index + 1} quantity`} min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
-                          <td className="px-3 py-2"><input type="number" required name="unitPrice" aria-label={`Line ${index + 1} unit price`} min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><AmountInput min={0} decimals={6} required name="unitPrice" aria-label={`Line ${index + 1} unit price`} value={item.unitPrice} onValueChange={(_n, t) => updateItem(item.key, 'unitPrice', t)} className={`${inp} text-right`} /></td>
                           <td className="px-3 py-2"><input type="number" name="taxRate" aria-label={`Line ${index + 1} VAT %`} min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           {showDims && (
                             <PoDimensionCells index={index} value={item.dims} options={dimOptions} cellClassName="px-3 py-2"

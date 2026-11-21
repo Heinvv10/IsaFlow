@@ -20,6 +20,8 @@ import { parsePreviewBody, PREVIEW_RATE_LIMIT, PreviewBodyError, previewRateLimi
 import { buildInvoicePreviewModel } from '@/modules/accounting/services/ar/invoicePreviewModel';
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -43,6 +45,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     if (err instanceof PreviewBodyError || err instanceof InvoiceLineValidationError || err instanceof DocumentCurrencyError) {
       return apiResponse.badRequest(res, err.message);
+    }
+    // Create's per-line VAT refusals (invoiceLineVatTypes) and its item refusal, with their code as create answers them.
+    if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal || err instanceof ItemLineRefusal) {
+      return apiResponse.badRequest(res, err.message, { code: err.code });
     }
     throw err;
   }

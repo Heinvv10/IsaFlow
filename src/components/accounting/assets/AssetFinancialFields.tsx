@@ -1,4 +1,5 @@
 import { DateField, type DateFieldCode, type FieldValidity } from '@/components/ui';
+import { AmountInput } from '@/components/ui/AmountInput';
 /** Section 3 of the new-asset form: purchase date, cost, salvage value and useful life. */
 export const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 export const lbl = 'block text-sm font-medium text-ink-muted mb-1.5';
@@ -36,14 +37,14 @@ export function AssetFinancialFields({ form, update, onDateChange, dateError }: 
         </div>
         <div>
           <label htmlFor="asset-cost" className={lbl}>Cost (purchase price) *</label>
-          <input id="asset-cost" type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
-            onChange={e => update('cost', e.target.value)}
+          <AmountInput min={0.01} id="asset-cost" name="cost" required value={form.cost}
+            onValueChange={(_n, t) => update('cost', t)}
             placeholder="25000.00" className={inp} />
         </div>
         <div>
           <label htmlFor="asset-salvageValue" className={lbl}>Salvage (Residual) Value</label>
-          <input id="asset-salvageValue" type="number" name="salvageValue" step="0.01" min="0" value={form.salvageValue}
-            onChange={e => update('salvageValue', e.target.value)}
+          <AmountInput min={0} id="asset-salvageValue" name="salvageValue" value={form.salvageValue}
+            onValueChange={(_n, t) => update('salvageValue', t)}
             placeholder="0.00" className={inp} />
         </div>
         <div>

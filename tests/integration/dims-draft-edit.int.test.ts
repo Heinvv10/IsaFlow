@@ -55,6 +55,10 @@ async function taggedInvoice(a: Key[], b: Key[]) {
   const d = await plantDims(pool, c);
   // functional_total as the edit recomputes it, so a resend moves nothing but what it sends.
   const inv = await plantInvoice(pool, c, owner, { functionalTotal: 1150 });
+  // Typed as the writers store it (per-line VAT): the PUT types a LEGACY (untyped) draft, a content change of its own
+  // that moves the approval digest (invoice-line-vat-writers); this suite's subject is the dimensions of a resend.
+  await pool.query(`UPDATE customer_invoice_items SET vat_type = 'standard', tax_amount = ROUND(amount * 0.15, 2) WHERE invoice_id = $1`, [inv.id]);
+  await pool.query(`UPDATE customer_invoices SET amounts_are = 'exclusive' WHERE id = $1`, [inv.id]);
   for (const [desc, keys] of [['Line A', a], ['Line B', b]] as const) {
     await pool.query('UPDATE customer_invoice_items SET cc1_id = $3, cc2_id = $4, bu_id = $5 WHERE invoice_id = $1 AND description = $2',
       [inv.id, desc, ...keys.map((k) => (k ? d[k] : null))]);

@@ -21,6 +21,8 @@ export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   unitPrice: number;
   /** The catalogue item (migration 1005), when the line names one; null = none (clears it on an edit). */
   itemId?: string | null;
+  /** The line's VAT type as sent (`vat_type`); the service holds it to the contract (invoiceLineVatTypes). */
+  vatType?: unknown;
 }
 
 export interface ParsedCustomerInvoice {
@@ -29,6 +31,8 @@ export interface ParsedCustomerInvoice {
   invoiceDate: string | undefined;
   dueDate: string | undefined;
   taxRate: number | undefined;
+  /** How unit_price reads (`amounts_are`); undefined = exclusive. */
+  amountsAre: 'exclusive' | 'inclusive' | undefined;
   notes: string | undefined;
   projectId: string | null;
   /** Per item, the cc1/cc2/bu as typed (undefined where none). */
@@ -48,6 +52,11 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     unit_price: { type: 'number', minimum: 0 },
     gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the item\'s sales account (when item_id is given) or the default sales account.' },
     item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line credits the item\'s sales account. An inactive item is refused.' },
+    vat_type: {
+      type: 'string', enum: ['standard', 'zero_rated', 'exempt'],
+      description: 'The line\'s VAT type; its rate comes from the type and the invoice date, never from the caller. '
+        + 'Omitted: the customer\'s default VAT type if zero-rated or exempt, else the item\'s, else standard; the GL account is not read (never together with tax_rate).',
+    },
     project_id: {
       type: 'string',
       description: 'Job (a `projects` id — what Project Profitability reads) the line\'s revenue belongs to. '
@@ -57,6 +66,13 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
   },
   required: ['description', 'unit_price'],
   additionalProperties: false,
+} as const;
+
+/** The header `amounts_are` both tools declare. */
+export const AMOUNTS_ARE_SCHEMA = {
+  type: 'string', enum: ['exclusive', 'inclusive'],
+  description: 'How items[].unit_price reads: exclusive (default, before VAT) or inclusive (VAT-inclusive, stored as sent; '
+    + 'each line\'s VAT is backed out of its gross).',
 } as const;
 
 /** The keys CUSTOMER_INVOICE_LINE_SCHEMA declares — and the only ones a line may carry. */
@@ -76,6 +92,10 @@ export function parseCustomerInvoiceInput(
     date: ['invoice_date', 'due_date'],
   });
   if (bad) return bad;
+  // strArg reads a non-string as absent: a number or array date would silently become today (castableArgError skips it).
+  for (const key of ['invoice_date', 'due_date']) {
+    if (args[key] !== undefined && args[key] !== null && typeof args[key] !== 'string') return `${key} must be a date (YYYY-MM-DD)`;
+  }
 
   const customerId = strArg(args, 'customer_id');
   if (!customerId) return 'customer_id is required';
@@ -116,7 +136,8 @@ export function parseCustomerInvoiceInput(
     // the line, before the first INSERT; left to the service it surfaces
     // mid-batch, after a bulk create has already written the elements above it
     // and has to discard them.
-    const unitPrice = Number(o.unit_price);
+    // A number, not anything Number() reads as one: null, "" and [] are 0, true is 1.
+    const unitPrice = typeof o.unit_price === 'number' ? o.unit_price : Number.NaN;
     // The columns' bounds (unit_price numeric(15,2); quantity numeric(10,2), at least 0.01 once stored), as the service checks them.
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       return `items[${i}].unit_price must be a non-negative number`;
@@ -124,7 +145,7 @@ export function parseCustomerInvoiceInput(
     if (unitPrice >= 1e13) {
       return `items[${i}].unit_price must be below 10 000 000 000 000`;
     }
-    const quantity = o.quantity === undefined ? 1 : Number(o.quantity);
+    const quantity = o.quantity === undefined ? 1 : typeof o.quantity === 'number' ? o.quantity : Number.NaN;
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return `items[${i}].quantity must be a positive number`;
     }
@@ -138,20 +159,27 @@ export function parseCustomerInvoiceInput(
     const dims = parseDimensionRefs(o, `items[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity, ...coding, ...item });
+    items.push({ description, unitPrice, quantity, ...coding, ...item, ...(o.vat_type === undefined ? {} : { vatType: o.vat_type }) });
   }
   const projectId = readCodingId(args.project_id);
   if (projectId === undefined) return 'project_id must be a UUID';
 
   let taxRate: number | undefined;
   if (args.tax_rate !== undefined && args.tax_rate !== null) {
-    taxRate = Number(args.tax_rate);
+    // A number only: false, "", "  " and [] read as 0 and would zero-rate the invoice.
+    taxRate = typeof args.tax_rate === 'number' ? args.tax_rate : Number.NaN;
     if (!Number.isFinite(taxRate) || taxRate < 0) return 'tax_rate must be a non-negative number';
+  }
+
+  const amountsAre = args.amounts_are ?? undefined;
+  if (amountsAre !== undefined && amountsAre !== 'exclusive' && amountsAre !== 'inclusive') {
+    return 'amounts_are must be "exclusive" or "inclusive"';
   }
 
   return {
     customerId,
     items,
+    amountsAre,
     invoiceDate: strArg(args, 'invoice_date'),
     dueDate: strArg(args, 'due_date'),
     taxRate,

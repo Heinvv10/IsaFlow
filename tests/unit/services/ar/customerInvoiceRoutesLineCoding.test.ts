@@ -93,6 +93,18 @@ describe('customer-invoices-detail', () => {
       .toEqual({ kind: 'badRequest', error: REFUSED, details: { code: 'INVOICE_LINE_CODING_REFUSED' } });
   });
 
+  it.each(['INVOICE_LINE_VAT_REFUSED', 'INVOICE_VAT_NOT_REGISTERED'])('PUT answers vat_refused 400 with its code (%s), #1701', async (code) => {
+    m.edit.mockResolvedValueOnce({ kind: 'vat_refused', message: 'refused for VAT', code });
+    expect(await run(detailHandler, 'PUT', { id: INV, items: [{ description: 'x', quantity: 1, unitPrice: 1 }] }))
+      .toEqual({ kind: 'badRequest', error: 'refused for VAT', details: { code } });
+  });
+
+  it('PUT refuses amountsAre with no items, before the service (#1701)', async () => {
+    expect(await run(detailHandler, 'PUT', { id: INV, amountsAre: 'inclusive' }))
+      .toEqual({ kind: 'badRequest', error: 'taxRate, amountsAre, currencyCode and exchangeRate require items[] to recompute totals' });
+    expect(m.edit).not.toHaveBeenCalled();
+  });
+
   it('approve answers the pre-write refusal 400 with INVOICE_LINE_CODING_REFUSED', async () => {
     m.approve.mockRejectedValueOnce(new InvoiceLineCodingRefusal(REFUSED));
     expect(await run(detailHandler, 'POST', { id: INV, action: 'approve' }))

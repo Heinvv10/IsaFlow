@@ -213,6 +213,7 @@ export default function CustomerInvoiceDetailPage() {
             notes={invoice.notes}
             items={invoice.items}
             currencyCode={invoice.currency_code || 'ZAR'}
+            amountsAre={invoice.amounts_are}
           />
           <DueDateEditor
             kind="invoice" invoiceId={invoice.id} status={invoice.status} balance={balance} invoiceDate={invoice.invoice_date}

@@ -35,6 +35,8 @@ export interface PortalInvoiceData {
   tax_amount: number;
   total_amount: number;
   amount_paid: number;
+  /** 'inclusive': each unit_price is VAT-inclusive as entered, each amount its net (per-line VAT). NULL = exclusive. */
+  amounts_are: string | null;
   notes: string | null;
   customer_name: string;
   company_name: string;
@@ -68,6 +70,7 @@ export async function loadPortalInvoice(token: string, req: PortalViewerRequest)
       ci.tax_amount,
       ci.total_amount,
       ci.amount_paid,
+      ci.amounts_are,
       ci.notes,
       ci.portal_viewed_at,
       cu.name  AS customer_name,
@@ -140,6 +143,7 @@ export async function loadPortalInvoice(token: string, req: PortalViewerRequest)
     tax_amount: Number(inv.tax_amount),
     total_amount: Number(inv.total_amount),
     amount_paid: Number(inv.amount_paid ?? 0),
+    amounts_are: inv.amounts_are != null ? String(inv.amounts_are) : null,
     notes: inv.notes ? String(inv.notes) : null,
     customer_name: String(inv.customer_name ?? 'Customer'),
     company_name: String(inv.company_name ?? 'IsaFlow'),
