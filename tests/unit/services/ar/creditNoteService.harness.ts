@@ -22,6 +22,8 @@ vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({ assertApproval
 vi.mock('@/modules/accounting/services/ar/creditNotePostingChecks', () => ({
   assertCreditNoteCanPost: async () => undefined,
   lockInvoiceCreditNotes: async () => undefined,
+  lockInvoicesCreditNotes: async () => undefined,
+  lockOpenInvoicesCreditNotes: vi.fn(async () => undefined),
   afterJournalWritten: async (_n: string, step: () => Promise<unknown>) => step(),
 }));
 // Brief step 7: the posted-credit cap and the application invariants read the journal / the rows with queries of

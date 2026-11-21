@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
-import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { formLineNet, formLinesForModeChange, formTotals } from '@/components/accounting/customer-invoices/formVat';
 import { useVatMode } from '@/components/accounting/customer-invoices/useVatMode';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
@@ -25,7 +25,7 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 import { useWipLines } from '@/components/accounting/customer-invoices/useWipLines';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 import { useDueDateFollowsTerms } from '@/components/accounting/customer-invoices/useDueDateFollowsTerms';
-import { effectiveTaxRate, inclusiveTypedTotal, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
@@ -147,10 +147,10 @@ export default function EditCustomerInvoicePage() {
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
 
   // Priced as the server stores it (formVat: per-line VAT; no VAT for a company not registered for it); a half-typed field previews as 0.
-  const vatMode = useVatMode(taxMode);
+  const vatModeOf = useVatMode(), vatMode = vatModeOf(taxMode); // a mode change converts each line at its own rate, or is refused
   const taxRate = effectiveTaxRate(vatMode, form.taxRate);
   const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
-  const pickTaxMode = (mode: TaxMode) => { setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
+  const pickTaxMode = (mode: TaxMode) => { const c = formLinesForModeChange(lines, vatMode, vatModeOf(mode), form.taxRate, form.invoiceDate); if ('problem' in c) setError(c.problem); else { setLines(c.lines); setTaxMode(mode); } };
   const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
 
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.

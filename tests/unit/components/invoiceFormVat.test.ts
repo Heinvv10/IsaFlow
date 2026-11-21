@@ -4,7 +4,7 @@
  * registered for VAT prices and sends no VAT.
  */
 import { describe, expect, it } from 'vitest';
-import { formLineType, formTotals, vatModeFor } from '@/components/accounting/customer-invoices/formVat';
+import { formLinesForModeChange, formLineType, formTotals, vatModeFor } from '@/components/accounting/customer-invoices/formVat';
 import { priceInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 const l = (quantity: number, unitPrice: number, discount = 0) => ({ quantity, unitPrice, discount });
@@ -76,5 +76,45 @@ describe('an exempt customer at no VAT (#1701 round 1: the pages type its lines 
     expect(createBody({ ...form, taxRate: 14 }, [pageLine('A')], 'exclusive', 14, {})).toEqual({ problem: msg });
     expect(saveProblem({ form: { ...form, taxRate: 14 }, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBe(msg);
     expect(saveProblem({ form, lines: [pageLine('A')], taxMode: 'exclusive' }, {})).toBeNull();
+  });
+});
+
+describe('formLinesForModeChange (#1701 review: the "Amounts are" switch never reprices)', () => {
+  const D = '2026-11-20';
+  const pl = (description: string, quantity: number, unitPrice: number, more: object = {}) => ({ description, quantity, unitPrice, discount: 0, ...more });
+  const shown = (r: ReturnType<typeof formLinesForModeChange<ReturnType<typeof pl>>>) => {
+    if ('problem' in r) throw new Error(r.problem);
+    return r.lines.map((x) => x.unitPrice);
+  };
+
+  it('converts each line at its own rate: a mixed draft\'s exempt line keeps its price, and the total stays R215', () => {
+    const mixed = [pl('Fee', 1, 100, { vatType: 'standard', vatRateAtLoad: 15 }), pl('Rent', 1, 100, { vatType: 'exempt', vatRateAtLoad: 15 })];
+    const r = formLinesForModeChange(mixed, 'exclusive', 'inclusive', 15, D);
+    expect(shown(r)).toEqual([115, 100]);
+    expect(formTotals(mixed, 15, 'exclusive', D).total).toBe(215);
+    if ('lines' in r) expect(formTotals(r.lines, 15, 'inclusive', D).total).toBe(215);
+    expect(shown(formLinesForModeChange([pl('Fee', 1, 115, { vatType: 'standard', vatRateAtLoad: 15 }), pl('Rent', 1, 100, { vatType: 'exempt', vatRateAtLoad: 15 })], 'inclusive', 'exclusive', 15, D))).toEqual([100, 100]);
+  });
+
+  it('a line typed by the form\'s rate converts at it: 0 converts nothing, 15 grosses up', () => {
+    expect(shown(formLinesForModeChange([pl('A', 1, 100)], 'exclusive', 'inclusive', 0, D))).toEqual([100]);
+    expect(shown(formLinesForModeChange([pl('A', 1, 100)], 'none', 'inclusive', 15, D))).toEqual([115]);
+  });
+
+  it('refuses a switch whose per-unit rounding would reprice a line: 1 000 x R0.03 excl is not R30.00 incl', () => {
+    expect(formLinesForModeChange([pl('Fee', 1, 100), pl('Screws', 1000, 0.03)], 'exclusive', 'inclusive', 15, D)).toEqual({
+      problem: '"Screws" would come to a different total in Including VAT (its price rounds to the cent): amounts stay Excluding VAT - change its price or quantity first',
+    });
+    expect(formLinesForModeChange([pl('', 1, 10)], 'inclusive', 'exclusive', 15, D)).toEqual({ // R10.00 incl would store R10.01
+      problem: 'Line 1 would come to a different total in Excluding VAT (its price rounds to the cent): amounts stay Including VAT - change its price or quantity first',
+    });
+  });
+
+  it('a company not registered for VAT converts nothing: both sides price at No VAT', () => {
+    expect(shown(formLinesForModeChange([pl('A', 1, 100)], vatModeFor(false, 'exclusive'), vatModeFor(false, 'inclusive'), 15, D))).toEqual([100]);
+  });
+
+  it('a price mid-edit is left as it is and does not refuse the switch', () => {
+    expect(shown(formLinesForModeChange([pl('A', 1, Number.NaN), pl('B', 1, 100)], 'exclusive', 'inclusive', 15, D))).toEqual([Number.NaN, 115]);
   });
 });

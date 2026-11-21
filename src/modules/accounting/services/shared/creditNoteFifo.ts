@@ -55,6 +55,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
+import { lockInvoicesCreditNotes } from '../ar/creditNotePostingChecks';
 import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
 import { gateNote, type GateNote } from '../ar/creditNoteTypedGate';
 import { invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
@@ -166,6 +167,12 @@ export async function applyCreditNote(args: {
   }
 
   // ── 2. LOCK them, and take the balances as locked ─────────────────────────
+  //
+  // A customer candidate's credit-note key first (ar/creditNotePostingChecks), in id order, before its row: the typed
+  // capacity read below must not race an approval of a note linked to that invoice, which reads the same capacity
+  // under the key alone (auto_apply 'none' never takes the row). Key before row is every holder's order. approveCreditNote
+  // takes these keys before its journal (so this is a no-op there); a candidate opened since is taken here.
+  if (side === 'customer') await lockInvoicesCreditNotes(candidates);
   const locked = await lockInvoicesForUpdate('applyCreditNote', companyId, side, candidates);
 
   if (linkedInvoiceId && !locked.has(linkedInvoiceId)) {

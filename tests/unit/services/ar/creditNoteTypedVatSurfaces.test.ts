@@ -70,6 +70,7 @@ describe('REST credit-notes POST', () => {
     ['a subtotal not in whole cents', { subtotal: 1.234 }, 'subtotal must be in whole cents'],
     ['a taxRate that is not a number', { taxRate: 'abc' }, 'taxRate must be a number from 0 to 100'],
     ['a taxRate above 100', { taxRate: 150 }, 'taxRate must be a number from 0 to 100'],
+    ['a taxRate finer than NUMERIC(5,2) stores', { subtotal: 10000, taxRate: 15.005, taxAmount: 1500.5 }, 'taxRate must have at most two decimals'],
     ['a taxAmount not in whole cents', { taxAmount: 1.005 }, 'taxAmount must be in whole cents'],
     ['a taxAmount above the subtotal', { subtotal: 0.01, taxAmount: 50000 }, 'taxAmount cannot be more than the subtotal'],
   ])('refuses %s, 400 before any write (#1701)', async (_l, over, error) => {

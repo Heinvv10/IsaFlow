@@ -1,7 +1,8 @@
 /**
  * Reads RULE A's inputs (creditNoteDetached): each live customer note's total, subtotal and the net its non-excess
  * credit_note_revenue_allocations rows record (D), the invoices those rows are on (the legs it reversed), and its
- * applications in application order (created_at, invoice_id). ONE statement for both callers; company-scoped; every
+ * applications in application order (created_at, invoice_id). ONE statement for both callers (a pre-874 linked note, with no row at all, reads as having reversed its whole subtotal on
+ * its own invoice, as the posting replays it); company-scoped; every
  * figure in exact cents (ROUND in SQL on NUMERIC(15,2), no float on the way). Live = not draft, not cancelled.
  */
 import { sql } from '@/lib/neon';
@@ -25,6 +26,9 @@ async function readProfiles(companyId: string, filter: { noteIds: readonly strin
             WHERE r.company_id = cn.company_id AND r.credit_note_id = cn.id AND NOT r.is_excess) AS reversed_cents,
            (SELECT COALESCE(jsonb_agg(DISTINCT r.invoice_id::TEXT), '[]'::JSONB) FROM credit_note_revenue_allocations r
             WHERE r.company_id = cn.company_id AND r.credit_note_id = cn.id AND NOT r.is_excess) AS reversed_on,
+           CASE WHEN cn.customer_invoice_id IS NOT NULL AND NOT EXISTS (
+                  SELECT 1 FROM credit_note_revenue_allocations r WHERE r.company_id = cn.company_id AND r.credit_note_id = cn.id)
+                THEN cn.customer_invoice_id::TEXT END AS replayed_on,
            (SELECT COALESCE(jsonb_agg(jsonb_build_array(a.invoice_id::TEXT, ROUND(a.amount_allocated * 100)::BIGINT)
                                       ORDER BY a.created_at, a.invoice_id), '[]'::JSONB)
             FROM credit_note_allocations a WHERE a.company_id = cn.company_id AND a.credit_note_id = cn.id) AS applications
@@ -35,11 +39,18 @@ async function readProfiles(companyId: string, filter: { noteIds: readonly strin
             SELECT 1 FROM credit_note_allocations y
             WHERE y.company_id = cn.company_id AND y.credit_note_id = cn.id AND y.invoice_id = ${appliedTo}::UUID)))
   `) as Row[];
-  return new Map(rows.map((r) => [String(r.id), {
-    detached: detachedGross(Number(r.total_cents), Number(r.subtotal_cents), Number(r.reversed_cents)),
-    reversedOn: (r.reversed_on as string[] | null) ?? [],
-    applications: ((r.applications as [string, number | string][] | null) ?? []).map(([invoiceId, cents]) => ({ invoiceId, cents: Number(cents) })),
-  }]));
+  return new Map(rows.map((r): [string, DetachedProfile] => {
+    // A linked note approved before 874 recorded no row at all: the posting replays its whole subtotal on its own
+    // invoice (invoiceRevenuePosting's `legacy`), so rule A reads it as having reversed that, there.
+    const replayedOn = r.replayed_on == null ? null : String(r.replayed_on);
+    return [String(r.id), {
+      detached: detachedGross(Number(r.total_cents), Number(r.subtotal_cents),
+        replayedOn ? Number(r.subtotal_cents) : Number(r.reversed_cents)),
+      reversedOn: replayedOn ? [replayedOn] : (r.reversed_on as string[] | null) ?? [],
+      applications: ((r.applications as [string, number | string][] | null) ?? [])
+        .map(([invoiceId, cents]) => ({ invoiceId, cents: Number(cents) })),
+    }];
+  }));
 }
 
 /**

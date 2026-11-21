@@ -17,6 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '../gl/journalEntryPostingGuards';
 import { ArPostingAfterWriteError } from './arErrors';
+import { fetchOpenCustomerInvoices } from './openCustomerInvoices';
 
 /**
  * Serialise credit-note APPROVALS per linked invoice. Two notes on one invoice
@@ -29,6 +30,21 @@ import { ArPostingAfterWriteError } from './arErrors';
  */
 export async function lockInvoiceCreditNotes(invoiceId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`isaflow.credit_note_approve.invoice:${invoiceId.toLowerCase()}`}, 0))`;
+}
+
+/**
+ * The keys of several invoices, in id order (a duplicate, or a key this transaction holds, is a no-op). A FIFO
+ * application reads each typed candidate's remaining credit; an approval of a note linked to that invoice reads the
+ * same figure under the key alone, so the walk takes the key too, before any of its invoice rows (#1701 review round 8).
+ */
+export async function lockInvoicesCreditNotes(invoiceIds: readonly string[]): Promise<void> {
+  for (const id of [...new Set(invoiceIds.map((i) => i.toLowerCase()))].sort()) await lockInvoiceCreditNotes(id);
+}
+
+/** The keys of a customer's open invoices (the FIFO walk's candidates), read unlocked: only which keys to take. */
+export async function lockOpenInvoicesCreditNotes(companyId: string, customerId: string): Promise<void> {
+  const open = await fetchOpenCustomerInvoices(companyId, customerId, true, { forUpdate: false });
+  await lockInvoicesCreditNotes(open.map((d) => d.invoiceId));
 }
 
 export async function assertCreditNoteCanPost(

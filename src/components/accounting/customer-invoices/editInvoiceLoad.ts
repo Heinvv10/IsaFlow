@@ -36,13 +36,14 @@ export type InvoiceDetail = {
 
 /**
  * The form's VAT as the invoice stored it: its mode (inclusive when amounts_are says so; No VAT at a stored rate of 0),
- * the rate the form keeps behind it (the standard rate behind No VAT, as the new page does), and the effective rate the
- * lines load at (formVat keeps each loaded type while the form stays at it).
+ * the rate the form keeps behind it (the standard rate behind No VAT, as the new page does; an inclusive invoice keeps
+ * its stored rate, 0 too, so a line added to an all-zero-rated or exempt one is not typed standard), and the effective
+ * rate the lines load at (formVat keeps each loaded type while the form stays at it).
  */
 export function vatAtLoad(invoice: Pick<InvoiceDetail, 'tax_rate' | 'amounts_are'>): { mode: TaxMode; formRate: number; effectiveRate: number } {
   const storedRate = Number(invoice.tax_rate ?? 15);
   const mode: TaxMode = invoice.amounts_are === 'inclusive' ? 'inclusive' : storedRate === 0 ? 'none' : 'exclusive';
-  const formRate = storedRate === 0 ? 15 : storedRate;
+  const formRate = storedRate === 0 && mode === 'none' ? 15 : storedRate;
   return { mode, formRate, effectiveRate: effectiveTaxRate(mode, formRate) };
 }
 

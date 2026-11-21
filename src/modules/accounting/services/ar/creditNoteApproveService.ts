@@ -33,7 +33,9 @@ import type { CreditNoteAllocation } from './invoiceRevenueLines';
 import { ArPostingAfterWriteError } from './arErrors';
 import { assertApplicationRecorded } from '../shared/creditNoteApplicationInvariant';
 import { assertApplicationWithinPostedCredit } from '../shared/creditNotePostedCredit';
-import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
+import {
+  afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes, lockOpenInvoicesCreditNotes,
+} from './creditNotePostingChecks';
 import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import {
@@ -76,6 +78,12 @@ export async function approveCreditNote(
     const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
     if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
+    // A FIFO walk reads its typed candidates' remaining credit: their keys too, in id order, before the journal (whose
+    // number lock a peer holding one of these keys needs). Unlocked read: only which keys; the walk re-reads
+    // under them.
+    if (String(cn.type) === 'customer' && (opts?.autoApply ?? 'fifo') === 'fifo' && cn.client_id) {
+      await lockOpenInvoicesCreditNotes(companyId, String(cn.client_id));
+    }
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);

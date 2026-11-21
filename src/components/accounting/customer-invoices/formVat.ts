@@ -18,7 +18,8 @@ import { previewLineAmount, previewTotals } from '@/modules/accounting/services/
 import { previewInvoiceVat, type AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 import type { DocumentLineVatType } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { DOCUMENT_LINE_VAT_TYPES } from '@/modules/accounting/services/shared/vatTypes';
-import { exVatUnitPrice, type TaxMode } from './taxMode';
+import { sameCents } from '@/modules/accounting/services/shared/functionalAmounts';
+import { exVatUnitPrice, linesForModeChange, TAX_MODE_OPTIONS, type TaxMode } from './taxMode';
 
 export interface FormVatLine {
   quantity: number; unitPrice: number; discount?: number;
@@ -67,3 +68,26 @@ export const formTotals = (lines: readonly FormVatLine[], rate: number, mode: Ta
 
 /** One line's amount as stored: its net (an inclusive line's VAT backed out of its gross). */
 export const formLineNet = (line: FormVatLine, rate: number, mode: TaxMode, date: string): number => typedTotals([line], rate, mode, date).subtotal;
+
+const samePricing = (a: { subtotal: number; tax: number }, b: { subtotal: number; tax: number }): boolean =>
+  sameCents(a.subtotal, b.subtotal) && sameCents(a.tax, b.tax);
+
+/**
+ * The page's "Amounts are" change. `from` and `to` are the modes the form prices in (vatModeFor: a company not registered
+ * for VAT is at 'none' in both, so nothing converts). Each line's price converts (taxMode.linesForModeChange) at its OWN
+ * rate: 0 for a zero-rated or exempt line, the form's otherwise, typed at the form's rate (the rate the inclusive side
+ * prices at), so a mixed invoice's exempt line keeps its price. Refused, naming the line, when a converted price would
+ * change what the line is stored as: the price is rounded to the cent before its quantity multiplies it (1 000 x R0.03
+ * excl is R0.0345 incl, shown as R0.03: R34.50 would become R30.00).
+ */
+export function formLinesForModeChange<L extends FormVatLine & { description: string }>(
+  lines: readonly L[], from: TaxMode, to: TaxMode, formRate: number, date: string,
+): { lines: L[] } | { problem: string } {
+  const types = formLineTypes(lines, formRate, date);
+  const shown = lines.map((l, i) => linesForModeChange([l], from, to, types[i] === 'zero_rated' || types[i] === 'exempt' ? 0 : formRate)[0]!);
+  const repriced = shown.findIndex((s, i) => s !== lines[i] && !samePricing(typedTotals([lines[i]!], formRate, from, date), typedTotals([s], formRate, to, date)));
+  if (repriced < 0) return { lines: shown };
+  const name = lines[repriced]!.description ? `"${lines[repriced]!.description}"` : `Line ${repriced + 1}`;
+  const label = (m: TaxMode) => TAX_MODE_OPTIONS.find((o) => o.value === m)!.label;
+  return { problem: `${name} would come to a different total in ${label(to)} (its price rounds to the cent): amounts stay ${label(from)} - change its price or quantity first` };
+}
