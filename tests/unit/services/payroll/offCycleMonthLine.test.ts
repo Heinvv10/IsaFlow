@@ -239,3 +239,18 @@ describe('an earlier line whose earnings cannot be rebuilt (review of 99db78312)
     expect(() => bonusLine(1_000, { ...earlierFrom(regular, 5_300), unrebuiltPay: 0 })).not.toThrow();
   });
 });
+
+// Gate ruling 2 on 7630d9379f: the bonus line is classified (G21 p. 28) on the month's time-worked earnings, the
+// regular line's included, as the regular line was: a bonus alone has none, so the recorded day rate would decide.
+describe('PAYE classification of an off-cycle bonus (review #1679 gate ruling 2)', () => {
+  // 20 hours a week, 8 a day, R300 a day recorded; overtime took the month's earnings to R450 a day (R4 875 over
+  // 20 / 8 × 52 / 12 days): non-standard on the regular line (at least the 2027 threshold a day).
+  const partTime = employee({ hoursPerWeek: 20, hoursPerDay: 8, dailyRate: 300, payBasis: 'daily' });
+  const regular = regularLine(4_875, partTime);
+  const treatmentOf = (l: ReturnType<typeof regularLine>) => l.explanations.paye.steps.find((s) => s.key === 'paye.treatment')?.label;
+  it('the regular line is non-standard (flat rate), and the bonus beside it is too', () => {
+    expect(treatmentOf(regular)).toMatch(/Non-standard employment/);
+    const bonus = bonusLine(10_000, earlierFrom(regular, 4_875), undefined, partTime);
+    expect(treatmentOf(bonus)).toMatch(/Non-standard employment/);
+  });
+});
