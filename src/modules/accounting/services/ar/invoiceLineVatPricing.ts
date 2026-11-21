@@ -14,7 +14,8 @@
  * UNTYPED (a company not registered for VAT, invoiceLineVatTypes): the legacy shape, no VAT, every rate 0, and
  * amounts_are 'exclusive' whatever was asked (the price as entered is the net: there is no VAT to include).
  *
- * A line amount or a total past NUMERIC(15,2) is refused (InvoiceLineVatRefusal); the form's preview prices such a line as 0.
+ * A line amount past NUMERIC(15,2) gets no VAT and carries the total past the column (each caller's own total check
+ * refuses it); the form's preview prices such a line as 0.
  *
  * Pure: safe in a client bundle.
  */
@@ -22,7 +23,7 @@ import { isRatedDate } from '@/lib/vat/standardRate';
 import { vatDocumentTotals, vatLineAmounts, type AmountsAre } from '../shared/vatLineAmounts';
 import { invoiceLineAmount, invoiceTotals, previewLineAmount, toColumnCents } from './invoiceLineAmount';
 import { MAX_MONEY } from '@/lib/money/wholeCents';
-import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
+import type { DocumentLineVatType, ResolvedLineVat } from './invoiceLineVatTypes';
 
 export type { AmountsAre };
 
@@ -46,13 +47,16 @@ interface LineIn { quantity: number; unitPrice: number; discount?: number }
 export function priceInvoiceVat(
   lines: readonly LineIn[], vat: ResolvedLineVat, invoiceDate: string | Date, amountsAre: AmountsAre,
 ): { lines: VatPricedLine[]; header: VatPricedHeader } {
+  // NUMERIC(15,2) (round 11): a line whose quantity x unit price is non-finite or past the column gets no VAT (it would be
+  // a rounded float of a figure nothing can store); its amount carries the header total past the column, which every
+  // caller's own total check refuses in its own words (create / the preview: assertDraftTotalFits; the draft edit:
+  // bad_amount). Never thrown here.
   const out = lines.map((l, i): VatPricedLine => {
     const qty = toColumnCents(l.quantity);
     const price = toColumnCents(l.unitPrice);
     const base = invoiceLineAmount(qty, price, l.discount ?? 0);
-    // NUMERIC(15,2) (round 11): a product past it would be stored as an overflow (22003) or posted as a rounded float.
     if (!Number.isFinite(base) || Math.abs(base) > MAX_MONEY) {
-      throw new InvoiceLineVatRefusal(`Line ${i + 1}: quantity x unit price comes to more than an amount can hold (${MAX_MONEY.toFixed(2)}).`);
+      return { qty, price, amount: base, taxAmount: vat.typed ? 0 : null, vatType: vat.typed ? vat.types[i]! : null, taxRate: 0 };
     }
     if (!vat.typed) return { qty, price, amount: base, taxAmount: null, vatType: null, taxRate: 0 };
     const type = vat.types[i]!;
@@ -62,9 +66,6 @@ export function priceInvoiceVat(
   const totals = vat.typed
     ? vatDocumentTotals(out.map((l) => ({ net: l.amount, vat: l.taxAmount ?? 0 })))
     : (() => { const t = invoiceTotals(out.map((l) => l.amount), 0); return { subtotal: t.subtotal, vat: 0, total: t.total }; })();
-  if (!Number.isFinite(totals.total) || Math.abs(totals.total) > MAX_MONEY) {
-    throw new InvoiceLineVatRefusal(`The invoice comes to more than an amount can hold (${MAX_MONEY.toFixed(2)}).`);
-  }
   return {
     lines: out,
     header: {
