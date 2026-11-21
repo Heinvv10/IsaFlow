@@ -218,7 +218,8 @@ BEGIN
   --    approved run with none is approved again (approvePayrollRun's stranded case); otherwise it stays as it was while
   --    approved, and is nil while not approved;
   --  * fail closed: an off-cycle run approved before (an approval history) with no frozen payday is neither approved nor
-  --    reopened (its payday was lost below the service; restore it as a trusted identity).
+  --    reopened (its payday was lost below the service; restore it as a trusted identity), and one with no pay date is
+  --    not approved at all.
   IF NOT trusted THEN
     IF TG_OP = 'UPDATE' AND (NEW.run_kind IS DISTINCT FROM OLD.run_kind OR NEW.off_cycle_reason IS DISTINCT FROM OLD.off_cycle_reason) THEN
       RAISE EXCEPTION 'payroll_run_headers: a pay run''s kind and off-cycle reason are fixed when it is created'
@@ -239,6 +240,10 @@ BEGIN
            AND (OLD.status IN ('approved', 'paid')) IS DISTINCT FROM (NEW.status IN ('approved', 'paid')) THEN
           RAISE EXCEPTION 'payroll_run_headers: this off-cycle run was approved before but has no recorded payday, so it is not approved or reopened'
             USING ERRCODE = 'check_violation';
+        END IF;
+        -- No pay date, no payday to freeze: such a run is never approved (re-review L2: it would reopen uncapped).
+        IF NEW.status IN ('approved', 'paid') AND OLD.status NOT IN ('approved', 'paid') AND (OLD.run_date IS NULL OR NEW.run_date IS NULL) THEN
+          RAISE EXCEPTION 'payroll_run_headers: an off-cycle run with no pay date is not approved' USING ERRCODE = 'check_violation';
         END IF;
         IF NEW.status IN ('approved', 'paid') THEN
           NEW.approved_at := CASE WHEN OLD.status NOT IN ('approved', 'paid') OR OLD.approved_at IS NULL
@@ -319,6 +324,12 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 --     approval_grandfathered_at, payRunFinalSql): every payRunFinalSql reader trusts it, the owner cash forecast too
 --     (review #1679 M3: a final run past its pay date counts as paid). An off-cycle run's approved_at is the trigger's
 --     own (payroll_off_cycle_paid_snapshot); a regular run's is not, until wave 7.
+--   * The payday is the pay date at the first approval (off_cycle_payday_at): a run first approved with a far-future
+--     pay date may be raised until that date, by the TS cap (paidCaps) and the snapshot alike. Closing it needs evidence
+--     of payment (the bank file), not the pay date (re-review L1).
+--   * A run approved once and never reopened has an empty history, so app_user may DELETE it and INSERT it again with
+--     the same id, which resets its snapshot and payday (predates this file; re-review L3). Wave 7's "dual-member
+--     payroll_run_headers DELETE" item closes it.
 --   * Binding on current_user: inside SET LOCAL ROLE app_user, set_config('role', 'none', true) mid-statement shows
 --     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (it is
 --     not a trusted identity, and holds no header grant); with the pool still on postgres (the table owner) it is not,

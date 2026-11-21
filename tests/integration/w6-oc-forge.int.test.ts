@@ -390,4 +390,13 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     expect(reg[0]!.off_cycle_payday_at).toBeNull();
     await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [reg[0]!.id]);
   });
+  it('an off-cycle run with no pay date is not approved by app_user (re-review L2): no payday could be frozen', async () => {
+    const id = String((await a.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind,
+      off_cycle_reason, period_start, period_end, run_date, status) VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'termination', '2026-12-01',
+      '2026-12-31', NULL, 'calculated') RETURNING id`, [a.company])).rows[0].id);
+    await expect(asApp(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [id]))
+      .rejects.toThrow(/an off-cycle run with no pay date is not approved/);
+    expect((await a.header(id)).status).toBe('calculated');
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
+  });
 });

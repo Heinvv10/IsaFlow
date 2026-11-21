@@ -2,7 +2,6 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
-import { uifWithLeviable } from './uifEngine';
 import { uifClawbackWarnings } from './uifClawbackWarning';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
 import { sdlLeviableTrace } from './sdlLeviableCumulative';
@@ -19,7 +18,8 @@ import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { overtimeThresholdWarnings, PERIODS_A_YEAR, splitTravelRows } from './payrollRunInputUnits';
 import { costLineEti } from './payrollLineEti';
-import { OffCycleEtiBasisError, offCycleEti, offCycleEtiRefusal, offCycleUif } from './payrollOffCycleMonth';
+import { OffCycleEtiBasisError, offCycleEti, offCycleEtiRefusal } from './payrollOffCycleMonth';
+import { costLineUif } from './payrollLineUif';
 import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
@@ -144,13 +144,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // A PSP's flat rate is on the payment before any deduction, less non-cash items (pspLineRules), never the balance above.
   const flatBase = psp ? pspPayeBase(remuneration, components) : balanceOfRemuneration;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  // UIF on the room left under the month's ceiling after the month's earlier runs (UIC Act s6(1)(a), s6(2)): a weekly or
-  // fortnightly line's earlier runs of its frequency (FQc), or an off-cycle line's earlier final runs (OC, payrollOffCycleMonth).
-  const uifMonthToDate = round2(cadence.uifMonthToDate + (input.monthEarlier?.uifRemuneration ?? 0));
-  // An off-cycle line: the month's liability rounded once, less what the earlier lines booked (offCycleUif, review #1679).
-  const uifMonth = employee.uifExcluded || !treatment.uif || !input.monthEarlier ? null : offCycleUif(uifLeviable, input.monthEarlier, taxYear);
-  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifMonth ?? uifWithLeviable(uifLeviable, taxYear, uifMonthToDate);
-  const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
+  // UIF on the room left under the month's ceiling after the month's earlier runs (payrollLineUif).
+  const { monthToDate: uifMonthToDate, month: uifMonth, costed: uifCosted, uif } = costLineUif({ outside: employee.uifExcluded || !treatment.uif,
+    leviable: uifLeviable, taxYear, cadenceMonthToDate: cadence.uifMonthToDate, monthEarlier: input.monthEarlier });
   if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
   const directed = directive
