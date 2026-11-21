@@ -58,7 +58,7 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
      (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing a line reference RAISES committed spend
      exactly when `budgets/remainingCommitted.billedLinesByPoItem` counted that line today (the bill is approved / paid / partially_paid,
-     the line posts a non-zero ex-VAT amount; NO deleted_at filter there, so a soft-deleted approved bill counts too), so unlink is
+     the line posts a non-zero ex-VAT amount, and the bill is not soft-deleted: PR #1703 R4-2), so unlink is
      gated and warns like any unlink then; clearing a header, or a draft / cancelled / R0 bill's reference, changes no figure and warns
      nothing. The bill's stored three-way state (`match_status`, each line's
      `line_match_status` and variances) is re-judged by the existing recompute (`performThreeWayMatch`, in its own savepoint) when

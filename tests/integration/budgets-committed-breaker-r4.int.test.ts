@@ -3,7 +3,7 @@
  *   R4-1  "closed because fully billed" lives on the PO (closed_by_billing): removing a counted tie (unlink, a bill cancelled or
  *         soft-deleted) that leaves it under-billed reopens it, whichever tie held the PO closed; a manual short close never reopens;
  *         an uncounted tie (a cancelled bill's) never reopens it (review L2);
- *   R4-2  header room is left after LIVE line billing (named limit: line netting itself still counts a soft-deleted approved bill);
+ *   R4-2  a soft-deleted bill nets nothing, by lines or as header room (its journal is reversed out of actuals);
  *   R4-3  the spread water-fills: every cent that fits is netted;
  *   R4-4  a header tie is a residual, never a hold: an explicit amount may take from it (warned), no amount is refused (review M1);
  *   R4-5  named limit: a line over-billed by lines leaves committed beside fully_billed true;
@@ -114,14 +114,14 @@ describe('R4-1 "closed because fully billed" lives on the purchase order', () =>
 });
 
 describe('R4-2 / R4-3 / R4-5 / R4-6 the header spread', () => {
-  it('R4-2: a soft-deleted line bill leaves its room to a live header bill (line netting still counts it: the named limit)', async () => {
+  it('R4-2: a soft-deleted line bill nets nothing and leaves its room to a live header bill', async () => {
     const po = await seedPo(pool, f, { lines: [500, 500] });
     const l = await seedRawBill(pool, f, { items: [{ total: 500, poItem: po.items[0] }], subtotal: 500, total: 575 });
     await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [l.id]);
     await seedRawBill(pool, f, { items: [{ total: 500 }], subtotal: 500, total: 575, header: po.po });
     expect(await billed(po)).toBe(50000);
-    // The header's R500 spreads over the live room [500, 500]: 250 / 250. Line A is also netted by the deleted bill (limit), so 0 / 250.
-    expect(await openOf(po)).toEqual([0, 25000]);
+    // The header's R500 spreads over the live room [500, 500]: 250 / 250; the deleted bill nets nothing (ruling): committed 500.
+    expect(await openOf(po)).toEqual([25000, 25000]);
   });
   it('R4-3: 40 lines of R100 and a R50 line billed R49.99 by lines; a R4000 header bill: committed is the 1c left', async () => {
     const po = await seedPo(pool, f, { lines: [...Array(40).fill(100), 50] });
@@ -145,9 +145,9 @@ describe('R4-2 / R4-3 / R4-5 / R4-6 the header spread', () => {
     expect(await snap()).toEqual([80000, [5715, 14285]]); // room [200, 500]: the header's R500 by room share
     await pool.query(`UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1`, [l.id]);
     expect(await snap()).toEqual([50000, [25000, 25000]]);
-    // Soft-deleted approved: billed and the header room ignore it; line netting still nets A by it (the R4-2 named limit).
+    // Soft-deleted approved: billed, the header room and line netting all ignore it (R4-2 ruling).
     await pool.query(`UPDATE supplier_invoices SET status = 'approved', deleted_at = NOW() WHERE id = $1`, [l.id]);
-    expect(await snap()).toEqual([50000, [0, 25000]]);
+    expect(await snap()).toEqual([50000, [25000, 25000]]);
   });
   it('R4-6b: two header bills competing for the same room net no more than it', async () => {
     const po = await seedPo(pool, f, { lines: [700, 300] });

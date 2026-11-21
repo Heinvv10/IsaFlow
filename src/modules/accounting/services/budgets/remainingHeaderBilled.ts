@@ -7,15 +7,13 @@
  * The amount per (bill, PO) is `billAttribution.billTies` (the one attribution billed and the unlink read use too): a bill whose
  * lines name a line of the PO nets it by lines only (`billedLinesByPoItem`, not here); else its link row's amount; else, header
  * only, its subtotal less what it attributes to every other PO, kept between 0 and the subtotal. Same bill statuses as line
- * netting (`BILLED_STATUSES`, or a bill in `own`), the PO's company and supplier, not soft-deleted. (Line netting still counts a
- * soft-deleted approved bill, a pre-existing behaviour flagged to Hein: its journal is reversed out of actuals, so netting
- * committed by it would understate; header netting does not copy that.)
+ * netting (`BILLED_STATUSES`, or a bill in `own`), the PO's company and supplier, not soft-deleted (neither nets: its journal is
+ * reversed out of actuals; PR #1703 R4-2).
  * The amount is spread over each PO line's ROOM (`spreadOverRoom`, breaker R3-1 / R4-2 / R4-3): what the line can still be netted
- * after the line billing of LIVE bills (soft-deleted ones left out) and the header ties spread before it (bill id order), by room
+ * after the line billing and the header ties spread before it (bill id order), by room
  * share, then water-filled: what that pass could not place goes to the lines with room left, in order, until it is placed or every
  * line is full; a surplus past the room is netted nowhere. The core floors each line at 0 and caps it at its total
- * (`openPoLineCents`). Named limits: line netting itself still counts a soft-deleted approved bill (so a line it nets can show 0
- * open beside room the header used); a line over-billed by its lines leaves its siblings' committed beside fully_billed true
+ * (`openPoLineCents`). Named limit: a line over-billed by its lines leaves its siblings' committed beside fully_billed true
  * (R4-5, `billAttribution`). Basis: all ex-VAT. Named limit
  * (the slice): header billing nets at the PO line, not at the bill's own account / centre / month; the posting carries no
  * account or dimensions (null) and the bill's month.
@@ -79,7 +77,7 @@ export function spreadOverRoom(cents: number, roomCents: readonly number[]): num
 
 /**
  * Header billing per PO line (lower-case ids) for the POs these lines belong to, as postings the core sums with line billing.
- * `lineBilling`: the LIVE line billing of PO lines (remainingCommitted.billedLinesByPoItem, liveOnly; passed in: no import cycle; R4-2). A header tie is
+ * `lineBilling`: the line billing of PO lines (remainingCommitted.billedLinesByPoItem, passed in: no import cycle). A header tie is
  * spread over each line's room after that line billing and after the header ties spread before it (bill id order), so a line a bill
  * already billed by its lines takes none of a header bill's rands (breaker R3-1).
  */

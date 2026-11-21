@@ -2,9 +2,8 @@
  * What `unlinkBillFromPurchaseOrder` does around clearing a bill's references to one PO beyond the link row itself (design
  * docs/design/mcp-po-maintenance.md, round 6):
  *   - `clearingRaisesCommitted`: does clearing the bill's line references RAISE committed spend? Exactly when
- *     `budgets/remainingCommitted.billedLinesByPoItem` counted the line: the bill's status is approved / paid / partially_paid (NO
- *     deleted_at filter there: a soft-deleted approved bill still nets committed today, a pre-existing behaviour left as it is and
- *     flagged to Hein) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
+ *     `budgets/remainingCommitted.billedLinesByPoItem` counted the line: the bill's status is approved / paid / partially_paid, it
+ *     is not soft-deleted (since PR #1703 R4-2 a soft-deleted bill nets nothing) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
  *     clearing a header changes none either; the unlink's budget warning is raised only for the first.
  *   - `headerNetsCommitted`: does this bill net the PO's committed spend through its HEADER (a link row or `purchase_order_id`, no line
  *     of it naming a line of the PO; `budgets/remainingHeaderBilled.headerTies`, the engine's own reading)? Read before the unlink and
@@ -28,6 +27,7 @@ export async function clearingRaisesCommitted(companyId: string, billId: string,
   const bill = ((await sql`
     SELECT si.* FROM supplier_invoices si
      WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
+       AND si.deleted_at IS NULL
   `) as DbRow[])[0];
   if (!bill) return false;
   const items = (await sql`

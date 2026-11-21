@@ -73,13 +73,14 @@ describe('the budget warning on an unlink', () => {
 
   // PR #1703 (Hein's ruling): header billing now nets committed too, so unlinking an approved header-only bill raises committed and
   // warns (it used to be listed with the no-warning cases).
-  it('warns EXACTLY when clearing changes what committed counted: an approved bill\'s non-zero line, a soft-deleted approved bill\'s too (it still nets today), an approved header-only bill; never a draft / cancelled / R0 bill', async () => {
+  // PR #1703 R4-2 (ruling): a soft-deleted bill nets nothing (its journal is reversed out of actuals), so clearing its line warns nothing.
+  it('warns EXACTLY when clearing changes what committed counted: an approved bill\'s non-zero line, an approved header-only bill; never a soft-deleted / draft / cancelled / R0 bill', async () => {
     const po = await overPo();
     const item = po.items[0]!.toLowerCase();
     const counted = async () => (await asOwner(pool, f, () => committedBillingByPoItem(f.co, [item], []))).get(item)?.reduce((s, p) => s + p.amount, 0) ?? 0;
     const cases: Array<[string, boolean, () => Promise<string>]> = [
       ['an approved bill', true, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); return b.id; }],
-      ['a soft-deleted approved bill (still netted by committed today)', true, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [b.id]); return b.id; }],
+      ['a soft-deleted approved bill (nets nothing since R4-2)', false, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [b.id]); return b.id; }],
       ['a draft bill', false, async () => { const b = await seedBill(pool, f, { lines: [100], status: 'draft' }); await nameLine(b, po.items[0]!); return b.id; }],
       ['a cancelled bill', false, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [b.id]); return b.id; }],
       ['an approved R0 line', false, async () => { const b = await seedRawBill(pool, f, { items: [{ total: 0, poItem: po.items[0] }], subtotal: 0, total: 0 }); return b.id; }],
