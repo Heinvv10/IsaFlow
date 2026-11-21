@@ -63,12 +63,27 @@ describe('supplier invoice detail: Cancel Invoice', () => {
 describe('the cancel toast (title carries the facts, the line fits)', () => {
   it('a PO closed by billing meanwhile that could not be re-checked is said', async () => {
     const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
-    expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }], ['Purchase order PO-2 could not be re-checked just now and is still closed; ...']))
+    expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }]))
       .toEqual({ title: 'Purchase order PO-2 still closed (could not re-check)', line: 'Still counts its unbilled remainder' });
-    const many = cancelReopenToast(Array.from({ length: 9 }, (_, i) => ({ poNumber: `PO-10000${i}`, reopenedTo: 'approved' })), [], []);
+    expect(cancelReopenToast([], [])).toBeNull();
+  });
+  // Codex gate review M4: two bills of one bulk cancel that reopen the same PO name it once (by its id), and a long list is capped.
+  it('names a PO two bills share once; a long list ends "and k more"', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const p9 = { poId: 'p9', poNumber: 'PO-9', reopenedTo: 'approved' };
+    expect(cancelReopenToast([p9, { ...p9, poId: 'P9' }], [{ poId: 'p9', poNumber: 'PO-9' }]))
+      .toEqual({ title: 'Purchase order PO-9 reopened to approved', line: 'Commits again: PO-9' });
+    const many = cancelReopenToast(Array.from({ length: 30 }, (_, i) => ({ poId: `p${i}`, poNumber: `PO-1000${String(i).padStart(2, '0')}`, reopenedTo: 'approved' })), []);
+    expect(many!.title).toMatch(/^Purchase orders reopened: PO-100000 to approved, .* and \d+ more$/);
+    expect(many!.title.length).toBeLessThanOrEqual(90);
     expect(many!.line.length).toBeLessThanOrEqual(45);
-    expect(many!.title).toContain('PO-100008 to approved');
-    expect(cancelReopenToast([], [], ['x'])).toBeNull();
+  });
+  // Codex gate review L11: the line reads the server's flags, never the warning prose.
+  it('the line follows the flags: over budget, then outside the slices', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const po = (n: string, f: Record<string, boolean>) => ({ poId: n, poNumber: n, reopenedTo: 'approved', ...f });
+    expect(cancelReopenToast([po('PO-1', { outsideSlices: true }), po('PO-2', { overBudget: true })], [])!.line).toBe('Now over budget: PO-2');
+    expect(cancelReopenToast([po('PO-1', { outsideSlices: true })], [])!.line).toBe('Outside the budget: PO-1');
   });
 });
 
@@ -76,7 +91,7 @@ describe('supplier invoice bulk bar: Cancel', () => {
   it('a bulk cancel that reopened a PO says it reopened, not that a bill was approved over budget', async () => {
     vi.stubGlobal('confirm', () => true);
     serve([['supplier-invoices-bulk-action', { total: 1, succeeded: 1, failed: 0, results: [{ invoiceId: 'b1', invoiceNumber: 'INV-1', ok: true,
-      budgetWarnings: [REOPENED, OVER], reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'partially_received' }] }] }]]);
+      budgetWarnings: [REOPENED, OVER], reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'partially_received', overBudget: true }] }] }]]);
     const onComplete = vi.fn(async () => {});
     render(<BulkActionBar selected={new Set(['b1'])} busy={null} onBusyChange={() => {}} onError={() => {}} onComplete={onComplete} onClear={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

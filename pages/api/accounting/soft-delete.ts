@@ -101,6 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         expiresIn: null,
         // A bill's delete reopens a PO it no longer leaves fully billed (PR #1703 R4-1, review r5 M1).
         reopenedPurchaseOrders: result.reopenedPurchaseOrders,
+        uncheckedPurchaseOrders: result.uncheckedPurchaseOrders,
         budgetWarnings: result.budgetWarnings,
       });
     } catch (err) {

@@ -25,7 +25,6 @@
  * busy PO is left closed and said (`uncheckedPurchaseOrders` + a warning). `guardBillGone` strings the three steps together.
  */
 import { sql, withSavepoint } from '@/lib/neon';
-import { als } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
@@ -37,9 +36,13 @@ import { billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilledBasis } from '../budgets/poCommitStatus';
 import { billTies } from '../budgets/billAttribution';
 import { BILLED_STATUSES } from '../budgets/poCommitStatus';
-import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
+import { unlinkBudgetRead } from './purchaseOrderUnlinkBudget';
 
-export interface ReopenedPo { poId: string; poNumber: string; reopenedTo: string }
+export interface ReopenedPo {
+  poId: string; poNumber: string; reopenedTo: string;
+  /** Set by its budget read (reopenWarnings): over budget, or outside every budgeted slice (Codex gate review L11). */
+  overBudget?: boolean; outsideSlices?: boolean;
+}
 
 /** The one rule: a PO closed because it was fully billed that no longer is. */
 export function isClosedUnderBilled(po: { status: string; closedByBilling: boolean; subtotalCents: number }, billedCents: number): boolean {
@@ -49,56 +52,35 @@ export function isClosedUnderBilled(po: { status: string; closedByBilling: boole
 /** The POs closed by billing these bills tie (a link, a header, a line naming one of their lines): the one query, waiting or not. */
 async function closedByBillingPoIds(companyId: string, ids: readonly string[], lock: boolean): Promise<string[]> {
   const bills = [...ids];
-  const rows = lock
-    ? (await sql`
-      SELECT po.id::TEXT AS id FROM purchase_orders po
-       WHERE po.company_id = ${companyId}::UUID AND po.status = 'closed' AND po.closed_by_billing AND po.id IN (
-           SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${bills}::UUID[])
-           UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${bills}::UUID[])
-           UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${bills}::UUID[]))
-       ORDER BY po.id FOR NO KEY UPDATE
-    `) as DbRow[]
-    : (await sql`
-      SELECT po.id::TEXT AS id FROM purchase_orders po
-       WHERE po.company_id = ${companyId}::UUID AND po.status = 'closed' AND po.closed_by_billing AND po.id IN (
-           SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${bills}::UUID[])
-           UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${bills}::UUID[])
-           UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${bills}::UUID[]))
-       ORDER BY po.id
-    `) as DbRow[];
+  const rows = (await sql`
+    SELECT po.id::TEXT AS id FROM purchase_orders po
+     WHERE po.company_id = ${companyId}::UUID AND po.status = 'closed' AND po.closed_by_billing AND po.id IN (
+         SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${bills}::UUID[])
+         UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${bills}::UUID[])
+         UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${bills}::UUID[]))
+     ORDER BY po.id ${sql.unsafe(lock ? 'FOR NO KEY UPDATE' : '')}
+  `) as DbRow[];
   return rows.map((r) => String(r.id).toLowerCase());
 }
 
 /**
  * The POs closed by billing that these bills tie, locked FOR NO KEY UPDATE in id order, and what each is billed now: taken BEFORE any
  * of the bills is locked (PO -> bill). The PO rows only: a bill is locked by its own caller (so a bulk cancel's held bill fails that
- * item alone, inside its savepoint), and `recheckClosedByBilling` runs after that lock.
+ * item alone, inside its savepoint), and `recheckClosedByBilling` runs after that lock. A caller that took this before locking the bill
+ * (the bulk cancel before its loop, the MCP cancel before its plan) passes the PO set it holds to the cancel (`heldPos`), which then
+ * does not lock again: a second, waiting read after the bill lock would be bill -> PO.
  */
 export async function lockPosClosedByBilling(companyId: string, billIds: string | readonly string[]): Promise<Map<string, number>> {
   const ids = typeof billIds === 'string' ? [billIds] : [...billIds];
-  // Taken once per bill per request: a caller that took it before locking the bill (the MCP cancel before its plan, the bulk cancel
-  // before its loop) is not followed by a second, WAITING read after the bill lock (bill -> PO); the late edge is NOWAIT only.
-  const cache = requestCache();
-  const hit = cache && ids.every((id) => cache.has(id.toLowerCase())) ? ids.map((id) => cache.get(id.toLowerCase())!) : null;
-  if (hit) {
-    // The PO rows are held already; what they are billed is read NOW (an earlier item of a bulk cancel may have moved it).
-    const held = [...new Set(hit.flatMap((m) => [...m.keys()]))];
-    const now = await billedCentsByPo(companyId, held);
-    return new Map(held.map((id) => [id, now.get(id) ?? 0]));
-  }
   const poIds = await withRowLockBudget(() => closedByBillingPoIds(companyId, ids, true), () => new RowLockTimeoutError('A purchase order of this bill'));
   const billed = await billedCentsByPo(companyId, poIds);
-  const out = new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
-  for (const id of ids) cache?.set(id.toLowerCase(), out);
-  return out;
+  return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
 }
 
-const locked = new WeakMap<object, Map<string, Map<string, number>>>();
-function requestCache(): Map<string, Map<string, number>> | null {
-  const store = als.getStore();
-  if (!store) return null;
-  if (!locked.has(store)) locked.set(store, new Map());
-  return locked.get(store)!;
+async function heldClosedByBilling(companyId: string, billId: string, heldPos: ReadonlySet<string>): Promise<Map<string, number>> {
+  const poIds = (await closedByBillingPoIds(companyId, [billId], false)).filter((id) => heldPos.has(id));
+  const billed = await billedCentsByPo(companyId, poIds);
+  return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
 }
 
 export interface ClosedByBillingRecheck {
@@ -138,8 +120,10 @@ export async function recheckClosedByBilling(companyId: string, billId: string, 
  * One bill's cancel or delete (review r5 M1, Codex gate): its POs closed by billing locked first (`lockPosClosedByBilling`), the late
  * re-read once the caller holds the bill (`recheck`), and the reopen after the change (`reopen`).
  */
-export async function guardBillGone(companyId: string, billId: string) {
-  const known = await lockPosClosedByBilling(companyId, billId);
+export async function guardBillGone(companyId: string, billId: string, heldPos?: ReadonlySet<string>) {
+  // With `heldPos` (the caller locked them before the bill): the bill's POs closed by billing in that set are read, not locked again,
+  // billed NOW (an earlier bulk item may have moved it); any other is reached by the NOWAIT re-check after the bill lock.
+  const known = heldPos ? await heldClosedByBilling(companyId, billId, heldPos) : await lockPosClosedByBilling(companyId, billId);
   let checked: ClosedByBillingRecheck = { billedBefore: known, busy: [] };
   return {
     recheck: async (): Promise<void> => { checked = await recheckClosedByBilling(companyId, billId, known); },
@@ -200,7 +184,10 @@ export async function reopenWarnings(companyId: string, reopened: Iterable<Reope
     // Review r6 M3: the reopen is done and stays; a budget read that fails is said, as the unlink says a busy gate, never thrown.
     try {
       // In its own savepoint (review r7 H1): a SQL error inside the read must not abort the request's transaction under a 200.
-      out.push(...await withSavepoint('reopen_budget_read', () => unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.')));
+      const read = await withSavepoint('reopen_budget_read', () => unlinkBudgetRead(companyId, r.poId, r.poNumber, figures, 'Reopened.'));
+      out.push(...read.warnings);
+      r.overBudget = read.overBudget;
+      r.outsideSlices = read.outsideSlices;
     } catch (err) {
       log.warn('Reopen budget read failed', { companyId, poId: r.poId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
       out.push(`The budget could not be checked just now; purchase order ${r.poNumber} commits spend again, check it in the app.`);
@@ -230,7 +217,8 @@ export async function poCommittedCents(companyId: string, poIds: readonly string
   return out;
 }
 
-export const NO_REOPEN: BillGoneReopen = { reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] };
+/** Nothing reopened (a fresh object each call: the arrays are the caller's to extend). */
+export const noReopen = (): BillGoneReopen => ({ reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] });
 
 export interface BillGoneReopen {
   reopenedPurchaseOrders: ReopenedPo[];
@@ -245,7 +233,7 @@ export async function reopenAfterBillGone(
   busy: ReadonlyArray<{ poId: string; poNumber: string }> = [],
 ): Promise<BillGoneReopen> {
   const reopened = [...(await reopenUnderBilled(companyId, billedBefore, opts)).values()];
-  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now and is still closed; it still counts its unbilled remainder in committed.`);
+  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now and is still closed; it still counts its unbilled remainder in committed, and reopens when a bill on it is next unlinked, cancelled or deleted.`);
   return {
     reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: [...busy],
     budgetWarnings: [...await reopenWarnings(companyId, reopened, opts.figures === true), ...unchecked],

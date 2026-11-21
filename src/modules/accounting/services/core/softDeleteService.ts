@@ -15,7 +15,7 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { DbRow } from '@/types/db';
-import { guardBillGone, NO_REOPEN, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
+import { guardBillGone, noReopen, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
 
 // Allowlist of entity types that support soft-delete
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -110,7 +110,7 @@ async function softDeleteInner(
     if (!deleted) {
       throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
-    const reopen = billing ? await billing.reopen({ userId, via: 'soft_delete', why: 'bill deleted' }) : NO_REOPEN;
+    const reopen = billing ? await billing.reopen({ userId, via: 'soft_delete', why: 'bill deleted' }) : noReopen();
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
     return { undoToken: entityId, ...reopen };
   } catch (err) {

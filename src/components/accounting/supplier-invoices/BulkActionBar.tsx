@@ -26,8 +26,7 @@ function notifyBudgetWarnings(data: BulkActionResult, action: BulkAction): void 
   // A cancel's warnings are the purchase orders it reopened or could not re-check (PR #1703), not an over-budget approval.
   if (action === 'cancel') {
     const done = data.results.filter((r) => r.ok);
-    const toast = cancelReopenToast(done.flatMap((r) => r.reopenedPurchaseOrders ?? []), done.flatMap((r) => r.uncheckedPurchaseOrders ?? []),
-      done.flatMap((r) => r.budgetWarnings ?? []));
+    const toast = cancelReopenToast(done.flatMap((r) => r.reopenedPurchaseOrders ?? []), done.flatMap((r) => r.uncheckedPurchaseOrders ?? []));
     if (toast) notify.warning(toast.title, toast.line);
     return;
   }

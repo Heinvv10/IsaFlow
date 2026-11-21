@@ -24,6 +24,7 @@ import {
   SupplierInvoiceCancelRefusal, lockAndPlanSupplierInvoiceCancel,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { lockPosClosedByBilling } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 import { cancelSupplierInvoiceTool } from '@/lib/mcp/tools/writeCancelSupplierInvoice';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -79,9 +80,11 @@ describe('cancel_supplier_invoice', () => {
   });
 
   it('cancels as the agent, with NO catch around the write', async () => {
+    // Codex gate review M1: the POs locked before the plan are handed to the cancel, which does not lock them again.
+    vi.mocked(lockPosClosedByBilling).mockResolvedValueOnce(new Map([['p1', 100]]));
     const r = await cancelSupplierInvoiceTool.handler({ invoice_id: BILL, ...KEY }, ctx);
     expect(cancelSupplierInvoice).toHaveBeenCalledWith(
-      COMPANY, BILL, 'u-1', expect.objectContaining({ postingAgent: 'mcp:cancel_supplier_invoice:v1' }),
+      COMPANY, BILL, 'u-1', expect.objectContaining({ postingAgent: 'mcp:cancel_supplier_invoice:v1', heldPos: new Set(['p1']) }),
     );
     expect(JSON.parse(text(r))).toMatchObject({
       status: 'cancelled', journal_reversed: true, reversal_journal_entry_id: 'rev-1',

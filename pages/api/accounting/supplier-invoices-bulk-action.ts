@@ -136,7 +136,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // total order over the locked rows makes that impossible: the batch that gets
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
-  const ordered = [...invoiceIds].sort();
+  // Lower-cased first (Codex gate review L13): the lock order is the database's id order, whatever case the client sent.
+  const ordered = [...invoiceIds].map((id) => id.toLowerCase()).sort();
 
   const numberOf = await billNumbers(companyId, ordered);
 
@@ -154,7 +155,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // item savepoints; each bill is locked by its own cancel inside its item's savepoint (a held bill fails that item alone), which then
   // re-reads its POs closed by billing meanwhile with NOWAIT (purchaseOrderBillingClose.recheckClosedByBilling). Named limit B6-DL1:
   // POs closed by billing after the batch's start are not in the up-front set (docs/design/mcp-po-bill-links.md).
-  if (action === 'cancel') await lockPosClosedByBilling(companyId, ordered);
+  const heldPos = action === 'cancel' ? new Set((await lockPosClosedByBilling(companyId, ordered)).keys()) : undefined;
 
   for (const invoiceId of ordered) {
     try {
@@ -166,7 +167,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           case 'approve':
             return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
           case 'cancel': {
-            const r = await cancelSupplierInvoice(companyId, invoiceId, userId);
+            const r = await cancelSupplierInvoice(companyId, invoiceId, userId, { heldPos });
             return { ...NOTHING, budgetWarnings: r.budgetWarnings.length > 0 ? r.budgetWarnings : undefined,
               reopened: r.reopenedPurchaseOrders, unchecked: r.uncheckedPurchaseOrders };
           }

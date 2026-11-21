@@ -289,7 +289,8 @@ export async function cancelSupplierInvoice(
   userId: string,
   // Optional and last-positional, as on approveSupplierInvoice: an MCP cancel
   // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
-  opts?: PostingActorOpts,
+  // `heldPos`: the POs closed by billing the caller locked before the bill (the bulk route, the MCP tool): not locked again.
+  opts?: PostingActorOpts & { heldPos?: ReadonlySet<string> },
 ): Promise<SupplierInvoice & BillGoneReopen> {
   // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a failure after the reversal's draft
   // INSERTs must roll them back (see customerInvoiceCancelService). One lock budget for the flow (D8 round 10).
@@ -301,11 +302,12 @@ async function cancelSupplierInvoiceInner(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts,
+  // `heldPos`: the POs closed by billing the caller locked before the bill (the bulk route, the MCP tool): not locked again.
+  opts?: PostingActorOpts & { heldPos?: ReadonlySet<string> },
 ): Promise<SupplierInvoice & BillGoneReopen> {
   try {
     // The POs closed BY BILLING this bill ties, locked BEFORE the bill (PO -> bill, as link / unlink): one it leaves under-billed reopens.
-    const billing = await guardBillGone(companyId, id);
+    const billing = await guardBillGone(companyId, id, opts?.heldPos);
     // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.

@@ -8,23 +8,27 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => []),
   withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => { savepoints.push(name); return fn(); }),
 }));
-vi.mock('@/modules/accounting/services/ap/purchaseOrderUnlinkBudget', () => ({ unlinkBudgetWarnings: budgetMock }));
+vi.mock('@/modules/accounting/services/ap/purchaseOrderUnlinkBudget', () => ({ unlinkBudgetRead: budgetMock }));
 
 import { reopenWarnings } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 
-const PO = { poId: 'p1', poNumber: 'PO-1', reopenedTo: 'approved' };
+const PO = (): { poId: string; poNumber: string; reopenedTo: string; overBudget?: boolean; outsideSlices?: boolean } =>
+  ({ poId: 'p1', poNumber: 'PO-1', reopenedTo: 'approved' });
 
 describe('reopenWarnings', () => {
   it('names each reopened PO, then its budget read', async () => {
-    budgetMock.mockResolvedValueOnce(['Reopened. Purchase order PO-1 commits spend again and is now over budget on X.']);
-    expect(await reopenWarnings('c1', [PO], false)).toEqual([
+    budgetMock.mockResolvedValueOnce({ warnings: ['Reopened. Purchase order PO-1 commits spend again and is now over budget on X.'], overBudget: true, outsideSlices: false });
+    const po = PO();
+    expect(await reopenWarnings('c1', [po], false)).toEqual([
       'Purchase order PO-1 reopened to approved: it is no longer fully billed, so it commits spend again.',
       'Reopened. Purchase order PO-1 commits spend again and is now over budget on X.',
     ]);
+    // Codex gate review L11: the flags a screen reads ride on the reopened PO itself, not in the prose.
+    expect(po).toMatchObject({ overBudget: true, outsideSlices: false });
   });
   it('a budget read that throws becomes "could not be checked", logged; the reopen is still named', async () => {
     budgetMock.mockRejectedValueOnce(new Error('preview failed'));
-    const out = await reopenWarnings('c1', [PO], false);
+    const out = await reopenWarnings('c1', [PO()], false);
     expect(out[0]).toBe('Purchase order PO-1 reopened to approved: it is no longer fully billed, so it commits spend again.');
     expect(out[1]).toContain('The budget could not be checked just now');
     expect(warnMock).toHaveBeenCalledWith('Reopen budget read failed', expect.objectContaining({ poId: 'p1' }), 'accounting');

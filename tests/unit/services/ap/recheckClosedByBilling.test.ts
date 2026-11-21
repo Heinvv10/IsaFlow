@@ -6,12 +6,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { calls, script } = vi.hoisted(() => ({ calls: [] as string[], script: [] as Array<unknown[] | Error> }));
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray) => {
-    calls.push(strings.join('?'));
+  sql: Object.assign(vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    calls.push(strings.reduce((acc, s, i) => acc + (typeof values[i - 1] === 'object' && (values[i - 1] as { raw?: string })?.raw !== undefined ? (values[i - 1] as { raw: string }).raw : '?') + s));
     const next = script.shift();
     if (next instanceof Error) throw next;
     return next ?? [];
-  }),
+  }), { unsafe: (raw: string) => ({ raw }) }),
   withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
 }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));

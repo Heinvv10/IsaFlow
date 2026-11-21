@@ -251,7 +251,7 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
+    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { heldPos: new Set() });
     expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_A]);
     expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(cancelMock.mock.invocationCallOrder[0]!);
     expect(approveMock).not.toHaveBeenCalled();
@@ -271,6 +271,30 @@ describe('supplier-invoices-bulk-action', () => {
     expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [lo, hi]);
     expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(Math.min(...cancelMock.mock.invocationCallOrder));
     expect(cancelMock.mock.calls.map((c) => c[1])).toEqual([lo, hi]);
+  });
+
+  // Codex gate review M1 + L13: the POs the route locked are handed to EVERY cancel (held, not locked again: no cache), and the
+  // ids are lower-cased before the sort, so the lock order is the database's whatever case the client sent.
+  it('hands the held PO set to each cancel; mixed-case ids are lower-cased before the sort', async () => {
+    lockPosMock.mockResolvedValueOnce(new Map([['p1', 100], ['p2', 0]]));
+    cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
+    const upper = 'AAAAAAAA-1111-4111-8111-111111111111';
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_B, upper] }), res());
+    expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_B, upper.toLowerCase()]);
+    for (const c of cancelMock.mock.calls) expect(c[3]).toEqual({ heldPos: new Set(['p1', 'p2']) });
+  });
+
+  // Codex gate review M3: what each cancel reopened, and what it could not re-check, reach the results the bulk bar reads.
+  it('passes reopenedPurchaseOrders and uncheckedPurchaseOrders through to each result', async () => {
+    const reopened = [{ poId: 'p1', poNumber: 'PO-1', reopenedTo: 'approved' }];
+    const unchecked = [{ poId: 'p2', poNumber: 'PO-2' }];
+    cancelMock.mockResolvedValueOnce({ reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked, budgetWarnings: ['w'] })
+      .mockResolvedValueOnce({ reopenedPurchaseOrders: [], uncheckedPurchaseOrders: [], budgetWarnings: [] });
+    const result = await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_A, ID_B] }), res());
+    const data = (result as { data: { results: Array<Record<string, unknown>> } }).data;
+    expect(data.results[0]).toMatchObject({ invoiceId: ID_A, ok: true, reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked });
+    expect(data.results[1]).not.toHaveProperty('reopenedPurchaseOrders');
+    expect(data.results[1]).not.toHaveProperty('uncheckedPurchaseOrders');
   });
 
   // The route's per-id savepoint is the guarantee that one bad row cannot take
