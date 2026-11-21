@@ -25,6 +25,7 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { SupplierInvoiceGrnRefusal, assertEditedBillGrn } from './billGoodsReceivedLink';
+import { resetMatchState } from './purchaseOrderUnlinkClear';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -70,6 +71,8 @@ export interface SupplierInvoiceDraftUpdatePlan {
   grnId: string | null;
   /** The note must be held and judged again in the apply, after the links refresh (the supplier or the note changes and one stays). */
   recheckGrn: boolean;
+  /** The edit changes or clears the note: the stored three-way match state is re-judged in the apply. */
+  grnChanges: boolean;
   totalBefore: number;
   /** The recomputed lines and totals, or null when the lines are untouched or resent unchanged. */
   lines: (SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null;
@@ -217,6 +220,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     notes: patch.notes ?? (row.notes ?? null),
     grnId,
     recheckGrn,
+    grnChanges,
     totalBefore,
     lines,
     changed,
@@ -225,12 +229,9 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
 }
 
 /**
- * Write the plan. Refuses nothing the plan did not already decide — call it with
- * no catch. The one exception is a race: a goods received note the plan judged
- * live and cancelled before the apply's hold is refused here
- * (`SupplierInvoiceGrnRefusal`, typed; the caller's transaction takes the edit
- * back). `editedBy` becomes the bill's content author when the write moves the
- * approval digest (R-035).
+ * Write the plan. Refuses nothing the plan did not decide (call it with no catch), except a note cancelled between the plan and the
+ * apply's hold (`SupplierInvoiceGrnRefusal`, typed; the caller's transaction takes the edit back). `editedBy` becomes the bill's
+ * content author when the write moves the approval digest (R-035).
  */
 export async function applySupplierInvoiceDraftUpdate(
   companyId: string,
@@ -293,5 +294,7 @@ export async function applySupplierInvoiceDraftUpdate(
     // The note LAST, held FOR SHARE to the commit (bill -> PO -> note, as the create): a cancel of it waits for this edit and then
     // refuses it as on a bill, or this waits for the cancel and refuses the cancelled note (typed; the transaction takes the edit back).
     if (plan.recheckGrn && plan.grnId) await assertEditedBillGrn(companyId, plan.invoiceId, plan.grnId, plan.supplierId, { db: tx, lock: true });
+    // The stored match state was judged against the old note (round 3, finding 1): re-judged (performThreeWayMatch, or unmatched).
+    if (plan.grnChanges) await resetMatchState(companyId, plan.invoiceId);
   }));
 }

@@ -19,6 +19,8 @@ import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGo
 import { cancelGoodsReceivedTool as cancel } from '@/lib/mcp/tools/writeCancelGoodsReceived';
 import { updateSupplierInvoiceTool as update } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { getSupplierInvoices } from '@/modules/accounting/services/ap/supplierInvoiceQueryService';
+import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -117,6 +119,32 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
     const r = await callTool(pool, f, update, { invoice_id: bill, grn_id: next });
     expect(r.isError, r.text).toBe(false);
     expect(await billRow(bill)).toEqual({ supplier_id: f.supplier, grn_id: next });
+  });
+
+  it('a fully matched draft whose grn_id is cleared is re-judged and drops out of the fully matched list (gate round 3, finding 1)', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const r = await callTool(pool, f, create, grnArgs(po, [[0, 4]]));
+    expect(r.isError, r.text).toBe(false);
+    const req = await openRequest(pool, f, f.owner);
+    let bill: string;
+    try {
+      bill = (await req.run(() => createSupplierInvoice(f.co, {
+        invoiceNumber: `GRN-EDIT-M-${n++}-${Date.now()}`, supplierId: f.supplier, invoiceDate: '2026-06-15', grnId: String(r.body.grn_id),
+        items: [{ description: 'Matched goods', quantity: 4, unitPrice: 10, taxRate: 15, glAccountId: f.acc.opex, poItemId: po.items[0] }],
+      }, f.owner))).id;
+      expect((await req.run(() => performThreeWayMatch(f.co, bill))).matchStatus).toBe('fully_matched');
+      await req.commit();
+    } catch (err) { await req.rollback(); throw err; }
+    const fullyMatched = async () => {
+      const q = await openRequest(pool, f, f.owner);
+      try { return (await q.run(() => getSupplierInvoices(f.co, { matchStatus: 'fully_matched', limit: 500 }))).invoices.map((i) => i.id); } finally { await q.rollback(); }
+    };
+    expect(await fullyMatched()).toContain(bill!);
+    const edit = await callTool(pool, f, update, { invoice_id: bill!, grn_id: null });
+    expect(edit.isError, edit.text).toBe(false);
+    expect(await fullyMatched()).not.toContain(bill!);
+    const lines = (await pool.query('SELECT line_match_status FROM supplier_invoice_items WHERE supplier_invoice_id = $1', [bill!])).rows;
+    expect(lines.map((l) => l.line_match_status)).not.toContain('fully_matched');
   });
 
   it('a cancel of the new note running during the edit: the edit waits on the note and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
