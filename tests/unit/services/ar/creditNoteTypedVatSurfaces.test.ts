@@ -131,8 +131,10 @@ describe('MCP create_credit_note', () => {
     expect(r).toBe(replayed);
     expect(m.typed).not.toHaveBeenCalled();
     expect(m.create).not.toHaveBeenCalled();
-    // A note that may be typed and names no figure is compared by date only: its VAT is the invoice's remaining VAT.
-    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toEqual({ creditNoteType: 'customer', expect: { date: '2026-09-20', subtotal: 150, totalAmount: null } });
+    // A note that may be typed and names no figure is compared by date and subtotal, no total (its VAT is the invoice's
+    // remaining VAT); and, since round 9, by its customer and linked invoice (a reused reference is refused).
+    expect(vi.mocked(createReplayOrLock).mock.calls[0]![3]).toEqual({ creditNoteType: 'customer', expect: {
+      date: '2026-09-20', subtotal: 150, totalAmount: null, identity: { client_id: CUSTOMER, customer_invoice_id: INV } } });
   });
 
   it('a replay of a note with a figure still compares the total', async () => {
