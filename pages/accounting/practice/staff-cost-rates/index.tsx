@@ -167,7 +167,7 @@ export default function StaffCostRatesPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Cost rate/hr *</label>
-                <AmountInput min={0} className={INPUT} value={form.costRate}
+                <AmountInput min={0} decimals={4} className={INPUT} value={form.costRate}
                   onValueChange={(_n, t) => setField('costRate', t)} placeholder="0.00" />
               </div>
               <div className="flex flex-col gap-1">
