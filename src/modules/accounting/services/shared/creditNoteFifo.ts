@@ -223,8 +223,8 @@ export async function applyCreditNote(args: {
     // A typed invoice takes no more than it has left to credit (ar/creditNoteTypedApplication): its room is capped at
     // that, so one that fits partly takes what fits (shared/creditNoteTypedPlan, the planner the back-fill's dry run
     // uses too). After the note's journal, so a cap, never a refusal. Judged by the note's own link, re-read here: the
-    // back-fill passes no linkedInvoiceId.
-    const planned = side === 'customer'
+    // back-fill passes no linkedInvoiceId. No candidate, no plan: nothing is read.
+    const planned = rest.length === 0 ? [] : side === 'customer'
       ? await planWithinTypedCapacity(async (id) => (await typedCreditCapacity(companyId, id))?.cap ?? null,
         await gateNoteOf(companyId, creditNoteId), remaining, rest, invoiceFloor(side))
       : planGreedyAllocations(remaining, rest, invoiceFloor(side));
