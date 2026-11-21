@@ -8,15 +8,19 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userBelongsToCompany: vi.fn(async () => true) }));
-vi.mock('@/modules/accounting/services/core/memberWrites', async (orig) => ({ ...(await orig<object>()), setMemberApproveWithheld: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/memberWrites', async (orig) => ({
+  ...(await orig<object>()), setMemberApproveWithheld: vi.fn(async () => undefined), resetMemberPermissions: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/auth/permissionService', async (orig) => ({
   ...(await orig<object>()),
   getMemberAccess: vi.fn(async () => ({ role: 'manager', approveWithheld: true })),
   getPermissionModules: vi.fn(async () => []), getEffectivePermissions: vi.fn(async () => []),
 }));
 
-import { getEffectivePermissions } from '@/lib/auth/permissionService';
-import { MemberRoleForbiddenError, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
+import { getEffectivePermissions, getMemberAccess } from '@/lib/auth/permissionService';
+import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
+import { MemberRoleForbiddenError, resetMemberPermissions, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
+import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
 import handler from '../../../pages/api/accounting/permissions';
 
@@ -58,5 +62,31 @@ describe('approve_withheld on /api/accounting/permissions', () => {
   it('round 4: the pool refusing a change to an owner (OwnerProtectedError) is 403, not a 500', async () => {
     vi.mocked(setMemberApproveWithheld).mockRejectedValueOnce(new OwnerProtectedError());
     expect((await call('PUT', { userId: T, approveWithheld: true }, 'admin')).statusCode).toBe(403);
+  });
+
+  // #1670 Codex: company_users.user_id is TEXT; a member with a non-UUID id is looked up by company, never refused as "not a UUID".
+  it('a member whose user id is not a UUID: GET shows the grid, PUT withholds, DELETE resets', async () => {
+    const TEXT_ID = 'legacy-user-42';
+    const got = await call('GET', undefined, 'owner', { userId: TEXT_ID });
+    expect(got.statusCode).toBe(200);
+    expect(getMemberAccess).toHaveBeenCalledWith(C, TEXT_ID);
+    expect((await call('PUT', { userId: TEXT_ID, approveWithheld: true })).statusCode).toBe(200);
+    expect(setMemberApproveWithheld).toHaveBeenCalledWith(C, TEXT_ID, true, ACTOR);
+    expect((await call('DELETE', undefined, 'owner', { userId: TEXT_ID })).statusCode).toBe(200);
+    expect(resetMemberPermissions).toHaveBeenCalledWith(C, TEXT_ID, ACTOR);
+  });
+
+  it('a user id that names no member of this company is 404 on DELETE too, before any write', async () => {
+    vi.mocked(userBelongsToCompany).mockResolvedValueOnce(false);
+    expect((await call('DELETE', undefined, 'owner', { userId: 'nobody' })).statusCode).toBe(404);
+    expect(resetMemberPermissions).not.toHaveBeenCalled();
+  });
+
+  it('withholding that would strand a pending pay run is 409 (PayRunApproverProtectedError), not a 500', async () => {
+    vi.mocked(setMemberApproveWithheld).mockRejectedValueOnce(new PayRunApproverProtectedError());
+    const res = await call('PUT', { userId: T, approveWithheld: true });
+    expect(res.statusCode).toBe(409);
+    vi.mocked(resetMemberPermissions).mockRejectedValueOnce(new PayRunApproverProtectedError());
+    expect((await call('DELETE', undefined, 'owner', { userId: T })).statusCode).toBe(409);
   });
 });

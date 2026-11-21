@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const calls = vi.hoisted(() => [] as Array<{ text: string; values: unknown[] }>);
+const MEMBERSHIP = vi.hoisted(() => '77777777-7777-4777-8777-777777777777'); // company_users.id
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: vi.fn(async (_n: string, fn: (c: unknown) => Promise<unknown>) => fn({
@@ -10,7 +11,7 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
       if (/SELECT role, public.company_member_role_is_owner/.test(text)) {
         return { rows: [{ role: 'manager', is_owner: false, is_target: true, is_actor: false }, { role: 'owner', is_owner: false, is_target: false, is_actor: true }] };
       }
-      if (/SELECT approve_withheld/.test(text)) return { rows: [{ approve_withheld: false }] };
+      if (/SELECT id::TEXT AS id, approve_withheld/.test(text)) return { rows: [{ id: MEMBERSHIP, approve_withheld: false }] };
       return { rows: [] };
     }),
   })),
@@ -30,8 +31,17 @@ describe('setMemberApproveWithheld', () => {
     expect(update?.values).toEqual([C, T, true]);
     const audit = calls.filter((c) => /INSERT INTO audit_log/.test(c.text));
     expect(audit).toHaveLength(1);
-    expect(audit[0]!.values.slice(0, 3)).toEqual([C, ACTOR, T]);
+    // #1670 Codex: the entity is the MEMBERSHIP (a UUID); user_id is TEXT and need not be one. The target stays in the metadata.
+    expect(audit[0]!.values.slice(0, 3)).toEqual([C, ACTOR, MEMBERSHIP]);
+    expect(JSON.parse(String(audit[0]!.values[3])).metadata.target_user_id).toBe(T);
     expect(JSON.parse(String(audit[0]!.values[3]))).toMatchObject({ fields: [{ field: 'approve_withheld', old: false, new: true }] });
     expect(calls.indexOf(audit[0]!)).toBeGreaterThan(calls.indexOf(update!));
   });
+});
+
+it('#1670 Codex: a member whose user id is not a UUID is withheld and audited by membership (nothing casts the user id)', async () => {
+  await setMemberApproveWithheld(C, 'legacy-text-user', true, ACTOR);
+  const audit = calls.find((c) => /INSERT INTO audit_log/.test(c.text))!;
+  expect(audit.values[2]).toBe(MEMBERSHIP);
+  expect(calls.some((c) => /\$2::UUID|\$3::UUID/.test(c.text) && c.values.includes('legacy-text-user') && !/INSERT INTO audit_log/.test(c.text))).toBe(false);
 });

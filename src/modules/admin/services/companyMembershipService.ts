@@ -27,7 +27,7 @@ import { log } from '@/lib/logger';
 import { ErrorCode } from '@/lib/apiResponse';
 import { isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { ALLOWED_COMPANY_ROLES, ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './adminUserActionsService';
-import { PayRunApproverProtectedError, assertPayRunApproverRetained } from '@/modules/accounting/services/core/payRunApproverGuard';
+import { PayRunApproverProtectedError, assertPayRunApproverRetained, type MemberChange } from '@/modules/accounting/services/core/payRunApproverGuard';
 
 export type CompanyMembershipErrorCode = 'NOT_FOUND' | 'LAST_OWNER' | 'INVALID_ROLE' | 'ALREADY_LINKED' | 'PAY_RUN_APPROVER';
 
@@ -57,9 +57,9 @@ async function lastOwnerGuarded(write: Promise<unknown>): Promise<void> {
 }
 
 /** Refuses (PAY_RUN_APPROVER) a change that leaves a pending pay-run approval with no approver but its requester. */
-async function assertKeepsPayRunApprover(companyId: string, userId: string, newRole: string | null): Promise<void> {
+async function assertKeepsPayRunApprover(companyId: string, userId: string, change: MemberChange): Promise<void> {
   try {
-    await assertPayRunApproverRetained(companyId, userId, newRole);
+    await assertPayRunApproverRetained(companyId, userId, change);
   } catch (err) {
     if (err instanceof PayRunApproverProtectedError) throw new CompanyMembershipError('PAY_RUN_APPROVER', err.message);
     throw err;
@@ -206,9 +206,13 @@ export async function setUserCompanyRole(
   return { previousRole, changed: true };
 }
 
-/** The admin portal's edit of company_users.approve_withheld (migration 1010c): the manager default of Approve and Payroll withheld for one member. platform_admin. */
+/**
+ * The admin portal's edit of company_users.approve_withheld (migration 1010c): the manager default of Approve and Payroll withheld for one
+ * member. platform_admin. Withholding is refused (PAY_RUN_APPROVER) while it would strand a pending pay run (#1670 Codex).
+ */
 export async function setApproveWithheldByAdmin(userId: string, companyId: string, withheld: boolean): Promise<void> {
   await lockMembership(userId, companyId);
+  if (withheld) await assertKeepsPayRunApprover(companyId, userId, { approveWithheld: true });
   await sql`
     UPDATE company_users SET approve_withheld = ${withheld}
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
@@ -224,6 +228,8 @@ export async function setApproveWithheldByAdmin(userId: string, companyId: strin
 export async function setModulePermissionByAdmin(
   companyId: string, userId: string, moduleKey: string, perms: Partial<ModulePermission>,
 ): Promise<void> {
+  // Unticking Payroll Approve must not strand a pending pay run (PAY_RUN_APPROVER, #1670 Codex).
+  if (moduleKey === 'payroll') await assertKeepsPayRunApprover(companyId, userId, { payrollRow: { canApprove: perms.canApprove ?? false } });
   await sql`
     INSERT INTO company_user_permissions (
       company_id, user_id, module_key,
@@ -250,6 +256,7 @@ export async function setModulePermissionByAdmin(
 
 /** The admin portal's reset of a member to their role defaults (every permission row deleted); platform_admin, as above. */
 export async function resetPermissionsByAdmin(companyId: string, userId: string): Promise<void> {
+  await assertKeepsPayRunApprover(companyId, userId, { payrollRow: 'reset' }); // the role default may hold no Payroll Approve
   await sql`DELETE FROM company_user_permissions WHERE company_id = ${companyId}::UUID AND user_id = ${userId}`;
   log.info('resetPermissionsByAdmin', { companyId, userId }, 'AdminCompanyMembership');
 }

@@ -18,19 +18,23 @@ import {
   isMemberWriteBusy, MemberRoleForbiddenError, resetMemberPermissions, setMemberApproveWithheld, setMemberModulePermission,
 } from '@/modules/accounting/services/core/memberWrites';
 import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
+import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 import {
   getPermissionModules,
   getEffectivePermissions,
   getMemberAccess,
 } from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
-import { isUuidParam } from '@/lib/validation';
 
 const ADMIN_ROLES = ['owner', 'admin'];
 
-/** A permission write the owner / admin check (memberWrites) refused, or that waited past the lock bound: 403 / 409; false for anything else. */
+/**
+ * A permission write the owner / admin check (memberWrites) refused, that would strand a pending pay run (409), or that waited past
+ * the lock bound: 403 / 409; false for anything else.
+ */
 function respondIfPermissionWriteRefused(res: NextApiResponse, err: unknown): boolean {
   if (err instanceof MemberRoleForbiddenError || err instanceof OwnerProtectedError) { apiResponse.forbidden(res, err.message); return true; }
+  if (err instanceof PayRunApproverProtectedError) { apiResponse.conflict(res, err.message); return true; }
   if (isMemberWriteBusy(err)) { apiResponse.conflict(res, 'Another change to this member is in progress. Nothing was changed; retry in a moment.'); return true; }
   return false;
 }
@@ -53,7 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
-    if (!isUuidParam(userId)) return apiResponse.notFound(res, 'User'); // names no member: no SQL cast to fail
+    // company_users.user_id is TEXT and need not be a UUID (#1670 Codex): looked up by company as text, never cast.
 
     // #1656: a module the user has no row for shows the role default, the permission
     // checkPermission enforces (it showed all-off, so one toggle saved a row that also
@@ -126,11 +130,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (typeof userId !== 'string' || typeof approveWithheld !== 'boolean') {
       return apiResponse.badRequest(res, 'userId and approveWithheld (true or false) are required.');
     }
-    if (!isUuidParam(userId) || !(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
+    if (!(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
     try {
       await setMemberApproveWithheld(companyId, userId, approveWithheld, (req as CompanyAuthedRequest).user.id);
     } catch (err) {
-      if (err instanceof MemberRoleForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
+      if (respondIfPermissionWriteRefused(res, err)) return;
       throw err;
     }
     return apiResponse.success(res, { ok: true, approveWithheld });
@@ -142,7 +146,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
-    if (!isUuidParam(userId)) return apiResponse.notFound(res, 'User');
+    if (!(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
 
     try {
       await resetMemberPermissions(companyId, userId, (req as CompanyAuthedRequest).user.id);

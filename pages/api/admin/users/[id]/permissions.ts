@@ -27,7 +27,9 @@ import {
 } from '@/lib/auth/permissionService';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { resetPermissionsByAdmin, setApproveWithheldByAdmin, setModulePermissionByAdmin } from '@/modules/admin/services/companyMembershipService';
+import {
+  CompanyMembershipError, MEMBERSHIP_ERROR_CODE, resetPermissionsByAdmin, setApproveWithheldByAdmin, setModulePermissionByAdmin,
+} from '@/modules/admin/services/companyMembershipService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
@@ -41,6 +43,18 @@ const PostBody = z.object({
   accountRangeFrom: z.string().max(20).nullable().optional(),
   accountRangeTo:   z.string().max(20).nullable().optional(),
 }).strict();
+
+/** Runs a permission write; a refusal (PAY_RUN_APPROVER: it would strand a pending pay run) is answered 409 and returns false. */
+async function refusedWrite(res: NextApiResponse, write: () => Promise<void>): Promise<boolean> {
+  try {
+    await write();
+    return false;
+  } catch (err) {
+    if (!(err instanceof CompanyMembershipError)) throw err;
+    apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
+    return true;
+  }
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
@@ -66,14 +80,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const parsed = z.object({ company_id: AdminUuid, approveWithheld: z.boolean() }).strict().safeParse(req.body);
     if (!parsed.success) return apiResponse.badRequest(res, 'company_id and approveWithheld (true or false) are required');
     if (parsed.data.company_id !== companyId) return apiResponse.badRequest(res, 'company_id must match the query');
-    await setApproveWithheldByAdmin(userId, companyId, parsed.data.approveWithheld);
+    if (await refusedWrite(res, () => setApproveWithheldByAdmin(userId, companyId, parsed.data.approveWithheld))) return;
     await logAdminAction(req.user.id, 'user.set_approve_withheld', 'user', userId,
       { company_id: companyId, approve_withheld: parsed.data.approveWithheld }, getIp(req));
     return apiResponse.success(res, { ok: true, approveWithheld: parsed.data.approveWithheld });
   }
 
   if (req.method === 'DELETE') {
-    await resetPermissionsByAdmin(companyId, userId);
+    if (await refusedWrite(res, () => resetPermissionsByAdmin(companyId, userId))) return;
     await logAdminAction(req.user.id, 'user.reset_module_permissions', 'user', userId, { company_id: companyId }, getIp(req));
     return apiResponse.success(res, { ok: true });
   }
@@ -94,7 +108,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     canExport: body.canExport, canApprove: body.canApprove,
     accountRangeFrom: body.accountRangeFrom ?? null, accountRangeTo: body.accountRangeTo ?? null,
   };
-  await setModulePermissionByAdmin(companyId, userId, body.moduleKey, perms);
+  if (await refusedWrite(res, () => setModulePermissionByAdmin(companyId, userId, body.moduleKey, perms))) return;
   await logAdminAction(req.user.id, 'user.set_module_permission', 'user', userId,
     { company_id: companyId, module_key: body.moduleKey, ...perms }, getIp(req));
   return apiResponse.success(res, { ok: true });

@@ -115,7 +115,9 @@ export async function removeCompanyUser(companyId: string, userId: string, actor
 /**
  * Withhold (or restore) the manager default of Approve and Payroll for one member (company_users.approve_withheld, migration
  * 1010c; #1656 round 3). A flag on the membership, not a role: the actor must be an owner or admin now (RC001), as for a role
- * change, and the column is the only one written. No app role may UPDATE company_users (937), hence this pool.
+ * change, and the column is the only one written. No app role may UPDATE company_users (937), hence this pool. Withholding is
+ * refused while it would leave a pending pay run with no approver but its requester (refuseLastPayRunApprover, #1670 Codex).
+ * The audit row names the MEMBERSHIP (company_users.id, a UUID): user_id is TEXT and need not be a UUID.
  */
 export async function setMemberApproveWithheld(
   companyId: string,
@@ -125,14 +127,16 @@ export async function setMemberApproveWithheld(
 ): Promise<void> {
   await migrationAdminTx('set approve withheld', async (client) => {
     await authorize(client, companyId, userId, actorUserId, false);
-    const before = await client.query<{ approve_withheld: boolean }>(
-      'SELECT approve_withheld FROM company_users WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
+    if (withheld) await refuseLastPayRunApprover(client, companyId, userId, { approveWithheld: true });
+    const before = await client.query<{ id: string; approve_withheld: boolean }>(
+      'SELECT id::TEXT AS id, approve_withheld FROM company_users WHERE company_id = $1::UUID AND user_id = $2 ORDER BY id LIMIT 1',
+      [companyId, userId]);
     await client.query('UPDATE company_users SET approve_withheld = $3 WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId, withheld]);
     // The audit row commits with the change (one transaction on this pool): who withheld or restored whose Approve.
     await client.query(
       `INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes)
        VALUES ($1::UUID, $2, 'update', 'company_user', $3::UUID, $4::JSONB)`,
-      [companyId, actorUserId, userId, JSON.stringify({ fields: [{ field: 'approve_withheld', old: before.rows[0]?.approve_withheld ?? false, new: withheld }],
+      [companyId, actorUserId, before.rows[0]!.id, JSON.stringify({ fields: [{ field: 'approve_withheld', old: before.rows[0]?.approve_withheld ?? false, new: withheld }],
         metadata: { change: 'approve_withheld', target_user_id: userId } })]);
   });
   log.info('Company user approve_withheld set', { companyId, userId, withheld }, 'accounting');
@@ -149,6 +153,8 @@ export async function setMemberModulePermission(
 ): Promise<void> {
   await migrationAdminTx('set module permission', async (client) => {
     await authorize(client, companyId, userId, actorUserId, false);
+    // Unticking Payroll Approve must not strand a pending pay run (#1670 Codex), as a demotion must not.
+    if (moduleKey === 'payroll') await refuseLastPayRunApprover(client, companyId, userId, { payrollRow: { canApprove: perms.canApprove ?? false } });
     await client.query(
       `INSERT INTO company_user_permissions (
          company_id, user_id, module_key, can_read, can_write, can_delete, can_export, can_approve,
@@ -171,6 +177,7 @@ export async function setMemberModulePermission(
 export async function resetMemberPermissions(companyId: string, userId: string, actorUserId: string): Promise<void> {
   await migrationAdminTx('reset module permissions', async (client) => {
     await authorize(client, companyId, userId, actorUserId, false);
+    await refuseLastPayRunApprover(client, companyId, userId, { payrollRow: 'reset' }); // the role default may hold no Payroll Approve
     await client.query('DELETE FROM company_user_permissions WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
   });
   log.info('User permissions reset to defaults', { companyId, userId }, 'accounting');
