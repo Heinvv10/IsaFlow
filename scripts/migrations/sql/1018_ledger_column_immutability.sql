@@ -108,8 +108,8 @@
 -- LOCKS. No DROP TRIGGER: CREATE OR REPLACE TRIGGER (PG14+) and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
 -- tables for an instant, bounded by lock_timeout. ADD COLUMN document_cancelled_at (nullable, no default: no rewrite)
 -- takes ACCESS EXCLUSIVE on gl_journal_entries for an instant, bounded the same way.
--- The backfill (end of file) switches trg_gl_je_document_cancel_kept off and on (SHARE ROW EXCLUSIVE, as above) and
--- scans the cancelled invoices and bills once; every lock is held to the migration's COMMIT, as the trigger DDL's are.
+-- The backfill (end of file) takes ROW EXCLUSIVE on gl_journal_entries for its two UPDATEs and scans the cancelled
+-- invoices and bills once (an equality hash join); every lock is held to the migration's COMMIT, as the trigger DDL's are.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_gl_je_reversal_no_insert ON public.gl_journal_entries;
@@ -183,7 +183,8 @@ $$;
 -- The two journals' lines are exact negations: one multiset of (account, VAT type, debit, credit) equals the other with
 -- debit and credit swapped, none left over on either side, and the first has a line. Both sides read as the caller.
 -- vat_type is in the comparison (round 8): it picks the VAT201 box, and the reversal writer copies it untouched
--- (gl/reversalLines). The dimensions (project_id, cc1_id, cc2_id, bu_id) are NOT: the writer drops a foreign legacy
+-- (gl/reversalLines), except that a legacy '' is read back as no VAT type and written as NULL, so '' and NULL compare
+-- equal (NULLIF, round 9; isaflow_dev holds no '' line). The dimensions (project_id, cc1_id, cc2_id, bu_id) are NOT: the writer drops a foreign legacy
 -- tag on the contra by design (K-051), totals and VAT tie without them, and comparing them would make such a journal
 -- unreversable. cost_center_id (legacy, unread), description, source_document_line_id and late_claim_base (copied
 -- after the link, vatLateClaimBasis) do not move a figure.
@@ -195,13 +196,13 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (SELECT 1 FROM public.gl_journal_lines WHERE journal_entry_id = p_contra)
      AND NOT EXISTS (
-       (SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
+       (SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra
         EXCEPT ALL
-        SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
+        SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original))
      AND NOT EXISTS (
-       (SELECT gl_account_id, vat_type, COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
+       (SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(credit, 0), COALESCE(debit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_original
         EXCEPT ALL
-        SELECT gl_account_id, vat_type, COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
+        SELECT gl_account_id, NULLIF(vat_type, ''), COALESCE(debit, 0), COALESCE(credit, 0) FROM public.gl_journal_lines WHERE journal_entry_id = p_contra));
 $$;
 
 -- The chain from the journal down is one line (no journal has two contras) of fewer than 64 journals: the shape a new
@@ -486,7 +487,8 @@ BEGIN
   -- by the post itself, draft -> posted, before any link).
   IF (NEW.reversed_at IS DISTINCT FROM OLD.reversed_at OR NEW.reversed_by IS DISTINCT FROM OLD.reversed_by)
      AND EXISTS (SELECT 1 FROM public.gl_journal_entries c WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id) THEN
-    RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when' USING ERRCODE = '23514';
+    RAISE EXCEPTION 'gl_journal_entries: a journal that a reversal links to keeps who reversed it and when'
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_attribution_kept';
   END IF;
   IF (NEW.posted_at IS DISTINCT FROM OLD.posted_at OR NEW.posted_by IS DISTINCT FROM OLD.posted_by)
      AND public.gl_journal_is_linked(OLD.id) THEN
@@ -514,7 +516,12 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  IF current_setting('is_superuser') = 'on' THEN
+  -- A superuser, and the table's OWNER (round 9): the owner can switch this trigger off anyway (see WHAT), so exempting
+  -- it grants nothing, and it lets this migration's backfill (run by whoever owns the table: ADD COLUMN above already
+  -- requires that) stamp without switching any trigger off. The app's logins are not members of the owner role.
+  IF current_setting('is_superuser') = 'on'
+     OR pg_catalog.pg_has_role(current_user,
+          (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = 'public.gl_journal_entries'::pg_catalog.regclass), 'MEMBER') THEN
     RETURN NEW;
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.document_cancelled_at IS NOT NULL THEN
@@ -631,13 +638,13 @@ BEGIN
   -- A constraint trigger has no CREATE OR REPLACE: (re)create it unless it already carries this definition (vat_type).
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                   WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_linked_account_check'
-                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%vat_type%') THEN
+                    AND pg_catalog.pg_get_triggerdef(oid) LIKE '%NULLIF(old.vat_type%') THEN
     DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
     CREATE CONSTRAINT TRIGGER trg_gl_jl_linked_account_check
       AFTER UPDATE OF gl_account_id, vat_type ON public.gl_journal_lines
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW
-      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR OLD.vat_type IS DISTINCT FROM NEW.vat_type)
+      WHEN (OLD.gl_account_id IS DISTINCT FROM NEW.gl_account_id OR NULLIF(OLD.vat_type, '') IS DISTINCT FROM NULLIF(NEW.vat_type, ''))
       EXECUTE FUNCTION public.gl_jl_linked_account_check();
   END IF;
 END
@@ -999,7 +1006,7 @@ CREATE OR REPLACE TRIGGER trg_doc_delete_in_force
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_company_frozen;
 ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
 
--- ── backfill: the journals of documents cancelled before this migration (round 8 F3) ──────────────────────────────
+-- ── backfill: the journals of documents cancelled before this migration (round 8 F3, round 9) ─────────────────────
 --
 -- Rule 1 reads document_cancelled_at, which only a cancel from here on writes. A document cancelled before 1018 is
 -- found by state, and only where the state says so without doubt:
@@ -1008,21 +1015,25 @@ ALTER TABLE public.credit_notes ENABLE ALWAYS TRIGGER trg_doc_delete_in_force;
 --   (b) BY IDENTITY: the invoice and bill cancels clear the link, so the journal is found by what approve wrote on it
 --       and rule 2 has frozen since: its company, its source and its description, which name the document's number
 --       ('auto_invoice' / 'Customer invoice <n>', 'auto_supplier_invoice' / 'Supplier invoice <n>', and the take-on
---       imports' 'auto_migration' / 'Take-on AR|AP invoice <n>'). Only a ROOT journal (no reversal_of_id), posted,
---       OUT of force (the cancel's reversal took it out), held by no document, matched by exactly ONE cancelled
---       unlinked document of that company and matching only that one: a bill number is unique per supplier, not per
---       company, so two bills with one number match nothing.
--- Writes document_cancelled_at only (no amount, no status, no link); idempotent (only NULL stamps); the count of each
--- kind and of the ambiguous ones skipped is raised as a NOTICE. The stamp trigger refuses a direct write, so it is
--- switched off for this statement only (this migration's role owns the table).
+--       imports' 'auto_migration' / 'Take-on AR|AP invoice <n>'), plus its amount (the journal's debits equal the
+--       document's total or functional total; isaflow_dev: all 2,798 identity matches tie). Only a ROOT journal (no
+--       reversal_of_id), posted, OUT of force (the cancel's reversal took it out), held by no document, matched by
+--       exactly ONE cancelled unlinked document of that company (number not '') and matching only that one: a bill
+--       number is unique per supplier, not per company, so two bills with one number match nothing.
+--   LIMIT: an approval journal carries no counterparty (no supplier or customer on its lines or header), so a journal
+--   of ANOTHER supplier's bill with the same number and amount, hard-deleted before 1018, could be taken for a
+--   cancelled draft's. Its only effect is that the orphan journal refuses a later re-instatement; no figure moves.
+-- Writes document_cancelled_at, and through trg_gl_je_updated_at (accounting_updated_at) the row's updated_at: the stamp
+-- is a real write to the row, and updated_at is bookkeeping (NOT_MATERIAL in the audit snapshot census); redefining
+-- that trigger for every other writer to spare it is not worth it. No amount, status or link changes. Idempotent (only
+-- NULL stamps); the count of each kind and of the ambiguous ones skipped is raised as a NOTICE. Run by the table's
+-- owner (ADD COLUMN above needs it), which the stamp guard exempts, so no trigger is switched off.
 DO $$
 DECLARE
   v_held bigint;
   v_by_identity bigint;
   v_ambiguous bigint;
 BEGIN
-  ALTER TABLE public.gl_journal_entries DISABLE TRIGGER trg_gl_je_document_cancel_kept;
-
   UPDATE public.gl_journal_entries e SET document_cancelled_at = now()
    WHERE e.document_cancelled_at IS NULL
      AND e.id IN (SELECT gl_journal_entry_id FROM public.credit_notes WHERE status = 'cancelled' AND gl_journal_entry_id IS NOT NULL
@@ -1030,20 +1041,31 @@ BEGIN
                   UNION SELECT gl_journal_entry_id FROM public.supplier_invoices WHERE status = 'cancelled' AND gl_journal_entry_id IS NOT NULL);
   GET DIAGNOSTICS v_held = ROW_COUNT;
 
+  -- One row per (company, source, description) a cancelled unlinked document's approval journal would carry, joined
+  -- on equality (hashable), never a per-company cross product.
   CREATE TEMP TABLE ledger_1018_cancel_candidates ON COMMIT DROP AS
-    SELECT d.doc, e.id AS je
-      FROM (SELECT ci.id AS doc, ci.company_id, ci.invoice_number,
-                   ARRAY['auto_invoice|Customer invoice ' || ci.invoice_number,
-                         'auto_migration|Take-on AR invoice ' || ci.invoice_number] AS keys
-              FROM public.customer_invoices ci WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
-            UNION ALL
-            SELECT si.id, si.company_id, si.invoice_number,
-                   ARRAY['auto_supplier_invoice|Supplier invoice ' || si.invoice_number,
-                         'auto_migration|Take-on AP invoice ' || si.invoice_number]
-              FROM public.supplier_invoices si WHERE si.status = 'cancelled' AND si.gl_journal_entry_id IS NULL) d
+    WITH docs AS (
+      SELECT ci.id AS doc, ci.company_id, ci.invoice_number AS n, ci.total_amount, ci.functional_total, 'ar' AS side
+        FROM public.customer_invoices ci
+       WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL AND COALESCE(ci.invoice_number, '') <> ''
+      UNION ALL
+      SELECT si.id, si.company_id, si.invoice_number, si.total_amount, si.functional_total, 'ap'
+        FROM public.supplier_invoices si
+       WHERE si.status = 'cancelled' AND si.gl_journal_entry_id IS NULL AND COALESCE(si.invoice_number, '') <> ''),
+    keys AS (
+      SELECT d.doc, d.company_id, d.total_amount, d.functional_total, k.source, k.description
+        FROM docs d
+       CROSS JOIN LATERAL (VALUES
+         (CASE d.side WHEN 'ar' THEN 'auto_invoice' ELSE 'auto_supplier_invoice' END,
+          CASE d.side WHEN 'ar' THEN 'Customer invoice ' ELSE 'Supplier invoice ' END || d.n),
+         ('auto_migration', CASE d.side WHEN 'ar' THEN 'Take-on AR invoice ' ELSE 'Take-on AP invoice ' END || d.n)) AS k(source, description))
+    SELECT k.doc, e.id AS je
+      FROM keys k
       JOIN public.gl_journal_entries e
-        ON e.company_id = d.company_id AND (e.source || '|' || e.description) = ANY (d.keys)
+        ON e.company_id = k.company_id AND e.source = k.source AND e.description = k.description
      WHERE e.reversal_of_id IS NULL AND e.status IN ('posted', 'reversed') AND e.document_cancelled_at IS NULL
+       AND (SELECT sum(COALESCE(l.debit, 0)) FROM public.gl_journal_lines l WHERE l.journal_entry_id = e.id)
+           IN (k.total_amount, k.functional_total)
        AND NOT public.gl_journal_in_force(e.id)
        AND NOT EXISTS (SELECT 1 FROM public.customer_invoices x WHERE x.gl_journal_entry_id = e.id)
        AND NOT EXISTS (SELECT 1 FROM public.supplier_invoices x WHERE x.gl_journal_entry_id = e.id)
@@ -1059,7 +1081,6 @@ BEGIN
       OR (SELECT count(*) FROM ledger_1018_cancel_candidates c3 WHERE c3.je = c.je) > 1;
   DROP TABLE ledger_1018_cancel_candidates;
 
-  ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_document_cancel_kept;
   RAISE NOTICE '1018 backfill: % journal(s) of a cancelled document that still links them, % found by approval identity, % ambiguous left unstamped',
     v_held, v_by_identity, v_ambiguous;
 END

@@ -4,12 +4,7 @@
  * to app_user (348) and platform_admin (352). They ran before entity_changes and
  * the capture existed, so they reach neither. A new one is a reason to look.
  */
-export const KNOWN_GRANTS = [
-  // 1018 (ledger column immutability, round 8 F3): the legacy-cancel backfill switches ITS OWN trigger
-  // trg_gl_je_document_cancel_kept off for two UPDATEs of gl_journal_entries.document_cancelled_at and back to
-  // ENABLE ALWAYS in the same DO block. It names no entity_change* object and leaves every capture as it is.
-  '1018_ledger_column_immutability.sql',
-  '348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql',
+export const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql',
   // 930 (S-07c): names entity_change_capture() only in its list of reviewed definers (with its body's
   // hash, so a change to the capture is refused on every deploy); it does not touch the history.
   '930_credential_membership_writes_off_app_pools.sql',
