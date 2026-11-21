@@ -14,9 +14,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql } from './payrollRunOrder';
-
-/** The calculation version whose lines carry the breakdown's onceOff marker (eb1c7badc5); older lines do not. */
-const ONCE_OFF_MARKER_VERSION = 20;
+import { ONCE_OFF_MARKER_VERSION } from './payrollCalculationVersion';
 import type { MonthEarlierLines } from './payrollOffCycleMonth';
 import type { ComponentBreakdownItem, EmployeeComponent } from './payrollTypes';
 

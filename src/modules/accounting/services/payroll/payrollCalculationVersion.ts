@@ -36,5 +36,9 @@
  *    3605 amount alone, a termination line the leaver's pay-outs; PAYE taxes the annual payment on the month's annual
  *    equivalent, UIF is capped on the month to date and ETI recomputed for the month (the line carries the difference), SDL
  *    joins the month's catch-up; an off-cycle line takes no garnishee instalment (the month's is the regular run's) (OC, migration 999x).
+ *    A once-off assignment's breakdown item carries onceOff, so a later off-cycle line's classification leaves it out.
  */
 export const PAYROLL_CALCULATION_VERSION = 20;
+
+/** The version whose lines first carry the breakdown's onceOff marker (the 20 entry above); older lines do not. */
+export const ONCE_OFF_MARKER_VERSION = 20;
