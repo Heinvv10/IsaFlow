@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Opt { id: string; name?: string; legalName?: string }
 interface FormState {
@@ -229,12 +230,12 @@ export default function NewPracticeJobPage() {
               </div>
               <div>
                 <label className={LC}>Fixed Fee (R)</label>
-                <input type="number" min="0" step="0.01" value={form.fixedFeeAmount} onChange={(e) => set('fixedFeeAmount', e.target.value)} placeholder="0.00" className={IC} />
+                <AmountInput min={0} value={form.fixedFeeAmount} onValueChange={(_n, t) => set('fixedFeeAmount', t)} placeholder="0.00" className={IC} />
               </div>
             </div>
             <div>
               <label className={LC}>Engagement Budget (R)</label>
-              <input type="number" min="0" step="0.01" value={form.budgetAmount} onChange={(e) => set('budgetAmount', e.target.value)} placeholder="No budget" className={IC} />
+              <AmountInput min={0} value={form.budgetAmount} onValueChange={(_n, t) => set('budgetAmount', t)} placeholder="No budget" className={IC} />
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Approved value of time on this job. All time captured against it, at the staff rate, is measured against this amount.</p>
             </div>
             <div className="flex items-center gap-3 pt-2">

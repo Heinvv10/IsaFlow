@@ -221,7 +221,11 @@ describe('write-offs: picker balances and currency', () => {
     fireEvent.change(invoiceSelect, { target: { value: 'f1' } });
     const amount = screen.getByPlaceholderText('Amount *') as HTMLInputElement;
     await waitFor(() => expect(amount.value).toBe('0.10'));
-    expect(amount.max).toBe('0.10');
+    // The cap is enforced by the field's own validity (an AmountInput has no max attribute): 0.11 is over, 0.10 is not.
+    fireEvent.change(amount, { target: { value: '0.11' } });
+    expect(amount.validity.valid).toBe(false);
+    fireEvent.change(amount, { target: { value: '0.10' } });
+    expect(amount.validity.valid).toBe(true);
   });
 
   it('does not offer a foreign-currency invoice (approval refuses it); ZAR and unset are offered', async () => {

@@ -40,6 +40,12 @@ function script(base: string, write: () => Response, reload: () => Response) {
   });
 }
 
+/** The first money/quantity AmountInput on the page, once rows have loaded. */
+async function waitForAmountInput(): Promise<HTMLElement> {
+  await waitFor(() => expect(document.querySelector('input[data-amount-input]')).toBeTruthy());
+  return document.querySelector('input[data-amount-input]') as HTMLElement;
+}
+
 interface WriteCase {
   name: string; base: string; page: () => JSX.Element; success: RegExp; plain: RegExp; reloadPlain: RegExp;
   /** Edit then trigger the write. */
@@ -48,11 +54,11 @@ interface WriteCase {
 const CASES: WriteCase[] = [
   { name: 'item pricing', base: '/api/accounting/item-pricing', page: () => <ItemPricingPage />, success: /1 price\(s\) updated/,
     plain: /Could not save the prices - try again/, reloadPlain: /Could not reload items - try again/,
-    act: async () => { fireEvent.change(await screen.findByRole('spinbutton'), { target: { value: '20' } });
+    act: async () => { fireEvent.change(await waitForAmountInput(), { target: { value: '20' } });
       fireEvent.click(await screen.findByRole('button', { name: /Save \(1\)/ })); } },
   { name: 'item opening balances', base: '/api/accounting/item-opening-balances', page: () => <ItemOpeningBalancesPage />,
     success: /Balances set for 1 item/, plain: /Could not save the opening balances - try again/, reloadPlain: /Could not reload items - try again/,
-    act: async () => { fireEvent.change((await screen.findAllByRole('spinbutton'))[0]!, { target: { value: '9' } });
+    act: async () => { fireEvent.change(await waitForAmountInput(), { target: { value: '9' } });
       fireEvent.click(await screen.findByRole('button', { name: /Save \(1\)/ })); } },
   { name: 'item adjustments', base: '/api/accounting/item-adjustments', page: () => <ItemAdjustmentsPage />,
     success: /Adjustment saved/, plain: /Could not save the adjustment - try again/, reloadPlain: /Could not reload items - try again/,

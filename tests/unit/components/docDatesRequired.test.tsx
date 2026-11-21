@@ -109,7 +109,7 @@ describe('recurring-invoices/new: End Date before the First Run Date', () => {
     await screen.findByRole('option', { name: 'Acme' });
     change(document.querySelector('select[name="clientId"]')!, 'c1');
     change(screen.getByPlaceholderText('Description *'), 'Retainer');
-    change(screen.getAllByRole('spinbutton')[1]!, '100');
+    change(screen.getByLabelText('Line 1 unit price'), '100');
   };
 
   it('refuses a First Run Date moved past an existing End Date', async () => {
