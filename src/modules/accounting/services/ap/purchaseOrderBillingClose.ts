@@ -233,7 +233,7 @@ export async function reopenAfterBillGone(
   busy: ReadonlyArray<{ poId: string; poNumber: string }> = [],
 ): Promise<BillGoneReopen> {
   const reopened = [...(await reopenUnderBilled(companyId, billedBefore, opts)).values()];
-  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now and is still closed; it still counts its unbilled remainder in committed, and reopens when a bill on it is next unlinked, cancelled or deleted.`);
+  const unchecked = busy.map((b) => `Purchase order ${b.poNumber} could not be re-checked just now; if it is still closed, it still counts its unbilled remainder in committed and reopens when a bill on it is next unlinked, cancelled or deleted.`);
   return {
     reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: [...busy],
     budgetWarnings: [...await reopenWarnings(companyId, reopened, opts.figures === true), ...unchecked],

@@ -64,7 +64,7 @@ describe('the cancel toast (title carries the facts, the line fits)', () => {
   it('a PO closed by billing meanwhile that could not be re-checked is said', async () => {
     const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
     expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }]))
-      .toEqual({ title: 'Purchase order PO-2 still closed (could not re-check)', line: 'Still counts its unbilled remainder' });
+      .toEqual({ title: 'Purchase order PO-2 could not be re-checked', line: 'If still closed, still commits' });
     expect(cancelReopenToast([], [])).toBeNull();
   });
   // Codex gate review M4: two bills of one bulk cancel that reopen the same PO name it once (by its id), and a long list is capped.

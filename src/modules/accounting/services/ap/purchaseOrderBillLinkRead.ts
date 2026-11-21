@@ -5,7 +5,7 @@
  * refusal; nothing has been written by then. Every query is company-scoped (po_items and grn_items have no company_id:
  * their tenancy goes through the parent PO).
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { lockExternalRef } from '../core/externalRefService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
@@ -13,7 +13,7 @@ import { toCents } from '../budgets/grid/cents';
 import { BILLED_STATUSES, poBillingBasisCents, postedExpenseLines } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
-import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
+import { PurchaseOrderLockTimeoutError, TiedBillBusyError } from './purchaseOrderErrors';
 import type { BillFacts, BillLineFacts, ExistingLink, LinkRequest, PoFacts } from './purchaseOrderBillLinkTypes';
 
 export interface LinkFacts {
@@ -58,6 +58,24 @@ async function resolvePos(companyId: string, requests: readonly LinkRequest[]): 
   return out;
 }
 
+async function lockTiedBillsNowait(companyId: string, poIds: readonly string[], linked: readonly string[], pos: readonly DbRow[]): Promise<void> {
+  const ids = [...poIds];
+  const skip = [...linked];
+  try {
+    await withSavepoint('link_tied_bills_lock', async () => sql`
+      SELECT 1 FROM supplier_invoices si
+       WHERE si.company_id = ${companyId}::UUID AND si.status <> 'cancelled' AND NOT (si.id = ANY(${skip}::UUID[])) AND (
+             si.purchase_order_id = ANY(${ids}::UUID[])
+          OR si.id IN (SELECT x.supplier_invoice_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+                        WHERE pi.purchase_order_id = ANY(${ids}::UUID[])))
+       ORDER BY si.id FOR SHARE NOWAIT
+    `);
+  } catch (err) {
+    if ((err as { code?: string }).code !== '55P03') throw err;
+    throw new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
+  }
+}
+
 export async function readLinkFacts(companyId: string, requests: readonly LinkRequest[]): Promise<LinkFacts> {
   const refs = [...new Map(requests.filter((r) => r.ref).map((r) => [`${r.ref!.system}\u0000${r.ref!.ref}`, r.ref!])).entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1));
@@ -91,20 +109,15 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
      WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
   `) as DbRow[];
   const lockIds = [...new Set([...billIds, ...held.map((r) => low(r.bill))])].sort();
-  // Breaker r12 F2: the bills that tie a requested PO only by their header or their lines (no link row) are locked too, FOR SHARE,
-  // so a cancel or delete of one that is done but uncommitted makes this call wait and then read it gone (it cannot close a PO on a
-  // bill another transaction is removing). One id order over every bill, each in its own mode, after the POs: PO -> bill.
-  const tiedOnly = ((await sql`
-    SELECT si.id::TEXT AS id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ANY(${poIds}::UUID[])
-    UNION SELECT x.supplier_invoice_id::TEXT FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
-     WHERE pi.purchase_order_id = ANY(${poIds}::UUID[])
-  `) as DbRow[]).map((r) => low(r.id)).filter((id) => !lockIds.includes(id));
-  await withRowLockBudget(async () => {
-    for (const id of [...new Set([...lockIds, ...tiedOnly])].sort()) {
-      if (lockIds.includes(id)) await sql`SELECT 1 FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
-      else await sql`SELECT 1 FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR SHARE`;
-    }
-  }, () => new RowLockTimeoutError('A bill in this call'), { deadline });
+  // The call's bills and those with a link row on its POs: FOR UPDATE, waiting under the budget, ONE statement in id order.
+  await withRowLockBudget(async () => sql`
+    SELECT 1 FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${lockIds}::UUID[]) ORDER BY id FOR UPDATE
+  `, () => new RowLockTimeoutError('A bill in this call'), { deadline });
+  // Breaker r12 F2 / r13: the bills that tie a requested PO only by their header or their lines (no link row; a cancelled one is
+  // terminal and skipped) are taken FOR SHARE NOWAIT, so a cancel or delete of one that is done but uncommitted cannot be read as
+  // still billing while this call closes the PO. NOWAIT never waits (no cycle, whatever order another writer takes them in); one
+  // that is busy refuses the whole call, retryably, before any write (dry run too).
+  await lockTiedBillsNowait(companyId, poIds, lockIds, lockedPos);
   const billRows = ((await sql`
     SELECT si.* FROM supplier_invoices si
      WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id

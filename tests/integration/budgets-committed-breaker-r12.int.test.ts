@@ -1,7 +1,8 @@
 /**
  * PR #1703, ledger breaker round 12 (ported from its zz-b12 repros at c2f1687472), real PostgreSQL 16:
- *   F2  a link call locks every bill that ties a requested PO (header, lines or link; FOR SHARE, after the POs), so a cancel or
- *       delete of a header / lines tie that is done but uncommitted makes the link WAIT, and it then sees the bill gone;
+ *   F2  a link call locks every bill that ties a requested PO (link rows FOR UPDATE; header / lines ties FOR SHARE NOWAIT, breaker
+ *       r13), so a cancel or delete of a header / lines tie that is done but uncommitted refuses the link at once, retryably, and
+ *       the retry after it commits sees the bill gone;
  *   F1 / F3  the bulk cancel locks each bill in its own item (one held bill fails one item) and the late PO re-check is NOWAIT, so
  *       the D1 / D2 interleavings never deadlock;
  *   F4  the planner's header transfer is signed: a lines link that grows a header residual counts the growth (reply = reader);
@@ -80,7 +81,7 @@ const settle = <T>(p: Promise<T>, tag: string, out: string[]) =>
 describe('F2 the link locks every bill that ties the PO', () => {
   for (const tie of ['header', 'lines'] as const) {
     for (const kind of ['cancel', 'softDelete', 'bulk'] as const) {
-      it(`${kind} of B (${tie} tie on P, no link row) done but uncommitted: the link P<-X with close waits, sees B gone, and does not close P`, async () => {
+      it(`${kind} of B (${tie} tie on P, no link row) done but uncommitted: the link P<-X with close is refused retryably; after the commit it sees B gone and does not close P`, async () => {
         const p = await seedPo(pool, f, { lines: [1000] });
         const b = await approvedBill(600, tie === 'header' ? p.po : undefined, tie === 'lines' ? p.items[0] : undefined);
         const x = await approvedBill(400);
@@ -94,11 +95,17 @@ describe('F2 the link locks every bill that ties the PO', () => {
             await settle(c.run(() => withSavepoint('bulk_supplier_invoice_item', () => cancelSupplierInvoice(f.co, b.id, f.owner))), kind, out);
           }
           expect(out).toEqual([`${kind} ok`]);
-          const l = callTool(pool, f, link, { links: [{ po_id: p.po, bill_id: x.id, amount: 400 }], close_when_fully_billed: true });
-          expect(await waitLocked(1)).toBe(true); // the link waits on B
-          await c.commit();
-          const r = await l;
-          expect(r.isError, r.text).toBe(false);
+          const args = { links: [{ po_id: p.po, bill_id: x.id, amount: 400 }], close_when_fully_billed: true };
+          // The cancel commits while the link runs: the link never waits on B, it is refused (NOWAIT) or reads B gone.
+          const [first] = await Promise.all([
+            callTool(pool, f, link, args).then((r) => `ok ${r.isError} ${r.text.slice(0, 60)}`, (e: unknown) => `threw ${(e as { code?: string }).code}`),
+            c.commit(),
+          ]);
+          expect(first).toMatch(/^(threw ROW_LOCK_TIMEOUT|ok false )/);
+          if (first.startsWith('threw')) {
+            const r = await callTool(pool, f, link, args);
+            expect(r.isError, r.text).toBe(false);
+          }
         } catch (e) { await c.rollback(); throw e; }
         const s = await inv(p);
         expect([s.status, s.committedOk, s.statusOk]).toEqual(['approved', true, true]);

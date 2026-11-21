@@ -1,6 +1,6 @@
 /**
  * A cancelled bill can reopen a purchase order it no longer leaves fully billed (PR #1703), or find one a link closed by billing
- * meanwhile that it could not re-check (left closed; it still counts its unbilled remainder). The cancel's answer carries
+ * meanwhile that it could not re-check (busy: maybe reopened by the request holding it, else left closed, still committing). The cancel's answer carries
  * `reopenedPurchaseOrders` (with `overBudget` / `outsideSlices` flags from the server's budget read), `uncheckedPurchaseOrders` and
  * `budgetWarnings`. The toast clips its second line to one row (`NOTICE_LINE_FITS`), so the facts go in the title, which wraps:
  * which POs reopened and to what, which stayed closed, capped "and k more"; the line says the budget consequence, short. A PO named by
@@ -47,13 +47,13 @@ export function cancelReopenToast(reopenedRaw: unknown, uncheckedRaw: unknown): 
   const parts: string[] = [];
   if (reopened.length === 1) parts.push(`Purchase order ${reopened[0]!.poNumber} reopened to ${reopened[0]!.reopenedTo ?? 'its open status'}`);
   if (reopened.length > 1) parts.push(capped('Purchase orders reopened: ', reopened.map((r) => `${r.poNumber} to ${r.reopenedTo ?? 'open'}`)));
-  if (unchecked.length > 0) parts.push(`${capped(unchecked.length === 1 ? 'Purchase order ' : 'Purchase orders ', unchecked.map((r) => r.poNumber))} still closed (could not re-check)`);
+  if (unchecked.length > 0) parts.push(`${capped(unchecked.length === 1 ? 'Purchase order ' : 'Purchase orders ', unchecked.map((r) => r.poNumber))} could not be re-checked`);
   const over = reopened.filter((r) => r.overBudget);
   const offSlice = reopened.filter((r) => r.outsideSlices);
   const line = over.length > 0 ? listNames('Now over budget: ', over.map((r) => r.poNumber), 'Now over budget')
     : offSlice.length > 0 ? listNames('Outside the budget: ', offSlice.map((r) => r.poNumber), 'Outside the budget')
       : reopened.length > 0 ? listNames('Commits again: ', reopened.map((r) => r.poNumber), 'Commits spend again')
-        : 'Still counts its unbilled remainder';
+        : 'If still closed, still commits';
   return { title: parts.join('; '), line };
 }
 

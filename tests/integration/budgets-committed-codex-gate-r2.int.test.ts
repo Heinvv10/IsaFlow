@@ -92,7 +92,7 @@ describe('M5: a PO the cancel could not re-check', () => {
       expect(r.isError, r.text).toBe(false);
       expect(r.body.unchecked_purchase_orders).toEqual([{ purchase_order_id: p.po, po_number: p.number }]);
       expect((r.body.budget_warnings as string[]).join(' ')).toContain(
-        `Purchase order ${p.number} could not be re-checked just now and is still closed; it still counts its unbilled remainder in committed, and reopens when a bill on it is next unlinked, cancelled or deleted.`);
+        `Purchase order ${p.number} could not be re-checked just now; if it is still closed, it still counts its unbilled remainder in committed and reopens when a bill on it is next unlinked, cancelled or deleted.`);
     } finally {
       await x.query('ROLLBACK').catch(() => undefined); x.release();
       await z.query('ROLLBACK').catch(() => undefined); z.release();

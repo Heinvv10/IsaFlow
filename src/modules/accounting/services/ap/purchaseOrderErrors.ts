@@ -4,7 +4,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { withRowLockBudget } from '../core/rowLockBudget';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { poHeaderOf, type PoHeader } from './purchaseOrderBudget';
 
 /** 404: no such PO in this company. */
@@ -61,6 +61,20 @@ export class PurchaseOrderLockTimeoutError extends Error {
   constructor() {
     super('This purchase order is being changed by another request — retry in a moment.');
     this.name = 'PurchaseOrderLockTimeoutError';
+  }
+}
+
+/**
+ * 503 + Retry-After (`ROW_LOCK_TIMEOUT`, the row-lock family): a bill that ties a PO of a link call by its header or lines is being
+ * changed (a cancel, delete, payment or edit not yet committed). The link takes those bills NOWAIT, so it refuses at once, before
+ * any write, dry run too (PR #1703 breaker r13).
+ */
+export class TiedBillBusyError extends RowLockTimeoutError {
+  constructor(poNumbers: readonly string[]) {
+    super('A bill');
+    const which = poNumbers.length === 1 ? `purchase order ${poNumbers[0]}` : `purchase orders ${poNumbers.join(', ')}`;
+    this.message = `A bill tied to ${which} is being changed right now; retry in a moment.`;
+    this.name = 'TiedBillBusyError';
   }
 }
 

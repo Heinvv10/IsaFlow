@@ -44,7 +44,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
     + 'its journal is still a draft; it is approved but has NO approval journal to reverse; no date up '
     + 'to today is outside the locked VAT periods for its VAT-carrying reversal; or it is already cancelled. '
     + 'Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
-    + 'A purchase order that was closed because it was fully billed and that this bill no longer leaves fully billed reopens: reopened_purchase_orders names each, and budget_warnings says it commits spend again; dry_run lists them as would_reopen_purchase_orders (only the POs already closed by billing when it locked them). A PO a link closed by billing meanwhile that is busy is left closed and named in unchecked_purchase_orders (it still counts its unbilled remainder in committed, get_purchase_order reads it closed_under_billed, and the next unlink, cancel or delete of a bill on it reopens it; the dry run cannot list these). '
+    + 'A purchase order that was closed because it was fully billed and that this bill no longer leaves fully billed reopens: reopened_purchase_orders names each, and budget_warnings says it commits spend again; dry_run lists them as would_reopen_purchase_orders (only the POs already closed by billing when it locked them). A PO a link closed by billing meanwhile that is busy is not re-checked and is named in unchecked_purchase_orders (the request holding it may reopen it; if it stays closed it still counts its unbilled remainder in committed, get_purchase_order reads it closed_under_billed, and the next unlink, cancel or delete of a bill on it reopens it; the dry run cannot list these). '
     + 'Run with dry_run first: it shows the contra journal it would post and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -109,7 +109,8 @@ export const cancelSupplierInvoiceTool: McpTool = {
       late_claim_reversal: lateClaimReversal(plan),
       // A PO the bill no longer leaves fully billed reopens (PR #1703 R4-1, review r5 M1).
       reopened_purchase_orders: cancelled.reopenedPurchaseOrders.map((r) => ({ purchase_order_id: r.poId, po_number: r.poNumber, reopened_to: r.reopenedTo })),
-      // Closed by billing meanwhile and busy at the re-read: left closed, still counting its remainder (Codex gate review).
+      // Closed by billing meanwhile and busy at the re-read: not re-checked here (its holder may reopen it; else it stays closed,
+      // still counting its remainder: Codex gate review, breaker r13 #5).
       unchecked_purchase_orders: cancelled.uncheckedPurchaseOrders.map((r) => ({ purchase_order_id: r.poId, po_number: r.poNumber })),
       budget_warnings: cancelled.budgetWarnings,
     });
