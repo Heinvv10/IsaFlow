@@ -60,7 +60,7 @@ describe.each([
   it('autosave holds it and says why; Save and Approve & email refuse it; nothing is written', async () => {
     await openEdit(invoice);
     if (unitPrice) await addLine(desc, unitPrice);
-    else type(description(0), 'Build, revised'); // any edit starts autosave over the stored -R100 line
+    else type(price(0), '1001'); // a price edit (not a stale-priced load) starts autosave over the stored -R100 line
     await advance(5_000);
     expect(puts()).toHaveLength(0);
     expect(statusText()).toMatch(reason);

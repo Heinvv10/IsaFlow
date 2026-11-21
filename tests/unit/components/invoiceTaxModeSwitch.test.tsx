@@ -281,7 +281,7 @@ describe('a price under a cent, in any mode', () => {
 });
 
 describe('a gross price too small to survive taking the VAT out', () => {
-  // With 2-decimal prices a typed gross of 0.01 or more always survives (0.01 / 2 = 0.005 rounds up), so only a sub-cent
+  // With 2-decimal prices a typed typed price of 0.01 or more is a cent or more, so only a sub-cent
   // gross comes to nothing, and the field refuses that. The rule itself stays pinned here.
   it('edit page, including VAT: a sub-cent gross cannot be typed', async () => {
     serve(undefined, TWO_LINES);
@@ -294,10 +294,10 @@ describe('a gross price too small to survive taking the VAT out', () => {
     expect(price(1).getAttribute('aria-invalid')).toBe('true');
   });
 
-  it('pricesToNothing: a gross of 0.004 at 15% is nothing, 0.01 is not', () => {
-    expect(pricesToNothing('inclusive', 0.004, 15)).toBe(true);
-    expect(pricesToNothing('inclusive', 0.01, 15)).toBe(false);
-    expect(pricesToNothing('exclusive', 0.004, 15)).toBe(true);
+  it('pricesToNothing (the invoice sends a price as typed in every mode): 0.004 is nothing, 0.01 is not', () => {
+    expect(pricesToNothing(0.004)).toBe(true);
+    expect(pricesToNothing(0.01)).toBe(false);
+    expect(pricesToNothing(0)).toBe(false);
   });
 });
 
