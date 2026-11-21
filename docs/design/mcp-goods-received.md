@@ -91,6 +91,7 @@ Decided: read-time resolution, not more link writes. Writing links would need a 
 
 - **A soft-deleted legacy bill whose note was hard-deleted cannot be restored.** `supplier_invoices.grn_id` has no foreign key, and before 1021 app_user could delete notes. Undo refuses a `grn_id` that resolves to no note of the bill's company, so the bill must be entered again.
 - **A third decimal on a 13-digit quantity rounds silently.** Quantities are parsed as JavaScript numbers. At the storage maximum (9999999999999.99) a double cannot hold a third decimal, so `9999999999999.991` reads as `.99` and is stored without a refusal. Smaller quantities with a third decimal are refused.
+- **The REST supplier merge leaves its source inactive, not deleted.** `pages/api/accounting/supplier-merge.ts` sets the source `is_active = false` and renames it `... [MERGED]`; it does not set `deleted_at`, so 1021's supplier-live trigger does not refuse it, and a bill created while that merge runs lands on the inactive source. Its note's PO is on that same supplier, so nothing ends up cross-supplier. (The duplicates merge soft-deletes its source, and a racing create is refused.)
 
 ## Acceptance tests (integration, app_user role)
 
