@@ -24,11 +24,9 @@ interface EntityGroup { id: string; name: string; }
 interface PossibleDuplicate { id: string; ref: string; stands: boolean }
 const NO_NOTES = { flagged: [] as FlaggedRow[], skipped: [] as SkippedRow[] };
 
-/** A 409 of a post refused as a possible duplicate (the list was stale: the mirror was accepted after it loaded), or null. */
-async function possibleDuplicateOf(res: Response, id: string): Promise<PossibleDuplicate | null> {
-  if (res.status !== 409) return null;
-  const json = await res.clone().json().catch(() => null) as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown } } } | null;
-  const d = json?.error?.details;
+/** The possible duplicate a 409 body names (a post refused because the list was stale: the mirror was accepted after it loaded), or null. */
+function possibleDuplicateIn(body: unknown, id: string): PossibleDuplicate | null {
+  const d = (body as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown } } } | null)?.error?.details;
   return d?.reason === 'possible_duplicate' && typeof d.mirroredRef === 'string' ? { id, ref: d.mirroredRef, stands: d.mirrorStands === true } : null;
 }
 
@@ -94,8 +92,9 @@ export default function EliminationsPage() {
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
-      const dup = await possibleDuplicateOf(res, loadingKey);
-      if (dup) { setConfirmPost(dup); await loadData(); return; }   // (a stale list: ask now, with what the server found)
+      // a stale list's post refused as a possible duplicate: ask now, with what the server found (any other failure is shown below)
+      const dup = res.status === 409 ? possibleDuplicateIn(await res.clone().json().catch(() => null), loadingKey) : null;
+      if (dup) { setConfirmPost(dup); await loadData(); return; }
       await assertOk(res, errMsg);
       // a committed generation always reloads: a body that does not parse gives no notes, never an error
       if (onResult) onResult(await res.json().catch(() => null));
