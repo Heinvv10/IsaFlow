@@ -104,7 +104,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   `) as DbRow[];
   if (bills.length === 0) return out;
   const items = (await sql`
-    SELECT sii.*, pi.purchase_order_id::TEXT AS item_po FROM supplier_invoice_items sii
+    SELECT sii.*, pi.purchase_order_id::TEXT AS item_po, pi.line_total::TEXT AS item_total FROM supplier_invoice_items sii
       LEFT JOIN po_items pi ON pi.id = sii.po_item_id
      WHERE sii.supplier_invoice_id = ANY(${bills.map((b) => String(b.id))}::UUID[])
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
@@ -114,6 +114,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
     const orderOf = new Map(billItems.map((i) => [text(i.po_item_id), text(i.item_po)]));
+    const capOf = new Map(billItems.map((i) => [text(i.po_item_id), toCents(Number(i.item_total ?? 0))]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
     // Per (bill, PO), each PO line's postings are netted first, then budgets/lineNetSpread decides what each line bills (breaker r9,
     // the corrected rule): max(0, sum of the line nets) on the PO, a positive line keeping its net less a largest-remainder share of
@@ -125,6 +126,8 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
       if (!item) continue;
       const order = orderOf.get(item) ?? item;
       const lines = byOrder.get(order) ?? new Map<string, { cents: number; posting: BilledPosting }>();
+      // A line netted from several postings keeps its FIRST posting's dimensions (account, cc1 / cc2 / bu, month); nothing reads
+      // a billed posting's dimensions today (openPoLineCents sums amounts only; review r10 LOW-4).
       const had = lines.get(item);
       lines.set(item, had ? { ...had, cents: had.cents + toCents(line.debit) } : { cents: toCents(line.debit), posting: {
         glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
@@ -134,7 +137,8 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     }
     for (const lines of byOrder.values()) {
       const items = [...lines.entries()];
-      const shares = spreadLineNets(items.map(([, l]) => l.cents));
+      // Capped at each PO line's own total, the excess water-filled onto the lines with room (breaker r10 R10-1).
+      const shares = spreadLineNets(items.map(([, l]) => l.cents), items.map(([item]) => capOf.get(item) ?? 0));
       items.forEach(([item, l], k) => {
         if (shares[k]! > 0 && linked.has(item)) out.set(item, [...(out.get(item) ?? []), { ...l.posting, amount: shares[k]! / 100 }]);
       });

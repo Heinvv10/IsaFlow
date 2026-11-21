@@ -46,6 +46,10 @@ beforeAll(async () => {
     await at('E', 'sent', [{ qty: 1, price: 500, gl }, { qty: 0.004, price: 10, lineTotal: 0.04, gl }]);
     await at('N', 'sent', [{ qty: 1, price: 100, gl }]);
     await at('NG', 'received', ten(10, 10));
+    // Breaker r10 (R10-M): legacy bills whose lines name the copies' lines, with credits.
+    const two = [{ qty: 1, price: 500, gl }, { qty: 1, price: 500, gl }];
+    await at('R', 'sent', two);
+    await at('S', 'sent', two);
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
@@ -57,6 +61,10 @@ beforeAll(async () => {
   // -R100 (billAttribution.headerResidualCents), so NG is fully billed in the close step as in the TS readers. Written as legacy rows
   // were, before the negative-total guard (replica skips the guard trigger).
   await bill('NG', 1000, 'approved');
+  // R: +500 on A, +500 and -450 on B: A bills its R500, B R50 (the credit stays on B): R commits R450.
+  await seedRawBill(pool, f, { items: [{ total: 500, poItem: S.R!.items[0] }, { total: 500, poItem: S.R!.items[1] }, { total: -450, poItem: S.R!.items[1] }], subtotal: 550, total: 632.5 });
+  // S: +500 on A, -500 on B nets 0 on S: it bills nothing, S commits in full.
+  await seedRawBill(pool, f, { items: [{ total: 500, poItem: S.S!.items[0] }, { total: -500, poItem: S.S!.items[1] }, { total: 100 }], subtotal: 100, total: 115 });
   const neg = await pool.connect();
   try {
     await neg.query('BEGIN');
@@ -94,7 +102,9 @@ const committedByOrder = async (): Promise<Record<string, number>> => {
 describe('committed spend after the copy', () => {
   it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
     // The copies closed by billing (A, C, N) are fully billed at PO level, so they commit 0 and contribute no row (review r6 M5).
-    expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
+    expect(await committedByOrder()).toEqual({
+      'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004, 'CM-R': 45000, 'CM-S': 100000,
+    });
   });
 
   // Breaker r3 / r4: over the copies in a committing status (a draft or cancelled copy is never closed). The one named exception:

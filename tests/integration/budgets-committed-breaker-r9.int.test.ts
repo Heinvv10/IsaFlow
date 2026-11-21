@@ -170,7 +170,7 @@ describe('B9-4 two POs on one bill, negatives on one, header on a third', () => 
 });
 
 describe('B9-5 randomised conservation', () => {
-  it('300 random bills on a 4-line PO: sum of shares == billTies lines cents; per item never above its positive postings', async () => {
+  it('60 random bills on a 4-line PO: shares sum to billTies lines cents within the lines\' limits; per line never above min(net, total)', async () => {
     let seed = 12345;
     const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
     const bad: unknown[] = [];
@@ -183,9 +183,13 @@ describe('B9-5 randomised conservation', () => {
       const tie = (await billTies(f.co, [po.po], { statuses: ['approved'] })).find((t) => t.billId === x.id.toLowerCase());
       const per = await perItem(po);
       const sum = per.reduce((s, c) => s + c, 0);
-      const posPer = po.items.map((it) => items.filter((i) => i.poItem === it && i.total > 0).reduce((s, i) => s + Math.round(i.total * 100), 0));
-      const over = per.some((c, i) => c > posPer[i]!);
-      if (sum !== (tie?.cents ?? 0) || over || per.some((c) => c < 0)) bad.push({ items, per, sum, tie: tie?.cents, posPer });
+      // Each line against its own net, max(0, net of the bill's postings to it) (review r10 LOW-2), and its line total (breaker r10:
+      // a line is never billed above its total, the excess water-filled elsewhere, what no line can take netted nowhere).
+      const caps = [10000, 25050, 3333, 100000];
+      const netPer = po.items.map((it, j) => Math.min(caps[j]!, Math.max(0, items.filter((i) => i.poItem === it).reduce((s, i) => s + Math.round(i.total * 100), 0))));
+      const want = Math.min(tie?.cents ?? 0, netPer.reduce((s, c) => s + c, 0));
+      const over = per.some((c, i) => c > netPer[i]!);
+      if (sum !== want || over || per.some((c) => c < 0)) bad.push({ items, per, sum, tie: tie?.cents, netPer });
     }
     expect(bad).toEqual([]);
   }, 120_000);

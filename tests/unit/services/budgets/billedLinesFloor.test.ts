@@ -18,8 +18,9 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowRow', () => ({ 
 
 import { billedLinesByPoItem } from '@/modules/accounting/services/budgets/remainingCommitted';
 
-const item = (id: string, bill: string, po: string, poItem: string, total: number) =>
-  ({ id, supplier_invoice_id: bill, po_item_id: poItem, item_po: po, line_total: total });
+// item_total: the PO line's own total, the cap of what a bill can bill it (breaker r10); large unless a test caps it.
+const item = (id: string, bill: string, po: string, poItem: string, total: number, cap = 1_000_000) =>
+  ({ id, supplier_invoice_id: bill, po_item_id: poItem, item_po: po, line_total: total, item_total: cap });
 const sums = (m: Map<string, Array<{ amount: number }>>) => Object.fromEntries([...m].map(([k, v]) => [k, v.reduce((s, p) => s + p.amount, 0)]));
 
 describe('billedLinesByPoItem floor', () => {
@@ -48,6 +49,10 @@ describe('billedLinesByPoItem floor', () => {
       queue.push([{ id: 'b1' }], lines());
       expect(sums(await billedLinesByPoItem('c1', ask, [])), ask.join()).toEqual({});
     }
+  });
+  it('breaker r10 R10-1: a line is never billed above its own total; the excess goes to a line with room', async () => {
+    queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 1000, 100), item('l2', 'b1', 'P', 'b', 1000, 1000), item('l3', 'b1', 'P', 'c', -900, 100)]);
+    expect(sums(await billedLinesByPoItem('c1', ['a', 'b', 'c'], []))).toEqual({ a: 100, b: 1000 });
   });
   it('judges each PO of the bill on its own', async () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 300), item('l2', 'b1', 'Q', 'q', -100)]);
