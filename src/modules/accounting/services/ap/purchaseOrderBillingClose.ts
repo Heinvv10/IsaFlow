@@ -9,7 +9,8 @@
  * unbilled rands anyway. The reopen fixes the STATUS.
  *
  * The one rule (`isClosedUnderBilled`, also get_purchase_order's closed_under_billed): closed, closed_by_billing, and no longer
- * fully billed (`purchaseOrderBilled.billedCentsByPo` < subtotal - 1 c). `reopenUnderBilled` re-judges POs after a counted tie
+ * fully billed (`purchaseOrderBilled.billedCentsByPo` < the billing basis - 1 c: max(header subtotal, lines' total),
+ * `remainingCommitted.poBillingBasisCents`, as 1022 closes on; review r7 M2). `reopenUnderBilled` re-judges POs after a counted tie
  * went (billed fell: the unlink of a billed live bill's link / lines / header, a bill cancelled or soft-deleted) and reopens each
  * to closed_from_status (as the PO row holds it now: a goods-received cancel's recomputation is honoured), clearing both columns,
  * with a log line and an audit row. A PO whose billed did not fall is never reopened: removing a tie that never counted (a draft or
@@ -21,14 +22,14 @@
  * `lockPosClosedByBilling` is that step for the bill cancel, the bill soft delete and the bulk cancel (all its bills at once, before
  * the first; PO -> bill, the census in docs/design/mcp-po-bill-links.md).
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
 import { openPoLineCents } from '../budgets/remainingBudgetCore';
-import { commitsSpend, committedBillingByPoItem, fullyBilledClosedPos } from '../budgets/remainingCommitted';
+import { commitsSpend, committedBillingByPoItem, fullyBilledClosedPos, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
 import { billTies } from '../budgets/billAttribution';
@@ -79,10 +80,12 @@ export async function reopenUnderBilled(
      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND status = 'closed' AND closed_by_billing
   `) as DbRow[];
   const billed = await billedCentsByPo(companyId, pos.map((p) => String(p.id).toLowerCase()));
+  const basis = await poBillingBasisCents(companyId, pos.map((p) => String(p.id).toLowerCase()));
   for (const p of pos) {
     const id = String(p.id).toLowerCase();
     const now = billed.get(id) ?? 0;
-    const facts = { status: 'closed', closedByBilling: true, subtotalCents: toCents(Number(p.subtotal ?? 0)) };
+    // Against max(header subtotal, lines' total), as 1022 closed on (review r7 M2).
+    const facts = { status: 'closed', closedByBilling: true, subtotalCents: basis.get(id) ?? toCents(Number(p.subtotal ?? 0)) };
     if (!(now < (billedBefore.get(id) ?? 0)) || !isClosedUnderBilled(facts, now) || p.closed_from_status == null) continue;
     const to = String(p.closed_from_status);
     const back = (await sql`
@@ -111,7 +114,8 @@ export async function reopenWarnings(companyId: string, reopened: Iterable<Reope
     out.push(`Purchase order ${r.poNumber} reopened to ${r.reopenedTo}: it is no longer fully billed, so it commits spend again.`);
     // Review r6 M3: the reopen is done and stays; a budget read that fails is said, as the unlink says a busy gate, never thrown.
     try {
-      out.push(...await unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.'));
+      // In its own savepoint (review r7 H1): a SQL error inside the read must not abort the request's transaction under a 200.
+      out.push(...await withSavepoint('reopen_budget_read', () => unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.')));
     } catch (err) {
       log.warn('Reopen budget read failed', { companyId, poId: r.poId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
       out.push(`The budget could not be checked just now; purchase order ${r.poNumber} commits spend again, check it in the app.`);
@@ -125,15 +129,13 @@ export async function poCommittedCents(companyId: string, poIds: readonly string
   const out = new Map<string, number>();
   if (poIds.length === 0) return out;
   const lines = (await sql`
-    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, pi.line_total::TEXT AS line_total, po.status, po.closed_by_billing,
-           po.subtotal::TEXT AS subtotal
+    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, pi.line_total::TEXT AS line_total, po.status, po.closed_by_billing
       FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
      WHERE pi.purchase_order_id = ANY(${[...poIds]}::UUID[])
   `) as DbRow[];
   const billed = await committedBillingByPoItem(companyId, lines.map((l) => String(l.id).toLowerCase()), []);
   // Review r6 M5, as readCommitments: a PO closed by billing that is fully billed at PO level commits 0.
-  const settled = await fullyBilledClosedPos(companyId, [...new Map(lines.filter((l) => l.status === 'closed')
-    .map((l) => [String(l.po), { id: String(l.po), subtotalCents: toCents(Number(l.subtotal ?? 0)) }])).values()]);
+  const settled = await fullyBilledClosedPos(companyId, [...new Set(lines.filter((l) => l.status === 'closed' && l.closed_by_billing === true).map((l) => String(l.po)))]);
   for (const id of poIds) out.set(id.toLowerCase(), 0);
   for (const l of lines) {
     if (!commitsSpend(String(l.status), l.closed_by_billing === true) || settled.has(String(l.po).toLowerCase())) continue;
@@ -161,11 +163,12 @@ export async function previewReopenOnBillGone(companyId: string, billId: string,
     SELECT id::TEXT AS id, po_number, closed_from_status, subtotal::TEXT AS subtotal FROM purchase_orders
      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND status = 'closed' AND closed_by_billing
   `) as DbRow[];
+  const basis = await poBillingBasisCents(companyId, ids);
   const held = new Map((await billTies(companyId, ids, { statuses: BILLED_STATUSES }))
     .filter((t) => t.billId === billId.toLowerCase() && !t.deleted).map((t) => [t.poId, t.cents]));
   return pos.filter((p) => {
     const id = String(p.id).toLowerCase();
     const after = (billedBefore.get(id) ?? 0) - (held.get(id) ?? 0);
-    return (held.get(id) ?? 0) > 0 && p.closed_from_status != null && !isFullyBilled(after, toCents(Number(p.subtotal ?? 0)));
+    return (held.get(id) ?? 0) > 0 && p.closed_from_status != null && !isFullyBilled(after, basis.get(id) ?? 0);
   }).map((p) => ({ poId: String(p.id).toLowerCase(), poNumber: String(p.po_number), reopenedTo: String(p.closed_from_status) }));
 }

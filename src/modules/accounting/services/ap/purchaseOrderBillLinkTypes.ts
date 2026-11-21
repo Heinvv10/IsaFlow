@@ -112,5 +112,3 @@ export interface LinkPlan {
   planned: PlannedLink[];
   poAfter: Map<string, PoAfter>;
 }
-
-

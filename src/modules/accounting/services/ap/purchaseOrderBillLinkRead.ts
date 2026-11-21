@@ -10,7 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { lockExternalRef } from '../core/externalRefService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
-import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents, postedExpenseLines } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
@@ -174,10 +174,12 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
       heldByHeader.set(t.billId, [...(heldByHeader.get(t.billId) ?? []), { poId: t.poId, poNumber: h?.poNumber ?? t.poId, status: h?.status ?? 'unknown', cents: t.cents }]);
     }
   }
+  // Fully billed against max(header subtotal, lines' total), as 1022 closes on (review r7 M2).
+  const basis = await poBillingBasisCents(companyId, poRows.map((r) => low(r.id)));
   return {
     resolvedPo,
     pos: new Map(poRows.map((r) => [low(r.id), {
-      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: toCents(Number(r.subtotal)),
+      id: low(r.id), poNumber: String(r.po_number), status: String(r.status), supplierId: low(r.supplier_id), subtotalCents: basis.get(low(r.id)) ?? toCents(Number(r.subtotal)),
     }])),
     bills,
     poItemOwner: new Map(owners.map((r) => [low(r.id), low(r.po)])),

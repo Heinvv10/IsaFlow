@@ -1,8 +1,9 @@
 /**
  * What `unlinkBillFromPurchaseOrder` does around clearing a bill's references to one PO beyond the link row itself (design
  * docs/design/mcp-po-maintenance.md, round 6):
- *   - (whether the unlink raises committed is measured by the unlink itself since PR #1703 breaker r6 A3: `poCommittedCents` before
- *     and after, under the PO lock; the per-bill guesses that stood here are gone);
+ *   - (whether the unlink raises committed is the unlink's own best-effort comparison since PR #1703 breaker r6 A3: `poCommittedCents`
+ *     before and after, computed under the PO lock; concurrent changes to other bills can make it noisy; the per-bill guesses that
+ *     stood here are gone);
  *   - `resetMatchState`: the bill's stored three-way state (`match_status`, each line's `line_match_status` / variances) would be stale
  *     once a reference is gone. A bill that still names a PO is re-judged by the existing recompute (`performThreeWayMatch`, in its own
  *     savepoint so a failure cannot poison the unlink); one that names none, or is deleted, is reset to 'unmatched'.

@@ -34,16 +34,37 @@ import { toCents } from './grid/cents';
 export { BILLED_STATUSES, COMMITTING_PO_STATUSES, commitsSpend } from './poCommitStatus';
 
 /**
- * Review r6 M5: of these POs closed by billing, the ones fully billed at PO level (the one attribution, as billedCentsByPo counts
- * it): they commit 0, even beside a line over-billed by its lines (R4-5); one that is not commits its per-line open remainder.
+ * What "fully billed" is measured against, per PO (cents): the larger of the header subtotal and the lines' total, as 1022 closes
+ * on (review r7 M2: one basis for every reader, writer and close decision). 0 for a PO of no line and no subtotal.
  */
-export async function fullyBilledClosedPos(companyId: string, pos: ReadonlyArray<{ id: string; subtotalCents: number }>): Promise<Set<string>> {
-  if (pos.length === 0) return new Set();
+export async function poBillingBasisCents(companyId: string, poIds: readonly string[]): Promise<Map<string, number>> {
+  if (poIds.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT p.id::TEXT AS id, GREATEST(round(COALESCE(p.subtotal, 0) * 100), COALESCE((SELECT round(SUM(x.line_total) * 100)
+             FROM po_items x WHERE x.purchase_order_id = p.id), 0))::BIGINT AS basis
+      FROM purchase_orders p WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${[...poIds]}::UUID[])
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.id).toLowerCase(), Number(r.basis)]));
+}
+
+/**
+ * Review r6 M5: of these POs, the ones closed by billing and fully billed at PO level (the one attribution, as billedCentsByPo
+ * counts it, against `poBillingBasisCents`): they commit 0, even beside a line over-billed by its lines (R4-5); one that is not
+ * commits its per-line open remainder. `own`: bills counted as billed whatever their status, as readCommitments nets them (r7 L1).
+ */
+export async function fullyBilledClosedPos(companyId: string, poIds: readonly string[], own: readonly string[] = []): Promise<Set<string>> {
+  if (poIds.length === 0) return new Set();
+  const closed = ((await sql`
+    SELECT id::TEXT AS id FROM purchase_orders
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...poIds]}::UUID[]) AND status = 'closed' AND closed_by_billing
+  `) as DbRow[]).map((r) => String(r.id).toLowerCase());
+  if (closed.length === 0) return new Set();
   const billed = new Map<string, number>();
-  for (const t of await billTies(companyId, pos.map((p) => p.id), { statuses: BILLED_STATUSES })) {
+  for (const t of await billTies(companyId, closed, { statuses: BILLED_STATUSES, own })) {
     if (!t.deleted) billed.set(t.poId, (billed.get(t.poId) ?? 0) + t.cents);
   }
-  return new Set(pos.filter((p) => isFullyBilled(billed.get(p.id.toLowerCase()) ?? 0, p.subtotalCents)).map((p) => p.id.toLowerCase()));
+  const basis = await poBillingBasisCents(companyId, closed);
+  return new Set(closed.filter((id) => isFullyBilled(billed.get(id) ?? 0, basis.get(id) ?? 0)));
 }
 
 export interface CommittedOptions {
@@ -94,9 +115,14 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     const orderOf = new Map(billItems.map((i) => [text(i.po_item_id), text(i.item_po)]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
     const mine = new Map<string, BilledPosting[]>();
+    // The floor is decided over EVERY line of the bill naming a line of that PO, whatever subset was asked for (review r7 M1).
+    const net = new Map<string, number>();
     for (const line of postedExpenseLines(b, billItems)) {
       const po = poOf.get(String(line.description));
-      if (!po || !linked.has(po)) continue;
+      if (!po) continue;
+      const order = orderOf.get(po) ?? po;
+      net.set(order, (net.get(order) ?? 0) + toCents(line.debit));
+      if (!linked.has(po)) continue;
       mine.set(po, [...(mine.get(po) ?? []), {
         glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
         buId: text(line.buId), month, amount: line.debit,
@@ -105,11 +131,6 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     // A bill never nets a PO below nothing, the billAttribution floor (breaker r5 / r6 A2): a bill whose postings to one PO's
     // lines sum below 0 across that PO (a discount line naming one) nets none of them; one that nets 0 or more keeps every posting,
     // a negative line included (+500 on A and -500 on B of one PO stay, so a header bill still nets that PO exactly).
-    const net = new Map<string, number>();
-    for (const [item, postings] of mine) {
-      const order = orderOf.get(item) ?? item;
-      net.set(order, (net.get(order) ?? 0) + postings.reduce((sum, p) => sum + toCents(p.amount), 0));
-    }
     for (const [item, postings] of mine) {
       if ((net.get(orderOf.get(item) ?? item) ?? 0) < 0) continue;
       out.set(item, [...(out.get(item) ?? []), ...postings]);
@@ -138,7 +159,7 @@ export async function readCommitments(
   const all = (await sql`
     SELECT pi.id::TEXT AS po_item_id, pi.gl_account_id::TEXT AS gl_account_id, to_char(po.order_date, 'YYYY-MM') AS month,
            pi.cc1_id::TEXT AS cc1_id, pi.cc2_id::TEXT AS cc2_id, pi.bu_id::TEXT AS bu_id, pi.line_total::TEXT AS line_total,
-           po.id::TEXT AS po_id, po.status = 'closed' AS closed, po.subtotal::TEXT AS subtotal
+           po.id::TEXT AS po_id, (po.status = 'closed' AND po.closed_by_billing) AS closed_by_billing
       FROM po_items pi
       JOIN purchase_orders po ON po.id = pi.purchase_order_id
      WHERE po.company_id = ${companyId}::UUID
@@ -147,10 +168,9 @@ export async function readCommitments(
        AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
-  const closed = [...new Map(all.filter((r) => r.closed === true).map((r) => [String(r.po_id), { id: String(r.po_id), subtotalCents: toCents(Number(r.subtotal ?? 0)) }])).values()];
-  const settled = await fullyBilledClosedPos(companyId, closed);
-  const rows = all.filter((r) => !settled.has(String(r.po_id).toLowerCase()));
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
+  const settled = await fullyBilledClosedPos(companyId, [...new Set(all.filter((r) => r.closed_by_billing === true).map((r) => String(r.po_id)))], own);
+  const rows = all.filter((r) => !settled.has(String(r.po_id).toLowerCase()));
   const billed = await committedBillingByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {
     const id = String(text(r.po_item_id));

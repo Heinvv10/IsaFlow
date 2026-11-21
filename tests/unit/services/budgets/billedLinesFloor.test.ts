@@ -31,6 +31,13 @@ describe('billedLinesByPoItem floor', () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', -50)]);
     expect(sums(await billedLinesByPoItem('c1', ['a'], []))).toEqual({});
   });
+  it('review r7 M1: the verdict is over every line of the bill naming the PO, whatever subset is asked for', async () => {
+    const lines = () => [item('l1', 'b1', 'P', 'a', 300), item('l2', 'b1', 'P', 'b', -400)]; // A +300 (account X), B -400 (Y): -100
+    for (const ask of [['a'], ['b'], ['a', 'b']]) {
+      queue.push([{ id: 'b1' }], lines());
+      expect(sums(await billedLinesByPoItem('c1', ask, [])), ask.join()).toEqual({});
+    }
+  });
   it('judges each PO of the bill on its own', async () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 300), item('l2', 'b1', 'Q', 'q', -100)]);
     expect(sums(await billedLinesByPoItem('c1', ['a', 'q'], []))).toEqual({ a: 300 });

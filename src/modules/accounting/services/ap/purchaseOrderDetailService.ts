@@ -9,7 +9,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { toCents } from '../budgets/grid/cents';
-import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
@@ -105,7 +105,8 @@ export async function readPurchaseOrderDetail(
   // What each tying bill holds on this PO by the one attribution billed_total sums (review r3 L4); linked_amount stays the row's
   // stored amount, which a link written before the lines check can disagree with.
   const attributed = new Map((await billTies(companyId, [poId], { statuses: null })).map((t) => [t.billId, t.cents]));
-  const subtotalCents = toCents(Number(head.subtotal ?? 0));
+  // Fully billed / outstanding against max(header subtotal, lines' total), as 1022 closes on (review r7 M2).
+  const subtotalCents = (await poBillingBasisCents(companyId, [poId])).get(poId.toLowerCase()) ?? toCents(Number(head.subtotal ?? 0));
   const counted = (s: unknown) => (BILLED_STATUSES as readonly string[]).includes(String(s));
   return {
     purchase_order: {

@@ -34,6 +34,7 @@ import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
 import { sql, withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
 import { toCents } from '../budgets/grid/cents';
@@ -44,6 +45,7 @@ import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { auditBillCleared, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 import { poCommittedCents, reopenUnderBilled } from './purchaseOrderBillingClose';
+import { poBillingBasisCents } from '../budgets/remainingCommitted';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
 
@@ -125,8 +127,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   // What the PO is billed before anything is cleared (under its lock): a reopen needs the removed tie to have counted (review r4 L2).
   const billedBefore = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
 
-  // Breaker r6 A3: whether the unlink raises committed is MEASURED, not guessed: what the PO commits by the committed engine itself
-  // (poCommittedCents), read before the clear and after the reopen, under the PO lock, as the link compares its header POs.
+  // Breaker r6 A3: whether the unlink raises committed is measured, best effort: what the PO commits by the committed engine itself
+  // (poCommittedCents), read before the clear and after the reopen, computed under the PO lock; concurrent changes to other bills can
+  // make it noisy (review r7 M3; no lock is added for it).
   const committedBefore = (await poCommittedCents(companyId, [poId])).get(poId) ?? 0;
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
@@ -144,7 +147,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
 
   const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
-  const fully = isFullyBilled(billed, toCents(Number(pos[0].subtotal ?? 0)));
+  const fully = isFullyBilled(billed, (await poBillingBasisCents(companyId, [poId])).get(poId) ?? toCents(Number(pos[0].subtotal ?? 0)));
   // Removing ANY counted tie (link, lines, header of a billed live bill) reopens a PO closed BY BILLING (purchase_orders.closed_by_billing,
   // PR #1703 breaker R4-1) once it is no longer fully billed; a PO closed by hand, or a tie that never counted, is not touched.
   const reopenedTo = (await reopenUnderBilled(companyId, new Map([[poId, billedBefore]]), {
@@ -157,10 +160,16 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.
   let budgetWarnings: string[] = [];
   // Only when its committed really rose (a PO closed by billing that stays closed is measured the same way, breaker r5 / r6 A3).
-  if (raisesCommitted) {
-    budgetWarnings = gateBusy
-      ? ['The budget could not be checked just now (another approval holds the budget lock); the purchase order commits spend again, check it in the app.']
-      : await unlinkBudgetWarnings(companyId, poId, poNumber, opts.budgetFigures);
+  if (raisesCommitted && gateBusy) {
+    budgetWarnings = ['The budget could not be checked just now (another approval holds the budget lock); the purchase order commits spend again, check it in the app.'];
+  } else if (raisesCommitted) {
+    // Its own savepoint (review r7 H1): a SQL error in the read is said and logged, and cannot abort the unlink's transaction.
+    try {
+      budgetWarnings = await withSavepoint('unlink_budget_read', () => unlinkBudgetWarnings(companyId, poId, poNumber, opts.budgetFigures));
+    } catch (err) {
+      log.warn('Unlink budget read failed', { companyId, poId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
+      budgetWarnings = ['The budget could not be checked just now; the purchase order commits spend again, check it in the app.'];
+    }
   }
 
   await logAuditOrThrow({

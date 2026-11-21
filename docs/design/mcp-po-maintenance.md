@@ -56,11 +56,10 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      soft-deleted too). Removing any COUNTED tie (link, line or header reference of a billed live bill) reopens a PO closed by billing
      (`closed_by_billing`: a link call or migration 1022) once it is no longer fully billed (PR #1703 R3-3 / R4-1 / r4 L2). The audit row says what was cleared (`link_removed`,
      `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
-     (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing a line reference RAISES committed spend
-     exactly when `budgets/remainingCommitted.billedLinesByPoItem` counted that line today (the bill is approved / paid / partially_paid,
-     the line posts a non-zero ex-VAT amount, and the bill is not soft-deleted: PR #1703 R4-2), so unlink is
-     gated and warns like any unlink then; clearing a header, or a draft / cancelled / R0 bill's reference, changes no figure and warns
-     nothing. The bill's stored three-way state (`match_status`, each line's
+     (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: the unlink warns when the PO's committed
+     rose (since PR #1703 breaker r6 A3: `poCommittedCents` before the clear and after, best effort: computed under the PO lock;
+     concurrent changes to other bills can make it noisy), its budget read in its own savepoint; a draft / cancelled / deleted / R0
+     bill's reference changes no figure and warns nothing. The bill's stored three-way state (`match_status`, each line's
      `line_match_status` and variances) is re-judged by the existing recompute (`performThreeWayMatch`, in its own savepoint) when
      the bill still names a PO, and reset to unmatched when it names none (never left stale).
    - **Seeing the ties.** The refusal NAMES the tying bills (number, id, kind link | line | header; ten shown, the rest counted), and
