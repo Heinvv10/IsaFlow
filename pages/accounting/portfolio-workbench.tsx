@@ -18,6 +18,7 @@ import type {
 } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 import type { CardStatus } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
 import { formatDisplayDateTime, formatDisplayMonthYearLong } from '@/utils/dateFormat';
+import { useModuleRead } from '@/hooks/useHrefVisible';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -98,6 +99,9 @@ function StatusLegend() {
 }
 
 export default function PortfolioWorkbenchPage() {
+  // The Payroll column shows only to a user who can read Payroll (useNavFlags: hidden until known).
+  const canReadPayroll = useModuleRead('payroll');
+  const columns = COLUMN_DEFS.filter((c) => c.id !== 'payroll' || canReadPayroll);
   const router = useRouter();
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [data, setData] = useState<PortfolioWorkbench | null>(null);
@@ -228,7 +232,7 @@ export default function PortfolioWorkbenchPage() {
                 <tr>
                   <th className="text-left font-medium px-4 py-2.5 sticky top-0">Client</th>
                   <th className="text-center font-medium px-2 py-2.5 sticky top-0">TB</th>
-                  {COLUMN_DEFS.map(col => (
+                  {columns.map(col => (
                     <th key={col.id} className="text-center font-medium px-2 py-2.5 sticky top-0" title={col.label}>
                       {col.label}
                     </th>
@@ -264,7 +268,7 @@ export default function PortfolioWorkbenchPage() {
                         <AlertCircle className="w-4 h-4 text-red-400 inline" aria-label="TB out of balance" />
                       )}
                     </td>
-                    {COLUMN_DEFS.map(col => (
+                    {columns.map(col => (
                       <StatusCell key={col.id} row={row} columnId={col.id} />
                     ))}
                     <td className="px-2 py-2.5 text-center text-zinc-300 tabular-nums">

@@ -4,9 +4,10 @@
  *
  * One `/api/features/check` per feature flag and one `/api/accounting/my-permissions` per company per page load,
  * shared by every nav that asks (the top bar, the drawer, the sidebar, the module bar and the command palette mount
- * together). Until the answers arrive, when either fails, and outside a CompanyProvider the set is EMPTY: a flagged
- * link and a module the user may not read stay hidden rather than flashing up and out. A failed check is not
- * cached, so the next mount asks again.
+ * together). Until the answers arrive, for whatever failed, and outside a CompanyProvider the set lacks it: a flagged
+ * link and a module the user may not read stay hidden rather than flashing up and out. The two answers are
+ * independent: if one fails, what the other said still applies (a failed permissions request hides Payroll only, a
+ * failed feature check the flagged links only). A failed check is not cached, so the next mount asks again.
  */
 import { useEffect, useState } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -16,6 +17,8 @@ import { FEATURE_NAV_FLAGS, moduleReadFlag, NAV_MODULES } from '@/components/acc
 
 const NONE: ReadonlySet<string> = new Set();
 const resolved = new Map<string, ReadonlySet<string>>();
+/** What arrived when one of the two answers failed: used on screen, never final (the next mount asks again). */
+const partial = new Map<string, ReadonlySet<string>>();
 const inFlight = new Map<string, Promise<ReadonlySet<string>>>();
 
 async function checkFlag(code: string): Promise<boolean> {
@@ -39,18 +42,22 @@ export function loadNavFlags(companyId: string): Promise<ReadonlySet<string>> {
   if (done) return Promise.resolve(done);
   const pending = inFlight.get(companyId);
   if (pending) return pending;
-  const p = Promise.all([
+  // Independent answers: a failed permissions request hides Payroll only, a failed feature check hides the flagged
+  // links only. Whatever did arrive is used; a partial answer is not cached, so the next mount asks again.
+  const p = Promise.allSettled([
     Promise.all(FEATURE_NAV_FLAGS.map(async (code) => ((await checkFlag(code)) ? code : null))),
     readableModuleFlags(),
   ])
-    .then(([codes, modules]) => {
-      const set: ReadonlySet<string> = new Set([...codes.filter((c): c is string => c !== null), ...modules]);
-      resolved.set(companyId, set);
+    .then((results) => {
+      const found: string[] = [];
+      for (const r of results) {
+        if (r.status === 'fulfilled') found.push(...(r.value as Array<string | null>).filter((c): c is string => c !== null));
+        else log.warn('nav flags partly unavailable; what it gates stays hidden', { error: String(r.reason) }, 'useNavFlags');
+      }
+      const set: ReadonlySet<string> = new Set(found);
+      if (results.every((r) => r.status === 'fulfilled')) { resolved.set(companyId, set); partial.delete(companyId); }
+      else partial.set(companyId, set);
       return set;
-    })
-    .catch((error: unknown) => {
-      log.warn('nav flags unavailable; flagged links and modules the user may not read stay hidden', { error: String(error) }, 'useNavFlags');
-      return NONE;
     })
     .finally(() => inFlight.delete(companyId));
   inFlight.set(companyId, p);
@@ -60,6 +67,7 @@ export function loadNavFlags(companyId: string): Promise<ReadonlySet<string>> {
 /** Test seam: forget every cached answer. */
 export function resetNavFlagsCache(): void {
   resolved.clear();
+  partial.clear();
   inFlight.clear();
 }
 
@@ -85,5 +93,5 @@ export function useNavFlags(): ReadonlySet<string> {
     void loadNavFlags(companyId).then(() => { if (!gone) setAnswered((n) => n + 1); });
     return () => { gone = true; };
   }, [companyId]);
-  return companyId ? resolved.get(companyId) ?? NONE : NONE;
+  return companyId ? resolved.get(companyId) ?? partial.get(companyId) ?? NONE : NONE;
 }

@@ -4,7 +4,7 @@
  * the user can read it, and stays hidden when the answer is no or never comes. Hiding is cosmetic; the APIs decide.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { Tab } from '@/components/accounting/navSections/types';
 
 const h = vi.hoisted(() => ({
@@ -21,8 +21,8 @@ vi.mock('@/components/layout/ModuleNav', () => ({
 
 import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { DrawerNav } from '@/components/layout/DrawerNav';
-import { resetNavFlagsCache } from '@/hooks/useNavFlags';
-import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
+import { resetNavFlagsCache, useNavFlags } from '@/hooks/useNavFlags';
+import { moduleReadFlag, NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { buildSections } from '@/components/layout/paletteRank';
 import { PALETTE_ACTIONS } from '@/components/layout/commandActions';
 
@@ -95,6 +95,38 @@ describe('a failed permissions request is not remembered', () => {
     server({ read: true, write: false, approve: false });
     render(<AccountingNav />);
     await waitFor(() => expect(tabIds()).toContain('payroll'));
+  });
+});
+
+describe('the two answers are independent', () => {
+  const featuresOn = (perm: 'fail' | Perm) => h.apiFetch.mockImplementation((url: string) => {
+    if (url.startsWith('/api/accounting/my-permissions')) {
+      return Promise.resolve(perm === 'fail' ? json({ success: false }, 500) : json({ success: true, data: { modules: { payroll: perm } } }));
+    }
+    return Promise.resolve(json({ success: true, data: { enabled: true } }));
+  });
+
+  it('a failed permissions request hides Payroll only: the feature-flagged links stay', async () => {
+    featuresOn('fail');
+    const { result } = renderHook(() => useNavFlags());
+    await waitFor(() => expect(result.current.has('budgets_three_way')).toBe(true));
+    expect(result.current.has(moduleReadFlag('payroll'))).toBe(false);
+  });
+
+  it('a failed feature check hides the flagged links only: Payroll stays for a user who can read it', async () => {
+    h.apiFetch.mockImplementation((url: string) => (url.startsWith('/api/accounting/my-permissions')
+      ? Promise.resolve(json({ success: true, data: { modules: { payroll: { read: true, write: false, approve: false } } } }))
+      : Promise.resolve(json({ success: false }, 500))));
+    const { result } = renderHook(() => useNavFlags());
+    await waitFor(() => expect(result.current.has(moduleReadFlag('payroll'))).toBe(true));
+    expect(result.current.has('budgets_three_way')).toBe(false);
+  });
+
+  it('both answers in: both apply', async () => {
+    featuresOn({ read: true, write: false, approve: false });
+    const { result } = renderHook(() => useNavFlags());
+    await waitFor(() => expect(result.current.has(moduleReadFlag('payroll'))).toBe(true));
+    expect(result.current.has('budgets_three_way')).toBe(true);
   });
 });
 
