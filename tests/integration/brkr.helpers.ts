@@ -109,6 +109,14 @@ export async function rig(label: string) {
       if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
       return result;
     },
+    /**
+     * The approve endpoint alone, no R-035 submission first (gate ruling 5 on e0eec1dea1): a refusal here is the final
+     * approval's own, never the submission's.
+     */
+    approveOnly: async (id: string, o = {}) => {
+      const planHash = (await api.preview(id, o)).body.data?.planHash;
+      return call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash: planHash } });
+    },
     approve: async (id: string, o = {}) => {
       const planHash = (await api.preview(id, o)).body.data?.planHash;
       return api.approveWith(id, planHash, o);

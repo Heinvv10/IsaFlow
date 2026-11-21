@@ -66,6 +66,10 @@ describe('a filed EMP201 after the reopen', () => {
     const ap = await a.api.approve(run);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/The EMP201 for 2026-11 is filed/);
+    // The approve endpoint itself refuses it too, not only the submission (gate ruling 5 on e0eec1dea1).
+    const direct = await a.api.approveOnly(run);
+    expect(direct.statusCode).not.toBe(200);
+    expect(JSON.stringify(direct.body)).toMatch(/The EMP201 for 2026-11 is filed/);
     expect((await a.header(run)).status).toBe('calculated');
     // Review #1679 L2: no new off-cycle run is created in the filed month either (409, before any write).
     const before = Number((await a.pool.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).rows[0].n);

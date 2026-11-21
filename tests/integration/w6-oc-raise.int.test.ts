@@ -74,6 +74,10 @@ describe('a paid off-cycle run is not raised after its pay date (bonus and termi
     const refused = await a.api.approve(term);
     expect(refused.statusCode).not.toBe(200);
     expect(JSON.stringify(refused.body)).toMatch(/can't be raised after the pay date .*Pay the difference in a new off-cycle run/);
+    // The approve endpoint itself refuses it too, not only the submission (gate ruling 5 on e0eec1dea1).
+    const direct = await a.api.approveOnly(term);
+    expect(direct.statusCode).not.toBe(200);
+    expect(JSON.stringify(direct.body)).toMatch(/can't be raised after the pay date/);
     expect((await a.header(term)).status).toBe('calculated');
     // The approval preview (the MCP dry run's gate) refuses it too.
     expect(JSON.stringify((await a.api.preview(term)).body)).toMatch(/can't be raised after the pay date/);
