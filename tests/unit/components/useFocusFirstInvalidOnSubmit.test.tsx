@@ -4,11 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { useFocusFirstInvalidOnSubmit } from '@/hooks/useFocusFirstInvalidOnSubmit';
 
+// Fixture timers that outlive a test fire after the environment is torn down: React reads `window.event` when a
+// state setter runs, so a late setShown/setBad/setOn throws "window is not defined" and fails the whole file.
+const pending = new Set<ReturnType<typeof setTimeout>>();
+const later = (fn: () => void, ms: number) => { const t = setTimeout(() => { pending.delete(t); fn(); }, ms); pending.add(t); };
+
 function BannerForm({ role, preExisting = false, slow = false, stale = false }: { role?: string; preExisting?: boolean; slow?: boolean; stale?: boolean }) {
   useFocusFirstInvalidOnSubmit();
   const [shown, setShown] = useState(preExisting);
   return (
-    <form onSubmit={(e) => { e.preventDefault(); setTimeout(() => setShown(true), slow ? 2500 : 60); }}>
+    <form onSubmit={(e) => { e.preventDefault(); later(() => setShown(true), slow ? 2500 : 60); }}>
       {stale && <input aria-label="old" aria-invalid className="hidden" />}
       {shown && <div role={role} className="bg-red-500/10" data-testid="banner">Could not save</div>}
       <button type="submit">Save</button>
@@ -20,7 +25,7 @@ function Form({ failOn = ['name', 'email'], async: delayed = false }: { failOn?:
   useFocusFirstInvalidOnSubmit();
   const [bad, setBad] = useState<string[]>([]);
   return (
-    <form onSubmit={(e) => { e.preventDefault(); if (delayed) setTimeout(() => setBad(failOn), 120); else setBad(failOn); }}>
+    <form onSubmit={(e) => { e.preventDefault(); if (delayed) later(() => setBad(failOn), 120); else setBad(failOn); }}>
       <input aria-label="name" aria-invalid={bad.includes('name')} />
       <input aria-label="email" aria-invalid={bad.includes('email')} />
       <input aria-label="phone" aria-invalid={bad.includes('phone')} />
@@ -39,7 +44,7 @@ window.matchMedia = ((q: string) => {
 }) as never;
 const scroll = vi.fn();
 beforeEach(() => { scroll.mockReset(); Element.prototype.scrollIntoView = scroll; setViewport(true); reducedMotion = false; });
-afterEach(cleanup);
+afterEach(() => { cleanup(); pending.forEach(clearTimeout); pending.clear(); });
 const submit = () => act(() => { screen.getByText('Save').click(); });
 
 describe('focus the first invalid field after a failed submit (phones)', () => {
@@ -116,7 +121,7 @@ describe('focus the first invalid field after a failed submit (phones)', () => {
       <div>
         <div data-testid="container">
           {kind === 'text' && <div role="alert" data-testid="banner">{on ? 'Second failure' : initial}</div>}
-          <form onSubmit={(e) => { e.preventDefault(); setTimeout(() => setOn(true), after); }}>
+          <form onSubmit={(e) => { e.preventDefault(); later(() => setOn(true), after); }}>
             {kind === 'chip' && on && <span className="bg-red-500/10">Inactive</span>}
             <button type="submit">Save</button>
           </form>
