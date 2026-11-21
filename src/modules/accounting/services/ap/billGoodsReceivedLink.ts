@@ -141,6 +141,31 @@ export async function assertEditedBillGrn(
   if (why) throw new SupplierInvoiceGrnRefusal(`The bill's goods received note ${why} after this edit; ${exit}`);
 }
 
+/**
+ * unlink_bill_from_purchase_order (gate finding 3): the refusal text when the bill carries a note (of this company) on `poId` and would
+ * still name another PO after the unlink (its header, its lines' POs, its link rows, less `poId`), else null. Unlinking the last PO the
+ * bill names stays allowed: the note's PO is still of the bill's supplier, and a bill that names no PO may carry any such note. Read
+ * after the caller's PO and bill locks, before any write.
+ */
+export async function unlinkNoteRefusal(companyId: string, billId: string, poId: string): Promise<string | null> {
+  const row = ((await sql`
+    SELECT si.invoice_number, si.purchase_order_id::text AS header, g.grn_number, g.purchase_order_id::text AS note_po
+      FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id AND g.company_id = si.company_id
+     WHERE si.id = ${billId}::uuid AND si.company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  if (!row || String(row.note_po).toLowerCase() !== poId.toLowerCase()) return null;
+  const named = await storedBillNamedPos(sql, companyId, billId, row.header);
+  named.delete(poId.toLowerCase());
+  if (named.size === 0) return null;
+  const others = (await sql`
+    SELECT id::text AS id, po_number FROM purchase_orders WHERE company_id = ${companyId}::uuid AND id = ANY(${[...named]}::uuid[]) ORDER BY po_number, id
+  `) as DbRow[];
+  const names = [...named].sort().map((id) => String(others.find((o) => String(o.id).toLowerCase() === id)?.po_number ?? id));
+  const list = names.join(', ');
+  return `Bill ${String(row.invoice_number)} carries goods received note ${String(row.grn_number)} of this purchase order and would still name purchase order${names.length === 1 ? '' : 's'} ${list} after this unlink, `
+    + `so its note would be on a purchase order it does not name (note_po_not_named). Unlink ${list} from the bill first, or cancel the bill (cancel_supplier_invoice). Nothing was written`;
+}
+
 export async function assertBillRestorableGrn(companyId: string, billId: string): Promise<void> {
   const bill = (await withRowLockBudget(async () => (await sql`
     SELECT grn_id::text AS grn_id, supplier_id::text AS supplier_id, purchase_order_id::text AS purchase_order_id FROM supplier_invoices
