@@ -5,7 +5,8 @@
  * released the moment this commits. Draft and submitted orders are still cancelled through the PUT.
  *
  * Allowed only while NO goods have been received: status still `approved` AND no goods_received_notes row for the
- * PO (a receipt that only rejected goods leaves the status `approved` but is still a receipt). `partially_received`
+ * PO that is not cancelled (a receipt that only rejected goods leaves the status `approved` but is still a receipt; a
+ * cancelled note received nothing). `partially_received`
  * and `received` stay uncancellable: goods are in hand, the received part is owed to the supplier and awaits its
  * bill, so releasing the commitment would understate spend, and the receipts (grn_items, quantity_received) would
  * stand against a cancelled order. Owner/admin only (`@/lib/auth/writeRoles` PO_CANCEL_ROLES, the route), with a
@@ -53,8 +54,10 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
     if (linked.length > 0) {
       throw new PurchaseOrderNotCancellableError(await tieRefusalText(companyId, poId, 'it cannot be cancelled', ['link'], { liveBillLinksOnly: true }) ?? 'A bill is linked to this purchase order, so it cannot be cancelled; unlink it first (unlink_bill_from_purchase_order)');
     }
+    // A cancelled note received nothing (its quantities came back off the lines): it does not stand in the way.
     const receipts = (await sql`
-      SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
+      SELECT 1 FROM goods_received_notes
+       WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status <> 'cancelled' LIMIT 1
     `) as DbRow[];
     if (receipts.length > 0) {
       throw new PurchaseOrderNotCancellableError('Goods have been received against this purchase order (a receipt is on record), so it cannot be cancelled');

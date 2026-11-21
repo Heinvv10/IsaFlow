@@ -164,6 +164,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // export_gl_lines table=counterparties without read:contacts (tools/exportGlLines):
   // names the missing scope and how to grant it; raised before any query.
   'GL_EXPORT_SCOPE_REFUSED',
+  // ap/goodsReceivedValidation (create_goods_received / cancel_goods_received and the app's goods receipt POST): a receipt
+  // refused before any write (PO status, over-receipt per line, a line not on the PO, a repeated delivery reference, a note
+  // already cancelled or on a bill). Names only the caller's own documents and quantities.
+  'GOODS_RECEIVED_REFUSED',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
@@ -263,6 +267,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_LINE_ACCOUNT',
   'RECURRING_TEMPLATE_LOCK_TIMEOUT',
   'RECURRING_TEMPLATE_NOT_DUE',
+  // A bill template naming a supplier merged into another or deleted (core/recurringTransactionErrors), pre-write.
+  'RECURRING_TEMPLATE_SUPPLIER_DELETED',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
   'FISCAL_PERIOD_NOT_GENERATED', // no period covers the date and none can be generated (a month beside closed periods); names only the date and the year; pre-write.
@@ -284,6 +290,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
   // P5-3 security review (ap/supplierInvoicePoLinks): a bill line's PO line not this company's / not the bill's PO; fixed wording, pre-write.
   'SUPPLIER_INVOICE_PO_LINK_REFUSED',
+  // Review M1 (ap/billGoodsReceivedLink): a bill's goods received note malformed / not this company's / cancelled; fixed wording, pre-write.
+  'SUPPLIER_INVOICE_GRN_REFUSED',
+  // A bill onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1021's supplier-live trigger).
+  'SUPPLIER_INVOICE_SUPPLIER_DELETED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',

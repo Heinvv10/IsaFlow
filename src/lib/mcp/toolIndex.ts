@@ -31,6 +31,7 @@ import { listUnappliedPaymentsTool } from './tools/supplierPayments';
 import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
 import { getPurchaseOrderTool } from './tools/getPurchaseOrder';
+import { listGoodsReceivedTool, getGoodsReceivedTool } from './tools/goodsReceivedReadTools';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -110,6 +111,8 @@ import { updatePurchaseOrderTool } from './tools/writeUpdatePurchaseOrder';
 import { cancelPurchaseOrderTool } from './tools/writeCancelPurchaseOrder';
 import { closePurchaseOrderTool } from './tools/writeClosePurchaseOrder';
 import { setPurchaseOrderStatusTool } from './tools/writeSetPurchaseOrderStatus';
+import { createGoodsReceivedTool } from './tools/writeCreateGoodsReceived';
+import { cancelGoodsReceivedTool } from './tools/writeCancelGoodsReceived';
 import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
 import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
@@ -251,6 +254,8 @@ export const MCP_TOOLS = [
   listSupplierPaymentsTool,
   listPurchaseOrdersTool,
   getPurchaseOrderTool,
+  listGoodsReceivedTool,
+  getGoodsReceivedTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
@@ -338,6 +343,9 @@ export const MCP_TOOLS = [
   cancelPurchaseOrderTool,
   closePurchaseOrderTool,
   setPurchaseOrderStatusTool,
+  // Goods received notes: receive against a PO, cancel a receipt. Posts nothing.
+  createGoodsReceivedTool,
+  cancelGoodsReceivedTool,
   bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,
