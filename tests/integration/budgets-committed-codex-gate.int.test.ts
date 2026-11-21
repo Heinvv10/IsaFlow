@@ -61,6 +61,7 @@ describe('2: a cancel racing a billing close', () => {
     await l.run(() => linkBillsToPurchaseOrders(f.co, [{ index: 0, poId: p.po, poNumber: null, billId: h.id, amountCents: null, lines: [], ref: null }],
       { userId: f.owner, source: 'mcp', via: 'link_bills_to_purchase_order', closeWhenFullyBilled: true }));
     const c = callTool(pool, f, cancelBill, { invoice_id: h.id });
+    c.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
     try { await waitForLockWait(); } finally { await l.commit(); }
     const r = await c;
     expect(r.isError, r.text).toBe(false);
@@ -79,6 +80,7 @@ describe('2b: a soft delete racing a billing close (the shared re-read, lockPosC
       { userId: f.owner, source: 'mcp', via: 'link_bills_to_purchase_order', closeWhenFullyBilled: true }));
     const d = await openRequest(pool, f, f.owner);
     const del = d.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner));
+    del.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
     let res: Awaited<ReturnType<typeof softDelete>>;
     try {
       try { await waitForLockWait(); } finally { await l.commit(); }
@@ -102,6 +104,7 @@ describe('review: the late lock never waits; a held bill fails one bulk item, no
       await x.query('BEGIN');
       await x.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [h.id]);
       const c = callTool(pool, f, cancelBill, { invoice_id: h.id });
+      c.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
       await waitForLockWait();
       await pool.query(`UPDATE purchase_orders SET status = 'closed', closed_from_status = 'approved', closed_by_billing = true WHERE id = $1`, [p.po]);
       await z.query('BEGIN');

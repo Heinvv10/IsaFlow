@@ -86,6 +86,7 @@ describe('M5: a PO the cancel could not re-check', () => {
       await x.query('BEGIN');
       await x.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [h]);
       const c = callTool(pool, f, cancelBill, { invoice_id: h });
+      c.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
       for (let i = 0; i < 200; i++) {
         if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")).rows.length > 0) break;
         await new Promise((res) => setTimeout(res, 25));
@@ -151,6 +152,7 @@ describe('breaker r14 zz-b14-stuck: the unchecked wording is what happens', () =
     const l1 = await openRequest(pool, f, f.owner);
     try {
       const cp = c.run(() => cancelSupplierInvoice(f.co, bb.id, f.owner));
+      cp.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
       await waitLocked(1);
       const l1p = l1.run(() => link.handler({ idempotency_key: `b14-${crypto.randomUUID()}`, links: [{ po_id: p.po, bill_id: y.id, amount: 50 }] }, ctxOf()))
         .catch((e: unknown) => e);

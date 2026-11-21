@@ -31,7 +31,7 @@ import { PurchaseOrderNotCancellableError } from '@/modules/accounting/services/
 
 assertDisposable();
 /** Review r15 L4 floors (measured: see the census test). */
-const MIN_LINKED = 2; // 6 of 10 at b875e6cc2d+r15, box load ~60
+const MIN_LINKED = 3; // about half the 6 of 10 measured at 3cd22f5768, box load ~60
 const MIN_FULFILLED = 30; // 50 of 60 then
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 let f: BillFixture;
@@ -163,18 +163,21 @@ describe('races', () => {
       await edit.client.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [draft.id]);
       await edit.client.query('UPDATE supplier_invoices SET subtotal = 40 WHERE id = $1', [draft.id]);
       // The other call takes the PO, then waits for the draft's row (an existing link of the PO).
-      const other = leg === 'link'
+      // Settled at once (review r16): the link can refuse while the edit still holds the draft, before anything awaits it, and a
+      // rejection nothing has caught yet is an unhandled error under vitest.
+      const other = Promise.allSettled([leg === 'link'
         ? callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] })
-        : callTool(pool, f, unlink, { po_id: po.po, bill_id: approved.id, reason: 'race' });
+        : callTool(pool, f, unlink, { po_id: po.po, bill_id: approved.id, reason: 'race' })]);
       await new Promise((r) => setTimeout(r, 800));
       let refreshed: unknown;
       try { refreshed = await edit.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await edit.commit(); } catch (e) { await edit.rollback(); refreshed = e; }
-      const done = await Promise.allSettled([other]);
+      const done = await other;
       expect(refreshed, `${leg}: the draft edit's refresh`).toBe(1);
       if (leg === 'link') {
-        // PR #1703 r14 M3: the draft is a tie of the PO the link does not link: taken NOWAIT, busy, so the call is refused at once.
+        // PR #1703 r14 M3 / r15: the draft is a tie of the PO the link does not link: taken NOWAIT, retried briefly, still busy, so
+        // the call is refused retryably (ROW_LOCK_TIMEOUT: TiedBillBusyError, or under load its own budget), never a 40P01.
         expect(done[0]!.status, 'link: refused, never waiting').toBe('rejected');
-        expect((done[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'ROW_LOCK_TIMEOUT', name: 'TiedBillBusyError' });
+        expect((done[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
         expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] })).isError, 'link: the retry').toBe(false);
       } else {
         expect(done[0]!.status, `${leg}: the other call`).toBe('fulfilled');

@@ -66,8 +66,8 @@ export class PurchaseOrderLockTimeoutError extends Error {
 
 /**
  * 503 + Retry-After (`ROW_LOCK_TIMEOUT`, the row-lock family): a bill that ties a PO of a link call by its header or lines is being
- * changed (a cancel, delete, payment or edit not yet committed). The link takes those bills NOWAIT, so it refuses at once, before
- * any write, dry run too (PR #1703 breaker r13).
+ * changed (a cancel, delete, payment or edit not yet committed). The link takes those bills NOWAIT: it retries briefly (5 jittered
+ * attempts, breaker r15), then refuses, before any write, dry run too (PR #1703 breaker r13).
  */
 export class TiedBillBusyError extends RowLockTimeoutError {
   constructor(poNumbers: readonly string[]) {

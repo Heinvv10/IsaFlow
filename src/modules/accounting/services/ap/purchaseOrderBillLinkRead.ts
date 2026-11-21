@@ -2,8 +2,8 @@
  * link_bills_to_purchase_order: the facts, read under the locks (design decision 13). Lock order, one 5 s budget for the
  * whole section (`withRowLockBudget`, one deadline): the call's external-reference advisory locks (sorted), then the
  * PO rows `FOR NO KEY UPDATE` in id order, then the call's own bills `FOR UPDATE` in id order (one statement, waiting), then every
- * other bill tying those POs `FOR SHARE NOWAIT` (one statement). A row held past the budget, or a busy tied bill, is a typed,
- * retryable refusal; nothing has been written by then. Every query is company-scoped (po_items and grn_items have no company_id:
+ * other bill tying those POs `FOR SHARE NOWAIT` (one statement). A row held past the budget is a typed, retryable refusal; a busy
+ * tied bill retries briefly, then refuses (retryable too); nothing has been written by then. Every query is company-scoped (po_items and grn_items have no company_id:
  * their tenancy goes through the parent PO).
  */
 import { sql, withSavepoint } from '@/lib/neon';
@@ -61,7 +61,9 @@ async function resolvePos(companyId: string, requests: readonly LinkRequest[]): 
 
 /** Breaker r15 F1: a busy tie is retried this many times, jittered, before the call is refused (never a lock wait: no cycle). */
 export const TIED_BILL_ATTEMPTS = 5;
-const jitter = () => new Promise<void>((res) => setTimeout(res, 10 + Math.floor(Math.random() * 41)));
+/** 10-50 ms, never past the deadline (review r16: the next attempt must not start on a spent budget). */
+const jitter = (deadline: number) =>
+  new Promise<void>((res) => setTimeout(res, Math.max(0, Math.min(10 + Math.floor(Math.random() * 41), deadline - Date.now()))));
 
 /**
  * The bill locks, after the POs: the call's OWN bills FOR UPDATE (waiting, under the budget), then every other non-cancelled bill
@@ -69,7 +71,7 @@ const jitter = () => new Promise<void>((res) => setTimeout(res, 10 + Math.floor(
  * locks it took, so two links whose own bills tie each other's PO do not hold each other off for every attempt (breaker r15 M);
  * after a 10-50 ms jittered sleep it tries again, up to TIED_BILL_ATTEMPTS, then refuses (TiedBillBusyError, retryable).
  */
-async function lockBills(companyId: string, poIds: readonly string[], billIds: readonly string[], pos: readonly DbRow[], deadline: number): Promise<void> {
+export async function lockBills(companyId: string, poIds: readonly string[], billIds: readonly string[], pos: readonly DbRow[], deadline: number): Promise<void> {
   const ids = [...poIds];
   const own = [...billIds];
   for (let attempt = 1; ; attempt++) {
@@ -91,11 +93,13 @@ async function lockBills(companyId: string, poIds: readonly string[], billIds: r
       });
       return;
     } catch (err) {
+      // Only a busy tie is retried: a waited-out own bill (RowLockTimeoutError) and any other error end the call as they are.
       if ((err as { code?: string }).code !== '55P03') throw err;
-      if (attempt >= TIED_BILL_ATTEMPTS || Date.now() >= deadline) {
-        throw new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
-      }
-      await jitter();
+      const busy = () => new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
+      if (attempt >= TIED_BILL_ATTEMPTS) throw busy();
+      await jitter(deadline);
+      // The budget spent (by the sleep or before it): the busy tie is the refusal, never "A bill in this call" from a spent budget.
+      if (Date.now() >= deadline) throw busy();
     }
   }
 }

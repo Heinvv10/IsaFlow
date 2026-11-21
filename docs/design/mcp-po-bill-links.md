@@ -226,7 +226,8 @@ retry in a moment.", or 40P01 rolls one back); nothing half-written survives.
 - A link refuses (retryably, after at most 5 jittered attempts, about 300 ms) while any bill tied to its POs, by a link row, its
   header or its lines, is being changed by any concurrent write, even one that could not alter the decision (a payment, a due-date
   edit, a draft edit): breaker r13 / review r14 M3 traded that for no wait and no deadlock (review r15 L6, intended). Each tied bill
-  carries a FOR SHARE tuple lock for the rest of the call's transaction, dry runs included; only the call's own bills are waited on.
+  carries a FOR SHARE tuple lock: held until the commit for a real call, released at the rollback for a dry run (its savepoint);
+  only the call's own bills are waited on.
 - A PO a cancel or delete could not re-check (`uncheckedPurchaseOrders`) is said as not re-checked, never as still closed: the
   request holding it may reopen it (two racing cancels: the winner reopens it, breaker r13 #5). If it is still closed it keeps
   counting its unbilled remainder; it reopens only when a bill that still counts toward its billing is next unlinked, cancelled

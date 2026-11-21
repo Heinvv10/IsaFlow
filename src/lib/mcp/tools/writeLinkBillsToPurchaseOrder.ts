@@ -65,7 +65,7 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed, judged against billing_basis (the larger of the header subtotal, reported as subtotal, and the lines\' total; a basis of 0 is never fully billed). '
     + 'Known limits: credit notes do not reduce what is billed; a header-only link reduces committed at the PO line, not on the bill\'s own account or month; '
     + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
-    + 'A bill tied to one of the purchase orders (by a link, its header or its lines) that another request is changing right now refuses the whole call at once with a retryable ROW_LOCK_TIMEOUT ("retry in a moment"), dry run too; nothing is written. '
+    + 'A bill tied to one of the purchase orders (by a link, its header or its lines) that another request is changing right now retries briefly, then refuses the whole call with a retryable ROW_LOCK_TIMEOUT ("retry in a moment"), dry run too; nothing is written. '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',
   scope: 'write:invoices',
   write: true,
