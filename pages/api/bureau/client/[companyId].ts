@@ -10,6 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isUuidParam } from '@/lib/validation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { payrollReadByCompany } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
 import { getBureauClientForUser } from '@/modules/bureau/services/bureauService';
@@ -28,6 +29,9 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   if (typeof companyId !== 'string' || companyId.length === 0) {
     return apiResponse.badRequest(res, 'companyId is required');
   }
+
+  // A path id that is not a UUID is no client: answered before any SQL, so it never reaches a ::uuid cast.
+  if (!isUuidParam(companyId)) return apiResponse.notFound(res, 'Client');
 
   const meta = await getBureauClientForUser(req.user.id, companyId);
   if (!meta) {

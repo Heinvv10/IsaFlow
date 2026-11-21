@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { apiResponse } from '@/lib/apiResponse';
 
 const h = vi.hoisted(() => ({
   pass: (x: unknown) => x, aggregate: vi.fn(), read: vi.fn(), sql: vi.fn(), bureaus: vi.fn(), client: vi.fn(), pool: { query: vi.fn() },
@@ -61,6 +62,16 @@ describe('GET /api/bureau', () => {
 });
 
 describe('GET /api/bureau/client/[companyId]', () => {
+  it.each([['not-a-uuid'], ["' OR 1=1 --"], ['11111111-1111-4111-9111'], ['']])('a path id %j is a 404 before any SQL', async (id) => {
+    await (clientHome as unknown as Handler)(req({ query: { companyId: id } }), res);
+    if (id === '') expect(apiResponse.badRequest).toHaveBeenCalled();
+    else expect(apiResponse.notFound).toHaveBeenCalledWith(res, 'Client');
+    expect(h.client).not.toHaveBeenCalled();
+    expect(h.read).not.toHaveBeenCalled();
+    expect(h.sql).not.toHaveBeenCalled();
+    expect(h.aggregate).not.toHaveBeenCalled();
+  });
+
   it.each([[true, [A]], [false, []]])('Payroll read=%s: payroll companies %j', async (allowed, expected) => {
     h.read.mockResolvedValue(new Map([[A, allowed]]));
     await (clientHome as unknown as Handler)(req({ query: { companyId: A } }), res);
