@@ -4,7 +4,7 @@
  * No frozen payday with an approval history fails closed (every employee capped at nil); with none, nothing is capped.
  */
 import { describe, expect, it } from 'vitest';
-import { offCycleRaiseRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleCorrection';
+import { frozenPayDate, offCycleRaiseRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleCorrection';
 
 const EMP = '11111111-1111-4111-8111-111111111111';
 // Pay date 18 Nov 2026: payday ends at 19 Nov 00:00 SAST (22:00 UTC on the 18th).
@@ -28,3 +28,19 @@ describe('paidCaps reads the frozen payday', () => {
     expect(offCycleRaiseRefusal(run({ off_cycle_payday_at: null, approval_history: null }), EMP, 999, '2026-11-21')).toBeNull();
   });
 });
+
+describe('frozenPayDate and the no-payday message (review of 84ca362268)', () => {
+  it('reads a Date and pg\'s text form alike: the day before the payday\'s end, SAST', () => {
+    expect(frozenPayDate({ off_cycle_payday_at: new Date('2026-11-18T22:00:00Z') })).toBe('2026-11-18');
+    expect(frozenPayDate({ off_cycle_payday_at: '2026-11-19 00:00:00+02' })).toBe('2026-11-18');
+    expect(frozenPayDate({ off_cycle_payday_at: null })).toBeNull();
+  });
+  it('no recorded payday with a history: the refusal says so, never a pay date from run_date', () => {
+    for (const run_date of [null, '2026-12-30']) {
+      const msg = offCycleRaiseRefusal(run({ off_cycle_payday_at: null, run_date }), EMP, 1, '2026-11-21');
+      expect(msg).toMatch(/has no recorded payday/);
+      expect(msg).not.toMatch(/paid on/);
+    }
+  });
+});
+

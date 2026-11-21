@@ -17,7 +17,6 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { dateColumnOf } from './payrollFrequency';
 
 type RunFacts = {
   id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; off_cycle_paid_gross?: unknown;
@@ -88,16 +87,22 @@ function paidCaps(run: RunFacts, today: string): Map<string, number> | null {
   return new Map(Object.entries(snap).map(([k, v]) => [k, Number(v)]));
 }
 
-const raisedMessage = (payDate: string, cap: number) =>
-  `This run was paid on ${formatDisplayDate(payDate)}, so an employee's pay on it can't be raised after the pay date (last `
-  + `approved ${formatMoney(cap)}). Pay the difference in a new off-cycle run.`;
+/** The refusal: the frozen pay date, or (no payday recorded, every cap nil) that, never a date read from run_date. */
+const raisedMessage = (run: RunFacts, cap: number) => {
+  const payDate = frozenPayDate(run);
+  return payDate === null
+    ? `This run was approved before but has no recorded payday, so an employee's pay on it can't be raised (last approved `
+      + `${formatMoney(cap)}). Pay the difference in a new off-cycle run.`
+    : `This run was paid on ${formatDisplayDate(payDate)}, so an employee's pay on it can't be raised after the pay date (last `
+      + `approved ${formatMoney(cap)}). Pay the difference in a new off-cycle run.`;
+};
 
 /** The bonus amount edit (delta M1): `amount` (the bonus line's gross) would raise a paid gross. Null when it does not. */
 export function offCycleRaiseRefusal(run: RunFacts, employeeId: string, amount: number, today: string = todayInSast()): string | null {
   const caps = paidCaps(run, today);
   if (!caps) return null;
   const cap = caps.get(employeeId) ?? 0;
-  return amount > cap + 0.004 ? raisedMessage(String(frozenPayDate(run) ?? dateColumnOf(run.run_date)), cap) : null;
+  return amount > cap + 0.004 ? raisedMessage(run, cap) : null;
 }
 
 /**
@@ -117,7 +122,7 @@ export async function offCycleRaisedAfterPayRefusal(
   `) as DbRow[];
   for (const r of now) {
     const cap = caps.get(String(r.employee_id)) ?? 0;
-    if (Number(r.gross) > cap + 0.004) return raisedMessage(String(frozenPayDate(run) ?? dateColumnOf(run.run_date)), cap);
+    if (Number(r.gross) > cap + 0.004) return raisedMessage(run, cap);
   }
   return null;
 }

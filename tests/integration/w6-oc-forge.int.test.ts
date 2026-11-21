@@ -106,7 +106,7 @@ describe('the approval history is never removed or invented below the service', 
     // TS fails closed: capped at nil.
     const ap = await a.api.approve(id);
     expect(ap.statusCode).not.toBe(200);
-    expect(JSON.stringify(ap.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
+    expect(JSON.stringify(ap.body)).toMatch(/has no recorded payday, so an employee's pay on it can't be raised \(last approved R\s0\.00\)/);
     // The trigger fails closed too: a run with an approval history and no frozen payday (lost below the service, as
     // here) is not approved by app_user at all (security review of the payday stamp), so no snapshot is taken from the
     // raised lines, and approval still refuses.
@@ -115,7 +115,7 @@ describe('the approval history is never removed or invented below the service', 
     expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toBeNull();
     const flipped = await a.api.approve(id);
     expect(flipped.statusCode).not.toBe(200);
-    expect(JSON.stringify(flipped.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
+    expect(JSON.stringify(flipped.body)).toMatch(/has no recorded payday, so an employee's pay on it can't be raised \(last approved R\s0\.00\)/);
     expect((await a.header(id)).status).toBe('calculated');
   });
 });
