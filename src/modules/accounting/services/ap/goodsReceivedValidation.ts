@@ -85,6 +85,11 @@ export function parseGoodsReceived(input: unknown, userId: string): GRNInput & {
   if (!Array.isArray(body.items) || body.items.length === 0) throw new GoodsReceivedError('At least one receipt line is required');
   const items = body.items.map(value => {
     const item = record(value);
+    // Required on every line, for the app POST as for the tool (review of fba543d5, finding 2): an omitted count is not a count of
+    // zero; an explicit 0 (every unit rejected) is accepted. quantityRejected may be omitted (none rejected).
+    if (item.quantityReceived === undefined || item.quantityReceived === null || item.quantityReceived === '') {
+      throw new GoodsReceivedError('Each line\'s received quantity is required (0 when every unit was rejected)');
+    }
     const result = { poItemId: id(item.poItemId), quantityReceived: quantity(item.quantityReceived), quantityRejected: quantity(item.quantityRejected), notes: text(item.notes) };
     if (result.quantityReceived === 0 && result.quantityRejected === 0) throw new GoodsReceivedError('Each line must record received or rejected goods');
     return result;

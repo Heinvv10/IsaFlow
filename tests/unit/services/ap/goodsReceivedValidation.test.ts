@@ -13,6 +13,24 @@ const refusal = (line: Record<string, unknown>) => {
   return null;
 };
 
+describe('parseGoodsReceived requires quantityReceived on every line (review of fba543d5, finding 2: the app POST path)', () => {
+  it.each([
+    ['omitted', { quantityRejected: 2 }],
+    ['null', { quantityReceived: null, quantityRejected: 2 }],
+    ['empty', { quantityReceived: '', quantityRejected: 2 }],
+  ])('refuses it %s, typed, even on a rejection-only line', (_, line) => {
+    const err = refusal(line);
+    expect(err).toBeInstanceOf(GoodsReceivedError);
+    expect((err as GoodsReceivedError).refusal).toBe('invalid');
+    expect((err as GoodsReceivedError).message).toContain('received quantity is required');
+  });
+
+  it('accepts an explicit 0 on a rejection-only line; an omitted quantityRejected is still 0', () => {
+    expect(parseGoodsReceived(input({ quantityReceived: 0, quantityRejected: 2 }), 'u1').items[0]).toMatchObject({ quantityReceived: 0, quantityRejected: 2 });
+    expect(parseGoodsReceived(input({ quantityReceived: 3 }), 'u1').items[0]).toMatchObject({ quantityReceived: 3, quantityRejected: 0 });
+  });
+});
+
 describe('parseGoodsReceived quantities', () => {
   it('the storage maximum is NUMERIC(15,2)\'s', () => {
     expect(GRN_QUANTITY_MAX).toBe(9999999999999.99);
