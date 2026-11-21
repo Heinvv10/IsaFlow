@@ -71,6 +71,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}payroll/equityReportService.ts`, `${S}payroll/payScaleService.ts`, `${S}payroll/payrollBulkEmployeeService.ts`,
     `${S}payroll/payrollEmployeeService.ts`, `${S}payroll/payrollTerminationService.ts`,
     `${S}payroll/payrollEmployeeEmail.ts`, // PE: the payslip address only (999o); captured like any employee write
+    `${S}payroll/payrollEmployeePayFrequency.ts`, // FQd: pay_frequency only; captured like any employee write
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',

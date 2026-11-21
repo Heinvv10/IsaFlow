@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { sdlMonthSplitRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
+import { sdlRecalculateRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -71,7 +71,7 @@ async function months(name: string, salaries: Array<[number, number]>, approve =
     await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')`, [run, company, m]);
     await calculatePayrollRun(run, company);
     const exempt = (await pool.query('SELECT bool_or(sdl_exempt) AS e FROM payroll_run_lines WHERE run_id=$1', [run])).rows[0].e as boolean;
-    out.push({ exempt, gate: (await sdlMonthSplitRefusal(company, run))?.detail ?? null });
+    out.push({ exempt, gate: (await sdlRecalculateRefusal(company, run))?.detail ?? null });
     if (approve) await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [run]);
   }
   return out;

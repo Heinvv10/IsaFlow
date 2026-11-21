@@ -159,3 +159,18 @@ describe('buildInvoiceWhere — possibleDuplicate filter tenant scope', () => {
     expect(values).not.toContain(COMPANY_A);
   });
 });
+
+describe('getSupplierInvoices — envelope (#1695)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('is an object with an invoices array and a numeric total, never a bare array (the allocation pages need `total` to know the list is whole)', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ cnt: '7' }] as never);
+    const out = await queryServiceModule.getSupplierInvoices(COMPANY_A, { limit: 200, offset: 0 });
+    expect(Array.isArray(out)).toBe(false);
+    expect(Array.isArray(out.invoices)).toBe(true);
+    expect(typeof out.total).toBe('number');
+    expect(out.total).toBe(7);
+  });
+});

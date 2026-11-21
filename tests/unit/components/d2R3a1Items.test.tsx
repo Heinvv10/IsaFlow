@@ -119,7 +119,7 @@ describe('items list: a categories failure survives an items reload', () => {
 describe('supplier allocations', () => {
   const PAY = { id: 'p1', paymentNumber: 'PAY-D2-1', supplierName: 'D2 Supplier', supplierId: 's1', date: '2026-01-01', amount: 100, allocatedAmount: 0 };
   // the real /supplier-invoices row shape (camelCase, no `outstanding`)
-const INV = { id: 'v1', invoiceNumber: 'INV-D2-9', invoiceDate: '2026-01-01', totalAmount: '100.00', amountPaid: '0.00', balance: '100.00' };
+  const INV = { id: 'v1', invoiceNumber: 'INV-D2-9', invoiceDate: '2026-01-01', totalAmount: '100.00', amountPaid: '0.00', balance: '100.00' };
   async function open(alloc: () => Response, payments: () => Response = () => ok([PAY])) {
     route((url, method) => {
       if (url.includes('/supplier-allocations') && method === 'POST') return alloc();

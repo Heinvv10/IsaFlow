@@ -144,19 +144,18 @@ describeIfDb('PR #1568 round 2 adversarial', () => {
     expect(v).toBeUndefined();
   });
 
-  it('D3: the March run, refused by its EMP201 check after the employee moved to weekly pay, refuses naming the March EMP201 check', async () => {
+  it('D3: the March monthly run, approved before the employee moved to weekly pay, is still certified (judged as at the run since FQd)', async () => {
     const rf = await company('D3');
     const alice = await employee(rf, 'Alice');
     await run2(rf, 3, [[alice, 30_000, 4_000]]);
     await fileEmp201(rf, 3);
     await sql`UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = ${alice}::UUID`;
     const r = await finaliseEmp501(rf);
-    // eslint-disable-next-line no-console
-    console.log('D3', r.status, JSON.stringify(r.body).slice(0, 400));
-    // Ruling L (round 2): the refusal stands (no logic change); it names the month whose EMP201 check refused the run.
-    expect(r.status).toBe(409);
-    expect(JSON.stringify(r.body)).toContain("EMP501 can't be finalised: the March 2025 EMP201 check refused this run");
-    expect(await emp501Versions(rf)).toHaveLength(0);
+    // Ruling L (round 2) refused here only because the EF guard judged the employee's frequency on the CURRENT row (its
+    // KNOWN LIMIT, fail-closed). Wave 6 FQd judges it as at the run, as that limit asked: the March run is a final monthly
+    // run of a then-monthly employee, so its EMP201 check passes and the interim finalises with its PAYE.
+    expect([r.status, (r.body as { data?: { version?: { figures?: { paye?: number } } } }).data?.version?.figures?.paye]).toEqual([200, 4000]);
+    expect(await emp501Versions(rf)).toHaveLength(1);
   });
 
   // EFb's round-2 additions.

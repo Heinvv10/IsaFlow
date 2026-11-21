@@ -103,8 +103,8 @@ describe('RLS-L: tenant B gets nothing of A\'s run from the same routes', () => 
       get(b, b.company, variance, `/api/payroll/runs/${runA}/variance`, q),
       get(b, b.company, costCentreSummary, `/api/payroll/runs/${runA}/cost-centre-summary`, q),
     ]);
-    // The variance route has always answered a run it cannot find with 400 'Payroll run not found' (not this PR's).
-    expect(answers.map((x) => x.statusCode)).toEqual([404, 404, 400, 404]);
+    // The variance route answers a run it cannot find with 404 since wave 6 FQd (PayrollRunNotFoundError; it was 400).
+    expect(answers.map((x) => x.statusCode)).toEqual([404, 404, 404, 404]);
     expect(JSON.stringify(answers.map((x) => x.body))).not.toContain(empA);
     const irp5 = await get(b, b.company, irp5Summary, '/api/payroll/irp5/summary', { taxYear: '2027' });
     expect(irp5.statusCode).toBe(200);

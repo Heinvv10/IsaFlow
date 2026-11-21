@@ -13,6 +13,7 @@ import type { TaxStatus } from '@/modules/accounting/services/payroll/payrollTyp
 import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
+import { PayFrequencyField } from './PayFrequencyField';
 import { PayrollTaxStatusField } from './PayrollTaxStatusField';
 import { EmployeePortalCard } from './EmployeePortalCard';
 import { PspEntityParticularsField } from './PspEntityParticularsField';
@@ -123,6 +124,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
       {employee.taxStatus === 'personal_service_provider' && <PspEntityParticularsField employeeId={employee.id} entity={employee.pspEntityType} stored={employee} canEdit={canEditPriced} onSaved={(p) => onSaved({ ...employee, ...p })} />}
+      <PayFrequencyField employeeId={employee.id} canEdit={canEditPriced} />
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
       <EmployeePortalCard employeeId={employee.id} canEdit={canEditPriced} />
     </div>

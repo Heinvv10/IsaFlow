@@ -53,6 +53,7 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // ── Import handler after mocks ────────────────────────────────────────────────
 
+import { apiResponse } from '@/lib/apiResponse';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { mockUnsafe } from '../helpers/sqlFragmentMock';
 import handler from '../../../pages/api/accounting/customer-invoices-list';
@@ -98,6 +99,14 @@ describe('customer-invoices-list handler (BL-23)', () => {
     // statusValues, clientIdFilter, searchTermFilter should all be null
     const nullCount = mainCallValues.filter((v) => v === null).length;
     expect(nullCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('answers an object with an invoices array and a numeric total, never a bare array (the allocation pages need `total` to know the list is whole)', async () => {
+    await (handler as Function)(makeReq({ limit: '100' }), makeRes());
+    const body = vi.mocked(apiResponse.success).mock.calls[0]![1] as { invoices: unknown; total: unknown };
+    expect(Array.isArray(body)).toBe(false);
+    expect(Array.isArray(body.invoices)).toBe(true);
+    expect(typeof body.total).toBe('number');
   });
 
   it('the company-wide AR summary runs only when asked (summary=1): three more sql calls (outstanding, overdue, foreign-open count)', async () => {

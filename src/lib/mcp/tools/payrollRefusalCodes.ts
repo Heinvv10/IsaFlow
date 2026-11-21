@@ -11,5 +11,10 @@ export const PAYROLL_REFUSAL_CODES = [
   'PAY_FREQUENCY_REFUSED', // FQc payrollFrequencyGuard: terms a weekly or fortnightly run cannot cost, its EMP201 month, a mid-year frequency change; names the company's own employee numbers, before any write.
   'PAY_PERIOD_OVERLAP', // FQc payrollFrequencyGuard: a weekly or fortnightly run's dates overlap another regular run of its frequency (review #1575 G6).
   'EMPLOYEE_PORTAL_REFUSED', // SS employeePortalRefusal: a portal invite, revoke or sign-in refused before any write or send.
+  'PAY_WEEK_LOCKED', // FQd payrollPayWeekSettings: the pay week is fixed for the tax year by an approved weekly/fortnightly run.
+  'RUN_NOT_DELETABLE', // FQd payrollRunDelete: only a draft never calculated or approved is deleted; nothing written.
+  'PAYROLL_RUN_NOT_FOUND', // FQd payrollRunLock: calculate of a run that is not this company's or was deleted while it waited.
+  'FREQUENCY_CHANGE_STRADDLE', // FQd payrollFrequencyStraddle: a first run at a new pay frequency pays days twice or leaves days unpaid, until acknowledged.
+  'FREQUENCY_STRADDLE_ACK_REFUSED', // FQd payrollFrequencyStraddleAck: nothing to acknowledge, or the run is past calculation.
   'PSP_REGISTRATION_NOT_FOR_ENTITY', // PSP-H: a PSP's entity moved and the stored registration number (3066) is not for the new one, before any write.
 ] as const;

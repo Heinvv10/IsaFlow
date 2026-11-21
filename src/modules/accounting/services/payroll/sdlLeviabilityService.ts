@@ -1,11 +1,14 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL, isSdlExempt } from './sdlEngine';
+import { isSdlExempt, SDL_RATE } from './sdlEngine';
+import { payRunFinalSql } from './payRunFinalSql';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
 import { contractorLineFlag } from './payrollOutsideTables';
+import { payFrequencyOf } from './payrollFrequency';
+import { periodsInYear } from './annualisationFactor';
 
 /**
  * Section 4(b) of the Skills Development Levies Act exempts an employer whose
@@ -92,12 +95,24 @@ export async function estimateAnnualRemuneration(
 ): Promise<number> {
   const index = periodIndex(period.year, period.month);
   const windowStart = index - (TRAILING_PERIODS - 1);
+  // The month's estimate (wave 6 FQd, review #1622, coordinator ruling: the month-to-date catch-up): every calculated,
+  // approved or paid run of the month plus this one, and, for a weekly or fortnightly REGULAR run, at least this run
+  // annualised by its own periods a year (52, 26) beside the month's runs of other frequencies and kinds, so the first
+  // week of a month is not read as a whole month's pay. The liability it gives is monotonic within the month and the
+  // levy catches up on earlier runs (sdlCatchUp).
+  const self = ((await sql`
+    SELECT pay_frequency, run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  const frequency = payFrequencyOf(self?.pay_frequency);
+  const regular = self?.run_kind === 'regular';
   const rows = (await sql`
     WITH runs AS (
-      SELECT prh.period_year * 12 + prh.period_month AS idx,
+      SELECT prh.period_year * 12 + prh.period_month AS idx, prh.run_kind, prh.pay_frequency,
              -- The month's OTHER calculated, approved or paid runs (an off-cycle run beside the regular one): their
              -- remuneration is this month's too, whatever order they were calculated or paid in (wave 6 FQb1).
-             (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid) AS same_month_other,
+             -- FINAL ones only since FQd (review #1622 M-A): a run not yet final never props up another.
+             (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid
+              AND ${sql.unsafe(payRunFinalSql('prh'))}) AS same_month_other,
              (prh.id = ${runId}::uuid) AS is_this_run,
              -- The breakdown is read only inside the window: an older run counts only for the first
              -- month of history, which its cash gross decides (a run of benefits alone is not one).
@@ -123,6 +138,7 @@ export async function estimateAnnualRemuneration(
            COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
            MIN(idx)::int AS first_index,
            COALESCE(SUM(remuneration) FILTER (WHERE same_month_other), 0)::float8 AS month_others,
+           COALESCE(SUM(remuneration) FILTER (WHERE same_month_other AND run_kind = 'regular' AND pay_frequency = ${self?.pay_frequency == null ? '' : String(self.pay_frequency)}), 0)::float8 AS month_same_frequency,
            (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored
       FROM runs
      WHERE remuneration > 0
@@ -148,7 +164,10 @@ export async function estimateAnnualRemuneration(
   // decide differently if one was calculated before the other existed: payrollSdlMonthGate refuses approval until both
   // are recalculated on the same month total.
   const monthOthers = Number(rows[0]?.month_others ?? 0);
-  const monthRemuneration = monthOthers + current;
+  const sameFrequency = Number(rows[0]?.month_same_frequency ?? 0);
+  const periodic = regular && (frequency === 'weekly' || frequency === 'fortnightly') ? frequency : null;
+  const projected = periodic ? (current * periodsInYear(periodic)) / TRAILING_PERIODS + monthOthers - sameFrequency : 0;
+  const monthRemuneration = Math.max(monthOthers + current, projected);
   const annual = Math.round(
     ((priorRemuneration + monthRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
@@ -159,7 +178,7 @@ export async function estimateAnnualRemuneration(
   log.info(
     'SDL leviability basis',
     {
-      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers,
+      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers, sameFrequency, periodic,
       // Which judgement this is: the run's costing, or the approval gate re-judging its month (payrollSdlMonthGate).
       source: currentPeriodRemuneration === 'stored' ? 'approval-gate' : 'calculation',
     },
@@ -169,29 +188,82 @@ export async function estimateAnnualRemuneration(
 }
 
 /**
- * Charge the levy on each line's own leviable remuneration, once the employer's
- * annual remuneration has decided whether it is due at all. Returns the run
- * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
- * with each line so the year to date knows which months were liable), which is
- * why the caller builds them first.
+ * The month-to-date catch-up (wave 6 FQd, review #1622; coordinator rulings, delta round: month level, FINAL runs only),
+ * the same model as UIF's month cap. OC extends it for off-cycle runs. At each run of a month:
+ *   - liable = this run's estimate says liable, OR any other FINAL run of the month stored liable: monotonic over what
+ *     is approved, while a run not yet final judges itself and never props up another (review M-A);
+ *   - this run's SDL = liable ? 1% x (the month's FINAL runs' leviable pay + this run's) - the SDL those FINAL runs
+ *     carried : 0, NEGATIVE when they carried more (M-E: floored at the month, which never goes below 0), split
+ *     across this run's lines by leviable share to the cent (lineSdlShares). So whenever the
+ *     month ends liable its SDL is 1% of its leviable pay, across reopen and re-approval and any mix of frequencies
+ *     (review M-B), and no run is ever sent back to reopen for SDL.
+ */
+export interface SdlCatchUp { liable: boolean; earlierLeviable: number; earlierSdl: number }
+
+export async function sdlCatchUp(companyId: string, runId: string, liableNow: boolean): Promise<SdlCatchUp> {
+  const rows = (await sql`
+    WITH month AS (
+      SELECT o.id
+        FROM payroll_run_headers me
+        JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year
+         AND o.period_month = me.period_month AND o.id <> me.id AND ${sql.unsafe(payRunFinalSql('o'))}
+       WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
+    )
+    SELECT COALESCE(bool_or(NOT l.sdl_exempt), false) AS liable_before,
+           COALESCE(SUM(COALESCE(l.sdl_leviable, 0)), 0)::float8 AS leviable, COALESCE(SUM(l.sdl), 0)::float8 AS charged
+      FROM month m JOIN payroll_run_lines l ON l.run_id = m.id
+  `) as DbRow[];
+  const r = rows[0] ?? {};
+  return { liable: liableNow || r.liable_before === true, earlierLeviable: Number(r.leviable ?? 0), earlierSdl: Number(r.charged ?? 0) };
+}
+
+/** This run's SDL at month level (sdlCatchUp), in cents, then its lines' shares by leviable pay, to the cent. */
+export function lineSdlShares(leviables: number[], up: SdlCatchUp): number[] {
+  if (!up.liable || leviables.length === 0) return leviables.map(() => 0);
+  const own = leviables.reduce((a, b) => a + b, 0);
+  // Floored at the MONTH, not the run (breaker #1622 M-E): a run may carry negative SDL, a within-month refund of what
+  // the month's approved runs over-caught-up (a caught-up run reopened and corrected down), but never below what they
+  // carried, so the month's SDL is never negative.
+  const earlier = Math.round(up.earlierSdl * 100);
+  const cents = Math.max(-earlier, Math.round((up.earlierLeviable + own) * SDL_RATE * 100) - earlier);
+  const exact = leviables.map((v, i) => (own > 0 ? (cents * v) / own : i === 0 ? cents : 0));
+  const shares = exact.map((x) => Math.floor(x));
+  let left = cents - shares.reduce((a, b) => a + b, 0);
+  // The cents left go to the largest remainders (then the largest leviable pay): each line as close to its share as
+  // the cents allow, so a run with nothing to catch up rounds each line as its own 1% would.
+  const order = exact.map((x, i) => [x - Math.floor(x), leviables[i]!, i] as const)
+    .sort((a, b) => b[0] - a[0] || b[1] - a[1]).map(([, , i]) => i);
+  for (let k = 0; left > 0; k = (k + 1) % order.length, left -= 1) shares[order[k]!] = shares[order[k]!]! + 1;
+  return shares.map((c) => c / 100);
+}
+
+/**
+ * Charge the levy on the run's lines: the month's liability and the run's month-level SDL (sdlCatchUp, lineSdlShares),
+ * split by leviable share. Returns the run total. Mutates `sdl` and `sdlExempt` on the lines (the month's
+ * decision, kept with each line), and completes each line's SDL explanation with the catch-up.
  */
 export function applySdlToLines(
   lines: SdlLine[],
   annualRemunerationEstimate: number,
   taxYear: number,
+  up: SdlCatchUp = { liable: !isSdlExempt(annualRemunerationEstimate, taxYear), earlierLeviable: 0, earlierSdl: 0 },
 ): number {
-  let total = 0;
-  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
-  for (const line of lines) {
-    line.sdlExempt = exempt;
-    line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
+  const sdl = lineSdlShares(lines.map((l) => l.sdlLeviable), up);
+  const runSdl = sdl.reduce((a, b) => a + b, 0);
+  const own = lines.reduce((a, l) => a + l.sdlLeviable, 0);
+  // What the line's explanation says about the month: catching up earlier approved runs, or already covered by them.
+  const month = up.liable && (up.earlierLeviable > 0 || up.earlierSdl > 0)
+    ? { earlierLeviable: up.earlierLeviable, earlierSdl: up.earlierSdl, runSdl: Math.round(runSdl * 100) / 100, covered: runSdl === 0 && own > 0 }
+    : undefined;
+  lines.forEach((line, i) => {
+    line.sdlExempt = !up.liable;
+    line.sdl = sdl[i]!;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
-        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl }),
+        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt: !up.liable, sdl: line.sdl, month }),
       };
     }
-    total += line.sdl;
-  }
-  return total;
+  });
+  return Math.round(runSdl * 100) / 100;
 }
