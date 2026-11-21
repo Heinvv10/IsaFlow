@@ -134,3 +134,12 @@ export const PAYROLL_READ_GATES: Readonly<Record<string, GateSpec>> = {
   refuseWithoutPayrollWrite: { kind: 'refuse', module: 'payroll' },
 };
 export const PAYROLL_READ_WRAPPERS: Readonly<Record<string, string>> = { withPayrollModule: 'payroll', withPayrollDetailAccess: 'payroll' };
+
+/**
+ * The posting census's rules, for the real tree (approvePostEntryCensus) and the fixtures (approveCensusFixtures). flagPrimitiveRoots +
+ * queryCalls (#1670 Codex): a handler that posts in its OWN SQL (sql`` or client.query) calls no sink, and was not judged.
+ */
+export const POSTING_RULES = {
+  sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
+  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'],
+} as const;
