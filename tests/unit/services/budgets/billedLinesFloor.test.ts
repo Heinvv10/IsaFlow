@@ -27,13 +27,16 @@ describe('billedLinesByPoItem floor', () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 500), item('l2', 'b1', 'P', 'b', -500)]);
     expect(sums(await billedLinesByPoItem('c1', ['a', 'b'], []))).toEqual({});
   });
-  it('breaker r8: the net is spread over the positive postings pro rata, the residual on the last; a negative one takes nothing', async () => {
+  it('breaker r8 / r9: line nets first, the PO net spread over the positive line nets by largest remainder; a negative line takes nothing', async () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 300), item('l2', 'b1', 'P', 'b', 100), item('l3', 'b1', 'P', 'c', -200)]);
     expect(sums(await billedLinesByPoItem('c1', ['a', 'b', 'c'], []))).toEqual({ a: 150, b: 50 });
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', -200), item('l2', 'b1', 'P', 'b', 300)]);
     expect(sums(await billedLinesByPoItem('c1', ['a', 'b'], []))).toEqual({ b: 100 });
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 1), item('l2', 'b1', 'P', 'b', 1), item('l3', 'b1', 'P', 'c', 1), item('l4', 'b1', 'P', 'd', -1)]);
-    expect(sums(await billedLinesByPoItem('c1', ['a', 'b', 'c'], []))).toEqual({ a: 0.66, b: 0.66, c: 0.68 });
+    expect(sums(await billedLinesByPoItem('c1', ['a', 'b', 'c'], []))).toEqual({ a: 0.67, b: 0.67, c: 0.66 }); // largest remainder (breaker r9)
+    // Breaker r9: a credit on B stays on B (lines netted first): A +500, B +500 and -450 -> A 500, B 50.
+    queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', 500), item('l2', 'b1', 'P', 'b', 500), item('l3', 'b1', 'P', 'b', -450)]);
+    expect(sums(await billedLinesByPoItem('c1', ['a', 'b'], []))).toEqual({ a: 500, b: 50 });
   });
   it('drops a bill whose postings to a PO sum below 0 (a discount naming its line)', async () => {
     queue.push([{ id: 'b1' }], [item('l1', 'b1', 'P', 'a', -50)]);

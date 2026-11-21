@@ -90,5 +90,9 @@ describe('L5: a basis of 0 is never fully billed', () => {
     expect(r.isError, r.text).toBe(false);
     expect(poReply(r, po)).toMatchObject({ status: 'approved', billing_basis: 0, fully_billed: false });
     expect(await status(po)).toEqual({ status: 'approved', closed_by_billing: false });
+    // Review r9 MEDIUM-1: get_purchase_order and the unlink reply (and its audit) say the same.
+    expect((await callTool(pool, f, getPo, { po_id: po.po })).body).toMatchObject({ fully_billed: false });
+    const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b.id, reason: 'x' });
+    expect([u.isError, u.body.fully_billed]).toEqual([false, false]);
   });
 });

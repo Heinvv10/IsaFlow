@@ -30,6 +30,7 @@ import { billTies } from './billAttribution';
 import { BILLED_STATUSES, COMMITTING_PO_STATUSES, isFullyBilledBasis } from './poCommitStatus';
 import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
 import { toCents } from './grid/cents';
+import { spreadLineNets } from './lineNetSpread';
 
 export { BILLED_STATUSES, COMMITTING_PO_STATUSES, commitsSpend } from './poCommitStatus';
 
@@ -114,30 +115,28 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
     const orderOf = new Map(billItems.map((i) => [text(i.po_item_id), text(i.item_po)]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
-    // Net then spread (breaker r8): per (bill, PO) the billed amount is max(0, net of ALL the bill's postings to that PO's lines,
-    // whatever subset was asked for; billAttribution's lines tie), spread over the bill's POSITIVE postings on that PO pro rata to
-    // their size, the residual on the last; a negative posting takes nothing. +500 on A and -500 on B of one PO bills it nothing,
-    // so it releases nothing; -200 on A and +300 on B bills R100, all of it on B.
-    const byOrder = new Map<string, Array<{ item: string; cents: number; posting: BilledPosting }>>();
+    // Per (bill, PO), each PO line's postings are netted first, then budgets/lineNetSpread decides what each line bills (breaker r9,
+    // the corrected rule): max(0, sum of the line nets) on the PO, a positive line keeping its net less a largest-remainder share of
+    // the negatives, a line netting <= 0 billing nothing. The verdict is over every line of the bill naming the PO, whatever subset was
+    // asked for (review r7 M1); a credit stays on its own line's account.
+    const byOrder = new Map<string, Map<string, { cents: number; posting: BilledPosting }>>();
     for (const line of postedExpenseLines(b, billItems)) {
       const item = poOf.get(String(line.description));
       if (!item) continue;
       const order = orderOf.get(item) ?? item;
-      byOrder.set(order, [...(byOrder.get(order) ?? []), { item, cents: toCents(line.debit), posting: {
+      const lines = byOrder.get(order) ?? new Map<string, { cents: number; posting: BilledPosting }>();
+      const had = lines.get(item);
+      lines.set(item, had ? { ...had, cents: had.cents + toCents(line.debit) } : { cents: toCents(line.debit), posting: {
         glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
         buId: text(line.buId), month, amount: line.debit,
-      } }]);
+      } });
+      byOrder.set(order, lines);
     }
-    for (const postings of byOrder.values()) {
-      const billed = Math.max(0, postings.reduce((sum, p) => sum + p.cents, 0));
-      const positive = postings.filter((p) => p.cents > 0);
-      const total = positive.reduce((sum, p) => sum + p.cents, 0);
-      if (billed === 0 || total === 0) continue;
-      let left = billed;
-      positive.forEach((p, k) => {
-        const share = k === positive.length - 1 ? left : Number((BigInt(billed) * BigInt(p.cents)) / BigInt(total));
-        left -= share;
-        if (share > 0 && linked.has(p.item)) out.set(p.item, [...(out.get(p.item) ?? []), { ...p.posting, amount: share / 100 }]);
+    for (const lines of byOrder.values()) {
+      const items = [...lines.entries()];
+      const shares = spreadLineNets(items.map(([, l]) => l.cents));
+      items.forEach(([item, l], k) => {
+        if (shares[k]! > 0 && linked.has(item)) out.set(item, [...(out.get(item) ?? []), { ...l.posting, amount: shares[k]! / 100 }]);
       });
     }
   }

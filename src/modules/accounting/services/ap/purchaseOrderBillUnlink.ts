@@ -42,7 +42,8 @@ import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { auditBillCleared, resetMatchState } from './purchaseOrderUnlinkClear';
-import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { PurchaseOrderBillLinkRefusal } from './purchaseOrderBillLinkTypes';
+import { isFullyBilledBasis } from '../budgets/poCommitStatus';
 import { poCommittedCents, reopenUnderBilled } from './purchaseOrderBillingClose';
 import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
@@ -92,7 +93,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   }
   const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   const pos = await withRowLockBudget(async () => (await sql`
-    SELECT po_number, status, to_char(order_date, 'YYYY-MM') AS month, subtotal FROM purchase_orders
+    SELECT po_number, status, to_char(order_date, 'YYYY-MM') AS month FROM purchase_orders
      WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline }); // not FOR UPDATE: see purchaseOrderBillLinkRead (draft edit vs link deadlock)
   if (!pos[0]) throw NOT_FOUND('Purchase order');
@@ -151,7 +152,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
 
   const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
-  const fully = isFullyBilled(billed, (await poBillingBasisCents(companyId, [poId])).get(poId) ?? 0);
+  const fully = isFullyBilledBasis(billed, (await poBillingBasisCents(companyId, [poId])).get(poId) ?? 0); // never on a basis of 0
   // Removing ANY counted tie (link, lines, header of a billed live bill) reopens a PO closed BY BILLING (purchase_orders.closed_by_billing,
   // PR #1703 breaker R4-1) once it is no longer fully billed; a PO closed by hand, or a tie that never counted, is not touched.
   const reopenedTo = (await reopenUnderBilled(companyId, new Map([[poId, billedBefore]]), {

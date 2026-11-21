@@ -231,7 +231,7 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
       last.closedFrom = po.status;
     }
     out.set(poId, { poId, statusBefore: po.status, statusAfter, billedCents: billed, subtotalCents: po.subtotalCents,
-      headerSubtotalCents: po.headerSubtotalCents ?? po.subtotalCents, fullyBilled: fully });
+      headerSubtotalCents: po.headerSubtotalCents, fullyBilled: fully });
   }
   return out;
 }

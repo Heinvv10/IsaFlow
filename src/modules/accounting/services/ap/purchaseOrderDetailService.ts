@@ -12,7 +12,7 @@ import { toCents } from '../budgets/grid/cents';
 import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
-import { isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { isFullyBilledBasis } from '../budgets/poCommitStatus';
 import { isClosedUnderBilled } from './purchaseOrderBillingClose';
 
 /** Caps and text limits sized so the widest reply (`poBillLinkTools.test.ts`) stays under MAX_READ_RESULT_BYTES. Lines page by offset. */
@@ -144,7 +144,7 @@ export async function readPurchaseOrderDetail(
     documents_total: docs[0] ? Number(docs[0].total_rows) : 0,
     billed_total: rand(billedCents),
     outstanding_to_bill: rand(Math.max(0, subtotalCents - billedCents)),
-    fully_billed: isFullyBilled(billedCents, subtotalCents),
+    fully_billed: isFullyBilledBasis(billedCents, subtotalCents), // never on a basis of 0 (review r9)
     closed_under_billed: isClosedUnderBilled({ status: String(head.status), closedByBilling: head.closed_by_billing === true, subtotalCents }, billedCents),
   };
 }

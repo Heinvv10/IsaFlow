@@ -6,7 +6,9 @@ import {
 } from '@/modules/accounting/services/ap/purchaseOrderBillLinkTypes';
 
 const SUP = 's1';
-const po = (id: string, over: Partial<PoFacts> = {}): PoFacts => ({ id, poNumber: `PO-${id}`, status: 'approved', supplierId: SUP, subtotalCents: 30000, ...over });
+const po = (id: string, over: Partial<PoFacts> = {}): PoFacts => ({
+  id, poNumber: `PO-${id}`, status: 'approved', supplierId: SUP, subtotalCents: 30000, headerSubtotalCents: over.subtotalCents ?? 30000, ...over,
+});
 const bill = (id: string, over: Partial<BillFacts> = {}): BillFacts => ({
   id, invoiceNumber: `B-${id}`, status: 'approved', supplierId: SUP, subtotalCents: 30000,
   lines: [{ id: `${id}-l1`, poItemId: null, poItemPoId: null, postedCents: 10000 }, { id: `${id}-l2`, poItemId: null, poItemPoId: null, postedCents: 20000 }], ...over,

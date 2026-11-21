@@ -43,7 +43,7 @@ export interface LinkRequest {
 }
 
 /** `subtotalCents`: the billing basis, max(header subtotal, lines' total) (review r7 M2); `headerSubtotalCents`: the header's own. */
-export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number; headerSubtotalCents?: number }
+export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number; headerSubtotalCents: number }
 
 export interface BillLineFacts {
   id: string;
