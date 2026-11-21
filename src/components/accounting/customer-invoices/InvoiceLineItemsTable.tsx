@@ -19,6 +19,7 @@ import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCu
 import type { CodingOption, InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { discountInput } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export interface InvoiceLine {
   key: string;
@@ -164,8 +165,8 @@ export function InvoiceLineItemsTable({
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
-              <td className="px-3 py-2"><input type="number" inputMode="decimal" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
-              <td className="px-3 py-2"><input type="number" inputMode="decimal" name="unitPrice" aria-label={pricesIncludeVat ? 'Unit price incl. VAT' : 'Unit price'} value={l.unitPrice} min={0} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
+              <td className="px-3 py-2"><AmountInput name="quantity" aria-label="Quantity" value={l.quantity} decimals={3} onValueChange={(n) => onUpdate(l.key, 'quantity', n)} className={`${inp} text-right`} /></td>
+              <td className="px-3 py-2"><AmountInput name="unitPrice" aria-label={pricesIncludeVat ? 'Unit price incl. VAT' : 'Unit price'} value={l.unitPrice} min={0} decimals={6} onValueChange={(n) => onUpdate(l.key, 'unitPrice', n)} className={`${inp} text-right`} /></td>
               {showDiscount && <td className="px-3 py-2"><input type="number" inputMode="decimal" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => { setDiscountToggled(true); onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value))); }} placeholder="0" className={`${inp} text-right`} /></td>}
               <td className="px-4 py-2 text-right">
                 <span className="tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>

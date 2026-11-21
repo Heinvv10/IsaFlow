@@ -12,6 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { numberLines } from '@/lib/lineNumbers';
 import { useDateGate } from '@/hooks/useDateGate';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface SalesOrder {
   id: string; orderNumber: string; customerName: string;
@@ -102,8 +103,8 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
                   {lines.map((l, i) => (
                     <tr key={i} className="group">
                       <td className="px-2 py-2"><input value={l.description} onChange={e => { const n = [...lines]; n[i] = { ...l, description: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.quantity} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, quantity: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.unit_price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, unit_price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="px-2 py-2"><AmountInput aria-label={`Quantity, line ${i + 1}`} value={l.quantity} min={1} decimals={3} onValueChange={v => { const n = [...lines]; n[i] = { ...l, quantity: v }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="px-2 py-2"><AmountInput aria-label={`Unit price, line ${i + 1}`} value={l.unit_price} min={0} onValueChange={v => { const n = [...lines]; n[i] = { ...l, unit_price: v }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.quantity * l.unit_price)}</td>
                       <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} aria-label={`Remove line ${i + 1}`} className="p-1 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>

@@ -15,6 +15,7 @@ import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-
 import { deriveLineCc1, type CostCentreLadder } from './billLineCc1';
 import type { SupplierDefaultsStatus } from './useSupplierDimensionDefaults';
 import type { BillLineItem, GLAccount } from './BillLineItemsTable';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export const billInput =
   'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ' +
@@ -131,12 +132,12 @@ export function billLineFields(line: BillLineItem, index: number, ctx: LineField
         empty={supplierDefaults?.buId ? 'Supplier default' : 'No BU'} onChange={v => onUpdate(line.key, 'buId', v)} />
     ) : null,
     qty: (
-      <input type="number" aria-label={`Line ${index + 1} quantity`} step="0.01" min="0.01" required value={line.quantity}
-        onChange={e => onUpdate(line.key, 'quantity', Number(e.target.value))} className={`${billInput} text-right`} />
+      <AmountInput aria-label={`Line ${index + 1} quantity`} min={0.01} required value={line.quantity}
+        onValueChange={n => onUpdate(line.key, 'quantity', n)} className={`${billInput} text-right`} />
     ),
     price: (
-      <input type="number" aria-label={`Line ${index + 1} unit price`} step="any" min="0" required value={line.unitPrice}
-        onChange={e => onUpdate(line.key, 'unitPrice', Number(e.target.value))} className={`${billInput} text-right`} />
+      <AmountInput aria-label={`Line ${index + 1} unit price`} min={0} decimals={6} required value={line.unitPrice}
+        onValueChange={n => onUpdate(line.key, 'unitPrice', n)} className={`${billInput} text-right`} />
     ),
     total: formatCurrency(line.quantity * line.unitPrice),
     remove: (
