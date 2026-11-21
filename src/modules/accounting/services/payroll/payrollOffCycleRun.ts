@@ -56,6 +56,8 @@ export const MAX_BONUS = 100_000_000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** A bonus is an annual payment PAYE taxes (gate review of 7630d9379f): a non-taxable 3605 would pay it with no PAYE. */
+export const OFF_CYCLE_BONUS_EARNING = 'A bonus must be paid on one of the company\'s taxable annual-payment earnings (SARS code 3605).';
 const bad = (m: string) => new OffCycleRunRefusedError(m, 400);
 const state = (m: string) => new OffCycleRunRefusedError(m, 409);
 const monthName = (p: PayrollPeriod) => `${p.year}-${String(p.month).padStart(2, '0')}`;
@@ -149,9 +151,9 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
     const ok = (await tx`
       SELECT id FROM payroll_components
        WHERE company_id = ${companyId}::uuid AND id = ANY(${componentIds}::uuid[])
-         AND component_type = 'earning' AND btrim(sars_source_code) = '3605'
+         AND component_type = 'earning' AND btrim(sars_source_code) = '3605' AND is_taxable
     `) as DbRow[];
-    if (ok.length !== componentIds.length) throw bad('A bonus must be paid on one of the company\'s annual-payment earnings (SARS code 3605).');
+    if (ok.length !== componentIds.length) throw bad(OFF_CYCLE_BONUS_EARNING);
     return;
   }
   const notLeaving = named((p) => typeof p.end_date !== 'string' || String(p.end_date).slice(0, 7) !== monthName(period));

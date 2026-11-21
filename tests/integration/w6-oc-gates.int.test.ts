@@ -91,6 +91,29 @@ afterAll(async () => {
   vi.useRealTimers();
 }, 120_000);
 
+describe('gate review of 7630d9379f, ruling 1: a bonus is paid on a PAYE-taxable 3605 earning only', () => {
+  it('refused at create (400) on a non-taxable 3605; refused at calculate (409) once its earning turns non-taxable', async () => {
+    const untaxed = String((await b.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+      VALUES ($1, 'Untaxed bonus', '3605', 'earning', false) RETURNING id`, [b.company])).rows[0].id);
+    const before = await runs(b);
+    const made = await create(b, { reason: 'bonus', runDate: '2026-11-29', employees: [{ employeeId: p.early, componentId: untaxed, amount: 10_000 }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(400);
+    expect(String(made.body.error?.message)).toMatch(/taxable annual-payment earnings/);
+    expect(await runs(b)).toBe(before);
+    // Taxable at create, then made non-taxable: the calculation refuses it before costing.
+    const later = String((await b.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
+      VALUES ($1, 'Bonus later untaxed', '3605', 'earning') RETURNING id`, [b.company])).rows[0].id);
+    const ok = await create(b, { reason: 'bonus', runDate: '2026-11-29', employees: [{ employeeId: p.early, componentId: later, amount: 10_000 }] });
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(201);
+    const id = String(ok.body.data!.id);
+    await b.pool.query('UPDATE payroll_components SET is_taxable = false WHERE id = $1', [later]);
+    const calc = await b.api.calculate(id);
+    expect(calc.statusCode).toBe(409);
+    expect(b.msg(calc)).toMatch(/taxable annual-payment earnings/);
+    await b.pool.query(`UPDATE payroll_run_headers SET status = 'cancelled' WHERE id = $1`, [id]);
+  });
+});
+
 describe('review #1679 codex M6: a termination run names every leaver with no termination reason', () => {
   it('two leavers, one with no reason: 409 TERMINATION_REASON_MISSING naming that one, and nothing is written', async () => {
     const withReason = (await b.employee(9_000)).employee;

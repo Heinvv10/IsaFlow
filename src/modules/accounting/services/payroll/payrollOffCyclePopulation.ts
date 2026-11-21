@@ -17,6 +17,7 @@ import { loadRegularPayDirectives } from './payrollRunRegularDirective';
 import { loadMonthEarlierLines } from './payrollOffCycleMonthRead';
 import { NO_EARLIER_LINES, type MonthEarlierLines } from './payrollOffCycleMonth';
 import type { PreparedRunEmployee } from './payrollRunComponents';
+import { OFF_CYCLE_BONUS_EARNING, OffCycleRunRefusedError } from './payrollOffCycleRun';
 import type { PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 export interface OffCyclePrepared extends PreparedRunEmployee { monthEarlier: MonthEarlierLines }
@@ -49,6 +50,8 @@ export async function prepareOffCycleComponents(args: {
   for (const employee of employees) {
     const terminationWarnings: ValidationResult[] = [];
     const bonus = bonuses.get(employee.id);
+    // Its earning may have been made non-taxable since the run was created: refused before costing (409, no write).
+    if (reason === 'bonus' && bonus && bonus.is_taxable !== true) throw new OffCycleRunRefusedError(OFF_CYCLE_BONUS_EARNING, 409);
     const components = reason === 'bonus'
       ? (bonus ? [{ component: mapComponent(bonus), amount: Number(bonus.amount) }] : [])
       : await appendTerminationIfEndingThisPeriod(companyId, runId, employee, [], period, terminationWarnings);
