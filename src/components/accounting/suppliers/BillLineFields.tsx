@@ -132,11 +132,11 @@ export function billLineFields(line: BillLineItem, index: number, ctx: LineField
         empty={supplierDefaults?.buId ? 'Supplier default' : 'No BU'} onChange={v => onUpdate(line.key, 'buId', v)} />
     ) : null,
     qty: (
-      <AmountInput aria-label={`Line ${index + 1} quantity`} min={0.01} required value={line.quantity}
+      <AmountInput aria-label={`Line ${index + 1} quantity`} min={0.01} decimals={4} required value={line.quantity}
         onValueChange={n => onUpdate(line.key, 'quantity', n)} className={`${billInput} text-right`} />
     ),
     price: (
-      <AmountInput aria-label={`Line ${index + 1} unit price`} min={0} decimals={6} required value={line.unitPrice}
+      <AmountInput aria-label={`Line ${index + 1} unit price`} min={0} required value={line.unitPrice}
         onValueChange={n => onUpdate(line.key, 'unitPrice', n)} className={`${billInput} text-right`} />
     ),
     total: formatCurrency(line.quantity * line.unitPrice),

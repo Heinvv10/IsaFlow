@@ -22,6 +22,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import CustomerQuotesPage from '../../../pages/accounting/customer-quotes/index';
 import CustomerSalesOrdersPage from '../../../pages/accounting/customer-sales-orders/index';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { invoiceLineAmount } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { BillLineItemsTable, type BillLineItem } from '@/components/accounting/suppliers/BillLineItemsTable';
 
 configure({ asyncUtilTimeout: 4000 });
@@ -41,7 +42,7 @@ describe.each([
     list: { quotes: [], total: 0 } },
   { name: 'sales order', create: /Create Sales Order/, open: /New Sales Order/, intro: 'Fill in the order details below', url: 'customer-sales-orders', price: 'Unit price, line 1', qty: 'Quantity, line 1',
     list: { orders: [], total: 0 } },
-])('$name create modal', ({ create, open, intro, url, price, qty, list }) => {
+])('$name create modal', ({ name, create, open, intro, url, price, qty, list }) => {
   const Page = url === 'customer-quotes' ? CustomerQuotesPage : CustomerSalesOrdersPage;
   const posted: string[] = [];
   const openModal = async () => {
@@ -58,6 +59,17 @@ describe.each([
     fireEvent.change(screen.getAllByRole('combobox').find((s) => s.querySelector('option[value="c1"]'))!, { target: { value: 'c1' } });
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Widget' } });
   };
+
+  it('quantity decimals equal the column scale (quote numeric(10,2), order numeric(12,4)); a quote may be 0.5', async () => {
+    await openModal();
+    const ok = name === 'quote' ? '0.5' : '1.2345';
+    const tooMany = name === 'quote' ? '0.555' : '1.23456';
+    type(screen.getByLabelText(qty), ok);
+    expect(val(qty)).toBe(ok);
+    if (name === 'quote') expect(screen.getByLabelText(qty).getAttribute('aria-invalid')).toBeNull(); // server accepts > 0
+    fireEvent.change(screen.getByLabelText(qty), { target: { value: tooMany } });
+    expect(val(qty)).toBe(ok);
+  });
 
   it('typing 5000 into the 0 unit price gives 5000, no leading zero', async () => {
     await openModal();
@@ -92,7 +104,7 @@ function InvoiceHarness() {
   const [lines, setLines] = useState<InvoiceLine[]>([{ key: 'a', description: '', quantity: 1, unitPrice: 0, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }]);
   invStored = lines;
   return (
-    <InvoiceLineItemsTable lines={lines} currencyCode="ZAR" lineTotal={(l) => l.quantity * l.unitPrice} options={OPTIONS as never}
+    <InvoiceLineItemsTable lines={lines} currencyCode="ZAR" lineTotal={(l) => invoiceLineAmount(l.quantity, l.unitPrice, l.discount)} options={OPTIONS as never}
       onUpdate={(key, field, v) => setLines((p) => p.map((l) => (l.key === key ? { ...l, [field]: v } : l)))} onAdd={() => {}} onRemove={() => {}} />
   );
 }
@@ -120,6 +132,20 @@ describe('InvoiceLineItemsTable', () => {
   });
 });
 
+describe('InvoiceLineItemsTable decimals', () => {
+  it('quantity (numeric(10,2)) and unit price (numeric(15,2)) take 2 decimals', () => {
+    render(<InvoiceHarness />);
+    type(screen.getByLabelText('Unit price'), '10.25');
+    fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '10.255' } });
+    expect(val('Unit price')).toBe('10.25');
+    type(screen.getByLabelText('Quantity'), '1.25');
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '1.255' } });
+    expect(val('Quantity')).toBe('1.25');
+    expect(invStored[0]!.quantity * invStored[0]!.unitPrice).toBeCloseTo(12.8125, 4);
+    expect(invoiceLineAmount(1.25, 10.25, 0)).toBe(12.81); // the table's total is rounded like this, so no hidden third decimal
+  });
+});
+
 let billStored: BillLineItem[] = [];
 function BillHarness() {
   const [lines, setLines] = useState<BillLineItem[]>([{ key: 'k', description: '', quantity: 1, unitPrice: 0, taxRate: 15, glAccountId: '' }]);
@@ -144,11 +170,15 @@ describe('BillLineItemsTable', () => {
     expect(val('Line 1 unit price')).toBe('');
     expect(billStored[0]!.unitPrice).toBe(0);
   });
-  it('a six-decimal price is accepted and a seventh is refused', () => {
+  it('decimals equal the stored scale: price 2 (numeric(15,2)), quantity 4 (numeric(12,4))', () => {
     render(<BillHarness />);
-    type(screen.getByLabelText('Line 1 unit price'), '0.123456');
-    expect(billStored[0]!.unitPrice).toBe(0.123456);
-    fireEvent.change(screen.getByLabelText('Line 1 unit price'), { target: { value: '0.1234567' } });
-    expect(val('Line 1 unit price')).toBe('0.123456');
+    type(screen.getByLabelText('Line 1 unit price'), '12.34');
+    expect(billStored[0]!.unitPrice).toBe(12.34);
+    fireEvent.change(screen.getByLabelText('Line 1 unit price'), { target: { value: '12.345' } });
+    expect(val('Line 1 unit price')).toBe('12.34');
+    type(screen.getByLabelText('Line 1 quantity'), '1.2345');
+    expect(billStored[0]!.quantity).toBe(1.2345);
+    fireEvent.change(screen.getByLabelText('Line 1 quantity'), { target: { value: '1.23456' } });
+    expect(val('Line 1 quantity')).toBe('1.2345');
   });
 });
