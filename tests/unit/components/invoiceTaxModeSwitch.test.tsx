@@ -15,6 +15,8 @@ import {
   descriptionField, fillLine, invoiceDate, INV, pickClient, pickMode, price, prices, sentBody, serve, submitAndWait, TWO_LINES,
 } from '../helpers/invoiceDefaultsHarness';
 
+import { pricesToNothing } from '@/components/accounting/customer-invoices/taxMode';
+
 const push = vi.hoisted(() => vi.fn());
 const scan = vi.hoisted(() => ({ current: { vatRate: null as number | null, lineItems: [] as unknown[] } }));
 const vatRegistered = vi.hoisted(() => ({ current: true }));
@@ -151,15 +153,14 @@ describe('new page', () => {
     expect(sentPrices('POST')).toEqual([1000]);
   });
 
-  it('a gross price too small to survive taking the VAT out is refused, not dropped', async () => {
+  it('a gross price under a cent cannot be typed: the field refuses the third decimal (the save-path guard is tested on stored data below)', async () => {
     await open();
     await pickMode(/Including VAT/);
     fillLine(0, '115');
     fireEvent.click(screen.getByRole('button', { name: 'Add Line' }));
     fillLine(1, '0.004');
-    fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
-    await screen.findByText('"Work" comes to under a cent - enter a higher price');
-    expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+    expect(price(1).value).toBe('');
+    expect(price(1).getAttribute('aria-invalid')).toBe('true');
   });
 
   describe('a scan over inclusive', () => {
@@ -256,28 +257,47 @@ describe('edit page: a stored invoice at rate 0', () => {
   });
 });
 
+// A sub-cent price cannot be typed any more (2 decimals), but a stored one can still be loaded, so the save-path guard stays.
+const SUBCENT = { ...TWO_LINES, items: [{ description: 'One', quantity: 1, unit_price: 1000, amount: 1000 }, { description: 'Two', quantity: 1, unit_price: 0.004, amount: 0 }] };
+
 describe('a price under a cent, in any mode', () => {
-  it('exclusive: refused, not sent to be stored as nothing', async () => {
+  it('cannot be typed: the field refuses the third decimal', async () => {
     serve(undefined, TWO_LINES);
     render(<EditPage />);
     await screen.findByDisplayValue('One');
     fireEvent.change(price(1), { target: { value: '0.004' } });
+    expect(price(1).value).toBe('500');
+    expect(price(1).getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('exclusive, stored: refused, not sent to be stored as nothing', async () => {
+    serve(undefined, SUBCENT);
+    render(<EditPage />);
+    await screen.findByDisplayValue('One');
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await screen.findByText('"Two" comes to under a cent - enter a higher price');
     expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
   });
 });
 
-describe('edit page: a gross price too small to survive taking the VAT out', () => {
-  it('is refused, not saved at nothing', async () => {
+describe('a gross price too small to survive taking the VAT out', () => {
+  // With 2-decimal prices a typed typed price of 0.01 or more is a cent or more, so only a sub-cent
+  // gross comes to nothing, and the field refuses that. The rule itself stays pinned here.
+  it('edit page, including VAT: a sub-cent gross cannot be typed', async () => {
     serve(undefined, TWO_LINES);
     render(<EditPage />);
     await screen.findByDisplayValue('One');
     await pickMode(/Including VAT/);
+    const before = price(1).value;
     fireEvent.change(price(1), { target: { value: '0.004' } });
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-    await screen.findByText('"Two" comes to under a cent - enter a higher price');
-    expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
+    expect(price(1).value).toBe(before);
+    expect(price(1).getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('pricesToNothing (the invoice sends a price as typed in every mode): 0.004 is nothing, 0.01 is not', () => {
+    expect(pricesToNothing(0.004)).toBe(true);
+    expect(pricesToNothing(0.01)).toBe(false);
+    expect(pricesToNothing(0)).toBe(false);
   });
 });
 
