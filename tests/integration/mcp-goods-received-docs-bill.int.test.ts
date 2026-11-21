@@ -145,10 +145,10 @@ describe('an older document_links row lends a bill only its own company\'s docum
     await fileOn(f, 'goods_received', ours.grn, 'XLINK-ours.pdf');
     const bill = await seedBill(pool, f, { status: 'draft', lines: [40] });
     await pool.query(`INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-                      SELECT d.id, 'supplier_invoice', $1, 'grn_invoice_link' FROM procurement_documents d WHERE d.document_name LIKE 'XLINK-%'`, [bill.id]);
+                      SELECT d.id, 'supplier_invoice', $1, 'manual' FROM procurement_documents d WHERE d.document_name LIKE 'XLINK-%'`, [bill.id]);
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [other.co, f.owner]);
     try {
-      expect(await onBill(f, bill.id)).toEqual(['linked:XLINK-ours.pdf:grn_invoice_link']);
+      expect(await onBill(f, bill.id)).toEqual(['linked:XLINK-ours.pdf:manual']);
     } finally {
       await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [other.co, f.owner]);
     }

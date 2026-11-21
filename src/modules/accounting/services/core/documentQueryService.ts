@@ -12,7 +12,7 @@
  *  - `procurement_documents` (+ `document_links`) — what the documents upload
  *    endpoint writes, keyed by (entity_type, entity_id). Also no company_id,
  *    and no parent table it can be joined to generically — which is why an
- *    entity listing must call verifyEntityOwnership FIRST and refuse before
+ *    entity listing must call verifyEntityOwnershipTyped FIRST and refuse before
  *    reading. That ordering is the fence; do not reorder it.
  *
  * Extracted from pages/api/accounting/documents.ts, which is now a caller.
@@ -20,11 +20,11 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { entityTableName, hasEntityDocumentSql, type DocumentedEntityType } from './documentPresenceSql';
-import type { LinkedDocument } from '@/types/procurement/document.types';
+import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
   mapRow,
-  verifyEntityOwnership,
+  verifyEntityOwnershipTyped,
 } from './documentStorageService';
 
 export type EntityDocumentsResult =
@@ -56,13 +56,14 @@ export async function listEntityDocuments(
   if (!(VALID_ENTITY_TYPES as readonly string[]).includes(entityType)) {
     return { ok: false, reason: 'invalid_entity_type' };
   }
-  // BEFORE any read: procurement_documents cannot fence itself.
-  if (!(await verifyEntityOwnership(entityId, companyId))) {
+  // BEFORE any read: procurement_documents cannot fence itself. The id must be a row of THE REQUESTED TYPE of this company (Codex round
+  // 3, finding 2): "some row with this id is ours" let another company's note sharing an id with one of our bills through.
+  if (!(await verifyEntityOwnershipTyped(entityType as AccountingEntityType, entityId, companyId))) {
     return { ok: false, reason: 'entity_not_found' };
   }
 
-  // A goods received note's documents are filed under both its entity type and the legacy goods_receipt_note (review L3); a legacy
-  // row counts only when the id is a note of this company (verifyEntityOwnership proves only that SOME parent row is ours).
+  // A goods received note's documents are filed under both its entity type and the legacy goods_receipt_note (review L3); the legacy
+  // row is fenced to a note of this company here too.
   const directRows = (await sql`
     SELECT * FROM procurement_documents
     WHERE (entity_type = ${entityType}
@@ -83,13 +84,24 @@ export async function listEntityDocuments(
         JOIN (SELECT b.purchase_order_id AS id FROM bill b
               UNION
               SELECT l.purchase_order_id FROM purchase_order_bill_links l, bill
-               WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid) named ON named.id = po.id
+               WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid
+              UNION
+              SELECT pi.purchase_order_id FROM supplier_invoice_items sii JOIN po_items pi ON pi.id = sii.po_item_id, bill
+               WHERE sii.supplier_invoice_id = ${entityId}::uuid) named ON named.id = po.id
        WHERE po.company_id = ${companyId}::uuid
     ), bill_note AS (
       SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
     ), reached AS (
+      -- A note is also linked to under the legacy alias goods_receipt_note (round 3, finding 6). On a bill, an older AUTOMATIC row
+      -- (po_invoice_link / grn_invoice_link: a PO's or note's paperwork) is shown only while its document's parent is the bill's
+      -- current note or one of the POs it names now (round 3, finding 4); a manual row always.
       SELECT dl.document_id, dl.link_reason, 0 AS rank FROM document_links dl
-       WHERE dl.linked_entity_type = ${entityType} AND dl.linked_entity_id = ${entityId}::uuid
+       WHERE (dl.linked_entity_type = ${entityType} OR (${entityType}::text = 'goods_received' AND dl.linked_entity_type = 'goods_receipt_note'))
+         AND dl.linked_entity_id = ${entityId}::uuid
+         AND (${entityType}::text <> 'supplier_invoice' OR COALESCE(dl.link_reason, '') NOT IN ('po_invoice_link', 'grn_invoice_link')
+              OR EXISTS (SELECT 1 FROM procurement_documents d WHERE d.id = dl.document_id
+                          AND ((d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos))
+                               OR (d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note)))))
       UNION ALL
       SELECT d.id, 'po_invoice_link', 1 FROM procurement_documents d
        WHERE d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos)
