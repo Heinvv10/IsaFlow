@@ -178,3 +178,42 @@ describe('L2 (quality): the month sum counts live documents only', () => {
     expect(row.mirroredDuplicateOf).toBe('2 mirrored documents of January 2026');
   });
 });
+
+describe('L5 (quality): the link holds its as-at date to [the row\'s date, today], today being the Johannesburg day', () => {
+  // the as-at date the link used is what it stamps on a release (released_for): a planted link to a row that is no mirror never holds
+  async function releasedFor(rowDate: string, asat: string | null, timeZone = 'Africa/Johannesburg') {
+    await turnOn('2026-03-01');
+    const r = await manual(co.A, co.B, 'sale', rowDate);
+    const other = await manual(co.B, co.A, 'sale', '2026-03-02');
+    await matchRows([r.id]);
+    await pool.query("INSERT INTO intercompany_mirror_links (group_id, row_id, mirror_row, role, linked_by) VALUES ($1, $2, $3, 'sale', 'planted')", [co.G, r.id, other.id]);
+    const state = await asAppUser(pool, U.ab, co.A, async (q) => {
+      await q.query(`SET LOCAL TimeZone = '${timeZone}'`);
+      return (await q.query('SELECT state FROM public.intercompany_mirror_link($1, $2::date)', [r.id, asat])).rows[0].state as string;
+    }, true);
+    const link = (await pool.query('SELECT released_for::text AS d FROM intercompany_mirror_links WHERE row_id = $1', [r.id])).rows[0];
+    return { state, releasedFor: link.d as string };
+  }
+  const jhbToday = async () => (await pool.query("SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::text AS d")).rows[0].d as string;
+  const plusDays = async (d: string, n: number) => (await pool.query('SELECT ($1::date + $2::int)::text AS d', [d, n])).rows[0].d as string;
+
+  it('a row dated in the FUTURE: the as-at date is the row\'s own date (never a date before it)', async () => {
+    const today = await jhbToday();
+    const rowDate = await plusDays(today, 3);
+    if (rowDate.slice(0, 4) !== '2026') await L.monthly(co.A, Number(rowDate.slice(0, 4)));   // (a run in late December)
+    expect(await releasedFor(rowDate, await plusDays(today, 40))).toEqual({ state: 'released', releasedFor: rowDate });
+  });
+
+  it('"today" is the Johannesburg day, not the session\'s: in a zone whose date differs, an as-at past today is held to Johannesburg\'s today', async () => {
+    const today = await jhbToday();
+    // one of these two zones is on another calendar day than Johannesburg at every moment (UTC+14 from 12:00 SAST, UTC-12 before 14:00 SAST)
+    const zones = ['Pacific/Kiritimati', 'Etc/GMT+12'];
+    let zone = '';
+    for (const z of zones) {
+      const d = (await pool.query(`SELECT (now() AT TIME ZONE '${z}')::date::text AS d`)).rows[0].d as string;
+      if (d !== today) { zone = z; break; }
+    }
+    expect(zone).not.toBe('');
+    expect(await releasedFor('2026-03-15', null, zone)).toEqual({ state: 'released', releasedFor: today });
+  });
+});
