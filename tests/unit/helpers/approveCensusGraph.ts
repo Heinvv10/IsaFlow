@@ -40,9 +40,12 @@ export interface CensusConfig {
   routeWrappers: Readonly<Record<string, string>>;
   /** Static SQL text that makes the unit holding it a primitive (module '*'). */
   sqlPrimitives?: readonly RegExp[];
-  /** A route unit running primitive SQL is dangerous unless wrapped, or a gate dominates the statement, or a marker sits above it (the payroll-read census). */
+  /**
+   * A route unit running primitive SQL itself is dangerous unless wrapped, or a gate dominates the statement, or a marker sits above
+   * it (both censuses: a handler that posts a journal in its own SQL calls no sink, #1670 Codex).
+   */
   flagPrimitiveRoots?: boolean;
-  queryCalls?: boolean; // also read `<x>.query('...')` (a static string) as SQL: the payroll-read census
+  queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
 }
 
 export interface BadRoute { file: string; unit: string; sites: string[] }
@@ -273,16 +276,17 @@ export function analyse(cfg: CensusConfig): Census {
     if (c.exempt && needs && !rawCovered(c, u.file, needs)) used.add(`${u.file}:${c.exempt.line}`);
   }
   if (cfg.flagPrimitiveRoots) {
-    // A payroll read is covered only where a gate DOMINATES it (or the route is wrapped), or a marker sits directly above its own statement.
+    // Primitive SQL in a route unit is covered only where a gate DOMINATES it (or the route is wrapped), or a marker sits directly above
+    // its own statement. Any configured gate covers it: the SQL names no module ('*'), and the payroll-read gates are all Payroll's.
     for (const u of all) {
       if (!routes.has(u.file) || calledInFile.has(u) || wrapped.has(u.file)) continue;
       const sites: string[] = [];
       for (const site of u.primSites) {
         const g = dominating(site, u.node);
-        if (g.has('*') || g.has('payroll')) continue;
+        if (g.size > 0) continue;
         const marker = markersAbove(site).find((m) => m.callee === 'sql');
         if (marker) used.add(`${u.file}:${marker.line}`);
-        else sites.push(`sql(payroll detail table)@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
+        else sites.push(`sql(primitive)@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
       }
       if (sites.length > 0) bad.push({ file: u.file, unit: u.name, sites });
     }

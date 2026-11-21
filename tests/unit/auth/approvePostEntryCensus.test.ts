@@ -35,6 +35,7 @@ const EXEMPT_TOOLS: Readonly<Record<string, string>> = {
   cancel_customer_invoice: 'drafts and pending-approval invoices only: no journal, nothing reverses',
   cancel_purchase_order: 'a purchase order has no journal',
   close_purchase_order: 'a purchase order has no journal',
+  cancel_goods_received: 'a goods received note posts no journal: only purchase-order line quantities move (#1697)',
   link_bills_to_purchase_order: 'links documents; posts nothing',
   cancel_bank_reconciliation: 'discards an in-progress reconciliation; posts nothing',
   finalize_uploads: 'attaches uploaded files; posts nothing',
@@ -54,10 +55,15 @@ const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf
 
 const programFiles = execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
   .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts'));
+/**
+ * The posting census's rules, shared by the real tree and the fixtures below. flagPrimitiveRoots + queryCalls (#1670 Codex): a
+ * handler that posts in its OWN SQL (sql`` or client.query) calls no sink, and was not judged.
+ */
+const POSTING_RULES = {
+  sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
+} as const;
 let memo: ReturnType<typeof analyse> | undefined;
-const census = () => (memo ??= analyse({
-  routeFiles: apiFiles, programFiles, sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES,
-}));
+const census = () => (memo ??= analyse({ routeFiles: apiFiles, programFiles, ...POSTING_RULES }));
 
 /** Routes outside pages/api/payroll that could return one person's pay (the employee portal authenticates the employee herself). */
 const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payroll/') && !f.startsWith('pages/api/employee-portal/'));
@@ -105,6 +111,37 @@ describe('approve / post entry-point census (#1656)', () => {
     expect(stale).toEqual([]);
     expect(census().markersUsed.length + payrollCensus().markersUsed.length).toBeGreaterThanOrEqual(17);
   }, 180_000);
+
+  it('#1670 Codex: an unguarded route that posts in its own SQL, sql`` or client.query, is a finding; a gate before it passes', () => {
+    const fixture = (route: string) => {
+      const files: Record<string, string> = {
+        '/fx/lib.ts': `export declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
+export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
+export declare function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string): Promise<boolean>;
+export async function flipBill(id: string) { await client.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]); }`,
+        '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill } from './lib';\ndeclare const res: unknown;\n${route}\nexport default handler;`,
+      };
+      return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
+    };
+    const gate = "if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'journals')) return;";
+    const tagged = "await sql`UPDATE gl_journal_entries SET status = 'posted' WHERE id = ${id}`;";
+    const query = "await client.query(`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = $1`, [id]);";
+    expect(fixture(`async function handler(id: string) { ${tagged} }`)).toHaveLength(1);
+    expect(fixture(`async function handler(id: string) { ${query} }`)).toHaveLength(1);
+    expect(fixture("async function handler(id: string) { await flipBill(id); }")).toHaveLength(1); // a helper's client.query
+    expect(fixture(`async function handler(id: string) { ${gate} ${tagged} ${query} await flipBill(id); }`)).toEqual([]);
+  });
+
+  it('#1670 Codex: withPayrollModule (Payroll read / write) is no proof of Payroll Approve in the posting census; it still is for payroll access', () => {
+    const files: Record<string, string> = {
+      '/fx/svc.ts': 'export async function approvePayrollRun(c: string, id: string) { return id; }',
+      '/fx/route.ts': `import { approvePayrollRun } from './svc';\ndeclare function withPayrollModule<T>(h: T): T;
+async function handler(id: string) { await approvePayrollRun('c', id); }\nexport default withPayrollModule(handler);`,
+    };
+    const bad = analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
+    expect(bad.map((b) => b.sites.join())).toEqual([expect.stringContaining('approvePayrollRun[payroll]')]);
+    expect(PAYROLL_READ_WRAPPERS.withPayrollModule).toBe('payroll');
+  });
 
   it('every MCP tool that posts declares its approve module', () => {
     const posting = MCP_TOOLS.filter((t) => t.requiresPost || POSTING_NAME.test(t.name));

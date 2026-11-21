@@ -73,8 +73,11 @@ export const GATES: Readonly<Record<string, GateSpec>> = {
   mayApproveInvoiceDelete: { kind: 'allow', module: '*' },
 };
 
-/** Wrappers on the default export that gate the whole route for one module (Payroll: read for GET, write otherwise). */
-export const ROUTE_WRAPPERS: Readonly<Record<string, string>> = { withPayrollModule: 'payroll' };
+/**
+ * Wrappers on the default export that gate the whole route for one module's APPROVE. None: withPayrollModule asks Payroll read or
+ * write, never Approve, so it proves nothing about posting (#1670 Codex); it stays in PAYROLL_READ_WRAPPERS for the access census.
+ */
+export const ROUTE_WRAPPERS: Readonly<Record<string, string>> = {};
 
 /**
  * The payroll-READ census (round 6): a route outside pages/api/payroll that returns one person's pay must ask Payroll read. SQL on these
