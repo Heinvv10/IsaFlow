@@ -65,6 +65,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         INNER JOIN purchase_orders po ON po.id = g.purchase_order_id
         WHERE g.company_id = ${companyId}
           AND g.purchase_order_id = ${poIdStr}::UUID
+          AND g.status <> 'cancelled'
         ORDER BY g.received_date DESC
         LIMIT 100
       `) as Row[];
@@ -76,6 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         INNER JOIN purchase_orders po ON po.id = g.purchase_order_id
         WHERE g.company_id = ${companyId}
           AND po.supplier_id = ${supplierIdStr}::UUID
+          AND g.status <> 'cancelled'
         ORDER BY g.received_date DESC
         LIMIT 100
       `) as Row[];

@@ -10,12 +10,12 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/modules/accounting/services/core/documentStorageService', async () => {
   const actual = await vi.importActual<typeof import('@/modules/accounting/services/core/documentStorageService')>(
     '@/modules/accounting/services/core/documentStorageService');
-  return { ...actual, verifyEntityOwnership: vi.fn() };
+  return { ...actual, verifyEntityOwnershipTyped: vi.fn() };
 });
 
 import { hasBankLineDocumentSql } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
-import { verifyEntityOwnership } from '@/modules/accounting/services/core/documentStorageService';
+import { verifyEntityOwnershipTyped } from '@/modules/accounting/services/core/documentStorageService';
 import {
   listEntityDocuments,
   listBankAttachments,
@@ -31,12 +31,12 @@ function texts() {
 
 beforeEach(() => {
   vi.mocked(sql).mockReset();
-  vi.mocked(verifyEntityOwnership).mockReset();
+  vi.mocked(verifyEntityOwnershipTyped).mockReset();
 });
 
 describe('listEntityDocuments', () => {
   it('refuses before reading anything when the entity is not this company\'s', async () => {
-    vi.mocked(verifyEntityOwnership).mockResolvedValue(false);
+    vi.mocked(verifyEntityOwnershipTyped).mockResolvedValue(false);
     const res = await listEntityDocuments(COMPANY, 'customer_invoice', ENTITY, 50, 0);
     expect(res).toEqual({ ok: false, reason: 'entity_not_found' });
     expect(sql).not.toHaveBeenCalled();
@@ -45,11 +45,11 @@ describe('listEntityDocuments', () => {
   it('refuses an entity_type the store does not hold', async () => {
     const res = await listEntityDocuments(COMPANY, 'bank_transaction', ENTITY, 50, 0);
     expect(res).toEqual({ ok: false, reason: 'invalid_entity_type' });
-    expect(verifyEntityOwnership).not.toHaveBeenCalled();
+    expect(verifyEntityOwnershipTyped).not.toHaveBeenCalled();
   });
 
   it('returns direct and cross-linked documents, each labelled with its source', async () => {
-    vi.mocked(verifyEntityOwnership).mockResolvedValue(true);
+    vi.mocked(verifyEntityOwnershipTyped).mockResolvedValue(true);
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: 'd1', entity_type: 'customer_invoice', entity_id: ENTITY, uploaded_at: '2026-09-01T00:00:00Z', is_active: true }] as never)
       .mockResolvedValueOnce([{ id: 'd2', entity_type: 'credit_note', entity_id: 'other', uploaded_at: '2026-09-02T00:00:00Z', is_active: true, link_reason: 'same supplier' }] as never);

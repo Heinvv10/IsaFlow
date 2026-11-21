@@ -1,6 +1,6 @@
 /**
  * Flow metering of the purchase-order tools: all free. A purchase order is a commitment: it posts nothing and bills
- * nothing, so loading, editing, cancelling and closing POs and linking bills to them costs no Flows (a pricing decision for the owner; the bulk invoice
+ * nothing, so loading, editing, cancelling and closing POs, linking bills to them and receiving goods against them (goods received notes) costs no Flows (a pricing decision for the owner; the bulk invoice
  * creates are priced per element because invoices are what the Flows meter counts).
  */
 export const PURCHASE_ORDER_FLOW_OPERATIONS: Record<string, null> = {
@@ -13,4 +13,8 @@ export const PURCHASE_ORDER_FLOW_OPERATIONS: Record<string, null> = {
   cancel_purchase_order: null,
   close_purchase_order: null,
   set_purchase_order_status: null,
+  list_goods_received: null,
+  get_goods_received: null,
+  create_goods_received: null,
+  cancel_goods_received: null,
 };

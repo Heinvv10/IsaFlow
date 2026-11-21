@@ -14,7 +14,7 @@ import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirectoryService';
 import { insertWithReservedNumber } from './documentNumberRetry';
 import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
-import { RecurringTemplateLineAccountError } from './recurringTransactionErrors';
+import { RecurringTemplateLineAccountError, RecurringTemplateSupplierDeletedError } from './recurringTransactionErrors';
 import { readCodingId } from '../ar/invoiceLineCoding';
 import { invoiceLineCodingRefusal } from '../ar/invoiceLineCodingGuard';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
@@ -158,6 +158,9 @@ export async function mintRecurringSupplierInvoice(
   const supplierId = String(data.supplierId || '');
   // R-068: the template row is company-scoped, the id inside its JSON is not.
   await assertSupplierInCompany(companyId, supplierId);
+  // A merge does not repoint templates; a deleted supplier would be refused at the INSERT (1021's supplier-live trigger). Pre-write.
+  const live = (await sql`SELECT 1 FROM suppliers WHERE id = ${supplierId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NULL`) as unknown[];
+  if (live.length === 0) throw new RecurringTemplateSupplierDeletedError(template.id, template.name);
   const named = normaliseLines(data);
   // The template's JSON names accounts nothing re-checks, tenant included.
   const accountRefusal = await billLineAccountRefusal(companyId, named.map((l) => l.glAccountId));
