@@ -117,3 +117,35 @@ describe('(5) an inclusive draft stored at 0% keeps its zero rate', () => {
     expect(sentBody('PUT').items.map((i) => [i.unitPrice, i.vatType])).toEqual([[100, 'zero_rated'], [115, 'zero_rated']]);
   });
 });
+
+describe('(round 9) the refusal is said by the selector, and clears', () => {
+  const describedBy = () => screen.getByRole('combobox', { name: 'Amounts are' }).getAttribute('aria-describedby') ?? '';
+  it('edit page: role=alert next to "Amounts are", described by it, scrolled into view; a line edit clears it', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    serve(undefined, { ...INV, items: [{ description: 'Tiny', quantity: 1000, unit_price: 0.03, amount: 30, tax_rate: 15, vat_type: 'standard', tax_amount: 4.5 }], total_amount: 34.5 });
+    render(<EditPage />);
+    await screen.findByDisplayValue('Tiny');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/Switching to Including VAT would change "Tiny"/);
+    const alert = screen.getAllByRole('alert').find((a) => /Switching to Including VAT/.test(a.textContent ?? ''))!;
+    expect(alert.textContent).toMatch(/^Switching to Including VAT would change "Tiny" from R34\.50 to R30\.00/);
+    expect(describedBy().split(' ')).toContain(alert.id);
+    expect(scrolled).toHaveBeenCalled();
+    fireEvent.change(price(0), { target: { value: '0.04' } });
+    await waitFor(() => expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull());
+  });
+  it('new page: a later switch that goes through clears it', async () => {
+    serve();
+    render(<NewPage />);
+    fillLine(0, '0.03', '1000');
+    await pickMode(/Including VAT/);
+    await screen.findByText(/Switching to Including VAT would change "Work"/);
+    fireEvent.change(screen.getAllByLabelText('Quantity')[0]!, { target: { value: '1' } });
+    await waitFor(() => expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull());
+    await pickMode(/Including VAT/);
+    expect(prices()).toEqual(['0.03']);
+    await pickMode(/No VAT/);
+    expect(screen.queryByText(/would change/)).toBeNull();
+  });
+});

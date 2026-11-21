@@ -33,7 +33,7 @@
  * Only the standard lines of a mixed invoice cannot be credited alone until credit notes have lines. A note against a
  * legacy invoice (any uncoded leg) is not this file's: allocateCreditNote, exactly as before. Pure.
  */
-import { allocateCreditNote, remainingCarries, type CreditNoteAllocation, type RevenueLeg } from './invoiceRevenueLines';
+import { allocateCreditNote, noteShares, remainingCarries, type CreditNoteAllocation, type RevenueLeg } from './invoiceRevenueLines';
 import type { JournalLineInput } from '../../types/gl.types';
 
 export class CreditNoteVatSplitRefusal extends Error {
@@ -92,6 +92,21 @@ export function appliedSettlement(applied: number, remainingNet: number, remaini
   if (counted <= 0) return { net: 0, vat: 0 };
   const vat = mulDivRound(counted, vatLeft, capacity);
   return { net: counted - vat, vat };
+}
+
+/**
+ * A typed invoice once the applications counted on it (`applied`, cents, rule A) are settled: each leg's `taken` grows
+ * by its pro-rata share of their net (noteShares over what each carries), the VAT by their VAT, and what is left, net
+ * (remainingCarries, clamped per leg) and VAT, in cents. The ONE copy: invoiceCreditBasis (live) and the bulk dry run's
+ * simulation (shared/creditNoteBatchSimulation) both call it (#1701 round 9). Pure.
+ */
+export function settleApplied(legs: readonly RevenueLeg[], replayed: readonly number[], vatLeft: number, applied: number):
+  { legs: RevenueLeg[]; remainingNet: number; remainingVat: number } {
+  const carries = remainingCarries(legs, replayed);
+  const share = appliedSettlement(applied, carries.reduce((x, y) => x + y, 0), vatLeft);
+  const took = noteShares(carries, share.net);
+  const settled = legs.map((l, i) => ({ ...l, taken: (cents(l.taken ?? 0) + took[i]!) / 100 }));
+  return { legs: settled, remainingNet: remainingCarries(settled, replayed).reduce((x, y) => x + y, 0), remainingVat: vatLeft - share.vat };
 }
 
 /**

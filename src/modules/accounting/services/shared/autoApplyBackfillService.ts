@@ -41,6 +41,7 @@ import type { SimulationDocument } from './autoApplySimulation';
 import { readCapacities, unreadCapacities, type CapacityCache } from './creditNoteTypedPlan';
 import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
 import { detachedProfiles } from '../ar/creditNoteDetachedRead';
+import { lockBackfillCreditNoteKeys } from './autoApplyBackfillLocks';
 import {
   fetchDocumentFacts,
   fetchOpenDocuments,
@@ -177,6 +178,9 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     userId: req.userId,
     idempotencyKey: req.idempotencyKey ?? null,
     oldestFirstFor: makeStrategyReader(req.companyId, req.subledger),
+    // Before the first source, so no source's invoice rows are held when a key is taken (round 9: a receipt source's rows,
+    // then a credit-note source's keys, deadlocked against an approval holding a key and waiting for a row).
+    heldKeys: req.subledger === 'ar' ? await lockBackfillCreditNoteKeys(req.companyId, sources) : undefined,
   };
 
   const decided: { source: BackfillSource; lines: PlannedLine[] }[] = [];

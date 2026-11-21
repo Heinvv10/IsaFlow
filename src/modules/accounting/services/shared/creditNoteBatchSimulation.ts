@@ -7,17 +7,22 @@
  * standalone note's walk can settle the only open typed invoice before a later linked note on it is approved: the
  * round-7 dry run left standalone notes out, so it said that note posts while the live run skipped it.
  *
- * Simulated from the figures the live reads start from (invoiceRevenuePosting.invoiceCreditFigures): per invoice the
- * legs' carries, and for a typed one its VAT left and the gross its applications count. An approval linked to a typed
- * invoice takes exactly its subtotal off the carries and its VAT off the VAT; one linked to a legacy invoice takes
- * noteShares of the carries (allocateCreditNote's own split) and the rest is its detached excess. Reads only; no lock
- * (the dry run cannot foresee a concurrent request, as before).
+ * Simulated from the figures the live reads start from (invoiceRevenuePosting.invoiceCreditFigures: the legs with what
+ * recorded notes took, the pre-874 replay, a typed invoice's VAT left and its counted applications) with the LIVE pure
+ * functions (round 9: one copy of the maths): a typed invoice's remainder is creditNoteTypedSplit.settleApplied (per-leg
+ * clamping, a negative discount leg included), an approval against it is allocateTypedCreditNote (its refusal is the
+ * live one, word for word) and its rows are added to the legs' `taken`; one against a legacy invoice is
+ * allocateCreditNote, whose excess is its detached gross. Cost: each invoice the batch touches is read once per dry run
+ * (cached), the customer's open invoices once per customer; nothing per note beyond that. Reads only; no lock (the dry
+ * run cannot foresee a concurrent request, as before). The live walk plans only over the invoices it holds a key for
+ * (shared/creditNoteWalkKeys), which are the plan's own reach; this plans over all of them, with the same result.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { invoiceCreditFigures } from '../ar/invoiceRevenuePosting';
-import { noteShares } from '../ar/invoiceRevenueLines';
-import { appliedSettlement, PROPORTIONAL, RECREATE, requiredCreditNoteVat } from '../ar/creditNoteTypedSplit';
+import { allocateCreditNote, type CreditNoteAllocation, type RevenueLeg } from '../ar/invoiceRevenueLines';
+import { allocateTypedCreditNote, CreditNoteVatSplitRefusal, settleApplied } from '../ar/creditNoteTypedSplit';
+import { NO_NOTE } from '../ar/invoiceCreditBasisRead';
 import { detachedCountDelta, detachedGross } from '../ar/creditNoteDetached';
 import { gated } from '../ar/creditNoteTypedGate';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
@@ -27,27 +32,23 @@ import { cappedDocuments } from './creditNoteTypedPlan';
 import type { CreditNoteAutoApply } from './creditNoteFifo';
 
 const cents = (n: number): number => Math.round(n * 100);
-const money = (c: number): string => (c / 100).toFixed(2);
 const FLOOR = invoiceFloor('customer');
 
-interface Invoice { carries: number[]; typed: { vat: number; applied: number } | null; outstanding: number; status: string }
+interface Invoice { legs: RevenueLeg[]; replayed: number[]; typed: { vatLeft: number; applied: number } | null; outstanding: number; status: string }
 
-/** A typed invoice's remaining net and VAT (cents), as typedInvoiceCreditState derives them. */
-function remaining(inv: Invoice): { r: number; v: number } {
-  const pre = inv.carries.reduce((a, b) => a + b, 0);
-  const share = appliedSettlement(inv.typed!.applied, pre, inv.typed!.vat);
-  return { r: pre - share.net, v: inv.typed!.vat - share.vat };
-}
+/** A typed invoice as typedInvoiceCreditState reads it: settled legs, net and VAT left (cents). The live function. */
+const settled = (inv: Invoice) => settleApplied(inv.legs, inv.replayed, inv.typed!.vatLeft, inv.typed!.applied);
 
-/** Why approving a note of `s` / `tax` against typed `inv` is refused (allocateTypedCreditNote's words), or null. */
-function typedRefusal(label: string, s: number, tax: number, inv: Invoice): string | null {
-  const { r, v } = remaining(inv);
-  if (s <= 0) return `${label} must credit a positive amount.`;
-  if (s > r) return `${label} credits ${money(s)}, but the invoice has ${money(Math.max(r, 0))} left to credit. Reduce the note.`;
-  if (v < 0) return `${label} cannot be raised: the invoice's VAT is already fully reversed. Correct it with a journal.`;
-  const required = cents(requiredCreditNoteVat({ remainingNet: r / 100, remainingVat: v / 100, subtotal: s / 100 }));
-  return tax === required ? null : `${label} reverses ${money(s)} of an invoice with ${money(r)} left, so its VAT must be `
-    + `${money(required)}, not ${money(tax)}. ${PROPORTIONAL} ${RECREATE}`;
+/** What an approval's allocation rows record: each leg's take, as the next read's `taken`. Returns the legs' total. */
+function record(inv: Invoice, allocations: readonly CreditNoteAllocation[]): number {
+  let took = 0;
+  for (const a of allocations) {
+    if (a.isExcess) continue;
+    const leg = inv.legs.find((l) => l.journalLineId === a.journalLineId);
+    if (leg) leg.taken = (cents(leg.taken ?? 0) + cents(a.amount)) / 100;
+    took += cents(a.amount);
+  }
+  return took;
 }
 
 /** id -> `vat_split_refused: <why>` for each note of `orderedIds` (the live order) the live run would refuse. */
@@ -79,16 +80,21 @@ export async function simulateBatchApprovals(companyId: string, orderedIds: read
     let reversed = 0;
     if (linked) {
       const inv = await invoice(linked);
+      const number = String(n.credit_note_number);
       if (inv.typed) {
-        const why = typedRefusal(`Credit note ${String(n.credit_note_number)}`, s, tax, inv);
-        if (why) { out.set(id, `vat_split_refused: ${why}`); continue; }
-        inv.carries = [inv.carries.reduce((a, b) => a + b, 0) - s]; // only their sum is read for a typed invoice
-        inv.typed.vat -= tax;
-        reversed = s;
+        // The live approval's own split (creditNoteRevenueJournalLines): its refusal is the live refusal, word for word.
+        const now = settled(inv);
+        try {
+          const split = allocateTypedCreditNote(now.legs, { subtotal: s / 100, taxAmount: tax / 100, remainingVat: now.remainingVat / 100 }, number, NO_NOTE, inv.replayed);
+          reversed = record(inv, split.allocations);
+          inv.typed.vatLeft -= tax;
+        } catch (err) {
+          if (!(err instanceof CreditNoteVatSplitRefusal)) throw err;
+          out.set(id, `vat_split_refused: ${err.message}`);
+          continue;
+        }
       } else {
-        const shares = noteShares(inv.carries, s);
-        inv.carries = inv.carries.map((c, i) => c - shares[i]!);
-        reversed = shares.reduce((a, b) => a + b, 0);
+        reversed = record(inv, allocateCreditNote(inv.legs, s / 100, number, NO_NOTE, inv.replayed).allocations);
       }
     }
     if (autoApply === 'none') continue;
@@ -108,7 +114,7 @@ export async function simulateBatchApprovals(companyId: string, orderedIds: read
       for (const docId of openOf.get(clientId)!.filter((d) => d !== linked)) {
         const inv = await invoice(docId);
         docs.push({ invoiceId: docId, outstanding: inv.outstanding / 100 });
-        if (inv.typed) { const { r, v } = remaining(inv); caps.set(docId, Math.max(r, 0) + Math.max(v, 0)); } else caps.set(docId, null);
+        if (inv.typed) { const t = settled(inv); caps.set(docId, Math.max(t.remainingNet, 0) + Math.max(t.remainingVat, 0)); } else caps.set(docId, null);
       }
       const gate = { type: 'customer', customerInvoiceId: linked };
       for (const p of planGreedyAllocations(left / 100, cappedDocuments(docs, caps, gate), FLOOR)) planned.push({ invoiceId: p.invoiceId, cents: cents(p.amount) });

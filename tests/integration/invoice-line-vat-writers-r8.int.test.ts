@@ -27,6 +27,7 @@ import { applyCreditNoteTool } from '@/lib/mcp/tools/writeApplyCreditNote';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { createCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotesCreate';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
+import { lockWaitOf } from './helpers/lockWait';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { callRoute, createUser } from './r035-approval.helpers';
 
@@ -146,18 +147,6 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
     const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
     return { client, pid };
   };
-  /** Until `pid` waits on a lock or `p` settles (4 s at most): whether it waited. */
-  const waitsOnLock = async (pid: number, p: Promise<unknown>) => {
-    let settled = false;
-    void p.then(() => { settled = true; }, () => { settled = true; });
-    for (let i = 0; i < 80 && !settled; i++) {
-      const r = await pool.query(`SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'`, [pid]);
-      if (r.rowCount) return true;
-      await new Promise((res) => setTimeout(res, 50));
-    }
-    return false;
-  };
-
   describe('(1) race: a linked approval (auto_apply none) and a FIFO walk on typed Y with 115 left', () => {
     const setup = async (name: string, d: string, approvedM: boolean) => {
       const c = await customer(name);
@@ -170,18 +159,22 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
       return { c, y, l, m };
     };
     const backfill = (c: string) => autoApplyUnapplied({ companyId: f.fx.companyId, subledger: 'ar', entityId: c, userId: f.fx.userId, dryRun: false });
-    /** Runs `first` to completion on one connection, then `second` on another; commits the first; settles both. */
+    /**
+     * Runs `first` to completion on one connection, then `second` on another; reports the lock `second` waited for on
+     * `first` (round 9: by pg_blocking_pids and its type, so an incidental row wait cannot pass for the key); commits the
+     * first; settles both.
+     */
     const race = async (first: () => Promise<unknown>, second: () => Promise<unknown>) => {
       const a = await open();
       const b = await open();
       try {
         await runOn(f.fx, a.client, first);
         const p = runOn(f.fx, b.client, second);
-        const waited = await waitsOnLock(b.pid, p);
+        const waitedOn = await lockWaitOf(pool, b.pid, a.pid, p);
         await a.client.query('COMMIT');
         const outcome = await p.then(() => null, (err: unknown) => err);
         await b.client.query(outcome ? 'ROLLBACK' : 'COMMIT');
-        return { waited, outcome };
+        return { waitedOn, outcome };
       } finally {
         await a.client.query('ROLLBACK').catch(() => {}); a.client.release();
         await b.client.query('ROLLBACK').catch(() => {}); b.client.release();
@@ -190,14 +183,14 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
     it('the linked approval first, the back-fill\'s walk second: it waits for Y\'s key, then finds nothing left there', async () => {
       const { c, y, l, m } = await setup('R8-1a', '2026-06-01', true);
       const r = await race(() => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }), () => backfill(c));
-      expect(r).toEqual({ waited: true, outcome: null });
+      expect(r).toEqual({ waitedOn: 'advisory', outcome: null });
       expect(await rowsOf(m.id)).toEqual([]);
       expect(await state(y)).toEqual({ remainingNet: 0, remainingVat: 0 });
     });
     it('the back-fill\'s walk first, the linked approval second: it waits for Y\'s key, then is refused (nothing left)', async () => {
       const { c, y, l, m } = await setup('R8-1b', '2026-06-01', true);
       const r = await race(() => backfill(c), () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
-      expect(r.waited).toBe(true);
+      expect(r.waitedOn).toBe('advisory');
       expect(String(r.outcome)).toMatch(/credits 100\.00, but the invoice has 0\.00 left to credit/);
       expect(await rowsOf(m.id)).toEqual([{ invoice_id: y, amount: 115 }]);
       expect(await sql`SELECT status FROM credit_notes WHERE id = ${l.id}::UUID`).toEqual([{ status: 'draft' }]);
@@ -206,7 +199,7 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
       const { y, l, m } = await setup('R8-1c', '2026-06-02', false);
       const r = await race(() => approveCreditNote(f.fx.companyId, m.id, f.fx.userId, { autoApply: 'fifo' }),
         () => approveCreditNote(f.fx.companyId, l.id, f.fx.userId, { autoApply: 'none' }));
-      expect(r.waited).toBe(true);
+      expect(r.waitedOn).toBe('advisory');
       expect(String(r.outcome)).toMatch(/credits 100\.00, but the invoice has 0\.00 left to credit/);
       expect(await rowsOf(m.id)).toEqual([{ invoice_id: y, amount: 115 }]);
     });

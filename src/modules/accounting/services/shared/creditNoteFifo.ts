@@ -155,7 +155,7 @@ export async function applyCreditNote(args: {
   // answers, and a default would have silently given one of them the wrong one
   // — which for this call would mean taking every candidate row's lock twice,
   // once here and once in lockInvoicesForUpdate below.
-  const held = side === 'customer' ? args.heldKeys ?? await lockCustomerWalkKeys(companyId, entityId, linkedInvoiceId, autoApply === 'fifo') : null;
+  const held = side === 'customer' ? args.heldKeys ?? await lockCustomerWalkKeys(companyId, entityId, linkedInvoiceId, autoApply === 'fifo', totalAmount) : null;
   const candidates: string[] = [];
   if (linkedInvoiceId) candidates.push(linkedInvoiceId);
   if (autoApply === 'fifo' && entityId) {

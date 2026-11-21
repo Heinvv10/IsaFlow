@@ -47,4 +47,10 @@ describe('switchTaxMode', () => {
       expect(refused, `${p}`).toBe(!expressible);
     }
   });
+  it('a form rate below 0 or mid-edit converts nothing: prices kept, the mode changes', () => {
+    for (const formRate of [-5, Number.NaN]) {
+      expect(switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, formRate, from: 'exclusive', to: 'inclusive' }))
+        .toEqual({ mode: 'inclusive', lines: [{ quantity: 1, unitPrice: 100 }] });
+    }
+  });
 });

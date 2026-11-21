@@ -15,7 +15,7 @@ import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
-import { switchTaxMode, taxModesFor, useVatChoice } from '@/components/accounting/customer-invoices/useVatMode';
+import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
@@ -54,13 +54,9 @@ export default function NewCustomerInvoicePage() {
   const { scanned, lookupSeq, scanLookup, setScanLookup, matchScannedClient } = useScannedClientMatch(setForm, setError);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
-  const { vatMode, registered } = useVatChoice(taxMode);
   // taxModeSwitch: each line at its own rate; refused (prices and mode kept) when a line would come to another figure.
-  const pickTaxMode = (mode: TaxMode) => {
-    const s = switchTaxMode(lines, { from: taxMode, to: mode, formRate: form.taxRate, date: form.invoiceDate, customerVat: contact.vatType, registered });
-    if ('problem' in s) { setError(s.problem); return; }
-    contact.touch('taxMode'); setLines(s.lines); setTaxMode(s.mode);
-  };
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, customerVat: contact.vatType, onSwitched: () => contact.touch('taxMode') });
+  const { vatMode } = modeSwitch;
 
   useEffect(() => {
     apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }).then(json => {
@@ -232,7 +228,7 @@ export default function NewCustomerInvoicePage() {
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) { lookupSeq.current++; setScanLookup(null); } if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
-                taxMode={vatMode} taxModes={taxModesFor(registered)} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
+                taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

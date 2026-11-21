@@ -19,7 +19,7 @@ describe('approveCreditNote and the walk keys', () => {
     mockCreateJournalEntry.mockImplementationOnce((async () => { order.push('journal'); return { id: 'je' }; }) as never);
     setNote(creditNoteRow(), [creditNoteRow({ status: 'approved' })]);
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID, { autoApply });
-    expect(lockCustomerWalkKeys).toHaveBeenCalledWith(COMPANY_ID, 'client-uuid', null, walk);
+    expect(lockCustomerWalkKeys).toHaveBeenCalledWith(COMPANY_ID, 'client-uuid', null, walk, 1150);
     expect(order).toEqual(['keys', 'journal']);
   });
 });

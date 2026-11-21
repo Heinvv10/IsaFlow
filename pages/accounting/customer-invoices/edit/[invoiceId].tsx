@@ -14,7 +14,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
 import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
-import { switchTaxMode, taxModesFor, useVatChoice } from '@/components/accounting/customer-invoices/useVatMode';
+import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
@@ -147,10 +147,10 @@ export default function EditCustomerInvoicePage() {
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
 
   // Priced as the server stores it (formVat: per-line VAT; no VAT for a company not registered for it); a half-typed field previews as 0.
-  const { vatMode, registered } = useVatChoice(taxMode);
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, customerVat: customer.defaults?.vatType });
+  const { vatMode } = modeSwitch;
   const taxRate = effectiveTaxRate(vatMode, form.taxRate);
   const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
-  const pickTaxMode = (mode: TaxMode) => { const s = switchTaxMode(lines, { from: taxMode, to: mode, formRate: form.taxRate, date: form.invoiceDate, customerVat: customer.defaults?.vatType, registered }); if ('problem' in s) { setError(s.problem); return; } setLines(s.lines); setTaxMode(s.mode); }; // taxModeSwitch: per-line rate, refused when a line would move
   const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
 
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
@@ -265,7 +265,7 @@ export default function EditCustomerInvoicePage() {
 
               <fieldset disabled={approve.busy || approved} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={vatMode} taxModes={taxModesFor(registered)} onTaxModeChange={pickTaxMode} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

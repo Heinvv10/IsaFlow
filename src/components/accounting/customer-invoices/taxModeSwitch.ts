@@ -1,6 +1,6 @@
 /**
  * What the new and edit invoice pages do when "Amounts are" changes (#1701 round 8, items 2-4). The prices shown
- * convert with the mode (taxMode.linesForModeChange's rule) so the invoice stays the same invoice, but:
+ * convert with the mode (taxMode.grossUnitPrice / exVatUnitPrice) so the invoice stays the same invoice, but:
  *   - each line converts at its OWN rate: the type formVat gives it (on the edit page, the type it loaded with while
  *     the form keeps its load rate), so an exempt or zero-rated line of a mixed draft is not grossed up by the header's
  *     15% (R100 standard + R100 exempt, R215, became 115 + 115 = R230, and autosave stored it);
@@ -32,6 +32,9 @@ export interface ModeSwitch {
 export function switchTaxMode<L extends FormVatLine & { description?: string }>(lines: readonly L[], s: ModeSwitch):
   { mode: TaxMode; lines: L[] } | { problem: string } {
   if (!s.registered) return { mode: 'none', lines: [...lines] };
+  // Nothing to convert between exclusive and No VAT. A form rate mid-edit (empty, NaN) or below 0 converts NOTHING: the
+  // prices stay as typed and the mode changes (no 2-dp price comes back exact below 0; the rate itself holds every save,
+  // formVat.NO_VAT_TYPE_PROBLEM, until it is the standard rate or 0).
   if ((s.from === 'inclusive') === (s.to === 'inclusive') || !readable(s.formRate) || s.formRate < 0) return { mode: s.to, lines: [...lines] };
   const types = formLineTypes(lines, s.formRate, s.date, s.customerVat);
   const convert = s.to === 'inclusive' ? grossUnitPrice : exVatUnitPrice;

@@ -1,7 +1,7 @@
 /**
  * The edit page's draft PUT body (customer-invoices-detail), built in ONE place for the Save button, autosave and
  * Approve & email, so all three send the same thing. Built from one render's form, lines and mode together: mode and
- * prices change together (linesForModeChange), so a body that took its lines from one render and its mode from another
+ * prices change together (taxModeSwitch.switchTaxMode), so a body that took its lines from one render and its mode from another
  * would read gross prices as ex-VAT (PR D's warning).
  *
  * Per-line VAT (formVat): prices go as typed with the mode (`amountsAre`). Each line carries its `vatType` (the type it

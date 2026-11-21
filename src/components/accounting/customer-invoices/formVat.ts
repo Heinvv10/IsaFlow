@@ -11,7 +11,7 @@
  * (neither the standard rate nor 0: the server refuses it, saying why) is shown as VAT on the subtotal at that rate. A
  * company not registered for VAT prices at no VAT ('none'), as the server forces it.
  *
- * Pure: safe in a client bundle (useVatMode reads the active company's registration).
+ * Pure: safe in a client bundle (useTaxModeSwitch reads the active company's registration).
  */
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';

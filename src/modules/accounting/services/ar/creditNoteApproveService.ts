@@ -76,7 +76,7 @@ export async function approveCreditNote(
     // A supplier note's bill takes the same key (892): two notes on one bill must not take one leg twice.
     // A customer note: its linked invoice's key and, for a FIFO walk, every candidate's, as ONE sorted set (round 8).
     const walkKeys = String(cn.type) === 'customer' && String(cn.status) === 'draft'
-      ? await lockCustomerWalkKeys(companyId, cn.client_id ? String(cn.client_id) : null, cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, (opts?.autoApply ?? 'fifo') === 'fifo')
+      ? await lockCustomerWalkKeys(companyId, cn.client_id ? String(cn.client_id) : null, cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, (opts?.autoApply ?? 'fifo') === 'fifo', Number(cn.total_amount))
       : null;
     if (!walkKeys && cn.supplier_invoice_id) await lockInvoiceCreditNotes(String(cn.supplier_invoice_id));
     else if (!walkKeys && cn.customer_invoice_id) await lockInvoiceCreditNotes(String(cn.customer_invoice_id));
