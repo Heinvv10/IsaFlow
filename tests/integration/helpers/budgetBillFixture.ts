@@ -131,10 +131,13 @@ async function tokenFor(user: string): Promise<string> {
 }
 
 type Route = (req: never, res: never) => unknown;
-/** POSTs `body` (or `opts.method`, with `opts.id` as the `[id]` query) to a route through withAuth, as `user` of the fixture's company. */
-export async function callRoute(route: Route, f: BillFixture, user: string, url: string, body: unknown, opts: { method?: string; id?: string } = {}) {
+/** POSTs `body` (or `opts.method`, with `opts.id` as the `[id]` query and `opts.query` added) to a route through withAuth, as `user` of the fixture's company. */
+export async function callRoute(
+  route: Route, f: BillFixture, user: string, url: string, body: unknown, opts: { method?: string; id?: string; query?: Record<string, string> } = {},
+) {
   const req = request({ 'sb-access-token': await tokenFor(user), active_company_id: f.co }, opts.method ?? 'POST', opts.id);
   req.url = url;
+  if (opts.query) req.query = { ...req.query, ...opts.query };
   req.body = body;
   const result = response();
   await route(req as never, result.res as never);

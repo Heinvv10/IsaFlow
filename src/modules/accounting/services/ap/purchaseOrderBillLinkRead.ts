@@ -94,8 +94,17 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
        AND EXISTS (SELECT 1 FROM supplier_invoices si WHERE si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID)
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
   `) as DbRow[];
+  // The note each bill carries (grn_id has no FK: only a note of this company counts) and its PO, for the planner's note rule. A note's
+  // PO never changes, so it is read without a lock.
+  const grnIds = billRows.map((b) => b.grn_id).filter((v) => v != null).map(low);
+  const notes = grnIds.length === 0 ? [] : (await sql`
+    SELECT g.id::TEXT AS id, g.grn_number, g.purchase_order_id::TEXT AS po, po.po_number FROM goods_received_notes g
+      LEFT JOIN purchase_orders po ON po.id = g.purchase_order_id AND po.company_id = g.company_id
+     WHERE g.company_id = ${companyId}::UUID AND g.id = ANY(${grnIds}::UUID[])
+  `) as DbRow[];
   const bills = new Map<string, BillFacts>();
   for (const b of billRows) {
+    const note = b.grn_id == null ? undefined : notes.find((n) => low(n.id) === low(b.grn_id));
     const own = items.filter((i) => low(i.supplier_invoice_id) === low(b.id));
     const posted = new Map<string, number>();
     for (const l of postedExpenseLines(b, own)) posted.set(String(l.description), (posted.get(String(l.description)) ?? 0) + toCents(l.debit));
@@ -105,7 +114,8 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     }));
     bills.set(low(b.id), {
       id: low(b.id), invoiceNumber: String(b.invoice_number), status: String(b.status), supplierId: low(b.supplier_id),
-      subtotalCents: toCents(Number(b.subtotal)), lines,
+      subtotalCents: toCents(Number(b.subtotal)), lines, headerPoId: b.purchase_order_id == null ? null : low(b.purchase_order_id),
+      note: note ? { grnNumber: String(note.grn_number), poId: low(note.po), poNumber: String(note.po_number ?? note.po) } : null,
     });
   }
 

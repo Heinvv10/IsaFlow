@@ -27,7 +27,7 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
     + 'and reopens the PO to the status a link call closed it from (close_when_fully_billed) when it is still closed and no longer fully billed after the unlink '
     + '(the record of that closing moves to another link of the PO when this link held it and the PO is still fully billed; a PO closed by hand is left). '
     + 'Un-netting PO lines or reopening makes the PO commit spend again: the budget check runs in warn form and never blocks; an over-budget result comes back as budget_warning (nothing is recorded in the budget history). Any write:invoices holder may unlink and so reopen a PO that a link closed: reopening restores a commitment, the conservative direction. '
-    + 'A reason is required and recorded in the audit trail. Refused when the bill has no link, no line and no header reference to this PO. dry_run runs every check and writes nothing.',
+    + 'A reason is required and recorded in the audit trail. Refused when the bill has no link, no line and no header reference to this PO, and when the bill carries a goods received note of this PO while it would still name other POs (unlink those first, or cancel the bill; unlinking the last PO it names is allowed). dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {

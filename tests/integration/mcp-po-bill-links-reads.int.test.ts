@@ -20,7 +20,9 @@ import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder'
 import { getSupplierInvoiceTool as getBill, listSupplierInvoicesTool as listBills } from '@/lib/mcp/tools/supplierInvoices';
 import { getSupplierInvoices, performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { generateSupplierInvoicePdf } from '@/modules/accounting/services/ap/supplierInvoicePdfBuilder';
+import { inOneTransaction } from './helpers/poMaintHarness';
 import { autoLinkSupplierInvoice } from '@/modules/accounting/services/core/documentStorageService';
+import { listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -107,8 +109,10 @@ describe('get_purchase_order', () => {
     await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [cancelled.id]);
     await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [gone.id]);
     const grn = crypto.randomUUID();
-    await pool.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-1', $3, 'x')", [grn, f.co, po.po]);
-    await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]]);
+    await inOneTransaction(pool, async (c) => {
+      await c.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-1', $3, 'x')", [grn, f.co, po.po]);
+      await c.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]]);
+    });
     await pool.query('UPDATE po_items SET quantity_received = 1 WHERE id = $1', [po.items[0]]);
     await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, is_active) VALUES ('purchase_order', $1, 'purchase_order', 'po.pdf', true)`, [po.po]);
 
@@ -126,10 +130,11 @@ describe('get_purchase_order', () => {
 
     // Per-note truncation: a receipt of more lines than the cap says so for that note.
     const big = crypto.randomUUID();
-    await pool.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-2', $3, 'x')", [big, f.co, po.po]);
     const more = await seedPo(pool, f, { lines: [1, 2, 3, 4, 5, 6, 7], status: 'approved' });
-    await pool.query('UPDATE goods_received_notes SET purchase_order_id = $2 WHERE id = $1', [big, more.po]);
-    for (const item of more.items) await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [big, item]);
+    await inOneTransaction(pool, async (c) => {
+      await c.query("INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by) VALUES ($1, $2, 'GRN-2', $3, 'x')", [big, f.co, more.po]);
+      for (const item of more.items) await c.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [big, item]);
+    });
     const wide = await callTool(pool, f, getPo, { po_id: more.po });
     expect((wide.body.goods_received_notes as Json[])[0]).toMatchObject({ items_total: 7, items_truncated: true });
     expect(((wide.body.goods_received_notes as Json[])[0]!.items as Json[])).toHaveLength(5);
@@ -157,7 +162,7 @@ describe('readers that keyed on the header PO', () => {
       expect(Buffer.isBuffer(pdf) && pdf.length > 1000).toBe(true);
     } finally { await req.rollback(); }
 
-    // Each PO's filed documents are cross-linked to the bill, and the bill's document to each PO.
+    // Each PO's filed documents are listed on the bill (resolved at read time, #1697 finding 4), and the bill's document linked to each PO.
     for (const [po, name] of [[a.po, 'a.pdf'], [b.po, 'b.pdf']] as const) {
       await pool.query(`INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, is_active) VALUES ('purchase_order', $1, 'purchase_order', $2, true)`, [po, name]);
     }
@@ -165,8 +170,12 @@ describe('readers that keyed on the header PO', () => {
     await autoLinkSupplierInvoice(doc, bill.id, f.co);
     const toPos = await pool.query(`SELECT linked_entity_id FROM document_links WHERE document_id = $1 AND linked_entity_type = 'purchase_order' ORDER BY 1`, [doc]);
     expect(toPos.rows.map((r) => String(r.linked_entity_id)).sort()).toEqual([a.po, b.po].sort());
-    const toBill = await pool.query(`SELECT count(*)::INT AS n FROM document_links WHERE linked_entity_type = 'supplier_invoice' AND linked_entity_id = $1 AND link_reason = 'po_invoice_link'`, [bill.id]);
-    expect(toBill.rows[0].n).toBe(2);
+    const onBill = await openRequest(pool, f, f.owner);
+    try {
+      const listed = await onBill.run(() => listEntityDocuments(f.co, 'supplier_invoice', bill.id, 50, 0));
+      const fromPos = listed.ok ? listed.documents.filter((d) => d.linkReason === 'po_invoice_link').map((d) => d.documentName).sort() : [];
+      expect(fromPos).toEqual(['a.pdf', 'b.pdf']);
+    } finally { await onBill.rollback(); }
     await pool.query(`DELETE FROM document_links WHERE document_id = $1 OR linked_entity_id = $2`, [doc, bill.id]);
     await pool.query(`DELETE FROM procurement_documents WHERE entity_id = ANY($1::UUID[])`, [[a.po, b.po, bill.id]]);
   });

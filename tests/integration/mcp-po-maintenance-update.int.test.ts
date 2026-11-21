@@ -142,13 +142,13 @@ describe('item lines', () => {
 });
 
 describe('what refuses an update', () => {
-  it('a goods receipt: refused, "cancel the receipt first", nothing changed', async () => {
+  it('a goods receipt: refused, "cancel its goods received notes first", nothing changed', async () => {
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 10, price: 10, received: 4 }] });
     await seedGrn(pool, f, po);
     const r = await callTool(pool, f, update, { po_id: po.po, notes: 'x', lines: [line()] });
     expect(r.isError).toBe(true);
     expect(r.text).toContain('a receipt is on record');
-    expect(r.text).toContain('unlink or cancel the receipt first');
+    expect(r.text).toContain('cancel its goods received notes first (cancel_goods_received)');
     expect((await poLines(pool, po.po))[0]).toMatchObject({ quantity: '10.00', line_total: '100.00' });
     expect((await poRow(pool, po.po)).notes).toBeNull();
   });
