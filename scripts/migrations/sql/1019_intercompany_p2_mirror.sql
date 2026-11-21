@@ -1772,12 +1772,13 @@ BEGIN
   END IF;
 
   FOR c IN SELECT * FROM public.intercompany_mirror_candidates(p_row) ORDER BY rank LOOP
-    IF NOT public.intercompany_mirror_link_holds(p_row, c.mirror_row, v_asat) THEN
-      IF v_mid IS NULL THEN v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;   -- ('none', naming the closest)
-      CONTINUE;
-    END IF;
+    -- the cheap test first: a mirror already linked for this role is taken (whether it holds is its own row's question)
     IF EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.mirror_row = c.mirror_row AND l.role = v_role AND l.released_at IS NULL) THEN
       IF v_state <> 'closer' THEN v_state := 'taken'; v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;
+      CONTINUE;
+    END IF;
+    IF NOT public.intercompany_mirror_link_holds(p_row, c.mirror_row, v_asat) THEN
+      IF v_mid IS NULL THEN v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;   -- ('none', naming the closest)
       CONTINUE;
     END IF;
     SELECT o.transaction_date INTO v_mdate FROM public.intercompany_transactions o WHERE o.id = c.mirror_row;
