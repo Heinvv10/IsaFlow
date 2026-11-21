@@ -119,9 +119,11 @@ describe('merged-away suppliers of one name (#1655)', () => {
     // The xero row is untouched; a live row of that name with another system's ref still matches by name.
     const { rows } = await pool.query('SELECT external_system, external_ref FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ external_system: 'xero', external_ref: 'X-1' });
+    // A LIVE row of that name with another system's ref is not taken by a Sage party either: it cannot be stamped.
     const live = await insPlain('Cedar Works', 'xero', 'X-2');
-    expect((await syncSuppliers([party(962, 'Cedar Works')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    expect((await syncSuppliers([party(962, 'Cedar Works')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
     expect((await pool.query('SELECT external_ref FROM suppliers WHERE id = $1', [live])).rows[0].external_ref).toBe('X-2');
+    expect((await byRef('962'))[0].id).not.toBe(live);
   });
 
   it('a bill for an unstamped merged-away supplier stamps it like the sync does, so the order of bills and suppliers does not matter', async () => {

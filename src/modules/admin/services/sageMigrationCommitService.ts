@@ -39,13 +39,18 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { resolveSageCustomer, resolveSageSupplier, sageRef } from './sagePartyMatch';
+import { resolveSageCustomer, resolveSageSupplier, sageRef, type SameNameRefusal } from './sagePartyMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /** The customer row a Sage party is, and whether this call created it (false: it matched a live one). */
-export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<{ id: string; created: boolean }> {
-  const existing = await resolveSageCustomer(companyId, c);
+export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<{
+  id: string; created: boolean;
+  /** Set when a same-name refusal made this call create a second live customer next to `matchedId`. */
+  alongside?: SameNameRefusal;
+}> {
+  let refused: SameNameRefusal | undefined;
+  const existing = await resolveSageCustomer(companyId, c, { onSameNameRefusal: (r) => { refused = r; } });
   if (existing) return { id: existing, created: false };
   const ref = sageRef(c.sageId);
   const inserted = (await sql`
@@ -57,19 +62,26 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
       ${c.creditLimit ?? 0}, TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
-  return { id: String(inserted[0]!.id), created: true };
+  const id = String(inserted[0]!.id);
+  if (refused) {
+    log.warn('Sage customer created alongside a same-name customer', {
+      companyId, newCustomerId: id, existingCustomerId: refused.matchedId, newSageId: ref, existingRef: refused.heldRef,
+    }, 'sage-migration');
+    return { id, created: true, alongside: refused };
+  }
+  return { id, created: true };
 }
 
 /** The supplier row a Sage party is, and whether this call created it (false: it matched an existing one). */
 export async function upsertSupplier(companyId: string, s: MappedSupplier): Promise<{
   id: string; created: boolean;
-  /** Set when the same-name refusal made this call create a second live supplier next to `supplierId`. */
-  alongside?: { supplierId: string; otherSageIds: string[] };
+  /** Set when a same-name refusal made this call create a second live supplier next to `matchedId`. */
+  alongside?: SameNameRefusal;
 }> {
   // A survivor reached through a merge is not stamped with the merged-away party's Sage id: it may be a
   // Sage party of its own, which must still find it by name. The merged-away row is stamped instead when
   // the name alone found it, so a later Sage party of the same name does not resolve to the survivor too.
-  let refused: { supplierId: string; otherSageIds: string[] } | undefined;
+  let refused: SameNameRefusal | undefined;
   const existing = await resolveSageSupplier(companyId, s, { onSameNameRefusal: (r) => { refused = r; } });
   if (existing) return { id: existing.id, created: false };
   const ref = sageRef(s.sageId);
@@ -86,7 +98,7 @@ export async function upsertSupplier(companyId: string, s: MappedSupplier): Prom
   if (refused) {
     // The name matched a supplier that another Sage party was merged into: this party got its own row beside it.
     log.warn('Sage supplier created alongside a same-name supplier', {
-      companyId, newSupplierId: id, existingSupplierId: refused.supplierId, newSageId: ref, existingSageIds: refused.otherSageIds,
+      companyId, newSupplierId: id, existingSupplierId: refused.matchedId, newSageId: ref, existingSageIds: refused.otherSageIds, existingRef: refused.heldRef,
     }, 'sage-migration');
     return { id, created: true, alongside: refused };
   }

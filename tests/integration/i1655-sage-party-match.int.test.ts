@@ -9,7 +9,8 @@
  * Through the real commit (commitSageMigration) on a throwaway cluster, in a
  * request transaction as withAuth runs it; the stored rows are read back.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { log } from '@/lib/logger';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
@@ -92,12 +93,39 @@ describe('the Sage commit brings every Sage supplier across (#1655)', () => {
     ]);
   });
 
-  it('a row already carrying another reference is matched by name but not re-stamped', async () => {
+  it('a row carrying another system\'s reference is not taken by a Sage party of that name: two Sage ids each get their own row', async () => {
     const c = await newCompany(pool, [[admin, 'admin']], companies);
     await pool.query("INSERT INTO suppliers(company_id, name, external_system, external_ref) VALUES($1, 'Glen Paper', 'xero', 'X-9')", [c]);
-    expect((await commit(c, { suppliers: { records: [party(461, 'Glen Paper')] } })).suppliers)
-      .toEqual({ created: 0, skipped: 1, failed: [] });
-    expect(await live('suppliers', c)).toEqual([{ name: 'Glen Paper', external_system: 'xero', external_ref: 'X-9' }]);
+    const warn = vi.spyOn(log, 'warn');
+    const s = await commit(c, { suppliers: { records: [party(461, 'Glen Paper'), party(462, 'Glen Paper')] } });
+    expect(s.suppliers).toEqual({ created: 2, skipped: 0, failed: [] });
+    expect(s.warnings).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith('Sage supplier created alongside a same-name supplier',
+      expect.objectContaining({ companyId: c, newSageId: '461', existingRef: 'xero/X-9' }), 'sage-migration');
+    warn.mockRestore();
+    expect(await live('suppliers', c)).toEqual([
+      { name: 'Glen Paper', external_system: 'sage', external_ref: '461' },
+      { name: 'Glen Paper', external_system: 'sage', external_ref: '462' },
+      { name: 'Glen Paper', external_system: 'xero', external_ref: 'X-9' },
+    ]);
+    // Re-syncing finds each by its own id and creates nothing.
+    expect((await commit(c, { suppliers: { records: [party(461, 'Glen Paper'), party(462, 'Glen Paper')] } })).suppliers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
+  });
+
+  it('customers: a row carrying another system\'s reference is not taken either; two Sage ids each get their own row', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO customers(company_id, name, external_system, external_ref) VALUES($1, 'Hale Retail', 'xero', 'X-7')", [c]);
+    const s = await commit(c, { customers: { records: [party(471, 'Hale Retail'), party(472, 'Hale Retail')] } });
+    expect(s.customers).toEqual({ created: 2, skipped: 0, failed: [] });
+    expect(s.warnings).toHaveLength(2);
+    expect(await live('customers', c)).toEqual([
+      { name: 'Hale Retail', external_system: 'sage', external_ref: '471' },
+      { name: 'Hale Retail', external_system: 'sage', external_ref: '472' },
+      { name: 'Hale Retail', external_system: 'xero', external_ref: 'X-7' },
+    ]);
+    expect((await commit(c, { customers: { records: [party(471, 'Hale Retail'), party(472, 'Hale Retail')] } })).customers)
+      .toEqual({ created: 0, skipped: 2, failed: [] });
   });
 
   it('customers take the same rule: a deleted twin and a case twin do not swallow a Sage customer', async () => {

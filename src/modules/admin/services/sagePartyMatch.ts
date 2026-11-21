@@ -57,7 +57,14 @@ export interface SageSupplierMatch { id: string; viaMerge: boolean; mergedAwayId
  * merge chain. A Sage-id hit outranks a name hit, and a live hit outranks a merged one.
  */
 /** What a same-name refusal refused: the supplier the name matched, and the Sage ids already merged into it. */
-export interface SameNameRefusal { supplierId: string; otherSageIds: string[] }
+export interface SameNameRefusal {
+  /** The matched supplier (or customer) row the party was refused. */
+  matchedId: string;
+  /** Sage ids already merged into the supplier (the same-survivor refusal). */
+  otherSageIds: string[];
+  /** `system/ref` the matched row already carries when it could not be stamped (another Sage id, or another system). */
+  heldRef?: string;
+}
 export interface MatchOptions { onSameNameRefusal?: (refusal: SameNameRefusal) => void }
 
 export async function matchSageSupplier(
@@ -113,7 +120,7 @@ export async function matchSageSupplier(
   // (two Sage parties never share one supplier by name). A Sage-id hit is never refused.
   const sameName = conflicts.filter((r) => String(r.id) === String(first.id));
   if (!byRef && sameName.length > 0) {
-    opts.onSameNameRefusal?.({ supplierId: String(first.id), otherSageIds: [...new Set(sameName.map((r) => String(r.hit_ref)))] });
+    opts.onSameNameRefusal?.({ matchedId: String(first.id), otherSageIds: [...new Set(sameName.map((r) => String(r.hit_ref)))] });
     return null;
   }
   return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
@@ -125,11 +132,22 @@ const MAX_CLAIM_ATTEMPTS = 5;
 const sameMatch = (a: SageSupplierMatch, b: SageSupplierMatch) =>
   a.id === b.id && a.viaMerge === b.viaMerge && a.byRef === b.byRef && a.mergedAwayId === b.mergedAwayId;
 
+/** `system/ref` of a row's external reference, for the warning when a claim cannot stamp it. */
+async function heldRefOf(table: 'suppliers' | 'customers', companyId: string, id: string): Promise<string | undefined> {
+  const rows = (table === 'suppliers'
+    ? await sql`SELECT external_system, external_ref FROM suppliers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
+    : await sql`SELECT external_system, external_ref FROM customers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+  const r = rows[0];
+  return r && r.external_ref != null ? `${String(r.external_system ?? '?')}/${String(r.external_ref)}` : undefined;
+}
+
 /**
- * The supplier a Sage party is, stamped with its Sage id (claimMatchedSupplier). A claim that updates
- * nothing either lost to a concurrent import (the row now carries another Sage id, so a fresh match no
- * longer returns it) or hit a row that cannot be stamped (another system's ref: the fresh match is the
- * same, and stands). Null: no supplier matches.
+ * The supplier a Sage party is, stamped with its Sage id (claimMatchedSupplier). Only a row the claim stamped,
+ * or one already carrying this Sage id, is accepted. A claim that updates nothing either lost to a concurrent
+ * import (the fresh match is then another row, or this row now carrying this id) or hit a row that carries a
+ * DIFFERENT external ref, another Sage id or another system's (the fresh match is the same row, unstamped by us):
+ * that row is not this party's, so it is no match, the party gets its own row, and `onSameNameRefusal` says why.
+ * Accepting it would let every later Sage party of that name post to the other party's supplier. Null: no match.
  */
 export async function resolveSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
@@ -138,7 +156,13 @@ export async function resolveSageSupplier(
   for (let attempt = 0; match && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     if (await claimMatchedSupplier(companyId, match, party.sageId)) return match;
     const again = await matchSageSupplier(companyId, party, opts);
-    if (!again || sameMatch(again, match)) return again;
+    if (!again) return null;
+    if (again.byRef) return again;
+    if (sameMatch(again, match)) {
+      const heldRef = await heldRefOf('suppliers', companyId, match.mergedAwayId ?? match.id);
+      opts.onSameNameRefusal?.({ matchedId: match.id, otherSageIds: [], heldRef });
+      return null;
+    }
     match = again;
   }
   if (match) throw new Error(`Sage supplier ${party.name}: concurrent imports kept claiming its match; retry`);
@@ -169,15 +193,25 @@ export async function findSageCustomer(
   return rows.length ? String(rows[0]!.id) : null;
 }
 
-/** resolveSageSupplier for customers: match, claim, and match again after a claim lost to a concurrent import. */
+/**
+ * resolveSageSupplier for customers: match, claim, and match again after a claim lost to a concurrent import. A row that
+ * carries a different external ref (another Sage id or another system) and so cannot be stamped is no match.
+ */
 export async function resolveSageCustomer(
-  companyId: string, party: { name: string; sageId?: number | string | null },
+  companyId: string, party: { name: string; sageId?: number | string | null }, opts: MatchOptions = {},
 ): Promise<string | null> {
   let id = await findSageCustomer(companyId, party);
   for (let attempt = 0; id && attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     if (await claimSageCustomer(companyId, id, party.sageId)) return id;
     const again = await findSageCustomer(companyId, party);
-    if (!again || again === id) return again;
+    if (!again) return null;
+    if (again === id) {
+      // Accepted only when the row now carries this very Sage id (a concurrent stamp of the same party).
+      const held = await heldRefOf('customers', companyId, id);
+      if (held === `sage/${String(sageRef(party.sageId))}`) return id;
+      opts.onSameNameRefusal?.({ matchedId: id, otherSageIds: [], heldRef: held });
+      return null;
+    }
     id = again;
   }
   if (id) throw new Error(`Sage customer ${party.name}: concurrent imports kept claiming its match; retry`);
