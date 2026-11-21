@@ -76,6 +76,19 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
     await refused(asApp(z, link(r, o)), NEGATION);
   });
 
+  it('F1 the deferred check reads at READ COMMITTED only: an account change at REPEATABLE READ is refused at commit (40001)', async () => {
+    const o = await journal(z, legs);
+    const c = await z.pool.connect();
+    try {
+      await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: z.f.fx.userId, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [z.f.fx.companyId]);
+      await moveRevenue(o)(c);
+      expect(await settle(c.query('COMMIT'))).toMatch(/READ COMMITTED only/);
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+  });
+
   it('F2 a contra whose VAT type differs is not an exact negation; the same VAT type is', async () => {
     const o = await vatJournal('standard');
     await refused(asApp(z, link(await vatJournal('zero_rated', true), o)), NEGATION);

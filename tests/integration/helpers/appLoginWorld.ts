@@ -22,6 +22,22 @@ const LOGIN_LOCK = 'ci:isaflow_app_login';
  * concurrent caller reads the same value. run.sh gives each shard its own cluster copy; this makes two suites on ONE
  * cluster safe too (a local run, a second vitest beside a gate).
  */
+async function logsIn(fixtureUrl: string, password: string): Promise<boolean> {
+  const url = new URL(fixtureUrl);
+  url.username = 'isaflow_app';
+  url.password = password;
+  const probe = new Client({ connectionString: url.toString() });
+  try {
+    await probe.connect();
+    return true;
+  } catch (err) {
+    if ((err as { code?: string }).code === '28P01') return false;
+    throw err;
+  } finally {
+    await probe.end().catch(() => undefined);
+  }
+}
+
 export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
   const admin = new URL(fixtureUrl);
   admin.pathname = '/postgres';
@@ -32,9 +48,11 @@ export async function provisionAppLogin(fixtureUrl: string): Promise<string> {
     await c.query('CREATE TABLE IF NOT EXISTS public.ci_isaflow_app_login (password text NOT NULL)');
     await c.query('REVOKE ALL ON public.ci_isaflow_app_login FROM PUBLIC');
     const { rows } = await c.query<{ password: string }>('SELECT password FROM public.ci_isaflow_app_login LIMIT 1');
-    if (rows[0]) return rows[0].password;
+    // The stored one, while it still logs in (anything that rotated the role outside this helper made it stale).
+    if (rows[0] && await logsIn(fixtureUrl, rows[0].password)) return rows[0].password;
     const password = randomUUID();
     await c.query(`ALTER ROLE isaflow_app LOGIN PASSWORD '${password}'`);
+    await c.query('DELETE FROM public.ci_isaflow_app_login');
     await c.query('INSERT INTO public.ci_isaflow_app_login (password) VALUES ($1)', [password]);
     return password;
   } finally {

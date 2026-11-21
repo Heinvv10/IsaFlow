@@ -53,7 +53,7 @@ describeIfDisposable('ledger column immutability: a posted journal\'s header and
     const original = await journal(z, legs, { claimed: true });
     const contra = await journal(z, negate(legs));
     await sql`UPDATE gl_journal_entries SET reversal_of_id = ${original}::UUID WHERE id = ${contra}::UUID`;
-    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversed_at = NULL, reversed_by = NULL WHERE id = $1', [original])), /stays reversed/);
+    await refused(asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversed_at = NULL, reversed_by = NULL WHERE id = $1', [original])), /keeps who reversed it and when/);
     expect((await row(original)).reversed_at).not.toBeNull();
     const claimed = await journal(z, legs, { claimed: true });
     await inAppUserTx(z.f.fx, () => releaseJournalReversalClaim(z.f.fx.companyId, claimed));
