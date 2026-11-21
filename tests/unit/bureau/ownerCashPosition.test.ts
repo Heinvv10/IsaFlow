@@ -123,6 +123,12 @@ describe('pickPayrollRun', () => {
       // still needs all of it.
       const unpaidNet = run({ id: 'unpaid', total_net: '10000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-30', final: false });
       expect(pickPayrollRun([credit, unpaidNet], 0, '2026-06-20')).toMatchObject({ runId: 'unpaid', totalRequired: 10000 });
+      // The credit is used once (review L of f57ef5aa96): R300 of credit against two paid June runs owing R200 statutory
+      // each clears the first and leaves R100 on the second, never both.
+      const a1 = run({ id: 'a1', total_net: '4000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-20', final: true });
+      const a2 = run({ id: 'a2', total_net: '4000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([credit, a1], 0, '2026-06-30')).toMatchObject({ runId: 'a1', canPay: true, shortfall: 0 });
+      expect(pickPayrollRun([credit, a1, a2], 0, '2026-06-30')).toMatchObject({ runId: 'a2', canPay: false, totalRequired: 100, shortfall: 100, runsCounted: 1 });
       // Another month's credit is not netted (its own EMP201).
       const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
       expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
