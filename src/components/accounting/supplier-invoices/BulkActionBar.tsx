@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { OFF_SLICE_WARNING_PREFIX, type BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { BulkBudgetModal } from './BulkBudgetModal';
 import { notify } from '@/utils/toast';
+import { cancelReopenToast } from './cancelReopenNotice';
 
 /** The bulk preview's cap (`@/lib/budgetBillPreview`): a larger selection is approved without the modal; the server still checks every bill. */
 const MAX_BUDGET_PREVIEW = 50;
@@ -22,14 +23,17 @@ const MAX_BUDGET_PREVIEW = 50;
  * title says which kinds the batch had.
  */
 function notifyBudgetWarnings(data: BulkActionResult, action: BulkAction): void {
+  // A cancel's warnings are the purchase orders it reopened or could not re-check (PR #1703), not an over-budget approval.
+  if (action === 'cancel') {
+    const done = data.results.filter((r) => r.ok);
+    const toast = cancelReopenToast(done.flatMap((r) => r.reopenedPurchaseOrders ?? []), done.flatMap((r) => r.uncheckedPurchaseOrders ?? []),
+      done.flatMap((r) => r.budgetWarnings ?? []));
+    if (toast) notify.warning(toast.title, toast.line);
+    return;
+  }
   const warned = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
   if (warned.length === 0) return;
   const all = warned.flatMap((r) => r.budgetWarnings ?? []);
-  // A cancel's warnings are the purchase orders it reopened (PR #1703), not an over-budget approval.
-  if (action === 'cancel') {
-    notify.warning(`${warned.length === 1 ? '1 bill' : `${warned.length} bills`} cancelled: a purchase order reopened`, all.join(' '));
-    return;
-  }
   const offSlice = all.some((w) => w.startsWith(OFF_SLICE_WARNING_PREFIX));
   const over = all.some((w) => !w.startsWith(OFF_SLICE_WARNING_PREFIX));
   const what = offSlice ? (over ? 'over budget or outside a budgeted slice' : 'outside a budgeted slice') : 'over budget';
@@ -43,7 +47,10 @@ interface BulkActionResult {
   total: number;
   succeeded: number;
   failed: number;
-  results: Array<{ invoiceId: string; invoiceNumber?: string | null; ok: boolean; error?: string; budgetWarnings?: string[] }>;
+  results: Array<{
+    invoiceId: string; invoiceNumber?: string | null; ok: boolean; error?: string; budgetWarnings?: string[];
+    reopenedPurchaseOrders?: unknown[]; uncheckedPurchaseOrders?: unknown[];
+  }>;
 }
 
 interface Props {

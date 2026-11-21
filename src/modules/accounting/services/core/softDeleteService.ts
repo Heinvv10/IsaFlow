@@ -15,7 +15,7 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { DbRow } from '@/types/db';
-import { lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
+import { guardBillGone, NO_REOPEN, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
 
 // Allowlist of entity types that support soft-delete
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -91,12 +91,13 @@ async function softDeleteInner(
 ): Promise<{ undoToken: string } & BillGoneReopen> {
   try {
     // A bill's POs closed BY BILLING, locked BEFORE the bill (PO -> bill, as link / unlink): one the delete leaves under-billed reopens.
-    const billingClosed = entityType === 'supplier_invoice' ? await lockPosClosedByBilling(companyId, entityId) : new Map<string, number>();
+    const billing = entityType === 'supplier_invoice' ? await guardBillGone(companyId, entityId) : null;
     // An invoice that is out of the subledger must be out of the ledger too:
     // approve posted a journal, so the delete reverses it, exactly as cancel
     // does. Guards and reversal both live in softDeleteJournalService.
     if (INVOICE_ENTITY_TYPES.has(entityType)) {
       await prepareInvoiceDelete(entityType, entityId, companyId, userId);
+      await billing?.recheck(); // the bill is locked now: a PO a link closed by billing meanwhile (Codex gate)
     }
 
     // W2 (P2.1): open-document guard (extracted to masterDeleteGuards for
@@ -109,7 +110,7 @@ async function softDeleteInner(
     if (!deleted) {
       throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
-    const reopen = await reopenAfterBillGone(companyId, billingClosed, { userId, via: 'soft_delete', why: 'bill deleted' });
+    const reopen = billing ? await billing.reopen({ userId, via: 'soft_delete', why: 'bill deleted' }) : NO_REOPEN;
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
     return { undoToken: entityId, ...reopen };
   } catch (err) {

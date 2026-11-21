@@ -29,7 +29,7 @@ import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
-import { lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
+import { guardBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
 
 type Row = DbRow;
 
@@ -305,7 +305,7 @@ async function cancelSupplierInvoiceInner(
 ): Promise<SupplierInvoice & BillGoneReopen> {
   try {
     // The POs closed BY BILLING this bill ties, locked BEFORE the bill (PO -> bill, as link / unlink): one it leaves under-billed reopens.
-    const billingClosed = await lockPosClosedByBilling(companyId, id);
+    const billing = await guardBillGone(companyId, id);
     // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
@@ -327,6 +327,7 @@ async function cancelSupplierInvoiceInner(
     // Every refusal the MCP tool's plan makes, on the row just locked, before
     // any write — the UI Cancel button and the bulk action reach only this.
     await planSupplierInvoiceCancel(companyId, id);
+    await billing.recheck(); // the bill is locked: a PO a link closed by billing meanwhile (Codex gate)
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
@@ -358,7 +359,7 @@ async function cancelSupplierInvoiceInner(
     if (cancelledSourceDoc) {
       await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
     }
-    const reopen = await reopenAfterBillGone(companyId, billingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
+    const reopen = await billing.reopen({ userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
     return { ...mapInvoiceRow(rows[0]!), ...reopen };
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');

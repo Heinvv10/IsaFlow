@@ -29,6 +29,7 @@ function serve(routes: Array<[string, unknown]>) {
   vi.mocked(apiFetch).mockImplementation(async (url) => ok(routes.find(([part]) => String(url).includes(part))?.[1] ?? {}));
 }
 const REOPENED = 'Purchase order PO-9 reopened to approved: it is no longer fully billed, so it commits spend again.';
+const OVER = 'Reopened. Purchase order PO-9 commits spend again and is now over budget on BB-6100 Opex · 2026-06.';
 
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(notify.warning).mockReset(); route.query = {}; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -51,7 +52,7 @@ describe('supplier invoice detail: Cancel Invoice', () => {
   };
   it('a cancel that reopened a PO says which, and its budget warning', async () => {
     await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'approved' }], budgetWarnings: [REOPENED] });
-    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened', REOPENED));
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to approved', 'Commits again: PO-9'));
   });
   it('a cancel that reopened nothing says nothing', async () => {
     await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [] });
@@ -59,14 +60,27 @@ describe('supplier invoice detail: Cancel Invoice', () => {
   });
 });
 
+describe('the cancel toast (title carries the facts, the line fits)', () => {
+  it('a PO closed by billing meanwhile that could not be re-checked is said', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }], ['Purchase order PO-2 could not be re-checked just now and is still closed; ...']))
+      .toEqual({ title: 'Purchase order PO-2 still closed (could not re-check)', line: 'Still counts its unbilled remainder' });
+    const many = cancelReopenToast(Array.from({ length: 9 }, (_, i) => ({ poNumber: `PO-10000${i}`, reopenedTo: 'approved' })), [], []);
+    expect(many!.line.length).toBeLessThanOrEqual(45);
+    expect(many!.title).toContain('PO-100008 to approved');
+    expect(cancelReopenToast([], [], ['x'])).toBeNull();
+  });
+});
+
 describe('supplier invoice bulk bar: Cancel', () => {
   it('a bulk cancel that reopened a PO says it reopened, not that a bill was approved over budget', async () => {
     vi.stubGlobal('confirm', () => true);
-    serve([['supplier-invoices-bulk-action', { total: 1, succeeded: 1, failed: 0, results: [{ invoiceId: 'b1', invoiceNumber: 'INV-1', ok: true, budgetWarnings: [REOPENED] }] }]]);
+    serve([['supplier-invoices-bulk-action', { total: 1, succeeded: 1, failed: 0, results: [{ invoiceId: 'b1', invoiceNumber: 'INV-1', ok: true,
+      budgetWarnings: [REOPENED, OVER], reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'partially_received' }] }] }]]);
     const onComplete = vi.fn(async () => {});
     render(<BulkActionBar selected={new Set(['b1'])} busy={null} onBusyChange={() => {}} onError={() => {}} onComplete={onComplete} onClear={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
-    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('1 bill cancelled: a purchase order reopened', REOPENED));
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to partially received', 'Now over budget: PO-9'));
   });
 });

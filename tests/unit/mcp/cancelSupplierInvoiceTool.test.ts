@@ -47,7 +47,7 @@ const plan = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(lockAndPlanSupplierInvoiceCancel).mockResolvedValue(plan);
-  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [] } as never);
+  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] } as never);
 });
 
 describe('cancel_supplier_invoice', () => {

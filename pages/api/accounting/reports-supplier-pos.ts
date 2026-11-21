@@ -1,7 +1,7 @@
 /**
  * Supplier POs by Supplier Report API
  * GET /api/accounting/reports-supplier-pos
- *   ?status=draft|submitted|approved|partially_received|received|closed|cancelled (retired sent -> approved, invoiced -> closed;
+ *   ?status=draft|submitted|approved|partially_received|received|closed|cancelled (retired sent -> approved; invoiced,
  *    partially_invoiced or an unknown status -> 400)
  *   &date_from=YYYY-MM-DD
  *   &date_to=YYYY-MM-DD

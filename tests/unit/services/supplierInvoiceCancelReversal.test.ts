@@ -19,8 +19,10 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
 // PR #1703 R4-1 / r5: the POs a bill keeps closed by billing are locked first and re-judged after; none here.
 vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({
-  lockPosClosedByBilling: vi.fn(async () => new Map()),
-  reopenAfterBillGone: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [] })),
+  guardBillGone: vi.fn(async () => ({
+    recheck: vi.fn(async () => {}),
+    reopen: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] })),
+  })),
 }));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),

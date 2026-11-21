@@ -148,7 +148,7 @@ raised before anything is written. Orders, first lock first:
 | `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order (the call's POs AND the POs its bills name in their header, one sorted list: PR #1703 review r5 H1) -> bill rows in ONE id order: the call's bills AND the bills of the existing links of those POs (so billed / fully_billed cannot move under the close decision) |
 | `unlink_bill_from_purchase_order` | budget gate (`budget_check:<company>` advisory lock, block policy only; warn / off take none; a busy gate is survived) -> PO row `FOR NO KEY UPDATE` -> bill rows (this bill and the PO's other linked bills, one sorted list) |
 | bill approve | budget gate (block) -> bill row |
-| bill cancel / bill soft delete | the POs closed BY BILLING the bill ties `FOR NO KEY UPDATE` in id order (PR #1703 R4-1: one it leaves under-billed reopens) -> bill row; the MCP cancel takes them before its plan locks the bill; the bulk cancel takes those of EVERY bill of the batch first, sorted (breaker B5-6) |
+| bill cancel / bill soft delete | the POs closed BY BILLING the bill ties `FOR NO KEY UPDATE` in id order (PR #1703 R4-1: one it leaves under-billed reopens) -> bill row -> the late edge: the POs a link closed by billing while it waited on the bill, each `FOR NO KEY UPDATE NOWAIT` in its own savepoint (never waits, so no cycle; a busy one is left closed and said: `uncheckedPurchaseOrders`). The MCP cancel takes the POs before its plan locks the bill (once per request); the bulk cancel takes those of EVERY bill of the batch first, sorted (breaker B5-6), the PO rows only: each bill is locked by its own item, inside its savepoint |
 | PO approve | budget gate (block) -> PO row |
 | PO cancel (approved) | PO row `FOR UPDATE` (refuses while links exist) |
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
@@ -204,10 +204,12 @@ the typed timeout with nothing written.
   only makes a reopen more likely, the conservative direction (review r5 L4). During the release switch the old
   colour's link call records its closing on the link (`closed_po_from_status`), which the new code does not read: such a PO
   (closed in those minutes) does not reopen by itself (PR #1703, named limit).
-- Bulk cancel lock order (PR #1703 named limit B6-DL1): the route locks, before its first bill, the POs that are ALREADY closed by
-  billing when the batch starts. A PO a concurrent link call closes after that read is not covered, so a three-actor race (the bulk
-  cancel, a link call closing a PO, a link call on one of the batch's bills) can still deadlock; PostgreSQL aborts one side
-  (40P01), the MCP tools answer "nothing was written, retry" and the bulk route reports a held row (503 when every id was held).
+- Bulk cancel lock order (PR #1703 named limit B6-DL1): the route locks, before its first bill, the PO rows that are ALREADY
+  closed by billing when the batch starts; each bill is locked by its own item inside that item's savepoint (a held bill fails that
+  item alone). A PO a link call closes by billing later is reached only by each item's late NOWAIT re-check (bill -> PO, never
+  waiting): if it is busy it is left closed, still counting its unbilled remainder, and the item says it could not re-check it.
+- The cancel dry run (`would_reopen_purchase_orders`) previews only the POs already closed by billing when it locked them; one a
+  link closes by billing in between is found by the cancel's late re-check, not by the preview.
 - Committed for a PO closed by billing (PR #1703 r5 / r6 M5): 0 while it is fully billed at PO level (billedCentsByPo), else
   its per-line open remainder; a close by hand and a cancelled PO commit nothing.
 - The `app` links of a bill are made at create and on each draft edit; a bill edited by a path that does not call
