@@ -71,7 +71,8 @@ interface RunHeaderTotals {
  */
 export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
   const split = splitRunTotals({ gross: run.totalGross, paye: run.totalPaye, uif: run.totalUif, net: run.totalNet,
-    uifEmployee: run.lines.reduce((s, l) => s + l.uifEmployee, 0) });
+    // No line (a header-only run): undefined, so the split halves the total as the journal does.
+    uifEmployee: run.lines.length > 0 ? run.lines.reduce((s, l) => s + l.uifEmployee, 0) : undefined });
   const stats = [
     { label: 'Employees', value: String(run.employeeCount), mono: false, accent: false },
     { label: 'Total Gross', value: formatCurrency(run.totalGross), mono: true, accent: false },
