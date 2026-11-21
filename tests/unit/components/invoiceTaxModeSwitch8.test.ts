@@ -17,7 +17,7 @@ describe('switchTaxMode', () => {
   });
   it('1,000 x R0.03 to inclusive is refused, naming both totals', () => {
     expect(switchTaxMode([{ description: 'Tiny', quantity: 1000, unitPrice: 0.03 }], { ...base, from: 'exclusive', to: 'inclusive' }))
-      .toEqual({ problem: expect.stringMatching(/^Switching to Including VAT would change "Tiny" from R34\.50 to R30\.00/) });
+      .toEqual({ problem: expect.stringMatching(/^Switching to Including VAT would change "Tiny" from R\s?34\.50 to R\s?30\.00/) });
   });
   it('not registered: nothing converts and the mode is No VAT; only No VAT is offered', () => {
     expect(switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, registered: false, from: 'none', to: 'inclusive' }))
@@ -33,7 +33,7 @@ describe('switchTaxMode', () => {
     // Excluding VAT can only show a gross p + round(15% of p): some grosses (5,553.92: 4,829.49 gives 5,553.91, 4,829.50
     // gives 5,553.93) have no such p, so that switch would move the total a cent, and is refused.
     expect(switchTaxMode([{ description: 'G', quantity: 1, unitPrice: 5553.92 }], { ...base, from: 'inclusive', to: 'exclusive' }))
-      .toEqual({ problem: expect.stringMatching(/from R5553\.92 to R5553\.93/) });
+      .toEqual({ problem: expect.stringMatching(/from R\s?5\s?553\.92 to R\s?5\s?553\.93/) });
     const grossOf = (pc: number) => pc + Math.round(pc * 0.15);
     let seed = 8;
     for (let i = 0; i < 2000; i++) {

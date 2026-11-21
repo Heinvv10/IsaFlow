@@ -108,10 +108,10 @@ describe('switchTaxMode (#1701 round 8: the "Amounts are" switch never reprices;
 
   it('refuses a switch that would reprice a line: 1 000 x R0.03 excl is not R30.00 incl; R10.00 incl would be R10.01 excl', () => {
     expect(change([pl('Fee', 1, 100), pl('Screws', 1000, 0.03)], 'exclusive', 'inclusive', 15)).toEqual({
-      problem: expect.stringMatching(/^Switching to Including VAT would change "Screws" from R34\.50 to R30\.00/),
+      problem: expect.stringMatching(/^Switching to Including VAT would change "Screws" from R\s?34\.50 to R\s?30\.00/),
     });
     expect(change([pl('', 1, 10)], 'inclusive', 'exclusive', 15)).toEqual({
-      problem: expect.stringMatching(/^Switching to Excluding VAT would change line 1 from R10\.00 to R10\.01/),
+      problem: expect.stringMatching(/^Switching to Excluding VAT would change line 1 from R\s?10\.00 to R\s?10\.01/),
     });
   });
 

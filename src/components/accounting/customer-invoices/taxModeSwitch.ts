@@ -13,11 +13,11 @@
  *
  * Pure: safe in a client bundle.
  */
+import { formatMoney } from '@/lib/money/formatMoney';
 import { formLineTypes, formTotals, type FormVatLine } from './formVat';
 import { effectiveTaxRate, exVatUnitPrice, grossUnitPrice, TAX_MODE_OPTIONS, type TaxMode } from './taxMode';
 
 const LABEL: Record<TaxMode, string> = { exclusive: 'Excluding VAT', inclusive: 'Including VAT', none: 'No VAT' };
-const rands = (n: number): string => `R${n.toFixed(2)}`;
 const readable = (n: number): boolean => Number.isFinite(n) && Math.abs(n) < 1e15;
 
 /** The "Amounts are" options a company is offered. */
@@ -50,8 +50,8 @@ export function switchTaxMode<L extends FormVatLine & { description?: string }>(
     if (!same) {
       const [was, now] = bothRated ? [before.total, after.total] : [before.subtotal, after.subtotal];
       const name = lines[i]!.description ? `"${lines[i]!.description}"` : `line ${i + 1}`;
-      return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${rands(was)} to `
-        + `${rands(now)}: its unit price cannot carry the VAT to the cent at that quantity. Change its quantity or price first, or keep ${LABEL[s.from]}.` };
+      return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${formatMoney(was)} to `
+        + `${formatMoney(now)}: its unit price cannot carry the VAT to the cent at that quantity. Change its quantity or price first, or keep ${LABEL[s.from]}.` };
     }
   }
   return { mode: s.to, lines: converted };

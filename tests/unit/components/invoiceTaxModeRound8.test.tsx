@@ -68,7 +68,7 @@ describe('(3) a switch that would change a line\'s total is refused', () => {
     render(<EditPage />);
     await screen.findByDisplayValue('Tiny');
     await pickMode(/Including VAT/);
-    expect(await screen.findByText(/Switching to Including VAT would change "Tiny" from R34\.50 to R30\.00/)).toBeTruthy();
+    expect(await screen.findByText(/Switching to Including VAT would change "Tiny" from R\s?34\.50 to R\s?30\.00/)).toBeTruthy();
     expect(prices()).toEqual(['0.03']);
     expect(modeShown()).toMatch(/Excluding VAT/);
     expect(totalText()).toMatch(/34\.50/);
@@ -78,7 +78,7 @@ describe('(3) a switch that would change a line\'s total is refused', () => {
     render(<NewPage />);
     fillLine(0, '0.03', '1000');
     await pickMode(/Including VAT/);
-    expect(await screen.findByText(/would change "Work" from R34\.50 to R30\.00/)).toBeTruthy();
+    expect(await screen.findByText(/would change "Work" from R\s?34\.50 to R\s?30\.00/)).toBeTruthy();
     expect(prices()).toEqual(['0.03']);
   });
 });
@@ -130,7 +130,7 @@ describe('(round 9) the refusal is said by the selector, and clears', () => {
     await pickMode(/Including VAT/);
     await screen.findByText(/Switching to Including VAT would change "Tiny"/);
     const alert = screen.getAllByRole('alert').find((a) => /Switching to Including VAT/.test(a.textContent ?? ''))!;
-    expect(alert.textContent).toMatch(/^Switching to Including VAT would change "Tiny" from R34\.50 to R30\.00/);
+    expect(alert.textContent).toMatch(/^Switching to Including VAT would change "Tiny" from R\s?34\.50 to R\s?30\.00/);
     expect(describedBy().split(' ')).toContain(alert.id);
     expect(scrolled).toHaveBeenCalled();
     fireEvent.change(price(0), { target: { value: '0.04' } });

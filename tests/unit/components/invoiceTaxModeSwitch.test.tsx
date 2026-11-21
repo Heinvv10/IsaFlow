@@ -304,7 +304,7 @@ describe('#1701 review: a mode change never reprices', () => {
     await openNew();
     fillLine(0, '0.03', '1000');
     await pickMode(/Including VAT/);
-    await screen.findByText(/^Switching to Including VAT would change "Work" from R34\.50 to R30\.00/);
+    await screen.findByText(/^Switching to Including VAT would change "Work" from R\s?34\.50 to R\s?30\.00/);
     expect(modeShown()).toMatch(/Excluding VAT/);
     expect(prices()).toEqual(['0.03']);
     expectTotal(/34\.50/);
@@ -314,7 +314,7 @@ describe('#1701 review: a mode change never reprices', () => {
     serve(undefined, { ...INV, items: [{ description: 'Screws', quantity: 1000, unit_price: 0.03, amount: 30 }] });
     render(<EditPage />); await screen.findByDisplayValue('Screws');
     await pickMode(/Including VAT/);
-    await screen.findByText(/^Switching to Including VAT would change "Screws" from R34\.50 to R30\.00/);
+    await screen.findByText(/^Switching to Including VAT would change "Screws" from R\s?34\.50 to R\s?30\.00/);
     expect(modeShown()).toMatch(/Excluding VAT/);
     expect(prices()).toEqual(['0.03']);
     expectTotal(/34\.50/);
