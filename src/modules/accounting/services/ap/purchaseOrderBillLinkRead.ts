@@ -24,7 +24,7 @@ export interface LinkFacts {
   existing: ExistingLink[];
   refOwners: Map<string, ExistingLink>;
   unlinkedBilled: Map<string, Array<{ billId: string; cents: number }>>;
-  heldByHeader: Map<string, Array<{ poId: string; poNumber: string; cents: number }>>;
+  heldByHeader: Map<string, Array<{ poId: string; poNumber: string; status: string; cents: number }>>;
 }
 
 const low = (v: unknown) => String(v).toLowerCase();
@@ -67,11 +67,19 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   const poIds = [...new Set(resolvedPo.values())].sort();
   const billIds = [...new Set(requests.map((r) => r.billId))].sort();
   const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
+  // The POs the call's bills name in their header are locked WITH the call's POs, in the one sorted list, before any bill (review
+  // r5 H1 / L3): a link may take a header residual from such a PO, so its status and billing must hold under the decision.
+  const headerIds = ((await sql`
+    SELECT DISTINCT si.purchase_order_id::TEXT AS po FROM supplier_invoices si
+     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${billIds}::UUID[]) AND si.purchase_order_id IS NOT NULL
+  `) as DbRow[]).map((r) => low(r.po));
+  const lockPoIds = [...new Set([...poIds, ...headerIds])].sort();
 
-  const poRows = await withRowLockBudget(async () => (await sql`
+  const lockedPos = await withRowLockBudget(async () => (await sql`
     SELECT id::TEXT AS id, po_number, status, supplier_id::TEXT AS supplier_id, subtotal FROM purchase_orders
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${poIds}::UUID[]) ORDER BY id FOR NO KEY UPDATE
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${lockPoIds}::UUID[]) ORDER BY id FOR NO KEY UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
+  const poRows = lockedPos.filter((r) => poIds.includes(low(r.id)));
   // FOR NO KEY UPDATE, not FOR UPDATE: it still excludes another link / unlink call and a PO cancel / approve / goods receipt
   // (FOR UPDATE), but not the KEY SHARE a draft edit's link insert takes on the PO through the FK, which a draft edit holding
   // its bill row would otherwise wait on while this call waits for that bill (a deadlock; review round 2, M1).
@@ -154,14 +162,16 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   }
   // The POs the call's bills tie only by their header, and what each holds there (breaker R3-4).
   const headerPos = [...new Set(billRows.map((b) => (b.purchase_order_id == null ? null : low(b.purchase_order_id))).filter((v): v is string => !!v))];
-  const heldByHeader = new Map<string, Array<{ poId: string; poNumber: string; cents: number }>>();
+  const heldByHeader = new Map<string, Array<{ poId: string; poNumber: string; status: string; cents: number }>>();
   if (headerPos.length > 0) {
-    const numbers = new Map(((await sql`
-      SELECT id::TEXT AS id, po_number FROM purchase_orders WHERE company_id = ${companyId}::UUID AND id = ANY(${headerPos}::UUID[])
-    `) as DbRow[]).map((r) => [low(r.id), String(r.po_number)]));
+    // Locked above; a header changed between that read and the bill lock names a PO read here unlocked (its status as it is now).
+    const headerPo = new Map(((await sql`
+      SELECT id::TEXT AS id, po_number, status FROM purchase_orders WHERE company_id = ${companyId}::UUID AND id = ANY(${headerPos}::UUID[])
+    `) as DbRow[]).map((r) => [low(r.id), { poNumber: String(r.po_number), status: String(r.status) }]));
     for (const t of await billTies(companyId, headerPos, { statuses: null })) {
       if (t.via !== 'header' || !billIds.includes(t.billId)) continue;
-      heldByHeader.set(t.billId, [...(heldByHeader.get(t.billId) ?? []), { poId: t.poId, poNumber: numbers.get(t.poId) ?? t.poId, cents: t.cents }]);
+      const h = headerPo.get(t.poId);
+      heldByHeader.set(t.billId, [...(heldByHeader.get(t.billId) ?? []), { poId: t.poId, poNumber: h?.poNumber ?? t.poId, status: h?.status ?? 'unknown', cents: t.cents }]);
     }
   }
   return {

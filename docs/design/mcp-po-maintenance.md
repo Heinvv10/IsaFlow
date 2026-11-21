@@ -97,7 +97,7 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
    **owner / admin only**, audited (old -> new). Refused unless the PO carries `external_ref`, when it has a goods receipt, and
    for a move that would orphan bill links (-> draft or -> cancelled while links exist). **-> closed only from approved** (closing
    a draft / submitted / cancelled PO would make it billable without it ever having been approved; the import creates closed POs
-   directly). **Leaving closed clears `closed_by_billing`** (1022's trigger, whoever writes the status; before PR #1703 R4-1 the
+   directly). **Leaving closed clears `closed_by_billing`** (1016's trigger, whoever writes the status; before PR #1703 R4-1 the
    record was on the links), so a later unlink cannot reopen a PO someone deliberately reopened and closed again (review M3; the
    4-step case is tested). -> approved runs the budget check
    NORMALLY (the import's `skip_budget_check_for_import` does not apply: a status fix is not a load) and stamps

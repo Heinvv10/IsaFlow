@@ -64,7 +64,7 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
    `close_when_fully_billed: true`, which **requires owner or admin** (`PO_CANCEL_ROLES`, Hein R1, 19 Nov; a manager's
    call with the flag is refused before anything is read, dry run too). Then an approved / partially_received / received
    PO that the call leaves fully billed moves to `closed`, and the PO records the status it came from (`closed_from_status`)
-   and that it was closed BY BILLING (`closed_by_billing`; PR #1703 breaker R4-1, migration 1022: no longer on a link, so no
+   and that it was closed BY BILLING (`closed_by_billing`; PR #1703 breaker R4-1, migration 1016: no longer on a link, so no
    link's removal can lose it). Every response reports `fully_billed`.
 7. **No ledger effect.** Linking never touches `gl_journal_*`, bill status, amounts or `amount_paid`. Tested with bills
    that really carry journals.
@@ -145,10 +145,10 @@ raised before anything is written. Orders, first lock first:
 
 | Writer | Order |
 |---|---|
-| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order -> bill rows in ONE id order: the call's bills AND the bills of the existing links of those POs (so billed / fully_billed cannot move under the close decision) |
+| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order (the call's POs AND the POs its bills name in their header, one sorted list: PR #1703 review r5 H1) -> bill rows in ONE id order: the call's bills AND the bills of the existing links of those POs (so billed / fully_billed cannot move under the close decision) |
 | `unlink_bill_from_purchase_order` | budget gate (`budget_check:<company>` advisory lock, block policy only; warn / off take none; a busy gate is survived) -> PO row `FOR NO KEY UPDATE` -> bill rows (this bill and the PO's other linked bills, one sorted list) |
 | bill approve | budget gate (block) -> bill row |
-| bill cancel / bill soft delete | the POs closed BY BILLING the bill ties `FOR NO KEY UPDATE` in id order (PR #1703 R4-1: one it leaves under-billed reopens) -> bill row |
+| bill cancel / bill soft delete | the POs closed BY BILLING the bill ties `FOR NO KEY UPDATE` in id order (PR #1703 R4-1: one it leaves under-billed reopens) -> bill row; the MCP cancel takes them before its plan locks the bill; the bulk cancel takes those of EVERY bill of the batch first, sorted (breaker B5-6) |
 | PO approve | budget gate (block) -> PO row |
 | PO cancel (approved) | PO row `FOR UPDATE` (refuses while links exist) |
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
@@ -198,7 +198,10 @@ the typed timeout with nothing written.
 - **A multi-PO bill cannot be `fully_matched` across its POs:** the three-way read takes goods received only from the bill's
   own `grn_id` (one GRN), so a line of the second PO reads no goods received and tops out at `po_matched`.
 - No splitting one bill line across PO lines.
-- A bill changed outside the app after a close leaves the PO closed (`closed_under_billed`). During the release switch the old
+- A bill changed outside the app after a close leaves the PO closed (`closed_under_billed`); it still commits what is unbilled
+  (PR #1703 r5: committed counts a PO closed by billing at its open remainder, so no path that under-bills it loses spend). The
+  reopen's "billed before" is read under the PO lock before the change; a concurrent change that lowers billed without that lock
+  only makes a reopen more likely, the conservative direction (review r5 L4). During the release switch the old
   colour's link call records its closing on the link (`closed_po_from_status`), which the new code does not read: such a PO
   (closed in those minutes) does not reopen by itself (PR #1703, named limit).
 - The `app` links of a bill are made at create and on each draft edit; a bill edited by a path that does not call

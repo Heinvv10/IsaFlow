@@ -25,6 +25,7 @@
  *     becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
+import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 import {
   CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES, isFullyBilled,
   type BillFacts, type ExistingLink, type LinkPlan, type LinkRequest, type LinkRowRefusal, type PlannedLink, type PoAfter,
@@ -47,7 +48,7 @@ export interface PlanInput {
   /** Per PO, the approved / paid / partially_paid bills that tie it with NO link row (by header, or by lines): what each holds. */
   unlinkedBilled?: ReadonlyMap<string, ReadonlyArray<{ billId: string; cents: number }>>;
   /** Per bill of the call, the POs it ties ONLY by its header (no link row, no lines) and what each holds (breaker R3-4). */
-  heldByHeader?: ReadonlyMap<string, ReadonlyArray<{ poId: string; poNumber: string; cents: number }>>;
+  heldByHeader?: ReadonlyMap<string, ReadonlyArray<{ poId: string; poNumber: string; status: string; cents: number }>>;
 }
 
 const refKey = (r: { system: string; ref: string }) => `${r.system}\u0000${r.ref}`;
@@ -133,6 +134,10 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     const firm = [...att(bill.id).entries()].filter(([p]) => p !== po.id).reduce((s, [, c]) => s + c, 0);
     const header = (input.heldByHeader?.get(bill.id) ?? []).find((h) => h.poId !== po.id && !callLinks.has(`${h.poId}\u0000${bill.id}`));
     const headerHolds = header ? Math.max(0, bill.subtotalCents - firm) : 0;
+    // Review r5 H1: an amount may take a header residual only from a COMMITTING PO; one closed or cancelled would be left
+    // under-billed, so it is refused (unlink it from that PO first: the unlink re-judges it). Lines still win (they posted there).
+    const headerOpen = !header || (COMMITTING_PO_STATUSES as readonly string[]).includes(header.status);
+    const headerShut = header ? `the bill's header names purchase order ${header.poNumber}, which is ${header.status.replace(/_/g, ' ')}; unlink it from that purchase order first` : '';
     const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
     let amount: number;
     if (linked.length > 0) {
@@ -147,7 +152,7 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       }
       amount = fromLines;
     } else if (r.amountCents === null && header && headerHolds > 0) {
-      refuse(`the bill's header names purchase order ${header.poNumber}; give an amount or unlink it first`);
+      refuse(headerOpen ? `the bill's header names purchase order ${header.poNumber}; give an amount or unlink it first` : headerShut);
       continue;
     } else amount = r.amountCents ?? bill.subtotalCents - firm;
     if (amount <= 0) {
@@ -159,6 +164,7 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       continue;
     }
     const taken = headerHolds - Math.max(0, bill.subtotalCents - firm - amount);
+    if (taken > 0 && !headerOpen && linked.length === 0) { refuse(headerShut); continue; }
     const takesFromHeader = header && taken > 0 ? { poId: header.poId, poNumber: header.poNumber, cents: taken } : null;
     att(bill.id).set(po.id, amount);
     planned.push({
@@ -213,7 +219,10 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
       if (p.poId === poId && !p.existing && counted(input.bills.get(p.billId)?.status)) billed += p.amountCents;
     }
     const linkedNow = new Set(planned.filter((p) => p.poId === poId).map((p) => p.billId));
-    for (const h of input.unlinkedBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += h.cents;
+    // Breaker B5-2: what this call takes from a bill's header tie on THIS PO no longer bills it (never close on a rand twice).
+    const takenHere = (billId: string) => planned.filter((p) => p.billId === billId && p.takesFromHeader?.poId === poId)
+      .reduce((s, p) => s + p.takesFromHeader!.cents, 0);
+    for (const h of input.unlinkedBilled?.get(poId) ?? []) if (!linkedNow.has(h.billId)) billed += Math.max(0, h.cents - takenHere(h.billId));
     let statusAfter = po.status;
     const fully = isFullyBilled(billed, po.subtotalCents);
     if (touched.has(poId) && input.closeWhenFullyBilled && fully && (CLOSABLE_PO_STATUSES as readonly string[]).includes(po.status)) {

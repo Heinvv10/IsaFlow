@@ -32,6 +32,15 @@ import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
 export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
 
+/**
+ * Does a PO commit spend? A committing status, or closed BY BILLING (purchase_orders.closed_by_billing, 1016; PR #1703 breaker r5):
+ * such a PO still counts at its open remainder (line total less attributed billing, the same per-line engine), which is 0 while it
+ * is fully billed, so whatever path later leaves it under-billed (a link taking a header residual, a cancel or delete racing its
+ * close) commits the unbilled rands again by itself. A close by hand and a cancelled PO commit nothing.
+ */
+export const commitsSpend = (status: string, closedByBilling: boolean): boolean =>
+  (COMMITTING_PO_STATUSES as readonly string[]).includes(status) || (status === 'closed' && closedByBilling);
+
 export interface CommittedOptions {
   excludePoItemIds?: readonly string[];
   excludeInvoiceId?: string | null;
@@ -112,7 +121,7 @@ export async function readCommitments(
       FROM po_items pi
       JOIN purchase_orders po ON po.id = pi.purchase_order_id
      WHERE po.company_id = ${companyId}::UUID
-       AND po.status = ANY(${[...COMMITTING_PO_STATUSES]}::TEXT[])
+       AND (po.status = ANY(${[...COMMITTING_PO_STATUSES]}::TEXT[]) OR (po.status = 'closed' AND po.closed_by_billing))
        AND pi.gl_account_id = ANY(${accounts}::UUID[])
        AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
        AND NOT (pi.id = ANY(${exclude}::UUID[]))

@@ -29,7 +29,7 @@ import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
-import { lockPosClosedByBilling, reopenUnderBilled } from './purchaseOrderBillingClose';
+import { lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from './purchaseOrderBillingClose';
 
 type Row = DbRow;
 
@@ -290,7 +290,7 @@ export async function cancelSupplierInvoice(
   // Optional and last-positional, as on approveSupplierInvoice: an MCP cancel
   // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
   opts?: PostingActorOpts,
-): Promise<SupplierInvoice> {
+): Promise<SupplierInvoice & BillGoneReopen> {
   // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a failure after the reversal's draft
   // INSERTs must roll them back (see customerInvoiceCancelService). One lock budget for the flow (D8 round 10).
   return withSavepoint('cancel_supplier_invoice', () => underFlowLockBudget(`Supplier invoice ${id}`, () =>
@@ -302,7 +302,7 @@ async function cancelSupplierInvoiceInner(
   id: string,
   userId: string,
   opts?: PostingActorOpts,
-): Promise<SupplierInvoice> {
+): Promise<SupplierInvoice & BillGoneReopen> {
   try {
     // The POs closed BY BILLING this bill ties, locked BEFORE the bill (PO -> bill, as link / unlink): one it leaves under-billed reopens.
     const billingClosed = await lockPosClosedByBilling(companyId, id);
@@ -358,9 +358,8 @@ async function cancelSupplierInvoiceInner(
     if (cancelledSourceDoc) {
       await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
     }
-    await reopenUnderBilled(companyId, billingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
-
-    return mapInvoiceRow(rows[0]!);
+    const reopen = await reopenAfterBillGone(companyId, billingClosed, { userId, via: 'cancel_supplier_invoice', why: `bill ${String(rows[0]!.invoice_number ?? id)} cancelled` });
+    return { ...mapInvoiceRow(rows[0]!), ...reopen };
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');
     throw err;

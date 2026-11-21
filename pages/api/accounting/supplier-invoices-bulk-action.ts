@@ -49,6 +49,7 @@ import { assertNotImpersonating, ImpersonationForbiddenError } from '@/lib/auth/
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
 import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { lockPosClosedByBilling } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -144,6 +145,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (action !== 'cancel') await assertNotImpersonating();
   const budgetGate: BudgetGate | null = action === 'cancel' ? null : await openBudgetGate(companyId, 'take');
   const budget = budgetGate ? { channel: 'bulk' as const, lock: 'held' as const, gate: budgetGate, reason: budgetReason ?? null } : undefined;
+  // PR #1703 breaker B5-6: each cancel locks its bill's POs closed by billing before the bill; across a batch that is bill 1, then
+  // bill 2's POs, a cycle with a link call (PO -> bills). So every bill's POs are taken first, sorted, outside the item savepoints;
+  // a 40P01 that still reaches an item is a held row (itemFailureMessage: neutral retry wording, 503 when every id was held).
+  if (action === 'cancel') await lockPosClosedByBilling(companyId, ordered);
 
   for (const invoiceId of ordered) {
     try {
@@ -154,9 +159,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         switch (action) {
           case 'approve':
             return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
-          case 'cancel':
-            await cancelSupplierInvoice(companyId, invoiceId, userId);
-            return NOTHING;
+          case 'cancel': {
+            const r = await cancelSupplierInvoice(companyId, invoiceId, userId);
+            return { ...NOTHING, budgetWarnings: r.budgetWarnings.length > 0 ? r.budgetWarnings : undefined };
+          }
           case 'post_gl': {
             const r = await postSupplierInvoiceToGL(companyId, invoiceId, userId, { budget });
             return { ...NOTHING, warnings: r.warnings, budgetWarnings: r.budgetWarnings };

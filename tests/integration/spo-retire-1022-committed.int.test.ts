@@ -112,8 +112,8 @@ describe('a copy the migration closed as fully billed', () => {
   it('records the closing on the purchase order, and an unlink reopens it', async () => {
     expect((await pool.query('SELECT closed_by_billing, closed_from_status FROM purchase_orders WHERE id = $1', [S.A!.id])).rows[0])
       .toEqual({ closed_by_billing: true, closed_from_status: 'received' });
-    // No link carries a closing record any more (1022 moved the old ones onto their POs).
-    expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE closed_po_from_status IS NOT NULL')).rows[0].n).toBe(0);
+    // The copy's close wrote no record on a link (the record is the PO's own).
+    expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE purchase_order_id = $1 AND closed_po_from_status IS NOT NULL', [S.A!.id])).rows[0].n).toBe(0);
     const r = await callTool(pool, f, unlink, { po_id: S.A!.id, bill_id: bills.A, reason: 'billed in error' });
     expect(r.isError, r.text).toBe(false);
     expect(r.body).toMatchObject({ unlinked: true, reopened_to: 'received' });
@@ -130,8 +130,9 @@ describe('a copy the migration closed as fully billed', () => {
     await runMigration(pool);
     expect((await pool.query('SELECT status, closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0])
       .toEqual({ status: 'closed', closed_from_status: 'received', closed_by_billing: true });
+    // The link's own value is left as it was (PR #1697's goods-received cancel writes it; the column is unread here).
     expect((await pool.query('SELECT closed_po_from_status FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows)
-      .toEqual([{ closed_po_from_status: null }]);
+      .toEqual([{ closed_po_from_status: 'received' }]);
     const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b.id, reason: 'billed in error' });
     expect([r.isError, r.body.reopened_to], r.text).toEqual([false, 'received']);
   });

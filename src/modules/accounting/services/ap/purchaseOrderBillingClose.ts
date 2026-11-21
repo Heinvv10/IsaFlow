@@ -1,28 +1,39 @@
 /**
  * "Closed because fully billed" (PR #1703, ledger breaker r4 R4-1): the record lives on the purchase order itself,
- * `purchase_orders.closed_by_billing` beside `closed_from_status` (migration 1022), never on a link. Only the link tool's
+ * `purchase_orders.closed_by_billing` beside `closed_from_status` (migration 1016), never on a link. Only the link tool's
  * close_when_fully_billed and 1022's close step set it; a manual short close (close_purchase_order) and set_purchase_order_status
- * leave it false, and 1022's trigger clears it whenever the status leaves closed, whoever writes that.
+ * leave it false, and 1016's trigger clears it whenever the status leaves closed, whoever writes that.
+ *
+ * Correctness does not depend on the reopen (breaker r5): a PO closed by billing still counts in committed at its open remainder
+ * (`budgets/remainingCommitted.commitsSpend`), so a path that under-bills it without reopening it (a race, a lines link) commits the
+ * unbilled rands anyway. The reopen fixes the STATUS.
  *
  * The one rule (`isClosedUnderBilled`, also get_purchase_order's closed_under_billed): closed, closed_by_billing, and no longer
  * fully billed (`purchaseOrderBilled.billedCentsByPo` < subtotal - 1 c). `reopenUnderBilled` re-judges POs after a counted tie
  * went (billed fell: the unlink of a billed live bill's link / lines / header, a bill cancelled or soft-deleted) and reopens each
- * to closed_from_status, clearing both columns, with an audit row. A PO whose billed did not fall is never reopened: removing a
- * tie that never counted (a draft or cancelled bill's) leaves a PO closed under-billed as it was (review r4 L2).
+ * to closed_from_status (as the PO row holds it now: a goods-received cancel's recomputation is honoured), clearing both columns,
+ * with a log line and an audit row. A PO whose billed did not fall is never reopened: removing a tie that never counted (a draft or
+ * cancelled bill's) leaves a PO closed under-billed as it was (review r4 L2). `billedBefore` is read under the caller's PO lock
+ * before the change; a concurrent change that lowers billed without that lock can only make "billed fell" more likely, so the
+ * comparison errs toward reopening, the conservative direction (committed rises; review r5 L4).
  *
  * Lock order: the caller holds the PO rows (FOR NO KEY UPDATE) BEFORE any bill row, as the link and unlink do:
- * `lockPosClosedByBilling` is that step for the bill cancel and the bill soft delete (PO -> bill, the census in
- * docs/design/mcp-po-bill-links.md).
+ * `lockPosClosedByBilling` is that step for the bill cancel, the bill soft delete and the bulk cancel (all its bills at once, before
+ * the first; PO -> bill, the census in docs/design/mcp-po-bill-links.md).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
+import { openPoLineCents } from '../budgets/remainingBudgetCore';
+import { commitsSpend, committedBillingByPoItem } from '../budgets/remainingCommitted';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 
-export interface BillingClosedPo { poId: string; poNumber: string; status: string; closedByBilling: boolean; subtotalCents: number }
+export interface ReopenedPo { poId: string; poNumber: string; reopenedTo: string }
 
 /** The one rule: a PO closed because it was fully billed that no longer is. */
 export function isClosedUnderBilled(po: { status: string; closedByBilling: boolean; subtotalCents: number }, billedCents: number): boolean {
@@ -30,34 +41,35 @@ export function isClosedUnderBilled(po: { status: string; closedByBilling: boole
 }
 
 /**
- * The POs closed by billing that this bill ties (a link, its header, a line naming one of their lines), locked FOR NO KEY UPDATE in id
- * order, and what each is billed now: taken BEFORE the bill is locked (PO -> bill). A tie written after this read is on a PO this call
- * does not re-judge; its own writer (the link) locked that PO first.
+ * The POs closed by billing that these bills tie (a link, a header, a line naming one of their lines), locked FOR NO KEY UPDATE in id
+ * order, and what each is billed now: taken BEFORE any of the bills is locked (PO -> bill). A tie written after this read is on a PO
+ * this call does not re-judge; its own writer (the link) locked that PO first.
  */
-export async function lockPosClosedByBilling(companyId: string, billId: string): Promise<Map<string, number>> {
+export async function lockPosClosedByBilling(companyId: string, billIds: string | readonly string[]): Promise<Map<string, number>> {
+  const ids = typeof billIds === 'string' ? [billIds] : [...billIds];
   const rows = await withRowLockBudget(async () => (await sql`
     SELECT po.id::TEXT AS id FROM purchase_orders po
      WHERE po.company_id = ${companyId}::UUID AND po.status = 'closed' AND po.closed_by_billing
        AND po.id IN (
-         SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ${billId}::UUID
-         UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ${billId}::UUID
-         UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ${billId}::UUID)
+         SELECT l.purchase_order_id FROM purchase_order_bill_links l WHERE l.company_id = ${companyId}::UUID AND l.supplier_invoice_id = ANY(${ids}::UUID[])
+         UNION SELECT si.purchase_order_id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${ids}::UUID[])
+         UNION SELECT pi.purchase_order_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id WHERE x.supplier_invoice_id = ANY(${ids}::UUID[]))
      ORDER BY po.id FOR NO KEY UPDATE
   `) as DbRow[], () => new RowLockTimeoutError('A purchase order of this bill'));
-  const ids = rows.map((r) => String(r.id).toLowerCase());
-  const billed = await billedCentsByPo(companyId, ids);
-  return new Map(ids.map((id) => [id, billed.get(id) ?? 0]));
+  const poIds = rows.map((r) => String(r.id).toLowerCase());
+  const billed = await billedCentsByPo(companyId, poIds);
+  return new Map(poIds.map((id) => [id, billed.get(id) ?? 0]));
 }
 
 /**
  * Re-judge POs whose billed may have fallen (`billedBefore`: what each was billed before the change, read under the caller's PO lock).
- * Reopens each that is closed by billing, billed less than before, and no longer fully billed. Returns poId -> the status it reopened to.
+ * Reopens each that is closed by billing, billed less than before, and no longer fully billed. Returns poId -> what it reopened to.
  */
 export async function reopenUnderBilled(
   companyId: string, billedBefore: ReadonlyMap<string, number>,
   opts: { userId: string; via: string; why: string; /** false: the caller's own audit row records the reopen (the unlink). */ audit?: boolean },
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<Map<string, ReopenedPo>> {
+  const out = new Map<string, ReopenedPo>();
   const ids = [...billedBefore.keys()];
   if (ids.length === 0) return out;
   const pos = (await sql`
@@ -76,7 +88,8 @@ export async function reopenUnderBilled(
        WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'closed' AND closed_by_billing RETURNING id
     `) as DbRow[];
     if (back.length !== 1) throw new Error('The purchase order changed while it was being reopened');
-    out.set(id, to);
+    out.set(id, { poId: id, poNumber: String(p.po_number), reopenedTo: to });
+    log.info('Purchase order reopened: no longer fully billed', { companyId, poId: id, reopenedTo: to, via: opts.via, billedCents: now }, 'accounting');
     if (opts.audit === false) continue;
     await logAuditOrThrow({
       companyId, userId: opts.userId, action: 'update', entityType: 'purchase_order', entityId: id, entityRef: String(p.po_number).slice(0, 100),
@@ -87,4 +100,43 @@ export async function reopenUnderBilled(
     });
   }
   return out;
+}
+
+/** One warning per reopened PO (it commits again), then its budget read (over budget / off-slice lines), as the unlink words them. */
+export async function reopenWarnings(companyId: string, reopened: Iterable<ReopenedPo>, figures: boolean): Promise<string[]> {
+  const out: string[] = [];
+  for (const r of reopened) {
+    out.push(`Purchase order ${r.poNumber} reopened to ${r.reopenedTo}: it is no longer fully billed, so it commits spend again.`);
+    out.push(...await unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.'));
+  }
+  return out;
+}
+
+/** What each PO commits now (cents, ex VAT): the same per-line engine as committed; 0 for a PO that commits nothing. */
+export async function poCommittedCents(companyId: string, poIds: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (poIds.length === 0) return out;
+  const lines = (await sql`
+    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, pi.line_total::TEXT AS line_total, po.status, po.closed_by_billing
+      FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
+     WHERE pi.purchase_order_id = ANY(${[...poIds]}::UUID[])
+  `) as DbRow[];
+  const billed = await committedBillingByPoItem(companyId, lines.map((l) => String(l.id).toLowerCase()), []);
+  for (const id of poIds) out.set(id.toLowerCase(), 0);
+  for (const l of lines) {
+    if (!commitsSpend(String(l.status), l.closed_by_billing === true)) continue;
+    const po = String(l.po).toLowerCase();
+    out.set(po, (out.get(po) ?? 0) + openPoLineCents(Number(l.line_total), billed.get(String(l.id).toLowerCase()) ?? []));
+  }
+  return out;
+}
+
+export interface BillGoneReopen { reopenedPurchaseOrders: ReopenedPo[]; budgetWarnings: string[] }
+
+/** After a bill is cancelled or soft-deleted (review r5 M1): reopen what it leaves under-billed, and say so, as the unlink does. */
+export async function reopenAfterBillGone(
+  companyId: string, billedBefore: ReadonlyMap<string, number>, opts: { userId: string; via: string; why: string; figures?: boolean },
+): Promise<BillGoneReopen> {
+  const reopened = [...(await reopenUnderBilled(companyId, billedBefore, opts)).values()];
+  return { reopenedPurchaseOrders: reopened, budgetWarnings: await reopenWarnings(companyId, reopened, opts.figures === true) };
 }

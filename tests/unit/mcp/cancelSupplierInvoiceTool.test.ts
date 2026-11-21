@@ -5,6 +5,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// PR #1703 R4-1 / r5: the POs a bill keeps closed by billing are locked first and re-judged after; none here.
+vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({
+  lockPosClosedByBilling: vi.fn(async () => new Map()),
+  reopenAfterBillGone: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [] })),
+}));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([{ id: 'rev-1', entry_number: 'JE-9' }]) }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => {
   class SupplierInvoiceCancelRefusal extends Error {}
@@ -41,7 +46,7 @@ const plan = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(lockAndPlanSupplierInvoiceCancel).mockResolvedValue(plan);
-  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled' } as never);
+  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [] } as never);
 });
 
 describe('cancel_supplier_invoice', () => {

@@ -11,7 +11,7 @@
  *   -> closed: from APPROVED only (closing a never-approved PO would make it linkable; the import creates closed POs directly). The
  *      status it came from is recorded in `closed_from_status` (migration 1007), as close_purchase_order does.
  *   -> anything else: closed_from_status is cleared (its CHECK holds a value only while closed); -> draft also clears approved_by /
- *      approved_at. LEAVING closed also clears `closed_by_billing` (1022's trigger, whoever writes the status), so a later unlink
+ *      approved_at. LEAVING closed also clears `closed_by_billing` (1016's trigger, whoever writes the status), so a later unlink
  *      cannot reopen a PO someone deliberately reopened and closed again (review M3); closing here never sets it (a close by hand).
  * Locks: the budget gate (-> approved, block policy) -> the PO row `FOR UPDATE`. No bill row is locked.
  */

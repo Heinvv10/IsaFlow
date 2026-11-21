@@ -64,7 +64,7 @@
 --      unless copied + skipped = the legacy headers it set out to copy.
 --   1c. "Closed because fully billed" lives on the PO (purchase_orders.closed_by_billing, added by migration 1016 in its own
 --      transaction; PR #1703 breaker R4-1). A closing record a pre-release link call left on a link (1006's closed_po_from_status)
---      moves onto its PO (closed_by_billing + closed_from_status), and the links' column is cleared (kept, unread, unwritten).
+--      is copied onto its PO (closed_by_billing + closed_from_status); the links keep the column and their values (unread here).
 --   2b. purchase_order_bill_links_backfill (1006) is redefined, verbatim but for held_c: a link it does not own on a PO the bill's
 --      lines name is no longer subtracted on top of those lines (one rand to one PO; PR #1703 ledger breaker BRK-B), as the app
 --      writer now does too.
@@ -251,15 +251,14 @@ $$;
 -- ── 1c. The canonical table, after the counters (0b) ─────────────────────────────────────────────────────────────
 LOCK TABLE public.purchase_orders IN SHARE ROW EXCLUSIVE MODE;
 
--- A closing record a link call left on a link before this release (1006's closed_po_from_status) moves onto its PO; the links keep
--- the column, unread and unwritten.
+-- A closing record a link call left on a link before this release (1006's closed_po_from_status) is copied onto its PO; the links
+-- keep the column and its values (unread by this release; PR #1697's goods-received cancel writes it).
 UPDATE public.purchase_orders po
    SET closed_by_billing = true, closed_from_status = COALESCE(po.closed_from_status, c.from_status)
   FROM (SELECT DISTINCT ON (l.purchase_order_id) l.purchase_order_id AS po, l.closed_po_from_status AS from_status
           FROM public.purchase_order_bill_links l WHERE l.closed_po_from_status IS NOT NULL
          ORDER BY l.purchase_order_id, l.created_at DESC, l.id DESC) c
  WHERE po.id = c.po AND po.status = 'closed' AND NOT po.closed_by_billing;
-UPDATE public.purchase_order_bill_links SET closed_po_from_status = NULL WHERE closed_po_from_status IS NOT NULL;
 
 -- ── 2 + 3. The copy, the counter, the bill links, the close step, the committed record ──────────────────────────
 

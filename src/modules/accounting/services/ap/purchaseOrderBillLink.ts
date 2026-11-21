@@ -13,6 +13,7 @@ import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { linkHeaderBudgetWarnings } from './purchaseOrderUnlinkBudget';
+import { poCommittedCents } from './purchaseOrderBillingClose';
 import { planLinks } from './purchaseOrderBillLinkPlan';
 import { readLinkFacts } from './purchaseOrderBillLinkRead';
 import {
@@ -84,6 +85,10 @@ export async function linkBillsToPurchaseOrders(
   const { plan, refusals } = planLinks({ requests, ...facts, closeWhenFullyBilled: opts.closeWhenFullyBilled });
   if (!plan) throw new PurchaseOrderBillLinkRefusal(linkRefusalText(requests.length, refusals), refusals);
 
+  // Breaker B5-5c: a header PO "commits it again" only if its committed really rises: read before the writes and after, under the
+  // call's locks (the header POs are locked with its POs, purchaseOrderBillLinkRead), by the committed engine itself.
+  const headerPos = [...new Set(plan.planned.map((p) => p.takesFromHeader?.poId).filter((v): v is string => !!v))];
+  const committedBefore = await poCommittedCents(companyId, headerPos);
   const links: LinkedBill[] = [];
   const touchedBills = new Set<string>();
   for (const p of plan.planned) {
@@ -136,11 +141,14 @@ export async function linkBillsToPurchaseOrders(
   }
   await syncBillHeaderPurchaseOrder(companyId, [...touchedBills]);
   const budgetWarnings: string[] = [];
-  for (const p of plan.planned) {
-    const h = p.takesFromHeader;
-    if (!h) continue;
-    budgetWarnings.push(`Bill ${p.invoiceNumber}'s header names purchase order ${h.poNumber}: this link takes ${r2(h.cents)} of what the bill held there, so ${h.poNumber} commits it again.`);
-    budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, h.poId, h.poNumber, opts.budgetFigures === true));
+  const committedAfter = await poCommittedCents(companyId, headerPos);
+  for (const poId of headerPos) {
+    const rise = (committedAfter.get(poId) ?? 0) - (committedBefore.get(poId) ?? 0);
+    if (rise <= 0) continue;
+    const p = plan.planned.find((x) => x.takesFromHeader?.poId === poId)!;
+    const n = p.takesFromHeader!.poNumber;
+    budgetWarnings.push(`Bill ${p.invoiceNumber}'s header names purchase order ${n}: this call takes what the bill held there, so ${n} commits ${r2(rise)} again.`);
+    budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, poId, n, opts.budgetFigures === true));
   }
   return {
     links: links.sort((a, b) => a.index - b.index),

@@ -15,7 +15,7 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { DbRow } from '@/types/db';
-import { lockPosClosedByBilling, reopenUnderBilled } from '../ap/purchaseOrderBillingClose';
+import { lockPosClosedByBilling, reopenAfterBillGone, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
 
 // Allowlist of entity types that support soft-delete
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -70,7 +70,7 @@ export async function softDelete(
   entityType: string,
   entityId: string,
   userId: string,
-): Promise<{ undoToken: string }> {
+): Promise<{ undoToken: string } & BillGoneReopen> {
   if (!ALLOWED_ENTITY_TYPES.has(entityType)) {
     throw new Error(`Unknown entity type: ${entityType}`);
   }
@@ -88,7 +88,7 @@ async function softDeleteInner(
   entityType: string,
   entityId: string,
   userId: string,
-): Promise<{ undoToken: string }> {
+): Promise<{ undoToken: string } & BillGoneReopen> {
   try {
     // A bill's POs closed BY BILLING, locked BEFORE the bill (PO -> bill, as link / unlink): one the delete leaves under-billed reopens.
     const billingClosed = entityType === 'supplier_invoice' ? await lockPosClosedByBilling(companyId, entityId) : new Map<string, number>();
@@ -109,10 +109,9 @@ async function softDeleteInner(
     if (!deleted) {
       throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
-    await reopenUnderBilled(companyId, billingClosed, { userId, via: 'soft_delete', why: 'bill deleted' });
-
+    const reopen = await reopenAfterBillGone(companyId, billingClosed, { userId, via: 'soft_delete', why: 'bill deleted' });
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
-    return { undoToken: entityId };
+    return { undoToken: entityId, ...reopen };
   } catch (err) {
     logFailure('Soft delete failed', { entityType, entityId }, err);
     throw err;

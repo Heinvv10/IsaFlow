@@ -120,7 +120,7 @@ describe('billed counts a bill tied with no link row (by its header, or by its l
 });
 
 describe('a header tie is a residual, never a hold (breaker R4-4, review r4 M1 / L1)', () => {
-  const heldByHeader = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', cents: 30000 }]]]);
+  const heldByHeader = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', status: 'approved', cents: 30000 }]]]);
   const NO_AMOUNT = '0:the bill\'s header names purchase order PO-p2; give an amount or unlink it first';
   const planned = (r: ReturnType<typeof plan>) => r.plan!.planned.map((x) => [x.poId, x.amountCents, x.takesFromHeader?.cents ?? 0]);
   it('a link with no amount while another PO holds the header residual is refused, naming that PO', () => {
@@ -145,6 +145,23 @@ describe('a header tie is a residual, never a hold (breaker R4-4, review r4 M1 /
       .toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
     expect(planned(plan([req(0, 'p1', 'b1', { amountCents: 20000 }), req(1, 'p2', 'b1', { amountCents: 10000 })], { heldByHeader })))
       .toEqual([['p1', 20000, 0], ['p2', 10000, 0]]);
+  });
+  it('review r5 H1: an amount never takes a header residual from a closed or cancelled PO; lines still do', () => {
+    for (const status of ['closed', 'cancelled']) {
+      const shut = new Map([['b1', [{ poId: 'p2', poNumber: 'PO-p2', status, cents: 30000 }]]]);
+      const want = `0:the bill's header names purchase order PO-p2, which is ${status}; unlink it from that purchase order first`;
+      expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 10000 })], { heldByHeader: shut }))).toEqual([want]);
+      expect(reasons(plan([req(0, 'p1', 'b1')], { heldByHeader: shut }))).toEqual([want]);
+      expect(planned(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { heldByHeader: shut }))).toEqual([['p1', 10000, 10000]]);
+    }
+  });
+  it('breaker B5-2: the close decision nets what the same call takes from the PO\'s header tie', () => {
+    const pos = new Map([['p1', po('p1', { subtotalCents: 30000 })], ['p2', po('p2', { subtotalCents: 30000 })]]);
+    const bills = new Map([['b1', bill('b1')], ['b2', bill('b2', { subtotalCents: 1, lines: [{ id: 'b2-l1', poItemId: null, poItemPoId: null, postedCents: 1 }] })]]);
+    const r = plan([req(0, 'p1', 'b1', { amountCents: 30000 }), req(1, 'p2', 'b2', { amountCents: 1 })], {
+      pos, bills, heldByHeader, closeWhenFullyBilled: true, unlinkedBilled: new Map([['p2', [{ billId: 'b1', cents: 30000 }]]]),
+    });
+    expect(r.plan!.poAfter.get('p2')).toMatchObject({ billedCents: 1, fullyBilled: false, statusAfter: 'approved' });
   });
   it('M1, no amount: after the header PO\'s own row the default is what is left; before it, the default takes the whole bill', () => {
     expect(planned(plan([req(0, 'p2', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b1')], { heldByHeader }))).toEqual([['p2', 10000, 0], ['p1', 20000, 0]]);
