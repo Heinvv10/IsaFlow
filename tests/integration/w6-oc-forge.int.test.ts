@@ -107,10 +107,12 @@ describe('the approval history is never removed or invented below the service', 
     const ap = await a.api.approve(id);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
-    // The trigger fails closed too: app_user flips the run through 'approved' over the raised lines; the first snapshot
-    // of a run with history takes nil for every employee, and approval still refuses.
-    for (const status of ['approved', 'calculated']) await asApp('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [id, status]);
-    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toEqual({ [mid]: 0 });
+    // The trigger fails closed too: a run with an approval history and no frozen payday (lost below the service, as
+    // here) is not approved by app_user at all (security review of the payday stamp), so no snapshot is taken from the
+    // raised lines, and approval still refuses.
+    await expect(asApp(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [id]))
+      .rejects.toThrow(/was approved before but has no recorded payday/);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toBeNull();
     const flipped = await a.api.approve(id);
     expect(flipped.statusCode).not.toBe(200);
     expect(JSON.stringify(flipped.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
@@ -329,9 +331,15 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       approved_at = CASE WHEN $2::text = 'approved' THEN clock_timestamp() END WHERE id = $1`, [id, status]);
     const snap = async () => (await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s;
     await a.pool.query(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, off_cycle_paid_gross = NULL,
-      run_date = ${sastToday} + 3 WHERE id = $1`, [id]);
+      off_cycle_payday_at = NULL, run_date = ${sastToday} + 3 WHERE id = $1`, [id]);
     await gross(100);
+    // The approving statement cannot move the pay date (the payday freezes from the date before it, security review 2).
+    await expect(asApp(`UPDATE payroll_run_headers SET status = 'approved', run_date = ${sastToday} + 20 WHERE id = $1`, [id]))
+      .rejects.toThrow(/an off-cycle run's pay date is fixed once it is approved/);
     await flip('approved');
+    const frozen = (await a.pool.query(`SELECT off_cycle_payday_at = ((${sastToday} + 4)::timestamp AT TIME ZONE 'Africa/Johannesburg') AS ok
+      FROM payroll_run_headers WHERE id = $1`, [id])).rows[0];
+    expect(frozen.ok).toBe(true);
     await flip('calculated'); // reopened before payday
     expect(await snap()).toEqual({ [emp]: 100 });
     await gross(200); // corrected to R200 before payday and approved for payment at R200 ...
@@ -355,9 +363,10 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     await flip('approved');
     await flip('calculated');
     expect(await snap()).toEqual({ [emp]: 180 });
-    // Security S1: app_user moves the pay date forward and approves R300 again (claiming an approval before payday):
-    // payday stays frozen at the first approval, so the snapshot still never rises.
-    await asApp(`UPDATE payroll_run_headers SET run_date = ${sastToday} + 10 WHERE id = $1`, [id]);
+    // Security S1 / blind review H1: app_user cannot move the pay date of a run approved before (to make a post-payday
+    // reopen look pre-payday); and an approval of R300 after payday still never raises the snapshot.
+    await expect(asApp(`UPDATE payroll_run_headers SET run_date = ${sastToday} + 30 WHERE id = $1`, [id]))
+      .rejects.toThrow(/an off-cycle run's pay date is fixed once it is approved/);
     await gross(300);
     await flip('approved');
     await flip('calculated');
@@ -369,5 +378,16 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       FROM payroll_run_headers WHERE id = $1`, [id])).rows[0];
     expect(t.fresh).toBe(true);
     expect(new Date(t.payday).getUTCFullYear()).toBeLessThan(2100);
+    // Blind review M1: the kind and reason are fixed, so a flip to 'regular' cannot step around these rules.
+    await expect(asApp(`UPDATE payroll_run_headers SET run_kind = 'regular' WHERE id = $1`, [id]))
+      .rejects.toThrow(/a pay run's kind and off-cycle reason are fixed when it is created/);
+    await expect(asApp(`UPDATE payroll_run_headers SET off_cycle_reason = 'termination' WHERE id = $1`, [id]))
+      .rejects.toThrow(/a pay run's kind and off-cycle reason are fixed when it is created/);
+    // On every run kind the statement never sets the payday: a regular draft inserted with one stores none.
+    const reg = await asApp(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind, period_start,
+      period_end, status, off_cycle_payday_at) VALUES ($1, 2, 2027, 'monthly', 'regular', '2027-02-01', '2027-02-28', 'draft',
+      '2100-01-01T00:00:00Z') RETURNING id, off_cycle_payday_at`, [a.company]) as Array<{ id: string; off_cycle_payday_at: unknown }>;
+    expect(reg[0]!.off_cycle_payday_at).toBeNull();
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [reg[0]!.id]);
   });
 });

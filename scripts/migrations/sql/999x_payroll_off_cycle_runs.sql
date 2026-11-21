@@ -186,6 +186,13 @@ COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
 ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_payday_at TIMESTAMPTZ NULL;
 COMMENT ON COLUMN public.payroll_run_headers.off_cycle_payday_at IS
   'Off-cycle runs (999x): the end of payday (the start of the day after run_date, SAST) as at the run''s first approval. Written by payroll_off_cycle_paid_snapshot only.';
+-- An off-cycle run approved before this column existed (an earlier apply of this file on a dev clone; production has
+-- none): its payday from its pay date, so the fail-closed rule below does not refuse it. Run as the migration role, a
+-- trusted identity, so the snapshot trigger keeps what is written.
+UPDATE public.payroll_run_headers
+   SET off_cycle_payday_at = ((run_date + 1)::timestamp AT TIME ZONE 'Africa/Johannesburg')
+ WHERE run_kind = 'off_cycle' AND off_cycle_payday_at IS NULL AND run_date IS NOT NULL
+   AND (status IN ('approved', 'paid') OR (approval_history IS NOT NULL AND NOT isempty(approval_history)));
 
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
@@ -199,26 +206,50 @@ BEGIN
               AND NEW.off_cycle_paid_gross IS NOT DISTINCT FROM OLD.off_cycle_paid_gross) THEN
     RETURN NEW;
   END IF;
-  -- An off-cycle run's approval time and payday are the trigger's, never the statement's (review #1679 M5 security S1,
-  -- S2; the snapshot below reads only them). For every role but a trusted identity (a restore keeps what it writes):
-  --  * approved_at: the clock (clock_timestamp()) when the run moves into approved or paid, or when an approved run with
-  --    none is approved again (approvePayrollRun's stranded case); otherwise it stays as it was while approved, and is
-  --    nil while not approved. Whatever the statement supplies is overridden.
-  --  * off_cycle_payday_at: frozen at the first approval from the pay date then (the start of the next day, SAST);
-  --    otherwise it stays as it was. A run_date moved later never moves it.
-  IF NOT trusted AND NEW.run_kind = 'off_cycle' THEN
-    IF TG_OP = 'INSERT' THEN
-      NEW.approved_at := NULL;
-      NEW.off_cycle_payday_at := NULL;
-    ELSIF NEW.status IN ('approved', 'paid') THEN
-      NEW.approved_at := CASE WHEN OLD.status NOT IN ('approved', 'paid') OR OLD.approved_at IS NULL
-                              THEN pg_catalog.clock_timestamp() ELSE OLD.approved_at END;
-      NEW.off_cycle_payday_at := CASE WHEN OLD.off_cycle_payday_at IS NULL AND OLD.status NOT IN ('approved', 'paid')
-                                      THEN ((NEW.run_date + 1)::timestamp AT TIME ZONE 'Africa/Johannesburg')
-                                      ELSE OLD.off_cycle_payday_at END;
-    ELSE
-      NEW.approved_at := NULL;
-      NEW.off_cycle_payday_at := OLD.off_cycle_payday_at;
+  -- For every role but a trusted identity (a restore keeps what it writes), the facts the snapshot below reads are the
+  -- trigger's own, never the statement's (review #1679 M5 security S1, S2; blind review H1, M1):
+  --  * run_kind and off_cycle_reason are fixed at INSERT (a flip to 'regular' would step around these rules);
+  --  * off_cycle_payday_at is never written by the statement (any run kind): NULL at INSERT, then frozen at an
+  --    off-cycle run's first approval from its pay date BEFORE that statement (OLD.run_date; the start of the next day,
+  --    SAST), and kept as it was after;
+  --  * an off-cycle run's pay date is fixed from its first approval on: no change while or once approved (a frozen payday
+  --    or an approval history), nor in the statement that approves it;
+  --  * approved_at is the clock (clock_timestamp()) when an off-cycle run moves into approved or paid, or when an
+  --    approved run with none is approved again (approvePayrollRun's stranded case); otherwise it stays as it was while
+  --    approved, and is nil while not approved;
+  --  * fail closed: an off-cycle run approved before (an approval history) with no frozen payday is neither approved nor
+  --    reopened (its payday was lost below the service; restore it as a trusted identity).
+  IF NOT trusted THEN
+    IF TG_OP = 'UPDATE' AND (NEW.run_kind IS DISTINCT FROM OLD.run_kind OR NEW.off_cycle_reason IS DISTINCT FROM OLD.off_cycle_reason) THEN
+      RAISE EXCEPTION 'payroll_run_headers: a pay run''s kind and off-cycle reason are fixed when it is created'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.off_cycle_payday_at := CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE OLD.off_cycle_payday_at END;
+    IF NEW.run_kind = 'off_cycle' THEN
+      IF TG_OP = 'INSERT' THEN
+        NEW.approved_at := NULL;
+      ELSE
+        IF NEW.run_date IS DISTINCT FROM OLD.run_date
+           AND (OLD.off_cycle_payday_at IS NOT NULL OR OLD.status IN ('approved', 'paid') OR NEW.status IN ('approved', 'paid')
+                OR (OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history))) THEN
+          RAISE EXCEPTION 'payroll_run_headers: an off-cycle run''s pay date is fixed once it is approved'
+            USING ERRCODE = 'check_violation';
+        END IF;
+        IF OLD.off_cycle_payday_at IS NULL AND OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history)
+           AND (OLD.status IN ('approved', 'paid')) IS DISTINCT FROM (NEW.status IN ('approved', 'paid')) THEN
+          RAISE EXCEPTION 'payroll_run_headers: this off-cycle run was approved before but has no recorded payday, so it is not approved or reopened'
+            USING ERRCODE = 'check_violation';
+        END IF;
+        IF NEW.status IN ('approved', 'paid') THEN
+          NEW.approved_at := CASE WHEN OLD.status NOT IN ('approved', 'paid') OR OLD.approved_at IS NULL
+                                  THEN pg_catalog.clock_timestamp() ELSE OLD.approved_at END;
+          IF OLD.off_cycle_payday_at IS NULL AND OLD.status NOT IN ('approved', 'paid') THEN
+            NEW.off_cycle_payday_at := ((OLD.run_date + 1)::timestamp AT TIME ZONE 'Africa/Johannesburg');
+          END IF;
+        ELSE
+          NEW.approved_at := NULL;
+        END IF;
+      END IF;
     END IF;
   END IF;
   IF TG_OP = 'INSERT' THEN
@@ -284,6 +315,10 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 --     reviewed SECURITY DEFINER (930 registry) and revoking app_user's direct UPDATE of status and approval_history.
 --     Tightened here: null-safe status comparisons, and the appended range must start at OLD.approved_at (or be
 --     unbounded below for a grandfathered run).
+--     The same path makes a REGULAR run "final" below the service (status approved with an approved_at or
+--     approval_grandfathered_at, payRunFinalSql): every payRunFinalSql reader trusts it, the owner cash forecast too
+--     (review #1679 M3: a final run past its pay date counts as paid). An off-cycle run's approved_at is the trigger's
+--     own (payroll_off_cycle_paid_snapshot); a regular run's is not, until wave 7.
 --   * Binding on current_user: inside SET LOCAL ROLE app_user, set_config('role', 'none', true) mid-statement shows
 --     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (it is
 --     not a trusted identity, and holds no header grant); with the pool still on postgres (the table owner) it is not,
