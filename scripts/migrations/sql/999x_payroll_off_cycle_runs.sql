@@ -330,6 +330,9 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 --   * A run approved once and never reopened has an empty history, so app_user may DELETE it and INSERT it again with
 --     the same id, which resets its snapshot and payday (predates this file; re-review L3). Wave 7's "dual-member
 --     payroll_run_headers DELETE" item closes it.
+--   * Only off-cycle runs keep a paid snapshot: a REGULAR run reopened after payday and recalculated higher is not
+--     capped, and the owner cash forecast counts only its statutory amounts (review L1 of ed7bdab53e). Wave 7's
+--     "regular-run paid snapshot" item closes it.
 --   * Binding on current_user: inside SET LOCAL ROLE app_user, set_config('role', 'none', true) mid-statement shows
 --     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (it is
 --     not a trusted identity, and holds no header grant); with the pool still on postgres (the table owner) it is not,

@@ -52,11 +52,18 @@ const pgBin = (tool: string) => (existsSync(`/usr/lib/postgresql/16/bin/${tool}`
  */
 function libpqEnv(): NodeJS.ProcessEnv {
   const u = new URL(String(process.env.DATABASE_URL));
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env, PGHOST: u.hostname, PGPORT: u.port || '5432', PGUSER: decodeURIComponent(u.username),
     PGDATABASE: decodeURIComponent(u.pathname.slice(1)), PGSSLMODE: u.searchParams.get('sslmode') ?? process.env.PGSSLMODE ?? 'prefer',
   };
+  // A secret in the URL (review L3): carried in the environment when the suite set none of its own.
+  const secret = decodeURIComponent(u.password);
+  if (secret && !env.PGPASSWORD) env.PGPASSWORD = secret;
+  return env;
 }
+/** Every external command the suite ran, as passed to execFileSync (review L3: the argv check reads what really ran). */
+const ran: string[][] = [];
+const run = (file: string, args: string[], opts: Parameters<typeof execFileSync>[2]) => { ran.push([file, ...args]); return execFileSync(file, args, opts); };
 
 async function asApp(text: string, params: unknown[] = []): Promise<unknown[]> {
   const c = await a.pool.connect();
@@ -220,16 +227,19 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     expect(before.map((r) => r.run_id)).toContain(id);
     // The table's data as pg_dump writes it, this company's rows only (the shard's database holds other suites' too).
     const env = libpqEnv();
-    const dumpArgs = ['--data-only', '--table=public.payroll_off_cycle_employees'];
-    const psqlArgs = ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q'];
-    // Gate ruling 6: no connection string (nor its password) on either command line; libpq reads them from env.
-    for (const args of [dumpArgs, psqlArgs]) expect(args.join(' ')).not.toMatch(/postgres(ql)?:\/\/|password|--dbname/i);
-    const dump = execFileSync(pgBin('pg_dump'), dumpArgs, { encoding: 'utf8', env })
+    const dump = String(run(pgBin('pg_dump'), ['--data-only', '--table=public.payroll_off_cycle_employees'], { encoding: 'utf8', env }))
       .split('\n').filter((l) => !/^[0-9a-f]{8}-[0-9a-f-]{27}\t/.test(l) || l.includes(a.company)).join('\n');
     expect(dump).toContain('COPY public.payroll_off_cycle_employees');
     await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]);
     // Restored by a NOSUPERUSER ops role (as postgres is on Supabase): COPY fires the ALWAYS row trigger.
-    execFileSync(pgBin('psql'), psqlArgs, { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8', env });
+    run(pgBin('psql'), ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q'], { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8', env });
+    // Gate ruling 6: nothing of the connection on either command line that ran; libpq read it from the environment.
+    const url = String(process.env.DATABASE_URL);
+    expect(ran.map((c) => c[0]!.split('/').pop())).toEqual(['pg_dump', 'psql']);
+    for (const argv of ran) {
+      expect(argv.join(' ')).not.toContain(url);
+      expect(argv.join(' ')).not.toMatch(/postgres(ql)?:\/\/|--dbname|-d\b|--host|--port|--username/i);
+    }
     expect(await rows()).toEqual(before);
     // The app still cannot write an input onto that run.
     await expect(asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 1)',

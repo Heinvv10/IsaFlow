@@ -114,6 +114,15 @@ describe('pickPayrollRun', () => {
       expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-05')).toMatchObject({ totalRequired: 300, canPay: false });
       expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-06')).toMatchObject({ canPay: true, shortfall: 0 });
     });
+    it('a paid run whose statutory figure is negative (ETI above its PAYE, UIF and SDL) nets against its month (review L2)', () => {
+      // A bonus paid on the 15th with R300 more ETI than its PAYE: the month's EMP201 owes R300 less.
+      const credit = run({ id: 'credit', total_net: '5000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '500', pay_date: '2026-06-15', final: true });
+      const june = run({ id: 'june', total_net: '10000', total_paye: '2000', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([credit, june], 0, '2026-06-30')).toMatchObject({ runId: 'june', canPay: false, totalRequired: 1700, runsCounted: 1 });
+      // Another month's credit is not netted (its own EMP201).
+      const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
+      expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
+    });
     it('a reopened bonus already paid out owes only the gross above its paid snapshot (after its EMP201 is due)', () => {
       const reopened = run({ id: 'bonus', status: 'calculated', total_gross: '5500', total_net: '4000', total_paye: '1500', total_uif: '0',
         total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: false, disbursed: true, paid_gross: '5000' });

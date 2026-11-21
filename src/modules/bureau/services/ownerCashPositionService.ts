@@ -124,7 +124,9 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
  * Each run counts what it still needs (owedOf): a run paid on its pay date (final, or reopened after it) needs only its
  * statutory amounts until its EMP201 is due, and a reopened bonus the gross above what was paid; a run that needs
- * nothing more is reported only when no run needs anything, as covered (review #1679 codex 4). The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
+ * nothing more is reported only when no run needs anything, as covered (review #1679 codex 4). ACCEPTED LIMIT (review L1
+ * of ed7bdab53e, wave 7 "regular-run paid snapshot"): a REGULAR run reopened after payday and recalculated higher owes
+ * only its statutory amounts here, as regular runs keep no paid snapshot (999x snapshots off-cycle runs only). The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
  * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
  * no totals at all, the earliest run. No `asAt`: every run is due.
  */
@@ -155,6 +157,12 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
   const byPayDate = runs.map((r, i) => ({ r, i }))
     .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
+  // A paid run's statutory figure can be negative (ETI above its PAYE, UIF and SDL): the month's EMP201 nets it, so it
+  // is a credit against the month's other runs, never dropped (review L2 of ed7bdab53e). Another month's is not.
+  const monthOf = (r: PayrollRunRow) => `${r.period_year}-${r.period_month}`;
+  const owedBy = new Map(runs.map((r) => [r, owedOf(r, asAt)] as const));
+  const credit = new Map<string, number>();
+  for (const [r, owed] of owedBy) if (owed < 0) credit.set(monthOf(r), r2((credit.get(monthOf(r)) ?? 0) + owed));
   let required = 0;
   let counted = 0;
   let latestPaid: CashPositionPayroll | null = null;
@@ -162,7 +170,13 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   for (const r of byPayDate) {
     const full = shapePayrollAffordability(r, cash)!;
     if (full.totalRequired <= 0) continue;
-    const owed = owedOf(r, asAt);
+    let owed = owedBy.get(r)!;
+    const left = credit.get(monthOf(r)) ?? 0;
+    if (owed > 0 && left < 0) {
+      const used = Math.max(left, -owed);
+      owed = r2(owed + used);
+      credit.set(monthOf(r), r2(left - used));
+    }
     if (owed <= 0) { latestPaid = { ...full, canPay: true, shortfall: 0 }; continue; }
     const own = { ...full, totalRequired: owed };
     required = r2(required + owed);
