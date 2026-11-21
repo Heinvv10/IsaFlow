@@ -142,10 +142,12 @@ describe('an item goes in only in the transaction that created its note, by the 
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
     const later = await openRequest(pool, f, f.owner);
     try {
-      const { now, xact } = (await later.client.query('SELECT now() AS now, pg_current_xact_id()::text AS xact')).rows[0] as { now: Date; xact: string };
+      // now() as text: a JS Date keeps milliseconds only, and the forgery must match to the microsecond.
+      const { now, xact } = (await later.client.query('SELECT now()::text AS now, pg_current_xact_id()::text AS xact')).rows[0] as { now: string; xact: string };
       const note = crypto.randomUUID();
       const forged = await asApp(f, `INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by, created_at, created_xact)
-        VALUES ($1, $2, 'GRN-99998', $3, 'x', $4, $5::xid8)`, [note, f.co, po.po, now, xact]);
+        VALUES ($1, $2, 'GRN-99998', $3, 'x', $4::timestamptz, $5::xid8)`, [note, f.co, po.po, now, xact]);
+      expect((await later.client.query('SELECT created_at = now() AS same FROM goods_received_notes WHERE id = $1', [note])).rows[0].same).toBe(true);
       expect(forged.code, forged.message).toBe('ok');
       // The trigger set the inserting transaction's own id, whatever the caller sent.
       expect(String((await pool.query('SELECT created_xact::text AS x FROM goods_received_notes WHERE id = $1', [note])).rows[0].x)).not.toBe(xact);
