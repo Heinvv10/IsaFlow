@@ -15,6 +15,7 @@ import { useDateGate } from '@/hooks/useDateGate';
 import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP } from '@/components/accounting/formActionBar';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { creditNoteVatAndTotal } from '@/modules/accounting/services/ar/creditNoteVatFigures';
+import { creditNoteMoneyProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
 
 interface Client { id: string; company_name: string }
 
@@ -39,11 +40,13 @@ export default function NewCreditNotePage() {
     taxRate: 15,
   });
 
-  // What the note is stored with (creditNoteVatAndTotal, exact cents: 33.30 at 15% is 5.00, not the float's 4.99); a
-  // subtotal or rate the route refuses shows no VAT.
-  const { taxAmount, totalAmount } = form.subtotal > 0 && Number.isFinite(form.subtotal) && form.taxRate >= 0 && form.taxRate <= 100
+  // The route's own money rule (creditNoteMoneyProblem: whole cents, a rate from 0 to 100): what it refuses previews no
+  // VAT and no total, and says why. Otherwise what the note is stored with (creditNoteVatAndTotal, exact cents: 33.30
+  // at 15% is 5.00, not the float's 4.99).
+  const moneyProblem = form.subtotal > 0 ? creditNoteMoneyProblem({ subtotal: form.subtotal, taxRate: form.taxRate, taxAmount: undefined }) : null;
+  const { taxAmount, totalAmount } = form.subtotal > 0 && !moneyProblem
     ? creditNoteVatAndTotal(form.subtotal, form.taxRate, null)
-    : { taxAmount: 0, totalAmount: Number.isFinite(form.subtotal) ? form.subtotal : 0 };
+    : { taxAmount: 0, totalAmount: 0 };
 
   useEffect(() => {
     apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {
@@ -153,6 +156,7 @@ export default function NewCreditNotePage() {
                   <div>
                     <label className={lbl}>VAT amount</label>
                     <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400`}>{formatCurrency(taxAmount)}</div>
+                    {moneyProblem && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{moneyProblem}</p>}
                   </div>
                 </div>
               </div>

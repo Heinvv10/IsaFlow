@@ -198,23 +198,24 @@ describe('#1701 round 3: one money rule on both surfaces, exact cents, and the r
   const rest = { type: 'customer', clientId: CUSTOMER, creditDate: '2026-09-20' };
   const args = { type: 'customer', client_id: CUSTOMER, credit_date: '2026-09-20', idempotency_key: 'k' };
   const mcp = async (over: Record<string, unknown>) => (await createCreditNoteTool.handler({ ...args, ...over }, ctx)).content[0]!.text;
-  const snake = (msg: string) => msg.replace(/taxRate/g, 'tax_rate').replace(/taxAmount/g, 'tax_amount');
 
   it.each([
-    [{ subtotal: 100, taxRate: 15, taxAmount: 0 }, 'taxRate 15 does not give taxAmount 0.00 on 100.00: send one of them, or both agreeing'],
-    [{ subtotal: 33.3, taxRate: 15, taxAmount: 4.99 }, 'taxRate 15 does not give taxAmount 4.99 on 33.30: send one of them, or both agreeing'],
-    [{ subtotal: 100, taxRate: 101 }, 'taxRate must be a number from 0 to 100'],
-    [{ subtotal: 100, taxRate: -1 }, 'taxRate must be a number from 0 to 100'],
-    [{ subtotal: -5 }, 'subtotal must be a positive amount'],
-    [{ subtotal: 1.234 }, 'subtotal must be in whole cents'],
-    [{ subtotal: 100, taxAmount: -1 }, 'taxAmount must be a number of zero or more'],
-    [{ subtotal: 100, taxAmount: 1.234 }, 'taxAmount must be in whole cents'],
-    [{ subtotal: 1, taxAmount: 2 }, 'taxAmount cannot be more than the subtotal'],
-  ])('REST and MCP refuse %j in the same words (MCP names its own fields), nothing read or created', async (money, msg) => {
-    expect(await post({ ...rest, ...money })).toMatchObject({ kind: 'badRequest', error: msg });
+    [{ subtotal: 100, taxRate: 15, taxAmount: 0 }, 'taxRate 15 does not give taxAmount 0.00 on 100.00: send one of them, or both agreeing',
+      'tax_rate 15 does not give tax_amount 0.00 on 100.00: send one of them, or both agreeing'],
+    [{ subtotal: 33.3, taxRate: 15, taxAmount: 4.99 }, 'taxRate 15 does not give taxAmount 4.99 on 33.30: send one of them, or both agreeing',
+      'tax_rate 15 does not give tax_amount 4.99 on 33.30: send one of them, or both agreeing'],
+    [{ subtotal: 100, taxRate: 101 }, 'taxRate must be a number from 0 to 100', 'tax_rate must be a number from 0 to 100'],
+    [{ subtotal: 100, taxRate: -1 }, 'taxRate must be a number from 0 to 100', 'tax_rate must be a number from 0 to 100'],
+    [{ subtotal: -5 }, 'subtotal must be a positive amount', 'subtotal must be a positive amount'],
+    [{ subtotal: 1.234 }, 'subtotal must be in whole cents', 'subtotal must be in whole cents'],
+    [{ subtotal: 100, taxAmount: -1 }, 'taxAmount must be a number of zero or more', 'tax_amount must be a number of zero or more'],
+    [{ subtotal: 100, taxAmount: 1.234 }, 'taxAmount must be in whole cents', 'tax_amount must be in whole cents'],
+    [{ subtotal: 1, taxAmount: 2 }, 'taxAmount cannot be more than the subtotal', 'tax_amount cannot be more than the subtotal'],
+  ])('REST and MCP refuse %j in the same words (each naming its own fields), nothing read or created', async (money, restMsg, mcpMsg) => {
+    expect(await post({ ...rest, ...money })).toMatchObject({ kind: 'badRequest', error: restMsg });
     const { subtotal, taxRate, taxAmount } = money as { subtotal: number; taxRate?: number; taxAmount?: number };
     expect(await mcp({ subtotal, ...(taxRate !== undefined ? { tax_rate: taxRate } : {}), ...(taxAmount !== undefined ? { tax_amount: taxAmount } : {}) }))
-      .toBe(snake(msg));
+      .toBe(mcpMsg);
     expect(m.typed).not.toHaveBeenCalled();
     expect(vi.mocked(storedCreditNoteRate)).not.toHaveBeenCalled();
     expect(m.create).not.toHaveBeenCalled();

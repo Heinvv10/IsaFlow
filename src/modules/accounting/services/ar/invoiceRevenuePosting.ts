@@ -169,17 +169,19 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
   }));
   const replayed = legacy.map((e) => Number(e.subtotal));
   if (!legsAreTyped(legs)) return { legs, replayed, remainingVat: null };
-  // Live UNLINKED customer notes APPLIED to this typed invoice (#1701 round 3 M1). Applying one does not link it
-  // (creditNoteApplyToInvoice, the MCP apply and the FIFO walk), so neither its revenue rows nor its link count it, yet
-  // it settled the invoice: each application is split into the net and VAT it settles by the note's own
-  // subtotal : tax_amount (appliedNetAndVat); the net is taken pro rata like a replayed note, the VAT off the remaining
-  // VAT. Unapply deletes the row and cancel reverses the note, so either gives the share back.
+  // Live customer notes APPLIED to this typed invoice but not linked to IT (#1701 rounds 3 M1, 4): unlinked ones
+  // (applying one here does not link it: creditNoteApplyToInvoice, the MCP apply and the FIFO walk), and ones linked to
+  // another invoice, at creation or by a later apply to a legacy invoice (COALESCE keeps the first link). Neither its
+  // revenue rows nor its link count it here, yet it settled this invoice: each application is split into the net and
+  // VAT it settles by the note's own subtotal : tax_amount (appliedNetAndVat); the net is taken pro rata like a
+  // replayed note, the VAT off the remaining VAT. A note linked to this invoice counts once, by its link. Unapply
+  // deletes the row and cancel reverses the note, so either gives the share back.
   const appliedUnlinked = (await sql`
     SELECT cna.amount_allocated, cn.subtotal, cn.tax_amount
     FROM credit_note_allocations cna
     JOIN credit_notes cn ON cn.id = cna.credit_note_id AND cn.company_id = cna.company_id
     WHERE cna.company_id = ${companyId}::UUID AND cna.invoice_id = ${invoiceId}::UUID
-      AND cn.type = 'customer' AND cn.customer_invoice_id IS NULL
+      AND cn.type = 'customer' AND cn.customer_invoice_id IS DISTINCT FROM ${invoiceId}::UUID
       AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${noteId}::UUID
     ORDER BY cn.approved_at NULLS FIRST, cn.id
   `) as Record<string, unknown>[];

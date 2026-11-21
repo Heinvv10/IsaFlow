@@ -37,8 +37,21 @@ describe('credit-notes/new: the VAT shown is the VAT stored', () => {
       expect(text).toContain(`Total${formatCurrency(total)}`);
     });
 
-  it('a rate the route refuses (above 100) shows no VAT', () => {
+  it('a rate the route refuses (above 100) shows no VAT or total, and the route\'s reason', () => {
     const text = shown('100.00', '150');
     expect(text).toContain(`VAT (150%)${formatCurrency(0)}`);
+    expect(text).toContain(`Total${formatCurrency(0)}`);
+    expect(screen.getByRole('alert').textContent).toBe('taxRate must be a number from 0 to 100');
+  });
+
+  it('a subtotal not in whole cents never reaches the preview: the amount box refuses it (#1701 round 4 LOW C)', () => {
+    const text = shown('10.005');
+    expect(text).toContain(`Total${formatCurrency(0)}`);
+    expect(screen.getByLabelText(/^Subtotal \(excl\. VAT\)/).getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('a valid note shows no reason', () => {
+    shown('33.30');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
