@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
+import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
 import { runProRataBlocker } from '@/modules/accounting/services/payroll/payrollRecurringProRata';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
@@ -36,6 +37,21 @@ afterAll(async () => {
   await a.teardown();
   vi.useRealTimers();
 }, 120_000);
+
+describe('an unchanged bonus amount (gate item 6 on 06c106a94d)', () => {
+  it('is a success that leaves the calculated run as it is: its status, lines and totals', async () => {
+    const before = (await a.pool.query(`SELECT h.status, h.total_gross::text AS g, (SELECT count(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS n
+      FROM payroll_run_headers h WHERE h.id = $1`, [bonusRun])).rows[0];
+    expect(before.status).toBe('calculated');
+    const res = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonusRun}/off-cycle-amounts`, bonusRun, {
+      body: { employeeId: emp, amount: 2_000, expectedAmount: 2_000 },
+    });
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    const after = (await a.pool.query(`SELECT h.status, h.total_gross::text AS g, (SELECT count(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS n
+      FROM payroll_run_headers h WHERE h.id = $1`, [bonusRun])).rows[0];
+    expect(after).toEqual(before);
+  });
+});
 
 describe('the pro-rata rule and an off-cycle run', () => {
   it('an allowance effective on the 28th does not block the bonus\'s approval', async () => {

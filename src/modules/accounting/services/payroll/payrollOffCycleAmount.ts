@@ -83,6 +83,8 @@ export async function setOffCycleBonusAmount(
     if (!Number.isFinite(expected) || Math.round(Number(before.amount) * 100) !== Math.round(expected * 100)) {
       throw refused('This bonus amount was changed by someone else after you opened it: reload the run and try again.');
     }
+    // The same amount (gate item 6 on 06c106a94d): nothing changes, so the run keeps its lines, totals and status.
+    if (Math.round(Number(before.amount) * 100) === Math.round(amount * 100)) return { runId, employeeId, amount };
     // After its pay date a run's amounts were paid: a correction only lowers them (delta M1).
     const raised = offCycleRaiseRefusal(run, employeeId, amount);
     if (raised) throw refused(raised);
