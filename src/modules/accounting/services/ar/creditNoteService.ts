@@ -21,6 +21,7 @@ import { readCodingId } from './invoiceLineCoding';
 import { assertBillLineAccounts } from '../ap/billLineAccountGuard';
 import { assertSupplierNoteHeaderTags } from '../ap/supplierCreditNoteExpenseLines';
 import { creditNoteVatAndTotal, storedCreditNoteRate, typedCreditNoteVat } from './creditNoteTypedVat';
+import { creditNoteTotalProblem } from './creditNoteRequestMoney';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -146,6 +147,8 @@ export async function createCreditNote(companyId: string,
     const taxRate = typed?.taxRate ?? await storedCreditNoteRate(companyId, input, input.taxAmount ?? null);
     // Exact cents (creditNoteVatAndTotal): the float product stored 4.99 on 33.30 at 15% (#1701 round 3).
     const { taxAmount, totalAmount } = creditNoteVatAndTotal(input.subtotal, taxRate, typed ? typed.taxAmount : input.taxAmount);
+    const totalProblem = creditNoteTotalProblem(totalAmount);
+    if (totalProblem) throw new CreditNoteLinkError(totalProblem);
 
     // supplier_id is a UUID column (migration 202) referencing suppliers(id),
     // NOT an integer. The previous `Number(input.supplierId)` turned every real

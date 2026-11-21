@@ -6,7 +6,7 @@
  * to the subtotal, a rate with at most two decimals (NUMERIC(5,2), round 8). A figure and a rate together must agree (vatAtRateCents on the subtotal is the figure, exact cents),
  * or the stored rate would contradict the stored VAT. Pure.
  */
-import { hasWholeCents } from '@/lib/money/wholeCents';
+import { hasWholeCents, MAX_MONEY } from '@/lib/money/wholeCents';
 import { exactCents } from '../shared/vatLineAmounts';
 import { vatAtRateCents } from './creditNoteVatFigures';
 
@@ -40,4 +40,13 @@ export function creditNoteMoneyProblem(
     return `${rateName} ${String(taxRate)} does not give ${figureName} ${taxAmount.toFixed(2)} on ${subtotal.toFixed(2)}: send one of them, or both agreeing`;
   }
   return null;
+}
+
+/**
+ * Why a note's TOTAL (subtotal + VAT, as it would be stored) is refused, or null (#1701 round 11): NUMERIC(15,2) holds a
+ * subtotal its VAT then takes past the column, which overflowed (22003) at the INSERT. One wording, create and MCP.
+ */
+export function creditNoteTotalProblem(total: number): string | null {
+  return Number.isFinite(total) && Math.abs(total) <= MAX_MONEY ? null
+    : `The credit note comes to ${total.toFixed(2)} with its VAT, more than an amount can hold (${MAX_MONEY.toFixed(2)}): reduce the subtotal`;
 }

@@ -20,7 +20,7 @@ import { planMirroredSupplierNote } from '@/modules/accounting/services/ap/suppl
 import { mcpPostingOpts } from '../mcpActor';
 import { MIRROR_ARG_SCHEMA, mirrorReply, readMirrorArgs } from './creditNoteMirrorArgs';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { MCP_MONEY_FIELDS, creditNoteMoneyProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
+import { MCP_MONEY_FIELDS, creditNoteMoneyProblem, creditNoteTotalProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
 
 const TYPES = ['customer', 'supplier'] as const;
 
@@ -197,6 +197,8 @@ export const createCreditNoteTool: McpTool = {
     const typed = typedCandidate ? await typedCreditNoteVat(ctx.companyId, { type: 'customer', customerInvoiceId, subtotal, taxRate }) : null;
     const figure = typed?.taxAmount ?? taxAmountArg;
     const total = await totalOf(mirrored?.taxAmount ?? figure);
+    const totalProblem = creditNoteTotalProblem(total);
+    if (totalProblem) return toolError(totalProblem);
 
     const duplicate = await findOpenDuplicateDraft(
       ctx.companyId,

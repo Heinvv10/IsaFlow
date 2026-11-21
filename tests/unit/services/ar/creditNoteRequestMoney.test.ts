@@ -27,3 +27,11 @@ describe('creditNoteMoneyProblem: the rate at its stored precision', () => {
     expect(creditNoteMoneyProblem({ subtotal: 100, taxRate: 15, taxAmount: 15 })).toBeNull();
   });
 });
+
+describe('round 11 nit c: the computed total must fit NUMERIC(15,2)', () => {
+  it('a total past it is refused in one wording; within it passes', async () => {
+    const { creditNoteTotalProblem } = await import('@/modules/accounting/services/ar/creditNoteRequestMoney');
+    expect(creditNoteTotalProblem(11_499_999_999_999.99)).toBe('The credit note comes to 11499999999999.99 with its VAT, more than an amount can hold (9999999999999.99): reduce the subtotal');
+    expect(creditNoteTotalProblem(9_999_999_999_999.99)).toBeNull();
+  });
+});
