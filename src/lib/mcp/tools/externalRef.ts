@@ -57,7 +57,22 @@ const matchOut = (m: ExternalRefMatch) => ({
 });
 
 /** What the request says, compared with the stored record on a replay (only the fields known before the create). */
-export interface ReplayExpectation { number?: string | null; date?: string | null; totalAmount?: number | null; subtotal?: number | null }
+export interface ReplayExpectation {
+  number?: string | null; date?: string | null; totalAmount?: number | null; subtotal?: number | null;
+  /**
+   * What makes it the SAME record (a credit note's party and linked document, by field name; null = none). A stored
+   * record differing in any of these is not a replay: the reference was reused for another document, and the create is
+   * REFUSED naming the field (#1701 round 9), never answered with the old record.
+   */
+  identity?: Record<string, string | null>;
+}
+
+/** The identity fields the stored record differs in (a record that reports none is not compared). */
+function identityDifferences(m: ExternalRefMatch, expect: ReplayExpectation): string[] {
+  if (!expect.identity || !m.identity) return [];
+  const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? null)?.toLowerCase() === (b ?? null)?.toLowerCase();
+  return Object.entries(expect.identity).filter(([field, requested]) => !same(m.identity![field], requested)).map(([field]) => field);
+}
 
 function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ field: string; existing: unknown; requested: unknown }> {
   const out: Array<{ field: string; existing: unknown; requested: unknown }> = [];
@@ -87,6 +102,13 @@ export async function createReplayOrLock(
   const live = (await findByExternalRef(ctx.companyId, kind, ref.system, ref.ref, { creditNoteType: opts.creditNoteType }))
     .filter((m) => m.live);
   if (live.length === 0) return null;
+  const other = identityDifferences(live[0]!, opts.expect ?? {});
+  if (other.length > 0) {
+    const r = toolError(`external_ref ${ref.ref} (${ref.system}) is already used by ${kind.replace('_', ' ')} ${live[0]!.number ?? live[0]!.id} `
+      + `for a different ${other.join(' and ')}: a reference names one document. Nothing was created; send this document's own `
+      + 'reference, or find the existing one with find_by_external_ref.');
+    return { ...r, wroteNothing: true };
+  }
   const diff = differences(live[0]!, opts.expect ?? {});
   return {
     ...ok({

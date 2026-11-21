@@ -206,4 +206,35 @@ describeIfDisposable('per-line VAT writers, review round 9', () => {
       await b.client.query('ROLLBACK').catch(() => {}); b.client.release();
     }
   }, 60_000);
+
+  describe('create_credit_note replay by external_ref: the party and the linked invoice are part of the match', () => {
+    const create = (c: string, invoiceId: string, ref: string, subtotal = 40) => inTx(f.fx, () => createCreditNoteTool.handler({
+      type: 'customer', client_id: c, customer_invoice_id: invoiceId, credit_date: '2026-05-06', subtotal, reason: 'Return',
+      external_system: 'sage', external_ref: ref, idempotency_key: crypto.randomUUID() }, ctx()));
+    const notesWith = async (ref: string) => sql`SELECT id FROM credit_notes WHERE company_id = ${f.fx.companyId}::UUID AND external_ref = ${ref}`;
+
+    it('a note with no figure on a typed invoice, approved (its VAT moved), replays cleanly; the same ref for another invoice is refused', async () => {
+      const c = await customer('R9-3a');
+      const y = await typedInvoice(c, '2026-05-06');
+      const y2 = await typedInvoice(c, '2026-05-06');
+      const made = J(await create(c, y, 'CRET-9A'));
+      await inTx(f.fx, () => approveCreditNote(f.fx.companyId, String(made.id), f.fx.userId, { autoApply: 'none' }));
+      expect(J(await create(c, y, 'CRET-9A'))).toMatchObject({ already_existed: true, payload_differs: false, id: made.id });
+      const other = await create(c, y2, 'CRET-9A');
+      expect(other.isError).toBe(true);
+      expect(other.content[0]!.text).toMatch(/^external_ref CRET-9A \(sage\) is already used by credit note \S+ for a different customer_invoice_id/);
+      expect(await notesWith('CRET-9A')).toEqual([{ id: made.id }]);
+    });
+    it('the same ref for another customer is refused, naming client_id; nothing written', async () => {
+      const c = await customer('R9-3b');
+      const c2 = await customer('R9-3b2');
+      const y = await typedInvoice(c, '2026-05-07');
+      const y2 = await typedInvoice(c2, '2026-05-07');
+      const made = J(await create(c, y, 'CRET-9B'));
+      const other = await create(c2, y2, 'CRET-9B');
+      expect(other.isError).toBe(true);
+      expect(other.content[0]!.text).toMatch(/for a different client_id and customer_invoice_id/);
+      expect(await notesWith('CRET-9B')).toEqual([{ id: made.id }]);
+    });
+  });
 });

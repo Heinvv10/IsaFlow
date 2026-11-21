@@ -186,6 +186,10 @@ export const createCreditNoteTool: McpTool = {
         date: creditDate,
         subtotal,
         totalAmount: typedCandidate && taxRate === undefined ? null : await totalOf(mirrored?.taxAmount ?? taxAmountArg),
+        // The same note only for the same party and linked document (round 9): a reused reference is refused.
+        identity: type === 'customer'
+          ? { client_id: clientId ?? null, customer_invoice_id: customerInvoiceId ?? null }
+          : { supplier_id: supplierId ?? null, supplier_invoice_id: supplierInvoiceId ?? null },
       },
     });
     if (replay) return replay;
