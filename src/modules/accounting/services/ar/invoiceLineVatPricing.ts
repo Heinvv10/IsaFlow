@@ -14,12 +14,15 @@
  * UNTYPED (a company not registered for VAT, invoiceLineVatTypes): the legacy shape, no VAT, every rate 0, and
  * amounts_are 'exclusive' whatever was asked (the price as entered is the net: there is no VAT to include).
  *
+ * A line amount or a total past NUMERIC(15,2) is refused (InvoiceLineVatRefusal); the form's preview prices such a line as 0.
+ *
  * Pure: safe in a client bundle.
  */
 import { isRatedDate } from '@/lib/vat/standardRate';
 import { vatDocumentTotals, vatLineAmounts, type AmountsAre } from '../shared/vatLineAmounts';
 import { invoiceLineAmount, invoiceTotals, previewLineAmount, toColumnCents } from './invoiceLineAmount';
-import type { DocumentLineVatType, ResolvedLineVat } from './invoiceLineVatTypes';
+import { MAX_MONEY } from '@/lib/money/wholeCents';
+import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
 
 export type { AmountsAre };
 
@@ -47,6 +50,10 @@ export function priceInvoiceVat(
     const qty = toColumnCents(l.quantity);
     const price = toColumnCents(l.unitPrice);
     const base = invoiceLineAmount(qty, price, l.discount ?? 0);
+    // NUMERIC(15,2) (round 11): a product past it would be stored as an overflow (22003) or posted as a rounded float.
+    if (!Number.isFinite(base) || Math.abs(base) > MAX_MONEY) {
+      throw new InvoiceLineVatRefusal(`Line ${i + 1}: quantity x unit price comes to more than an amount can hold (${MAX_MONEY.toFixed(2)}).`);
+    }
     if (!vat.typed) return { qty, price, amount: base, taxAmount: null, vatType: null, taxRate: 0 };
     const type = vat.types[i]!;
     const v = vatLineAmounts(base, type, invoiceDate, amountsAre);
@@ -55,6 +62,9 @@ export function priceInvoiceVat(
   const totals = vat.typed
     ? vatDocumentTotals(out.map((l) => ({ net: l.amount, vat: l.taxAmount ?? 0 })))
     : (() => { const t = invoiceTotals(out.map((l) => l.amount), 0); return { subtotal: t.subtotal, vat: 0, total: t.total }; })();
+  if (!Number.isFinite(totals.total) || Math.abs(totals.total) > MAX_MONEY) {
+    throw new InvoiceLineVatRefusal(`The invoice comes to more than an amount can hold (${MAX_MONEY.toFixed(2)}).`);
+  }
   return {
     lines: out,
     header: {
@@ -74,8 +84,8 @@ const finite = (...ns: number[]): boolean => ns.every((n) => Number.isFinite(n) 
 export function previewInvoiceVat(
   lines: readonly LineIn[], types: readonly DocumentLineVatType[] | null, invoiceDate: string, amountsAre: AmountsAre,
 ): { subtotal: number; tax: number; total: number } {
-  const safe = lines.map((l) => (finite(l.quantity, l.unitPrice, l.discount ?? 0) && previewLineAmount(l.quantity, l.unitPrice, l.discount ?? 0) >= 0
-    ? l : { quantity: 0, unitPrice: 0, discount: 0 }));
+  const inRange = (l: LineIn) => { const a = previewLineAmount(l.quantity, l.unitPrice, l.discount ?? 0); return a >= 0 && a <= MAX_MONEY; };
+  const safe = lines.map((l) => (finite(l.quantity, l.unitPrice, l.discount ?? 0) && inRange(l) ? l : { quantity: 0, unitPrice: 0, discount: 0 }));
   const vat: ResolvedLineVat = types && isRatedDate(invoiceDate) ? { typed: true, types: [...types] } : { typed: false };
   const { subtotal, tax, total } = priceInvoiceVat(safe, vat, invoiceDate, amountsAre).header;
   return { subtotal, tax, total };

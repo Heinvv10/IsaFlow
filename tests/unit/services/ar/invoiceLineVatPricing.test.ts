@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { priceInvoiceVat, previewInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 import { typedLinesProblem } from '@/modules/accounting/services/ar/invoiceVatLegs';
+import { InvoiceLineVatRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 const DATE = '2026-11-20';
 const l = (qty: number, price: number, discount = 0) => ({ quantity: qty, unitPrice: price, discount });
@@ -111,5 +112,24 @@ describe('an inclusive back-out never lands on an exact half cent at the South A
     // c cents x r / (100 + r) = n + 0.5  <=>  2cr = (2n + 1)(100 + r)  <=>  2cr mod 2(100 + r) = 100 + r
     const ties = [10, 14, 15].flatMap((r) => Array.from({ length: 200000 }, (_, i) => i + 1).filter((c) => (2 * c * r) % (2 * (100 + r)) === 100 + r));
     expect(ties).toEqual([]);
+  });
+});
+
+describe('round 11 nit b: the derived line amount (qty x price) is guarded', () => {
+  const typed = { typed: true as const, types: ['standard' as const] };
+  it('a line amount past what NUMERIC(15,2) holds is refused naming the line, not stored or posted as a rounded float', () => {
+    expect(() => priceInvoiceVat([{ quantity: 99_999_999, unitPrice: 999_999_999 }], typed, '2026-09-15', 'exclusive'))
+      .toThrow(/^Line 1: quantity x unit price comes to more than an amount can hold/);
+    expect(() => priceInvoiceVat([{ quantity: 1, unitPrice: 10 }, { quantity: 1e7, unitPrice: 1e7 }], { typed: false }, '2026-09-15', 'exclusive'))
+      .toThrow(InvoiceLineVatRefusal);
+  });
+  it('lines each within range whose total is not: refused too', () => {
+    const big = { quantity: 1, unitPrice: 9_000_000_000_000 };
+    expect(() => priceInvoiceVat([big, big], { typed: true, types: ['zero_rated', 'zero_rated'] }, '2026-09-15', 'exclusive'))
+      .toThrow(/^The invoice comes to more than an amount can hold/);
+  });
+  it('the form preview never throws on such a line: it prices as 0', () => {
+    expect(previewInvoiceVat([{ quantity: 99_999_999, unitPrice: 999_999_999 }, { quantity: 1, unitPrice: 100 }], ['standard', 'standard'], '2026-09-15', 'exclusive'))
+      .toEqual({ subtotal: 100, tax: 15, total: 115 });
   });
 });
