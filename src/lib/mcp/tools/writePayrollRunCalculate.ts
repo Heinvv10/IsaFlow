@@ -48,6 +48,16 @@ export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
   };
 }
 
+/**
+ * An off-cycle refusal as the calculate route answers it (review L4 of f37f0f15a6): a named one (refusal, e.g.
+ * TERMINATION_REASON_MISSING) as the API error envelope with its code; the rest as its message.
+ */
+function offCycleToolError(err: OffCycleRunRefusedError) {
+  return err.refusal
+    ? toolError(JSON.stringify({ success: false, error: { code: err.code, message: err.message, details: { refusal: err.refusal } } }))
+    : toolError(err.message);
+}
+
 export const calculatePayRunTool: McpTool = {
   name: 'calculate_pay_run',
   description:
@@ -111,7 +121,8 @@ export const calculatePayRunTool: McpTool = {
           // Wave 6 OC: then the month's close, as the live call checks it (an off-cycle run paid after its regular run).
           await assertOffCycleBeforeClose(ctx.companyId, row);
         } catch (err) {
-          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError) return toolError(err.message);
+          if (err instanceof OffCycleRunRefusedError) return offCycleToolError(err);
+          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
           throw err;
         }
       }
@@ -151,8 +162,9 @@ export const calculatePayRunTool: McpTool = {
       // raised BEFORE any line is touched. Everything else propagates to the
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
+      if (err instanceof OffCycleRunRefusedError) return offCycleToolError(err);
       if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || err instanceof PreparerIdNotSupportedError
-        || isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError
+        || isRunKindUnsupported(err) || isPayFrequencyRefused(err)
         || err instanceof PspComponentRefused || err instanceof PspStatusChangedSinceApproval) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
