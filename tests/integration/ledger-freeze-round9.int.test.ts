@@ -83,6 +83,12 @@ describeIfDisposable('ledger column immutability, round 9 (migration 1018)', () 
     // A cancelled bill numbered '' and a journal 'Supplier invoice ' of its amount.
     await cancelledBill('', 60);
     const blankJe = await reversedJournal('Supplier invoice ', 60);
+    // The same for a customer invoice numbered ''.
+    const blankInv = await document(z, 'customer_invoices', { status: 'approved' });
+    await sql`UPDATE customer_invoices SET invoice_number = '', total_amount = 70, status = 'cancelled' WHERE id = ${blankInv}::UUID`;
+    const arLegs: Leg[] = [[z.ar, 70, 0], [z.revenue, 0, 70]];
+    const blankArJe = await journal(z, arLegs, { source: 'auto_invoice', description: 'Customer invoice ' });
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${blankArJe}::UUID WHERE id = ${await journal(z, negate(arLegs))}::UUID`;
     const role = `r9_owner_${randomUUID().slice(0, 8)}`;
     const c = await z.pool.connect();
     const notices: string[] = [];
@@ -99,6 +105,7 @@ describeIfDisposable('ledger column immutability, round 9 (migration 1018)', () 
       expect(await stamped(tiedJe)).toBe(true);
       expect(await stamped(orphanJe)).toBe(false);
       expect(await stamped(blankJe)).toBe(false);
+      expect(await stamped(blankArJe)).toBe(false);
       expect(notices.join('\n')).toMatch(/1018 backfill: \d+ journal\(s\)/);
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
     void fx;
