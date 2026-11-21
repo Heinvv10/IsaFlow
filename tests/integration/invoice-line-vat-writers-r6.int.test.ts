@@ -378,7 +378,7 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
       return false;
     };
 
-    it('the unapply first: the walk waits for W, then sees what is left (50), never 115', async () => {
+    it('the unapply first: the walk waits for W, then sees what is left (50), never 115; the rest stays on account', async () => {
       const { w, x, z, n, m } = await setup('R6-7a', '2026-10');
       const a = await open();
       await runOn(f.fx, a.client, () => unapplyCreditNote(f.fx.companyId, { creditNoteId: n.id, invoiceId: z }, f.fx.userId));
@@ -388,7 +388,10 @@ describeIfDisposable('per-line VAT writers, review round 6: rule A', () => {
       await a.client.query('COMMIT'); a.client.release();
       await walk; await b.client.query('COMMIT'); b.client.release();
       expect(waited).toBe(true);
-      expect(await rowsOf(m.id)).toEqual([{ invoice_id: w, amount: 50 }, { invoice_id: x, amount: 65 }].sort((p, q) => (p.invoice_id < q.invoice_id ? -1 : 1)));
+      // Since round 9 the walk took keys only for the invoices its 115 could reach as it read them at step 2, while the
+      // unapply was uncommitted: W alone (115 left then). Under the key it finds 50 there and takes that; X, which it
+      // holds no key for, is left out, so 65 stays on account (less credit, never more: shared/creditNoteWalkKeys).
+      expect(await rowsOf(m.id)).toEqual([{ invoice_id: w, amount: 50 }]);
       expect(await state(w)).toEqual({ remainingNet: 0, remainingVat: 0 });
     });
 

@@ -144,6 +144,12 @@ describeIfDisposable('per-line VAT writers, review round 9', () => {
       await sql`DELETE FROM credit_note_allocations WHERE credit_note_id IN (SELECT id FROM credit_notes WHERE company_id = ${c}::UUID)`;
       await sql`DELETE FROM audit_log WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM mcp_tool_calls WHERE company_id = ${c}::UUID`;
+      // The receipts this suite records (dropLineRevenue removes invoices before payments).
+      await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ${c}::UUID)`;
+      await sql`DELETE FROM customer_payments WHERE company_id = ${c}::UUID`;
+      await sql`DELETE FROM bank_allocation_batch_lines WHERE batch_id IN (SELECT id FROM bank_allocation_batches WHERE company_id = ${c}::UUID)`;
+      await sql`DELETE FROM bank_allocation_batches WHERE company_id = ${c}::UUID`;
+      await sql`DELETE FROM bank_transactions WHERE company_id = ${c}::UUID`;
     }
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [user]);
     await dropLineRevenue(f);
