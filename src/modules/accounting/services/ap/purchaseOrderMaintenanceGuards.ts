@@ -14,14 +14,46 @@ import { withRowLockBudget } from '../core/rowLockBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { TIE_REFUSAL, tieRefusalText } from './purchaseOrderTies';
 
+/** A receipt that stands: a goods received note of the PO that is not cancelled (a cancelled one received nothing). */
 export async function poHasReceipts(companyId: string, poId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM goods_received_notes
+     WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status <> 'cancelled' LIMIT 1
+  `) as DbRow[];
+  return rows.length > 0;
+}
+
+/**
+ * Any note at all, a cancelled one too. A cancelled note is kept as the record with its items (migration 1021: never deleted or
+ * edited), and grn_items.po_item_id references the PO's lines, so those lines can no longer be replaced or the PO deleted.
+ */
+export async function poHasAnyNote(companyId: string, poId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
   `) as DbRow[];
   return rows.length > 0;
 }
 
+/**
+ * A supplier change on a PO that has ANY goods received note, cancelled included (Codex gate at 42de08b3, 3): the note is the record of
+ * what THIS supplier delivered, and it reads its supplier through the PO, so moving the PO would move the history. The refusal, or
+ * null when the supplier does not change or the PO has no note.
+ */
+export async function noteKeepsPoSupplierRefusal(companyId: string, poId: string, supplierId: string | null | undefined): Promise<string | null> {
+  if (!supplierId) return null;
+  const rows = (await sql`
+    SELECT 1 FROM purchase_orders po
+     WHERE po.id = ${poId}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplierId}::UUID
+       AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.purchase_order_id = po.id AND g.company_id = po.company_id)
+  `) as DbRow[];
+  return rows.length > 0 ? NOTE_KEEPS_SUPPLIER_REFUSAL : null;
+}
+
+export const NOTE_KEEPS_SUPPLIER_REFUSAL = 'This purchase order has a goods received note (a cancelled goods received note counts: it is kept as the '
+  + 'record of this supplier\'s delivery), so its supplier cannot change; raise a new purchase order for the other supplier';
 export const RECEIPT_REFUSAL = 'Goods have been received against this purchase order (a receipt is on record)';
+export const CANCELLED_NOTE_LINES_REFUSAL =
+  'A cancelled goods received note of this purchase order is kept as the record and names its lines';
 export const LINKS_REFUSAL = TIE_REFUSAL;
 
 /**
@@ -33,7 +65,7 @@ export const billTieRefusal = tieRefusalText;
 
 /** The refusal text for a PO whose lines / status must not move while a receipt or bill link stands, or null. */
 export async function receiptOrLinkRefusal(companyId: string, poId: string, what: string): Promise<string | null> {
-  if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; unlink or cancel the receipt first`;
+  if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; cancel its goods received notes first (cancel_goods_received)`;
   return billTieRefusal(companyId, poId, what);
 }
 

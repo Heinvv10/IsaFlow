@@ -13,6 +13,7 @@ import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertDocumentLineAccounts } from '../gl/documentLineAccountGuard';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { poSupplierChangeBlocked } from './billPurchaseOrderLinks';
+import { noteKeepsPoSupplierRefusal } from './purchaseOrderMaintenanceGuards';
 import { readStoredPoLineDimensions, resolvePoLineDimensions, sentFromSnake } from './purchaseOrderLineDimensions';
 import { resolveEditedPoLines } from './purchaseOrderItemLines';
 
@@ -50,6 +51,9 @@ export async function validatePoEdit<T extends PoEditLine>(
   await assertSupplierInCompany(companyId, supplierId);
   const blocked = supplierId ? await poSupplierChangeBlocked(companyId, poId, supplierId) : null;
   if (blocked) throw new PurchaseOrderEditRefusal(blocked);
+  // Any goods received note, cancelled included, keeps the PO's supplier (Codex gate at 42de08b3, 3).
+  const noted = await noteKeepsPoSupplierRefusal(companyId, poId, supplierId);
+  if (noted) throw new PurchaseOrderEditRefusal(noted);
   // migration 1005: item links (new item checked, default account and rate; none keeps the stored one)
   const items: T[] | undefined = sentItems?.length ? await resolveEditedPoLines(companyId, poId, sentItems) : sentItems ? [...sentItems] : undefined;
   if (!items || items.length === 0) return { items, dims: [] };

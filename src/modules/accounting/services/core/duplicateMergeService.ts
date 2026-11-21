@@ -6,12 +6,15 @@
  * primary record, then soft-deletes the duplicate.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { SupplierMergeRefusal } from './supplierMergeRefusal';
+import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import type { RuleWriteGuard } from '../bank/bankRuleChangeControl';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
+import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
 
 export interface MergeResult {
   reassignedTransactions: number;
@@ -21,13 +24,10 @@ export interface MergeResult {
   revokedPortalLogins?: number;
 }
 
-/** A merge refused before anything moved; its message is safe to show. */
-export class SupplierMergeRefusal extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SupplierMergeRefusal';
-  }
-}
+// A merge refused before anything moved (or rolled back whole); its message is safe to show.
+export { SupplierMergeRefusal } from './supplierMergeRefusal';
+// A source bill carrying a goods received note (#1708): checked before the move, and on the bill UPDATE's RETURNING rows.
+export { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 
 /**
  * DRC VAT eligibility reads the supplier's `subject_to_drc_vat` flag, and a
@@ -46,12 +46,16 @@ export async function assertSupplierMergeKeepsDrcFlag(
 ): Promise<void> {
   // Batch before supplier (bank/.claude.md): the batches carrying the payments the merge re-points are locked before
   // either supplier row, the order the bank-file gate takes them in. `movedFromId` is the supplier being merged away.
-  const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => (await sql`
+  // Both supplier rows FOR UPDATE, bounded (5 s, a typed retryable RowLockTimeoutError). This is also what serialises a merge against
+  // a bill create or a draft supplier change for the source: their write takes KEY SHARE on the supplier through
+  // supplier_invoices_supplier_id_fkey, so a bill is either committed before this lock (and seen by the link / note checks after it)
+  // or written after the merge commits (and not moved). Lock census: docs/design/mcp-po-bill-links.md.
+  const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => withRowLockBudget(async () => (await sql`
     SELECT name, COALESCE(subject_to_drc_vat, false) AS drc FROM suppliers
     WHERE id IN (${a}::UUID, ${b}::UUID) AND company_id = ${companyId}::UUID AND deleted_at IS NULL
     ORDER BY id
     FOR UPDATE
-  `) as { name: string; drc: boolean }[]);
+  `) as { name: string; drc: boolean }[], () => new RowLockTimeoutError('A supplier being merged')));
   if (rows.length !== 2) {
     throw new SupplierMergeRefusal('One or both suppliers not found or do not belong to this company');
   }
@@ -99,7 +103,11 @@ export async function mergeEntities(
 async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
+  await assertSupplierMergeMovesNoNotedBill(companyId, duplicateId);
 
+  // One savepoint for the moves: the bill UPDATE's RETURNING can still refuse (refuseIfMovedNotedBills), and a 4xx answer is
+  // committed by withAuth, so the refusal must take back what was moved before it.
+  return withSavepoint('merge_suppliers_moves', async () => {
   let count = 0;
 
   // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
@@ -122,8 +130,10 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
     UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID,
       content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
+    RETURNING id, invoice_number, grn_id, deleted_at, status
   `;
+  // A bill made live and noted while this ran, without the supplier lock, is moved by this UPDATE after it waited on the row.
+  refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
   count += r2.length;
 
   const r3 = await sql`
@@ -140,6 +150,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
 
   log.info('Supplier merge complete', { primaryId, duplicateId, count }, 'duplicate-merge');
   return { reassignedTransactions: count };
+  });
 }
 
 // ── Item merge ────────────────────────────────────────────────────────────────

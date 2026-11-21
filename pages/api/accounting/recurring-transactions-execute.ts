@@ -11,7 +11,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
-import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateSupplierDeletedError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
@@ -57,7 +57,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // against its lines before they touch anything. 400 rather than a 500,
     // because the operator has to re-save the template — it is not a bug.
     // Same for a bill template line coded to an account a bill line may not name.
-    if (err instanceof RecurringTemplateTotalsMismatchError || err instanceof RecurringTemplateLineAccountError) {
+    // And a bill template naming a supplier merged into another or deleted (a merge does not repoint templates).
+    if (err instanceof RecurringTemplateTotalsMismatchError || err instanceof RecurringTemplateLineAccountError
+      || err instanceof RecurringTemplateSupplierDeletedError) {
       return apiResponse.badRequest(res, err.message);
     }
     // R-067, also pre-write: the template's clientId is not a customer of this

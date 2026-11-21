@@ -120,7 +120,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Match supplier
   const suppliers = await sql`
-    SELECT id, name, vat_number FROM suppliers WHERE company_id = ${companyId} AND is_active = true
+    SELECT id, name, vat_number FROM suppliers WHERE company_id = ${companyId} AND is_active = true AND deleted_at IS NULL
   ` as Row[];
 
   const supplierMatch = matchSupplierFromExtraction(

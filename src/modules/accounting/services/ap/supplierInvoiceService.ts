@@ -15,6 +15,8 @@ import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
+import { asBillGrnRefused, assertBillGrn, lockNotePo } from './billGoodsReceivedLink';
+import { asBillSupplierDeleted } from './billSupplierLive';
 import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
@@ -142,6 +144,12 @@ export async function createSupplierInvoice(
       // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
       // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
       await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
+      // The bill's goods received note: this company's, live, on a PO of this supplier the bill names (no lock yet: the INSERT's
+      // grn-live trigger takes it, after every PO lock this create takes, the note's own PO included).
+      const grnBill = { supplierId: input.supplierId, purchaseOrderId: input.purchaseOrderId, items: lineInputs };
+      const grnId = await assertBillGrn(companyId, input.grnId, grnBill, { db: tx });
+      // Its PO before the INSERT, whose grn-live trigger (1021) takes the note: PO -> bill -> note (lockNotePo).
+      if (grnId) await lockNotePo(companyId, grnId, tx);
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
@@ -153,7 +161,7 @@ export async function createSupplierInvoice(
           external_system, external_ref, external_document_number
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
-          ${input.purchaseOrderId || null}, ${input.grnId || null},
+          ${input.purchaseOrderId || null}, ${grnId},
           ${input.invoiceDate}, ${dueDate || null}, ${dueDateSource},
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
           ${input.paymentTerms || null}, ${input.reference || null},
@@ -191,6 +199,9 @@ export async function createSupplierInvoice(
       // Migration 1006: the table is the one list of bill <-> PO links. The header PO and every PO the lines name (of this
       // supplier, in a linkable status) get an `app` link, in the bill's own transaction.
       await recordBillLinks(companyId, invoiceId, userId, tx);
+      // The note, judged under its FOR SHARE (taken by the trigger already; held until this commits; PO rows -> note, as the cancel's
+      // PO -> note): a cancel of it waits for this bill and then refuses it as on a bill, or this waits for the cancel and refuses it.
+      await assertBillGrn(companyId, grnId, grnBill, { db: tx, lock: true });
 
       return rows[0] as Row;
     });
@@ -209,6 +220,10 @@ export async function createSupplierInvoice(
 
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
+    // A soft-deleted supplier (merged into another, or deleted; e.g. by a merge this create waited on): 1021's supplier-live trigger
+    // refused the INSERT; or a note cancelled meanwhile (the grn-live trigger, which waited on the cancel): typed refusals, nothing written.
+    const gone = asBillSupplierDeleted(err) ?? asBillGrnRefused(err);
+    if (gone) throw gone;
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;
   }

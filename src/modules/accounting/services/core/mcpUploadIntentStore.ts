@@ -29,7 +29,7 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 
 export type UploadTargetKind =
   | 'bank_transaction' | 'supplier_invoice' | 'customer_invoice' | 'credit_note' | 'supplier_payment' | 'customer_payment'
-  | 'purchase_order';
+  | 'purchase_order' | 'goods_received';
 
 export type IntentStatus = 'pending' | 'uploaded' | 'finalized' | 'refused';
 
