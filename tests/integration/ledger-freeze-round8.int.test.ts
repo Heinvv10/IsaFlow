@@ -175,6 +175,10 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
     const amb1 = await legacy('supplier_invoices', 'auto_supplier_invoice', 'Supplier invoice', { number: num });
     const amb2doc = await document(z, 'supplier_invoices', { status: 'approved' });
     await sql`UPDATE supplier_invoices SET invoice_number = ${num}, supplier_id = ${other}::UUID, status = 'cancelled' WHERE id = ${amb2doc}::UUID`;
+    // Ambiguous the other way (round 12, the per-document count): one cancelled invoice, two journals naming it.
+    const twice = await legacy('customer_invoices', 'auto_invoice', 'Customer invoice');
+    const twin = await journal(z, legs, { source: 'auto_invoice', description: `Customer invoice ${twice.n}` });
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${twin}::UUID WHERE id = ${await journal(z, negate(legs))}::UUID`;
     // Exact: a cancelled credit note that still links its (reversed) journal.
     const cnJe = await journal(z, legs);
     await sql`UPDATE gl_journal_entries SET reversal_of_id = ${cnJe}::UUID WHERE id = ${await journal(z, negate(legs))}::UUID`;
@@ -194,6 +198,7 @@ describeIfDisposable('ledger column immutability, round 8 (migration 1018)', () 
       expect(await stamped(cnJe)).toBe(true);
       expect(await stamped(inForce.je)).toBe(false); // still in force: not the cancel's journal
       expect(await stamped(amb1.je)).toBe(false);    // matched by two bills: left alone
+      expect([await stamped(twice.je), await stamped(twin)]).toEqual([false, false]); // one invoice, two journals: left alone
       expect(notices.join('\n')).toMatch(/1018 backfill: \d+ journal\(s\) of a cancelled document that still links them, \d+ found by approval identity, [1-9]\d* ambiguous left unstamped/);
       await c.query('SAVEPOINT again');
       notices.length = 0;
