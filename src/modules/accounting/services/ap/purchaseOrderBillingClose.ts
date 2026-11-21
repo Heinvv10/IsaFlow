@@ -74,7 +74,7 @@ export async function lockPosClosedByBilling(companyId: string, billIds: string 
   const ids = typeof billIds === 'string' ? [billIds] : [...billIds];
   const poIds = await withRowLockBudget(() => closedByBillingPoIds(companyId, ids, true), () => new RowLockTimeoutError('A purchase order of this bill'));
   const billed = await billedCentsByPo(companyId, poIds);
-  return Object.assign(new Map(poIds.map((id) => [id, billed.get(id) ?? 0])), { [HELD]: true as const });
+  return Object.assign(new Map(poIds.map((id) => [id, billed.get(id) ?? 0])), { [HELD]: new Set(ids.map((id) => id.toLowerCase())) as ReadonlySet<string> });
 }
 
 declare const HELD_BRAND: unique symbol;
@@ -84,7 +84,17 @@ const HELD: typeof HELD_BRAND = Symbol('HeldPos') as typeof HELD_BRAND;
  * "these are held" with a hand-made set (a plain Set is a type error; an EMPTY HeldPos means "locked, none was closed by billing").
  * Billed cents per PO at the lock.
  */
-export type HeldPos = ReadonlyMap<string, number> & { readonly [HELD_BRAND]: true };
+export type HeldPos = ReadonlyMap<string, number> & { /** The bills whose POs were locked. */ readonly [HELD_BRAND]: ReadonlySet<string> };
+
+/**
+ * Review r15 M1: the brand is checked at run time too. A HeldPos not built by `lockPosClosedByBilling` (a cast, a copy), or one
+ * locked for other bills, would let the cancel skip the PO lock (fail open); it is refused, before anything is read or written.
+ */
+function assertHeldFor(heldPos: HeldPos, billId: string): void {
+  const bills = (heldPos as unknown as Record<symbol, unknown>)[HELD];
+  if (!(bills instanceof Set)) throw new Error('heldPos must come from lockPosClosedByBilling');
+  if (!bills.has(billId.toLowerCase())) throw new Error('heldPos was locked for other bills, not this one');
+}
 
 async function heldClosedByBilling(companyId: string, billId: string, heldPos: HeldPos): Promise<Map<string, number>> {
   const poIds = (await closedByBillingPoIds(companyId, [billId], false)).filter((id) => heldPos.has(id));
@@ -132,6 +142,7 @@ export async function recheckClosedByBilling(companyId: string, billId: string, 
 export async function guardBillGone(companyId: string, billId: string, heldPos?: HeldPos) {
   // With `heldPos` (the caller locked them before the bill): the bill's POs closed by billing in that set are read, not locked again,
   // billed NOW (an earlier bulk item may have moved it); any other is reached by the NOWAIT re-check after the bill lock.
+  if (heldPos) assertHeldFor(heldPos, billId);
   const known: ReadonlyMap<string, number> = heldPos ? await heldClosedByBilling(companyId, billId, heldPos) : await lockPosClosedByBilling(companyId, billId);
   let checked: ClosedByBillingRecheck = { billedBefore: new Map(known), busy: [] };
   return {

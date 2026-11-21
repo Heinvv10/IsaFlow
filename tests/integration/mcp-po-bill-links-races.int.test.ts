@@ -9,7 +9,8 @@
  *     while it is linked, a PO that changes while it is closed or reopened, each throw and leave nothing behind;
  *   - a draft edit (holding its bill, then taking the PO's KEY SHARE through the link's FK) against a link / unlink call (holding the PO,
  *     then waiting for that bill): no deadlock, because the PO is taken FOR NO KEY UPDATE (review round 2, M1); since PR #1703 r14 M3
- *     the link takes a bill it does not link (a tie of its PO) FOR SHARE NOWAIT, so it refuses at once, retryably, and the retry links;
+ *     the link takes a bill it does not link (a tie of its PO) FOR SHARE NOWAIT, so it refuses at once, retryably, and the retry links:
+ *     the edit-vs-WAITING-call case lives only in the unlink leg now (review r15 L5);
  *   - link x unlink x PO cancel x bill approve / cancel x draft edit on the same rows under the block policy (the budget gate taken):
  *     no deadlock, no unexpected rejection, and the final state is consistent.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -29,6 +30,9 @@ import { cancelApprovedPurchaseOrder } from '@/modules/accounting/services/ap/pu
 import { PurchaseOrderNotCancellableError } from '@/modules/accounting/services/ap/purchaseOrderErrors';
 
 assertDisposable();
+/** Review r15 L4 floors (measured: see the census test). */
+const MIN_LINKED = 2; // 6 of 10 at b875e6cc2d+r15, box load ~60
+const MIN_FULFILLED = 30; // 50 of 60 then
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 let f: BillFixture;
 
@@ -187,6 +191,9 @@ describe('races', () => {
         try { const v = await req.run(fn); await req.commit(); return v; } catch (e) { await req.rollback(); throw e; }
       };
       const unexpected: string[] = [];
+      // Review r15 L4: the matrix must exercise the writes, not pass on refusals alone.
+      let linked = 0;
+      let fulfilled = 0;
       for (let i = 0; i < 10; i++) {
         const po = await seedPo(pool, f, { lines: [100] });
         // Really approved (journal posted), so that cancelling one reverses it.
@@ -211,6 +218,11 @@ describe('races', () => {
           [i % 2 === 0 ? 'cancel bill' : 'cancel linked bill', inRequest(() => cancelSupplierInvoice(f.co, i % 2 === 0 ? racing.id : linkedBill.id, f.owner))],
         ];
         const settled = await Promise.allSettled(ops.map(([, p]) => p));
+        settled.forEach((r, k) => {
+          if (r.status !== 'fulfilled') return;
+          fulfilled += 1;
+          if (ops[k]![0] === 'link' && (r.value as { isError?: boolean }).isError !== true) linked += 1;
+        });
         await setPolicy(pool, f, 'warn');
         settled.forEach((r, k) => {
           if (r.status === 'fulfilled') return;
@@ -234,6 +246,9 @@ describe('races', () => {
         expect(String((await pool.query('SELECT status FROM supplier_invoices WHERE id = $1', [draft.id])).rows[0].status)).toBe('approved');
       }
       expect(unexpected).toEqual([]);
+      console.info('races census', JSON.stringify({ linked, fulfilled }));
+      expect(linked, 'links that were not refused, of 10').toBeGreaterThanOrEqual(MIN_LINKED);
+      expect(fulfilled, 'operations that ran to completion, of 60').toBeGreaterThanOrEqual(MIN_FULFILLED);
     } finally {
       await setPolicy(pool, f, 'warn');
     }

@@ -93,8 +93,11 @@ describe('M5: a PO the cancel could not re-check', () => {
       await closeByBilling(p);
       await z.query('BEGIN');
       await z.query('SELECT 1 FROM purchase_orders WHERE id = $1 FOR SHARE', [p.po]);
+      const t0 = Date.now();
       await x.query('COMMIT');
       const r = await c;
+      // The late re-check is NOWAIT: it answers at once, not after a lock wait that runs out the flow budget (mutant rv2).
+      expect(Date.now() - t0).toBeLessThan(2500);
       expect(r.isError, r.text).toBe(false);
       expect(r.body.unchecked_purchase_orders).toEqual([{ purchase_order_id: p.po, po_number: p.number }]);
       expect((r.body.budget_warnings as string[]).join(' ')).toContain(

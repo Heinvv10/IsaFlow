@@ -145,7 +145,7 @@ raised before anything is written. Orders, first lock first:
 
 | Writer | Order |
 |---|---|
-| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order (the call's POs AND the POs its bills name in their header, one sorted list: PR #1703 review r5 H1) -> the call's OWN bills `FOR UPDATE` in ONE statement in id order, waiting under the budget -> every other bill that ties those POs (a link row, its header or its lines; not cancelled) `FOR SHARE NOWAIT`, one statement (breaker r12 F2 / r13, review r14 M3: so billed / fully_billed cannot move under the close decision): never waits, so no cycle whatever order another writer takes them in; a busy one refuses the call retryably (`ROW_LOCK_TIMEOUT`, "A bill tied to purchase order <n> is being changed right now; retry in a moment.") before any write, dry run too |
+| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order (the call's POs AND the POs its bills name in their header, one sorted list: PR #1703 review r5 H1) -> the call's OWN bills `FOR UPDATE` in ONE statement in id order, waiting under the budget -> every other bill that ties those POs (a link row, its header or its lines; not cancelled) `FOR SHARE NOWAIT`, one statement (breaker r12 F2 / r13, review r14 M3: so billed / fully_billed cannot move under the close decision): never waits, so no cycle whatever order another writer takes them in; both steps run in one savepoint, retried up to 5 times with a 10-50 ms jitter (the own-bill locks released between attempts, breaker r15 F1), and a tie still busy then refuses the call retryably (`ROW_LOCK_TIMEOUT`, "A bill tied to purchase order <n> is being changed right now; retry in a moment.") before any write, dry run too |
 | `unlink_bill_from_purchase_order` | budget gate (`budget_check:<company>` advisory lock, block policy only; warn / off take none; a busy gate is survived) -> PO row `FOR NO KEY UPDATE` -> bill rows (this bill and the PO's other linked bills, one sorted list) |
 | bill approve | budget gate (block) -> bill row |
 | bill cancel / bill soft delete | the POs closed BY BILLING the bill ties `FOR NO KEY UPDATE` in id order (PR #1703 R4-1: one it leaves under-billed reopens) -> bill row -> the late edge: the POs a link closed by billing while it waited on the bill, each `FOR NO KEY UPDATE NOWAIT` in its own savepoint (never waits, so no cycle; a busy one is left closed and said: `uncheckedPurchaseOrders`). The MCP cancel takes the POs before its plan locks the bill; the bulk cancel takes those of EVERY bill of the batch first, sorted (breaker B5-6), the PO rows only: each bill is locked by its own item, inside its savepoint. Both hand the PO set they hold to the cancel (`heldPos`), which reads those and does not lock them again (Codex gate review M1: passed explicitly, no request cache, so a savepoint rollback cannot leave a stale "held" entry); every other caller locks for itself |
@@ -223,14 +223,17 @@ retry in a moment.", or 40P01 rolls one back); nothing half-written survives.
   (review r14). The cancel warning toast is announced (`role="status"`, `notify.warning(..., { live: true })`).
 - A held bill costs a bulk cancel item up to the 5 s row-lock budget before that item fails, the same as a bulk approve
   (Codex gate review L8).
-- A link refuses (retryably, at once) while any bill tied to its POs by header or lines is being changed, even a change that
-  could not alter the decision (a payment, a due-date edit): breaker r13 traded that for no wait and no deadlock. Bills with a
-  link row are still waited on, FOR UPDATE in id order, as before PR #1703.
+- A link refuses (retryably, after at most 5 jittered attempts, about 300 ms) while any bill tied to its POs, by a link row, its
+  header or its lines, is being changed by any concurrent write, even one that could not alter the decision (a payment, a due-date
+  edit, a draft edit): breaker r13 / review r14 M3 traded that for no wait and no deadlock (review r15 L6, intended). Each tied bill
+  carries a FOR SHARE tuple lock for the rest of the call's transaction, dry runs included; only the call's own bills are waited on.
 - A PO a cancel or delete could not re-check (`uncheckedPurchaseOrders`) is said as not re-checked, never as still closed: the
   request holding it may reopen it (two racing cancels: the winner reopens it, breaker r13 #5). If it is still closed it keeps
   counting its unbilled remainder; it reopens only when a bill that still counts toward its billing is next unlinked, cancelled
   or deleted, otherwise it stays closed under-billed (`get_purchase_order` shows `closed_under_billed`; breaker r14: the cancel
-  of its only billed bill reported it unchecked, and with billed 0 nothing can reopen it). A link
+  of its only billed bill reported it unchecked, and with billed 0 nothing can reopen it). Only an IMPORTED PO (one carrying
+  `external_ref`) can be moved out of closed by hand (`set_purchase_order_status`, owner / admin); any other has no app or MCP path
+  that reopens it by hand. It keeps committing its unbilled remainder, so the budget sees it (review r15 L8, named limit). A link
   does not reopen a closed PO (Codex gate review M5).
 - Committed for a PO closed by billing (PR #1703 r5 / r6 M5): 0 while it is fully billed at PO level (billedCentsByPo), else
   its per-line open remainder; a close by hand and a cancelled PO commit nothing.

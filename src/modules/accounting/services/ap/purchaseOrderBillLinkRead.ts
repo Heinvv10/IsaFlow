@@ -59,23 +59,44 @@ async function resolvePos(companyId: string, requests: readonly LinkRequest[]): 
   return out;
 }
 
-async function lockTiedBillsNowait(companyId: string, poIds: readonly string[], callBills: readonly string[], pos: readonly DbRow[]): Promise<void> {
+/** Breaker r15 F1: a busy tie is retried this many times, jittered, before the call is refused (never a lock wait: no cycle). */
+export const TIED_BILL_ATTEMPTS = 5;
+const jitter = () => new Promise<void>((res) => setTimeout(res, 10 + Math.floor(Math.random() * 41)));
+
+/**
+ * The bill locks, after the POs: the call's OWN bills FOR UPDATE (waiting, under the budget), then every other non-cancelled bill
+ * tying its POs FOR SHARE NOWAIT. Each attempt runs in its own savepoint; a busy tie rolls it back, which RELEASES the own-bill
+ * locks it took, so two links whose own bills tie each other's PO do not hold each other off for every attempt (breaker r15 M);
+ * after a 10-50 ms jittered sleep it tries again, up to TIED_BILL_ATTEMPTS, then refuses (TiedBillBusyError, retryable).
+ */
+async function lockBills(companyId: string, poIds: readonly string[], billIds: readonly string[], pos: readonly DbRow[], deadline: number): Promise<void> {
   const ids = [...poIds];
-  const skip = [...callBills];
-  try {
-    await withSavepoint('link_tied_bills_lock', async () => sql`
-      SELECT 1 FROM supplier_invoices si
-       WHERE si.company_id = ${companyId}::UUID AND si.status <> 'cancelled' AND NOT (si.id = ANY(${skip}::UUID[])) AND (
-             si.purchase_order_id = ANY(${ids}::UUID[])
-          OR si.id IN (SELECT l.supplier_invoice_id FROM purchase_order_bill_links l
-                        WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${ids}::UUID[]))
-          OR si.id IN (SELECT x.supplier_invoice_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
-                        WHERE pi.purchase_order_id = ANY(${ids}::UUID[])))
-       ORDER BY si.id FOR SHARE NOWAIT
-    `);
-  } catch (err) {
-    if ((err as { code?: string }).code !== '55P03') throw err;
-    throw new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
+  const own = [...billIds];
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await withSavepoint('link_bill_locks', async () => {
+        await withRowLockBudget(async () => sql`
+          SELECT 1 FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${own}::UUID[]) ORDER BY id FOR UPDATE
+        `, () => new RowLockTimeoutError('A bill in this call'), { deadline });
+        await sql`
+          SELECT 1 FROM supplier_invoices si
+           WHERE si.company_id = ${companyId}::UUID AND si.status <> 'cancelled' AND NOT (si.id = ANY(${own}::UUID[])) AND (
+                 si.purchase_order_id = ANY(${ids}::UUID[])
+              OR si.id IN (SELECT l.supplier_invoice_id FROM purchase_order_bill_links l
+                            WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${ids}::UUID[]))
+              OR si.id IN (SELECT x.supplier_invoice_id FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+                            WHERE pi.purchase_order_id = ANY(${ids}::UUID[])))
+           ORDER BY si.id FOR SHARE NOWAIT
+        `;
+      });
+      return;
+    } catch (err) {
+      if ((err as { code?: string }).code !== '55P03') throw err;
+      if (attempt >= TIED_BILL_ATTEMPTS || Date.now() >= deadline) {
+        throw new TiedBillBusyError(pos.filter((r) => ids.includes(low(r.id))).map((r) => String(r.po_number)).sort());
+      }
+      await jitter();
+    }
   }
 }
 
@@ -106,25 +127,18 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
   // its bill row would otherwise wait on while this call waits for that bill (a deadlock; review round 2, M1).
   // The links of a locked PO change under this lock EXCEPT by the app writers (a bill's create / draft edit), which hold only the
   // bill's row and a KEY SHARE on the PO. A link such a writer commits after this read is on a DRAFT bill, which is not billed
-  // and so cannot move fully_billed; a draft this call reads is locked below, so it cannot be approved under the decision.
-  const held = (await sql`
-    SELECT DISTINCT l.supplier_invoice_id::TEXT AS bill FROM purchase_order_bill_links l
-     WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
-  `) as DbRow[];
-  const lockIds = [...new Set([...billIds, ...held.map((r) => low(r.bill))])].sort();
-  // The CALL'S OWN bills (the ones it links): FOR UPDATE, waiting under the budget, ONE statement in id order.
-  await withRowLockBudget(async () => sql`
-    SELECT 1 FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND id = ANY(${billIds}::UUID[]) ORDER BY id FOR UPDATE
-  `, () => new RowLockTimeoutError('A bill in this call'), { deadline });
-  // Breaker r12 F2 / r13, review r14 M3: every OTHER bill that ties a requested PO (a link row, its header or its lines; a cancelled
+  // and so cannot move fully_billed; a draft this call reads is taken below (FOR SHARE NOWAIT), so it cannot be approved under the decision.
+  // The CALL'S OWN bills (the ones it links): FOR UPDATE, waiting under the budget, ONE statement in id order. Then (breaker r12 F2 /
+  // r13, review r14 M3) every OTHER bill that ties a requested PO (a link row, its header or its lines; a cancelled
   // one is terminal and skipped) is taken FOR SHARE NOWAIT, so billed / fully_billed cannot move under the close decision and a
   // cancel or delete of one that is done but uncommitted cannot be read as still billing. NOWAIT never waits (no cycle, whatever
-  // order another writer takes them in); one that is busy refuses the whole call, retryably, before any write (dry run too).
-  await lockTiedBillsNowait(companyId, poIds, billIds, lockedPos);
+  // order another writer takes them in); one still busy after TIED_BILL_ATTEMPTS jittered attempts (breaker r15 F1) refuses the
+  // whole call, retryably, before any write (dry run too).
+  await lockBills(companyId, poIds, billIds, lockedPos, deadline);
   const billRows = ((await sql`
     SELECT si.* FROM supplier_invoices si
-     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id
-  `) as DbRow[]).filter((b) => billIds.includes(low(b.id)));
+     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${billIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id
+  `) as DbRow[]);
 
   const items = (await sql`
     SELECT sii.*, po.id::TEXT AS item_po_id FROM supplier_invoice_items sii

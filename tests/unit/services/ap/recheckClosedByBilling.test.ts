@@ -60,3 +60,22 @@ describe('guardBillGone with an empty HeldPos', () => {
     expect(calls.filter((c) => /FOR NO KEY UPDATE NOWAIT/.test(c))).toHaveLength(1);
   });
 });
+
+// Review r15 M1: the brand is checked at run time too, so a cast or a HeldPos locked for other bills fails closed, before any read.
+describe('guardBillGone refuses a HeldPos it cannot trust', () => {
+  it('one not built by lockPosClosedByBilling (a cast Map) is refused', async () => {
+    const forged = new Map([['p1', 0]]) as never;
+    await expect(guardBillGone('c1', 'b1', forged)).rejects.toThrow('heldPos must come from lockPosClosedByBilling');
+    expect(calls).toEqual([]);
+  });
+  it('one locked for other bills is refused', async () => {
+    script.push([]);
+    const held = await lockPosClosedByBilling('c1', ['B2', 'b3']);
+    calls.length = 0;
+    await expect(guardBillGone('c1', 'b1', held)).rejects.toThrow('heldPos was locked for other bills, not this one');
+    expect(calls).toEqual([]);
+    script.push([]);
+    await expect(guardBillGone('c1', 'b2', held)).resolves.toBeDefined(); // case-insensitive: B2 was locked
+  });
+});
+
