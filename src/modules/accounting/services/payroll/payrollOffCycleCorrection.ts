@@ -21,7 +21,7 @@ import { dateColumnOf } from './payrollFrequency';
 
 type RunFacts = {
   id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; off_cycle_paid_gross?: unknown;
-  approval_history?: unknown;
+  approval_history?: unknown; off_cycle_payday_at?: unknown;
 };
 
 /** A run's approval_history (migration 925, a tstzmultirange): non-empty once it was approved and reopened. */
@@ -60,13 +60,27 @@ export async function offCycleFiledMonthRefusal(companyId: string, run: RunFacts
 }
 
 /**
- * Each employee's gross as last approved on this run (999x payroll_run_headers.off_cycle_paid_gross, taken by the
- * snapshot trigger when the run left 'approved'), when its pay date has passed; null otherwise.
+ * The pay date as the 999x trigger froze it at the run's first approval (off_cycle_payday_at, the start of the next
+ * day in South Africa), 'YYYY-MM-DD'; null when none was frozen. South Africa keeps no daylight saving: UTC+2.
+ */
+export function frozenPayDate(run: RunFacts): string | null {
+  if (run.off_cycle_payday_at == null) return null;
+  const end = new Date(run.off_cycle_payday_at instanceof Date ? run.off_cycle_payday_at.getTime() : String(run.off_cycle_payday_at));
+  if (Number.isNaN(end.getTime())) return null;
+  return new Date(end.getTime() + 2 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Each employee's gross approved for payment on this run (999x payroll_run_headers.off_cycle_paid_gross, taken by the
+ * snapshot trigger when the run left 'approved'), once its pay date has passed; null otherwise. The pay date is the one
+ * frozen at the first approval (ruling on review #1679: as the trigger reads it, never run_date).
  */
 function paidCaps(run: RunFacts, today: string): Map<string, number> | null {
   if (run.run_kind !== 'off_cycle') return null;
-  const payDate = dateColumnOf(run.run_date);
-  if (payDate === null || payDate >= today) return null;
+  const payDate = frozenPayDate(run);
+  // Fail closed: approved before but no frozen payday (lost below the service): every employee capped at nil.
+  if (payDate === null) return wasApprovedBefore(run.approval_history) ? new Map() : null;
+  if (payDate >= today) return null;
   // Fail closed (review #1679c): a run approved before has a snapshot (the reopen takes one from its lines); none means
   // it was lost below the service (a header deleted and inserted again), so every employee is capped at nil.
   if (run.off_cycle_paid_gross == null) return wasApprovedBefore(run.approval_history) ? new Map() : null;
@@ -83,7 +97,7 @@ export function offCycleRaiseRefusal(run: RunFacts, employeeId: string, amount: 
   const caps = paidCaps(run, today);
   if (!caps) return null;
   const cap = caps.get(employeeId) ?? 0;
-  return amount > cap + 0.004 ? raisedMessage(String(dateColumnOf(run.run_date)), cap) : null;
+  return amount > cap + 0.004 ? raisedMessage(String(frozenPayDate(run) ?? dateColumnOf(run.run_date)), cap) : null;
 }
 
 /**
@@ -103,7 +117,7 @@ export async function offCycleRaisedAfterPayRefusal(
   `) as DbRow[];
   for (const r of now) {
     const cap = caps.get(String(r.employee_id)) ?? 0;
-    if (Number(r.gross) > cap + 0.004) return raisedMessage(String(dateColumnOf(run.run_date)), cap);
+    if (Number(r.gross) > cap + 0.004) return raisedMessage(String(frozenPayDate(run) ?? dateColumnOf(run.run_date)), cap);
   }
   return null;
 }
