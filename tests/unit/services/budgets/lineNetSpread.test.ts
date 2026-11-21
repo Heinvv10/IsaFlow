@@ -28,6 +28,14 @@ describe('spreadLineNets', () => {
     // No cap binds: the same as uncapped.
     expect(spreadLineNets([30000, 10000, -20000], [99999, 99999, 99999])).toEqual([15000, 5000, 0]);
   });
+  it('the water-fill weights the excess by positive net, not by room (breaker r11 pin)', () => {
+    expect(spreadLineNets([47448, 74474, 75886, 9881, -52734, 95805], [44287, 47598, 63128, 156142, 99001, 95805]))
+      .toEqual([43389, 47598, 63128, 9035, 0, 87610]);
+  });
+  it('the cap binds to the cent (breaker r11 pin): a net 1c over its cap is cut by that 1c', () => {
+    expect(spreadLineNets([1001, 500], [1000, 5000])).toEqual([1000, 500]);
+    expect(spreadLineNets([1001, 0], [1000, 5000])).toEqual([1000, 0]);
+  });
   it('property with caps: never above min(net, cap); sums to min(max(0, PO net), the sum of those limits)', () => {
     let seed = 777;
     const rnd = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 4294967296; };
