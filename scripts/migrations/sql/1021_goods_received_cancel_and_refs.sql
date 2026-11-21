@@ -121,7 +121,8 @@ ALTER TABLE public.goods_received_notes DROP CONSTRAINT IF EXISTS goods_received
 ALTER TABLE public.goods_received_notes ADD CONSTRAINT goods_received_notes_cancel_consistent CHECK (
   CASE WHEN status = 'cancelled'
     THEN cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL AND cancel_reason IS NOT NULL
-         AND btrim(cancel_reason) <> '' AND char_length(cancel_reason) <= 500
+         -- At least one non-whitespace character (gate at c63b1e26, nit 2: btrim strips spaces only, so tabs / newlines passed).
+         AND cancel_reason ~ '\S' AND char_length(cancel_reason) <= 500
     ELSE cancelled_at IS NULL AND cancelled_by IS NULL AND cancel_reason IS NULL
   END);
 

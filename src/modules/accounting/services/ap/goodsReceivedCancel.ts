@@ -116,9 +116,10 @@ const notOnPoRefusal = (grnNumber: string, notOnPo: string[]) => new GoodsReceiv
   'items_not_on_po', { notOnPo });
 
 async function disagreeRefusal(companyId: string, grnId: string, poId: string, grnNumber: string): Promise<GoodsReceivedError> {
-  // The function's own predicate: the line less this note's quantity would fall below what the PO's other live notes account for.
-  const lines = (await sql`
-    WITH mine AS (
+  // The function's own predicate, in SQL numerics (gate at c63b1e26, nit 3: JS numbers made 0.30 - 0.20 < 0.10 true and flagged a
+  // balanced line): the line less this note's quantity would fall below what the PO's other live notes account for.
+  const short = (await sql`
+    SELECT * FROM (WITH mine AS (
       SELECT gi.po_item_id, sum(gi.quantity_received) AS note_received FROM grn_items gi WHERE gi.grn_id = ${grnId}::uuid GROUP BY gi.po_item_id
     )
     SELECT m.po_item_id::text AS po_item_id, COALESCE(pi.quantity_received, 0) AS line_received, m.note_received,
@@ -126,10 +127,10 @@ async function disagreeRefusal(companyId: string, grnId: string, poId: string, g
                       WHERE g2i.po_item_id = pi.id AND g2.id <> ${grnId}::uuid AND g2.purchase_order_id = ${poId}::uuid
                         AND g2.company_id = ${companyId}::uuid AND g2.status IS DISTINCT FROM 'cancelled'), 0) AS other_notes_received
       FROM mine m JOIN po_items pi ON pi.id = m.po_item_id AND pi.purchase_order_id = ${poId}::uuid
-     WHERE m.note_received > 0
-     ORDER BY m.po_item_id
+     WHERE m.note_received > 0) d
+     WHERE d.line_received - d.note_received < d.other_notes_received
+     ORDER BY d.po_item_id
   `) as DbRow[];
-  const short = lines.filter((l) => Number(l.line_received) - Number(l.note_received) < Number(l.other_notes_received));
   return new GoodsReceivedError(
     `${grnNumber} cannot be cancelled: ${short.length === 1 ? 'a purchase order line would keep' : `${short.length} purchase order lines would keep`} less received quantity than the purchase order's other live notes still account for, so the quantities no longer follow the notes; ask IsaFlow support to repair them. Nothing was written`,
     'receipts_disagree',
@@ -142,7 +143,8 @@ export async function cancelGoodsReceived(
   companyId: string, grnId: string, reason: string, opts: { userId: string; via: string },
 ): Promise<CancelledGoodsReceived> {
   const why = reason.trim();
-  if (why === '' || why.length > CANCEL_REASON_MAX) throw new GoodsReceivedError(`Give a reason of at most ${CANCEL_REASON_MAX} characters to cancel a goods received note`);
+  // The table's rule (1021: cancel_reason ~ '\S'): at least one non-whitespace character.
+  if (!/\S/.test(why) || why.length > CANCEL_REASON_MAX) throw new GoodsReceivedError(`Give a reason of at most ${CANCEL_REASON_MAX} characters to cancel a goods received note`);
   return withSavepoint('cancel_goods_received', async () => {
     // ONE budget for every row-lock wait of the cancel: the PO rows here, the note in the function.
     const deadline = Date.now() + ROW_LOCK_BUDGET_MS;

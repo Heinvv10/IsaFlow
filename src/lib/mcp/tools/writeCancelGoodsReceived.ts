@@ -46,7 +46,7 @@ export const cancelGoodsReceivedTool: McpTool = {
     const stray = Object.keys(args).find((k) => !KEYS.has(k));
     if (stray !== undefined) return toolError(`arguments.${stray} is not a field of this tool (allowed: ${[...KEYS].join(', ')})`);
     if (typeof args.grn_id !== 'string' || !UUID_RE.test(args.grn_id)) return toolError('grn_id is required: the goods received note UUID (list_goods_received)');
-    if (typeof args.reason !== 'string' || args.reason.trim() === '') return toolError('reason is required: say why (it is recorded in the audit trail)');
+    if (typeof args.reason !== 'string' || !/\S/.test(args.reason)) return toolError('reason is required: say why (it is recorded in the audit trail)');
     if (args.reason.trim().length > CANCEL_REASON_MAX) return toolError(`reason is longer than ${CANCEL_REASON_MAX} characters`);
     if (args.dry_run !== undefined && typeof args.dry_run !== 'boolean') return toolError('dry_run must be true or false');
     const dryRun = args.dry_run === true;

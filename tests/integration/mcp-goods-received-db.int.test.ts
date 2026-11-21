@@ -222,6 +222,31 @@ describe('items only with their note (breaker round 2 L1, L3)', () => {
     expect((await asApp(f, 'SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [grn, 'x'])).rows).toEqual([{ outcome: 'receipts_disagree' }]);
   });
 
+  it('the receipts_disagree diagnostic names only the lines the database refused: 0.30 - 0.20 is not below 0.10 (gate at c63b1e26, nit 3)', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 10 }, { qty: 1, price: 10 }] });
+    expect((await callTool(pool, f, create, grnArgs(po, [[0, 0.1]]))).isError).toBe(false);
+    const second = await callTool(pool, f, create, grnArgs(po, [[0, 0.2], [1, 0.5]]));
+    expect(second.isError, second.text).toBe(false);
+    // Line 0 holds 0.30 = 0.10 + 0.20 and balances; line 1's total was edited below what its notes account for.
+    await pool.query('UPDATE po_items SET quantity_received = 0.1 WHERE id = $1', [po.items[1]]);
+    const r = await callTool(pool, f, cancel, { grn_id: String(second.body.grn_id), reason: 'x' });
+    expect(r.isError).toBe(true);
+    const body = JSON.parse(r.text) as { code: string; lines: Array<{ po_item_id: string }> };
+    expect(body.code).toBe('receipts_disagree');
+    expect(body.lines.map((l) => l.po_item_id)).toEqual([po.items[1]]);
+  });
+
+  it('a cancel reason of only tabs and newlines is refused by the table, called directly; the tool refuses it too (gate at c63b1e26, nit 2)', async () => {
+    const { po, grn } = await received(f, 5, 1);
+    const direct = await asApp(f, 'SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [grn, '\t\n\r ']);
+    expect(direct.code).toBe('23514');
+    expect((await grnRows(pool, f)).find((n) => n.id === grn)).toMatchObject({ status: 'received' });
+    expect(await poState(pool, po)).toEqual({ status: 'partially_received', received: [1] });
+    const tool = await callTool(pool, f, cancel, { grn_id: grn, reason: '\t\n' });
+    expect(tool.isError).toBe(true);
+    expect(tool.text).toContain('reason is required');
+  });
+
   it('the cancel\'s bill check has its (company_id, grn_id) partial index', async () => {
     // Asserts the index, not a plan: on CI's shared fixture the planner may prefer another supplier_invoices index once other
     // suites' rows and stats are in, so a plan-shape check here was order-dependent.
