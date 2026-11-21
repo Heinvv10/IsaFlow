@@ -145,9 +145,11 @@ export async function linkBillsToPurchaseOrders(
   for (const poId of headerPos) {
     const rise = (committedAfter.get(poId) ?? 0) - (committedBefore.get(poId) ?? 0);
     if (rise <= 0) continue;
-    const p = plan.planned.find((x) => x.takesFromHeader?.poId === poId)!;
-    const n = p.takesFromHeader!.poNumber;
-    budgetWarnings.push(`Bill ${p.invoiceNumber}'s header names purchase order ${n}: this call takes what the bill held there, so ${n} commits ${r2(rise)} again.`);
+    const takers = plan.planned.filter((x) => x.takesFromHeader?.poId === poId);
+    const n = takers[0]!.takesFromHeader!.poNumber;
+    const bills = [...new Set(takers.map((x) => x.invoiceNumber))].join(', ');
+    // Review r6 L2: every bill whose header residual the call took is named.
+    budgetWarnings.push(`Bill ${bills}: the header names purchase order ${n}, and this call takes what it held there, so ${n} commits ${r2(rise)} again.`);
     budgetWarnings.push(...await linkHeaderBudgetWarnings(companyId, poId, n, opts.budgetFigures === true));
   }
   return {

@@ -28,9 +28,11 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { toCents } from '../budgets/grid/cents';
 import { openPoLineCents } from '../budgets/remainingBudgetCore';
-import { commitsSpend, committedBillingByPoItem } from '../budgets/remainingCommitted';
+import { commitsSpend, committedBillingByPoItem, fullyBilledClosedPos } from '../budgets/remainingCommitted';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
+import { billTies } from '../budgets/billAttribution';
+import { BILLED_STATUSES } from '../budgets/poCommitStatus';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 
 export interface ReopenedPo { poId: string; poNumber: string; reopenedTo: string }
@@ -107,7 +109,13 @@ export async function reopenWarnings(companyId: string, reopened: Iterable<Reope
   const out: string[] = [];
   for (const r of reopened) {
     out.push(`Purchase order ${r.poNumber} reopened to ${r.reopenedTo}: it is no longer fully billed, so it commits spend again.`);
-    out.push(...await unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.'));
+    // Review r6 M3: the reopen is done and stays; a budget read that fails is said, as the unlink says a busy gate, never thrown.
+    try {
+      out.push(...await unlinkBudgetWarnings(companyId, r.poId, r.poNumber, figures, 'Reopened.'));
+    } catch (err) {
+      log.warn('Reopen budget read failed', { companyId, poId: r.poId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
+      out.push(`The budget could not be checked just now; purchase order ${r.poNumber} commits spend again, check it in the app.`);
+    }
   }
   return out;
 }
@@ -117,14 +125,18 @@ export async function poCommittedCents(companyId: string, poIds: readonly string
   const out = new Map<string, number>();
   if (poIds.length === 0) return out;
   const lines = (await sql`
-    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, pi.line_total::TEXT AS line_total, po.status, po.closed_by_billing
+    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, pi.line_total::TEXT AS line_total, po.status, po.closed_by_billing,
+           po.subtotal::TEXT AS subtotal
       FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
      WHERE pi.purchase_order_id = ANY(${[...poIds]}::UUID[])
   `) as DbRow[];
   const billed = await committedBillingByPoItem(companyId, lines.map((l) => String(l.id).toLowerCase()), []);
+  // Review r6 M5, as readCommitments: a PO closed by billing that is fully billed at PO level commits 0.
+  const settled = await fullyBilledClosedPos(companyId, [...new Map(lines.filter((l) => l.status === 'closed')
+    .map((l) => [String(l.po), { id: String(l.po), subtotalCents: toCents(Number(l.subtotal ?? 0)) }])).values()]);
   for (const id of poIds) out.set(id.toLowerCase(), 0);
   for (const l of lines) {
-    if (!commitsSpend(String(l.status), l.closed_by_billing === true)) continue;
+    if (!commitsSpend(String(l.status), l.closed_by_billing === true) || settled.has(String(l.po).toLowerCase())) continue;
     const po = String(l.po).toLowerCase();
     out.set(po, (out.get(po) ?? 0) + openPoLineCents(Number(l.line_total), billed.get(String(l.id).toLowerCase()) ?? []));
   }
@@ -139,4 +151,21 @@ export async function reopenAfterBillGone(
 ): Promise<BillGoneReopen> {
   const reopened = [...(await reopenUnderBilled(companyId, billedBefore, opts)).values()];
   return { reopenedPurchaseOrders: reopened, budgetWarnings: await reopenWarnings(companyId, reopened, opts.figures === true) };
+}
+
+/** Review r6 M4, read-only: the POs a cancel or delete of this bill would reopen (its counted tie leaves them under-billed). */
+export async function previewReopenOnBillGone(companyId: string, billId: string, billedBefore: ReadonlyMap<string, number>): Promise<ReopenedPo[]> {
+  const ids = [...billedBefore.keys()];
+  if (ids.length === 0) return [];
+  const pos = (await sql`
+    SELECT id::TEXT AS id, po_number, closed_from_status, subtotal::TEXT AS subtotal FROM purchase_orders
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND status = 'closed' AND closed_by_billing
+  `) as DbRow[];
+  const held = new Map((await billTies(companyId, ids, { statuses: BILLED_STATUSES }))
+    .filter((t) => t.billId === billId.toLowerCase() && !t.deleted).map((t) => [t.poId, t.cents]));
+  return pos.filter((p) => {
+    const id = String(p.id).toLowerCase();
+    const after = (billedBefore.get(id) ?? 0) - (held.get(id) ?? 0);
+    return (held.get(id) ?? 0) > 0 && p.closed_from_status != null && !isFullyBilled(after, toCents(Number(p.subtotal ?? 0)));
+  }).map((p) => ({ poId: String(p.id).toLowerCase(), poNumber: String(p.po_number), reopenedTo: String(p.closed_from_status) }));
 }

@@ -36,15 +36,14 @@ import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../c
 import { sql, withSavepoint } from '@/lib/neon';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
-import { commitsSpend } from '../budgets/remainingCommitted';
 import { toCents } from '../budgets/grid/cents';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
-import { auditBillCleared, clearingRaisesCommitted, headerNetsCommitted, resetMatchState } from './purchaseOrderUnlinkClear';
+import { auditBillCleared, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
-import { reopenUnderBilled } from './purchaseOrderBillingClose';
+import { poCommittedCents, reopenUnderBilled } from './purchaseOrderBillingClose';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
 
@@ -91,7 +90,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   }
   const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   const pos = await withRowLockBudget(async () => (await sql`
-    SELECT po_number, status, closed_by_billing, to_char(order_date, 'YYYY-MM') AS month, subtotal FROM purchase_orders
+    SELECT po_number, status, to_char(order_date, 'YYYY-MM') AS month, subtotal FROM purchase_orders
      WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline }); // not FOR UPDATE: see purchaseOrderBillLinkRead (draft edit vs link deadlock)
   if (!pos[0]) throw NOT_FOUND('Purchase order');
@@ -126,10 +125,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   // What the PO is billed before anything is cleared (under its lock): a reopen needs the removed tie to have counted (review r4 L2).
   const billedBefore = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
 
-  // BEFORE the clear: does removing the line references raise committed spend (an approved / paid bill's non-zero posted line netted it)?
-  // And does the bill net the PO through its header (a link row or purchase_order_id) now? Read again after the clear below.
-  const linesRaise = lineRefs.length > 0 && await clearingRaisesCommitted(companyId, req.billId, poId);
-  const headerNettedBefore = await headerNetsCommitted(companyId, req.billId, poId);
+  // Breaker r6 A3: whether the unlink raises committed is MEASURED, not guessed: what the PO commits by the committed engine itself
+  // (poCommittedCents), read before the clear and after the reopen, under the PO lock, as the link compares its header POs.
+  const committedBefore = (await poCommittedCents(companyId, [poId])).get(poId) ?? 0;
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
       FROM po_items pi
@@ -141,8 +139,6 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   await syncBillHeaderPurchaseOrder(companyId, [req.billId], poId);
   const headerAfter = (await sql`SELECT purchase_order_id::TEXT AS po FROM supplier_invoices WHERE id = ${req.billId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   const headerCleared = namesInHeader && String(headerAfter[0]?.po ?? '').toLowerCase() !== poId;
-  // A header tie that netted and no longer does (its link row deleted, its header cleared) raises committed too.
-  const raisesCommitted = linesRaise || (headerNettedBefore && !(await headerNetsCommitted(companyId, req.billId, poId)));
 
   // The bill's stored three-way state no longer matches what it names: re-judged, or reset when it names no PO.
   const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
@@ -155,12 +151,13 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
     userId: opts.userId, via: opts.via, why: reason, audit: false,
   })).get(poId)?.reopenedTo ?? null;
   const statusAfter = reopenedTo ?? status;
+  const raisesCommitted = ((await poCommittedCents(companyId, [poId])).get(poId) ?? 0) > committedBefore;
 
   // R2 (Hein): never blocks, and records nothing (no budget_check_events row, no approve audit row): a READ of what the PO would
   // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.
   let budgetWarnings: string[] = [];
-  // A PO closed by billing that stays closed still commits what becomes unbilled (breaker r5), so it is warned as a committing one.
-  if (commitsSpend(statusAfter, reopenedTo === null && pos[0].closed_by_billing === true) && (reopenedTo !== null || raisesCommitted)) {
+  // Only when its committed really rose (a PO closed by billing that stays closed is measured the same way, breaker r5 / r6 A3).
+  if (raisesCommitted) {
     budgetWarnings = gateBusy
       ? ['The budget could not be checked just now (another approval holds the budget lock); the purchase order commits spend again, check it in the app.']
       : await unlinkBudgetWarnings(companyId, poId, poNumber, opts.budgetFigures);

@@ -146,8 +146,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const budgetGate: BudgetGate | null = action === 'cancel' ? null : await openBudgetGate(companyId, 'take');
   const budget = budgetGate ? { channel: 'bulk' as const, lock: 'held' as const, gate: budgetGate, reason: budgetReason ?? null } : undefined;
   // PR #1703 breaker B5-6: each cancel locks its bill's POs closed by billing before the bill; across a batch that is bill 1, then
-  // bill 2's POs, a cycle with a link call (PO -> bills). So every bill's POs are taken first, sorted, outside the item savepoints;
-  // a 40P01 that still reaches an item is a held row (itemFailureMessage: neutral retry wording, 503 when every id was held).
+  // bill 2's POs, a cycle with a link call (PO -> bills). So every bill's POs are taken first, sorted, outside the item savepoints.
+  // Only POs already closed by billing at the batch's start are covered (named limit B6-DL1, docs/design/mcp-po-bill-links.md).
   if (action === 'cancel') await lockPosClosedByBilling(companyId, ordered);
 
   for (const invoiceId of ordered) {

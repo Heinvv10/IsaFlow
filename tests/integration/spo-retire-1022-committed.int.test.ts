@@ -76,10 +76,8 @@ const committedByOrder = async (): Promise<Record<string, number>> => {
 
 describe('committed spend after the copy', () => {
   it('commits each copy\'s unbilled remainder exactly: nothing for a fully billed one, all of an unbilled one', async () => {
-    // Breaker r5: the copies closed by billing (A, C, N) are read too, at their open remainder: 0, fully billed.
-    expect(await committedByOrder()).toEqual({
-      'CM-A': 0, 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-C': 0, 'CM-D': 1518643, 'CM-E': 50004, 'CM-N': 0,
-    });
+    // The copies closed by billing (A, C, N) are fully billed at PO level, so they commit 0 and contribute no row (review r6 M5).
+    expect(await committedByOrder()).toEqual({ 'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004 });
   });
 
   // Breaker r3 / r4: over the copies in a committing status (a draft or cancelled copy is never closed). The one named exception:
@@ -133,7 +131,7 @@ describe('a copy the migration closed as fully billed', () => {
     await runMigration(pool);
     expect((await pool.query('SELECT status, closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0])
       .toEqual({ status: 'closed', closed_from_status: 'received', closed_by_billing: true });
-    // The link's own value is left as it was (PR #1697's goods-received cancel writes it; the column is unread here).
+    // The link's own value is left as it was (kept for PR #1697 (open), which writes it; unread here).
     expect((await pool.query('SELECT closed_po_from_status FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows)
       .toEqual([{ closed_po_from_status: 'received' }]);
     const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b.id, reason: 'billed in error' });

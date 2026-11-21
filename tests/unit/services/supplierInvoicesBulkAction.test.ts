@@ -116,6 +116,7 @@ describe('supplier-invoices-bulk-action', () => {
     vi.clearAllMocks();
     approveMock.mockReset();
     cancelMock.mockReset();
+    lockPosMock.mockClear();
     postGlMock.mockReset();
     sqlMock.mockReset();
     sqlMock.mockResolvedValue([
@@ -255,6 +256,21 @@ describe('supplier-invoices-bulk-action', () => {
     expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(cancelMock.mock.invocationCallOrder[0]!);
     expect(approveMock).not.toHaveBeenCalled();
     expect(postGlMock).not.toHaveBeenCalled();
+  });
+
+  // PR #1703 breaker B5-6 / review r6 M1-M2: the ROUTE takes every bill's POs closed by billing in ONE call, with the ids sorted,
+  // before the first cancel (the integration suite proves the lock primitive; this pins the route's call and its order).
+  it('a bulk cancel locks the POs of every id, sorted, before the first cancel', async () => {
+    cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
+    const [lo, hi] = [ID_A, ID_B].sort();
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'cancel', invoiceIds: [hi, lo] }),
+      res(),
+    );
+    expect(lockPosMock).toHaveBeenCalledTimes(1);
+    expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [lo, hi]);
+    expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(Math.min(...cancelMock.mock.invocationCallOrder));
+    expect(cancelMock.mock.calls.map((c) => c[1])).toEqual([lo, hi]);
   });
 
   // The route's per-id savepoint is the guarantee that one bad row cannot take

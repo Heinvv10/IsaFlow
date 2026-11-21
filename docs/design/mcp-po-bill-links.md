@@ -204,6 +204,12 @@ the typed timeout with nothing written.
   only makes a reopen more likely, the conservative direction (review r5 L4). During the release switch the old
   colour's link call records its closing on the link (`closed_po_from_status`), which the new code does not read: such a PO
   (closed in those minutes) does not reopen by itself (PR #1703, named limit).
+- Bulk cancel lock order (PR #1703 named limit B6-DL1): the route locks, before its first bill, the POs that are ALREADY closed by
+  billing when the batch starts. A PO a concurrent link call closes after that read is not covered, so a three-actor race (the bulk
+  cancel, a link call closing a PO, a link call on one of the batch's bills) can still deadlock; PostgreSQL aborts one side
+  (40P01), the MCP tools answer "nothing was written, retry" and the bulk route reports a held row (503 when every id was held).
+- Committed for a PO closed by billing (PR #1703 r5 / r6 M5): 0 while it is fully billed at PO level (billedCentsByPo), else
+  its per-line open remainder; a close by hand and a cancelled PO commit nothing.
 - The `app` links of a bill are made at create and on each draft edit; a bill edited by a path that does not call
   `refreshAppBillLinks` (none today) would keep a stale amount until the next edit.
 - The PDF's "PO #" is not asserted by a test (the text is compressed in the file); the query is exercised by the reads suite.

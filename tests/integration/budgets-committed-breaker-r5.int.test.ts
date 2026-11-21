@@ -182,6 +182,8 @@ describe('M1 / B5-6 a cancel and a delete say what they reopened; bulk cancel ta
       expect(out.warnings.join(' '), how).toContain(`Purchase order ${po.number} reopened to approved`);
     }
   });
+  // This proves the PRIMITIVE (lockPosClosedByBilling over every id first, then the cancels) on real locks; that the bulk route
+  // makes that call, sorted, before its loop is pinned by tests/unit/services/supplierInvoicesBulkAction.test.ts (review r6 M1/M2).
   it('B5-6: with every bill\'s POs closed by billing locked first, a bulk cancel [B1, H] and a link of B1 to P queue, never deadlock', async () => {
     const po = await seedPo(pool, f, { lines: [1000] });
     const a = await approvedBill(1000);

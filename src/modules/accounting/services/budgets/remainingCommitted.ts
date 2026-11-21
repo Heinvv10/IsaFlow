@@ -26,21 +26,25 @@ import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import { fmtDate } from '@/lib/fmtDate';
 import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 import { headerBilledByPoItem } from './remainingHeaderBilled';
+import { billTies } from './billAttribution';
+import { BILLED_STATUSES, COMMITTING_PO_STATUSES, isFullyBilled } from './poCommitStatus';
 import { NO_ACCOUNT, postedExpenseLines } from './postedExpenseLines';
 import { toCents } from './grid/cents';
 
-/** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
-export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
-export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
+export { BILLED_STATUSES, COMMITTING_PO_STATUSES, commitsSpend } from './poCommitStatus';
 
 /**
- * Does a PO commit spend? A committing status, or closed BY BILLING (purchase_orders.closed_by_billing, 1016; PR #1703 breaker r5):
- * such a PO still counts at its open remainder (line total less attributed billing, the same per-line engine), which is 0 while it
- * is fully billed, so whatever path later leaves it under-billed (a link taking a header residual, a cancel or delete racing its
- * close) commits the unbilled rands again by itself. A close by hand and a cancelled PO commit nothing.
+ * Review r6 M5: of these POs closed by billing, the ones fully billed at PO level (the one attribution, as billedCentsByPo counts
+ * it): they commit 0, even beside a line over-billed by its lines (R4-5); one that is not commits its per-line open remainder.
  */
-export const commitsSpend = (status: string, closedByBilling: boolean): boolean =>
-  (COMMITTING_PO_STATUSES as readonly string[]).includes(status) || (status === 'closed' && closedByBilling);
+export async function fullyBilledClosedPos(companyId: string, pos: ReadonlyArray<{ id: string; subtotalCents: number }>): Promise<Set<string>> {
+  if (pos.length === 0) return new Set();
+  const billed = new Map<string, number>();
+  for (const t of await billTies(companyId, pos.map((p) => p.id), { statuses: BILLED_STATUSES })) {
+    if (!t.deleted) billed.set(t.poId, (billed.get(t.poId) ?? 0) + t.cents);
+  }
+  return new Set(pos.filter((p) => isFullyBilled(billed.get(p.id.toLowerCase()) ?? 0, p.subtotalCents)).map((p) => p.id.toLowerCase()));
+}
 
 export interface CommittedOptions {
   excludePoItemIds?: readonly string[];
@@ -78,7 +82,8 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   `) as DbRow[];
   if (bills.length === 0) return out;
   const items = (await sql`
-    SELECT sii.* FROM supplier_invoice_items sii
+    SELECT sii.*, pi.purchase_order_id::TEXT AS item_po FROM supplier_invoice_items sii
+      LEFT JOIN po_items pi ON pi.id = sii.po_item_id
      WHERE sii.supplier_invoice_id = ANY(${bills.map((b) => String(b.id))}::UUID[])
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
   `) as DbRow[];
@@ -86,6 +91,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   for (const b of bills) {
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
+    const orderOf = new Map(billItems.map((i) => [text(i.po_item_id), text(i.item_po)]));
     const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
     const mine = new Map<string, BilledPosting[]>();
     for (const line of postedExpenseLines(b, billItems)) {
@@ -96,12 +102,17 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
         buId: text(line.buId), month, amount: line.debit,
       }]);
     }
-    // A bill never nets a PO line below nothing (breaker r5, the billAttribution floor at the line): a bill whose postings to a PO
-    // line sum below 0 (a discount line naming it) nets that line 0, so a header bill's spread sees the line's whole room and a
-    // PO closed as fully billed commits 0. Named limit: the floor is per (bill, PO line); billAttribution floors per (bill, PO).
-    for (const [po, postings] of mine) {
-      if (postings.reduce((sum, p) => sum + toCents(p.amount), 0) < 0) continue;
-      out.set(po, [...(out.get(po) ?? []), ...postings]);
+    // A bill never nets a PO below nothing, the billAttribution floor (breaker r5 / r6 A2): a bill whose postings to one PO's
+    // lines sum below 0 across that PO (a discount line naming one) nets none of them; one that nets 0 or more keeps every posting,
+    // a negative line included (+500 on A and -500 on B of one PO stay, so a header bill still nets that PO exactly).
+    const net = new Map<string, number>();
+    for (const [item, postings] of mine) {
+      const order = orderOf.get(item) ?? item;
+      net.set(order, (net.get(order) ?? 0) + postings.reduce((sum, p) => sum + toCents(p.amount), 0));
+    }
+    for (const [item, postings] of mine) {
+      if ((net.get(orderOf.get(item) ?? item) ?? 0) < 0) continue;
+      out.set(item, [...(out.get(item) ?? []), ...postings]);
     }
   }
   return out;
@@ -124,9 +135,10 @@ export async function readCommitments(
   companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,
 ): Promise<CommitmentRow[]> {
   const exclude = (opts.excludePoItemIds ?? []).map((id) => id.toLowerCase());
-  const rows = (await sql`
+  const all = (await sql`
     SELECT pi.id::TEXT AS po_item_id, pi.gl_account_id::TEXT AS gl_account_id, to_char(po.order_date, 'YYYY-MM') AS month,
-           pi.cc1_id::TEXT AS cc1_id, pi.cc2_id::TEXT AS cc2_id, pi.bu_id::TEXT AS bu_id, pi.line_total::TEXT AS line_total
+           pi.cc1_id::TEXT AS cc1_id, pi.cc2_id::TEXT AS cc2_id, pi.bu_id::TEXT AS bu_id, pi.line_total::TEXT AS line_total,
+           po.id::TEXT AS po_id, po.status = 'closed' AS closed, po.subtotal::TEXT AS subtotal
       FROM po_items pi
       JOIN purchase_orders po ON po.id = pi.purchase_order_id
      WHERE po.company_id = ${companyId}::UUID
@@ -135,6 +147,9 @@ export async function readCommitments(
        AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
+  const closed = [...new Map(all.filter((r) => r.closed === true).map((r) => [String(r.po_id), { id: String(r.po_id), subtotalCents: toCents(Number(r.subtotal ?? 0)) }])).values()];
+  const settled = await fullyBilledClosedPos(companyId, closed);
+  const rows = all.filter((r) => !settled.has(String(r.po_id).toLowerCase()));
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
   const billed = await committedBillingByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {

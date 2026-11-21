@@ -64,7 +64,7 @@
 --      unless copied + skipped = the legacy headers it set out to copy.
 --   1c. "Closed because fully billed" lives on the PO (purchase_orders.closed_by_billing, added by migration 1016 in its own
 --      transaction; PR #1703 breaker R4-1). A closing record a pre-release link call left on a link (1006's closed_po_from_status)
---      is copied onto its PO (closed_by_billing + closed_from_status); the links keep the column and their values (unread here).
+--      is copied onto its PO (closed_by_billing + closed_from_status); the links keep the column and their values (kept for PR #1697 (open), which writes it).
 --   2b. purchase_order_bill_links_backfill (1006) is redefined, verbatim but for held_c: a link it does not own on a PO the bill's
 --      lines name is no longer subtracted on top of those lines (one rand to one PO; PR #1703 ledger breaker BRK-B), as the app
 --      writer now does too.
@@ -252,7 +252,7 @@ $$;
 LOCK TABLE public.purchase_orders IN SHARE ROW EXCLUSIVE MODE;
 
 -- A closing record a link call left on a link before this release (1006's closed_po_from_status) is copied onto its PO; the links
--- keep the column and its values (unread by this release; PR #1697's goods-received cancel writes it).
+-- keep the column and its values (unread by this release; kept for PR #1697 (open), which writes it).
 UPDATE public.purchase_orders po
    SET closed_by_billing = true, closed_from_status = COALESCE(po.closed_from_status, c.from_status)
   FROM (SELECT DISTINCT ON (l.purchase_order_id) l.purchase_order_id AS po, l.closed_po_from_status AS from_status
@@ -525,14 +525,15 @@ BEGIN
     v_skip_supplier, v_skip_negative, v_skip_item_id, v_skip_id_taken;
   RAISE NOTICE '1022: % bill link(s) written for the copied orders (each backfill call above gives its written / skipped)', v_links;
 
-  -- What entered committed spend (budgets/remainingCommitted: approved / partially_received / received POs), per company and
-  -- order-date month, ex VAT: the release log's record of the jump. Billing netted is capped at each PO's line total.
+  -- What entered committed spend (budgets/remainingCommitted: approved / partially_received / received POs, and those closed by
+  -- billing, review r6 L5: fully billed, so their remainder is 0), per company and order-date month, ex VAT: the release log's
+  -- record of the jump. Billing netted is capped at each PO's line total.
   FOR c IN
     SELECT p.company_id, to_char(p.order_date, 'YYYY-MM') AS month, count(*) AS orders, SUM(t.lt) AS ex_vat,
            SUM(LEAST(COALESCE((v_billed ->> p.id::TEXT)::BIGINT, 0), round(t.lt * 100)) / 100.0)::NUMERIC(19,2) AS netted
       FROM public.purchase_orders p
       CROSS JOIN LATERAL (SELECT COALESCE(SUM(x.line_total), 0) AS lt FROM public.po_items x WHERE x.purchase_order_id = p.id) t
-     WHERE p.id = ANY(v_copied) AND p.status IN ('approved', 'partially_received', 'received')
+     WHERE p.id = ANY(v_copied) AND (p.status IN ('approved', 'partially_received', 'received') OR (p.status = 'closed' AND p.closed_by_billing))
      GROUP BY p.company_id, to_char(p.order_date, 'YYYY-MM') ORDER BY 1, 2
   LOOP
     RAISE NOTICE '1022: company % committing copies, order month %: % order(s), R % ex VAT, less R % billed', c.company_id, c.month, c.orders, c.ex_vat, c.netted;

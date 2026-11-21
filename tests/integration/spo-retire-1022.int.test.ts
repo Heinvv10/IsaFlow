@@ -224,6 +224,9 @@ describe('the header', () => {
   });
 });
 
+// The copies 1022 closed as fully billed (closed_by_billing); the other closed ones were legacy invoiced with no live bill.
+const BY_BILLING_COPIES = 2;
+
 describe('the skips and the record', () => {
   it('skips another company\'s supplier, a negative total and a line id po_items holds, names each, leaves them in place', async () => {
     const skipped = { foreignSupplier: 'supplier of another company', negative: 'negative line total', idCollision: 'line id already in po_items' };
@@ -243,7 +246,13 @@ describe('the skips and the record', () => {
     // Line totals (SPO-L1's and SPO-L3's subtotals are 0 and 40, their lines R100 each); billing netted: SPO-S1's and SPO-I3's
     // R100 bills, SPO-L1's and SPO-L3's R50.
     const lineCents = cents(committing) + 20000;
-    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: 17 order(s), R ${(lineCents / 100).toFixed(2)} ex VAT, less R 300.00 billed`);
+    // Review r6 L5: the copies closed BY BILLING count too, at their line totals, all netted (fully billed: they commit 0).
+    const byBilling = (await pool.query(`SELECT count(DISTINCT p.id)::INT AS n, COALESCE(SUM(round(x.line_total * 100)), 0)::INT AS c
+      FROM purchase_orders p JOIN po_items x ON x.purchase_order_id = p.id
+     WHERE p.company_id = $1 AND p.status = 'closed' AND p.closed_by_billing AND to_char(p.order_date, 'YYYY-MM') = '2026-05'`, [f.co])).rows[0];
+    expect(byBilling.n).toBe(BY_BILLING_COPIES);
+    expect(notices).toContain(`1022: company ${f.co} committing copies, order month 2026-05: ${17 + byBilling.n} order(s), `
+      + `R ${((lineCents + byBilling.c) / 100).toFixed(2)} ex VAT, less R ${((30000 + byBilling.c) / 100).toFixed(2)} billed`);
     expect(notices).toContain(`1022: company ${other.co} committing copies, order month 2026-05: 1 order(s), R 11.00 ex VAT, less R 0.00 billed`);
   });
 });

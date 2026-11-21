@@ -1,13 +1,8 @@
 /**
  * What `unlinkBillFromPurchaseOrder` does around clearing a bill's references to one PO beyond the link row itself (design
  * docs/design/mcp-po-maintenance.md, round 6):
- *   - `clearingRaisesCommitted`: does clearing the bill's line references RAISE committed spend? Exactly when
- *     `budgets/remainingCommitted.billedLinesByPoItem` counted the line: the bill's status is approved / paid / partially_paid, it
- *     is not soft-deleted (since PR #1703 R4-2 a soft-deleted bill nets nothing) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
- *     clearing a header changes none either; the unlink's budget warning is raised only for the first.
- *   - `headerNetsCommitted`: does this bill net the PO's committed spend through its HEADER (a link row or `purchase_order_id`, no line
- *     of it naming a line of the PO; `budgets/remainingHeaderBilled.headerTies`, the engine's own reading)? Read before the unlink and
- *     after it: removing a header tie that netted raises committed, so the unlink's budget warning runs (PR #1703).
+ *   - (whether the unlink raises committed is measured by the unlink itself since PR #1703 breaker r6 A3: `poCommittedCents` before
+ *     and after, under the PO lock; the per-bill guesses that stood here are gone);
  *   - `resetMatchState`: the bill's stored three-way state (`match_status`, each line's `line_match_status` / variances) would be stale
  *     once a reference is gone. A bill that still names a PO is re-judged by the existing recompute (`performThreeWayMatch`, in its own
  *     savepoint so a failure cannot poison the unlink); one that names none, or is deleted, is reset to 'unmatched'.
@@ -18,30 +13,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
-import { headerTies } from '../budgets/remainingHeaderBilled';
-import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { performThreeWayMatch } from './supplierInvoiceWorkflowService';
-
-export async function clearingRaisesCommitted(companyId: string, billId: string, poId: string): Promise<boolean> {
-  const bill = ((await sql`
-    SELECT si.* FROM supplier_invoices si
-     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
-       AND si.deleted_at IS NULL
-  `) as DbRow[])[0];
-  if (!bill) return false;
-  const items = (await sql`
-    SELECT sii.* FROM supplier_invoice_items sii WHERE sii.supplier_invoice_id = ${billId}::UUID
-    ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
-  `) as DbRow[];
-  const own = new Set(((await sql`SELECT id::TEXT AS id FROM po_items WHERE purchase_order_id = ${poId}::UUID`) as DbRow[]).map((r) => String(r.id).toLowerCase()));
-  const named = new Map(items.filter((i) => i.po_item_id != null).map((i) => [String(i.id), String(i.po_item_id).toLowerCase()]));
-  return postedExpenseLines(bill, items).some((l) => l.debit !== 0 && own.has(named.get(String(l.description)) ?? ''));
-}
-
-export async function headerNetsCommitted(companyId: string, billId: string, poId: string): Promise<boolean> {
-  return (await headerTies(companyId, [poId], [], BILLED_STATUSES)).some((t) => t.billId === billId.toLowerCase());
-}
 
 export async function resetMatchState(companyId: string, billId: string): Promise<'recomputed' | 'reset'> {
   const bill = ((await sql`

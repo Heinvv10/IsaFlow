@@ -25,7 +25,7 @@
  *     becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
-import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
+import { COMMITTING_PO_STATUSES } from '../budgets/poCommitStatus';
 import {
   CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES, isFullyBilled,
   type BillFacts, type ExistingLink, type LinkPlan, type LinkRequest, type LinkRowRefusal, type PlannedLink, type PoAfter,
