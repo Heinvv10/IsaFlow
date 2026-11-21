@@ -53,6 +53,10 @@ beforeAll(async () => {
     // Codex gate: a legacy line of 0 ordered / received / invoiced stays 0 received and invoiced; a R0.01 order with no bill stays open.
     await at('QZ', 'sent', [{ qty: 0, price: 100, lineTotal: 100, received: 0, invoiced: 0, gl }]);
     await at('ONE', 'sent', [{ qty: 1, price: 0.01, gl }]);
+    // Breaker r12 F6: status by the COPIED quantities. Z1: an ordered-0 line (2 received in the legacy row, 0 once copied) and a
+    // 1 x R50 line with nothing received -> approved; Z2: only an ordered-0 line -> approved (by legacy quantities: received).
+    await at('Z1', 'partially_invoiced', [{ qty: 0, price: 100, lineTotal: 100, received: 2, invoiced: 2, gl }, { qty: 1, price: 50, received: 0, invoiced: 0, gl }]);
+    await at('Z2', 'partially_invoiced', [{ qty: 0, price: 100, lineTotal: 100, received: 0, invoiced: 0, gl }]);
   });
   const bill = (k: string, total: number, status: string) =>
     seedRawBill(pool, f, { items: [{ total }], subtotal: total, total: Math.round(total * 115) / 100, header: S[k]!.id, status });
@@ -107,6 +111,7 @@ describe('committed spend after the copy', () => {
     // The copies closed by billing (A, C, N) are fully billed at PO level, so they commit 0 and contribute no row (review r6 M5).
     expect(await committedByOrder()).toEqual({
       'CM-B1': 60000, 'CM-B2': 100000, 'CM-B3': 100000, 'CM-D': 1518643, 'CM-E': 50004, 'CM-R': 45000, 'CM-S': 100000, 'CM-QZ': 10000, 'CM-ONE': 1,
+      'CM-Z1': 15000, 'CM-Z2': 10000,
     });
   });
 
@@ -136,6 +141,7 @@ describe('committed spend after the copy', () => {
     expect(await st('N')).toEqual({ status: 'closed', closed_from_status: 'approved' });
     expect(await st('NG')).toEqual({ status: 'closed', closed_from_status: 'received' });
     expect(await st('ONE')).toEqual({ status: 'approved', closed_from_status: null });
+    expect([await st('Z1'), await st('Z2')]).toEqual([{ status: 'approved', closed_from_status: null }, { status: 'approved', closed_from_status: null }]);
     expect((await pool.query('SELECT quantity::TEXT AS q, quantity_received::TEXT AS r, quantity_invoiced::TEXT AS i FROM po_items WHERE purchase_order_id = $1', [S.QZ!.id])).rows)
       .toEqual([{ q: '1.00', r: '0.00', i: '0.00' }]);
   });

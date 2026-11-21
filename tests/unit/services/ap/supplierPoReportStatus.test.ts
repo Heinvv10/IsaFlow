@@ -11,7 +11,8 @@ describe('reportStatusFilter', () => {
     expect(reportStatusFilter(null)).toEqual({ status: null });
   });
   it('partially_invoiced (copied by quantity, no single status) and an unknown status are refused, naming the canonical ones', () => {
-    for (const s of ['partially_invoiced', 'invoiced', 'shipped']) {
+    // Breaker r12 F7: an Object.prototype key is not a retired status.
+    for (const s of ['partially_invoiced', 'invoiced', 'shipped', 'constructor', '__proto__', 'toString', 'hasOwnProperty']) {
       const r = reportStatusFilter(s);
       expect('refusal' in r && r.refusal).toContain('draft, submitted, approved, partially_received, received, closed, cancelled');
     }

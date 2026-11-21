@@ -91,10 +91,24 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
      WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
   `) as DbRow[];
   const lockIds = [...new Set([...billIds, ...held.map((r) => low(r.bill))])].sort();
-  const billRows = (await withRowLockBudget(async () => (await sql`
+  // Breaker r12 F2: the bills that tie a requested PO only by their header or their lines (no link row) are locked too, FOR SHARE,
+  // so a cancel or delete of one that is done but uncommitted makes this call wait and then read it gone (it cannot close a PO on a
+  // bill another transaction is removing). One id order over every bill, each in its own mode, after the POs: PO -> bill.
+  const tiedOnly = ((await sql`
+    SELECT si.id::TEXT AS id FROM supplier_invoices si WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ANY(${poIds}::UUID[])
+    UNION SELECT x.supplier_invoice_id::TEXT FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+     WHERE pi.purchase_order_id = ANY(${poIds}::UUID[])
+  `) as DbRow[]).map((r) => low(r.id)).filter((id) => !lockIds.includes(id));
+  await withRowLockBudget(async () => {
+    for (const id of [...new Set([...lockIds, ...tiedOnly])].sort()) {
+      if (lockIds.includes(id)) await sql`SELECT 1 FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
+      else await sql`SELECT 1 FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR SHARE`;
+    }
+  }, () => new RowLockTimeoutError('A bill in this call'), { deadline });
+  const billRows = ((await sql`
     SELECT si.* FROM supplier_invoices si
-     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id FOR UPDATE
-  `) as DbRow[], () => new RowLockTimeoutError('A bill in this call'), { deadline })).filter((b) => billIds.includes(low(b.id)));
+     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id
+  `) as DbRow[]).filter((b) => billIds.includes(low(b.id)));
 
   const items = (await sql`
     SELECT sii.*, po.id::TEXT AS item_po_id FROM supplier_invoice_items sii

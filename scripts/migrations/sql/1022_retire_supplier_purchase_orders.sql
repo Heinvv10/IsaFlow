@@ -29,7 +29,7 @@
 --          cost centre goes onto every line (po_items.cc1_id / cc2_id). approved_by / approved_at stay NULL: no reader or
 --          gate reads them (only the Approve action, the MCP update and set_purchase_order_status write them).
 --        status: draft (or none) -> draft, cancelled -> cancelled, sent -> approved, partially_received and received as they
---          are; invoiced / partially_invoiced -> by quantity (received when every line is fully received, partially_received
+--          are; invoiced / partially_invoiced -> by the COPIED quantity (received when every copied line is fully received, partially_received
 --          when some is, else approved). The open copies KEEP their unbilled remainder in committed (Hein): committed spend
 --          nets their bills, by lines or, for every legacy bill, by header (budgets/remainingHeaderBilled, this PR). A copy is
 --          CLOSED, from the status it would have had, only when (a) it is fully billed: the same billing committed nets (bills
@@ -269,8 +269,7 @@ DECLARE
   v_number TEXT;
   v_try INT;
   v_status TEXT;
-  v_any_recv BOOLEAN;
-  v_all_recv BOOLEAN;
+  v_by_qty BOOLEAN;
   v_cc_type TEXT;
   v_cc1 UUID;
   v_cc2 UUID;
@@ -330,14 +329,12 @@ BEGIN
       v_number := h.order_number || '-SPO' || CASE WHEN v_try = 1 THEN '' ELSE v_try::TEXT END;
     END LOOP;
 
-    v_any_recv := EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i WHERE i.purchase_order_id = h.id AND COALESCE(i.qty_received, 0) > 0);
-    v_all_recv := EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i WHERE i.purchase_order_id = h.id)
-      AND NOT EXISTS (SELECT 1 FROM public.supplier_purchase_order_items i
-                       WHERE i.purchase_order_id = h.id AND COALESCE(i.qty_received, 0) < i.quantity);
+    -- invoiced / partially_invoiced (and any other) go by quantity: set after the lines are copied, from the COPIED quantities
+    -- (breaker r12 F6: an ordered-0 line copies as 1 unit received 0, so it must not count as received).
     v_status := CASE COALESCE(h.status, 'draft')
       WHEN 'draft' THEN 'draft' WHEN 'cancelled' THEN 'cancelled' WHEN 'sent' THEN 'approved'
-      WHEN 'partially_received' THEN 'partially_received' WHEN 'received' THEN 'received'
-      ELSE CASE WHEN v_all_recv THEN 'received' WHEN v_any_recv THEN 'partially_received' ELSE 'approved' END END;
+      WHEN 'partially_received' THEN 'partially_received' WHEN 'received' THEN 'received' ELSE 'approved' END;
+    v_by_qty := COALESCE(h.status, 'draft') NOT IN ('draft', 'cancelled', 'sent', 'partially_received', 'received');
 
     v_cc_type := NULL;
     IF h.cost_center_id IS NOT NULL THEN
@@ -392,6 +389,15 @@ BEGIN
                      CASE WHEN round(i.quantity, 2) <= 0 THEN TRUE  -- CASE, not OR: the division below must never see a 0
                           ELSE round(round(i.quantity, 2) * round(i.line_total / round(i.quantity, 2), 6), 2) <> i.line_total END AS as_unit
                 FROM public.supplier_purchase_order_items i WHERE i.purchase_order_id = h.id) l;
+
+      IF v_by_qty THEN
+        UPDATE public.purchase_orders p SET status = CASE
+            WHEN EXISTS (SELECT 1 FROM public.po_items x WHERE x.purchase_order_id = p.id)
+             AND NOT EXISTS (SELECT 1 FROM public.po_items x WHERE x.purchase_order_id = p.id AND x.quantity_received < x.quantity) THEN 'received'
+            WHEN EXISTS (SELECT 1 FROM public.po_items x WHERE x.purchase_order_id = p.id AND x.quantity_received > 0) THEN 'partially_received'
+            ELSE 'approved' END
+         WHERE p.id = h.id;
+      END IF;
 
       SELECT count(*) INTO v_unit_lines FROM public.supplier_purchase_order_items i JOIN public.po_items x ON x.id = i.id
        WHERE i.purchase_order_id = h.id AND x.quantity = 1 AND round(i.quantity, 2) <> 1;

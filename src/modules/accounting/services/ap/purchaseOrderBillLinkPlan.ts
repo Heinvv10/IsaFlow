@@ -165,10 +165,11 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       refuse(`bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT and ${fmt(firm)} is already linked; ${fmt(amount)} more would pass it`);
       continue;
     }
-    // The transfer is the change in the header residual, before vs after this row (not the link's amount).
-    const taken = Math.max(0, headerHolds - Math.max(0, bill.subtotalCents - firm - amount));
+    // The transfer is the SIGNED change in the header residual, before vs after this row (not the link's amount): a lines link that
+    // names a negative line grows the residual, and the close counts that growth (breaker r12 F4).
+    const taken = headerHolds - Math.max(0, bill.subtotalCents - firm - amount);
     if (taken > 0 && !headerOpen && linked.length === 0) { refuse(headerShut); continue; }
-    const takesFromHeader = header && taken > 0 ? { poId: header.poId, poNumber: header.poNumber, cents: taken } : null;
+    const takesFromHeader = header && taken !== 0 ? { poId: header.poId, poNumber: header.poNumber, cents: taken } : null;
     att(bill.id).set(po.id, amount);
     planned.push({
       index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber, amountCents: amount,

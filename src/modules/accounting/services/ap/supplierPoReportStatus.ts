@@ -10,7 +10,8 @@ const RETIRED: Readonly<Record<string, string>> = { sent: 'approved' };
 
 export function reportStatusFilter(status: string | null): { status: string | null } | { refusal: string } {
   if (status === null) return { status: null };
-  if (RETIRED[status]) return { status: RETIRED[status]! };
+  // Own keys only (breaker r12 F7): ?status=constructor or __proto__ must not read Object.prototype.
+  if (Object.hasOwn(RETIRED, status)) return { status: RETIRED[status]! };
   if ((CANONICAL_PO_STATUSES as readonly string[]).includes(status)) return { status };
   const why = status === 'partially_invoiced' || status === 'invoiced'
     ? `status ${status} was retired with supplier purchase orders (migration 1022) and has no single canonical status`

@@ -91,7 +91,8 @@ export interface PlannedLink {
   closedFrom: string | null;
   /**
    * The rands this link takes from what the bill's header held on ANOTHER PO (a header tie is a residual, never a hold; PR #1703
-   * breaker R4-4): that PO commits them again, and the reply warns, naming it.
+   * breaker R4-4): that PO commits them again, and the reply warns, naming it. Signed: below 0 when the row grows the residual
+   * (a lines link naming a negative line; breaker r12 F4).
    */
   takesFromHeader: { poId: string; poNumber: string; cents: number } | null;
   /** Set when the pair was already linked: under the same reference nothing is written; with `adopt`, the reference is set. */
