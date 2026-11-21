@@ -54,12 +54,16 @@ function id(value: unknown): string {
   if (typeof value !== 'string' || !uuid.test(value)) throw new GoodsReceivedError('Valid purchase order and line IDs are required');
   return value.toLowerCase();
 }
+/** grn_items.quantity_received / quantity_rejected are NUMERIC(15,2): above this the insert would fail 22003 (round 5 nit). */
+export const GRN_QUANTITY_MAX = 9999999999999.99;
+
 function quantity(value: unknown): number {
   if (value === undefined || value === null || value === '') return 0;
   if (typeof value !== 'number' && typeof value !== 'string') throw new GoodsReceivedError('Invalid quantity');
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || Math.round(number * 100) / 100 !== number
     || !Number.isSafeInteger(Math.round(number * 100))) throw new GoodsReceivedError('Quantities must be finite, non-negative and have at most two decimal places');
+  if (number > GRN_QUANTITY_MAX) throw new GoodsReceivedError(`Quantities must be at most ${GRN_QUANTITY_MAX.toFixed(2)}`);
   return number;
 }
 function text(value: unknown): string | undefined {

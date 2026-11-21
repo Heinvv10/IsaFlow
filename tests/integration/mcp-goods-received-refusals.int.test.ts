@@ -60,6 +60,10 @@ describe('create refusals', () => {
       { index: 1, po_item_id: po.items[1], code: 'over_receipt', outstanding: 5, asked: 9 },
       { index: 2, po_item_id: po.items[0], code: 'duplicate_line' },
     ] });
+    // A quantity above grn_items' NUMERIC(15,2) is a typed input refusal, not a 22003 from the insert (round 5 nit).
+    const huge = await callTool(pool, f, create, { ...grnArgs(po, [[0, 1]]), lines: [{ po_item_id: po.items[0], quantity_received: 0, quantity_rejected: 10000000000000 }] });
+    expect(refusal(huge.text)).toMatchObject({ refused: true, code: 'invalid', written: false });
+    expect(refusal(huge.text).message).toContain('9999999999999.99');
     for (const status of ['draft', 'closed', 'cancelled']) {
       const p = await seedQtyPo(pool, f, { status, lines: [{ qty: 5, price: 1 }] });
       expect(refusal((await callTool(pool, f, create, grnArgs(p, [[0, 1]]))).text), status).toMatchObject({ code: 'po_not_receivable', po_status: status });
