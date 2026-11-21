@@ -483,11 +483,15 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
--- ── A bill is never written onto a soft-deleted supplier (review of 0d51f4a5, L2) ──────────────────────────────────
+-- ── A bill insert or supplier change onto a soft-deleted supplier is refused (review of 0d51f4a5, L2) ─────────────
 -- A bill create (or a supplier change) racing a supplier merge waits at its FK check (KEY SHARE on the supplier) for the merge's
 -- FOR UPDATE, and then lands on the merged-away, soft-deleted supplier: a live bill the merge never saw. Fail-closed: refused, for
--- every writer. AFTER ROW, named so it fires after the FK's RI trigger (trigger order is by name; 'RI_ConstraintTrigger_...' sorts
--- first): by then the FK has waited for any merge, and this statement's fresh snapshot (READ COMMITTED) sees its commit. A supplier
+-- every writer. AFTER ROW, named so it fires after the FK's RI trigger. THIS DEPENDS ON THE NAME: AFTER ROW triggers of one event fire
+-- in name order (C collation), and the FK's is 'RI_ConstraintTrigger_c_<oid>', which sorts before any lower-case name; renaming this
+-- trigger to sort first would run the check before the FK has waited and let a racing merge through (bill-supplier-live.int.test.ts
+-- asserts the order). By then the FK has waited for any merge, and this statement's fresh snapshot (READ COMMITTED) sees its commit.
+-- A merge takes the supplier rows FOR UPDATE, which the FK's KEY SHARE waits on; a plain supplier soft-delete takes no such lock, so
+-- a create racing it is not caught (Known limits). A supplier
 -- the caller cannot see (another company's) passes here; the tenant check is the app's (assertSupplierInCompany) and the FK's.
 -- SQLSTATE 23503 with constraint supplier_invoices_supplier_live, which the app maps to a typed refusal.
 CREATE OR REPLACE FUNCTION public.supplier_invoices_supplier_live_guard()
