@@ -15,6 +15,7 @@ import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
 import { isSharePath } from '@/lib/paths/isSharePath';
 import { ShellTitle } from '@/components/layout/ShellTitle';
+import { useFocusFirstInvalidOnSubmit } from '@/hooks/useFocusFirstInvalidOnSubmit';
 import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
 import '../styles/themeContrast.css';
@@ -28,6 +29,7 @@ import '../styles/print.css';
  */
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
+  useFocusFirstInvalidOnSubmit();
   // A print render (Gotenberg/Playwright photographing report-packs.tsx's
   // ?print=1 branch) needs no auth or company context, and Gotenberg cannot
   // stub these providers' own background fetches the way the Playwright
