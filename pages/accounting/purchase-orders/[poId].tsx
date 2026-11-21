@@ -33,6 +33,7 @@ import { PoLineItemsEditor, type PoEditField, type PoEditLine } from '@/componen
 import { PurchaseOrderApproveButton } from '@/components/accounting/purchase-orders/PurchaseOrderApproveButton';
 import { PurchaseOrderCancelButton } from '@/components/accounting/purchase-orders/PurchaseOrderCancelButton';
 import { newPoLineKey } from '@/components/accounting/purchase-orders/poLineKey';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -195,8 +196,9 @@ export default function PurchaseOrderDetailPage() {
       ...f, items: f.items.map((item, i) => i === idx ? { ...item, [field]: value } : item),
     } : f);
 
+  const guard = useAmountGuard();
   const handleSave = async () => {
-    if (!form || !poId) return; if (dates.blocked) { setSaveError('Fix the date marked in red before saving.'); return; }
+    if (!form || !poId || guard.blocked()) return; if (dates.blocked) { setSaveError('Fix the date marked in red before saving.'); return; }
     if (!form.order_date) { setSaveError('Enter the order date.'); return; }
     if (!form.supplier_id) { setSaveError('Please select a supplier'); return; }
     setSaving(true);
@@ -292,7 +294,7 @@ export default function PurchaseOrderDetailPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link href="/accounting/purchase-orders"

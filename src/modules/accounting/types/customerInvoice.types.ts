@@ -57,6 +57,8 @@ export interface CustomerInvoiceDetail {
   tax_amount: number;
   total_amount: number;
   amount_paid: number;
+  /** 'inclusive': each line's unit_price is VAT-inclusive as entered, its amount the net (per-line VAT). NULL = exclusive. */
+  amounts_are?: string | null;
   notes: string;
   gl_journal_entry_id: string;
   client_id?: string;

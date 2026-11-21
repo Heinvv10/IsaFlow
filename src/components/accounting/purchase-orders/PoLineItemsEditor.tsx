@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { Plus, Tags, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PoDimensionCells, PoDimensionHeaders, usePoDimensionOptions } from './PoLineDimensions';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export interface PoEditLine {
   /** Stable per-row React key, made when the row is (the stored id, or a new uuid): never the row's index. */
@@ -88,8 +89,8 @@ export function PoLineItemsEditor({ items, accounts, storedLabels, onAdd, onRemo
                     onChange={e => onUpdate(idx, 'quantity', e.target.value)} className="ff-input w-full text-sm text-right" />
                 </td>
                 <td className="py-2 pr-2">
-                  <input type="number" required name="unitPrice" min="0" step="any" value={item.unit_price} aria-label={`Line ${idx + 1} unit price`}
-                    onChange={e => onUpdate(idx, 'unit_price', e.target.value)} className="ff-input w-full text-sm text-right" />
+                  <AmountInput min={0} decimals={6} required name="unitPrice" value={item.unit_price} aria-label={`Line ${idx + 1} unit price`}
+                    onValueChange={(_n, t) => onUpdate(idx, 'unit_price', t)} className="ff-input w-full text-sm text-right" />
                 </td>
                 <td className="py-2 pr-2">
                   <input type="number" name="taxRate" min="0" step="0.01" value={item.tax_rate} aria-label={`Line ${idx + 1} VAT rate`}

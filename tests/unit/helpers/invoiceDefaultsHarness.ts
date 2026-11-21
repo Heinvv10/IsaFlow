@@ -33,7 +33,7 @@ export function serve(contacts: Record<string, Contact> = { 'c-acme': ACME, 'c-z
     return ok([]);
   });
 }
-type Sent = { taxRate: number; dueDate: string; items: { unitPrice: number; discount: number; taxRate?: number }[] };
+type Sent = { taxRate?: number; amountsAre?: string; dueDate: string; items: { unitPrice: number; discount: number; taxRate?: number; vatType?: string }[] };
 export const sentBody = (method: string): Sent => {
   const call = vi.mocked(apiFetch).mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === method);
   return JSON.parse(String((call![1] as RequestInit).body)) as Sent;

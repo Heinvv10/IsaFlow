@@ -11,7 +11,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -34,6 +34,7 @@ import { ArPostingAfterWriteError } from './arErrors';
 import { assertApplicationRecorded } from '../shared/creditNoteApplicationInvariant';
 import { assertApplicationWithinPostedCredit } from '../shared/creditNotePostedCredit';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
+import { lockCustomerWalkKeys } from '../shared/creditNoteWalkKeys';
 import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import {
@@ -73,8 +74,12 @@ export async function approveCreditNote(
     if (!cn) throw new Error(`Credit note ${id} not found`);
     // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
     // A supplier note's bill takes the same key (892): two notes on one bill must not take one leg twice.
-    const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
-    if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));
+    // A customer note: its linked invoice's key and, for a FIFO walk, every candidate's, as ONE sorted set (round 8).
+    const walkKeys = String(cn.type) === 'customer' && String(cn.status) === 'draft'
+      ? await lockCustomerWalkKeys(companyId, cn.client_id ? String(cn.client_id) : null, cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, (opts?.autoApply ?? 'fifo') === 'fifo', Number(cn.total_amount))
+      : null;
+    if (!walkKeys && cn.supplier_invoice_id) await lockInvoiceCreditNotes(String(cn.supplier_invoice_id));
+    else if (!walkKeys && cn.customer_invoice_id) await lockInvoiceCreditNotes(String(cn.customer_invoice_id));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
@@ -223,6 +228,7 @@ export async function approveCreditNote(
         ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
         : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
       autoApply,
+      heldKeys: walkKeys ?? undefined,
     }));
     const appliedAmount = application.appliedAmount;
 

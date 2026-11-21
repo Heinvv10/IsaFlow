@@ -19,7 +19,8 @@ describe('CreditNoteVatSplitRefusal on the MCP surface', () => {
   it('create_credit_note tells the agent, before it creates one, that such a note is proportional', () => {
     expect(createCreditNoteTool.description).toContain(
       'A customer note linked to an invoice with a VAT type per line must carry that invoice\'s remaining VAT in proportion '
-      + 'to the net it credits (not the rate on its subtotal); approve_credit_note refuses any other figure and states the one required.',
+      + 'to the net it credits (not the rate on its subtotal): leave tax_rate and tax_amount out and it defaults to that figure; '
+      + 'a tax_rate that misses it is refused, naming it, and approve_credit_note refuses any other tax_amount.',
     );
   });
 });

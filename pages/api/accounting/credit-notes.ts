@@ -23,6 +23,8 @@ import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalG
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
+import { creditNoteMoneyProblem } from '@/modules/accounting/services/ar/creditNoteRequestMoney';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -54,15 +56,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     try {
       const { type, clientId, customerInvoiceId, supplierId, supplierInvoiceId,
-        creditDate, reason, subtotal, taxRate, projectId, glAccountId } = req.body;
+        creditDate, reason, subtotal, taxRate, taxAmount, projectId, glAccountId } = req.body;
 
       if (!type || !creditDate || subtotal === undefined) {
         return apiResponse.badRequest(res, 'type, creditDate, and subtotal are required');
       }
-      // W1 family (P2.1): a negative subtotal posts inverted GL at approve.
-      if (!(Number(subtotal) > 0)) {
-        return apiResponse.badRequest(res, 'subtotal must be a positive amount');
-      }
+      // The money, before any read or write (creditNoteRequestMoney): JSON numbers, whole cents, a VAT figure within the
+      // subtotal and agreeing with a rate sent beside it. A figure left out: against a typed invoice, its remaining VAT in
+      // proportion (creditNoteTypedVat); otherwise the rate on the subtotal.
+      const moneyProblem = creditNoteMoneyProblem({ subtotal, taxRate, taxAmount });
+      if (moneyProblem) return apiResponse.badRequest(res, moneyProblem);
 
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
@@ -75,8 +78,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         supplierInvoiceId: supplierInvoiceId || undefined,
         creditDate,
         reason: reason || undefined,
-        subtotal: Number(subtotal),
-        taxRate: taxRate !== undefined ? Number(taxRate) : undefined,
+        subtotal,
+        taxRate: taxRate ?? undefined,
+        taxAmount: taxAmount ?? undefined,
         projectId: projectId || undefined,
         glAccountId: glAccountId || undefined,
       }, userId);
@@ -88,6 +92,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfLockTimeout(res, err)) return;
       // Raised before the first write (creditNoteHeaderTags): a 400 commits nothing.
       if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+      // Against a typed invoice: a rate that misses the required VAT, or more than is left (creditNoteTypedVat), pre-write.
+      if (err instanceof CreditNoteVatSplitRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       // Before any write: a counterparty or invoice the note may not name (FX PR0 adds a foreign invoice).
       if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
       // A supplier note's own account (892) held to the bill-line rule, before any write.

@@ -15,6 +15,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
@@ -167,7 +168,7 @@ export default function VATAdjustmentsPage() {
                   <option value="input">Input VAT (Claimable)</option>
                   <option value="output">Output VAT (Payable)</option>
                 </select>
-                <input type="number" step="0.01" min="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="ff-input" placeholder="Amount *" required />
+                <AmountInput min={0.01} value={form.amount} onValueChange={(_n, t) => setForm(f => ({ ...f, amount: t }))} className="ff-input" placeholder="Amount *" required />
               </div>
               <div>
                 <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input w-full" placeholder="Reason for adjustment *" required />

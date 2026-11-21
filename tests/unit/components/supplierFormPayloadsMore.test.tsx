@@ -102,7 +102,7 @@ describe('adjustments (supplier tab)', () => {
     return r;
   };
   const fill = (c: HTMLElement) => {
-    fireEvent.change(c.querySelector('input[type="number"]')!, { target: { value: '5' } });
+    fireEvent.change(screen.getByPlaceholderText('Amount *'), { target: { value: '5' } });
     fireEvent.change(screen.getByPlaceholderText('Reason *'), { target: { value: 'fix' } });
   };
   it('does not POST without a supplier', async () => {

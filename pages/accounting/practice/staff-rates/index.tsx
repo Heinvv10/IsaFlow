@@ -13,6 +13,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatAmount } from '@/lib/money/formatMoney';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -218,12 +219,9 @@ export default function StaffRatesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Hourly Rate</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <AmountInput min={0}
                     value={form.rate}
-                    onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+                    onValueChange={(_n, t) => setForm((f) => ({ ...f, rate: t }))}
                     placeholder="e.g. 850.00"
                     className={INPUT}
                     required

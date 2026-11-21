@@ -16,6 +16,8 @@ import { mayDemandRole } from '@/modules/accounting/services/gl/approvalRank';
 import { STARTER_RULES } from '@/modules/accounting/services/gl/approvalStarterRules';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
 import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface Props {
   actorRole: string;
@@ -60,7 +62,9 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
     return out.length > 0 ? out : 'Tick at least one rule to create.';
   }
 
+  const guard = useAmountGuard<HTMLElement>();
   const confirm = async () => {
+    if (guard.blocked()) return;
     const chosen = picks();
     if (typeof chosen === 'string') { setError(chosen); return; }
     setBusy(true);
@@ -83,7 +87,7 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
   };
 
   return (
-    <section aria-label="Recommended rules" className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-4 space-y-3">
+    <section ref={guard.ref} aria-label="Recommended rules" className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-4 space-y-3">
       <div className="text-sm font-medium text-[var(--ff-text-primary)]">Recommended rules</div>
       {result ? (
         <div className="space-y-2 text-sm text-[var(--ff-text-secondary)]">
@@ -124,8 +128,8 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
                       <td className={CELL}>{OPERATOR_LABELS[t.conditionOperator]}</td>
                       <td className={CELL}>
                         {t.conditionOperator === 'any' ? '—' : (
-                          <input type="number" min={0} step="0.01" aria-label={`Amount for ${label}`} value={row.amount}
-                            onChange={(e) => edit(i, { amount: e.target.value })} className={`${FIELD} w-32`} />
+                          <AmountInput min={0} aria-label={`Amount for ${label}`} value={row.amount}
+                            onValueChange={(_n, t) => edit(i, { amount: t })} className={`${FIELD} w-32`} />
                         )}
                       </td>
                       <td className={CELL}>
