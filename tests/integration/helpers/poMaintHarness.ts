@@ -3,7 +3,7 @@
  * (a PO with quantities, goods receipts, catalogue items), the counters a "posts nothing" proof reads, and the cleanup that goes
  * with them. Tools run through `callTool` (poImportHarness): a real app_user request transaction. Disposable databases only.
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { BillFixture } from './budgetBillFixture';
 
 export { callTool, type Json } from './poImportHarness';
@@ -39,13 +39,28 @@ export async function seedQtyPo(
 /** A goods receipt against the PO (one grn_items row per PO line, the line's received quantity). */
 export async function seedGrn(pool: Pool, f: BillFixture, po: QtyPo): Promise<string> {
   const grn = crypto.randomUUID();
-  await pool.query(
-    `INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by, status) VALUES ($1, $2, $3, $4, 'tester', 'received')`,
-    [grn, f.co, `GRN-${grn.slice(0, 8)}`, po.po]);
-  await pool.query(
-    `INSERT INTO grn_items (grn_id, po_item_id, quantity_received)
-     SELECT $1, id, quantity_received FROM po_items WHERE purchase_order_id = $2`, [grn, po.po]);
+  await inOneTransaction(pool, async (c) => {
+    await c.query(
+      `INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by, status) VALUES ($1, $2, $3, $4, 'tester', 'received')`,
+      [grn, f.co, `GRN-${grn.slice(0, 8)}`, po.po]);
+    await c.query(
+      `INSERT INTO grn_items (grn_id, po_item_id, quantity_received)
+       SELECT $1, id, quantity_received FROM po_items WHERE purchase_order_id = $2`, [grn, po.po]);
+  });
   return grn;
+}
+
+/** Statements in ONE committed transaction: a note's items go in only with the note (1021's grn_items_cancelled_guard). */
+export async function inOneTransaction(pool: Pool, fn: (c: PoolClient) => Promise<void>): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await fn(c);
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally { c.release(); }
 }
 
 /** A catalogue item with a purchases account and VAT type. */

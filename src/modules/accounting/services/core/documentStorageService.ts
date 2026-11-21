@@ -25,6 +25,7 @@ export const VALID_ENTITY_TYPES = [
   'customer_payment',
   'credit_note',
   'purchase_order',
+  'goods_received',
 ] as const;
 
 export const VALID_DOCUMENT_TYPES = [
@@ -35,6 +36,7 @@ export const VALID_DOCUMENT_TYPES = [
   'invoice',
   'receipt',
   'purchase_order',
+  'delivery_note',
   'other',
 ] as const;
 
@@ -92,6 +94,7 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
     UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM goods_received_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     LIMIT 1
   `;
   return !!owner;
@@ -127,6 +130,9 @@ export async function verifyEntityOwnershipTyped(
       break;
     case 'purchase_order':
       rows = await sql`SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'goods_received':
+      rows = await sql`SELECT 1 FROM goods_received_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
       break;
     default:
       return false;
@@ -240,8 +246,9 @@ export async function storeDocumentBytes(input: StoreDocumentBytesInput): Promis
 }
 
 /**
- * Auto-link a newly uploaded supplier_invoice doc to related PO/GRN,
- * and create reverse links so existing PO/GRN docs appear on the invoice.
+ * Auto-link a newly uploaded supplier_invoice doc to its PO(s) and goods received note, so the bill's own document shows on them.
+ * The other direction (the PO's and the note's documents on the bill) is NOT written here: listEntityDocuments resolves it at read
+ * time through the bill's grn_id and POs, so a document filed on the PO or the note before or after the bill reaches it either way.
  */
 export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, companyId: string) {
   try {
@@ -260,51 +267,22 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     const poIds = [...new Set([invoice.purchase_order_id as string | null, ...linkedPos.map((l) => l.id)].filter((v): v is string => !!v))];
 
     for (const poId of poIds) {
+      // Every id read from the bill is fenced to the bill's company here (the bill's PO and note ids carry no foreign key, and row
+      // security admits every company the user belongs to).
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'purchase_order', ${poId}::uuid, 'po_invoice_link')
+        SELECT ${docId}::uuid, 'purchase_order', po.id, 'po_invoice_link' FROM purchase_orders po
+         WHERE po.id = ${poId}::uuid AND po.company_id = ${companyId}::uuid
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
     }
     if (grnId) {
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'goods_receipt_note', ${grnId}::uuid, 'grn_invoice_link')
+        SELECT ${docId}::uuid, 'goods_received', g.id, 'grn_invoice_link' FROM goods_received_notes g
+         WHERE g.id = ${grnId}::uuid AND g.company_id = ${companyId}::uuid
         ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
       `;
-    }
-
-    for (const poId of poIds) {
-      const poDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type = 'purchase_order' AND entity_id = ${poId}::uuid AND is_active = true
-      `;
-      for (const doc of poDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (
-            ${(doc as Record<string, unknown>).id as string}::uuid,
-            'supplier_invoice', ${invoiceId}::uuid, 'po_invoice_link'
-          )
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
-    }
-    if (grnId) {
-      const grnDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type = 'goods_receipt_note' AND entity_id = ${grnId}::uuid AND is_active = true
-      `;
-      for (const doc of grnDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (
-            ${(doc as Record<string, unknown>).id as string}::uuid,
-            'supplier_invoice', ${invoiceId}::uuid, 'grn_invoice_link'
-          )
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
     }
   } catch (err) {
     log.warn('Auto-link supplier invoice docs failed (non-fatal)', { error: err }, 'accounting-docs');
@@ -318,7 +296,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
  * the UPDATE must fence itself. procurement_documents carries NO company_id:
  * its tenancy lives in (entity_type, entity_id) -> parent row. The predicate
  * below is the table's own `tenant_isolation_via_parent` policy with the
- * membership subquery replaced by this request's company — all six entity
+ * membership subquery replaced by this request's company — all seven entity
  * types, so a row whose parent belongs to another tenant matches nothing.
  */
 export async function extractAndStoreDocMetadata(
@@ -345,6 +323,7 @@ export async function extractAndStoreDocMetadata(
           OR (d.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'credit_note' AND EXISTS (SELECT 1 FROM credit_notes p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'purchase_order' AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'goods_received' AND EXISTS (SELECT 1 FROM goods_received_notes p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
         )
       RETURNING d.id
     `;

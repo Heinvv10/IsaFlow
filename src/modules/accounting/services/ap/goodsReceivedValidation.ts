@@ -1,7 +1,50 @@
 import type { GRNInput } from './procurementService';
-export class GoodsReceivedError extends Error {
-  constructor(message: string, readonly notFound = false) { super(message); }
+
+/** What a goods receipt (create or cancel) was refused for. The MCP tools answer with it; the app route with the message. */
+export type GoodsReceivedRefusalCode =
+  | 'invalid' | 'not_found' | 'po_not_receivable' | 'over_receipt' | 'line_not_on_po' | 'duplicate_line'
+  | 'duplicate_external_ref' | 'already_cancelled' | 'grn_on_bill' | 'receipts_disagree' | 'items_not_on_po' | 'role_not_allowed';
+
+/** One refused receipt line: its position in the request, its PO line, and (over_receipt) the quantities. */
+export interface GoodsReceivedLineRefusal {
+  index: number;
+  poItemId: string;
+  code: 'over_receipt' | 'line_not_on_po' | 'duplicate_line';
+  /** over_receipt: ordered less already received on that PO line. */
+  outstanding?: number;
+  /** over_receipt: the quantity_received asked for. */
+  asked?: number;
 }
+
+export interface GoodsReceivedRefusalDetails {
+  lines?: GoodsReceivedLineRefusal[];
+  /** po_not_receivable: the PO's status. */
+  poStatus?: string;
+  /** duplicate_external_ref: the note that holds the reference. */
+  existing?: { id: string; grnNumber: string };
+  /** grn_on_bill: the bills that carry the note (ten at most) and how many there are. */
+  bills?: Array<{ id: string; invoiceNumber: string }>;
+  billsTotal?: number;
+  /** receipts_disagree: the PO lines that would keep less than the PO's other live notes account for once this note's quantity is off. */
+  disagreeing?: Array<{ poItemId: string; lineReceived: number; noteReceived: number; otherNotesReceived: number }>;
+  /** items_not_on_po: the PO lines the note's items name that are not lines of the note's PO. */
+  notOnPo?: string[];
+}
+
+/**
+ * A refused goods receipt, raised before anything is written. `refusal` is the typed reason; the message is fixed wording that
+ * names at most the caller's own documents and quantities. Its code is on the MCP REFUSAL_CODES.
+ */
+export class GoodsReceivedError extends Error {
+  readonly code = 'GOODS_RECEIVED_REFUSED';
+  constructor(message: string, readonly refusal: GoodsReceivedRefusalCode = 'invalid', readonly details: GoodsReceivedRefusalDetails = {}) {
+    super(message);
+    this.name = 'GoodsReceivedError';
+  }
+  /** The app route answers 404 for this one. */
+  get notFound(): boolean { return this.refusal === 'not_found'; }
+}
+
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GoodsReceivedError('Invalid receipt');
@@ -11,12 +54,16 @@ function id(value: unknown): string {
   if (typeof value !== 'string' || !uuid.test(value)) throw new GoodsReceivedError('Valid purchase order and line IDs are required');
   return value.toLowerCase();
 }
+/** grn_items.quantity_received / quantity_rejected are NUMERIC(15,2): above this the insert would fail 22003 (round 5 nit). */
+export const GRN_QUANTITY_MAX = 9999999999999.99;
+
 function quantity(value: unknown): number {
   if (value === undefined || value === null || value === '') return 0;
   if (typeof value !== 'number' && typeof value !== 'string') throw new GoodsReceivedError('Invalid quantity');
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || Math.round(number * 100) / 100 !== number
     || !Number.isSafeInteger(Math.round(number * 100))) throw new GoodsReceivedError('Quantities must be finite, non-negative and have at most two decimal places');
+  if (number > GRN_QUANTITY_MAX) throw new GoodsReceivedError(`Quantities must be at most ${GRN_QUANTITY_MAX.toFixed(2)}`);
   return number;
 }
 function text(value: unknown): string | undefined {
@@ -24,7 +71,11 @@ function text(value: unknown): string | undefined {
   if (typeof value !== 'string') throw new GoodsReceivedError('Receipt text fields must be strings');
   return value.trim() || undefined;
 }
-export function parseGoodsReceived(input: unknown, userId: string): GRNInput {
+/**
+ * The receipt, parsed. A PO line repeated is not thrown here (Codex round 3 nit): it comes back in `duplicates`, so the service refuses
+ * it together with every line it judges against the PO (line_not_on_po, over_receipt), as the tools promise.
+ */
+export function parseGoodsReceived(input: unknown, userId: string): GRNInput & { duplicates: GoodsReceivedLineRefusal[] } {
   const body = record(input);
   const date = body.receivedDate;
   if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -34,10 +85,23 @@ export function parseGoodsReceived(input: unknown, userId: string): GRNInput {
   if (!Array.isArray(body.items) || body.items.length === 0) throw new GoodsReceivedError('At least one receipt line is required');
   const items = body.items.map(value => {
     const item = record(value);
+    // Required on every line, for the app POST as for the tool (review of fba543d5, finding 2): an omitted count is not a count of
+    // zero; an explicit 0 (every unit rejected) is accepted. quantityRejected may be omitted (none rejected).
+    if (item.quantityReceived === undefined || item.quantityReceived === null || item.quantityReceived === '') {
+      throw new GoodsReceivedError('Each line\'s received quantity is required (0 when every unit was rejected)');
+    }
     const result = { poItemId: id(item.poItemId), quantityReceived: quantity(item.quantityReceived), quantityRejected: quantity(item.quantityRejected), notes: text(item.notes) };
     if (result.quantityReceived === 0 && result.quantityRejected === 0) throw new GoodsReceivedError('Each line must record received or rejected goods');
     return result;
   });
-  if (new Set(items.map(item => item.poItemId)).size !== items.length) throw new GoodsReceivedError('A purchase order line may appear only once per receipt');
-  return { purchaseOrderId: id(body.purchaseOrderId), receivedDate: date, receivedBy: text(body.receivedBy) ?? userId, notes: text(body.notes), items };
+  const seen = new Set<string>();
+  const repeats: GoodsReceivedLineRefusal[] = [];
+  items.forEach((item, index) => {
+    if (seen.has(item.poItemId)) repeats.push({ index, poItemId: item.poItemId, code: 'duplicate_line' });
+    seen.add(item.poItemId);
+  });
+  return {
+    purchaseOrderId: id(body.purchaseOrderId), receivedDate: date, receivedBy: text(body.receivedBy) ?? userId, notes: text(body.notes), items,
+    duplicates: repeats,
+  };
 }

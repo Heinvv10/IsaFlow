@@ -21,7 +21,9 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
 import { PurchaseOrderChangedError, PurchaseOrderMaintenanceRefusal, PurchaseOrderNotFoundError } from './purchaseOrderErrors';
-import { ACCOUNTLESS_REFUSAL, lockPoForMaintenance, billTieRefusal, poHasAccountlessLines, poHasReceipts } from './purchaseOrderMaintenanceGuards';
+import {
+  ACCOUNTLESS_REFUSAL, CANCELLED_NOTE_LINES_REFUSAL, lockPoForMaintenance, billTieRefusal, poHasAccountlessLines, poHasAnyNote, poHasReceipts,
+} from './purchaseOrderMaintenanceGuards';
 
 export const SETTABLE_PO_STATUSES = ['draft', 'approved', 'closed', 'cancelled'] as const;
 export type SettablePoStatus = (typeof SETTABLE_PO_STATUSES)[number];
@@ -60,7 +62,11 @@ export async function setImportedPurchaseOrderStatus(
       throw refuse(`A purchase order is closed from approved only (this one is ${words(po.status)}): approve it first, so it is not made billable without ever having been approved`);
     }
     if (await poHasReceipts(companyId, poId)) {
-      throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; unlink or cancel the receipt first');
+      throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; cancel its goods received notes first (cancel_goods_received)');
+    }
+    // A draft's lines are replaced by the PUT and a draft is deleted outright: neither can happen under a cancelled note's kept items.
+    if (target === 'draft' && await poHasAnyNote(companyId, poId)) {
+      throw refuse(`${CANCELLED_NOTE_LINES_REFUSAL}, so it cannot go back to draft`);
     }
     if (target === 'draft' || target === 'cancelled') {
       const tied = await billTieRefusal(companyId, poId, `it cannot go to ${target}`);

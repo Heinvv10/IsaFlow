@@ -18,6 +18,7 @@ import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplie
 import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierLines } from './invoiceCreateArgs';
 import { NOT_FOUND, castableArgError, ok, strArg, toolError } from './toolHelpers';
+import { UUID_RE } from '@/lib/validation';
 import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
@@ -49,7 +50,10 @@ export const updateSupplierInvoiceTool: McpTool = {
     + 'due date came from payment terms (not set by hand or taken from the document), it is re-dated by the terms a '
     + 'new bill gets (the payment_terms sent here, else the supplier\'s, else the company default) unless you send a '
     + 'different due_date, which is kept as set by hand; a due date set by hand or from the document never moves, '
-    + 'and payment_terms alone does not re-date. The result lists it in changed when it was re-dated.',
+    + 'and payment_terms alone does not re-date. The result lists it in changed when it was re-dated. '
+    + 'grn_id: the bill\'s goods received note; null takes it off, an id names another one. A bill\'s note must be this company\'s, live, '
+    + 'on a purchase order of the bill\'s supplier, and one of the purchase orders the bill names (when it names any); a supplier_id change '
+    + 'that the note would no longer agree with is refused unless the same call sends grn_id (null, or a note that agrees).',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -63,6 +67,7 @@ export const updateSupplierInvoiceTool: McpTool = {
       payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
       reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
       notes: { type: 'string' },
+      grn_id: { type: ['string', 'null'], description: 'Goods received note UUID (list_goods_received), or null to take the bill\'s note off' },
       tax_rate: { type: 'number', description: 'Default VAT % for the lines sent. Only with lines.' },
       lines: {
         type: 'array',
@@ -130,6 +135,7 @@ export const updateSupplierInvoiceTool: McpTool = {
       id: bill.id,
       invoice_number: bill.invoiceNumber,
       supplier_id: bill.supplierId,
+      grn_id: bill.grnId ?? null,
       invoice_date: bill.invoiceDate,
       due_date: bill.dueDate ?? null,
       subtotal: bill.subtotal,
@@ -182,6 +188,12 @@ function parsePatch(
     patch[key] = value;
   }
 
+  if (args.grn_id !== undefined) {
+    if (args.grn_id !== null && (typeof args.grn_id !== 'string' || !UUID_RE.test(args.grn_id))) {
+      return 'grn_id must be a goods received note UUID (list_goods_received) or null';
+    }
+    patch.grnId = args.grn_id;
+  }
   if (args.tax_rate !== undefined && args.tax_rate !== null) {
     const taxRate = Number(args.tax_rate);
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
@@ -198,7 +210,7 @@ function parsePatch(
 
   if (Object.keys(patch).length === 0) {
     return 'Nothing to update: send at least one of supplier_id, invoice_number, invoice_date, '
-      + 'due_date, payment_terms, reference, notes or lines.';
+      + 'due_date, payment_terms, reference, notes, grn_id or lines.';
   }
   return { patch, dimensionRefs };
 }

@@ -32,6 +32,11 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/billing/withFlowMeter', () => ({ withFlowMeter: () => (h: unknown) => h }));
 vi.mock('@/modules/billing/services/flowOperationCatalog', () => ({ getFlowCost: () => 0 }));
+// The number reservation and the create share the route's savepoint (Codex gate at 1cf5bdc1, 2): a request transaction stands in.
+vi.mock('@/lib/neon', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/neon')>()),
+  withTransaction: (fn: (tx: unknown) => unknown) => fn(undefined),
+}));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({
   reserveNextDocumentNumber: vi.fn(async () => 'SIV-1'),
 }));
