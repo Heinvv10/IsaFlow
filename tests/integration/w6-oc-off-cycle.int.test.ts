@@ -18,6 +18,7 @@ import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Serv
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { laterOffCycleRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 import { calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
@@ -126,6 +127,13 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     // The route answers every reopen refusal "Reopen failed" (pre-existing); the reason is this gate's.
     expect(await laterOffCycleRefusal(a.company, regular)).toMatch(/off-cycle runs were costed on this run's lines/);
     expect((await a.header(regular)).status).toBe('approved');
+  });
+
+  it('the year to date counts November once for the s11F cap: the approved bonus adds no cap period (review #1679 M2)', async () => {
+    // As December's run would read it (a run not yet created: the runs before December).
+    const ytd = (await loadPayeYearToDate(a.company, crypto.randomUUID(), { year: 2026, month: 12 }, [people.high])).get(people.high)!;
+    expect(ytd.periods).toBe(1);
+    expect(ytd.retirementCapPeriods).toBe(1);
   });
 });
 
