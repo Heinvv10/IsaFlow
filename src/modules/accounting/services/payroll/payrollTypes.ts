@@ -221,6 +221,8 @@ export interface ComponentBreakdownItem {
   isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
+  /** A once-off assignment (EmployeeComponent.isRecurring false): not time-worked pay for classification (timeWorkedEarnings). */
+  onceOff?: true;
   /** As on EmployeeComponent: the PAYE inclusion the line was costed with, kept so a reader need not re-derive it. */
   payeInclusionRate?: number;
   /** What the calculator took as remuneration for PAYE from this item (amount x rate, to the cent): exact for the certificate's 4582. */

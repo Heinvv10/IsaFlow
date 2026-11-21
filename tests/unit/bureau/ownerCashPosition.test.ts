@@ -104,6 +104,16 @@ describe('pickPayrollRun', () => {
       expect(pickPayrollRun([june], 1000, '2026-07-07')).toMatchObject({ runId: 'june', totalRequired: 2300 });
       expect(pickPayrollRun([june], 1000, '2026-07-08')).toMatchObject({ runId: 'june', canPay: true, shortfall: 0 });
     });
+    it('the EMP201 due date moves back off a weekend: a Saturday 7th to Friday the 6th, a Sunday 7th to Friday the 5th', () => {
+      const paidRun = (month: number, year: number) => run({ id: `r${month}`, period_month: month, period_year: year, total_net: '1000',
+        total_paye: '300', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: `${year}-${String(month).padStart(2, '0')}-25`, final: true });
+      // October 2026: due Saturday 7 November, so Friday the 6th.
+      expect(pickPayrollRun([paidRun(10, 2026)], 0, '2026-11-06')).toMatchObject({ totalRequired: 300, canPay: false });
+      expect(pickPayrollRun([paidRun(10, 2026)], 0, '2026-11-07')).toMatchObject({ canPay: true, shortfall: 0 });
+      // January 2027: due Sunday 7 February, so Friday the 5th.
+      expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-05')).toMatchObject({ totalRequired: 300, canPay: false });
+      expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-06')).toMatchObject({ canPay: true, shortfall: 0 });
+    });
     it('a reopened bonus already paid out owes only the gross above its paid snapshot (after its EMP201 is due)', () => {
       const reopened = run({ id: 'bonus', status: 'calculated', total_gross: '5500', total_net: '4000', total_paye: '1500', total_uif: '0',
         total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: false, disbursed: true, paid_gross: '5000' });

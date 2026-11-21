@@ -20,6 +20,7 @@ import {
   expectedVatPeriodAsOf,
   normalizeVatAlignment,
   normalizeVatSetting,
+  previousBusinessDay,
   type VatPeriod,
 } from './vatPeriodHelper';
 import { todayInSast } from '@/lib/saDateParser';
@@ -127,11 +128,13 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
  * no totals at all, the earliest run. No `asAt`: every run is due.
  */
-/** The day a month's EMP201 is due: the 7th of the next month (after it the 13-week forecast assumes it paid, readSars). */
-const emp201Due = (r: PayrollRunRow): string => {
-  const next = r.period_month === 12 ? { y: r.period_year + 1, m: 1 } : { y: r.period_year, m: r.period_month + 1 };
-  return `${next.y}-${String(next.m).padStart(2, '0')}-07`;
-};
+/**
+ * The day a month's EMP201 is due: the 7th of the next month, moved back to the business day before when it falls on a
+ * weekend or SA public holiday (previousBusinessDay, as the compliance calendar does). After it the 13-week forecast
+ * assumes it paid (readSars).
+ */
+const emp201Due = (r: PayrollRunRow): string =>
+  (r.period_month === 12 ? previousBusinessDay(r.period_year + 1, 1, 7) : previousBusinessDay(r.period_year, r.period_month + 1, 7));
 
 /**
  * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Before its pay date, or overdue and

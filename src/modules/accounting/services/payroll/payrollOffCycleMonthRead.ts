@@ -35,6 +35,7 @@ export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEa
     },
     amount: Number(i.amount) || 0,
     ...(i.isNonCash ? { isNonCash: true } : {}),
+    ...(i.onceOff ? { isRecurring: false } : {}), // a once-off is not time-worked pay (timeWorkedEarnings)
     ...(i.payeInclusionRate !== undefined ? { payeInclusionRate: i.payeInclusionRate } : {}),
     ...(i.quantity !== undefined ? { quantity: i.quantity, quantityUnit: i.quantityUnit ?? null } : {}),
   }));

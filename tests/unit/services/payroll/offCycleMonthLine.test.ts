@@ -14,6 +14,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import { NO_EARLIER_LINES, OffCycleEtiBasisError, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
+import { earningsOfBreakdown } from '@/modules/accounting/services/payroll/payrollOffCycleMonthRead';
 import { getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
 import type { EmployeeComponent, PayeYearToDate, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 import { expectRecomputes } from './payrollExplainRecompute.helpers';
@@ -270,5 +271,23 @@ describe('the employment class across the month (G21 p. 28 day pay; review #1679
   it('with no time worked over the rate in the month, the rate decides (tables)', () => {
     const basicOnly: MonthEarlierLines = { uifRemuneration: 3_033, eti: 0, etiComponents: [earning('basic', '3601', 3_033)] };
     expect(bonusLine(10_000, basicOnly, undefined, partTime).paye.monthlyPaye).not.toBeCloseTo(2_500, 2);
+  });
+});
+
+// Review follow-up on ed7bdab53e: only the regular line's RECURRING time-worked pay classifies the bonus, as on the
+// regular line itself (timeWorkedEarnings): a once-off 3601 there is recorded on its breakdown item (onceOff) and
+// left out when the earlier lines are rebuilt.
+describe('the employment class across the month: a once-off basic pay item does not count (review of ed7bdab53e)', () => {
+  const partTime = employee({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 300 });
+  it('a once-off 3601 on the regular line is flagged on its breakdown, and the rebuild leaves it out', () => {
+    const onceOff: EmployeeComponent = { ...earning('extra', '3601', 1_517), isRecurring: false };
+    const regular = calculatePayrollLine({ employee: partTime, components: [earning('basic', '3601', 3_033), onceOff], period, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(regular.componentBreakdown.find((i) => i.componentId === 'extra')).toMatchObject({ onceOff: true });
+    expect(regular.componentBreakdown.find((i) => i.componentId === 'basic')?.onceOff).toBeUndefined();
+    const rebuilt = earningsOfBreakdown(regular.componentBreakdown.map((i) => ({ ...i, isEarning: true })));
+    expect(rebuilt.find((c) => c.component.id === 'extra')?.isRecurring).toBe(false);
+    // R3 033 recurring over 10.11 days is R300 a day: deemed standard (tables), as the regular line was.
+    const bonus = bonusLine(10_000, { uifRemuneration: 4_550, eti: 0, etiComponents: rebuilt }, undefined, partTime);
+    expect(bonus.paye.monthlyPaye).not.toBeCloseTo(2_500, 2);
   });
 });
