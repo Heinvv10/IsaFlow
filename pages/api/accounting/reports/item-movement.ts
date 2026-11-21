@@ -24,34 +24,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Get GRN (goods received) as stock IN. grn_items.product_id references PRODUCTS (its FK, and what the receipt copies from the PO
     // line's product_id); this used to join stock_items, a separate catalogue no receipt ever names (Codex gate at 1cf5bdc1, 1).
-    let grnRows;
-    if (itemId) {
-      grnRows = await sql`
-        SELECT g.received_date AS move_date, 'GRN' AS move_type,
-          g.grn_number AS reference, p.name AS item_name, p.code AS item_code,
-          gi.quantity_received AS qty_in, 0 AS qty_out
-        FROM grn_items gi
-        JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}
-        JOIN products p ON p.id = gi.product_id
-        WHERE p.company_id = ${companyId}
-          AND gi.product_id = ${itemId}
-          AND g.status <> 'cancelled'
-          AND g.received_date >= ${from} AND g.received_date <= ${to}
-      `;
-    } else {
-      grnRows = await sql`
-        SELECT g.received_date AS move_date, 'GRN' AS move_type,
-          g.grn_number AS reference, p.name AS item_name, p.code AS item_code,
-          gi.quantity_received AS qty_in, 0 AS qty_out
-        FROM grn_items gi
-        JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}
-        JOIN products p ON p.id = gi.product_id
-        WHERE p.company_id = ${companyId}
-          AND g.received_date IS NOT NULL
-          AND g.status <> 'cancelled'
-          AND g.received_date >= ${from} AND g.received_date <= ${to}
-      `;
-    }
+    // A receipt written before the receipt copied the product has product_id NULL (1021 backfills nothing): its product is resolved
+    // here through the item's own PO line, that line's PO being the note's and this company's, the product checked to be the
+    // company's (Codex gate at 42de08b3, 1). One query for both forms; item_id filters on the resolved product.
+    const grnRows = await sql`
+      SELECT g.received_date AS move_date, 'GRN' AS move_type,
+        g.grn_number AS reference, p.id::text AS product_id, p.name AS item_name, p.code AS item_code,
+        gi.quantity_received AS qty_in, 0 AS qty_out
+      FROM grn_items gi
+      JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}
+      LEFT JOIN po_items pi ON pi.id = gi.po_item_id AND pi.purchase_order_id = g.purchase_order_id
+      LEFT JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}
+      JOIN products p ON p.id = COALESCE(gi.product_id, CASE WHEN po.id IS NOT NULL THEN pi.product_id END)
+                     AND p.company_id = ${companyId}
+      WHERE g.received_date IS NOT NULL
+        AND g.status <> 'cancelled'
+        AND g.received_date >= ${from} AND g.received_date <= ${to}
+        AND (${itemId ?? null}::uuid IS NULL OR p.id = ${itemId ?? null}::uuid)
+      ORDER BY g.received_date, g.grn_number, gi.id
+    `;
 
     // No sales rows — customer_invoice_items don't link to products
     const salesRows: typeof grnRows = [];
@@ -61,20 +52,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       new Date(a.move_date).getTime() - new Date(b.move_date).getTime()
     );
 
-    let runningBalance = 0;
+    // The running balance is PER PRODUCT (Codex gate at 42de08b3, 2): one shared total made B read 12 after 10 of A and 2 of B.
+    const balances = new Map<string, number>();
     const data = allMoves.map(r => {
       const qtyIn = Number(r.qty_in || 0);
       const qtyOut = Number(r.qty_out || 0);
-      runningBalance += qtyIn - qtyOut;
+      const key = String(r.product_id);
+      const balance = (balances.get(key) ?? 0) + qtyIn - qtyOut;
+      balances.set(key, balance);
       return {
         date: fmtDate(r.move_date),
         type: r.move_type,
         reference: r.reference || '',
+        productId: key,
         itemName: r.item_name,
         itemCode: r.item_code || '',
         qtyIn,
         qtyOut,
-        balance: runningBalance,
+        balance,
       };
     });
 
