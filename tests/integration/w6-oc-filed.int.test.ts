@@ -77,3 +77,24 @@ describe('a filed EMP201 after the reopen', () => {
     expect(Number((await a.pool.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).rows[0].n)).toBe(before);
   });
 });
+
+describe('review #1679 codex M4: a filed EMP201 refuses the reopen on or before payday too', () => {
+  it('an approved December bonus not yet paid is not reopened once December is filed; the run stays approved', async () => {
+    const december = await a.calculatedRun(12);
+    expect((await a.api.approve(december)).statusCode).toBe(200);
+    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
+      body: { month: 12, year: 2026, reason: 'bonus', runDate: '2026-12-20', employees: [{ employeeId: mid, componentId: bonus, amount: 2_000 }] },
+    });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const dec = String(made.body.data!.id);
+    expect((await a.api.calculate(dec)).statusCode).toBe(200);
+    expect((await a.api.approve(dec)).statusCode).toBe(200);
+    await a.pool.query(`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, status, figures,
+      posted_through, finalised_by, filed_by, filed_at) VALUES ($1, 'EMP201', '2026-12-01', '2026-12-31', 1, 'filed', '{}'::jsonb, now(), $2, $2, now())`,
+    [a.company, a.admin]);
+    const re = await a.api.reopen(dec);
+    expect(re.statusCode).toBe(409);
+    expect(a.msg(re)).toMatch(/its month's EMP201 is filed, so it is not reopened/);
+    expect((await a.header(dec)).status).toBe('approved');
+  });
+});

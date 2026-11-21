@@ -62,7 +62,7 @@ export async function reopenPayrollRun(opts: {
     }
     throw new PayrollRunReopenRefusedError(`Cannot reopen run in status '${previousStatus}' — only 'approved' is reopenable.`);
   }
-  // Wave 6 OC: a paid off-cycle run is reopened only while its month's EMP201 is not filed (409 otherwise).
+  // Wave 6 OC: an off-cycle run is reopened only while its month's EMP201 is not filed, before or after payday (409, #1679 M4).
   const paid = await offCyclePaidReopenRefusal(opts.companyId, run);
   if (paid) throw new OffCycleRunRefusedError(paid, 409);
   // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.

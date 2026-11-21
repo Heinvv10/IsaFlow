@@ -23,25 +23,25 @@ import { dateColumnOf } from './payrollFrequency';
 import { emp201FiledForMonth, wasApprovedBefore } from './payrollOffCycleCorrection';
 
 /**
- * Why this off-cycle run cannot be reopened today (review #1620 final breaker M, coordinator ruling): once its pay date
- * has passed it was paid, and it is reopened (to correct an over-payment keyed in error) only while its month's EMP201
- * is not filed: no finalised or filed EMP201 version for the month, and no legacy submitted or accepted EMP201 covering
- * it. Once filed, the month's declaration stands; a correction run is wave 7. Null when it can be, or it is not
- * off-cycle, or its pay date has not passed.
+ * Why this off-cycle run cannot be reopened (review #1620 final breaker M, coordinator ruling; review #1679 M4): it is
+ * reopened (to correct an amount keyed in error) only while its month's EMP201 is not filed: no finalised or filed EMP201
+ * version for the month, and no legacy submitted or accepted EMP201 covering it. That holds on or before its pay date
+ * too: the declaration counts the approved run, and once the month is filed the run is neither recalculated nor
+ * approved again, so a reopen would take it out of payroll's totals for good. Judged before the status changes. A
+ * correction after filing is wave 7. Null when it can be, or it is not off-cycle.
  */
 export async function offCyclePaidReopenRefusal(
-  companyId: string, run: { run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown }, today: string = todayInSast(),
+  companyId: string, run: { run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown },
 ): Promise<string | null> {
   if (run.run_kind !== 'off_cycle') return null;
-  const payDate = dateColumnOf(run.run_date);
-  if (payDate === null || payDate >= today) return null;
   const year = Number(run.period_year);
   const month = Number(run.period_month);
   const filed = await emp201FiledForMonth(companyId, year, month);
-  return filed
-    ? `This off-cycle run was paid on ${formatDisplayDate(payDate)} and its month's EMP201 is filed, so it is not reopened: `
-      + 'the filed declaration stands. A correction after filing is made outside payroll for now.'
-    : null;
+  if (!filed) return null;
+  const payDate = dateColumnOf(run.run_date);
+  const when = payDate === null ? '' : ` (pay date ${formatDisplayDate(payDate)})`;
+  return `This off-cycle run${when}: its month's EMP201 is filed, so it is not reopened: `
+    + 'the filed declaration stands. A correction after filing is made outside payroll for now.';
 }
 
 
