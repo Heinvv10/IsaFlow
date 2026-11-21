@@ -101,21 +101,26 @@ describe('EMP201 drill: the pay run links', () => {
   });
 });
 
-describe('Portfolio: the Payroll column', () => {
-  const row = { companyId: 'c1', companyName: 'Client One', isDefault: false, role: 'admin', trialBalanceBalanced: true, readyCount: 1, attentionCount: 0, blockedCount: 0, failed: false,
-    cards: [{ id: 'payroll', title: 'Payroll', status: 'ready', primary: '5 employees' }] };
-  const answer = () => h.apiFetch.mockImplementation(async () => json({ success: true, data: { userId: 'u', period: '2026-09', rows: [row], generatedAt: '2026-10-01T00:00:00Z',
-    summary: { totalClients: 1, clientsAtRisk: 0, cardsByStatus: { ready: 1, in_progress: 0, attention: 0, blocked: 0, not_started: 0 } } } }));
-  it('is not shown without Payroll read, the other columns are', async () => {
+describe('Portfolio: Payroll is decided per client row by the server', () => {
+  const card = (id: string, title: string) => ({ id, title, status: 'ready', primary: `${title} ok` });
+  const mk = (id: string, name: string, extra: Record<string, unknown>) => ({
+    companyId: id, companyName: name, isDefault: false, role: 'admin', trialBalanceBalanced: true, attentionCount: 0, blockedCount: 0, failed: false, ...extra,
+  });
+  const readable = mk('c1', 'Readable Client', { readyCount: 2, cards: [card('banking', 'Bank'), card('payroll', 'Payroll')] });
+  const hidden = mk('c2', 'Hidden Client', { readyCount: 1, cards: [card('banking', 'Bank')], payrollHidden: true });
+  const answer = () => h.apiFetch.mockImplementation(async () => json({ success: true, data: { userId: 'u', period: '2026-09', rows: [readable, hidden], generatedAt: '2026-10-01T00:00:00Z',
+    summary: { totalClients: 2, clientsAtRisk: 0, cardsByStatus: { ready: 3, in_progress: 0, attention: 0, blocked: 0, not_started: 0 } } } }));
+
+  it('shows the Payroll card for a client where it is readable and "No access" where it is not, whatever the active company can read', async () => {
+    h.flags = CANNOT; // the ACTIVE company's Payroll read is irrelevant: each row carries its own
     answer();
     render(<PortfolioWorkbenchPage />);
-    await screen.findByText('Client One');
-    expect(screen.queryByTitle('Payroll')).toBeNull();
-    expect(screen.getByTitle('Bank')).toBeTruthy();
-  });
-  it('is shown with Payroll read', async () => {
-    h.flags = CAN; answer();
-    render(<PortfolioWorkbenchPage />);
-    await waitFor(() => expect(screen.getByTitle('Payroll')).toBeTruthy());
+    await screen.findByText('Hidden Client');
+    const rowOf = (name: string) => screen.getByText(name).closest('tr')!;
+    expect(within(rowOf('Hidden Client')).getByText('No access')).toBeTruthy();
+    expect(within(rowOf('Hidden Client')).getByText('1/7')).toBeTruthy();
+    expect(within(rowOf('Readable Client')).queryByText('No access')).toBeNull();
+    expect(within(rowOf('Readable Client')).getByText('2/8')).toBeTruthy();
+    expect(screen.getByTitle('Payroll')).toBeTruthy(); // the column header stays
   });
 });

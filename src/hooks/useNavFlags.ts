@@ -7,7 +7,7 @@
  * together). Until the answers arrive, for whatever failed, and outside a CompanyProvider the set lacks it: a flagged
  * link and a module the user may not read stay hidden rather than flashing up and out. The two answers are
  * independent: if one fails, what the other said still applies (a failed permissions request hides Payroll only, a
- * failed feature check the flagged links only). A failed check is not cached, so the next mount asks again.
+ * failed feature check the flagged links only). A failed check is not cached for good: the first mount after `NAV_FLAGS_BACKOFF_MS` asks again, not every mount.
  */
 import { useEffect, useState } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -17,8 +17,10 @@ import { FEATURE_NAV_FLAGS, moduleReadFlag, NAV_MODULES } from '@/components/acc
 
 const NONE: ReadonlySet<string> = new Set();
 const resolved = new Map<string, ReadonlySet<string>>();
-/** What arrived when one of the two answers failed: used on screen, never final (the next mount asks again). */
-const partial = new Map<string, ReadonlySet<string>>();
+/** What arrived when one of the two answers failed: used on screen, never final (asked again after the backoff). */
+const partial = new Map<string, { flags: ReadonlySet<string>; retryAfter: number }>();
+/** After a partial answer the endpoints are left alone this long, so every mount (and a company switch back and forth) does not re-ask a failing one. */
+export const NAV_FLAGS_BACKOFF_MS = 30_000;
 const inFlight = new Map<string, Promise<ReadonlySet<string>>>();
 
 async function checkFlag(code: string): Promise<boolean> {
@@ -42,8 +44,10 @@ export function loadNavFlags(companyId: string): Promise<ReadonlySet<string>> {
   if (done) return Promise.resolve(done);
   const pending = inFlight.get(companyId);
   if (pending) return pending;
+  const waiting = partial.get(companyId);
+  if (waiting && Date.now() < waiting.retryAfter) return Promise.resolve(waiting.flags);
   // Independent answers: a failed permissions request hides Payroll only, a failed feature check hides the flagged
-  // links only. Whatever did arrive is used; a partial answer is not cached, so the next mount asks again.
+  // links only. Whatever did arrive is used; a partial answer is not final: the first mount after the backoff asks again.
   const p = Promise.allSettled([
     Promise.all(FEATURE_NAV_FLAGS.map(async (code) => ((await checkFlag(code)) ? code : null))),
     readableModuleFlags(),
@@ -56,7 +60,7 @@ export function loadNavFlags(companyId: string): Promise<ReadonlySet<string>> {
       }
       const set: ReadonlySet<string> = new Set(found);
       if (results.every((r) => r.status === 'fulfilled')) { resolved.set(companyId, set); partial.delete(companyId); }
-      else partial.set(companyId, set);
+      else partial.set(companyId, { flags: set, retryAfter: Date.now() + NAV_FLAGS_BACKOFF_MS });
       return set;
     })
     .finally(() => inFlight.delete(companyId));
@@ -93,5 +97,5 @@ export function useNavFlags(): ReadonlySet<string> {
     void loadNavFlags(companyId).then(() => { if (!gone) setAnswered((n) => n + 1); });
     return () => { gone = true; };
   }, [companyId]);
-  return companyId ? resolved.get(companyId) ?? partial.get(companyId) ?? NONE : NONE;
+  return companyId ? resolved.get(companyId) ?? partial.get(companyId)?.flags ?? NONE : NONE;
 }

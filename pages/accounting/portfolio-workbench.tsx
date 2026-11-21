@@ -18,7 +18,6 @@ import type {
 } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 import type { CardStatus } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
 import { formatDisplayDateTime, formatDisplayMonthYearLong } from '@/utils/dateFormat';
-import { useModuleRead } from '@/hooks/useHrefVisible';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -65,6 +64,10 @@ const COLUMN_DEFS: ReadonlyArray<{ id: string; label: string }> = [
 interface ApiEnvelope<T> { success: boolean; data: T; error?: { message?: string } }
 
 function StatusCell({ row, columnId }: { row: PortfolioRow; columnId: string }) {
+  // The server leaves the payroll card out of a client where the user has no Payroll read (portfolioPayrollAccess).
+  if (columnId === 'payroll' && row.payrollHidden) {
+    return <td className="px-2 py-2 text-center text-xs text-zinc-500" title="You do not have Payroll access in this client">No access</td>;
+  }
   const card = row.cards.find(c => c.id === columnId);
   if (!card) {
     return <td className="px-2 py-2 text-center text-zinc-700">—</td>;
@@ -99,9 +102,6 @@ function StatusLegend() {
 }
 
 export default function PortfolioWorkbenchPage() {
-  // The Payroll column shows only to a user who can read Payroll (useNavFlags: hidden until known).
-  const canReadPayroll = useModuleRead('payroll');
-  const columns = COLUMN_DEFS.filter((c) => c.id !== 'payroll' || canReadPayroll);
   const router = useRouter();
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [data, setData] = useState<PortfolioWorkbench | null>(null);
@@ -232,7 +232,7 @@ export default function PortfolioWorkbenchPage() {
                 <tr>
                   <th className="text-left font-medium px-4 py-2.5 sticky top-0">Client</th>
                   <th className="text-center font-medium px-2 py-2.5 sticky top-0">TB</th>
-                  {columns.map(col => (
+                  {COLUMN_DEFS.map(col => (
                     <th key={col.id} className="text-center font-medium px-2 py-2.5 sticky top-0" title={col.label}>
                       {col.label}
                     </th>
@@ -268,12 +268,12 @@ export default function PortfolioWorkbenchPage() {
                         <AlertCircle className="w-4 h-4 text-red-400 inline" aria-label="TB out of balance" />
                       )}
                     </td>
-                    {columns.map(col => (
+                    {COLUMN_DEFS.map(col => (
                       <StatusCell key={col.id} row={row} columnId={col.id} />
                     ))}
                     <td className="px-2 py-2.5 text-center text-zinc-300 tabular-nums">
-                      <span className={row.readyCount === 8 ? 'text-emerald-300' : ''}>
-                        {row.readyCount}/8
+                      <span className={row.readyCount === (row.payrollHidden ? 7 : 8) ? 'text-emerald-300' : ''}>
+                        {row.readyCount}/{row.payrollHidden ? 7 : 8}
                       </span>
                     </td>
                   </tr>

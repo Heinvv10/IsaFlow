@@ -21,7 +21,7 @@ vi.mock('@/components/layout/ModuleNav', () => ({
 
 import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { DrawerNav } from '@/components/layout/DrawerNav';
-import { resetNavFlagsCache, useNavFlags } from '@/hooks/useNavFlags';
+import { NAV_FLAGS_BACKOFF_MS, resetNavFlagsCache, useNavFlags } from '@/hooks/useNavFlags';
 import { moduleReadFlag, NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { buildSections } from '@/components/layout/paletteRank';
 import { PALETTE_ACTIONS } from '@/components/layout/commandActions';
@@ -84,17 +84,32 @@ describe('AccountingNav (the top bar)', () => {
   });
 });
 
-describe('a failed permissions request is not remembered', () => {
-  it('the next mount asks again and shows Payroll when the answer is yes', async () => {
-    server('fail');
-    const first = render(<AccountingNav />);
-    await waitFor(() => expect(h.apiFetch).toHaveBeenCalledWith(expect.stringContaining('/api/accounting/my-permissions')));
-    await new Promise((r) => setTimeout(r, 20));
-    first.unmount();
-    h.moduleTabs = [];
-    server({ read: true, write: false, approve: false });
-    render(<AccountingNav />);
-    await waitFor(() => expect(tabIds()).toContain('payroll'));
+describe('a failed permissions request is asked again only after the backoff', () => {
+  const asked = () => h.apiFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/accounting/my-permissions')).length;
+
+  it('a mount inside the backoff does not re-ask; the first mount after it does, and shows Payroll when the answer is yes', async () => {
+    const realNow = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(realNow);
+    try {
+      server('fail');
+      const first = render(<AccountingNav />);
+      await waitFor(() => expect(asked()).toBe(1));
+      await new Promise((r) => setTimeout(r, 20));
+      first.unmount();
+
+      server({ read: true, write: false, approve: false });
+      const second = render(<AccountingNav />);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(asked()).toBe(1);
+      expect(tabIds()).not.toContain('payroll');
+      second.unmount();
+
+      now.mockReturnValue(realNow + NAV_FLAGS_BACKOFF_MS + 1);
+      h.moduleTabs = [];
+      render(<AccountingNav />);
+      await waitFor(() => expect(tabIds()).toContain('payroll'));
+      expect(asked()).toBe(2);
+    } finally { now.mockRestore(); }
   });
 });
 

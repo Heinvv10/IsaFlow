@@ -6,6 +6,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { getMyModulePermissions } from '@/lib/auth/myPermissions';
 import { checkPermission } from '@/lib/auth/permissionService';
+import { payrollReadByCompany } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
+import { getPortfolioWorkbench } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error('DATABASE_URL required');
@@ -81,4 +83,26 @@ describe('getMyModulePermissions (real SQL) agrees with checkPermission', () => 
     expect((await getMyModulePermissions(B, U.rowElsewhere)).payroll!.read).toBe(false);
     expect((await getMyModulePermissions(B, U.viewerNoPayroll)).payroll).toBeUndefined();
   });
+
+  // The portfolio spans every client the user belongs to; Payroll read is decided PER company, in one query.
+  it('payrollReadByCompany: one query over two companies equals checkPermission in each, and a non-member is false in both', async () => {
+    for (const id of Object.values(U)) {
+      const m = await payrollReadByCompany(admin, id, [A, B]);
+      for (const co of [A, B]) expect([id, co, m.get(co)]).toEqual([id, co, await checkPermission(co, id, 'payroll', 'read')]);
+    }
+    const mixed = await payrollReadByCompany(admin, U.rowElsewhere, [A, B]);
+    expect([mixed.get(A), mixed.get(B)]).toEqual([true, false]); // one client readable, one not
+    const none = await payrollReadByCompany(admin, U.stranger, [A, B]);
+    expect([none.get(A), none.get(B)]).toEqual([false, false]);
+  });
+
+  it('getPortfolioWorkbench: the client where the user has no Payroll read comes back without the payroll card and says so', async () => {
+    const wb = await getPortfolioWorkbench(U.rowElsewhere, '2026-09');
+    const rows = Object.fromEntries(wb.rows.map((r) => [r.companyId, r]));
+    expect(Object.keys(rows).sort()).toEqual([A, B]);
+    expect(rows[B]!.payrollHidden).toBe(true);
+    expect(rows[B]!.cards.some((c) => c.id === 'payroll')).toBe(false);
+    expect(rows[A]!.payrollHidden).toBeUndefined();
+  });
 });
+

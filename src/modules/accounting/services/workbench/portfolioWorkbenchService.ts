@@ -33,6 +33,7 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
+import { payrollReadByCompany, withoutPayrollCard } from './portfolioPayrollAccess';
 import { getMonthEndWorkbench, type WorkbenchCard, type CardStatus } from './monthEndWorkbenchService';
 
 export interface PortfolioRow {
@@ -47,6 +48,8 @@ export interface PortfolioRow {
   blockedCount: number;
   failed: boolean;
   failedReason?: string;
+  /** The user has no Payroll read in this client: the payroll card is left out and the counts exclude it. */
+  payrollHidden?: boolean;
 }
 
 export interface PortfolioWorkbench {
@@ -172,7 +175,9 @@ export async function getPortfolioWorkbench(
   // Step 2 — for each authorised company, open its own BYPASSRLS client,
   // run the workbench under an ALS context that points at it, release.
   const adminPool = getPlatformAdminPool();
-  const rows = await processInBatches(
+  // Payroll read is per client company: decided here for every row, from the database (see portfolioPayrollAccess).
+  const payrollRead = await payrollReadByCompany(adminPool, userId, memberships.map((m) => m.companyId));
+  const built = await processInBatches(
     memberships,
     async (cu): Promise<PortfolioRow> => {
       const client = await adminPool.connect();
@@ -202,6 +207,7 @@ export async function getPortfolioWorkbench(
     },
     PARALLEL_LIMIT,
   );
+  const rows = built.map((r) => (payrollRead.get(r.companyId) === true ? r : withoutPayrollCard(r)));
 
   // Sort: clients with most attention first, then blocked, then alphabetical.
   rows.sort((a, b) => {
