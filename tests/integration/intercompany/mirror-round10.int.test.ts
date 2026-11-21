@@ -1,8 +1,6 @@
 /**
  * Intercompany P2, round 10 (the round-9 breaker review):
- *  B-L1  a manual (P1) pair for a sale that is also mirrored is not eliminated a second time: the generator skips, and says why, a manual row
- *        that is the same sale as a mirrored document (its journal is the mirrored document's, or a mirrored row of the same two companies,
- *        amount and date);
+ *  B-L1  (superseded in round 12: the generator never skips a manual row; it drafts and flags it, see mirror-round12)
  *  B-L2  a session with no signed-in user (the service login) cannot name a target journal on a new row (the claimed-journal check answers
  *        only for a user's groups);
  *  S10   a reversal chain is walked to its end, however deep (a capped walk would return a truncated count, a parity that fails open);
@@ -12,9 +10,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { createIntercompanyTransaction, matchIntercompanyTransactions } from '../../../src/modules/accounting/services/reports/intercompanyService';
-import { autoGenerateEliminations, type SkippedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
-import { getConsolidatedBalanceSheet, getConsolidatedIncomeStatement } from '../../../src/modules/accounting/services/reports/consolidatedStatementsService';
+import { autoGenerateEliminations, type FlaggedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
+import { getConsolidatedBalanceSheet } from '../../../src/modules/accounting/services/reports/consolidatedStatementsService';
 import { asService, co, groupAccounts as ga, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
 import { asDefiner, outcome } from './intercompany.helpers';
@@ -34,47 +31,16 @@ async function bookedOn(date: string) {
   await approveBill(m.bill);
   return m;
 }
-const isJan = async () => {
-  const s = await asService(pool, U.ab, co.A, () => getConsolidatedIncomeStatement(co.G, '2026-01-01', '2026-01-31'));
-  return { rev: s.totalRevenue.consolidatedAmount, opex: s.totalOperatingExpenses.consolidatedAmount, cos: s.totalCostOfSales.consolidatedAmount };
-};
 
-describe('B-L1: a manual pair for a mirrored sale is not eliminated twice', () => {
-  it('the P1 pair A->B sale and B->A purchase for the mirrored sale, matched and generated: nothing stored, both skipped with why, the IS unchanged', async () => {
-    await bookedOn('2026-01-15');
-    const before = await isJan();
-    const r1 = await asService(pool, U.ab, co.A, () => createIntercompanyTransaction({ groupId: co.G, sourceCompanyId: co.A, targetCompanyId: co.B, transactionType: 'sale', amount: 1000, transactionDate: '2026-01-15', description: 'manual same sale' }));
-    const r2 = await asService(pool, U.ab, co.B, () => createIntercompanyTransaction({ groupId: co.G, sourceCompanyId: co.B, targetCompanyId: co.A, transactionType: 'purchase', amount: 1000, transactionDate: '2026-01-15', description: 'manual same sale (B side)' }));
-    await asService(pool, U.ab, co.A, () => matchIntercompanyTransactions(r1.id, r2.id, co.G, U.ab));
-    const skipped: SkippedEliminationRow[] = [];
-    const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped));
-    expect(made).toEqual([]);
-    expect(skipped.map((s) => s.transactionId).sort()).toEqual([r1.id, r2.id].sort());
-    expect(skipped.every((s) => s.action === 'skipped' && /the same sale as a mirrored document/.test(s.reason))).toBe(true);
-    await pool.query("UPDATE consolidation_adjustments SET status = 'posted', posted_at = now() WHERE group_id = $1", [co.G]);
-    expect(await isJan()).toEqual(before);
-  });
-
-  it('a manual matched row naming the mirrored bill\'s journal (any amount or date): skipped, "its journal is a mirrored document\'s"', async () => {
-    const m = await bookedOn('2026-01-15');
-    const j = (await L.groupRow()).target_journal_entry_id as string;
-    await asDefiner(pool, U.ab, co.A, (q) => q.query(
-      `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date, match_status, target_journal_entry_id)
-       VALUES ($1, $2, $3, 'sale', 777, 'ZAR', 'manual on the bill journal', '2026-01-20', 'matched', $4)`, [co.G, co.A, co.B, j]), true);
-    const skipped: SkippedEliminationRow[] = [];
-    expect(await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped))).toEqual([]);
-    expect(skipped.map((s) => s.reason)).toEqual(['its journal is a mirrored document\'s']);
-    expect(m.bill).toBeTruthy();
-  });
-
-  it('a manual matched row of another sale (different amount) is still eliminated', async () => {
+describe('B-L1 (round 12: never a skip): a manual row of another sale is eliminated and not flagged', () => {
+  it('a manual matched row of another sale (different amount) is eliminated, with no flag', async () => {
     await bookedOn('2026-01-15');
     await asDefiner(pool, U.ab, co.A, (q) => q.query(
       `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date, match_status)
        VALUES ($1, $2, $3, 'sale', 70, 'ZAR', 'another sale', '2026-01-15', 'matched')`, [co.G, co.A, co.B]), true);
-    const skipped: SkippedEliminationRow[] = [];
-    expect(await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped))).toHaveLength(1);
-    expect(skipped).toEqual([]);
+    const flagged: FlaggedEliminationRow[] = [];
+    expect(await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', flagged))).toHaveLength(1);
+    expect(flagged).toEqual([]);
   });
 });
 

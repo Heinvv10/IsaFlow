@@ -260,7 +260,6 @@ export async function getConsolidatedBalanceSheet(
       }
     }
 
-    // only balance-sheet lines are read below, so the derived ones are read only when one can land on a balance-sheet line
     for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate, { balanceSheetOnly: true })) {
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;

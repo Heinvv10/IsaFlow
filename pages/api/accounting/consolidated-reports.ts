@@ -25,7 +25,7 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
-import type { SkippedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
+import type { FlaggedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
 
 /**
  * 400 text for a bad date range, or null — checked before any query, because an unvalidated
@@ -180,9 +180,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { periodStart, periodEnd } = req.body;
       const bad = rangeError(periodStart, periodEnd, { names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
-      const skipped: SkippedEliminationRow[] = [];
-      const adjustments = await autoGenerateEliminations(gId, periodStart, periodEnd, skipped);
-      return apiResponse.success(res, { items: adjustments, count: adjustments.length, skipped });
+      const flagged: FlaggedEliminationRow[] = [];
+      const adjustments = await autoGenerateEliminations(gId, periodStart, periodEnd, flagged);
+      return apiResponse.success(res, { items: adjustments, count: adjustments.length, flagged });
     }
 
     return apiResponse.badRequest(res, 'action required');

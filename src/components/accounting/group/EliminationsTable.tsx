@@ -64,8 +64,13 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                 {ELIMINATION_TYPE_LABELS[adj.type] || adj.type}
               </td>
-              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs truncate">
-                {adj.description}
+              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs">
+                <div className="truncate">{adj.description}</div>
+                {adj.mirroredDuplicateOf && (
+                  <div role="note" className="mt-1 text-xs text-[var(--ff-text-primary)] border-l-2 border-amber-500/60 pl-2">
+                    Posted, and the same sale as mirrored document {adj.mirroredDuplicateOf}, which is eliminated automatically: reverse this one.
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">
                 {adj.period}

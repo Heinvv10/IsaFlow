@@ -39,6 +39,8 @@ export interface EliminationAdjustment {
   lines?: EliminationLine[];
   /** Derived from the ledgers at read time (mirrored intercompany documents): nothing to post or reverse. */
   automatic?: boolean;
+  /** A posted adjustment whose row now matches a live mirrored sale: the mirrored document it may be eliminating a second time. */
+  mirroredDuplicateOf?: string;
 }
 
 export const ELIMINATION_TYPE_LABELS: Record<EliminationType, string> = {
@@ -79,5 +81,6 @@ export function toEliminationRow(raw: unknown): EliminationAdjustment {
     status: text(r.status) as EliminationStatus,
     amount: Math.round(amount * 100) / 100,
     automatic: r.automatic === true,
+    mirroredDuplicateOf: typeof r.mirroredDuplicateOf === 'string' && r.mirroredDuplicateOf ? r.mirroredDuplicateOf : undefined,
   };
 }

@@ -3,7 +3,7 @@
  * Manage intercompany elimination entries for consolidated reporting.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -17,7 +17,7 @@ import {
 } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
-import { EliminationsSkippedNotice, parseSkipped, type SkippedRow } from '@/components/accounting/group/EliminationsSkippedNotice';
+import { EliminationsFlaggedNotice, parseFlagged, type FlaggedRow } from '@/components/accounting/group/EliminationsFlaggedNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui/DateField';
 
@@ -52,7 +52,10 @@ export default function EliminationsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [generateNotes, setGenerateNotes] = useState<SkippedRow[]>([]);
+  // the run's flagged drafts, for the group and period they were generated for (cleared when either changes)
+  const [generateNotes, setGenerateNotes] = useState<FlaggedRow[]>([]);
+  const scopeRef = useRef('');
+  useEffect(() => { scopeRef.current = `${selectedGroupId}|${periodStart}|${periodEnd}`; setGenerateNotes([]); }, [selectedGroupId, periodStart, periodEnd]);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formType, setFormType] = useState<EliminationType>('interco_revenue');
@@ -99,18 +102,20 @@ export default function EliminationsPage() {
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
       await assertOk(res, errMsg);
-      if (onResult) onResult(await res.json());
+      // a committed generation always reloads: a body that does not parse gives no notes, never an error
+      if (onResult) onResult(await res.json().catch(() => null));
       await loadData();
     } catch (err) {
       setError(apiErrorMessage(err, errMsg));
     } finally { setActionLoading(null); }
   }, [selectedGroupId, loadData]);
 
-  // the rows the generator left out (the same sale as a mirrored document) or drafted with a flag are shown, with why
+  // the eliminations this run drafted with a flag (possibly the same sale as a mirrored document) are shown, with why
   const handleAutoGenerate = () => {
     setGenerateNotes([]);
+    const scope = `${selectedGroupId}|${periodStart}|${periodEnd}`;
     return postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again',
-      (json) => setGenerateNotes(parseSkipped(json)));
+      (json) => { if (scopeRef.current === scope) setGenerateNotes(parseFlagged(json)); });   // (a result for another group or period is dropped)
   };
 
   const handlePost = (id: string) =>
@@ -217,7 +222,7 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
-          <EliminationsSkippedNotice rows={generateNotes} onDismiss={() => setGenerateNotes([])} />
+          <EliminationsFlaggedNotice rows={generateNotes} onDismiss={() => setGenerateNotes([])} />
           {/* a failed load must not also say "none found" */}
           {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>

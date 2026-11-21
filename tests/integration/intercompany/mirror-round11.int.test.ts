@@ -1,8 +1,7 @@
 /**
  * Intercompany P2, round 11 (the round-10 breaker review):
- *  B-M1  a manual row is skipped as a mirrored document's duplicate only when the mirrored counterpart stands (accepted, live, a derived
- *        elimination) and only for a sale type: a rejected mirror (A1), a loan (A2) and a cancelled mirror (A3) never take a genuine manual
- *        elimination away; an uncertain match is drafted and flagged for a person, never silently dropped;
+ *  B-M1  a rejected mirror (A1), a loan (A2) and a cancelled mirror (A3) never touch a genuine manual elimination: drafted, not flagged
+ *        (round 12: the generator never skips a manual row at all; see mirror-round12 for the flag);
  *  B-M2  a reversal chain is walked once per row, so the cost of a period is linear in its depth (counted calls, not seconds);
  *  B-L1  a row whose own journal carries a reversal_of_id is still found from a reversal dated in the period (months add up to the year).
  */
@@ -10,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { createIntercompanyTransaction, matchIntercompanyTransactions } from '../../../src/modules/accounting/services/reports/intercompanyService';
-import { autoGenerateEliminations, type SkippedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
+import { autoGenerateEliminations, type FlaggedEliminationRow } from '../../../src/modules/accounting/services/reports/eliminationGenerator';
 import { asService, co, groupAccounts as ga, inbox, sentInvoice, U } from './mirror.helpers';
 import { makeLedger } from './ledger.helpers';
 
@@ -36,20 +35,20 @@ async function manualPair(type: string, back: string) {
   const r1 = await manual(co.A, co.B, type);
   const r2 = await manual(co.B, co.A, back);
   await asService(pool, U.ab, co.A, () => matchIntercompanyTransactions(r1.id, r2.id, co.G, U.ab));
-  const skipped: SkippedEliminationRow[] = [];
-  const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped));
-  return { made, skipped };
+  const flagged: FlaggedEliminationRow[] = [];
+  const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', flagged));
+  return { made, flagged };
 }
 const net = (lines: Array<{ groupAccountId: string; debit: number; credit: number }>, id: string) =>
   lines.filter((l) => l.groupAccountId === id).reduce((n, l) => n + l.debit - l.credit, 0);
 
-describe('B-M1: only a standing mirrored sale takes a manual elimination away', () => {
+describe('B-M1: a rejected or cancelled mirror, or a loan, never touches a manual elimination (round 12: never a skip, and no flag either)', () => {
   it('A1: the mirror REJECTED by B, then the sale captured as a manual P1 pair: eliminated, nothing skipped', async () => {
     const s = await sentInvoice(pool, { date: '2026-01-15' });
     expect((await inbox.reject(U.b, co.B, s.id, { reason: 'booked by hand' })).state.statusCode).toBe(200);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
-    const { made, skipped } = await manualPair('sale', 'purchase');
-    expect(skipped).toEqual([]);
+    const { made, flagged } = await manualPair('sale', 'purchase');
+    expect(flagged).toEqual([]);
     expect(made.length).toBeGreaterThan(0);
     expect(net(made.flatMap((a) => a.lines), ga.rev)).toBeGreaterThan(0);   // the sale's revenue is eliminated
   });
@@ -64,8 +63,8 @@ describe('B-M1: only a standing mirrored sale takes a manual elimination away', 
     await pool.query('INSERT INTO group_coa_mappings(group_id, group_account_id, company_id, company_account_id) VALUES ($1, $2, $3, $4), ($1, $5, $6, $7)',
       [co.G, gar, co.A, await acct(co.A, 'receivable'), gap, co.B, await acct(co.B, 'payable')]);
     try {
-      const { made, skipped } = await manualPair('loan', 'loan');
-      expect(skipped).toEqual([]);
+      const { made, flagged } = await manualPair('loan', 'loan');
+      expect(flagged).toEqual([]);
       expect(made.map((a) => a.adjustmentType)).toContain('interco_balance');
     } finally {
       await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
@@ -78,28 +77,11 @@ describe('B-M1: only a standing mirrored sale takes a manual elimination away', 
     const m = await bookedOn('2026-01-15');
     await L.cancelSender(m.inv.id);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
-    const { made, skipped } = await manualPair('sale', 'purchase');
-    expect(skipped).toEqual([]);
+    const { made, flagged } = await manualPair('sale', 'purchase');
+    expect(flagged).toEqual([]);
     expect(made.length).toBeGreaterThan(0);
   });
 
-  it('the standing mirrored sale with ONE manual pair for it: skipped as certain; with TWO manual sales the same day: drafted and flagged', async () => {
-    await bookedOn('2026-01-15');
-    const one = await manualPair('sale', 'purchase');
-    expect(one.made).toEqual([]);
-    expect(one.skipped.map((s) => s.action)).toEqual(['skipped', 'skipped']);
-    await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
-    await manual(co.A, co.B, 'sale');   // a second A -> B sale of the same amount and date: which one is the mirrored document's?
-    const rows = (await pool.query("SELECT id FROM intercompany_transactions WHERE group_id = $1 AND description = 'manual sale' ORDER BY created_at", [co.G])).rows;
-    await pool.query("UPDATE intercompany_transactions SET match_status = 'matched' WHERE id = $1", [rows[1].id]);
-    const skipped: SkippedEliminationRow[] = [];
-    const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-01-01', '2026-01-31', skipped));
-    const flagged = skipped.filter((s) => s.action === 'flagged');
-    expect(flagged.length).toBe(2);
-    expect(flagged.every((s) => /possibly the same sale as a mirrored document/.test(s.reason))).toBe(true);
-    expect(made.length).toBeGreaterThan(0);
-    expect(made.every((a) => a.status === 'draft' && a.description.includes('CHECK BEFORE POSTING'))).toBe(true);
-  });
 });
 
 describe('B-L1: a row whose own journal carries a reversal_of_id', () => {

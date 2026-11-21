@@ -44,6 +44,8 @@ export interface ConsolidationAdjustment {
   postedBy: string | null; postedAt: string | null; createdAt: string;
   /** A derived line (mirrored intercompany documents): computed from the ledgers at read time, never stored; it cannot be posted or reversed. */
   automatic?: boolean;
+  /** A POSTED stored adjustment whose source row now matches a live mirrored sale (same direction, date and amount): the mirrored document named. */
+  mirroredDuplicateOf?: string | null;
 }
 export interface CreateEliminationInput {
   adjustmentType: string; description: string; periodStart: string; periodEnd: string;
@@ -226,8 +228,12 @@ export async function getEliminationAdjustments(
 ): Promise<ConsolidationAdjustment[]> {
   try {
     const pStart = periodStart ?? null; const pEnd = periodEnd ?? null;
+    // A posted manual adjustment whose row now matches a live mirrored sale is eliminating that sale a second time (the mirror was accepted
+    // after it was posted, or it was posted despite its flag): the list says so. A plain lookup per adjustment with a source row.
     const rows = (await sql`
-      SELECT * FROM consolidation_adjustments
+      SELECT ca.*, CASE WHEN ca.status = 'posted' THEN dup.mirror_ref END AS mirrored_duplicate_of
+      FROM consolidation_adjustments ca
+      LEFT JOIN LATERAL public.intercompany_mirrored_duplicate(ca.source_intercompany_id) dup ON ca.source_intercompany_id IS NOT NULL
       WHERE group_id=${groupId}::UUID
         -- a stored adjustment of a MIRRORED row (written by an older generator, e.g. after a code rollback) is never shown: its figure is derived
         AND (source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(source_intercompany_id))
@@ -235,7 +241,7 @@ export async function getEliminationAdjustments(
         AND (${pEnd}::DATE IS NULL OR period_end <= ${pEnd}::DATE)
       ORDER BY created_at DESC
     `) as DbRow[];
-    const stored = rows.map(mapAdjustmentRow);
+    const stored = rows.map((r) => ({ ...mapAdjustmentRow(r), mirroredDuplicateOf: r.mirrored_duplicate_of ? String(r.mirrored_duplicate_of) : null }));
     // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
     // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
     const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd) : [];
