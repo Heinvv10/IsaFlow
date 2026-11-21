@@ -39,7 +39,8 @@ export type {
   CommitSummary,
 } from './sageMigrationTypes';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { resolveLockedSageSupplier, resolveSageCustomer, resolveSageSupplier, sageRef, type SameNameRefusal } from './sagePartyMatch';
+import { resolveSageCustomer, resolveSageSupplier, sageRef, type SameNameRefusal } from './sagePartyMatch';
+import { resolveLockedSageSupplier } from './sageLockedSupplierMatch';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 

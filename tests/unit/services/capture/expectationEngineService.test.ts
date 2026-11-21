@@ -18,7 +18,8 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// withTransaction hands its callback the same mock: the upsert runs on `tx` after the supplier live lock.
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: (fn: (tx: typeof sqlMock) => unknown) => fn(sqlMock) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -31,6 +32,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 
 import {
   recomputeForSupplier,
+  ExpectationSupplierNotLiveError,
   type SupplierExpectation,
 } from '@/modules/accounting/services/capture/expectationEngineService';
 
@@ -113,6 +115,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'monthly', sample_size: 4, status: 'locked' })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -128,6 +131,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'quarterly', sample_size: 3, status: 'locked', expected_day_of_month: 1 })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -142,6 +146,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'annual', sample_size: 3, status: 'locked', expected_day_of_month: null })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -156,6 +161,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'monthly', sample_size: 2, status: 'learning' })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -182,6 +188,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(dates as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'irregular', sample_size: 4, status: 'learning', expected_day_of_month: null })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -190,10 +197,22 @@ describe('recomputeForSupplier', () => {
     expect(result.status).toBe('learning');
   });
 
+  it('refuses, writing nothing, when the supplier was merged away (not live under the lock)', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([] as never); // the supplier row: deleted_at set by a merge
+
+    await expect(recomputeForSupplier(COMPANY_ID, SUPPLIER_ID)).rejects.toBeInstanceOf(ExpectationSupplierNotLiveError);
+    const texts = vi.mocked(sqlMock).mock.calls.map((c) => (c[0] as unknown as string[]).join(''));
+    expect(texts.some((t) => t.includes('INSERT INTO supplier_expectations'))).toBe(false);
+  });
+
   it('returns cadence=irregular, sampleSize=0 and status=learning when no invoices exist', async () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'irregular', sample_size: 0, status: 'learning', expected_day_of_month: null, expected_amount: null, amount_stddev: null, last_invoice_date: null, last_invoice_amount: null })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -209,6 +228,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([makeExpRow({ status: 'paused' })] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ cadence: 'monthly', sample_size: 4, status: 'paused' })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);
@@ -230,6 +250,7 @@ describe('recomputeForSupplier', () => {
     vi.mocked(sqlMock)
       .mockResolvedValueOnce(invoices as never)
       .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'supplier' }] as never) // the supplier, live, FOR KEY SHARE
       .mockResolvedValueOnce([makeExpRow({ expected_amount: 105, sample_size: 4, status: 'locked' })] as never);
 
     const result = await recomputeForSupplier(COMPANY_ID, SUPPLIER_ID);

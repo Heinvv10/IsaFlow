@@ -6,6 +6,7 @@
 
 import sql, { withTransaction, TxSql } from '@/lib/neon';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
 
 export interface PurchaseOrderItem {
   description: string;
@@ -180,6 +181,8 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   const { companyId, userId, items } = input;
   // R-068: before generateOrderNumber, which is a counter write.
   await assertSupplierInCompany(companyId, input.supplier_id);
+  // Live and held until commit, before the counter write (supplierLiveLock): never a PO on a merged-away supplier (breaker M2).
+  if (!(await lockSupplierIfLive(companyId, String(input.supplier_id)))) return { error: 'supplier_not_live' as const };
   const orderNumber = await generateOrderNumber(companyId);
   const { subtotal, taxAmount, totalAmount } = calcTotals(items);
 
@@ -223,6 +226,7 @@ export async function updatePurchaseOrder(input: UpdatePurchaseOrderInput) {
   if (existing.length === 0) return { error: 'not_found' as const };
   if (existing[0]!.status !== 'draft') return { error: 'not_draft' as const };
   await assertSupplierInCompany(companyId, input.supplier_id);
+  if (input.supplier_id && !(await lockSupplierIfLive(companyId, String(input.supplier_id)))) return { error: 'supplier_not_live' as const };
 
   let subtotal: number | null = null;
   let taxAmount: number | null = null;

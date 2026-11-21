@@ -19,6 +19,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // R-035 PR2: the import exemption (a set_config pair in a savepoint) is
 // covered in r035-pr2-trigger.int.test.ts; here it only wraps the write.
+// The supplier live lock needs a request transaction (core/supplierLiveLock); here the supplier is live. Its SQL, the wait and the
+// merged-away refusal are proved on real PostgreSQL (tests/integration/i1699-*.int.test.ts).
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+  lockSupplierIfLive: async () => true,
+  lockLiveSurvivor: async (_companyId: string, id: string) => id,
+}));
 vi.mock('@/modules/accounting/services/gl/approvalGateExempt', () => ({
   assertMayImportOpenBills: async () => undefined,
   withApprovalGateExempt: <T,>(_importer: unknown, write: () => Promise<T>) => write(),
@@ -102,7 +109,6 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
       .mockResolvedValueOnce([]) // pg_advisory_xact_lock
       .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]) // suppliers lookup
-      .mockResolvedValueOnce([{ live: true, merged_into_id: null }]) // the row's supplier FOR KEY SHARE (lockLiveSurvivor)
       .mockResolvedValueOnce([]) // idempotency lookup: no bill with this fingerprint yet
       .mockResolvedValueOnce([{ id: INVOICE_ID }]) // INSERT supplier_invoices RETURNING id
       .mockResolvedValueOnce([]); // UPDATE supplier_invoices SET gl_journal_entry_id
@@ -120,14 +126,13 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
       .mockResolvedValueOnce([]) // pg_advisory_xact_lock
       .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
-      .mockResolvedValueOnce([{ live: true, merged_into_id: null }]) // lockLiveSurvivor
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([]);
 
     await importAPInvoices(COMPANY_ID, SESSION_ID, [invoiceRow], USER_ID);
 
-    const linkageCall = mockSql.mock.calls[6]!;
+    const linkageCall = mockSql.mock.calls[5]!;
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
   });

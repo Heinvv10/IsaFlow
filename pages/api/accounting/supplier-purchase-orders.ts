@@ -14,6 +14,8 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { SUPPLIER_NOT_LIVE_REFUSAL } from '@/modules/accounting/services/core/supplierLiveLock';
 import {
   getPurchaseOrder,
   listPurchaseOrders,
@@ -76,8 +78,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         items,
       });
 
+      if ('error' in result) return apiResponse.badRequest(res, SUPPLIER_NOT_LIVE_REFUSAL);
       return apiResponse.created(res, result);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       const message = err instanceof Error ? err.message : 'Failed to create purchase order';
       log.error('Failed to create purchase order', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);
@@ -106,11 +110,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       if ('error' in result) {
         if (result.error === 'not_found') return apiResponse.notFound(res, 'Purchase order');
+        if (result.error === 'supplier_not_live') return apiResponse.badRequest(res, SUPPLIER_NOT_LIVE_REFUSAL);
         return apiResponse.badRequest(res, 'Only draft purchase orders can be updated');
       }
 
       return apiResponse.success(res, result);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       const message = err instanceof Error ? err.message : 'Failed to update purchase order';
       log.error('Failed to update purchase order', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);

@@ -26,6 +26,14 @@ const { mockTx } = vi.hoisted(() => ({
   },
 }));
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// The supplier live lock needs a request transaction (core/supplierLiveLock); here the supplier is live. Its SQL, the wait and the
+// merged-away refusal are proved on real PostgreSQL (tests/integration/i1699-*.int.test.ts).
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+  lockSupplierIfLive: async () => true,
+  lockLiveSurvivor: async (_companyId: string, id: string) => id,
+  lockPayeeOfBill: async () => null,
+}));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/als', async () => {

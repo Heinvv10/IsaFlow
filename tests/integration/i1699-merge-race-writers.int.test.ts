@@ -134,6 +134,35 @@ describe('bill importers and a merge (findings 3 and 4)', () => {
       [companyId, first.invoiceNumber])).rows).toEqual([{ s: survivor }]);
   }, 30000);
 
+  it('AP take-on with the merge held open across the row: the row waits on its supplier, then lands on the survivor (breaker L1)', async () => {
+    const gone = await insPlain('Held TakeOn Gone');
+    const survivor = await insPlain('Held TakeOn Survivor');
+    const session = await inRequestTx(() => createSession(companyId, 'sage', userId));
+    const parked = String((await pool.query(
+      "INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, subtotal, tax_amount, total_amount, status, created_by) VALUES ($1, $2, $3, '2026-04-01', 10, 0, 10, 'draft', $4) RETURNING id",
+      [companyId, gone, `HT-P-${tag}`, userId])).rows[0].id);
+    // The merge takes both suppliers FOR UPDATE and stops at its bill UPDATE on the held bill, uncommitted, through the whole row.
+    const h = await hold('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [parked]);
+    const row = { invoiceNumber: `HT-1-${tag}`, supplierName: 'Held TakeOn Gone', invoiceDate: '2026-04-02', dueDate: '2026-05-02',
+      subtotal: 100, taxAmount: 0, totalAmount: 100, amountPaid: 100 };
+    let merging: Promise<{ v: unknown; e: unknown }> | undefined;
+    let importing: Promise<{ v: Awaited<ReturnType<typeof importAPInvoices>> | undefined; e: unknown }> | undefined;
+    try {
+      merging = settle(merge(survivor, gone));
+      expect(await waiting(h.pid, 1)).toBe(true);
+      // Reads its batch's suppliers (the source still live: the merge has not committed), then waits at the row's supplier lock.
+      importing = settle(inRequestTx(() => importAPInvoices(companyId, session.id, [row], userId)));
+      expect(await waiting(h.pid, 2)).toBe(true);
+    } finally { await h.release(); }
+    expect((await merging!).e).toBeUndefined();
+    const out = await importing!;
+    expect(out.e).toBeUndefined();
+    expect(out.v!.errors).toEqual([]);
+    expect(out.v!.imported).toBe(1);
+    expect((await pool.query('SELECT supplier_id::text AS s FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2',
+      [companyId, row.invoiceNumber])).rows).toEqual([{ s: survivor }]);
+  }, 30000);
+
   it('Sage bill import: its supplier is merged away while it waits; the bill lands on the survivor', async () => {
     const gone = await insPlain('Bill Race Gone', 'sage', '7301');
     const survivor = await insPlain('Bill Race Survivor');

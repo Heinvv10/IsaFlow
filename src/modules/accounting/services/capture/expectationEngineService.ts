@@ -3,7 +3,7 @@
  * Learns supplier billing cadence and upserts supplier_expectations.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
@@ -152,6 +152,15 @@ export async function getExpectation(
   return rows.length > 0 ? mapRow(rows[0]!) : null;
 }
 
+/** The supplier was merged into another or deleted: no expectation is learnt for it (400 on the route; the cron skips it). */
+export class ExpectationSupplierNotLiveError extends Error {
+  readonly code = 'EXPECTATION_SUPPLIER_NOT_LIVE';
+  constructor(supplierId: string) {
+    super(`Supplier ${supplierId} was merged into another supplier or deleted; its expectation is not recomputed.`);
+    this.name = 'ExpectationSupplierNotLiveError';
+  }
+}
+
 export async function recomputeForSupplier(
   companyId: string,
   supplierId: string,
@@ -195,7 +204,17 @@ export async function recomputeForSupplier(
     newStatus = 'learning';
   }
 
-  const rows = await sql`
+  // The supplier row FIRST, FOR KEY SHARE and live, then the upsert, in one transaction (the cron runs outside a request): a supplier
+  // merge takes the supplier rows and then moves the expectation, so this waits for it and finds the supplier merged away (refused),
+  // or holds it until the upsert commits. Never an expectation on a merged-away supplier (breaker of aad49a02, L4).
+  const rows = await withTransaction(async (tx) => {
+    const live = await tx`
+      SELECT id FROM suppliers
+       WHERE id = ${supplierId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NULL
+         FOR KEY SHARE
+    ` as Row[];
+    if (!live[0]) throw new ExpectationSupplierNotLiveError(supplierId);
+    return await tx`
     INSERT INTO supplier_expectations (
       company_id, supplier_id, cadence,
       expected_day_of_month, expected_amount, amount_stddev,
@@ -223,6 +242,7 @@ export async function recomputeForSupplier(
       updated_at          = NOW()
     RETURNING *
   ` as Row[];
+  });
 
   log.info('Recomputed supplier expectation', {
     companyId, supplierId, cadence, sampleSize, status: newStatus,

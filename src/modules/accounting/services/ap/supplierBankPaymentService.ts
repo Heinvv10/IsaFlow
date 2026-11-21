@@ -46,6 +46,7 @@ import {
   type SupplierApplicationLine,
 } from './supplierAllocationLines';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { lockPayeeOfBill, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import {
   applySupplierPaymentPlan,
   planSupplierPaymentApplication,
@@ -131,10 +132,21 @@ export async function validateBankSupplierPayment(
   }
 
   const paymentAmount = Math.abs(tx.amount);
+  // The payee FIRST, FOR KEY SHARE and live, before the bill locks of the plan (supplierLiveLock; batch -> supplier -> payments ->
+  // bills): the supplier is the first named bill's, peeked unlocked, and the plan must then derive the same one. A merge waits for
+  // this payment; a bill a merge moved, or a payee it merged away, meanwhile is a retryable refusal (breaker of aad49a02, H1).
+  const peeked = allocations[0] ? await lockPayeeOfBill(companyId, allocations[0].invoiceId) : null;
+  const payee = peeked?.supplierId ?? null;
+  if (peeked && !peeked.live) {
+    throw new SupplierPaymentRefusal(`${SUPPLIER_NOT_LIVE_REFUSAL} Its bills were moved with it; allocate this line again.`, { retryable: true });
+  }
   const { supplierId, lines } = await planSupplierAllocationLines(companyId, allocations, {
     paymentId: null,
     supplierId: null,
   });
+  if (payee && supplierId !== payee) {
+    throw new SupplierPaymentRefusal('The bill\'s supplier changed while this was being allocated (a supplier merge); retry.', { retryable: true });
+  }
 
   const allocatedTotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   if (allocatedTotal > paymentAmount + EPS) {
