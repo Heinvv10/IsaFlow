@@ -22,6 +22,7 @@ vi.mock('@/components/layout/ModuleNav', () => ({
 import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { DrawerNav } from '@/components/layout/DrawerNav';
 import { NAV_FLAGS_BACKOFF_MS, resetNavFlagsCache, useNavFlags } from '@/hooks/useNavFlags';
+import { AuthContext } from '@/contexts/AuthContext';
 import { moduleReadFlag, NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { buildSections } from '@/components/layout/paletteRank';
 import { PALETTE_ACTIONS } from '@/components/layout/commandActions';
@@ -142,6 +143,31 @@ describe('the two answers are independent', () => {
     const { result } = renderHook(() => useNavFlags());
     await waitFor(() => expect(result.current.has(moduleReadFlag('payroll'))).toBe(true));
     expect(result.current.has('budgets_three_way')).toBe(true);
+  });
+});
+
+describe('the cache is per company AND user', () => {
+  const as = (id: string) => ({ children }: { children: React.ReactNode }) => <AuthContext.Provider value={{ user: { id } } as never}>{children}</AuthContext.Provider>;
+  it("a second user on the same page and company does not inherit the first user's Payroll", async () => {
+    server({ read: true, write: false, approve: false });
+    const first = renderHook(() => useNavFlags(), { wrapper: as('user-1') });
+    await waitFor(() => expect(first.result.current.has(moduleReadFlag('payroll'))).toBe(true));
+    first.unmount();
+
+    server({ read: false, write: false, approve: false });
+    const second = renderHook(() => useNavFlags(), { wrapper: as('user-2') });
+    await waitFor(() => expect(h.apiFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/accounting/my-permissions'))).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(second.result.current.has(moduleReadFlag('payroll'))).toBe(false);
+  });
+  it('the same user is served from the cache', async () => {
+    server({ read: true, write: false, approve: false });
+    const a = renderHook(() => useNavFlags(), { wrapper: as('user-1') });
+    await waitFor(() => expect(a.result.current.has(moduleReadFlag('payroll'))).toBe(true));
+    a.unmount();
+    const b = renderHook(() => useNavFlags(), { wrapper: as('user-1') });
+    expect(b.result.current.has(moduleReadFlag('payroll'))).toBe(true);
+    expect(h.apiFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/accounting/my-permissions'))).toHaveLength(1);
   });
 });
 

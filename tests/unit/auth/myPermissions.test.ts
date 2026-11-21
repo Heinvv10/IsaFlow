@@ -89,4 +89,17 @@ describe('getMyModulePermissions', () => {
     expect(strings.join('?')).toMatch(/cu\.user_id\s*=\s*\?/);
     expect(values).toEqual([CO, USER]);
   });
+
+  it('selects every column the rule reads (memberMay): role, approve_withheld, the row and has_row', async () => {
+    member({ role: 'viewer' });
+    await getMyModulePermissions(CO, USER);
+    const [strings] = sqlMock.mock.calls[0] as [TemplateStringsArray];
+    const text = strings.join('?');
+    const select = text.slice(text.indexOf('SELECT'), text.indexOf('FROM'));
+    for (const col of ['pm.module_key', 'cu.role', 'cu.approve_withheld', 'p.can_read', 'p.can_write', 'p.can_delete', 'p.can_export', 'p.can_approve', 'has_row']) {
+      expect(select, col).toContain(col);
+    }
+    expect(text).toMatch(/LEFT JOIN company_user_permissions p\s+ON p\.company_id = cu\.company_id AND p\.user_id = cu\.user_id AND p\.module_key = pm\.module_key/);
+  });
 });
+

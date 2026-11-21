@@ -14,6 +14,8 @@ import { resolveProvider } from '@/modules/accounting/services/ask/askProvider';
 import { meteredOperation, parseQuestion } from '@/modules/accounting/services/ask/askIntents';
 import { getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { periodIsHonoured } from '@/modules/accounting/services/ask/askPeriod';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
+import type { UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
 const MAX_QUESTION = 300;
@@ -30,8 +32,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
     return apiResponse.success(res, await provider.answer(companyId, q));
   }
-  // census-exempt(answerQuestion): answers with figures from the company's ledger and its EMP201 totals (kind-checked run reads); no one person's pay (the aggregate-totals limit in the PR body)
-  const answer = await answerQuestion(companyId, q, todayInSast());
+  // The pay run and EMP201 answers (gross, net, PAYE, a /payroll link) need Payroll read in this company.
+  const userId = (req as UserAuthedRequest).user?.id;
+  const payrollRead = userId ? await mayReadPayroll(companyId, userId) : false;
+  // census-exempt(answerQuestion): the pay run and EMP201 intents are answered only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other answer is a ledger figure, no one person's pay
+  const answer = await answerQuestion(companyId, q, todayInSast(), { payrollRead });
   // A metered intent is charged up front; one that returned no figure (a refused period, a missing run) did no billable work.
   if (answer.figure === null) markFlowNoOp(req);
   return apiResponse.success(res, answer);

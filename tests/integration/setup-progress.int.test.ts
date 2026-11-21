@@ -149,20 +149,20 @@ describeIfDb('setup progress probes', () => {
     const a = await probeSetupFacts(A);
     expect([a.hasCustomerInvoices, a.hasReceipts, a.hasSupplierInvoices, a.hasPayrollRuns, a.hasEmployees])
       .toEqual([false, false, false, false, false]);
-    const p = await getSetupProgress(A);
+    const p = await getSetupProgress(A, { payrollRead: true });
     expect(p.modules.some((m) => m.id === 'payroll')).toBe(false);
   });
 
   it('a company whose only employees are terminated, with a pay run, has no employee task', async () => {
     await employee(A, 'A8', 'terminated');
     await payRun(A, 4, 'paid');
-    const p = await getSetupProgress(A);
+    const p = await getSetupProgress(A, { payrollRead: true });
     expect(p.modules.find((m) => m.id === 'payroll')!.tasks.map((t) => t.id)).toEqual(['payroll-run']);
   });
 
   it("vat_system_type 'none' also removes Tax (shared isVatRegistered rule)", async () => {
     await admin.query(`UPDATE companies SET vat_system_type='none' WHERE id=$1`, [A]);
-    expect((await getSetupProgress(A)).modules.some((m) => m.id === 'tax')).toBe(false);
+    expect((await getSetupProgress(A, { payrollRead: true })).modules.some((m) => m.id === 'tax')).toBe(false);
     await admin.query(`UPDATE companies SET vat_system_type='invoice' WHERE id=$1`, [A]);
   });
 
@@ -175,9 +175,9 @@ describeIfDb('setup progress probes', () => {
 
   it("vat_period 'none' removes the Tax checklist", async () => {
     await admin.query(`UPDATE companies SET vat_period='none' WHERE id=$1`, [A]);
-    expect((await getSetupProgress(A)).modules.some((m) => m.id === 'tax')).toBe(false);
+    expect((await getSetupProgress(A, { payrollRead: true })).modules.some((m) => m.id === 'tax')).toBe(false);
     await admin.query(`UPDATE companies SET vat_period='bi-monthly' WHERE id=$1`, [A]);
-    expect((await getSetupProgress(A)).modules.some((m) => m.id === 'tax')).toBe(true);
+    expect((await getSetupProgress(A, { payrollRead: true })).modules.some((m) => m.id === 'tax')).toBe(true);
   });
 
   it('an unknown company yields all-false facts with no error', async () => {
