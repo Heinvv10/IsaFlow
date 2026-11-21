@@ -40,7 +40,9 @@ async function createJournalEntryInTransaction(
   meta?: JournalEntryMeta,
   opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean;
     /** Accounts this journal's contra legs sit on — exempt from the header rule (headerAccountGuard.ts). */
-    contraAccountIds?: readonly string[] },
+    contraAccountIds?: readonly string[];
+    /** Write vat_type exactly ('' stays ''): the reversal's copy. New lines keep '' -> NULL. */
+    exactVatType?: boolean },
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
@@ -133,7 +135,7 @@ async function createJournalEntryInTransaction(
           ${line.cc1Id || null}::UUID,
           ${line.cc2Id || null}::UUID,
           ${line.buId || null}::UUID,
-          ${line.vatType || null},
+          ${opts?.exactVatType ? (line.vatType ?? null) : (line.vatType || null)},
           ${companyId}::UUID
         )
       `),
@@ -166,7 +168,9 @@ export async function createJournalEntry(
   meta?: JournalEntryMeta,
   opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean;
     /** Accounts this journal's contra legs sit on — exempt from the header rule (headerAccountGuard.ts). */
-    contraAccountIds?: readonly string[] },
+    contraAccountIds?: readonly string[];
+    /** Write vat_type exactly ('' stays ''): the reversal's copy. New lines keep '' -> NULL. */
+    exactVatType?: boolean },
 ): Promise<JournalEntry> {
   return withAlsTransaction({ companyId, userId }, async () => createJournalEntryInTransaction(
     companyId, { ...input, entryDate: await ledgerEntryDay(input.entryDate) }, userId, meta, opts));

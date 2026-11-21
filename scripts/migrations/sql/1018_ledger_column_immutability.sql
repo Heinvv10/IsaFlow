@@ -41,8 +41,8 @@
 --   2. gl_journal_entries of a POSTED or reversed journal keep source, description and entry_date. No application path
 --      writes them after posting (census: docs/plans/2026-11-20-ledger-column-immutability-census.md). 999n already
 --      freezes status, company_id, created_at, amounts and the line set.
---   3. A journal moves to status 'reversed' only when a posted contra already links to it (no application path writes
---      it: reversal is metadata). reversed_at / reversed_by are cleared only while no journal reverses it (the release
+--   3. No non-superuser moves a journal to status 'reversed' (round 10: no application path writes it; reversal is
+--      metadata, and the flip would drop the original from every posted-only figure while its contra stays). reversed_at / reversed_by are cleared only while no journal reverses it (the release
 --      of a failed claim runs before any contra exists); that is consistency for the readers of the stamp, not a rule
 --      the others lean on.
 --   4. customer_invoices / supplier_invoices / credit_notes gl_journal_entry_id. No INSERT carries one. An UPDATE sets
@@ -85,7 +85,10 @@
 --      (documentPopulation's convention; 18 integration suites seed it), so only the trigger rule binds; no app path
 --      writes NULL (census: every document INSERT passes a status or takes the 'draft' default; isaflow_dev holds 0).
 --
--- BOUNDARY (stated, not oversold). The "only from the document triggers" test for document_cancelled_at is
+-- BOUNDARY (stated, not oversold). The exact negation reads lines as the caller (RLS): a LEGACY journal holding a line
+-- of a company the caller is not a member of is compared on the visible lines only, so a partial contra could be
+-- linked. New lines cannot have that shape (trg_gl_jl_company_is_journal_company); isaflow_dev holds 0 such lines. The
+-- "only from the document triggers" test for document_cancelled_at is
 -- pg_trigger_depth() > 1; app_user has no TEMP (945) to nest one (migration_admin: see WHAT). The advisory keys are
 -- observable: pg_locks (pg_lock_status()) is readable by PUBLIC, so a session of any tenant can read a key another
 -- session holds and then hold it, stalling that journal's link, cancel, delete or reversal until lock_timeout
@@ -123,6 +126,7 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_document_cancel_no_insert ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_set_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_linked_account_check ON public.gl_journal_lines;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_company_is_journal_company ON public.gl_journal_lines;
 --   DROP INDEX IF EXISTS public.ix_gl_je_reversal_of_lookup;
 --   and, on each of public.customer_invoices, public.supplier_invoices, public.credit_notes:
 --   DROP TRIGGER IF EXISTS trg_doc_journal_link_ins ON public.<table>;
@@ -139,7 +143,7 @@
 --     public.gl_journal_chain_sound(uuid), public.gl_journal_ancestors(uuid), public.gl_je_document_cancel_kept(),
 --     public.doc_cancelled_final(), public.doc_company_frozen(), public.doc_delete_in_force(),
 --     public.ledger_require_read_committed(text), public.gl_je_stamp_document_cancel(text, uuid),
---     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid);
+--     public.doc_soft_delete_in_force(), public.ledger_link_key(uuid), public.gl_jl_company_is_journal_company();
 --   ALTER TABLE public.gl_journal_entries DROP COLUMN IF EXISTS document_cancelled_at;
 
 SET LOCAL lock_timeout = '5s';
@@ -374,7 +378,7 @@ BEGIN
   END IF;
   IF NOT public.gl_lines_are_negation(NEW.id, NEW.reversal_of_id) THEN
     RAISE EXCEPTION 'gl_journal_entries: a reversal''s lines must be the exact negation of the journal it reverses'
-      USING ERRCODE = '23514';
+      USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_not_negation';
   END IF;
   -- The chain stays one line of fewer than 64 journals (fail closed: gl_journal_in_force counts a branched or full
   -- chain as in force). The root (dist v_root_dist above the contra's place) under the locks, and the contra's own
@@ -385,7 +389,8 @@ BEGIN
       USING ERRCODE = '23514', CONSTRAINT = 'gl_je_reversal_chain_full';
   END IF;
   IF v_root_now IS DISTINCT FROM v_root THEN
-    RAISE EXCEPTION 'gl_journal_entries: the reversal chain changed while it was being linked (retry)' USING ERRCODE = '23514';
+    RAISE EXCEPTION 'gl_journal_entries: the reversal chain changed while it was being linked (retry)'
+      USING ERRCODE = '40001', CONSTRAINT = 'gl_je_reversal_chain_changed';
   END IF;
   WITH RECURSIVE down(id, depth, path) AS (
     SELECT NEW.id, 1, ARRAY[NEW.id]
@@ -461,11 +466,13 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries c
-                  WHERE c.company_id = OLD.company_id AND c.reversal_of_id = OLD.id AND c.status IN ('posted', 'reversed')) THEN
-    RAISE EXCEPTION 'gl_journal_entries: a journal is marked reversed only when a posted reversal links to it' USING ERRCODE = '23514';
-  END IF;
-  RETURN NEW;
+  -- Round 10 H1: no session but a superuser moves a journal to status 'reversed', contra or not. Reversal is metadata
+  -- (reversed_at and a linked contra; the original stays 'posted'): every posted-only report and gl_account_balances
+  -- drop a 'reversed' journal, so the flip takes the original out while its contra stays in (on O <- R <- R2, flipping R
+  -- doubles O), and 999n then freezes it there. Census: no application path writes it (the one writer, the 2026-07-05
+  -- one-off repair script, was already run).
+  RAISE EXCEPTION 'gl_journal_entries: a journal is never marked status reversed (a reversal is a linked contra; the original stays posted)'
+    USING ERRCODE = '23514';
 END
 $$;
 
@@ -604,6 +611,31 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_linked_set_frozen
   FOR EACH ROW EXECUTE FUNCTION public.gl_jl_linked_set_frozen();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_linked_set_frozen;
 
+-- A line belongs to its journal's company (round 10 M2/L3): a line of company B inside A's journal let the deferred
+-- account check miss the contra, and made the exact negation compare only the lines a caller can see under RLS (a
+-- partial contra). Read as the caller: a journal it cannot see refuses the line (fail closed). Census: every writer
+-- inserts lines with the journal's company (createJournalEntry and the reseed); isaflow_dev holds 0 such lines.
+CREATE OR REPLACE FUNCTION public.gl_jl_company_is_journal_company()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id AND e.company_id = NEW.company_id) THEN
+    RAISE EXCEPTION 'gl_journal_lines: a journal line belongs to its journal''s company' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_jl_company_is_journal_company
+  BEFORE INSERT OR UPDATE OF company_id, journal_entry_id ON public.gl_journal_lines
+  FOR EACH ROW EXECUTE FUNCTION public.gl_jl_company_is_journal_company();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_company_is_journal_company;
+
 -- A line's account or VAT type may move on a linked journal only while the pair is still an exact negation at COMMIT:
 -- an account merge moves both sides in one transaction and passes, one side alone is refused. Deferred, once per changed
 -- line, under the journal's advisory key (round 8 F1).
@@ -616,6 +648,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_original uuid;
+  v_company uuid;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
@@ -625,10 +658,11 @@ BEGIN
   -- seen, and a link still open waits for this check to commit, then reads the changed lines.
   PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
   PERFORM pg_advisory_xact_lock(public.ledger_link_key(NEW.journal_entry_id));
-  SELECT e.reversal_of_id INTO v_original FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id;
+  -- The JOURNAL's company, never the line's (round 10 M2: a line of another company inside the journal found no contra).
+  SELECT e.reversal_of_id, e.company_id INTO v_original, v_company FROM public.gl_journal_entries e WHERE e.id = NEW.journal_entry_id;
   IF (v_original IS NOT NULL AND NOT public.gl_lines_are_negation(NEW.journal_entry_id, v_original))
      OR EXISTS (SELECT 1 FROM public.gl_journal_entries c
-                 WHERE c.reversal_of_id = NEW.journal_entry_id AND c.company_id = NEW.company_id
+                 WHERE c.reversal_of_id = NEW.journal_entry_id AND c.company_id = v_company
                    AND NOT public.gl_lines_are_negation(c.id, NEW.journal_entry_id)) THEN
     RAISE EXCEPTION 'gl_journal_lines: a reversal''s lines must stay the exact negation of the journal it reverses'
       USING ERRCODE = '23514';

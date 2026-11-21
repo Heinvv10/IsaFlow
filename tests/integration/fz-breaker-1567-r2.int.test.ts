@@ -101,13 +101,12 @@ describe('999n breaker round 2: refused', () => {
       })).rejects.toThrow(/leaves posted only to reversed|status cannot be NULL/);
       expect((await one('SELECT journal_entry_id AS j FROM payroll_run_headers WHERE id = $1', [run])).j).toBe(je);
     });
-    it(`N3 [${who}]: no other move out of posted or reversed (reversed -> posted, posted -> draft); posted -> reversed is allowed once a posted reversal links it (migration 1018)`, async () => {
+    it(`N3 [${who}]: no other move out of posted (posted -> draft), and posted -> reversed is refused even once a posted reversal links it (migration 1018 round 10)`, async () => {
       const je = await mkJournal('2026-03-12', 'manual');
       await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(/leaves posted only to reversed/);
-      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]))).rejects.toThrow(/marked reversed only when a posted reversal links to it/);
+      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]))).rejects.toThrow(/never marked status reversed/);
       await contraOf(je);
-      await as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]));
-      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]))).rejects.toThrow(/leaves posted only to reversed/);
+      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]))).rejects.toThrow(/never marked status reversed/);
     });
     it(`G1 [${who}]: a born-posted one-sided journal is refused even after the old GUC list is cleared, and the queue is out of reach`, async () => {
       const je = (await one('SELECT gen_random_uuid() AS id')).id as string;
@@ -160,7 +159,7 @@ describe('999n breaker round 2: refused', () => {
       await expect(c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND company_id = $2', [je, B])).rejects.toThrow(/cannot see/);
       await c.query('ROLLBACK TO SAVEPOINT d');
       await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, B]))
-        .rejects.toThrow(/cannot see/);
+        .rejects.toThrow(/cannot see|belongs to its journal's company/); // 999n, or 1018 round 10's line-company rule first
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
   it('S2 [a tenant-B caller]: the balance check\'s error gives a caller who cannot see the journal no id and no totals', async () => {
@@ -175,6 +174,7 @@ describe('999n breaker round 2: refused', () => {
       // would refuse first. So, inside this rolled-back transaction, the rule is switched off and the line is written
       // by fz_s2: a throwaway role that is not RLS-bypassing, not app_service, and has a permissive policy of its own.
       await c.query('ALTER TABLE gl_journal_lines DISABLE TRIGGER trg_gl_jl_posted_set_frozen');
+      await c.query('ALTER TABLE gl_journal_lines DISABLE TRIGGER trg_gl_jl_company_is_journal_company'); // 1018 round 10 refuses it first too
       await c.query('CREATE ROLE fz_s2 NOLOGIN');
       await c.query('GRANT SELECT, INSERT ON gl_journal_lines, gl_journal_entries, gl_accounts TO fz_s2');
       await c.query('CREATE POLICY fz_s2_all ON gl_journal_lines TO fz_s2 USING (true) WITH CHECK (true)');
@@ -201,7 +201,7 @@ describe('999n breaker round 2: refused', () => {
           VALUES ($1, $2, 5000, 0, $3) RETURNING id`, [draftB, acct, B])).rows[0].id;
         await c.query(`SET LOCAL ROLE ${who === 'postgres' ? NS.name : 'app_user'}`);
         if (who !== 'postgres') await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
-        await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja])).rejects.toThrow(who === 'postgres' ? /amounts are frozen|moves only between draft journals/ : /moves only between draft journals/);
+        await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja])).rejects.toThrow(who === 'postgres' ? /amounts are frozen|moves only between draft journals|belongs to its journal's company/ : /moves only between draft journals|belongs to its journal's company/);
       } finally { await c.query('ROLLBACK'); c.release(); }
       expect(await journal(ja)).toEqual(INTACT);
     });
@@ -221,7 +221,7 @@ describe('999n breaker round 2: refused', () => {
       await c.query('ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_status_not_null');
       await c.query('SET LOCAL ROLE app_user');
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_A, role: 'authenticated' })]);
-      await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, legacy])).rejects.toThrow(/moves only between draft journals/);
+      await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, legacy])).rejects.toThrow(/moves only between draft journals|belongs to its journal's company/);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
   for (const who of ['app_user_tenant_b', 'postgres'] as const) {

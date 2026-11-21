@@ -118,11 +118,11 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
     });
     it(`B4 [${who}]: posted -> reversed, drop the net-pay credit, reversed -> posted never yields an unbalanced posted journal`, async () => {
       const { je } = await finalRun();
-      await contraOf(je); // 1018: the flip to reversed needs a posted reversal; the line removal is what 999n refuses
+      await contraOf(je); // 1018 (round 10): the flip to reversed is refused outright; before it, 999n refused the line removal
       await expect(as(who, async (c) => {
         await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
         await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit = 800', [je]);
-      })).rejects.toThrow(/cannot be added or removed|are closed/); // 999n's line-set rule, or 1018's once the contra links the journal
+      })).rejects.toThrow(/cannot be added or removed|are closed|never marked status reversed/); // 999n's line-set rule, or 1018's
       expect(await journal(je)).toEqual(INTACT);
     });
     it(`B5 [${who}]: a posted journal is not deleted outright (its lines would cascade)`, async () => {

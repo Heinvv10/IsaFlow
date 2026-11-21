@@ -125,7 +125,7 @@ describeIfDisposable('ledger column immutability: a document\'s journal link and
     await asApp(z, (c) => c.query('UPDATE gl_journal_entries SET reversed_at = now(), reversed_by = $2 WHERE id = $1', [original, z.f.fx.userId]), { commit: true });
     await refused(asApp(z, setLink(kind, doc, null)), /in force cannot be unlinked/);
     await refused(asApp(z, cancel), /journal is in force/);
-    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /never marked status reversed/);
     const legacyContra = await journal(z, negate(legs), { status: 'reversed' });
     const reversedBy = await journal(z, legs);
     await sql`UPDATE gl_journal_entries SET reversal_of_id = ${reversedBy}::UUID WHERE id = ${legacyContra}::UUID`;
@@ -138,12 +138,12 @@ describeIfDisposable('ledger column immutability: a document\'s journal link and
     expect(await linkOf(kind, doc)).toBe(original);
   });
 
-  it('a journal reached status reversed only through a posted reversal: the flip then goes through, as the ledger already says', async () => {
+  it('no session but a superuser marks a journal status reversed, with or without a posted reversal (round 10)', async () => {
     const original = await journal(z, legs);
-    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
-    await refused(asRole(z, 'platform_admin', (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /marked reversed only when/);
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /never marked status reversed/);
+    await refused(asRole(z, 'platform_admin', (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /never marked status reversed/);
     await reverse(original);
-    await asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original]));
+    await refused(asApp(z, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [original])), /never marked status reversed/);
   });
 
   it.each(KINDS)('%s: cancelled only once its journal is out of force', async (kind) => {

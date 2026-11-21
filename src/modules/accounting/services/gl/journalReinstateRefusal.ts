@@ -41,3 +41,38 @@ export class JournalReversalChainFullError extends Error {
 export function isReversalChainFullRefusal(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { constraint?: unknown }).constraint === REVERSAL_CHAIN_FULL;
 }
+
+/** The CONSTRAINT name of the exact-negation refusal (a contra whose lines do not mirror the original's). */
+export const REVERSAL_NOT_NEGATION = 'gl_je_reversal_not_negation';
+/** The CONSTRAINT name of the retryable "chain changed while it was being linked" refusal (SQLSTATE 40001). */
+export const REVERSAL_CHAIN_CHANGED = 'gl_je_reversal_chain_changed';
+
+/** Any other refusal of the reversal link by migration 1018, in the user's words: no table name, no SQLSTATE. */
+export class JournalReversalRefusedError extends Error {
+  readonly code = 'JOURNAL_REVERSAL_REFUSED';
+  constructor(entryNumber: string, reason: string) {
+    super(`Journal entry ${entryNumber} cannot be reversed: ${reason}`);
+    this.name = 'JournalReversalRefusedError';
+  }
+}
+
+/**
+ * Round 10 L4: every refusal the reversal link can meet in migration 1018, as the error the caller should see. Null
+ * for anything else (the caller rethrows it). `retry` builds the 503 (Retry-After) error for the two refusals that a
+ * retry can pass: the chain changed while it was being linked, and the read-committed rule (40001).
+ */
+export function ledgerLinkRefusal(err: unknown, entryNumber: string, retry: () => Error): Error | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const { constraint, code, message } = err as { constraint?: unknown; code?: unknown; message?: unknown };
+  if (constraint === REINSTATES_CANCELLED_DOCUMENT) return new JournalReinstatesCancelledDocumentError(entryNumber);
+  if (constraint === REVERSAL_CHAIN_FULL) return new JournalReversalChainFullError(entryNumber);
+  if (constraint === REVERSAL_CHAIN_CHANGED || code === '40001') return retry();
+  if (constraint === REVERSAL_NOT_NEGATION) {
+    return new JournalReversalRefusedError(entryNumber, 'its reversal would not mirror it line for line (an account '
+      + 'or VAT type differs). Correct it with a new journal instead.');
+  }
+  if (code === '23514' && typeof message === 'string' && message.startsWith('gl_journal_entries: ')) {
+    return new JournalReversalRefusedError(entryNumber, `${message.slice('gl_journal_entries: '.length)}.`);
+  }
+  return null;
+}
