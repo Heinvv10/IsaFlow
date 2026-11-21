@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { PoolClient } from 'pg';
+import { Client, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { document, dropFreeze, journal, openApp, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row } from './helpers/ledgerFreezeFixture';
@@ -91,6 +91,33 @@ describeIfDisposable('ledger column immutability, round 14: account rows before 
       await doc.query('COMMIT');
       expect(await merging).toBe('ACCEPTED');
     } finally { await close(doc); await close(mrg); }
+  }, 30000);
+
+  it('L1 a two-chain lock (the late-claim pair) takes both chains\' accounts before either journal: a merge does not deadlock it', async () => {
+    // The merge's accounts sort target first, so it holds the target while it waits for the source. J1 (the lower uuid,
+    // taken first) is on the source, J2 on the target: taking J2's accounts only after J1's key would close the cycle.
+    let src = await acct('R14 pair src');
+    let tgt = await acct('R14 pair tgt');
+    if (tgt > src) [src, tgt] = [tgt, src];
+    const j1 = await journal(z, [[src, 10, 0], [z.ap, 0, 10]]);
+    let j2 = await journal(z, [[tgt, 10, 0], [z.ap, 0, 10]]);
+    while (j2 < j1) j2 = await journal(z, [[tgt, 10, 0], [z.ap, 0, 10]]);
+    const hold = new Client({ connectionString: process.env.DATABASE_URL }); // its own: z.pool has two connections
+    await hold.connect(); // pauses the pair at J1's row, after whatever it takes before the journals
+    await hold.query('BEGIN');
+    await hold.query('SELECT 1 FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [j1]);
+    const pair = await openApp(z);
+    const mrg = await openApp(z);
+    try {
+      const pairing = settle(pair.query('SELECT public.ledger_lock_chains($1::uuid[])', [[j1, j2]]).then(() => lineOn(pair, tgt)));
+      await sleep(400);
+      const merging = settle(mergeLocks(mrg, src, tgt));
+      await sleep(400);
+      await hold.query('ROLLBACK');
+      expect(await pairing).toBe('ACCEPTED');
+      await pair.query('COMMIT');
+      expect(await merging).toBe('ACCEPTED');
+    } finally { await hold.end(); await close(pair); await close(mrg); }
   }, 30000);
 
   it('over-strict: a claim does not wait for another reversal on the same account (its contra line written, still open)', async () => {

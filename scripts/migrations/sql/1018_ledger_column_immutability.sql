@@ -357,8 +357,8 @@ $$;
 -- its key. An account merge takes its two accounts FOR UPDATE, then the keys of their journals (gl/ledgerLinkKeys), so a
 -- transaction that held a journal's key and only then asked for one of its accounts (the contra's composite FK
 -- (gl_account_id, company_id) asks FOR KEY SHARE) deadlocked with it. So every take of a journal's key by a claim or a
--- document first takes FOR KEY SHARE, in id order, on the accounts of the lines of the given journals and of their chain
--- roots: what the contra INSERT will ask for anyway. FOR KEY SHARE conflicts only with FOR UPDATE (a merge, a
+-- document first takes FOR KEY SHARE, in id order, on the accounts of the given journals' lines: what the contra
+-- INSERT will ask for anyway (a contra mirrors the lines of the journal it reverses, never its root's). FOR KEY SHARE conflicts only with FOR UPDATE (a merge, a
 -- reclassification target, a re-parent), never with another reversal. Bounded like every take here; read as the caller.
 CREATE OR REPLACE FUNCTION public.ledger_lock_accounts(p_entries uuid[])
 RETURNS void
@@ -370,10 +370,7 @@ DECLARE
 BEGIN
   PERFORM 1 FROM public.gl_accounts a
    WHERE a.id IN (SELECT l.gl_account_id FROM public.gl_journal_lines l
-                   WHERE l.journal_entry_id IN (SELECT e.id FROM unnest(p_entries) e(id)
-                                                UNION
-                                                SELECT r.id FROM unnest(p_entries) e(id)
-                                                  CROSS JOIN LATERAL public.gl_journal_ancestors(e.id) r WHERE r.is_root))
+                   WHERE l.journal_entry_id = ANY(p_entries))
    ORDER BY a.id
      FOR KEY SHARE OF a;
   PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
@@ -705,7 +702,7 @@ BEGIN
     PERFORM public.ledger_require_read_committed(TG_TABLE_NAME);
     -- Round 13 L1: this journal's key AND its chain root's, sorted, so a claim and the link that follows never hold
     -- one chain key while waiting for a lower one (an account merge's sorted sweep would deadlock against that).
-    -- Round 14 L1: the accounts of its lines and its root's first (the contra's FK will ask for them), so a claim never
+    -- Round 14 L1: the accounts of its lines first (the contra's FK will ask for them), so a claim never
     -- holds a key while it waits for an account a merge holds FOR UPDATE.
     PERFORM public.ledger_lock_accounts(ARRAY[OLD.id]);
     FOR v_key IN SELECT DISTINCT s.k FROM (SELECT OLD.id AS k UNION SELECT a.id FROM public.gl_journal_ancestors(OLD.id) a WHERE a.is_root) s
