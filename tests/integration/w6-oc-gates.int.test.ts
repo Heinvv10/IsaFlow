@@ -109,7 +109,7 @@ describe('gate review of 7630d9379f, ruling 1: a bonus is paid on a PAYE-taxable
     await b.pool.query('UPDATE payroll_components SET is_taxable = false WHERE id = $1', [later]);
     const calc = await b.api.calculate(id);
     expect(calc.statusCode).toBe(409);
-    expect(b.msg(calc)).toMatch(/taxable annual-payment earnings/);
+    expect(b.msg(calc)).toMatch(/taxable annual-payment earning/);
     await b.pool.query(`UPDATE payroll_run_headers SET status = 'cancelled' WHERE id = $1`, [id]);
   });
 });
@@ -192,6 +192,16 @@ describe('M2: every create refusal writes nothing', () => {
     const made = await create(a, { reason: 'bonus', employees: [{ employeeId: p.stayer, componentId: basicOf[a.company], amount: 100 }] });
     expect(made.statusCode).toBe(400);
     expect(a.msg(made)).toMatch(/annual-payment earnings \(SARS code 3605\)/);
+    expect(await runs(a)).toBe(before);
+  });
+
+  it('a bonus on a 3605 earning marked not taxable: 400 (review #1679 Codex of 7630d9379: it would withhold no PAYE)', async () => {
+    const untaxed = String((await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+      VALUES ($1, 'Untaxed bonus', '3605', 'earning', false) RETURNING id`, [a.company])).rows[0].id);
+    const before = await runs(a);
+    const made = await create(a, { reason: 'bonus', employees: [{ employeeId: p.stayer, componentId: untaxed, amount: 10_000 }] });
+    expect(made.statusCode).toBe(400);
+    expect(a.msg(made)).toMatch(/taxable annual-payment earnings \(SARS code 3605\)/);
     expect(await runs(a)).toBe(before);
   });
 

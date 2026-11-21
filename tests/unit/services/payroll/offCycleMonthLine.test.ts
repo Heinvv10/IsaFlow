@@ -254,3 +254,21 @@ describe('PAYE classification of an off-cycle bonus (review #1679 gate ruling 2)
     expect(treatmentOf(bonus)).toMatch(/Non-standard employment/);
   });
 });
+
+describe('the employment class across the month (G21 p. 28 day pay; review #1679 Codex of 7630d9379)', () => {
+  // 14 hours a week in days of 6 at R300 a day: deemed standard (tables) on the rate alone. 3 033 + 1 517 = R4 550 for
+  // the month's 10.11 scheduled days is R450 a day, over R394: the regular line is non-standard (flat 25%).
+  const partTime = employee({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 300 });
+  const month = [earning('basic', '3601', 3_033), earning('overtime', '3607', 1_517)];
+  const earlier: MonthEarlierLines = { uifRemuneration: 4_550, eti: 0, etiComponents: month };
+  it('the bonus is classified on the regular line\'s basic pay and overtime, as the regular line was', () => {
+    const regular = calculatePayrollLine({ employee: partTime, components: month, period, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(regular.paye.monthlyPaye).toBeCloseTo(4_550 * 0.25, 2);
+    const bonus = bonusLine(10_000, earlier, undefined, partTime);
+    expect(bonus.paye.monthlyPaye).toBeCloseTo(2_500, 2);
+  });
+  it('with no time worked over the rate in the month, the rate decides (tables)', () => {
+    const basicOnly: MonthEarlierLines = { uifRemuneration: 3_033, eti: 0, etiComponents: [earning('basic', '3601', 3_033)] };
+    expect(bonusLine(10_000, basicOnly, undefined, partTime).paye.monthlyPaye).not.toBeCloseTo(2_500, 2);
+  });
+});

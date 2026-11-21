@@ -41,8 +41,11 @@ export interface PayrollRunRow {
   pay_date?: string | null;
   /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
   final?: boolean;
-  /** Gate rulings on 7630d9379f: approved before (a reopened run), its gross, and an off-cycle run's paid gross (999x). */
-  approved_before?: boolean;
+  /**
+   * Gate rulings on 7630d9379f: an approval of the run lasted into its pay date (approval_history), so its salaries were
+   * disbursed even if it has since been reopened; its gross, and an off-cycle run's paid gross (999x snapshot).
+   */
+  disbursed?: boolean;
   total_gross?: string | number;
   paid_gross?: string | number | null;
 }
@@ -132,13 +135,13 @@ const emp201Due = (r: PayrollRunRow): string => {
 
 /**
  * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Before its pay date, or overdue and
- * neither final nor approved before (review #1679 M3): all of it. Once its pay date has passed and it was approved (final,
- * or reopened after being paid): payday settled the net pay, so it needs its PAYE, UIF and SDL (less ETI) until the
+ * neither final nor disbursed (review #1679 M3): all of it. Once its pay date has passed and it was paid (final, or an
+ * approval that lasted into its pay date, since reopened): payday settled the net pay, so it needs its PAYE, UIF and SDL (less ETI) until the
  * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
 function owedOf(r: PayrollRunRow, asAt: string | undefined): number {
   const all = shapePayrollAffordability(r, 0)!.totalRequired;
-  const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.approved_before === true);
+  const paid = asAt !== undefined && r.pay_date != null && String(r.pay_date).slice(0, 10) < asAt && (r.final === true || r.disbursed === true);
   if (!paid) return all;
   const statutory = asAt! <= emp201Due(r) ? r2(all - num(r.total_net)) : 0;
   const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
@@ -185,7 +188,8 @@ async function nextPayrollSection(
            total_net, total_paye, total_uif, total_sdl, total_eti,
            COALESCE(run_date, period_end)::text AS pay_date,
            ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,
-           total_gross, (approval_history IS NOT NULL AND NOT isempty(approval_history)) AS approved_before,
+           total_gross, COALESCE(approval_history && tstzrange((COALESCE(run_date, period_end)::timestamp AT TIME ZONE 'Africa/Johannesburg'), NULL),
+                    false) AS disbursed,
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
