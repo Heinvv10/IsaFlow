@@ -154,17 +154,37 @@ describe('round 14: the Eliminations page', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('the cutover of the previously loaded group is cleared on a group switch whose load fails', async () => {
+  it('a failed reload (the same group, another period) clears the cutover: no reason field from a list that did not load', async () => {
+    let fail = false;
     vi.mocked(apiFetch).mockImplementation(async (url) => {
       if (String(url).includes('company-groups')) return groups();
-      if (String(url).includes(G2)) return new Response(JSON.stringify({ success: false, error: { message: 'G2 failed' } }), { status: 500 });
+      if (fail) return new Response(JSON.stringify({ success: false, error: { message: 'reload failed' } }), { status: 500 });
       return new Response(JSON.stringify({ success: true, data: { items: [], reasonRequiredFrom: '2026-01-01' } }), { status: 200 });
     });
     render(<EliminationsPage />);
-    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some((c) => String(c[0]).includes('eliminations'))).toBe(true));
-    await new Promise((r) => setTimeout(r, 30));
+    fireEvent.click(await screen.findByRole('button', { name: /manual elimination/i }));
+    expect(await screen.findByLabelText(/Reason for a manual elimination/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    fail = true;
+    fireEvent.change(screen.getByLabelText(/Period end/i), { target: { value: '31 Dec 2026' } });
+    fireEvent.blur(screen.getByLabelText(/Period end/i));
+    await screen.findByText(/reload failed/);
+    fireEvent.click(screen.getByRole('button', { name: /manual elimination/i }));
+    await screen.findByPlaceholderText(/Describe the elimination/);
+    expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
+  });
+
+  it('switching group drops the previous group\'s cutover at once (while the new list is still loading)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).includes('company-groups')) return groups();
+      if (String(url).includes(G2)) return new Promise<Response>(() => undefined);   // (never answers)
+      return new Response(JSON.stringify({ success: true, data: { items: [], reasonRequiredFrom: '2026-01-01' } }), { status: 200 });
+    });
+    render(<EliminationsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /manual elimination/i }));
+    expect(await screen.findByLabelText(/Reason for a manual elimination/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
-    await screen.findByText(/G2 failed/);
     fireEvent.click(screen.getByRole('button', { name: /manual elimination/i }));
     await screen.findByPlaceholderText(/Describe the elimination/);
     expect(screen.queryByLabelText(/Reason for a manual elimination/)).toBeNull();
