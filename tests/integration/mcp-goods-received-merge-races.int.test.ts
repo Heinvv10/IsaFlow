@@ -21,6 +21,7 @@ import { createGoodsReceivedTool as create } from '@/lib/mcp/tools/writeCreateGo
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
+import { updateSupplierInvoiceTool as update } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
 
 assertDisposable();
@@ -154,6 +155,36 @@ describe('R2: the undo of a deleted noted bill races a merge, both orders (outco
       expect((out.e as Error).message).toContain('cannot be restored');
       expect(await stranded(fx, target)).toEqual([]);
       expect((await pool.query('SELECT deleted_at IS NULL AS live FROM supplier_invoices WHERE id = $1', [bill])).rows[0].live).toBe(false);
+    });
+  }, 30_000);
+});
+
+describe('a draft supplier change racing a merge of the new supplier (review of b4741393, L1)', () => {
+  it('the edit waits at its FK check while the paused merge holds the supplier, then gets the typed refusal; the bill keeps its supplier', async () => {
+    await withFixture('race-draft-change', async (fx, target) => {
+      // The bill is on another supplier; the edit moves it ONTO fx.supplier, which the merge is merging away.
+      const other = await seedSupplier(pool, fx, 'Draft owner');
+      const draft = await inReq(fx, () => createSupplierInvoice(fx.co, { ...billInput(fx), supplierId: other }, fx.owner));
+      const plain = await inReq(fx, () => createSupplierInvoice(fx.co, billInput(fx), fx.owner));
+      const hold = await pool.connect();
+      await hold.query('BEGIN');
+      await hold.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [plain.id]);
+      const m = await openRequest(pool, fx, fx.owner);
+      const merging = m.run(() => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner))
+        .then(async (r) => { await m.commit(); return r; }, async (err) => { await m.rollback(); return err; });
+      let editing: Promise<Awaited<ReturnType<typeof callTool>>> | undefined;
+      try {
+        expect(await waitsOnLock('UPDATE supplier_invoices SET supplier_id')).toBe(true);
+        editing = callTool(pool, fx, update, { invoice_id: draft.id, supplier_id: fx.supplier })
+          .catch((err: Error) => ({ isError: true, body: {}, text: err.message, wroteNothing: false }));
+        // The draft edit's own UPDATE (the merge's is waiting too, on the held row): it waits at the FK check on the merge's supplier lock.
+        expect(await waitsOnLock('due_date_source = COALESCE')).toBe(true);
+      } finally { await hold.query('ROLLBACK'); hold.release(); }
+      expect(await merging).toMatchObject({ reassignedTransactions: expect.any(Number) });
+      const edit = await editing!;
+      expect(edit.isError).toBe(true);
+      expect(edit.text).toContain('has been merged into another or deleted');
+      expect((await pool.query('SELECT supplier_id::text AS s FROM supplier_invoices WHERE id = $1', [draft.id])).rows[0].s).toBe(other);
     });
   }, 30_000);
 });

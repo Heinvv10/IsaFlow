@@ -218,7 +218,8 @@ export async function createSupplierInvoice(
 
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
-    // A supplier merged or deleted while this create waited on it (1021's supplier-live trigger): a typed refusal, nothing written.
+    // A soft-deleted supplier (merged into another, or deleted; e.g. by a merge this create waited on): 1021's supplier-live trigger
+    // refused the INSERT; a typed refusal, nothing written.
     const gone = asBillSupplierDeleted(err);
     if (gone) throw gone;
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');

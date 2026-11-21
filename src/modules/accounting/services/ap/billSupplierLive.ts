@@ -1,14 +1,18 @@
 /**
- * A bill is never written onto a soft-deleted supplier (review of 0d51f4a5, L2): migration 1021's `trg_supplier_invoices_supplier_live`
- * refuses it for every writer (create, the draft edit's supplier change, imports, recurring, capture), after the FK has waited for any
- * supplier merge holding the row, with SQLSTATE 23503 and constraint `supplier_invoices_supplier_live`. The paths an agent or the app
- * reports from (createSupplierInvoice: the REST create, MCP single and bulk, the Sage commit; the MCP draft edit) answer it typed.
+ * A bill insert or supplier change onto a soft-deleted supplier is refused (review of 0d51f4a5, L2): migration 1021's
+ * `trg_supplier_invoices_supplier_live` refuses it for every writer, after the FK has waited for a supplier merge
+ * holding the row (both merge paths take it FOR UPDATE; a plain supplier soft-delete does not, see Known limits), with SQLSTATE 23503
+ * and constraint `supplier_invoices_supplier_live`. createSupplierInvoice (REST, MCP single and bulk, the Sage commit) and the MCP
+ * draft edit map it to this error; every other route reaches `respondIfBillSupplierDeleted` through respondToUnhandledError (409).
  */
+import { sql } from '@/lib/neon';
+import { SoftDeleteRefusalError } from '../core/softDeleteErrors';
+
 export class BillSupplierDeletedError extends Error {
   readonly code = 'SUPPLIER_INVOICE_SUPPLIER_DELETED';
   constructor() {
-    super('The supplier was merged or deleted while this bill was being saved, so nothing was saved. '
-      + 'Enter the bill again for the supplier it was merged into (or another live supplier).');
+    super('The supplier has been merged into another or deleted, so this bill was not saved. '
+      + 'Enter it again for the supplier it was merged into, or another live supplier.');
     this.name = 'BillSupplierDeletedError';
   }
 }
@@ -17,4 +21,20 @@ export class BillSupplierDeletedError extends Error {
 export function asBillSupplierDeleted(err: unknown): BillSupplierDeletedError | null {
   const e = err as { code?: unknown; constraint?: unknown } | null;
   return e && e.code === '23503' && e.constraint === 'supplier_invoices_supplier_live' ? new BillSupplierDeletedError() : null;
+}
+
+/**
+ * The undo of a deleted bill does not fire the trigger (supplier_id is unchanged), so it checks itself (review of b4741393, L2): a
+ * bill whose supplier has since been merged into another or deleted stays deleted (`SoftDeleteRefusalError`, 400), with the exit.
+ * Called after the restore's own bill row lock (assertBillRestorableGrn), so it reads the bill's supplier as it stands.
+ */
+export async function assertBillRestorableSupplier(companyId: string, billId: string): Promise<void> {
+  const gone = (await sql`
+    SELECT 1 FROM supplier_invoices si JOIN suppliers s ON s.id = si.supplier_id
+     WHERE si.id = ${billId}::uuid AND si.company_id = ${companyId}::uuid AND s.deleted_at IS NOT NULL
+  `) as unknown[];
+  if (gone.length > 0) {
+    throw new SoftDeleteRefusalError('This bill\'s supplier has been merged into another or deleted, so the bill cannot be restored; '
+      + 'enter the bill again for the supplier it was merged into, or another live supplier');
+  }
 }

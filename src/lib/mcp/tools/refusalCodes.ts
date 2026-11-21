@@ -267,6 +267,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_LINE_ACCOUNT',
   'RECURRING_TEMPLATE_LOCK_TIMEOUT',
   'RECURRING_TEMPLATE_NOT_DUE',
+  // A bill template naming a supplier merged into another or deleted (core/recurringTransactionErrors), pre-write.
+  'RECURRING_TEMPLATE_SUPPLIER_DELETED',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
   'FISCAL_PERIOD_NOT_GENERATED', // no period covers the date and none can be generated (a month beside closed periods); names only the date and the year; pre-write.
