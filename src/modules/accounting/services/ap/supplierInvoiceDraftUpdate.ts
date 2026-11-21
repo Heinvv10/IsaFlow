@@ -25,6 +25,7 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
+import { asBillSupplierDeleted } from './billSupplierLive';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -230,6 +231,7 @@ export async function applySupplierInvoiceDraftUpdate(
     );
   }
 
+  // A supplier change onto a supplier merged or deleted meanwhile (1021's supplier-live trigger) is a typed refusal; nothing is written.
   await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
     await tx`
       UPDATE supplier_invoices SET
@@ -272,5 +274,5 @@ export async function applySupplierInvoiceDraftUpdate(
     await refreshAppBillLinks(companyId, plan.invoiceId, editedBy, tx);
     // The note LAST (held FOR SHARE to the commit), then the stored match re-judged when the note or supplier moved.
     await applyDraftGrn(companyId, plan, tx);
-  }));
+  })).catch((err: unknown) => { throw asBillSupplierDeleted(err) ?? err; });
 }

@@ -64,9 +64,12 @@
 -- OLD COLOUR. The old code never writes 'cancelled', the new columns or 'goods_received' documents; it reads the notes by
 --   name (`SELECT g.*` passes the new columns through). Its create inserts a note with the new columns NULL, which every
 --   CHECK and the unique index accept, and its items onto that note of the request's company, which grn_items' policy
---   accepts. It never UPDATEs or DELETEs either table. Nothing it does is refused.
+--   accepts. It never UPDATEs or DELETEs either table. Nothing it does is refused, except a bill written onto a soft-deleted
+--   supplier (trg_supplier_invoices_supplier_live), which the old code then answers as a failed write.
 --
 -- Rollback (down SQL; roll the code back first, and only while no row uses what is dropped):
+--   DROP TRIGGER IF EXISTS trg_supplier_invoices_supplier_live ON public.supplier_invoices;
+--   DROP FUNCTION IF EXISTS public.supplier_invoices_supplier_live_guard();
 --   DROP INDEX IF EXISTS public.idx_supplier_invoices_grn;
 --   DROP TRIGGER IF EXISTS trg_goods_received_notes_po_guard ON public.goods_received_notes;
 --   DROP TRIGGER IF EXISTS trg_grn_items_po_line_guard ON public.grn_items;
@@ -479,6 +482,36 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'nothing (a FOR SHARE row lock on one goods_received_notes row of the session company, for a member of it; returns its status)')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+
+-- ── A bill is never written onto a soft-deleted supplier (review of 0d51f4a5, L2) ──────────────────────────────────
+-- A bill create (or a supplier change) racing a supplier merge waits at its FK check (KEY SHARE on the supplier) for the merge's
+-- FOR UPDATE, and then lands on the merged-away, soft-deleted supplier: a live bill the merge never saw. Fail-closed: refused, for
+-- every writer. AFTER ROW, named so it fires after the FK's RI trigger (trigger order is by name; 'RI_ConstraintTrigger_...' sorts
+-- first): by then the FK has waited for any merge, and this statement's fresh snapshot (READ COMMITTED) sees its commit. A supplier
+-- the caller cannot see (another company's) passes here; the tenant check is the app's (assertSupplierInCompany) and the FK's.
+-- SQLSTATE 23503 with constraint supplier_invoices_supplier_live, which the app maps to a typed refusal.
+CREATE OR REPLACE FUNCTION public.supplier_invoices_supplier_live_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.supplier_id IS NULL OR (TG_OP = 'UPDATE' AND NEW.supplier_id IS NOT DISTINCT FROM OLD.supplier_id) THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.suppliers s WHERE s.id = NEW.supplier_id AND s.deleted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'supplier % has been merged or deleted; a bill cannot be written onto it', NEW.supplier_id
+      USING ERRCODE = '23503', CONSTRAINT = 'supplier_invoices_supplier_live';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_supplier_invoices_supplier_live ON public.supplier_invoices;
+CREATE TRIGGER trg_supplier_invoices_supplier_live AFTER INSERT OR UPDATE OF supplier_id ON public.supplier_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.supplier_invoices_supplier_live_guard();
+ALTER TABLE public.supplier_invoices ENABLE ALWAYS TRIGGER trg_supplier_invoices_supplier_live;
+REVOKE ALL ON FUNCTION public.supplier_invoices_supplier_live_guard() FROM PUBLIC;
 
 -- ── Upload targets: a goods received note ───────────────────────────────────────────────────────────────────────
 

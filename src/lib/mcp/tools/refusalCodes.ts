@@ -290,6 +290,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_INVOICE_PO_LINK_REFUSED',
   // Review M1 (ap/billGoodsReceivedLink): a bill's goods received note malformed / not this company's / cancelled; fixed wording, pre-write.
   'SUPPLIER_INVOICE_GRN_REFUSED',
+  // A bill onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1021's supplier-live trigger).
+  'SUPPLIER_INVOICE_SUPPLIER_DELETED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',

@@ -20,6 +20,7 @@ import { updateSupplierInvoiceTool as update } from '@/lib/mcp/tools/writeUpdate
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
+import { BillSupplierDeletedError } from '@/modules/accounting/services/ap/billSupplierLive';
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
 
 assertDisposable();
@@ -74,6 +75,7 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     expect(text).toContain('goods received note');
     expect(text).toContain(number);
     expect(text).toContain('delete it and enter it again without the note');
+    expect(text).toContain('the deleted draft still moves with the merge and cannot be restored afterwards');
     expect(await supplierOf(bill)).toBe(f.supplier);
     expect(await sourceLive()).toBe(true);
   });
@@ -135,7 +137,7 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
     } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
   });
 
-  it('the REAL merge, paused after its supplier lock, makes a bill create of that supplier wait; no merged bill on the old supplier\'s noted PO', async () => {
+  it('the REAL merge, paused after its supplier lock, makes a bill create of that supplier wait; the create is then refused (supplier merged), never a merged bill on the old supplier\'s noted PO', async () => {
     const own = await seedBillFixture(pool, 'grn-merge-race-b');
     const fresh = await seedSupplier(pool, own, 'Race target B');
     try {
@@ -159,7 +161,11 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
         expect(await waitsOnLock('INSERT INTO supplier_invoices')).toBe(true);
       } finally { await hold.query('ROLLBACK'); hold.release(); }
       expect(await merging).toMatchObject({ reassignedTransactions: expect.any(Number) });
-      await creating;
+      // The create waited for the merge, then met its supplier soft-deleted: a typed refusal, nothing written (review of 0d51f4a5, L2).
+      const created = await creating;
+      expect(created).toBeInstanceOf(BillSupplierDeletedError);
+      expect((created as BillSupplierDeletedError).code).toBe('SUPPLIER_INVOICE_SUPPLIER_DELETED');
+      expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1 AND grn_id = $2', [own.co, note])).rows[0].n)).toBe(0);
       const stranded = Number((await pool.query(
         `SELECT count(*) AS n FROM supplier_invoices si JOIN goods_received_notes g ON g.id = si.grn_id JOIN purchase_orders po ON po.id = g.purchase_order_id
           WHERE si.company_id = $1 AND si.supplier_id = $2 AND po.supplier_id = $3`, [own.co, fresh, own.supplier])).rows[0].n);

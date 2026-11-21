@@ -19,7 +19,11 @@ const PAID = ['paid', 'partially_paid'];
 /** The exits for the states present: a draft is deleted, a paid bill has its payments reversed first, any other bill is cancelled. */
 function exits(statuses: readonly string[]): string {
   const out: string[] = [];
-  if (statuses.includes('draft')) out.push('a draft bill: delete it and enter it again without the note');
+  // The deleted draft still moves with the merge (deleted bills are not live) and cannot be restored there (its note would be on the
+  // old supplier's purchase order): say so (review of 0d51f4a5, L3).
+  if (statuses.includes('draft')) {
+    out.push('a draft bill: delete it and enter it again without the note (the deleted draft still moves with the merge and cannot be restored afterwards)');
+  }
   if (statuses.some((s) => s !== 'draft' && !PAID.includes(s))) out.push('a pending-approval, disputed or approved bill: cancel it');
   if (statuses.some((s) => PAID.includes(s))) out.push('a paid or partially paid bill: reverse its payments, then cancel it');
   return out.join('; ');

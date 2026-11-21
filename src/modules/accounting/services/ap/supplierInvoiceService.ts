@@ -16,6 +16,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
 import { assertBillGrn } from './billGoodsReceivedLink';
+import { asBillSupplierDeleted } from './billSupplierLive';
 import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
@@ -217,6 +218,9 @@ export async function createSupplierInvoice(
 
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
+    // A supplier merged or deleted while this create waited on it (1021's supplier-live trigger): a typed refusal, nothing written.
+    const gone = asBillSupplierDeleted(err);
+    if (gone) throw gone;
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;
   }
