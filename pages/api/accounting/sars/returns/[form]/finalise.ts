@@ -51,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (await refuseWithoutApprove(res, companyId, userId, form === 'EMP201' ? 'payroll' : 'vat', `${form} returns`)) return;
   const { periodStart, periodEnd, overrideReason, force, acknowledgeVatReturnMismatch, mismatchReason } = parsed.data;
   try {
-    // census-exempt(finaliseReturn): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+    // census-exempt(finaliseReturn, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     const { version, vatReturn } = await finaliseReturn(companyId, form, periodStart, periodEnd,
       { userId, role: companyRole },
       {

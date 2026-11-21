@@ -112,7 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       try {
         let payRunPlanHash: string | null = null;
         if (documentType === 'pay_run') {
-          // census-exempt(preparePayRunApprovalRequest): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
+          // census-exempt(preparePayRunApprovalRequest, payroll-read): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
           payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         }
         const request = await requestApproval(companyId, {
@@ -177,7 +177,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Deciding a pay-run request is Payroll's too: a rejection needs Payroll write (an approval asked the Approve gate above).
         if (decision === 'rejected' && requestRow.document_type === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
         if (requestRow.document_type === 'pay_run') {
-          // census-exempt(preparePayRunApprovalRequest): Payroll Approve (an approval) or Payroll write (a rejection) is asked just above; it reads the run's kind and plan hash only
+          // census-exempt(preparePayRunApprovalRequest, payroll-read): Payroll Approve (an approval) or Payroll write (a rejection) is asked just above; it reads the run's kind and plan hash only
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }
         // census-exempt(decideRequest): approving asks the document type's Approve first (refuseApprovalRequestWithoutApprove, above); a rejection posts nothing. approveGateEverything / approvePermissionPaths
