@@ -27,6 +27,12 @@ import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import { postedExpenseLines } from './postedExpenseLines';
 
+/** A header tie's residual: the subtotal (floored at 0 first, breaker r7) less what the bill holds elsewhere, kept in [0, subtotal]. */
+export function headerResidualCents(subtotalCents: number, othersCents: number): number {
+  const subtotal = Math.max(0, subtotalCents);
+  return Math.min(subtotal, Math.max(0, subtotal - othersCents));
+}
+
 export interface BillTie {
   billId: string;
   poId: string;
@@ -112,9 +118,8 @@ export async function billTies(
       via = 'link'; cents = toCents(Number(r.link_amount));
     } else {
       via = 'header';
-      const subtotal = toCents(Number(r.subtotal ?? 0));
       const others = [...new Set([...f.named, ...f.linked.keys()])].filter((p) => p !== po).reduce((s, p) => s + held(f, p), 0);
-      cents = Math.min(subtotal, Math.max(0, subtotal - others));
+      cents = headerResidualCents(toCents(Number(r.subtotal ?? 0)), others);
     }
     return {
       billId: lower(r.bill), poId: po, via, cents, month: fmtDate(mapInvoiceRow(r).invoiceDate).slice(0, 7),

@@ -45,7 +45,8 @@ import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { auditBillCleared, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 import { poCommittedCents, reopenUnderBilled } from './purchaseOrderBillingClose';
-import { poBillingBasisCents } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
+import { billTies } from '../budgets/billAttribution';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
 
@@ -131,6 +132,10 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   // (poCommittedCents), read before the clear and after the reopen, computed under the PO lock; concurrent changes to other bills can
   // make it noisy (review r7 M3; no lock is added for it).
   const committedBefore = (await poCommittedCents(companyId, [poId])).get(poId) ?? 0;
+  // Breaker B7-4: and only a tie that COUNTED can raise it: this bill billed, live and attributed > 0 to this PO (the per-(bill, PO)
+  // floor, budgets/billAttribution), so a concurrent cancel of another bill is never blamed on the unlink of a draft.
+  const tieCounted = (await billTies(companyId, [poId], { statuses: BILLED_STATUSES }))
+    .some((t) => t.billId === req.billId && !t.deleted && t.cents > 0);
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
       FROM po_items pi
@@ -154,7 +159,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
     userId: opts.userId, via: opts.via, why: reason, audit: false,
   })).get(poId)?.reopenedTo ?? null;
   const statusAfter = reopenedTo ?? status;
-  const raisesCommitted = ((await poCommittedCents(companyId, [poId])).get(poId) ?? 0) > committedBefore;
+  const raisesCommitted = tieCounted && ((await poCommittedCents(companyId, [poId])).get(poId) ?? 0) > committedBefore;
 
   // R2 (Hein): never blocks, and records nothing (no budget_check_events row, no approve audit row): a READ of what the PO would
   // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.
