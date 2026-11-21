@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -38,6 +39,8 @@ export interface PayrollRunRow {
   total_eti: string | number;
   /** The run's pay date, COALESCE(run_date, period_end) as YYYY-MM-DD; absent means still due. */
   pay_date?: string | null;
+  /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
+  final?: boolean;
 }
 
 export interface CashPositionPayroll {
@@ -111,7 +114,8 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  * (runOrderKeySql puts a regular run before its month's off-cycle runs): rows are taken in pay-date order, the given
  * order breaking ties. A run whose pay date is today or later is STILL DUE: each is judged against what the due runs
  * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
- * A run whose pay date has passed has been paid (nothing marks a run paid, review #1549 N-H1), so it is never added to
+ * A FINAL run whose pay date has passed has been paid (nothing marks a run paid, review #1549 N-H1; an overdue run that
+ * is not final is still owed, review #1679 M3), so it is never added to
  * the due runs and never produces a shortfall (review #1679 codex 4): it is reported only when no due run has totals,
  * as covered. The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
  * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
@@ -119,7 +123,9 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  */
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
   const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
-  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || payDate(r) >= asAt;
+  // Still owed: due today or later, or overdue and not final (a calculated run past its pay date awaits approval, so
+  // its salaries have not left the bank; review #1679 M3). Only a final run past its pay date has been paid.
+  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || payDate(r) >= asAt || r.final !== true;
   const byPayDate = runs.map((r, i) => ({ r, i }))
     .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
   let required = 0;
@@ -154,7 +160,8 @@ async function nextPayrollSection(
   const rows = (await sql`
     SELECT id, period_month, period_year, status,
            total_net, total_paye, total_uif, total_sdl, total_eti,
-           COALESCE(run_date, period_end)::text AS pay_date
+           COALESCE(run_date, period_end)::text AS pay_date,
+           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')

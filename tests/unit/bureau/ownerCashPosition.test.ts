@@ -59,7 +59,7 @@ describe('pickPayrollRun', () => {
   });
 
   it('with asAt, a run whose pay date has passed is judged alone, never added to the runs still due (review #1549 N-H1)', () => {
-    const paid = { ...prev, pay_date: '2026-05-25' };
+    const paid = { ...prev, pay_date: '2026-05-25', final: true };
     const due = { ...cur, pay_date: '2026-06-30' };
     expect(pickPayrollRun([paid, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: true, totalRequired: 5000, runsCounted: 1 });
     expect(pickPayrollRun([paid, due], 4000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 1000, runsCounted: 1 });
@@ -80,11 +80,23 @@ describe('pickPayrollRun', () => {
     });
     it('a bonus already paid never reports a shortfall over an affordable due run', () => {
       const due = { ...regular, total_net: '500' };
-      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05' });
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
       expect(pickPayrollRun([due, paidBonus], 1000, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: true, totalRequired: 500, runsCounted: 1 });
     });
+    // Review #1679 codex M3: only a FINAL run past its pay date has been paid; an overdue calculated run is still owed.
+    it('zero cash and yesterday\'s calculated R20 000 run: R20 000 short', () => {
+      const overdue = run({ id: 'overdue', status: 'calculated', total_net: '20000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false });
+      expect(pickPayrollRun([overdue], 0, '2026-06-11')).toMatchObject({ runId: 'overdue', canPay: false, shortfall: 20000 });
+      // A row that does not say it is final is not taken as paid.
+      const { final: _f, ...unknown } = overdue;
+      expect(pickPayrollRun([unknown], 0, '2026-06-11')).toMatchObject({ runId: 'overdue', canPay: false, shortfall: 20000 });
+    });
+    it('an overdue calculated run still counts against the run due after it', () => {
+      const overdue = run({ id: 'overdue', status: 'calculated', total_net: '20000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false });
+      expect(pickPayrollRun([overdue, regular], 20_400, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: false, shortfall: 200, totalRequired: 20_600, runsCounted: 2 });
+    });
     it('with only paid runs, the latest is reported as covered (its money has left)', () => {
-      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05' });
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
       expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, shortfall: 0 });
     });
   });
