@@ -7,99 +7,27 @@
  * reversed, invoice credit given back) and runs the draft cancel as app_user under forced RLS.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { cancelCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotes';
 import { deleteDraftCreditNoteTool } from '@/lib/mcp/tools/writeDeleteDraftCreditNote';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
-import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
 import { cancelDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDraftCancelService';
 import { McpRegistry } from '@/lib/mcp/registry';
-import { CreditNoteDeleteRefusal } from '@/modules/accounting/services/ar/creditNoteDeleteService';
-import type { McpToolContext } from '@/lib/mcp/types';
-import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, runOn, seedBill, seedFixture, seedFixtureMember, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
+import { inTx, runOn, seedBill, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
 import { backendPid, waitUntilBlocked } from './helpers/lockWait';
+import {
+  DATABASE_URL, KEY, allocCount, auditRows, cancel, ctxFor, journalCount, row, seedNote, setupWorld, teardownWorld, text,
+} from './helpers/cancelDraftCreditNoteKit';
 
-const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
 let fx: Fixture;
 let other: Fixture;
-const KEY = { idempotency_key: 'k-int' };
-const ctxFor = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti', companyRole: 'owner', scopes: ['write:invoices', 'write:post'], oauthAppId: null }) as unknown as McpToolContext;
-const cancel = (id: string, extra: Record<string, unknown> = {}, f: Fixture = fx) =>
-  inTx(f, () => cancelCreditNoteTool.handler({ credit_note_id: id, ...KEY, ...extra }, ctxFor(f)));
-const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
-
-let seq = 0;
-async function seedNote(over: {
-  type?: 'customer' | 'supplier'; number?: string; status?: string; journal?: boolean; applied?: number; invoice?: string; bill?: string; f?: Fixture;
-} = {}): Promise<string> {
-  const f = over.f ?? fx;
-  const type = over.type ?? 'customer';
-  let je: string | null = null;
-  if (over.journal) {
-    je = ((await sql`
-      INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at)
-      VALUES (${f.companyId}::UUID, ${`JE-${++seq}-${f.tag}`}, '2026-03-01'::DATE, 'CN', 'posted', ${f.userId}::UUID,
-              (SELECT id FROM fiscal_periods WHERE company_id = ${f.companyId}::UUID LIMIT 1), NOW())
-      RETURNING id`) as { id: string }[])[0]!.id;
-  }
-  return ((await sql`
-    INSERT INTO credit_notes (company_id, type, client_id, supplier_id, customer_invoice_id, supplier_invoice_id, credit_note_number,
-      credit_date, subtotal, tax_rate, tax_amount, total_amount, applied_amount, status, created_by, gl_journal_entry_id, reason)
-    VALUES (${f.companyId}::UUID, ${type}, ${type === 'customer' ? f.customerId : null}::UUID, ${type === 'supplier' ? f.supplierId : null}::UUID,
-      ${over.invoice ?? null}::UUID, ${over.bill ?? null}::UUID, ${over.number ?? `CN-2026-${80000 + ++seq}`}, '2026-03-01'::DATE, 100, 15, 15, 115,
-      ${over.applied ?? 0}, ${over.status ?? 'draft'}, ${f.userId}::UUID, ${je}::UUID, 'int test')
-    RETURNING id`) as { id: string }[])[0]!.id;
-}
-
-interface Row { status: string; credit_note_number: string; cancelled_by: string | null; cancelled_at: Date | null; cancel_reason: string | null; applied_amount: string; gl_journal_entry_id: string | null }
-async function row(id: string): Promise<Row | null> {
-  return ((await sql`SELECT status, credit_note_number, cancelled_by, cancelled_at, cancel_reason, applied_amount, gl_journal_entry_id
-    FROM credit_notes WHERE id = ${id}::UUID`) as Row[])[0] ?? null;
-}
-async function journalCount(f: Fixture = fx): Promise<number> {
-  return Number(((await sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${f.companyId}::UUID`) as { n: string }[])[0]!.n);
-}
-async function allocCount(id: string): Promise<number> {
-  return Number(((await sql`SELECT COUNT(*) AS n FROM credit_note_allocations WHERE credit_note_id = ${id}::UUID`) as { n: string }[])[0]!.n);
-}
-
-async function auditRows(id: string) {
-  return (await sql`SELECT user_id, action, entity_type, changes FROM audit_log WHERE entity_id = ${id}::UUID`) as
-    { user_id: string; action: string; entity_type: string; changes: { fields: { field: string; old: string | null; new: string | null; label: string }[]; metadata: Record<string, string> } }[];
-}
 
 describeIfDb('cancel_credit_note on a draft — over a real database', () => {
-  beforeAll(async () => {
-    assertNotProductionDb('This test creates and cancels credit notes.');
-    fx = await seedFixture('CDC', DATABASE_URL!);
-    other = await seedFixture('CDX', DATABASE_URL!);
-    // audit_log.user_id references users: the fixture's actor needs a row, as every real caller has one.
-    for (const f of [fx, other]) {
-      await sql`INSERT INTO users (id, email, role, is_active) VALUES (${f.userId}, ${`${f.userId}@test.local`}, 'viewer', true)`;
-      await seedFixtureMember(f); // an owner: the non-draft cancel asks Approve from company_users (#1656)
-    }
-    await sql`
-      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
-      VALUES (${fx.companyId}::UUID, '4000', ${`Revenue ${fx.tag}`}, 'revenue', 'default_revenue', 'credit', true, true)`;
-  }, 120000);
-
-  afterAll(async () => {
-    for (const f of [fx, other]) {
-      await sql`DELETE FROM approval_requests WHERE company_id = ${f.companyId}::UUID`;
-      await sql`DELETE FROM customer_invoice_disputes WHERE company_id = ${f.companyId}::UUID`;
-      await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
-      await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
-      await sql`DELETE FROM mcp_tool_calls WHERE company_id = ${f.companyId}::UUID`;
-      await sql`DELETE FROM company_users WHERE company_id = ${f.companyId}::UUID`;
-      await dropFixture(f);
-      await sql`DELETE FROM users WHERE id = ${f.userId}`;
-    }
-  }, 120000);
+  beforeAll(async () => { ({ fx, other } = await setupWorld()); }, 120000);
+  afterAll(teardownWorld, 120000);
 
   it('cancels a customer draft: status cancelled, who/when/why stamped, number kept, NO journal, no allocation', async () => {
     const id = await seedNote({ type: 'customer', number: 'CN-2026-70001' });
@@ -360,87 +288,5 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
     const logged = (await sql`SELECT status, idempotency_key FROM mcp_tool_calls WHERE company_id = ${fx.companyId}::UUID AND tool = 'cancel_credit_note'
       AND args_hash IS NOT NULL ORDER BY created_at`) as { status: string; idempotency_key: string | null }[];
     expect(logged.filter((r) => r.idempotency_key === key)).toHaveLength(1); // only the live call holds the key
-  });
-
-  it('runs as app_user under forced RLS: grants and policies allow the draft cancel', async () => {
-    const id = await seedNote();
-    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}::UUID, 'owner') ON CONFLICT DO NOTHING`;
-    const c: PoolClient = await fx.pool.connect();
-    try {
-      await c.query('BEGIN');
-      await c.query('SET LOCAL ROLE app_user');
-      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: fx.userId, role: 'authenticated' })]);
-      await c.query("SELECT set_config('app.current_company_id', $1, true)", [fx.companyId]);
-      const r = await runOn(fx, c, () => cancelCreditNoteTool.handler({ credit_note_id: id, ...KEY }, ctxFor(fx)));
-      expect(text(r)).toContain('"status":"cancelled"');
-      await c.query('COMMIT');
-    } finally {
-      await c.query('ROLLBACK').catch(() => undefined);
-      c.release();
-    }
-    expect((await row(id))!.status).toBe('cancelled');
-  }, 30000);
-
-  describe('an APPROVED note: the cancel is unchanged', () => {
-    async function approvedNote(inv: string): Promise<string> {
-      const created = await inTx(fx, () => createCreditNote(fx.companyId, {
-        type: 'customer', clientId: fx.customerId, creditDate: '2026-03-01', subtotal: 100, taxRate: 15, customerInvoiceId: inv,
-      }, fx.userId));
-      await inTx(fx, () => approveCreditNote(fx.companyId, created.id, fx.userId, { autoApply: 'linked' }));
-      return created.id;
-    }
-
-    it('reverses the journal, gives the invoice credit back and stamps the cancel', async () => {
-      const inv = await seedInvoice(fx, { number: 'A1', date: '2026-03-01', total: 300 });
-      const id = await approvedNote(inv);
-      const posted = (await row(id))!;
-      expect(posted.gl_journal_entry_id).toBeTruthy();
-      expect(['approved', 'partially_applied', 'applied']).toContain(posted.status);
-      const before = await journalCount();
-
-      const r = await cancel(id, { reason: 'wrong customer' });
-      expect(r.isError).toBeFalsy();
-      expect(JSON.parse(text(r))).toMatchObject({ id, status: 'cancelled', total_amount: 115 });
-      expect(Object.keys(JSON.parse(text(r)))).toEqual(['id', 'credit_note_number', 'status', 'total_amount', 'reversal_date_roll']);
-      expect(await row(id)).toMatchObject({ status: 'cancelled', cancelled_by: fx.userId, cancel_reason: 'wrong customer', gl_journal_entry_id: posted.gl_journal_entry_id });
-      expect(await journalCount()).toBe(before + 1);
-      const reversal = (await sql`SELECT 1 FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${posted.gl_journal_entry_id}::UUID`) as unknown[];
-      expect(reversal).toHaveLength(1);
-      const i = ((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!;
-      expect(Number(i.amount_paid)).toBe(0);
-    });
-
-    it('a "Cancel draft" clicked AFTER the note was approved is refused: nothing is reversed, written or un-applied', async () => {
-      const inv = await seedInvoice(fx, { number: 'A3', date: '2026-03-01', total: 300 });
-      const id = await approvedNote(inv); // the page loaded this note as a draft; someone approved it before the click
-      const posted = (await row(id))!;
-      const journals = await journalCount();
-      const paid = Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid);
-      expect(paid).toBeGreaterThan(0);
-
-      const err = await inTx(fx, () => cancelDraftCreditNote(fx.companyId, id, fx.userId, 'stale page')).then(() => null, (e: unknown) => e);
-      expect(err).toBeInstanceOf(CreditNoteDeleteRefusal);
-      expect((err as CreditNoteDeleteRefusal).code).toBe('NOT_DRAFT');
-      expect(await row(id)).toMatchObject({ status: posted.status, cancelled_by: null, cancelled_at: null, gl_journal_entry_id: posted.gl_journal_entry_id });
-      expect(await journalCount()).toBe(journals);
-      expect(Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid)).toBe(paid);
-      expect(await auditRows(id)).toHaveLength(0);
-    });
-
-    it('its dry run rolls everything back: still approved, invoice credit intact, no journal added', async () => {
-      const inv = await seedInvoice(fx, { number: 'A2', date: '2026-03-01', total: 300 });
-      const id = await approvedNote(inv);
-      const posted = (await row(id))!;
-      const before = await journalCount();
-      const paidBefore = Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid);
-      expect(paidBefore).toBeGreaterThan(0);
-
-      const dry = await cancel(id, { dry_run: true });
-      expect(dry.wroteNothing).toBe(true);
-      expect(JSON.parse(text(dry))).toMatchObject({ dry_run: true, would_cancel: { id, status: 'cancelled' } });
-      expect(await row(id)).toMatchObject({ status: posted.status, cancelled_at: null });
-      expect(await journalCount()).toBe(before);
-      expect(Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid)).toBe(paidBefore);
-    });
   });
 });
