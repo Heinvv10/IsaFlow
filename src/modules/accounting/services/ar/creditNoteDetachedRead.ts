@@ -1,11 +1,13 @@
 /**
  * Reads RULE A's inputs (creditNoteDetached): each live customer note's total, subtotal and the net its non-excess
  * credit_note_revenue_allocations rows record (D), the invoices those rows are on (the legs it reversed), and its
- * applications in application order (created_at, invoice_id). ONE statement for both callers; company-scoped; every
+ * applications in application order (created_at, invoice_id); for a note approved before 874 (linked, no allocation
+ * row) what posting's replay has it take from its invoice (creditNoteLegacyReplay). ONE statement for both callers; company-scoped; every
  * figure in exact cents (ROUND in SQL on NUMERIC(15,2), no float on the way). Live = not draft, not cancelled.
  */
 import { sql } from '@/lib/neon';
 import { detachedCounts, detachedGross, type DetachedProfile } from './creditNoteDetached';
+import { legacyReplayTakes } from './creditNoteLegacyReplay';
 
 type Row = Record<string, unknown>;
 
@@ -19,7 +21,9 @@ async function readProfiles(companyId: string, filter: { noteIds: readonly strin
   const appliedTo = 'appliedTo' in filter ? filter.appliedTo : null;
   const without = 'appliedTo' in filter ? filter.withoutNoteId : null;
   const rows = (await sql`
-    SELECT cn.id::TEXT AS id,
+    SELECT cn.id::TEXT AS id, cn.customer_invoice_id::TEXT AS linked,
+           EXISTS (SELECT 1 FROM credit_note_revenue_allocations r
+                   WHERE r.company_id = cn.company_id AND r.credit_note_id = cn.id) AS recorded,
            ROUND(cn.total_amount * 100)::BIGINT AS total_cents, ROUND(cn.subtotal * 100)::BIGINT AS subtotal_cents,
            (SELECT ROUND(COALESCE(SUM(r.amount), 0) * 100)::BIGINT FROM credit_note_revenue_allocations r
             WHERE r.company_id = cn.company_id AND r.credit_note_id = cn.id AND NOT r.is_excess) AS reversed_cents,
@@ -35,11 +39,26 @@ async function readProfiles(companyId: string, filter: { noteIds: readonly strin
             SELECT 1 FROM credit_note_allocations y
             WHERE y.company_id = cn.company_id AND y.credit_note_id = cn.id AND y.invoice_id = ${appliedTo}::UUID)))
   `) as Row[];
-  return new Map(rows.map((r) => [String(r.id), {
-    detached: detachedGross(Number(r.total_cents), Number(r.subtotal_cents), Number(r.reversed_cents)),
-    reversedOn: (r.reversed_on as string[] | null) ?? [],
-    applications: ((r.applications as [string, number | string][] | null) ?? []).map(([invoiceId, cents]) => ({ invoiceId, cents: Number(cents) })),
-  }]));
+  // A note linked to an invoice but with no allocation row at all was approved before 874: posting REPLAYS its subtotal
+  // against the linked invoice's legs, so what it reversed is that replay's take, not nothing (round 8 item 6).
+  const replays = new Map<string, Map<string, number>>();
+  const out = new Map<string, DetachedProfile>();
+  for (const r of rows) {
+    const linked = r.linked ? String(r.linked) : null;
+    let reversed = Number(r.reversed_cents);
+    let reversedOn = (r.reversed_on as string[] | null) ?? [];
+    if (linked && r.recorded !== true) {
+      if (!replays.has(linked)) replays.set(linked, await legacyReplayTakes(companyId, linked));
+      reversed = replays.get(linked)!.get(String(r.id)) ?? 0;
+      reversedOn = reversed > 0 ? [linked] : [];
+    }
+    out.set(String(r.id), {
+      detached: detachedGross(Number(r.total_cents), Number(r.subtotal_cents), reversed),
+      reversedOn,
+      applications: ((r.applications as [string, number | string][] | null) ?? []).map(([invoiceId, cents]) => ({ invoiceId, cents: Number(cents) })),
+    });
+  }
+  return out;
 }
 
 /**

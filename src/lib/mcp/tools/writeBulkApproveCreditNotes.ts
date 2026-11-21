@@ -193,7 +193,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
 
     if (args.dry_run === true) {
       // The live run meets the proportional-VAT refusal at approve (a skip); the dry run foresees it, in the live order.
-      const split = await proportionalVatRefusals(ctx.companyId, liveOrder(postable, states).map((p) => p.id));
+      const split = await proportionalVatRefusals(ctx.companyId, liveOrder(postable, states).map((p) => p.id), autoApply);
       const wouldPost = postable.filter((p) => !split.has(p.id));
       const preview = ok({
         dry_run: true,

@@ -3,7 +3,7 @@
  * fields taxRate / taxAmount) and MCP create_credit_note (tax_rate / tax_amount) both call this, so the two refuse the
  * same requests in the same words, each naming its own fields (#1701 review rounds 1-3). JSON numbers only (Number()
  * read "" / [] / false as 0 and true as 1), whole cents, a positive subtotal, a rate from 0 to 100, a VAT figure from 0
- * to the subtotal. A figure and a rate together must agree (vatAtRateCents on the subtotal is the figure, exact cents),
+ * to the subtotal, a rate with at most two decimals (NUMERIC(5,2), round 8). A figure and a rate together must agree (vatAtRateCents on the subtotal is the figure, exact cents),
  * or the stored rate would contradict the stored VAT. Pure.
  */
 import { hasWholeCents } from '@/lib/money/wholeCents';
@@ -30,6 +30,8 @@ export function creditNoteMoneyProblem(
   // Whole cents: 1.234 was stored rounded, and a third decimal let create and approve disagree by a cent.
   if (!hasWholeCents(subtotal)) return 'subtotal must be in whole cents';
   if (given(taxRate) && !(isNumber(taxRate) && taxRate >= 0 && taxRate <= 100)) return `${rateName} must be a number from 0 to 100`;
+  // NUMERIC(5,2): 15.005 would be stored 15.01, so the figure judged here would not be the rate stored (#1701 round 8).
+  if (given(taxRate) && !hasWholeCents(taxRate as number)) return `${rateName} must have at most two decimal places (it is stored to the hundredth)`;
   if (!given(taxAmount)) return null;
   if (!(isNumber(taxAmount) && taxAmount >= 0)) return `${figureName} must be a number of zero or more`;
   if (!hasWholeCents(taxAmount)) return `${figureName} must be in whole cents`;

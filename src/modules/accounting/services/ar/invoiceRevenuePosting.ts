@@ -120,7 +120,7 @@ export async function typedInvoiceCreditState(companyId: string, invoiceId: stri
  * Live = not draft, not cancelled; `noteId` (the note being approved, a draft at this read) is excluded as well.
  */
 async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: string, defaultRevenueAccountId: string):
-  Promise<{ legs: RevenueLeg[]; replayed: number[]; remainingVat: number | null }> {
+  Promise<{ legs: RevenueLeg[]; replayed: number[]; remainingVat: number | null; pre?: { carries: number[]; vat: number; applied: number } }> {
   // One leg per revenue journal line, keyed by the line itself: a re-tag or an account merge moves
   // the line in place, so what earlier notes took from it moves with it (two lines merged into one
   // group, then one re-tagged, reopened the group's capacity — review #685).
@@ -198,7 +198,17 @@ async function invoiceCreditBasis(companyId: string, invoiceId: string, noteId: 
   const share = appliedSettlement(applied, carries.reduce((x, y) => x + y, 0), vatLeft);
   const took = noteShares(carries, share.net);
   const settled = legs.map((l, i) => ({ ...l, taken: (Math.round((l.taken ?? 0) * 100) + took[i]!) / 100 }));
-  return { legs: settled, replayed, remainingVat: (vatLeft - share.vat) / 100 };
+  return { legs: settled, replayed, remainingVat: (vatLeft - share.vat) / 100, pre: { carries, vat: vatLeft, applied } };
+}
+
+/**
+ * The figures bulk_approve_credit_notes' dry run simulates a batch from (cents, before any application is counted):
+ * each leg's carry, and for a typed invoice its VAT left and what applications count on it (rule A). Reads only.
+ */
+export async function invoiceCreditFigures(companyId: string, invoiceId: string):
+  Promise<{ carries: number[]; typed: { vat: number; applied: number } | null }> {
+  const b = await invoiceCreditBasis(companyId, invoiceId, NO_NOTE, NO_NOTE);
+  return { carries: b.pre?.carries ?? remainingCarries(b.legs, b.replayed), typed: b.pre ? { vat: b.pre.vat, applied: b.pre.applied } : null };
 }
 
 /**

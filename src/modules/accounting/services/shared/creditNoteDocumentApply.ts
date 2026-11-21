@@ -112,6 +112,7 @@ export async function applyCreditNoteToDocument(
     // the intent anyway, should that cap ever move.
     autoApply: 'linked',
     alreadyApplied: plan.noteAppliedBefore,
+    heldKeys: new Set([input.invoiceId.toLowerCase()]), // taken above, before the row
   });
   // Unreachable by construction: the document is locked and the plan refuses
   // anything the engine would not write (≤ a cent, a closed document). If the

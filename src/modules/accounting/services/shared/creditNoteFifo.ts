@@ -62,6 +62,7 @@ import {
   UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate, writeApplication,
 } from './creditNoteApplicationWrites';
 import { planWithinTypedCapacity } from './creditNoteTypedPlan';
+import { lockCustomerWalkKeys } from './creditNoteWalkKeys';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'linked', 'none'] as const;
 export type CreditNoteAutoApply = (typeof CREDIT_NOTE_AUTO_APPLY)[number];
@@ -132,6 +133,8 @@ export async function applyCreditNote(args: {
    * anything is written — see `assertAllocationsMatchApplied`.
    */
   alreadyApplied?: number;
+  /** A customer note's credit-note keys, held (approve takes them at step 2); absent: taken here (creditNoteWalkKeys). */
+  heldKeys?: ReadonlySet<string>;
 }): Promise<CreditNoteApplication> {
   const { companyId, creditNoteId, side, entityId, linkedInvoiceId, autoApply } = args;
   const totalAmount = round2(args.totalAmount);
@@ -152,6 +155,7 @@ export async function applyCreditNote(args: {
   // answers, and a default would have silently given one of them the wrong one
   // — which for this call would mean taking every candidate row's lock twice,
   // once here and once in lockInvoicesForUpdate below.
+  const held = side === 'customer' ? args.heldKeys ?? await lockCustomerWalkKeys(companyId, entityId, linkedInvoiceId, autoApply === 'fifo') : null;
   const candidates: string[] = [];
   if (linkedInvoiceId) candidates.push(linkedInvoiceId);
   if (autoApply === 'fifo' && entityId) {
@@ -161,7 +165,8 @@ export async function applyCreditNote(args: {
     for (const doc of open) {
       // The linked document is already first in the list. A second entry would
       // plan against it twice and violate the allocation table's UNIQUE.
-      if (doc.invoiceId !== linkedInvoiceId) candidates.push(doc.invoiceId);
+      // A customer walk plans only over candidates whose key it holds (one opened since is left out).
+      if (doc.invoiceId !== linkedInvoiceId && (!held || held.has(doc.invoiceId.toLowerCase()))) candidates.push(doc.invoiceId);
     }
   }
 
