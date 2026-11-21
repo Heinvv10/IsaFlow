@@ -137,6 +137,24 @@ describe('a note is never inserted cancelled (gate round 3, finding 3)', () => {
   });
 });
 
+describe('an item goes in only in the transaction that created its note, by the database\'s own transaction id (round 5, finding 2)', () => {
+  it('a note inserted by another transaction with a forged created_at (this one\'s now()) and created_xact takes no item here', async () => {
+    const po = await seedQtyPo(pool, f, { lines: [{ qty: 4, price: 10 }] });
+    const later = await openRequest(pool, f, f.owner);
+    try {
+      const { now, xact } = (await later.client.query('SELECT now() AS now, pg_current_xact_id()::text AS xact')).rows[0] as { now: Date; xact: string };
+      const note = crypto.randomUUID();
+      const forged = await asApp(f, `INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by, created_at, created_xact)
+        VALUES ($1, $2, 'GRN-99998', $3, 'x', $4, $5::xid8)`, [note, f.co, po.po, now, xact]);
+      expect(forged.code, forged.message).toBe('ok');
+      // The trigger set the inserting transaction's own id, whatever the caller sent.
+      expect(String((await pool.query('SELECT created_xact::text AS x FROM goods_received_notes WHERE id = $1', [note])).rows[0].x)).not.toBe(xact);
+      await expect(later.client.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [note, po.items[0]]))
+        .rejects.toMatchObject({ code: '23514' });
+    } finally { await later.rollback(); }
+  });
+});
+
 describe('the cancel function enforces the tool\'s role rule (gate finding 1)', () => {
   it('a viewer of the company is refused role_not_allowed, directly and through the service, with nothing written; a manager cancels', async () => {
     const viewer = crypto.randomUUID();

@@ -19,9 +19,11 @@
 --     cancelled note. It reads the parent under the caller's row security, which is where every app path writes from (a
 --     note of the request's company).
 --   grn_items_same_transaction_guard (BEFORE INSERT, SECURITY INVOKER): an item goes in only in the transaction that created its note
---     (the note's created_at is now(), the transaction's start). A note's items are written with it by createGoodsReceived, which
---     also adds them to po_items.quantity_received; an item added to a note that already exists would leave that total disagreeing
---     with the notes, and a later cancel could not put it right. app_user cannot UPDATE a note, so created_at is fixed.
+--     (the note's created_xact is pg_current_xact_id(), this top-level transaction's id; round 5, finding 2: created_at is the
+--     caller's to supply, so it proved nothing, and is left as it is, informational). A note's items are written with it by
+--     createGoodsReceived, which also adds them to po_items.quantity_received; an item added to a note that already exists would
+--     leave that total disagreeing with the notes, and a later cancel could not put it right. goods_received_notes_insert_guard sets
+--     created_xact on every insert, over whatever the caller sent, and app_user cannot UPDATE a note, so it is fixed.
 --   goods_received_notes_po_guard (BEFORE INSERT, or UPDATE OF purchase_order_id / company_id; SECURITY INVOKER): a note names a
 --     purchase order of its own company. grn_items_po_line_guard (BEFORE INSERT, or UPDATE OF grn_id / po_item_id): an item names a
 --     line of its note's purchase order. Neither was a rule of the tables (no company on the PO foreign key, no PO on the item's),
@@ -89,7 +91,8 @@
 --   ALTER TABLE public.goods_received_notes ADD CONSTRAINT goods_received_notes_status_check
 --     CHECK (status IN ('draft', 'received', 'inspected', 'accepted', 'rejected'));
 --   ALTER TABLE public.goods_received_notes DROP COLUMN IF EXISTS cancelled_at, DROP COLUMN IF EXISTS cancelled_by,
---     DROP COLUMN IF EXISTS cancel_reason, DROP COLUMN IF EXISTS external_system, DROP COLUMN IF EXISTS external_ref;
+--     DROP COLUMN IF EXISTS cancel_reason, DROP COLUMN IF EXISTS external_system, DROP COLUMN IF EXISTS external_ref,
+--     DROP COLUMN IF EXISTS created_xact;
 --   ALTER TABLE public.mcp_upload_intents DROP CONSTRAINT IF EXISTS mcp_upload_intents_target_kind_check;
 --   ALTER TABLE public.mcp_upload_intents ADD CONSTRAINT mcp_upload_intents_target_kind_check CHECK (target_kind IN (
 --     'bank_transaction', 'supplier_invoice', 'customer_invoice', 'credit_note', 'supplier_payment', 'customer_payment',
@@ -107,6 +110,8 @@ ALTER TABLE public.goods_received_notes ADD COLUMN IF NOT EXISTS cancelled_by TE
 ALTER TABLE public.goods_received_notes ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 ALTER TABLE public.goods_received_notes ADD COLUMN IF NOT EXISTS external_system TEXT;
 ALTER TABLE public.goods_received_notes ADD COLUMN IF NOT EXISTS external_ref TEXT;
+-- The inserting transaction's id, set by goods_received_notes_insert_guard (never the caller's); NULL on notes from before 1021.
+ALTER TABLE public.goods_received_notes ADD COLUMN IF NOT EXISTS created_xact xid8;
 
 ALTER TABLE public.goods_received_notes DROP CONSTRAINT IF EXISTS goods_received_notes_status_check;
 ALTER TABLE public.goods_received_notes ADD CONSTRAINT goods_received_notes_status_check
@@ -150,7 +155,7 @@ CREATE TRIGGER trg_goods_received_notes_guard BEFORE UPDATE ON public.goods_rece
   FOR EACH ROW EXECUTE FUNCTION public.goods_received_notes_guard();
 ALTER TABLE public.goods_received_notes ENABLE ALWAYS TRIGGER trg_goods_received_notes_guard;
 
--- A note is never INSERTED cancelled (Codex gate round 3, finding 3): only goods_received_note_cancel cancels, by an UPDATE with its own
+-- A note is never INSERTED cancelled (Codex gate round 3, finding 3), and its created_xact is always this transaction's (round 5): only goods_received_note_cancel cancels, by an UPDATE with its own
 -- role check and cancelled_by = auth.uid(). An insert of status cancelled, or of any cancelled_* column, would choose its own canceller
 -- and time and skip both. BEFORE INSERT only, so the definer's UPDATE is untouched; ALWAYS, so every role meets it.
 CREATE OR REPLACE FUNCTION public.goods_received_notes_insert_guard()
@@ -163,6 +168,9 @@ BEGIN
   IF NEW.status = 'cancelled' OR NEW.cancelled_at IS NOT NULL OR NEW.cancelled_by IS NOT NULL OR NEW.cancel_reason IS NOT NULL THEN
     RAISE EXCEPTION 'a goods received note is never inserted cancelled; cancel it with cancel_goods_received' USING ERRCODE = '23514';
   END IF;
+  -- The transaction identity the item guard compares (round 5, finding 2): the top-level xid, also inside a savepoint (a dry run, the
+  -- nested create); whatever the caller supplied is overwritten.
+  NEW.created_xact := pg_catalog.pg_current_xact_id();
   RETURN NEW;
 END;
 $$;
@@ -233,8 +241,9 @@ ALTER TABLE public.grn_items ENABLE ALWAYS TRIGGER trg_grn_items_po_line_guard;
 -- An item goes in only in the transaction that created its note: createGoodsReceived writes the note, its items and the PO lines'
 -- quantity_received together, so an item added to an existing note would leave quantity_received disagreeing with the notes. The note
 -- is read under the caller's row security (the cancelled guard's way). A note that is not visible, or does not exist, is left to the
--- foreign key and the policy's WITH CHECK, which refuse it; only a visible note created earlier is refused here. now() is the start
--- of the transaction, as is the default of created_at; savepoints do not change it (xmin would, a subtransaction has its own id).
+-- foreign key and the policy's WITH CHECK, which refuse it; only a visible note created earlier is refused here. The identity is the
+-- note's created_xact (set by goods_received_notes_insert_guard) against pg_current_xact_id(): the top-level transaction's id, which a
+-- savepoint does not change (xmin would: a subtransaction has its own id) and a caller cannot supply (created_at it can).
 CREATE OR REPLACE FUNCTION public.grn_items_same_transaction_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -242,7 +251,7 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = NEW.grn_id AND g.created_at IS DISTINCT FROM now()) THEN
+  IF EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = NEW.grn_id AND g.created_xact IS DISTINCT FROM pg_catalog.pg_current_xact_id()) THEN
     RAISE EXCEPTION 'an item goes onto a goods received note only in the transaction that created its note' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
