@@ -163,7 +163,7 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
     expect((await pool.query('SELECT match_status FROM supplier_invoices WHERE id = $1', [bill!])).rows[0].match_status).toBe('unmatched');
   });
 
-  it('a cancel of the new note running during the edit: the edit waits on the note and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
+  it('a cancel of the new note running during the edit: the edit waits on the note\'s PO and refuses the cancelled note (never a live bill on a cancelled note)', async () => {
     const grn = await noteOf();
     const bill = await draftWith(grn);
     const next = await noteOf();
@@ -174,7 +174,8 @@ describe('a draft edit re-judges the bill\'s goods received note (gate finding 3
       expect((await cancelling.client.query('SELECT outcome FROM public.goods_received_note_cancel($1, $2)', [next, 'race'])).rows[0]).toEqual({ outcome: 'cancelled' });
       // Through a real registry: the apply's refusal is thrown, and the registry answers it as the typed refusal an agent reads.
       edit = callRegistry(pool, f, update, { invoice_id: bill, grn_id: next, idempotency_key: `edit-race-${Date.now()}` });
-      await untilBlockedOn('goods_received_note_hold', 2000);
+      // At the note's PO (lockNotePo's FOR KEY SHARE, before the UPDATE whose grn-live trigger takes the note): the cancel holds it.
+      await untilBlockedOn('FOR KEY SHARE OF po', 2000);
       await cancelling.commit();
     } catch (err) { await cancelling.rollback(); throw err; }
     const r = await edit!;
