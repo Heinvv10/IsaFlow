@@ -143,6 +143,8 @@ describe('pickPayrollRun', () => {
     it('with only paid runs, the latest is reported as covered (its money has left)', () => {
       const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
       expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, shortfall: 0 });
+      // Nothing outstanding (gate nit on e0eec1dea1): R0 required and no run counted as due, the paid run named.
+      expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ totalRequired: 0, runsCounted: 0 });
     });
     // Review #1679 Codex of 7630d9379: salaries paid, PAYE / UIF / SDL still owed until the month's EMP201 is due.
     it('a paid run keeps its PAYE, UIF and SDL less ETI in the requirement until the 7th of the next month', () => {

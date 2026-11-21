@@ -181,7 +181,7 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
       owed = r2(owed + used);
       credit.set(monthOf(r), r2(left - used));
     }
-    if (owed <= 0) { latestPaid = { ...full, canPay: true, shortfall: 0 }; continue; }
+    if (owed <= 0) { latestPaid = { ...full, totalRequired: 0, canPay: true, shortfall: 0, runsCounted: 0 }; continue; }
     const own = { ...full, totalRequired: owed };
     required = r2(required + owed);
     counted += 1;
