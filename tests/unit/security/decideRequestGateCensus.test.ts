@@ -98,6 +98,14 @@ function decisionsIn(program: ts.Program, file: string, declFile: string, rel: (
     if (ts.isIdentifier(n) && !ts.isNamespaceImport(n.parent) && isNamespaceOf(checker, n, declFile, rel)) {
       const named = (ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)
         || (ts.isElementAccessExpression(n.parent) && n.parent.expression === n && ts.isStringLiteralLike(n.parent.argumentExpression));
+      // `m['decideRequest']` (or a template key) is decideRequest itself: like a bare reference, it must be a call's callee
+      // (review r11 of 0281f8081e: `const f = m['decideRequest']` and `m['decideRequest'].call(...)` reach it unseen).
+      const el = n.parent;
+      if (named && ts.isElementAccessExpression(el) && ts.isStringLiteralLike(el.argumentExpression) && el.argumentExpression.text === 'decideRequest') {
+        let callee: ts.Node = el;
+        while (ts.isParenthesizedExpression(callee.parent) || ts.isAsExpression(callee.parent) || ts.isNonNullExpression(callee.parent)) callee = callee.parent;
+        if (!(ts.isCallExpression(callee.parent) && callee.parent.expression === callee)) out.push(`<a reference, not a call: ${el.getText()}>`);
+      }
       if (!named) {
         let outer: ts.Node = n;
         while (ts.isParenthesizedExpression(outer.parent) || ts.isAsExpression(outer.parent) || ts.isNonNullExpression(outer.parent)) outer = outer.parent;
@@ -200,6 +208,19 @@ describe('decideRequest and approval_request_decide', () => {
     });
     it('the analyser: a string-literal element access on a namespace is a caller', () => {
       expect(project({ '/v/fifth.ts': "import * as svc from './svc';\nexport async function x() { await svc['decideRequest']('c'); }" })).toEqual(['/v/fifth.ts', '/v/route.ts']);
+    });
+    // Review r11 of 0281f8081e: the element-access form used as a value, not called.
+    it('cancel pin: m[\'decideRequest\'] passed on as a value is caught', () => {
+      expect(decisions("import * as m from './svc';\nconst f = m['decideRequest'];\nexport const x = () => f('c', 'r', 'approved');"))
+        .toEqual(["<a reference, not a call: m['decideRequest']>"]);
+    });
+    it('cancel pin: m[\'decideRequest\'].call(...) is caught', () => {
+      expect(decisions("import * as m from './svc';\nexport const x = () => m['decideRequest'].call(null, 'c', 'r', 'approved');"))
+        .toEqual(["<a reference, not a call: m['decideRequest']>"]);
+    });
+    it('cancel pin: a template key used as a value is caught', () => {
+      expect(decisions("import * as m from './svc';\nconst f = m[`decideRequest`];\nexport const x = () => f('c', 'r', 'approved');"))
+        .toEqual(['<a reference, not a call: m[`decideRequest`]>']);
     });
     it('cancel pin: decideRequest passed on as a value is caught', () => {
       expect(decisions("import { decideRequest } from './svc';\nconst f = decideRequest;\nexport const x = () => f('c', 'r', 'approved');"))
