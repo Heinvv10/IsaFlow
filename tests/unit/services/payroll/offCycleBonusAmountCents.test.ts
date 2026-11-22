@@ -88,3 +88,14 @@ describe('setOffCycleBonusAmount: the same amount', () => {
   });
 });
 
+// Review L5 of 61c35e98c5: a stale expectedAmount is refused by name, before anything is written.
+describe('setOffCycleBonusAmount: someone changed the amount since it was read', () => {
+  it('409 with refusal AMOUNT_CHANGED, and nothing written', async () => {
+    const err = await setOffCycleBonusAmount(CO, RUN, EMP, 40_000, USER, 45_000).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OffCycleRunRefusedError);
+    expect(err).toMatchObject({ status: 409, refusal: 'AMOUNT_CHANGED', message: expect.stringMatching(/changed by someone else/) });
+    expect(h.calls.filter((c) => /^\s*(UPDATE|DELETE|INSERT)\b/.test(c.text))).toEqual([]);
+    expect(vi.mocked(logAuditOrThrow)).not.toHaveBeenCalled();
+  });
+});
+

@@ -26,7 +26,7 @@ import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
 import { laterMonthFinalRefusal, offCycleApprovalRefusal, offCycleOrderRefusal } from './payrollOffCycleOrder';
 import { offCycleFiledMonthRefusal } from './payrollOffCycleCorrection';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
+import { PAYROLL_REFUSAL, type PayrollRefusalCode } from './payrollRefusalCodes';
 import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
 
@@ -43,8 +43,8 @@ export interface OffCycleRunInput {
 /** Refused before any write: 400 for a malformed request, 409 for one the company's state does not allow. */
 export class OffCycleRunRefusedError extends Error {
   readonly code = 'OFF_CYCLE_RUN_REFUSED';
-  /** A refusal the caller may act on by name (review #1679 M6: TERMINATION_REASON_MISSING); absent for the rest. */
-  constructor(message: string, readonly status: 400 | 409, readonly refusal?: string) {
+  /** A refusal the caller may act on by name (PAYROLL_REFUSAL; review #1679 M6, L5 of 61c35e98c5); absent for the rest. */
+  constructor(message: string, readonly status: 400 | 409, readonly refusal?: PayrollRefusalCode) {
     super(message);
     this.name = 'OffCycleRunRefusedError';
   }
