@@ -22,8 +22,9 @@ const url='/api/accounting/capture/inbound/whatsapp';
 // 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
 // 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with
 // the suites that run after this one (s07e-breaker-cron-and-deploy asserts 945's rules): 945 and 946, which
-// redefine it last, are re-applied after it so the function is left as the migrations leave it.
-const restore937=async()=>{for(const m of ['937_credential_tables_off_app_pools','945_billing_and_temp_off_app_pools','946_routes_off_app_pools'])
+// redefine it after it, and 1010d (#1656), which redefines it last, are re-applied after it so the function is left
+// as the migrations leave it (the 1010d permissions suite read 946's body when this list stopped at 946).
+const restore937=async()=>{for(const m of ['937_credential_tables_off_app_pools','945_billing_and_temp_off_app_pools','946_routes_off_app_pools','1010d_company_user_permissions_off_app_pools'])
   await pool.query(readFileSync(`scripts/migrations/sql/${m}.sql`,'utf8'));};
 beforeAll(async()=>{
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
