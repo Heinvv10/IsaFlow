@@ -97,7 +97,7 @@ describe('L1: a database that USED the descoped feature converges too', () => {
   beforeEach(async () => { await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]); await clearMirrorRows(pool); await connect(pool); });
   afterAll(() => pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]));
 
-  it('duplicates of the old shape: the old index is dropped all the same, the strict index stays absent, and the NOTICE names the rows; once cleaned a re-run builds it', async () => {
+  it('duplicates of the old shape: the old index is KEPT (it still stops a third), the strict index stays absent, and the NOTICE names the rows; once cleaned a re-run builds the strict one', async () => {
     await plantOldIndex();
     const row = await manualRow();
     await adjust(row, null);
@@ -105,20 +105,24 @@ describe('L1: a database that USED the descoped feature converges too', () => {
     expect(await indexDef()).toContain('manual_reason IS NOT NULL');
     const notices: string[] = [];
     await apply(notices);
-    expect(await indexDef(), 'the old index no longer permits two standing eliminations, and the strict one cannot be built over them').toBeUndefined();
+    expect(await indexDef(), 'the old index stays: dropping it would leave the row with no unique guard at all').toContain('manual_reason IS NOT NULL');
+    await expect(adjust(row, 'a third standing elimination'), 'a third standing row is still refused').rejects.toMatchObject({ code: '23505' });
+    await expect(adjust(row, null), 'and so is a fourth').rejects.toMatchObject({ code: '23505' });
     const notice = notices.find((n) => n.includes('uq_consolidation_adjustments_standing_source NOT created'));
     expect(notice).toContain('1 intercompany row(s) have more than one standing elimination');
     expect(notice).toContain(row);
+    expect(notice).toContain('the old (row, has-a-reason) index is kept');
     // the same again: nothing changes
     const again: string[] = [];
     await apply(again);
-    expect(await indexDef()).toBeUndefined();
+    expect(await indexDef()).toContain('manual_reason IS NOT NULL');
     expect(again.join(' ')).toContain(row);
-    // cleaned by hand: the next application builds the strict index
+    // cleaned by hand: the next application replaces it with the strict one
     await pool.query("DELETE FROM consolidation_adjustments WHERE source_intercompany_id = $1 AND manual_reason IS NOT NULL", [row]);
     await apply();
     expect(await indexDef()).toMatch(/\(source_intercompany_id\)/);
     expect(await indexDef()).not.toContain('manual_reason');
+    await expect(adjust(row, null), 'the strict index refuses a second standing elimination').rejects.toMatchObject({ code: '23505' });
   }, 120000);
 
   it('a message an older backfill bound to a P1 manual row (NULL matched to NULL) is unbound; a properly bound message keeps its row', async () => {
@@ -137,6 +141,24 @@ describe('L1: a database that USED the descoped feature converges too', () => {
       expect(await bound(planted.id), again ? 'a second application changes nothing' : 'unbound').toBeNull();
       expect(await bound(good.id)).toBe(goodRow);
       expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m).toBe(false);
+    }
+  }, 120000);
+
+  it('a message an older backfill bound to a P1 row, whose invoice was posted LATER: the journal is proved and the message is still unbound from the manual row (round 28, L1)', async () => {
+    const manual = await manualRow();
+    const planted = await sentInvoice(pool);
+    const journal = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [planted.inv.id])).rows[0].je as string;
+    // the older backfill's result: the journal not provable THEN (NULL), the manual row bound by matching NULL to NULL; the invoice is posted since
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
+      "UPDATE intercompany_messages SET source_journal_entry_id = NULL, group_transaction_id = $2::uuid, payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text)) WHERE id = $1", [planted.id, manual]));
+    expect((await pool.query("SELECT public.intercompany_own_posting_problem('invoice', $1, $2, $3) AS p", [planted.inv.id, co.A, journal])).rows[0].p, 'the plant is real: the posting proves').toBeNull();
+    expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m, 'the manual row reads as mirrored').toBe(true);
+    for (const again of [false, true]) {
+      await apply();
+      const m = (await pool.query('SELECT source_journal_entry_id AS je, group_transaction_id AS g FROM intercompany_messages WHERE id = $1', [planted.id])).rows[0];
+      expect(m.je, again ? 'second application: unchanged' : 'the journal is proved').toBe(journal);
+      expect(m.g, 'and the manual row is not bound').toBeNull();
+      expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m, 'the posted elimination of the manual row is visible again').toBe(false);
     }
   }, 120000);
 });

@@ -47,6 +47,25 @@ describe('the backfill', () => {
     } finally { c.release(); }
   });
 
+  it('a backfill clears a group row only where the message has NO journal (round 28, INFO a): with a journal it is refused; without one it is allowed', async () => {
+    const m = await sentInvoice(pool);
+    const attempt = async (journal: boolean) => {
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query('SET LOCAL ROLE migration_admin');
+        await c.query("SELECT set_config('app.intercompany_system_update', 'backfill', true)");
+        if (!journal) await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query('UPDATE intercompany_messages SET source_journal_entry_id = NULL WHERE id = $1', [m.id]));
+        const r = await c.query('UPDATE intercompany_messages SET group_transaction_id = NULL WHERE id = $1', [m.id]).then(() => 'cleared', (e: { code: string }) => e.code);
+        await c.query('ROLLBACK');
+        return r;
+      } finally { c.release(); }
+    };
+    expect((await row(m.id)).source_journal_entry_id, 'the plant: the message has its journal and its row').not.toBeNull();
+    expect(await attempt(true)).toBe('23514');
+    expect(await attempt(false)).toBe('cleared');
+  });
+
   it('takes a journal only if it is provably the document\'s approval posting: a forged link (another document\'s journal) records nothing; a cleared link falls back to the row the send wrote', async () => {
     const forged = await sentInvoice(pool);
     const victim = await sentInvoice(pool);
