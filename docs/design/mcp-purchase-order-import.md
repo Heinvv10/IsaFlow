@@ -50,8 +50,8 @@ keep their numbers, then each gets its Sage PDF attached.
   action (Cancel makes it cancelled); that is a follow-up if Sage POs move from Pending to Invoiced after the load.
 - **No negative lines:** discount or rebate lines with negative amounts are refused, and a document-level discount
   fails `expected_totals`. Fold such a discount into the lines' `line_total`.
-- **No item lines:** `item_id` is not accepted. `po_items.product_id` references `products`, and no MCP tool returns
-  products ids (`list_items` reads the separate `items` catalogue).
+- **Item lines:** a line may link to a catalogue item (`item_id` / `item_code`, `items`; `po_items.item_id`), link only:
+  see `docs/design/mcp-po-line-items.md`. `po_items.product_id` (the `products` table) stays unused.
 - **Existing app writers re-derive:** the PO edit (draft / submitted only, so no imported Sage PO but a draft) recomputes
   each line's VAT from its rate, replacing a Sage VAT kept within the 2 c tolerance, and rounds with plain float
   arithmetic, which can lose a cent at 10 000+ units. A bill keeps unit prices at 2 decimals (`supplier_invoice_items`):
