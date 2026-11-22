@@ -69,7 +69,7 @@ export default function SupplierPurchaseOrdersPage() {
           title="Purchase Orders"
           subtitle={`${total} ${total === 1 ? 'order' : 'orders'}`}
           actions={
-            <Link href="/accounting/purchase-orders/new" className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
+            <Link href="/accounting/purchase-orders/new" className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors max-lg:min-h-11">
               <Plus className="w-4 h-4" /> New PO
             </Link>
           }
@@ -77,14 +77,14 @@ export default function SupplierPurchaseOrdersPage() {
 
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="flex gap-1 p-1 max-lg:flex-wrap bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 max-lg:min-h-11 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
               ))}
             </div>
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO #, supplier…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO #, supplier…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56 max-lg:w-full max-lg:min-h-11" />
             </div>
           </div>
 
@@ -100,7 +100,7 @@ export default function SupplierPurchaseOrdersPage() {
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first purchase order</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['PO #', 'Supplier', 'Date', 'Delivery Date', 'Total', 'Status', ''].map((h, i) => (
@@ -112,22 +112,22 @@ export default function SupplierPurchaseOrdersPage() {
                   {orders.map(po => {
                     return (
                       <tr key={po.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <Link href={`/accounting/supplier-purchase-orders/${po.id}`} className="font-mono text-amber-500 font-semibold hover:text-amber-400 transition-colors">{po.order_number}</Link>
+                        <td data-label="PO #" className="px-5 py-3.5">
+                          <Link href={`/accounting/supplier-purchase-orders/${po.id}`} className="font-mono text-amber-500 font-semibold hover:text-amber-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{po.order_number}</Link>
                         </td>
-                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{po.supplier_name || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(po.order_date)}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{po.delivery_date ? formatDate(po.delivery_date) : '—'}</td>
-                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(po.total_amount)}</td>
-                        <td className="px-5 py-3.5 text-center"><StatusPill status={po.status} /></td>
-                        <td className="px-4 py-3.5">
+                        <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{po.supplier_name || '—'}</td>
+                        <td data-label="Date" className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(po.order_date)}</td>
+                        <td data-label="Delivery Date" className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{po.delivery_date ? formatDate(po.delivery_date) : '—'}</td>
+                        <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(po.total_amount)}</td>
+                        <td data-label="Status" className="px-5 py-3.5 text-center"><StatusPill status={po.status} /></td>
+                        <td data-label="Actions" className="px-4 py-3.5">
                           <div className="flex justify-end items-center gap-1">
                             {po.status === 'draft' && (
-                              <button onClick={() => handleDelete(po.id, po.order_number)} disabled={deleting === po.id} title="Delete draft" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                              <button onClick={() => handleDelete(po.id, po.order_number)} disabled={deleting === po.id} title="Delete draft" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 max-lg:inline-flex max-lg:items-center max-lg:justify-center max-lg:min-h-11 max-lg:min-w-11">
                                 {deleting === po.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                               </button>
                             )}
-                            <Link href={`/accounting/supplier-purchase-orders/${po.id}`} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
+                            <Link href={`/accounting/supplier-purchase-orders/${po.id}`} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:justify-center max-lg:min-h-11 max-lg:min-w-11">
                               <ChevronRight className="h-4 w-4" />
                             </Link>
                           </div>
