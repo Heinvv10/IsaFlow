@@ -103,7 +103,7 @@ export default function NewOffCycleRunPage() {
               options={runs.map((r) => ({ value: r.id, label: monthLabel(r) }))} emptyText="No approved regular run yet"
               onChange={(v) => { setRunId(v); setChosen({}); setAmounts({}); setRunDate(null); }} /* a month's amounts are its own (gate item 5) */ />
             <Select id="oc-reason" label="Reason" required value={reason} options={REASONS}
-              onChange={(v) => { setReason((v ?? 'bonus') as Reason); setChosen({}); }} />
+              onChange={(v) => { setReason((v ?? 'bonus') as Reason); setChosen({}); setAmounts({}); }} /* review L3 of e9f437f366 */ />
             <DateField id="oc-date" label="Pay date" required value={runDate} onChange={(iso) => setRunDate(iso)}
               minDate={firstDay && lastDay && firstDay <= lastDay ? firstDay : undefined}
               maxDate={lastDay} disabled={!run || !lastDay || !firstDay || firstDay > lastDay} resetKey={runId ?? ''}

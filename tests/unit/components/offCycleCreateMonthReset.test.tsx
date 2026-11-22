@@ -47,4 +47,15 @@ describe('the off-cycle form: a new month', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'E1 Thandi Mokoena' }));
     expect((screen.getByLabelText('Bonus for E1 Thandi Mokoena') as HTMLInputElement).value).toBe('');
   });
+  it('changing the reason clears the amounts too (review L3 of e9f437f366)', () => {
+    render(<OffCyclePage />);
+    fireEvent.change(screen.getByLabelText('Month (its approved regular run)'), { target: { value: 'oct' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'E1 Thandi Mokoena' }));
+    fireEvent.change(screen.getByLabelText('Bonus for E1 Thandi Mokoena'), { target: { value: '500000' } });
+    const reason = screen.getByLabelText('Reason');
+    fireEvent.change(reason, { target: { value: 'termination' } });
+    fireEvent.change(reason, { target: { value: 'bonus' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'E1 Thandi Mokoena' }));
+    expect((screen.getByLabelText('Bonus for E1 Thandi Mokoena') as HTMLInputElement).value).toBe('');
+  });
 });
