@@ -158,8 +158,8 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
         const c = await openRequest(pool, own, own.owner);
         creating = c.run(() => createSupplierInvoice(own.co, billInput(note, own), own.owner))
           .then(async (r) => { await c.commit(); return r; }, async (e) => { await c.rollback(); return e; });
-        // Since #1655 the merge also holds the source's POs FOR UPDATE, so the create waits at its note's PO (lockNotePo, FOR KEY SHARE).
-        expect(await waitsOnLock('FROM goods_received_notes g')).toBe(true);
+        // Since #1699 the create takes its supplier FOR KEY SHARE first (supplierLiveLock), so it waits there, before any PO.
+        expect(await waitsOnLock('SELECT id FROM suppliers')).toBe(true);
       } finally { await hold.query('ROLLBACK'); hold.release(); }
       expect(await merging).toMatchObject({ reassignedTransactions: expect.any(Number) });
       // The create waited for the merge, then met its supplier soft-deleted: a typed refusal, nothing written (review of 0d51f4a5, L2).
