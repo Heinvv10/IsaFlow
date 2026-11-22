@@ -6,6 +6,8 @@
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { FY_PRESETS_FIXED } from '@/lib/fiscalRangePresets';
+import { FiscalPresetBar } from '@/components/ui/FiscalPresetBar';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -173,6 +175,8 @@ export default function IncomeStatementPage() {
             grid scrolls inside its own frame with the header row and the label column pinned. */}
         <div className="p-6 space-y-6">
           {/* Date Range + Filters */}
+          <FiscalPresetBar label="Period" presets={FY_PRESETS_FIXED} value={{ from: periodStart || null, to: periodEnd || null }} disabled={!periodResolved}
+            onPick={r => { setPeriodStart(r.from); setPeriodEnd(r.to); resetFrom('from'); resetTo('to'); }} />
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} resetKey={fromGate.resetKey('from')} onChange={onFromChange} />

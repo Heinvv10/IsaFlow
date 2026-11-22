@@ -4,6 +4,8 @@
  */
 
 import { useState, useCallback } from 'react';
+import { FY_PRESETS_FIXED } from '@/lib/fiscalRangePresets';
+import { FiscalPresetBar } from '@/components/ui/FiscalPresetBar';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -160,6 +162,9 @@ export default function GeneralLedgerPage() {
         />
 
         <div className="p-6">
+          <FiscalPresetBar label="Period" presets={FY_PRESETS_FIXED} value={{ from: periodStart || null, to: periodEnd || null }}
+            className="mb-4"
+            onPick={r => { setPeriodStart(r.from); setPeriodEnd(r.to); dates.reset('from'); dates.reset('to'); }} />
           <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">

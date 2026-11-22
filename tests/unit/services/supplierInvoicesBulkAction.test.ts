@@ -48,6 +48,9 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // vi.hoisted runs before vi.mock factories. Without it, mocks would close over
 // the still-undefined const bindings declared further down.
+const { lockPosMock } = vi.hoisted(() => ({ lockPosMock: vi.fn(async () => new Map()) }));
+// PR #1703 breaker B5-6: a bulk cancel locks every bill's POs closed by billing first, sorted, before the first bill.
+vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({ lockPosClosedByBilling: lockPosMock }));
 const { approveMock, cancelMock, postGlMock, sqlMock } = vi.hoisted(() => ({
   approveMock: vi.fn(),
   cancelMock: vi.fn(),
@@ -116,6 +119,7 @@ describe('supplier-invoices-bulk-action', () => {
     vi.clearAllMocks();
     approveMock.mockReset();
     cancelMock.mockReset();
+    lockPosMock.mockClear();
     postGlMock.mockReset();
     sqlMock.mockReset();
     sqlMock.mockResolvedValue([
@@ -243,16 +247,61 @@ describe('supplier-invoices-bulk-action', () => {
       data.results.map((r) => r.invoiceNumber ?? undefined)).message).toBe('2 bills');
   });
 
-  it('routes action=cancel to cancelSupplierInvoice', async () => {
-    cancelMock.mockResolvedValue({});
+  it('routes action=cancel to cancelSupplierInvoice, the POs of every bill locked first', async () => {
+    cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
     await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
       req('POST', { action: 'cancel', invoiceIds: [ID_A] }),
       res(),
     );
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
+    // Review r14 M2: the very HeldPos the lock returned (only purchaseOrderBillingClose builds one), never a copy.
+    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { heldPos: await lockPosMock.mock.results[0]!.value });
+    expect(cancelMock.mock.calls[0]![3].heldPos).toBe(await lockPosMock.mock.results[0]!.value);
+    expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_A]);
+    expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(cancelMock.mock.invocationCallOrder[0]!);
     expect(approveMock).not.toHaveBeenCalled();
     expect(postGlMock).not.toHaveBeenCalled();
+  });
+
+  // PR #1703 breaker B5-6 / review r6 M1-M2: the ROUTE takes every bill's POs closed by billing in ONE call, with the ids sorted,
+  // before the first cancel (the integration suite proves the lock primitive; this pins the route's call and its order).
+  it('a bulk cancel locks the POs of every id, sorted, before the first cancel', async () => {
+    cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
+    const [lo, hi] = [ID_A, ID_B].sort();
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'cancel', invoiceIds: [hi, lo] }),
+      res(),
+    );
+    expect(lockPosMock).toHaveBeenCalledTimes(1);
+    expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [lo, hi]);
+    expect(lockPosMock.mock.invocationCallOrder[0]).toBeLessThan(Math.min(...cancelMock.mock.invocationCallOrder));
+    expect(cancelMock.mock.calls.map((c) => c[1])).toEqual([lo, hi]);
+  });
+
+  // Codex gate review M1 + L13: the POs the route locked are handed to EVERY cancel (held, not locked again: no cache), and the
+  // ids are lower-cased before the sort, so the lock order is the database's whatever case the client sent.
+  it('hands the held PO set to each cancel; mixed-case ids are lower-cased before the sort, then de-duplicated', async () => {
+    const held = new Map([['p1', 100], ['p2', 0]]);
+    lockPosMock.mockResolvedValueOnce(held);
+    cancelMock.mockResolvedValue({ reopenedPurchaseOrders: [], budgetWarnings: [] });
+    const upper = 'AAAAAAAA-1111-4111-8111-111111111111';
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_B, upper, upper.toLowerCase()] }), res());
+    expect(lockPosMock).toHaveBeenCalledWith(COMPANY_ID, [ID_B, upper.toLowerCase()]);
+    expect(cancelMock.mock.calls.map((c) => c[1])).toEqual([ID_B, upper.toLowerCase()]);
+    for (const c of cancelMock.mock.calls) expect(c[3].heldPos).toBe(held);
+  });
+
+  // Codex gate review M3: what each cancel reopened, and what it could not re-check, reach the results the bulk bar reads.
+  it('passes reopenedPurchaseOrders and uncheckedPurchaseOrders through to each result', async () => {
+    const reopened = [{ poId: 'p1', poNumber: 'PO-1', reopenedTo: 'approved' }];
+    const unchecked = [{ poId: 'p2', poNumber: 'PO-2' }];
+    cancelMock.mockResolvedValueOnce({ reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked, budgetWarnings: ['w'] })
+      .mockResolvedValueOnce({ reopenedPurchaseOrders: [], uncheckedPurchaseOrders: [], budgetWarnings: [] });
+    const result = await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(req('POST', { action: 'cancel', invoiceIds: [ID_A, ID_B] }), res());
+    const data = (result as { data: { results: Array<Record<string, unknown>> } }).data;
+    expect(data.results[0]).toMatchObject({ invoiceId: ID_A, ok: true, reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked });
+    expect(data.results[1]).not.toHaveProperty('reopenedPurchaseOrders');
+    expect(data.results[1]).not.toHaveProperty('uncheckedPurchaseOrders');
   });
 
   // The route's per-id savepoint is the guarantee that one bad row cannot take
@@ -269,7 +318,7 @@ describe('supplier-invoices-bulk-action', () => {
       }),
     } as unknown as PoolClient;
     cancelMock.mockImplementation(() =>
-      withSavepoint('cancel_supplier_invoice', async () => ({})),
+      withSavepoint('cancel_supplier_invoice', async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [] })),
     );
 
     const result = await als.run(

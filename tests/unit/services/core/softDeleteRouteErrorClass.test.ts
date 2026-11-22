@@ -79,6 +79,16 @@ describe('K-053 soft-delete route error classification', () => {
     undoDeleteMock.mockReset();
   });
 
+  // PR #1703 Codex gate review L6: a bill delete's answer carries the POs it could not re-check, as the cancel's does.
+  it('a success carries the reopened and the unchecked purchase orders', async () => {
+    const { apiResponse } = await import('@/lib/apiResponse');
+    const reopened = [{ poId: 'p1', poNumber: 'PO-1', reopenedTo: 'approved' }];
+    const unchecked = [{ poId: 'p2', poNumber: 'PO-2' }];
+    softDeleteMock.mockResolvedValue({ undoToken: 't', reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked, budgetWarnings: ['w'] });
+    expect((await post()).kind).toBe('success');
+    expect(apiResponse.success).toHaveBeenCalledWith(res, expect.objectContaining({ reopenedPurchaseOrders: reopened, uncheckedPurchaseOrders: unchecked, budgetWarnings: ['w'] }));
+  });
+
   it('a refusal is a 400 on both verbs', async () => {
     softDeleteMock.mockRejectedValue(new SoftDeleteRefusalError('nope'));
     expect((await post()).kind).toBe('badRequest');

@@ -7,9 +7,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, storedUnitPrice, taxModeFromVatType, vatTypeWarning, type TaxMode,
+  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, storedUnitPrice, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
-import { formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { formTotals, lineVatWarning } from '@/components/accounting/customer-invoices/formVat';
 
 describe('exVatUnitPrice', () => {
   it.each([
@@ -99,8 +99,8 @@ describe('linesForModeChange', () => {
 });
 
 const line = (quantity: number, unitPrice: number, discount = 0) => ({ quantity, unitPrice, discount });
-const invoice = (mode: TaxMode, lines: ReturnType<typeof line>[], formRate = 15) =>
-  formTotals(lines, effectiveTaxRate(mode, formRate), mode, '2026-11-20');
+const invoice = (mode: TaxMode, lines: ReturnType<typeof line>[]) =>
+  formTotals(lines, lines.map(() => 'standard' as const), mode, '2026-11-20');
 
 describe('the stored invoice for what was typed', () => {
   it('3 x R10 incl comes to the R30.00 typed (it stored R30.02 when the form converted the price)', () => {
@@ -167,35 +167,22 @@ describe('pricesToNothing', () => {
   });
 });
 
-describe('taxModeFromVatType', () => {
+describe('lineVatWarning (the customer\'s VAT type against the lines\' types; the user\'s choice stands)', () => {
   it.each([
-    ['zero', 'none'],
-    ['exempt', 'none'],
-    ['standard', 'exclusive'],
-    ['', null],
-    [null, null],
-    ['something a script wrote', null],
-    [' Zero ', 'none'],
-    ['EXEMPT', 'none'],
-    ['  Standard', 'exclusive'],
-  ])('%s -> %s', (vatType, mode) => {
-    expect(taxModeFromVatType(vatType)).toBe(mode);
-  });
-});
-
-describe('vatTypeWarning', () => {
-  it.each([
-    ['zero', 15, 'This customer is zero-rated, but this invoice charges VAT at 15%.'],
-    ['exempt', 14, 'This customer is VAT exempt, but this invoice charges VAT at 14%.'],
-    [' ZERO ', 15, 'This customer is zero-rated, but this invoice charges VAT at 15%.'],
-    ['standard', 0, 'This customer is standard-rated, but this invoice charges no VAT.'],
-    ['Reduced', 15, 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT on this invoice.'],
-    ['Reduced', 0, 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT on this invoice.'],
-  ])('%s at %s percent warns', (vatType, rate, message) => {
-    expect(vatTypeWarning(vatType, rate)).toBe(message);
+    ['zero', ['standard'], 'This customer is zero-rated, but a line is standard-rated.'],
+    ['exempt', ['standard', 'exempt', 'standard'], 'This customer is VAT exempt, but 2 lines are standard-rated.'],
+    [' ZERO ', ['standard'], 'This customer is zero-rated, but a line is standard-rated.'],
+    ['standard', ['zero_rated', 'exempt'], 'This customer is standard-rated, but no line charges VAT.'],
+    ['Reduced', ['standard'], 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT type on each line.'],
+    ['Reduced', ['zero_rated'], 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT type on each line.'],
+  ] as const)('%s with %j warns', (vatType, types, message) => {
+    expect(lineVatWarning(vatType, types)).toBe(message);
   });
 
-  it.each([['zero', 0], ['exempt', 0], ['standard', 15], [null, 15], [null, 0], ['', 15], ['   ', 0], [undefined, 15]])('%s at %s percent says nothing', (vatType, rate) => {
-    expect(vatTypeWarning(vatType, rate)).toBeUndefined();
+  it.each([
+    ['zero', ['zero_rated']], ['exempt', ['exempt', 'zero_rated']], ['standard', ['standard', 'exempt']], [null, ['standard']],
+    [null, ['zero_rated']], ['', ['standard']], ['   ', ['exempt']], [undefined, ['standard']], ['standard', []],
+  ] as const)('%s with %j says nothing', (vatType, types) => {
+    expect(lineVatWarning(vatType, types)).toBeUndefined();
   });
 });

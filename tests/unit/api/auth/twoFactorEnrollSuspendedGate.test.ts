@@ -7,8 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const TEST_SECRET = 'a'.repeat(40);
-process.env.JWT_SECRET = TEST_SECRET;
+const JWT_TEST = 'a'.repeat(40);
+process.env.JWT_SECRET = JWT_TEST;
 process.env.GOTRUE_URL = 'http://example.test/auth/v1';
 
 const cookieJar = vi.hoisted(() => ({ access: '' }));
@@ -42,7 +42,7 @@ type Handler = (req: NextApiRequest, res: NextApiResponse) => unknown | Promise<
 async function tok() {
   return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
-    .sign(new TextEncoder().encode(TEST_SECRET));
+    .sign(new TextEncoder().encode(JWT_TEST));
 }
 
 function mkReqRes() {

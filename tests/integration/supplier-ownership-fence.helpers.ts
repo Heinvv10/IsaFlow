@@ -28,7 +28,7 @@ export const ids = {
   SUP_A: randomUUID(), SUP_A2: randomUUID(), SUP_B: randomUUID(),
   CUST_A: randomUUID(), CUST_B: randomUUID(),
   GL: randomUUID(), BANK_GL: randomUUID(), AP_GL: randomUUID(), AR_GL: randomUUID(),
-  BILL: randomUUID(), BILL_A: randomUUID(), PO: randomUUID(), SPO: randomUUID(),
+  BILL: randomUUID(), BILL_A: randomUUID(), PO: randomUUID(),
   RULE: randomUUID(), BANK_TX_SEL: randomUUID(), BANK_TX_PAY: randomUUID(),
   TEMPLATE_A: randomUUID(), TEMPLATE_B: randomUUID(), TEMPLATE_BAD: randomUUID(),
 };
@@ -77,8 +77,6 @@ export async function setUpFixture(label: string): Promise<Fixture> {
   [ids.BILL_A, A, ids.SUP_A, USER]);
   await q(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, status)
     VALUES ($1, $2, 'R068-PO-SEED', $3, 'draft')`, [ids.PO, A, ids.SUP_A2]);
-  await q(`INSERT INTO supplier_purchase_orders (id, company_id, order_number, supplier_id, status)
-    VALUES ($1, $2, 'R068-SPO-SEED', $3, 'draft')`, [ids.SPO, A, ids.SUP_A2]);
   await q(`INSERT INTO bank_categorisation_rules (id, company_id, rule_name, match_field, match_type,
       match_pattern, gl_account_id, supplier_id, created_by)
     VALUES ($1, $2, 'R068 seeded rule', 'description', 'contains', 'R068-SEED', $3, $4, $5)`,
@@ -123,8 +121,6 @@ export async function tearDownFixture(pool: Pool | undefined): Promise<void> {
       (SELECT id FROM supplier_invoices WHERE company_id = ANY($1::uuid[]))`, both);
     await pool.query(`DELETE FROM po_items WHERE purchase_order_id IN
       (SELECT id FROM purchase_orders WHERE company_id = ANY($1::uuid[]))`, both);
-    await pool.query(`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id IN
-      (SELECT id FROM supplier_purchase_orders WHERE company_id = ANY($1::uuid[]))`, both);
     await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', both);
     await pool.query(`DELETE FROM gl_journal_lines WHERE journal_entry_id IN
       (SELECT id FROM gl_journal_entries WHERE company_id = ANY($1::uuid[]))`, both);
@@ -135,7 +131,7 @@ export async function tearDownFixture(pool: Pool | undefined): Promise<void> {
     for (const t of ['expected_invoice_alerts', 'supplier_expectations', 'supplier_coding_rules',
       'supplier_activities', 'supplier_contacts', 'accounting_adjustments', 'credit_notes',
       'supplier_payments', 'customer_payments', 'supplier_payment_batches', 'recurring_transaction_templates',
-      'supplier_invoices', 'purchase_orders', 'supplier_purchase_orders', 'gl_journal_entries',
+      'supplier_invoices', 'purchase_orders', 'gl_journal_entries',
       'bank_categorisation_rules', 'company_document_numbers', 'flow_ledger']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, both);
     }

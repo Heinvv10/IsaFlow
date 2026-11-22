@@ -16,7 +16,7 @@ import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiResponse } from 'next';
 import { SignJWT } from 'jose';
 
-const TEST_SECRET = 'a'.repeat(40);
+const JWT_TEST = 'a'.repeat(40);
 const COMPANY_ID = '00000000-0000-0000-0000-000000000cc1';
 const USER_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -77,7 +77,7 @@ function errorCode(body: unknown): string | undefined {
 async function makeToken(sub: string) {
   return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
-    .sign(new TextEncoder().encode(TEST_SECRET));
+    .sign(new TextEncoder().encode(JWT_TEST));
 }
 
 const ACTIVE_ROW: MembershipRow = {
@@ -92,9 +92,9 @@ describe('withAuth — suspended account gate', () => {
   beforeEach(() => {
     vi.resetModules();
     logWarn.mockClear();
-    process.env.JWT_SECRET = TEST_SECRET;
+    process.env.JWT_SECRET = JWT_TEST;
     process.env.GOTRUE_URL = 'http://example.test/auth/v1';
-    process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
+    process.env.DATABASE_URL = 'postgresql://dummy@dummy/test';
     process.env.SENTRY_ENABLED = 'false';
   });
 
@@ -159,7 +159,7 @@ describe('withUserAuth — suspended account gate', () => {
     vi.resetModules();
     logWarn.mockClear();
     sqlMock.mockReset();
-    process.env.JWT_SECRET = TEST_SECRET;
+    process.env.JWT_SECRET = JWT_TEST;
     process.env.GOTRUE_URL = 'http://example.test/auth/v1';
     vi.doMock('@/lib/neon', () => ({ sql: sqlMock }));
   });

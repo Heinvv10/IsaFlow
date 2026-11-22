@@ -2,8 +2,9 @@
  * Golden path Y1 - the customer invoice form on the kit (master plan wave 2, PR I).
  *
  * Keyboard only: pick the client in the ContactPicker, type "t" and "+30" into the date fields, save a draft; the API
- * then holds ISO dates. axe reports nothing serious in either theme; at 390 px the page does not scroll sideways and
- * the summary card stacks under the form instead of overlapping it.
+ * then holds ISO dates. axe reports nothing serious in either theme; at 390 px the page does not scroll sideways, the
+ * totals sit under the line items inside the viewport, and the action bar stays at the bottom of the viewport (the
+ * line-level form replaced the right-hand summary card); at 1568 px the same.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots at 390 and 1568 in both themes.
  */
 // golden:dev-only
@@ -37,6 +38,24 @@ async function open(page: Page): Promise<void> {
   await page.goto(NEW, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Customer Invoice', level: 1 })).toBeVisible({ timeout: 60_000 });
   await settle(page);
+}
+
+/** The totals under the last line row and inside the viewport's width; the action bar's bottom on the viewport's, its buttons inside it. */
+async function expectTotalsUnderLinesAndBarPinned(page: Page, width: number): Promise<void> {
+  const totals = await page.getByRole('region', { name: 'Invoice totals' }).boundingBox();
+  const lastLine = await page.getByPlaceholder('Item description').last().boundingBox();
+  expect(totals && lastLine).toBeTruthy();
+  expect(totals!.y, 'the totals start under the line items').toBeGreaterThanOrEqual(lastLine!.y + lastLine!.height - 1);
+  expect(totals!.x + totals!.width).toBeLessThanOrEqual(width);
+  const viewport = page.viewportSize()!;
+  const bar = await page.getByRole('group', { name: 'Invoice actions' }).boundingBox();
+  expect(bar, 'the action bar is on screen without scrolling').toBeTruthy();
+  expect(Math.abs(bar!.y + bar!.height - viewport.height), 'the action bar sits on the bottom of the viewport').toBeLessThanOrEqual(1);
+  for (const name of [/^create invoice$/i, /save & new/i, /approve & email/i]) {
+    const b = await page.getByRole('button', { name }).boundingBox();
+    expect(b!.x + b!.width, `${String(name)} stays inside the viewport`).toBeLessThanOrEqual(width);
+    expect(b!.y).toBeGreaterThanOrEqual(bar!.y);
+  }
 }
 
 for (const theme of THEMES) {
@@ -102,11 +121,7 @@ for (const theme of THEMES) {
     await open(page);
     const width = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
     expect(width.scroll, 'the page must not scroll sideways').toBeLessThanOrEqual(390);
-    const summary = await page.getByRole('heading', { name: 'Invoice Summary' }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]').boundingBox();
-    const notes = await page.getByLabel('Notes').boundingBox();
-    expect(summary && notes).toBeTruthy();
-    expect(summary!.y, 'summary starts below the last form card').toBeGreaterThanOrEqual(notes!.y + notes!.height - 1);
-    expect(summary!.x + summary!.width).toBeLessThanOrEqual(390);
+    await expectTotalsUnderLinesAndBarPinned(page, 390);
     // The Line Items header wraps instead of pushing "Add Line" past the card (it stuck out ~5 px and clipped its label).
     const add = await page.getByRole('button', { name: 'Add Line' }).boundingBox();
     const lines = await page.getByRole('button', { name: 'Add Line' }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]').boundingBox();
@@ -116,13 +131,11 @@ for (const theme of THEMES) {
     if (EVIDENCE) { mkdirSync(EVIDENCE, { recursive: true }); await page.screenshot({ path: join(EVIDENCE, `invoice-new-390-${theme}.png`), fullPage: true }); }
   });
 
-  test(`1568 px (${theme}): the summary sits beside the form`, async ({ page }) => {
+  test(`1568 px (${theme}): the totals sit under the lines and the actions at the bottom of the viewport`, async ({ page }) => {
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1568, height: 900 });
     await open(page);
-    const summary = await page.getByRole('heading', { name: 'Invoice Summary' }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]').boundingBox();
-    const notes = await page.getByLabel('Notes').boundingBox();
-    expect(summary!.x, 'summary is to the right of the form').toBeGreaterThan(notes!.x + notes!.width - 1);
+    await expectTotalsUnderLinesAndBarPinned(page, 1568);
     if (EVIDENCE) { mkdirSync(EVIDENCE, { recursive: true }); await page.screenshot({ path: join(EVIDENCE, `invoice-new-1568-${theme}.png`), fullPage: true }); }
   });
 }

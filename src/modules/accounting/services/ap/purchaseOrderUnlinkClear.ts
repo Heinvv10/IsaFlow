@@ -1,11 +1,9 @@
 /**
  * What `unlinkBillFromPurchaseOrder` does around clearing a bill's references to one PO beyond the link row itself (design
  * docs/design/mcp-po-maintenance.md, round 6):
- *   - `clearingRaisesCommitted`: does clearing the bill's line references RAISE committed spend? Exactly when
- *     `budgets/remainingCommitted.billedLinesByPoItem` counted the line: the bill's status is approved / paid / partially_paid (NO
- *     deleted_at filter there: a soft-deleted approved bill still nets committed today, a pre-existing behaviour left as it is and
- *     flagged to Hein) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
- *     clearing a header changes none either; the unlink's budget warning is raised only for the first.
+ *   - (whether the unlink raises committed is the unlink's own best-effort comparison since PR #1703 breaker r6 A3: `poCommittedCents`
+ *     before and after, computed under the PO lock; concurrent changes to other bills can make it noisy; the per-bill guesses that
+ *     stood here are gone);
  *   - `resetMatchState`: the bill's stored three-way state (`match_status`, each line's `line_match_status` / variances) would be stale
  *     once a reference is gone. A bill that still names a PO is re-judged by the existing recompute (`performThreeWayMatch`, in its own
  *     savepoint so a failure cannot poison the unlink); one that names none, or is deleted, is reset to 'unmatched'.
@@ -16,24 +14,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
-import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { performThreeWayMatch } from './supplierInvoiceWorkflowService';
-
-export async function clearingRaisesCommitted(companyId: string, billId: string, poId: string): Promise<boolean> {
-  const bill = ((await sql`
-    SELECT si.* FROM supplier_invoices si
-     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
-  `) as DbRow[])[0];
-  if (!bill) return false;
-  const items = (await sql`
-    SELECT sii.* FROM supplier_invoice_items sii WHERE sii.supplier_invoice_id = ${billId}::UUID
-    ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
-  `) as DbRow[];
-  const own = new Set(((await sql`SELECT id::TEXT AS id FROM po_items WHERE purchase_order_id = ${poId}::UUID`) as DbRow[]).map((r) => String(r.id).toLowerCase()));
-  const named = new Map(items.filter((i) => i.po_item_id != null).map((i) => [String(i.id), String(i.po_item_id).toLowerCase()]));
-  return postedExpenseLines(bill, items).some((l) => l.debit !== 0 && own.has(named.get(String(l.description)) ?? ''));
-}
 
 export async function resetMatchState(companyId: string, billId: string): Promise<'recomputed' | 'reset'> {
   const bill = ((await sql`

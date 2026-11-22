@@ -66,3 +66,12 @@ INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn>
 - `AR_OPEN_STATUSES` is deliberately the same set the aging uses. The
   null-due-date check reports invoices MISSING FROM THE AGING, so a wider status
   set would report invoices the aging never wanted.
+- **A freshly imported company has no planner statistics, and under the tenant
+  isolation policy every table is then estimated at one row.** A flat
+  `bank_transactions JOIN gl_journal_lines JOIN gl_journal_lines` was planned as
+  nested loops filtering on the join keys and timed out (Bugsink 0e7c6050, a
+  1,546-transaction tenant, 2 hours after import). `vatDisplayedDiffersFromPosted`
+  therefore looks each row up by key with `LATERAL ... OFFSET 0`; do not fold that
+  back into a flat join. `journalDateDiffersFromBankDate` still has the flat shape
+  and the same exposure (about 2.8 s at that size, quadratic in the tenant).
+  Pinned by `tests/integration/vat-displayed-differs-plan.int.test.ts`.

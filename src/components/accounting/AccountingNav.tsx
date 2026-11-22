@@ -14,5 +14,5 @@ import { useNavFlags } from '@/hooks/useNavFlags';
 export function AccountingNav({ navPath }: { navPath?: string } = {}) {
   const { isRegistered } = useVatRegistration();
   const flags = useNavFlags();
-  return <ModuleNav tabs={stripFlagNav(stripVatNav(TABS, isRegistered), flags)} getActiveTabId={getActiveTabId} accentColor="teal" navPath={navPath} ariaLabel="Main" />;
+  return <ModuleNav tabs={stripFlagNav(stripVatNav(TABS, isRegistered), flags, true)} getActiveTabId={getActiveTabId} accentColor="teal" navPath={navPath} ariaLabel="Main" />;
 }

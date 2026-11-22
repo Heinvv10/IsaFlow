@@ -16,12 +16,14 @@ import { log } from '@/lib/logger';
 import { AlertCircle, FileSpreadsheet, Filter, Loader2, Shield } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
+import { useHrefVisible } from '@/hooks/useHrefVisible';
 
 import {
   PAGE_SIZE, fmtR, sourceLabel, type AutoEntry, type AutoResponse,
 } from '@/components/accounting/autoPostings/autoPostingsModel';
 
 export default function AutoPostingsPage() {
+  const mayOffer = useHrefVisible();
   const [data, setData] = useState<AutoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export default function AutoPostingsPage() {
       case 'auto_supplier_payment':
         return `/accounting/supplier-invoices/${entry.sourceDocumentId}`;
       case 'auto_payroll':
-        return `/payroll/runs/${entry.sourceDocumentId}`;
+        return mayOffer(`/payroll/runs/${entry.sourceDocumentId}`) ? `/payroll/runs/${entry.sourceDocumentId}` : null;
       case 'auto_bank_recon':
         return `/accounting/bank-transactions?txId=${entry.sourceDocumentId}`;
       default:

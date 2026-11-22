@@ -38,3 +38,13 @@ describe('One dashboard is home', () => {
     ]);
   });
 });
+
+describe('Supplier purchase orders retired into purchase orders (migration 1022)', () => {
+  it('redirects the legacy list and detail pages to the canonical ones; a copy keeps its id', async () => {
+    const redirects = await withRedirects.redirects();
+    expect(redirects.filter((x) => x.source.startsWith('/accounting/supplier-purchase-orders'))).toEqual([
+      { source: '/accounting/supplier-purchase-orders', destination: '/accounting/purchase-orders', permanent: false },
+      { source: '/accounting/supplier-purchase-orders/:poId', destination: '/accounting/purchase-orders/:poId', permanent: false },
+    ]);
+  });
+});

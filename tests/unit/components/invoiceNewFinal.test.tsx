@@ -3,7 +3,7 @@
  * - after another tab's clear, a create resets that state: no leave question, and the page is inert once created, so
  *   Cancel on any leave question cannot lead to a second invoice;
  * - after "Leave without them?" is confirmed, nothing is written as the page goes;
- * - a change autosave is holding (the VAT rate being typed) is still kept on the device as the page goes;
+ * - a change autosave has not written yet is still kept on the device as the page goes;
  * - /new opened again while the approval is out: its answer is ignored, no email form over the new form;
  * - Create waits for a scan's lookup, says so, gives up after 15 s, and not for a lookup the user overrode;
  * - leaving a form typed back to blank does not ask.
@@ -103,16 +103,14 @@ describe('leaving', () => {
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
-  it('a change autosave is holding (the VAT rate being typed) is kept on the device as the page goes', async () => {
+  it('a change autosave has not written yet (its 800 ms not up) is kept on the device as the page goes', async () => {
     serveInvoice();
     await open();
-    type(description(), 'Kept while typing the rate');
-    fireEvent.focus(screen.getByLabelText('VAT rate %'));
-    type(screen.getByLabelText('VAT rate %'), '1');
-    await advance(2_000);
-    expect(localStorage.getItem(KEY)).toBeNull(); // held while the rate is typed
+    type(description(), 'Kept as it goes');
+    await advance(300);
+    expect(localStorage.getItem(KEY)).toBeNull(); // not written yet
     cleanup();
-    expect(JSON.parse(localStorage.getItem(KEY)!).data.lines[0]).toMatchObject({ description: 'Kept while typing the rate' });
+    expect(JSON.parse(localStorage.getItem(KEY)!).data.lines[0]).toMatchObject({ description: 'Kept as it goes' });
   });
 
   it('a form typed back to blank does not ask', async () => {

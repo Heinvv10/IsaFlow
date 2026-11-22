@@ -4,11 +4,14 @@
  * is a later, separately approved PR that adds an entry to PROVIDERS (spend is Hein's gate). That PR MUST add its own meter: the
  * route deliberately never meters `mode=free`, so an unmetered provider would be free for every caller.
  */
-import type { AskAnswer } from './askTypes';
+import type { AskAccess, AskAnswer } from './askTypes';
 
 export interface FreeTextProvider {
-  /** Answers a question already scoped to `companyId`, in the shape the route's registered type promises. Must itself be read-only. */
-  answer(companyId: string, question: string): Promise<AskAnswer>;
+  /**
+   * Answers a question already scoped to `companyId`, in the shape the route's registered type promises. Must itself be read-only, and must not
+   * answer from payroll (pay runs, EMP201, gross/net/PAYE, a /payroll link) unless `access.payrollRead`: the route decides it, a provider does not.
+   */
+  answer(companyId: string, question: string, access: AskAccess): Promise<AskAnswer>;
 }
 
 const PROVIDERS: Readonly<Record<string, FreeTextProvider>> = {};

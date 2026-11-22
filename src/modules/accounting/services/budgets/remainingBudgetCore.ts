@@ -102,7 +102,10 @@ export interface CommitmentRow extends Dims {
  * floored at 0 (decision 8a). The one formula for committed and for the PO approval's checked amount.
  */
 export function openPoLineCents(lineTotal: number, billed: readonly BilledPosting[]): number {
-  return Math.max(0, toCents(lineTotal) - billed.reduce((s, b) => s + toCents(b.amount), 0));
+  // Capped at the line's own total too (breaker BRK-E): a negative billed line (a discount naming the PO line) must not commit
+  // more than the line ever ordered.
+  const line = toCents(lineTotal);
+  return Math.max(0, Math.min(line, line - billed.reduce((s, b) => s + toCents(b.amount), 0)));
 }
 
 export interface RemainingInputs {

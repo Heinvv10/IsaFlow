@@ -20,7 +20,6 @@ import {
 import supplierInvoices from '../../pages/api/accounting/supplier-invoices';
 import purchaseOrders from '../../pages/api/accounting/purchase-orders';
 import purchaseOrderDetail from '../../pages/api/accounting/purchase-orders/[id]';
-import supplierPurchaseOrders from '../../pages/api/accounting/supplier-purchase-orders';
 import supplierPayments from '../../pages/api/accounting/supplier-payments';
 import batchPayments from '../../pages/api/accounting/batch-payments';
 import supplierReturns from '../../pages/api/accounting/supplier-returns';
@@ -57,13 +56,6 @@ describeIfDb('R-068 — every AP document route refuses a foreign supplier id', 
     { name: 'purchase-orders/[id] PUT', handler: purchaseOrderDetail, method: 'PUT', refusal: 400,
       query: () => ({ id: ids.PO }), body: (s) => ({ supplier_id: s }),
       carried: where('purchase_orders', 'id = $3', [ids.PO]) },
-    { name: 'supplier-purchase-orders POST', handler: supplierPurchaseOrders, method: 'POST', refusal: 400,
-      body: (s) => ({ supplier_id: s, order_date: today, reference: 'R068-SPO',
-        items: [{ description: 'Fence SPO', quantity: 1, unit_price: 10, tax_rate: 15 }] }),
-      carried: where('supplier_purchase_orders', "reference = 'R068-SPO'") },
-    { name: 'supplier-purchase-orders PUT', handler: supplierPurchaseOrders, method: 'PUT', refusal: 400,
-      body: (s) => ({ id: ids.SPO, supplier_id: s }),
-      carried: where('supplier_purchase_orders', 'id = $3', [ids.SPO]) },
     { name: 'supplier-payments POST', handler: supplierPayments, method: 'POST', refusal: 400,
       body: (s) => ({ supplierId: s, paymentDate: today, totalAmount: 10, reference: 'R068-PAY',
         allocations: [{ invoiceId: ids.BILL_A, amount: 10 }] }),

@@ -22,7 +22,7 @@
 import { sql, type TxSql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
-import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
+import { postedExpenseLines } from '../budgets/remainingCommitted';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { withRowLockBudget } from '../core/rowLockBudget';
 import { LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
@@ -101,10 +101,11 @@ export async function recordBillLinks(companyId: string, billId: string, userId:
   for (const l of postedExpenseLines(bill, items)) posted.set(String(l.description), (posted.get(String(l.description)) ?? 0) + toCents(l.debit));
 
   const links = (await db`
-    SELECT id::TEXT AS id, purchase_order_id::TEXT AS po, amount::TEXT AS amount, closed_po_from_status AS closed,
+    SELECT id::TEXT AS id, purchase_order_id::TEXT AS po, amount::TEXT AS amount,
            (source IN ('app', 'backfill') AND external_ref IS NULL) AS owned
       FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ${billId}::UUID
   `) as DbRow[];
+  const linePos = new Set(items.filter((i) => i.item_po).map((i) => String(i.item_po).toLowerCase()));
   const plan = planBillLinks({
     subtotalCents: toCents(Number(bill.subtotal)),
     lines: items.map((i) => {
@@ -112,38 +113,24 @@ export async function recordBillLinks(companyId: string, billId: string, userId:
       return { poId: po && usable.has(po) ? po : null, postedCents: posted.get(String(i.id)) ?? 0 };
     }),
     headerPoId: header && usable.has(header) ? header : null,
-    heldCents: links.filter((l) => l.owned !== true).reduce((s, l) => s + toCents(Number(l.amount)), 0),
+    // A link this writer does not own, on a PO the bill's lines do NOT name: the lines already account for a named PO (one rand to one
+    // PO; PR #1703 breaker BRK-B), so its link is not subtracted as well.
+    heldCents: links.filter((l) => l.owned !== true && !linePos.has(String(l.po).toLowerCase())).reduce((s, l) => s + toCents(Number(l.amount)), 0),
   });
   const want = new Map(plan.map((p) => [p.poId, p.amountCents]));
   const owned = links.filter((l) => l.owned === true);
   const stale = owned.filter((l) => want.get(String(l.po).toLowerCase()) !== toCents(Number(l.amount)));
   if (stale.length > 0) await db`DELETE FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND id = ANY(${stale.map((l) => String(l.id))}::UUID[])`;
   const kept = new Set(owned.filter((l) => !stale.includes(l)).map((l) => String(l.po).toLowerCase()));
-  // A closing record (closed_po_from_status) on a link this sync remakes is carried over, never lost with the old row (only while the PO
-  // is closed: the table's guard refuses a record on any other).
-  const carry = new Map(stale.filter((l) => l.closed != null).map((l) => [String(l.po).toLowerCase(), String(l.closed)]));
   let written = 0;
   for (const p of plan) {
     if (kept.has(p.poId)) continue;
     const done = (await db`
-      INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by, closed_po_from_status)
-      VALUES (${companyId}::UUID, ${p.poId}::UUID, ${billId}::UUID, ${(p.amountCents / 100).toFixed(2)}::NUMERIC, 'app', ${userId},
-        (SELECT ${carry.get(p.poId) ?? null}::TEXT WHERE EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = ${p.poId}::UUID AND po.company_id = ${companyId}::UUID AND po.status = 'closed')))
+      INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by)
+      VALUES (${companyId}::UUID, ${p.poId}::UUID, ${billId}::UUID, ${(p.amountCents / 100).toFixed(2)}::NUMERIC, 'app', ${userId})
       ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING RETURNING id
     `) as DbRow[];
     written += done.length;
-    if (done.length > 0) carry.delete(p.poId);
-  }
-  // A record whose link is gone for good (the PO is no longer named) moves to a link of that PO on a billed bill.
-  for (const [po, from] of carry) {
-    await db`
-      UPDATE purchase_order_bill_links SET closed_po_from_status = ${from}
-       WHERE EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = ${po}::UUID AND po.company_id = ${companyId}::UUID AND po.status = 'closed')
-         AND id = (SELECT l.id FROM purchase_order_bill_links l JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
-                    WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ${po}::UUID AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
-                      AND si.deleted_at IS NULL AND l.closed_po_from_status IS NULL
-                    ORDER BY NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL) DESC, l.created_at, l.id LIMIT 1)
-    `;
   }
   return written;
 }

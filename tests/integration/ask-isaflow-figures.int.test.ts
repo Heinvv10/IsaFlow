@@ -22,7 +22,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 const S = newAskScope();
 const TODAY = '2026-11-13';
-const ask = (co: string, q: string) => answerQuestion(co, q, TODAY);
+const ask = (co: string, q: string) => answerQuestion(co, q, TODAY, { payrollRead: true });
 
 describeIfDb('Ask IsaFlow answers equal the services behind the pages, per tenant', () => {
   let admin: Pool;

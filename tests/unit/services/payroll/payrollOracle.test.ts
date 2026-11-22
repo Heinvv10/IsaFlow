@@ -115,8 +115,6 @@ describe('payroll oracle fixtures', () => {
   it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries (DBF moved the cap case there)', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
-    'offcycle-bonus-after-regular-g21': 'OC',
-    'offcycle-termination-leave-after-regular': 'OC',
     'sage-2027-03-marco': 'PARITY',
     });
     // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).

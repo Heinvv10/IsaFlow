@@ -175,28 +175,68 @@ export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<strin
 
 /**
  * Does a gate for module `gate` cover a need for `need`? Equal modules do. '*' (a gate deciding per document) covers any but a
- * strict need. A resolved return gate 'returns:<m>' covers <m> and the form-agnostic 'returns'. UNREADABLE covers nothing.
+ * strict need. UNREADABLE covers nothing. Returns: a gate whose form the census reads, 'returns:<m>', covers that form's filings
+ * ('returns:<m>') and <m> itself (a VAT201 gate covers the VAT lock), but NOT a filing of another form nor one whose form it cannot
+ * read ('returns': #1670 follow-up L-a/L-b, an EMP501 gate before a VAT201 or an unknown form's finalise is a finding). A gate whose
+ * form it cannot read ('returns') covers any filing: the census cannot tell the two forms apart, so it cannot call them different.
  */
 function gateCovers(gate: string, need: string, strict: ReadonlySet<string>): boolean {
   if (gate === UNREADABLE) return false;
   if (gate === need) return true;
-  if (gate === '*') return !strict.has(need);
-  return gate.startsWith('returns:') && (need === 'returns' || need === gate.slice('returns:'.length));
+  // a strict module and every one of its forms ('returns' and 'returns:vat'...) take their own gate, never '*' (#1720 review M1)
+  if (gate === '*') return !strict.has(need) && ![...strict].some((s) => need.startsWith(`${s}:`));
+  if (gate === 'returns') return need.startsWith('returns:');
+  return gate.startsWith('returns:') && need === gate.slice('returns:'.length);
+}
+
+/** A sink whose module is read from one of its arguments by a resolver (finaliseReturn(c, 'VAT201', ...) -> 'returns:vat'). */
+export type SinkModuleArg = { arg: number; resolver: string };
+
+/** The module a sink CALL needs: its fixed module, or, when it reads one from an argument, the resolver's answer for that argument. */
+export function sinkModuleOf(c: ts.CallExpression, fixed: string, spec: SinkModuleArg | undefined,
+  resolvers: Readonly<Record<string, ModuleResolver>>, r: ConstResolver): string {
+  const resolve = spec ? resolvers[spec.resolver] : undefined;
+  return resolve ? resolve(staticString(c.arguments[spec!.arg], r)) : fixed;
 }
 
 /** Every need covered by one of the gates ('*' needs: any gate the census can read). */
 export function gatesCover(gates: ReadonlySet<string>, needs: Iterable<string>, strict: ReadonlySet<string>): boolean {
   const g = [...gates];
-  return g.length > 0 && [...needs].every((m) => (m === '*' ? g.some((x) => x !== UNREADABLE) : g.some((x) => gateCovers(x, m, strict))));
+  // an UNREADABLE need (an unmapped form: finaliseReturn(c, 'ITR14')) is covered by no gate (#1720 review L2)
+  return g.length > 0 && [...needs].every((m) => m !== UNREADABLE
+    && (m === '*' ? g.some((x) => x !== UNREADABLE) : g.some((x) => gateCovers(x, m, strict))));
 }
 
 /** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */
-export type SqlPrimitive = RegExp | { re: RegExp; module: string };
+export type SqlPrimitive = RegExp | { re: RegExp; module: string; exemptIn?: readonly PinnedStatement[] };
 
-/** The module the first matching primitive needs, or null when none matches. */
-export function primitiveModule(prims: readonly SqlPrimitive[], text: string): string | null {
-  for (const p of prims) if ((p instanceof RegExp ? p : p.re).test(text)) return p instanceof RegExp ? '*' : p.module;
+/**
+ * A NAMED statement a primitive pattern exempts: the statement in `file` whose WHOLE static text (whitespace collapsed) EQUALS
+ * `statement` (#1720 fix-verify: pinned by file and text, not a shape regex; equality, so a second approving arm or write added to
+ * a pinned statement makes it another statement, and a finding). `line`: the line of its THEN 'approved' arm, for a reader.
+ */
+export interface PinnedStatement { file: string; line: number; statement: string; why: string }
+
+/** Whitespace collapsed to one space: how a pin's snippet is compared with a statement's static text. */
+export const collapse = (t: string): string => t.replace(/\s+/g, ' ').trim();
+
+/** The module the first matching primitive needs, or null when none matches; a statement pinned for that primitive in `file` skips it. */
+export function primitiveModule(prims: readonly SqlPrimitive[], text: string, file?: string): string | null {
+  for (const p of prims) {
+    if (!(p instanceof RegExp ? p : p.re).test(text)) continue;
+    if (!(p instanceof RegExp) && p.exemptIn?.some((pin) => pin.file === file && collapse(text) === pin.statement)) continue;
+    return p instanceof RegExp ? '*' : p.module;
+  }
   return null;
+}
+
+/** Every static SQL text in a source file, as the census reads it (whitespace collapsed): what a pinned statement must still equal. */
+export function staticSqlTexts(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const visit = (n: ts.Node) => { const t = sqlTextOf(n, true); if (t !== null) out.push(collapse(t)); ts.forEachChild(n, visit); };
+  visit(sf);
+  return out;
 }
 
 /** The calls that enclose `node` inside its own statement (a call nested in another call's arguments). */

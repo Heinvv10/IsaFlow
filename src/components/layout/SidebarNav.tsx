@@ -110,13 +110,23 @@ export function SidebarNav({ collapsed, navPath }: SidebarNavProps) {
     openFlyout(tabId, e.currentTarget);
   };
 
-  const tabs = stripFlagNav(stripVatNav(TABS, isRegistered), flags);
+  const tabs = stripFlagNav(stripVatNav(TABS, isRegistered), flags, true);
   const flyoutTab = flyout ? tabs.find(t => t.id === flyout.tabId) : null;
 
   return (
     <>
       <nav aria-label="Main" className="flex-1 overflow-y-auto py-2">
         {tabs.map(tab => {
+          // A slot held while the nav's answers load: the row as it will be, invisible and inert, so the rows under it hold still.
+          if (tab.pending) {
+            return (
+              <div key={tab.id} aria-hidden="true" data-testid={`sidebar-tab-pending-${tab.id}`}
+                className={`invisible flex items-center justify-between px-4 py-2 text-sm font-medium border-l-[3px] border-transparent ${collapsed ? 'justify-center px-0' : ''}`}>
+                <span>{collapsed ? tab.label.slice(0, 2) : tab.label}</span>
+                {!collapsed && tab.items?.length ? <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" /> : null}
+              </div>
+            );
+          }
           const active = activeTabId === tab.id;
           const hasItems = !!(tab.items?.length);
           const isOpen = flyout?.tabId === tab.id;

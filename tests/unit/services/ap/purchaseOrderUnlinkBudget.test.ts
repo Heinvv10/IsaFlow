@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const preview = vi.fn();
 vi.mock('@/modules/accounting/services/ap/purchaseOrderBudget', () => ({ previewPurchaseOrderBudget: (...a: unknown[]) => preview(...a) }));
 
-import { unlinkBudgetWarnings } from '@/modules/accounting/services/ap/purchaseOrderUnlinkBudget';
+import { unlinkBudgetRead, unlinkBudgetWarnings } from '@/modules/accounting/services/ap/purchaseOrderUnlinkBudget';
 
 const line = (over: Record<string, unknown> = {}) => ({
   over: true, offSlice: false, remaining: 100, amount: 400, accountLabel: 'BB-6100 Opex', sliceLabel: 'FT', month: '2026-06', ...over,
@@ -34,5 +34,14 @@ describe('unlinkBudgetWarnings', () => {
     expect(await unlinkBudgetWarnings('c', 'p', 'N', true)).toEqual([]);
     preview.mockResolvedValue({ checks: true, lines: [line({ over: false })] });
     expect(await unlinkBudgetWarnings('c', 'p', 'N', true)).toEqual([]);
+  });
+  // Codex gate review L11: the flags a screen reads, set by the same lines the prose words (an off-slice line is "outside", not "over").
+  it('flags over budget and outside the slices as the prose does', async () => {
+    preview.mockResolvedValue({ checks: true, lines: [line({ over: true, offSlice: true })] });
+    expect(await unlinkBudgetRead('c', 'p', 'N', true, 'Reopened.')).toMatchObject({ overBudget: false, outsideSlices: true });
+    preview.mockResolvedValue({ checks: true, lines: [line(), line({ over: false })] });
+    expect(await unlinkBudgetRead('c', 'p', 'N', true)).toMatchObject({ overBudget: true, outsideSlices: false });
+    preview.mockResolvedValue({ checks: true, lines: [line({ over: false })] });
+    expect(await unlinkBudgetRead('c', 'p', 'N', true)).toEqual({ warnings: [], overBudget: false, outsideSlices: false });
   });
 });
