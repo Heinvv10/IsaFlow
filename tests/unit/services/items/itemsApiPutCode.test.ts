@@ -18,24 +18,27 @@ vi.mock('@/modules/accounting/services/items/itemService', () => ({
   updateItem: vi.fn(async (_c: string, i: unknown) => i),
 }));
 
-import { checkCodeDuplicate, updateItem } from '@/modules/accounting/services/items/itemService';
+import { checkCodeDuplicate, createItem, updateItem } from '@/modules/accounting/services/items/itemService';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
 import route from '../../../../pages/api/accounting/items';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
-async function put(body: Record<string, unknown>) {
+async function call(method: string, body: Record<string, unknown>) {
   const res = {
     statusCode: 0, body: undefined as unknown,
     status(c: number) { this.statusCode = c; return this; },
     json(b: unknown) { this.body = b; return this; },
     setHeader() { /* not needed */ },
   };
-  const req = { method: 'PUT', query: {}, body, headers: {}, companyId: 'c1' } as unknown as NextApiRequest;
+  const req = { method, query: {}, body, headers: {}, companyId: 'c1' } as unknown as NextApiRequest;
   await (route as H)(req, res as unknown as NextApiResponse);
   return res;
 }
+
+const put = (body: Record<string, unknown>) => call('PUT', body);
+const post = (body: Record<string, unknown>) => call('POST', { description: 'Fibre', ...body });
 
 describe('items PUT code', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -74,5 +77,36 @@ describe('items PUT code', () => {
     await put({ id: ID, description: 'x' });
     const input = vi.mocked(updateItem).mock.calls[0][1];
     expect('code' in input).toBe(false);
+  });
+});
+
+describe('items POST code', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(createItem).mockResolvedValue({ id: ID } as never); });
+
+  it('refuses a code that is not text (an object would become "[object Object]")', async () => {
+    for (const code of [{ a: 1 }, 123, true, ['X']]) {
+      const res = await post({ code });
+      expect(res.statusCode).toBe(422);
+      expect(JSON.stringify(res.body)).toContain('Item code must be text');
+    }
+    expect(createItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses a code over 50 characters (VARCHAR(50) would 500), accepts 50 after trimming', async () => {
+    const res = await post({ code: 'X'.repeat(51) });
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Item code must be at most 50 characters');
+    expect(createItem).not.toHaveBeenCalled();
+    const ok = await post({ code: ` ${'X'.repeat(50)} ` });
+    expect(ok.statusCode).toBe(201);
+    expect(createItem).toHaveBeenCalledWith('c1', expect.objectContaining({ code: 'X'.repeat(50) }));
+  });
+
+  it('a missing, null or blank code still means auto-generate', async () => {
+    for (const code of [undefined, null, '', '   ']) {
+      await post({ code });
+      expect(vi.mocked(createItem).mock.calls.at(-1)![1].code).toBeUndefined();
+    }
+    expect(checkCodeDuplicate).not.toHaveBeenCalled();
   });
 });
