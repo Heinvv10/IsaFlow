@@ -56,7 +56,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
   return (
     <tr>
       <td colSpan={colSpan} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
-        <table className="w-full">
+        <table className="table-cards w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)]">
               <th className={`pl-12 text-left ${PANEL_TH}`}>Invoice #</th>
@@ -75,24 +75,24 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
               const days = daysOverdueAsAt(inv.dueDate, asAtDate);
               return (
                 <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
-                  <td className="pl-12 pr-4 py-2 text-sm font-mono">
-                    <Link href={buildInvoiceHref(inv.id, { from, entityId, asAtDate })} className={INVOICE_LINK}>
+                  <td data-label="Invoice #" className="pl-12 pr-4 py-2 text-sm font-mono">
+                    <Link href={buildInvoiceHref(inv.id, { from, entityId, asAtDate })} className={`${INVOICE_LINK} max-lg:inline-flex max-lg:items-center max-lg:min-h-11`}>
                       {inv.invoiceNumber}
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">
+                  <td data-label="Due Date" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">
                     {fmtDay(inv.dueDate)}
                     {inv.dueDateMissing && <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">(no due date — invoice date)</span>}
                   </td>
-                  <td className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                  <td className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
-                  <td className="px-4 py-2 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
+                  <td data-label="Total" className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
+                  <td data-label="Paid" className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
+                  <td data-label="Balance" className="px-4 py-2 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
                     {formatCurrency(inv.balance)}
                     {(inv.disputedAmount ?? 0) > 0 && (
                       <span className="block text-xs font-normal text-amber-500">{formatCurrency(inv.disputedAmount ?? 0)} disputed</span>
                     )}
                   </td>
-                  <td className={`px-4 py-2 text-sm text-right tabular-nums ${days > 0 ? 'text-red-400' : 'text-teal-500'}`}>
+                  <td data-label="Days Overdue" className={`px-4 py-2 text-sm text-right tabular-nums ${days > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                     {days > 0 ? `${days}d` : 'Current'}
                   </td>
                 </tr>
