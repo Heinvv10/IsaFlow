@@ -3,7 +3,7 @@
  * that stays at the bottom of the viewport (sticky: the actions are in reach however long the invoice), and each page's
  * buttons in it. The pages own every state and handler.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import { FileText, Info, Loader2, Send } from 'lucide-react';
 import { formatSavedAgo } from '@/components/ui/AutosaveStatus';
@@ -20,10 +20,42 @@ export function KeptDraftOffer({ savedAt, disabled, onRestore, onDiscard }: { sa
   );
 }
 
+const CLEARANCE_GAP_PX = 16;
+
+/** The nearest ancestor that scrolls (the shell's <main>), else the page's own scrolling element. */
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY;
+    if (y === 'auto' || y === 'scroll') return p;
+  }
+  return document.scrollingElement as HTMLElement | null;
+}
+
+/**
+ * While the bar is in the page its scroller keeps the bar's height, plus a gap, as its bottom scroll padding, so a field
+ * focused near the bottom scrolls clear of the bar instead of under it (focus scrolling honours the scroller's
+ * scroll-padding; Chromium ignores a scroll-margin on the field). Measured: the bar wraps taller on a phone.
+ */
+function useClearOfBar(bar: RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const el = bar.current;
+    const scroller = el ? scrollerOf(el) : null;
+    if (!el || !scroller) return undefined;
+    const before = scroller.style.scrollPaddingBottom;
+    const fit = () => { scroller.style.scrollPaddingBottom = `${Math.ceil(el.getBoundingClientRect().height) + CLEARANCE_GAP_PX}px`; };
+    fit();
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    watch?.observe(el);
+    return () => { watch?.disconnect(); scroller.style.scrollPaddingBottom = before; };
+  }, [bar]);
+}
+
 /** The bar at the bottom of the viewport: `status` (autosave, notes) on the left, the buttons on the right. */
 export function InvoiceActionBar({ status, children }: { status: ReactNode; children: ReactNode }) {
+  const bar = useRef<HTMLDivElement>(null);
+  useClearOfBar(bar);
   return (
-    <div role="group" aria-label="Invoice actions" className="sticky bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-6 xl:px-8 py-3">
+    <div ref={bar} role="group" aria-label="Invoice actions" className="sticky bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-6 xl:px-8 py-3">
       <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
         {/* The status takes what the buttons leave and wraps inside it; the buttons never drop under it. */}
         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">{status}</div>
