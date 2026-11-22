@@ -33,9 +33,19 @@ let otherBefore: Record<string, string>;
 let lines: string[] = [];
 const ACTOR = 'a0000000-0000-0000-0000-000000000001';
 
-function run(over: Partial<RunOptions> = {}) {
+/**
+ * The reseed runs as a NON-superuser that holds postgres's privileges (a member of it, BYPASSRLS), as production's does (its
+ * `postgres` is NOSUPERUSER): migration 1018's ledger rules exempt only a superuser, so a seed that wrote a document
+ * already linked to its journal fails here. The role is created inside the test's transaction and rolled back with it.
+ */
+async function run(over: Partial<RunOptions> = {}) {
   lines = [];
-  return runReseed({ companyId: DEMO, mode: 'run', seed: 7, today: TODAY, client: c, out: (l) => lines.push(l), ...over });
+  await c.query('SET LOCAL ROLE lcf_reseed_nosuper');
+  try {
+    return await runReseed({ companyId: DEMO, mode: 'run', seed: 7, today: TODAY, client: c, out: (l) => lines.push(l), ...over });
+  } finally {
+    await c.query('RESET ROLE');
+  }
 }
 
 async function inSavepoint<T>(fn: () => Promise<T>): Promise<T> {
@@ -48,6 +58,8 @@ beforeAll(async () => {
   c = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await c.connect();
   await c.query('BEGIN');
+  await c.query('CREATE ROLE lcf_reseed_nosuper NOSUPERUSER INHERIT BYPASSRLS');
+  await c.query('GRANT postgres TO lcf_reseed_nosuper');
   await companies(c);
   await rowsFor(c, OTHER, 'Other', { invoiceDay: '2025-05-05', journalDay: '2025-05-06', runYear: 2025 });
   dirty = await dirtyDemo(c);

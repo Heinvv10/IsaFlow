@@ -21,6 +21,7 @@ import { getJournalEntryById } from '../gl/journalEntryService';
 import { resolveReversalDateDetailed, type VatLockRoll } from '../gl/journalEntryReversalDate';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { planLateClaimCompanionReversal, type CompanionReversalPlan } from '../gl/vatLateClaimSplit';
 
 /** A refusal whose message is safe to show the caller. */
@@ -72,6 +73,7 @@ export async function lockAndPlanSupplierInvoiceCancel(
   companyId: string,
   invoiceId: string,
 ): Promise<SupplierInvoiceCancelPlan> {
+  await lockDocumentJournalAccounts(companyId, 'supplier_invoices', invoiceId); // 1018 round 15 L1: accounts before the bill row
   await lockSupplierInvoiceForUpdate(companyId, invoiceId);
   return planSupplierInvoiceCancel(companyId, invoiceId);
 }

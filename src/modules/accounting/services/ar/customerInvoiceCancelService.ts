@@ -36,6 +36,7 @@ import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { ApprovePermissionError } from '../core/approvePermission';
 
 type Row = DbRow;
@@ -109,6 +110,8 @@ async function cancelCustomerInvoiceInner(
     // change exists to hold, broken from the other side. Refusing reads as not
     // found, which is what the delete has already made the document to every
     // list, and matches what softDeleteInvoiceGuards says on the way in.
+    // 1018 round 15 L1: the journal's accounts BEFORE the invoice row, as an account merge takes them (shared/documentJournalAccountsLock).
+    await lockDocumentJournalAccounts(companyId, 'customer_invoices', invoiceId);
     const invRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, amount_paid, gl_journal_entry_id
       FROM customer_invoices

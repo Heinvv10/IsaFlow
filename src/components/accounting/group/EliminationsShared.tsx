@@ -69,7 +69,7 @@ export const STATUS_STYLES: Record<EliminationStatus, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
   posted: 'bg-teal-500/10 text-teal-400',
   reversed: 'bg-amber-500/10 text-amber-400',
-  discarded: 'bg-gray-500/10 text-gray-400',
+  discarded: 'bg-gray-500/10 text-ink-muted',
 };
 
 /**

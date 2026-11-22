@@ -103,7 +103,9 @@ describe('the database refuses a live bill on a cancelled note', () => {
     const bill = await seedBill(pool, f, { status: 'cancelled', lines: [40] });
     await pool.query('UPDATE supplier_invoices SET grn_id = $2 WHERE id = $1', [bill.id, live]);
     expect((await callTool(pool, f, cancel, { grn_id: live, reason: 'the bill was cancelled' })).isError).toBe(false);
-    expect(await asApp("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [bill.id])).toBe('23503:supplier_invoices_grn_live');
+    // Migration 1018 (PR #1691) refuses it first: a cancelled document stays cancelled. Either refusal keeps the bill cancelled.
+    expect(await asApp("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [bill.id])).toMatch(/^(23503:supplier_invoices_grn_live|23514:doc_cancelled_final)$/);
+    expect(String((await pool.query('SELECT status FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0].status)).toBe('cancelled');
     expect(await asApp("UPDATE supplier_invoices SET notes = 'still cancelled' WHERE id = $1", [bill.id])).toBe('ok');
   });
 

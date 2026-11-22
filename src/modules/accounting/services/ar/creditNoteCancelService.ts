@@ -29,6 +29,7 @@ import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The states that have something to reverse. A draft has posted nothing. */
@@ -54,6 +55,8 @@ async function cancelCreditNoteInner(
     // Same check-then-act window as approve: two concurrent cancellations would
     // each reverse the journal, leaving the note over-reversed and the invoice
     // credit removed twice.
+    // 1018 round 15 L1: the note journal's accounts before the note and the invoices it credited (shared/documentJournalAccountsLock).
+    await lockDocumentJournalAccounts(companyId, 'credit_notes', id);
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
     // 'applied' is cancellable too (PR #203 review HIGH): linked notes land

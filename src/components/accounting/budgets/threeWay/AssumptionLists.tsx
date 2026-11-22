@@ -5,6 +5,7 @@
  */
 import { Plus, Trash2 } from 'lucide-react';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
+import { MonthField } from '@/components/ui/MonthField';
 import { INPUT, NumberInput } from './AssumptionFields';
 import { newId } from './assumptionsModel';
 import type { LoanOption } from './threeWayClient';
@@ -31,8 +32,14 @@ function Cell({ col, row, label, readOnly, onSet }: { col: Col; row: Row; label:
       }} />
     );
   }
+  if (col.kind === 'month') {
+    return (
+      <MonthField label={label} labelHidden disabled={readOnly} value={typeof v === 'string' && v ? v : null}
+        onChange={(ym, validity) => { if (validity.valid) onSet(ym ?? ''); }} className="w-36" />
+    );
+  }
   return (
-    <input aria-label={label} className={INPUT} type={col.kind === 'month' ? 'month' : 'text'} disabled={readOnly}
+    <input aria-label={label} className={INPUT} type="text" disabled={readOnly}
       value={String(v ?? '')} maxLength={200} onChange={(e) => onSet(e.target.value)} />
   );
 }

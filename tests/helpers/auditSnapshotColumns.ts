@@ -13,6 +13,7 @@ export const NOT_MATERIAL: Record<'gl_journal_entries' | 'gl_journal_lines', Rec
     updated_at: 'bookkeeping: changes with any touch; every material column is frozen itself',
     cost_center_id: 'legacy CC1 column, read by nothing (cc1_id on the lines is the one CC1)',
     extraction_confidence: 'capture AI score; says nothing about what was posted',
+    document_cancelled_at: 'migration 1018: stamped when a linked document is cancelled; the cancel\'s reversal (frozen) is the ledger fact',
   },
   gl_journal_lines: {
     company_id: 'as on the journal',

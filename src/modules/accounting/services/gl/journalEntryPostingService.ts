@@ -7,9 +7,10 @@ import { log } from '@/lib/logger';
 import type { JournalEntry } from '../../types/gl.types';
 import { getJournalEntryById, createJournalEntry } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
-import { buildReversalLines, type ReversalEntry } from './reversalLines';
+import { accountsUnderClaim, buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
   claimJournalReversal,
+  JournalReversalLockTimeoutError,
   releaseJournalReversalClaim,
   withReversalTransaction,
 } from './journalEntryReversalClaim';
@@ -25,6 +26,8 @@ import { journalChainChanged } from '../intercompany/mirrorHooks';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
+import { ledgerLinkRefusal } from './journalReinstateRefusal';
+import { lockJournalChains } from './ledgerLinkKeys';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -76,15 +79,14 @@ export async function reverseJournalEntry(
   // journal-reversal gate locked (`bank/reconciledCash`, D12); a tied line outside it is a retry.
   opts?: ReverseOpts,
 ): Promise<ReversalWithLateClaim> {
-  // One transaction around the whole reversal. Inside a request there already
-  // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
-  // commits its own. That is what keeps the claim below from outliving the
-  // contra it stands for: a crash anywhere in between rolls both back, and a
-  // rerun repairs the entry instead of finding it permanently marked reversed.
+  // One transaction around the whole reversal (a request's, or its own for scripts and cron), so the claim below never
+  // outlives the contra it stands for: a crash in between rolls both back, and a rerun repairs the entry.
   return withReversalTransaction({ companyId, userId }, async () => {
     // A late-claim original reverses its companion with it, all or nothing; the
     // companion's reversal is planned (and refused) before any write.
     const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
+    // 1018 round 13 L1: a late-claim pair is two chains in one transaction: both, rows and keys, sorted, before any claim.
+    if (companion) await lockJournalChains([id, companion.id], () => new JournalReversalLockTimeoutError(id));
     const body = () => reverseJournalEntryInner(companyId, id, userId, opts, companion);
     return companion ? withSavepoint('reverse_late_claim', body) : body();
   });
@@ -151,6 +153,8 @@ async function reverseJournalEntryInner(
       // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
       await assertNoLiveUndoShares(companyId, id, entry.entryNumber);
     });
+    // 1018 round 15 L2: a claim that waited on an account merge sees the lines where the merge put them.
+    carried.lines = await accountsUnderClaim(companyId, id, entry.lines, carried.lines);
 
     let reversalEntry: JournalEntry;
     try {
@@ -166,6 +170,8 @@ async function reverseJournalEntryInner(
         // re-park its VAT on the clearing account with no companion to clear it,
         // so that one faces the clearing-account guard like any other journal.
         reversal: !entry.reversalOfId,
+        // Round 10 L4: a legacy '' VAT type is copied as '' (not NULL), so the contra lands in the original's VAT box.
+        exactVatType: true,
         // Every line is a contra of a posted one, so a historic header line stays reversible (headerAccountGuard.ts).
         contraAccountIds: carried.lines.map((l) => l.glAccountId),
       });
@@ -250,6 +256,9 @@ async function reverseJournalEntryInner(
         && (err as { constraint?: unknown }).constraint === 'ux_gl_je_reversal_of') {
         throw new Error('Journal entry already reversed');
       }
+      // Migration 1018's refusals of the link, in the user's words; the retryable ones as a 503 (gl/journalReinstateRefusal).
+      const refusal = ledgerLinkRefusal(err, entry.entryNumber, () => new JournalReversalLockTimeoutError(id));
+      if (refusal) throw refusal;
       throw err;
     }
     // Intercompany P2: a message / group row that records this journal follows the ledger (a reversal done directly, not through a cancel, is no hook).

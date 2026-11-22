@@ -237,19 +237,21 @@ export async function copyLateClaimBaseToReversal(
   const expected = Number(c?.n ?? 0);
   const copied = (await sql`
     WITH o AS (
-      SELECT late_claim_base, gl_account_id, COALESCE(vat_type, '') AS vt, debit AS amt,
-             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), debit ORDER BY id) AS rn
+      SELECT late_claim_base, gl_account_id, COALESCE(vat_type, '') AS vt, debit AS dr, credit AS cr,
+             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), debit, credit ORDER BY id) AS rn
       FROM gl_journal_lines
       WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companionId}::UUID
         AND late_claim_base IS NOT NULL
     ), r AS (
-      SELECT id, gl_account_id, COALESCE(vat_type, '') AS vt, credit AS amt,
-             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), credit ORDER BY id) AS rn
+      -- The contra's sides swapped (1018 round 12 L1): a line pairs by both amounts, so re-reversing a contra (whose
+      -- based lines are credits, debit 0) no longer pairs every line into one debit-0 group by uuid order.
+      SELECT id, gl_account_id, COALESCE(vat_type, '') AS vt, credit AS dr, debit AS cr,
+             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), credit, debit ORDER BY id) AS rn
       FROM gl_journal_lines
       WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${reversalId}::UUID
     )
     UPDATE gl_journal_lines l SET late_claim_base = -o.late_claim_base
-    FROM o JOIN r USING (gl_account_id, vt, amt, rn)
+    FROM o JOIN r USING (gl_account_id, vt, dr, cr, rn)
     WHERE l.id = r.id AND l.company_id = ${companyId}::UUID
     RETURNING l.id`) as Row[];
   if (copied.length !== expected) {

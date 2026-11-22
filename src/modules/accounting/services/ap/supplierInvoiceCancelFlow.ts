@@ -12,6 +12,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { syncGroupRowFor } from '../intercompany/mirrorHooks';
@@ -47,6 +48,7 @@ async function cancelSupplierInvoiceInner(
     // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
+    await lockDocumentJournalAccounts(companyId, 'supplier_invoices', id); // 1018 round 15 L1: accounts before the bill row
     const lockRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
