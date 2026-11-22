@@ -17,11 +17,10 @@ import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { formLineNet, formTotals, formVatByType, fromKeptDraft, lineVatTypes, lineVatWarning, typeForRate } from '@/components/accounting/customer-invoices/formVat';
 import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
-import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
-import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
+import { fxPreview, InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
 import { InvoiceSettingsRow } from '@/components/accounting/customer-invoices/InvoiceSettingsRow';
 import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
@@ -84,9 +83,6 @@ export default function NewCustomerInvoicePage() {
   // registered for VAT prices and sends no VAT, as the server forces it.
   const lineTotal = (l: LineItem) => formLineNet(l, types[lines.indexOf(l)] ?? null, vatMode, form.invoiceDate);
   const { subtotal, tax, total } = formTotals(lines, types, vatMode, form.invoiceDate);
-  const isFx = form.currencyCode !== 'ZAR';
-  // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
-  const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
   // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
   const built = createBody(form, lines, vatMode, types, dates.refused);
 
@@ -243,7 +239,7 @@ export default function NewCustomerInvoicePage() {
                   discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} accountHint={contact.hints.account}
                   {...(vatMode === 'none' ? {} : { vatTypes: types, vatDate: form.invoiceDate, vatHint: contact.hints.vat, vatWarning: lineVatWarning(contact.vatType, types) })} />
                 <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode={form.currencyCode} byType={formVatByType(lines, types, vatMode, form.invoiceDate)} date={form.invoiceDate}
-                  fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})} />
+                  fx={fxPreview(total, form.currencyCode, form.exchangeRate)} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />

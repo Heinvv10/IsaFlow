@@ -15,7 +15,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fillLine, INV, pickMode, pickVatType, price, prices, sentBody, serve, totalRowText, vatTypesShown } from '../helpers/invoiceDefaultsHarness';
 import { typeDate } from '../helpers/dateFields';
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 
 const push = vi.hoisted(() => vi.fn());
 const reg = vi.hoisted(() => ({ isRegistered: true }));
@@ -40,7 +40,7 @@ afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); 
 const totalText = totalRowText;
 const modeShown = () => (screen.getByRole('combobox', { name: 'Amounts are' }) as HTMLElement).textContent;
 const save = async () => {
-  fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+  await clickWhenEnabled(/save changes/i); // a line that follows the customer: Save waits for its answer
   await waitFor(() => expect(push).toHaveBeenCalled());
 };
 const MIXED = { ...INV, items: [

@@ -44,7 +44,7 @@ afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); 
 
 const expectTotal = (amount: RegExp) => expect(totalRowText()).toMatch(amount);
 const save = async () => {
-  fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+  await waitFor(() => { const b = screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement; expect(b.disabled).toBe(false); fireEvent.click(b); }); // a line that follows the customer: Save waits for its answer
   await waitFor(() => expect(push).toHaveBeenCalled());
 };
 const sentPrices = (method: string) => sentBody(method).items.map((i) => i.unitPrice);

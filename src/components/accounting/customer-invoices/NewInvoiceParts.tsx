@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
-import { FileText, Info, Loader2, Send } from 'lucide-react';
+import { AlertCircle, ArrowLeft, FileText, Info, Loader2, Send } from 'lucide-react';
 import { formatSavedAgo } from '@/components/ui/AutosaveStatus';
 
 export function KeptDraftOffer({ savedAt, disabled, onRestore, onDiscard }: { savedAt: number; disabled: boolean; onRestore: () => void; onDiscard: () => void }) {
@@ -103,5 +103,18 @@ export function EditInvoiceActions({ disabled, submitting, approving, cancelHref
         {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
       </button>
     </>
+  );
+}
+
+/** The edit page with no draft to show (not found, no longer a draft, a failed load): why, and the way back to the invoice. */
+export function EditInvoiceUnavailable({ message, invoiceHref }: { message: string; invoiceHref: string }) {
+  return (
+    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6">
+      <AlertCircle className="h-10 w-10 text-red-400" />
+      <p className="text-center text-sm text-slate-600 dark:text-slate-300 max-w-md">{message}</p>
+      <Link href={invoiceHref} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+        <ArrowLeft className="h-4 w-4" /> Back to Invoice
+      </Link>
+    </div>
   );
 }

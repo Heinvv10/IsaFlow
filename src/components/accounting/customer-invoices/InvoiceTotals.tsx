@@ -7,6 +7,7 @@
  */
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { VatByType } from './formVat';
 import { lineVatTypeLabel } from './InvoiceLineVatSelect';
 
@@ -23,6 +24,13 @@ interface Props {
   fx?: { zarTotal: number; rate: number };
   /** Inclusive mode only: the gross the shown prices add up to. Shown beside `total` whenever the two differ; the stored total is the invoice (taxMode.ts). */
   typedTotal?: number;
+}
+
+/** The ZAR preview for a foreign-currency invoice (none for ZAR). A preview only: the stored figure is
+ * public.fx_functional's, and toFunctional is its exact twin; a half-typed rate previews as 0. */
+export function fxPreview(total: number, currencyCode: string, rate: number): Props['fx'] {
+  if (currencyCode === 'ZAR') return undefined;
+  return { zarTotal: Number.isFinite(total) && Number.isFinite(rate) ? toFunctional(total, rate) : 0, rate };
 }
 
 const row = 'flex justify-between gap-6 text-sm';

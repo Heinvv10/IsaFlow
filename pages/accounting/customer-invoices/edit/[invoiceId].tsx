@@ -8,8 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { FileText, Loader2, AlertCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
@@ -18,9 +17,9 @@ import { formLineNet, formTotals, formVatByType, lineVatRate, lineVatTypes, line
 import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
-import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
+import { fxPreview, InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
 import { InvoiceSettingsRow } from '@/components/accounting/customer-invoices/InvoiceSettingsRow';
-import { EditInvoiceActions, InvoiceActionBar } from '@/components/accounting/customer-invoices/NewInvoiceParts';
+import { EditInvoiceActions, EditInvoiceUnavailable, InvoiceActionBar } from '@/components/accounting/customer-invoices/NewInvoiceParts';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { sameCents } from '@/modules/accounting/services/shared/functionalAmounts';
 import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
@@ -42,6 +41,7 @@ type LineItem = EditLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const STALE_PRICED_HOLD = "this draft's stored total is not what its lines price to; Save Changes reprices it";
 const CUSTOMER_FAILED = "Could not load the customer's VAT type - check the VAT on this invoice by hand";
+const CUSTOMER_PENDING = "waiting for the customer's details";
 export default function EditCustomerInvoicePage() {
   const router = useRouter();
   const { invoiceId } = router.query;
@@ -56,9 +56,14 @@ export default function EditCustomerInvoicePage() {
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive'); // a stored price is ex-VAT, so it loads as one
-  // Read only to warn: a stored invoice is not refilled, so Save waits for a customer changed here, not for the one it loaded with.
+  // A stored invoice is not refilled, so Save waits for a customer changed here (its terms move the due date), and for the
+  // one it loaded with only while a line follows it (a line with no VAT type of its own takes the customer's: formVat).
   const [loadedClient, setLoadedClient] = useState('');
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
+  const waitsForCustomer = customer.pending && (form.clientId !== loadedClient || lines.some((l) => l.vatType === undefined));
+  // Such lines are typed by the answer: the body is what the server holds only once this load's customer is read, so
+  // the answer arriving is not an edit (no PUT on opening a legacy no-VAT draft of an exempt customer).
+  const [customerReadFor, setCustomerReadFor] = useState(0);
   const { load: loadDueTerms, touch: touchDue, hint: dueHint, sendDue } = useDueDateFollowsTerms(form, setForm, customer.defaults); // a terms-sourced due date follows a new date or customer
   const [approved, setApproved] = useState(false);
   // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
@@ -79,6 +84,7 @@ export default function EditCustomerInvoicePage() {
   const loadSeq = useRef(0);
   const [loadedKey, setLoadedKey] = useState(0);
   const [pricedAtLoad, setPricedAtLoad] = useState<{ key: number; pricing: string; stale: boolean } | null>(null);
+  useEffect(() => { if (!loading && !customer.pending) setCustomerReadFor(loadedKey); }, [loading, customer.pending, loadedKey]);
   const wip = useWipLines(lines, setLines); // removing a time-entry line: asked, and saved by Save Changes only
   const wipLoaded = wip.loaded;
 
@@ -205,10 +211,11 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft, { omitDueDate: !sendDue, markClearedDue: storedDates.dueDate }) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id && (customerReadFor === loadedKey || !waitsForCustomer) ? invoicePutBody(id, draft, { omitDueDate: !sendDue, markClearedDue: storedDates.dueDate }) : null,
     releaseTimeEntryIds: wip.releasing, onStale: reloadStale,
-    // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line.
-    problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? autosaveProblem(draft, dates.refused, storedDates), paused: approve.busy, done: approved, onSaved: keepStoredDates,
+    // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line;
+    // the customer a line or the due date follows, still being read.
+    problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? (waitsForCustomer ? CUSTOMER_PENDING : autosaveProblem(draft, dates.refused, storedDates)), paused: approve.busy, done: approved, onSaved: keepStoredDates,
     approvalContentDigest: digestsAtLoad.shown, draftDigest: digestsAtLoad.draft,
   });
 
@@ -233,21 +240,7 @@ export default function EditCustomerInvoicePage() {
   if (loading) return <AppLayout><Head><title>Edit invoice · Sales · IsaFlow</title></Head><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
 
   if (error && !invoiceNumber) {
-    return (
-      <AppLayout>
-        <Head><title>Edit invoice · Sales · IsaFlow</title></Head>
-        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6">
-          <AlertCircle className="h-10 w-10 text-red-400" />
-          <p className="text-center text-sm text-slate-600 dark:text-slate-300 max-w-md">{error}</p>
-          <Link
-            href={`/accounting/customer-invoices/${String(invoiceId)}`}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Invoice
-          </Link>
-        </div>
-      </AppLayout>
-    );
+    return <AppLayout><Head><title>Edit invoice · Sales · IsaFlow</title></Head><EditInvoiceUnavailable message={error} invoiceHref={`/accounting/customer-invoices/${String(invoiceId)}`} /></AppLayout>;
   }
 
   return (
@@ -277,7 +270,7 @@ export default function EditCustomerInvoicePage() {
                   {...(vatMode === 'none' ? {} : { vatTypes: types, vatDate: form.invoiceDate, vatWarning: lineVatWarning(customer.defaults?.vatType, types) })} />
                 {wip.note && <p className="px-5 pb-3 text-xs text-amber-800 dark:text-amber-300">{wip.note}</p>}
                 <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode={form.currencyCode} byType={formVatByType(lines, types, vatMode, form.invoiceDate)} date={form.invoiceDate}
-                  {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})} />
+                  fx={fxPreview(total, form.currencyCode, form.exchangeRate)} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />
@@ -289,7 +282,7 @@ export default function EditCustomerInvoicePage() {
           {stalePriced && storedTotal !== null && <span className="text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Save Changes reprices the invoice.</span>}
           <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} held={autosave.held} />
         </>}>
-          <EditInvoiceActions disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} submitting={submitting} approving={approve.busy}
+          <EditInvoiceActions disabled={submitting || approve.busy || approved || waitsForCustomer} submitting={submitting} approving={approve.busy}
             cancelHref={`/accounting/customer-invoices/${String(invoiceId)}`} onSave={() => { void handleSubmit(); }} onApprove={approve.start} />
         </InvoiceActionBar>
         {approve.modal && <InvoiceEmailModal {...approve.modal} />}
