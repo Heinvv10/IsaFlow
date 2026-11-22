@@ -12,6 +12,7 @@ import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsoli
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui/DateField';
+import { MirroredDroppedNotice, parseDroppedMirrored } from '@/components/accounting/group/MirroredDroppedNotice';
 
 interface EntityBalance { debit: number; credit: number }
 
@@ -50,7 +51,7 @@ interface ConsolidatedTBResponse {
     value: number;
     byEntity: UnmappedEntity[];
   };
-  coterminous: boolean;
+  coterminous: boolean; eliminationsNote?: string | null;
 }
 
 interface EntityGroup { id: string; name: string }
@@ -178,8 +179,9 @@ export default function ConsolidatedTrialBalancePage() {
         </div>
 
         <div className="p-6">
+          {!loading && data && <MirroredDroppedNotice rows={parseDroppedMirrored(data)} />}
           {!loading && data && (
-            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} />
+            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} eliminationsNote={data.eliminationsNote} />
           )}
 
           {!loading && data && data.groupAccounts.length > 0 && totals && (

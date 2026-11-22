@@ -22,6 +22,7 @@ import { refuseReversingCompletedCash } from '../bank/reconciledCash';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
+import { journalChainChanged } from '../intercompany/mirrorHooks';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
@@ -45,7 +46,6 @@ type ReverseOpts = PostingActorOpts & {
   bankLinesHandled?: boolean;
 };
 
-
 import {
   ClosedFiscalPeriodError,
   InactiveAccountError,
@@ -57,8 +57,7 @@ import {
 export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
 export type { PostJournalOpts } from './vatLateClaimPlan';
-// Split out to hold this file under 300 lines; re-exported because every
-// caller — and every test that mocks this module — reaches it through here.
+// Split out to hold this file under 300 lines; re-exported: every caller and every test that mocks this module reaches it here.
 export { postJournalEntry } from './journalEntryPostService';
 
 /**
@@ -260,6 +259,7 @@ async function reverseJournalEntryInner(
       if (refusal) throw refusal;
       throw err;
     }
+    await journalChainChanged(companyId, id);   // Intercompany P2: a message / group row that records this journal follows the ledger (a direct reversal, not a cancel, is no hook)
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).
     if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 

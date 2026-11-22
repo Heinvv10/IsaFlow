@@ -99,7 +99,11 @@ export interface SideOptions {
 
 /** A refusal the route answers with its status: nothing was written. */
 export class ConnectionRefusal extends Error {
-  constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
+  /**
+   * `safeForSender`: the sentence is fixed text (it names nothing of the receiver's books), so the auto-accept worker may store it in
+   * the message's `error`, which the SENDER can read. Any other refusal is stored as a generic sentence and its detail is logged.
+   */
+  constructor(readonly status: 400 | 403 | 404 | 409, message: string, readonly safeForSender = false) {
     super(message);
     this.name = 'ConnectionRefusal';
   }

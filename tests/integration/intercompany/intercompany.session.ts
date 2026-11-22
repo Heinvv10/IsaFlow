@@ -1,7 +1,7 @@
 /** Sessions for the intercompany (1000 + 1002) suites: app_user as withAuth opens one, the table owner, and the exact refusal of a statement. */
 import type { Pool, PoolClient } from 'pg';
 
-async function open(pool: Pool, user: string | null, company: string, role: 'app_user' | null): Promise<PoolClient> {
+async function open(pool: Pool, user: string | null, company: string, role: 'app_user' | 'migration_admin' | null): Promise<PoolClient> {
   const client = await pool.connect();
   await client.query('BEGIN');
   if (role) await client.query(`SET LOCAL ROLE ${role}`);
@@ -34,6 +34,14 @@ export async function asAppUser<T>(pool: Pool, user: string, company: string, fn
  */
 export async function asOwner<T>(pool: Pool, user: string | null, company: string, fn: (q: PoolClient) => Promise<T>, commit = false): Promise<T> {
   return run(await open(pool, user, company, null), fn, commit);
+}
+
+/**
+ * The same claims as the definers' OWNER (migration_admin: bypasses row security, holds the table grants), the one role the messages guard lets
+ * write a document message: how a fixture plants one with the guard's other rules (connection, group, write role, source document) still running.
+ */
+export async function asDefiner<T>(pool: Pool, user: string | null, company: string, fn: (q: PoolClient) => Promise<T>, commit = false): Promise<T> {
+  return run(await open(pool, user, company, 'migration_admin'), fn, commit);
 }
 
 /** 'ok', or `<SQLSTATE>: <message>` of the refusal. Runs in a savepoint so the session stays usable. */

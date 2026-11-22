@@ -37,6 +37,29 @@ for group companies and for external companies that run their own IsaFlow tenant
 10. Duplicate protection: one message per (from company, source doc type, source doc id, kind) — DB
     unique — plus the normal supplier + invoice-number duplicate check on the receiver.
 
+**RULING 2026-11-21 (Hein):** per-pair cutover. A company pair's cutover is the date from which both
+companies of the pair have mirroring switched on: the latest of the connection's cut-over date and the
+two sides' `mirroring_since` (set by the database to the start of the next Johannesburg day when a
+side's customer and supplier links are both set; cleared when either is removed). A pair has a cutover
+only in the group its mirrors go to (the oldest active group with both as members). From that date
+the manual P1 generator does not draft a sale-class row of the pair (sale, purchase, mgmt_fee; both
+directions) that a mirrored document of that group eliminates: it lists it "eliminated by mirroring".
+That answer is a STORED, exclusive link (one mirror accounts for at most one sale row and one purchase
+row across every run and period; a row takes the closest of its matching mirrors that is free), judged as at the period being
+generated: a mirror that stops eliminating the row inside that period releases the link and the row is
+drafted, unless another of its matching mirrors takes it (a cancel and re-issue inside the period); a
+stop dated after the period is the mirror's own counter-elimination in that later period. A
+mirror whose lines are not all mapped to group accounts does not take a row. A sender's cancel counts by
+the date of its reversal, like any stop (a cancel rolled past a VAT-locked period leaves that period
+eliminated by the mirror). A row no mirror accounts
+for (rejected, pending, not approved, never sent) is drafted with a CHECK BEFORE POSTING note saying
+why, so the mirror is the only elimination when one exists and no sale goes uneliminated. (Round 27: no exception for a cancelled mirror. A row with no stored link is drafted and flagged even when its closest candidate is a mirror the sender cancelled: the candidate is only a POSSIBLE duplicate, and skipping on it would leave a genuine row, whose own revenue stands, uneliminated. The flag says so conditionally: if it is the same sale there is no revenue left to eliminate, do not post; if another sale it still needs this elimination.) A hand-made (`create-elimination`) adjustment
+dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and
+stored (`consolidation_adjustments.manual_reason`); it names no companies, so any cutover of the group
+on or before its date counts. Before the cutover nothing changes: a manual row can still overlap a
+mirror (a document dated after the cut-over date but approved once both sides were on is mirrored), so
+the duplicate flag, the list's badge and the post confirm stay for those rows.
+
 ## Existing code we build on (surveyed on origin/master 43f99f41ca)
 
 - `approveCustomerInvoice` (`services/ar/customerInvoiceApprovalService.ts`) — finalise; seals a PDF
@@ -193,6 +216,12 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
 | P7 | Interest | P4 | side `interest_rate_pct`; month-end cron: avg daily balance of lender loan account → draft VAT-exempt interest invoice on lender; mirrors via P2 once approved |
 
 DAG: P1 → {P2, P3} → P4 → {P5, P7}; P2 → P6.
+
+**REVISED 2026-11-20 (P2 build, after six review rounds):** the sender never writes a document message (the database builds it from the approved
+document, `intercompany_send_for_source`); auto-accept creates DRAFTS only (Hein); and the consolidation eliminations of mirrored documents are
+DERIVED from the two ledgers at read time (`intercompany_mirror_eliminations`, as at the period end, keyed on the later of the two dates, cut-off by
+the receiver's financial year, on the journals' own accounts), never stored, so no hook or lock stands between a ledger and a figure. P2 eliminates
+revenue / expense only; the intercompany receivable / payable balances stay with P4 / P5.
 
 ## Validation gates (per PR, evidence required before queueing)
 

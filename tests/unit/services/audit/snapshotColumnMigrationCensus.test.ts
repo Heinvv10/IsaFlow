@@ -87,6 +87,7 @@ const READ_BY_HAND = new Set([
   '499_gl_account_balances_status_trigger.sql', '500_widen_journal_entry_number.sql',
   '501_je_fiscal_period_autoresolve.sql', '653_soft_delete_journal_reversals.sql',
   '940_fiscal_years.sql', '941_journal_period_from_entry_date.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; adds no column (2026-10-23)
+  '1019_intercompany_p2_mirror.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; "journal" is intercompany_transactions' target_journal_entry_id and supplier_invoices.gl_journal_entry_id, read; it ALTERs no journal table (2026-11-19)
   '675_bank_feed_canonical_ingestion.sql', '701_vat_input_late_claim_account.sql',
   '708_approval_enforcement_infra.sql', '711_supplier_payment_settles_provisional.sql',
   '855_retire_data_archiving.sql', '862_credit_note_approval_enforcement.sql',

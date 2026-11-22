@@ -43,9 +43,9 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
-vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
-}));
+// Intercompany P2: the cancel tells the mirror (its own definer call, tested in mirrorHooks.test / mirror-elimination); not counted here.
+vi.mock('@/modules/accounting/services/intercompany/mirrorHooks', () => ({ syncGroupRowFor: vi.fn(async () => null), withdrawForCancelledDocument: vi.fn(async () => 0) }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
