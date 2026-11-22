@@ -155,6 +155,30 @@ describe('updateQuote: per-line VAT', () => {
     expect(updatedHeader()).toMatchObject({ subtotal: 200, tax_amount: 30, total: 230 });
   });
 
+  it('round 6: a legacy line sent BY ID at another rate is re-priced, never kept as stored (15% sent at 0 -> zero-rated; [Export 0%, Local 15%] at 15 -> both standard)', async () => {
+    const legacyLine = (id: string, description: string, rate: string, sort = 1) =>
+      storedLine({ id, sort_order: sort, description, unit_price: '100.00', amount: '100.00', tax_rate: rate, vat_type: null, tax_amount: null });
+    world.head = { amounts_are: null, subtotal: '100', tax_amount: '15', total: '115', tax_rate: '15' };
+    world.stored = [legacyLine('a', 'Svc', '15')];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ id: 'a', description: 'Svc', quantity: 1, unitPrice: 100, taxRate: 0 }] } as never, 'u1');
+    expect(lineVat(inserted('customer_quote_lines'))).toEqual([{ vat: 'zero_rated', tax: 0, rate: 0, amount: 100 }]);
+    mockSql.mockClear();
+    world.head = { amounts_are: null, subtotal: '200', tax_amount: '15', total: '215', tax_rate: '15' };
+    world.stored = [legacyLine('e', 'Export', '0'), legacyLine('l', 'Local', '15', 2)];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { id: 'E', description: 'Export', quantity: 1, unitPrice: 100, taxRate: 15 }, { id: 'l', description: 'Local', quantity: 1, unitPrice: 100, taxRate: 15 },
+    ] } as never, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount])).toEqual([['standard', 15], ['standard', 15]]);
+    expect(updatedHeader()).toMatchObject({ subtotal: 200, tax_amount: 30, total: 230 });
+  });
+
+  it('L2: a taxRate of "" is a clean 400 (not read as 0), nothing written', async () => {
+    world.stored = [storedLine({ description: 'Rent', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
+    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Rent', quantity: 1, unitPrice: 10, taxRate: '' }] } as never, 'u1'))
+      .rejects.toThrow('Line 1: VAT rate must be a number from 0 to 100');
+    expect(wrote()).toBe(false);
+  });
+
   it('L1: a line with no description (a bare API body) is a clean 400 naming the line, nothing written', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ quantity: 1, unitPrice: 1 }] } as never, 'u1'))
       .rejects.toThrow('Line 1: description is required');
