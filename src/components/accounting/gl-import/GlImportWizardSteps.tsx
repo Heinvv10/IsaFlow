@@ -55,7 +55,7 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
           <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
             <span className="text-sm font-medium text-[var(--ff-text-primary)]">Row-level issues</span>
           </div>
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+          <div className="overflow-x-auto max-h-72 overflow-y-auto max-lg:max-h-[60vh]">
             <table className="table-cards w-full text-sm">
               <thead className="sticky top-0 bg-[var(--ff-bg-secondary)]">
                 <tr className="border-b border-[var(--ff-border-light)]">

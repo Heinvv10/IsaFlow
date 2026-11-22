@@ -19,6 +19,8 @@ describe('GL import steps on touch', () => {
     const { container } = render(<ValidationStep summary={summary} onBack={vi.fn()} onNext={vi.fn()} />);
     const table = container.querySelector('table')!;
     expect(table.className).toContain('table-cards');
+    // 18rem fits about three cards: a nested scroller that small is a scroll trap on a phone, so it gets most of the screen.
+    expect(table.parentElement!.className).toContain('max-lg:max-h-[60vh]');
     expect([...table.querySelectorAll(':scope > thead th')].map(th => th.textContent)).toEqual(['Row', 'Type', 'Message']);
     const rowsEls = [...table.querySelectorAll(':scope > tbody > tr')];
     expect(rowsEls).toHaveLength(2); // one error + one warning
@@ -30,7 +32,7 @@ describe('GL import steps on touch', () => {
     const back = screen.getByRole('button', { name: /Back/ });
     const next = screen.getByRole('button', { name: /Continue/ });
     for (const b of [back, next]) expect(b.className).toContain('max-lg:min-h-11');
-    expect(back.parentElement!.className).toContain('max-lg:flex-wrap');
+    expect(back.parentElement!.className.split(' ')).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
 
   it('makes the import step phone-sized: stacked summary, 44px radio rows and buttons', () => {
@@ -40,7 +42,7 @@ describe('GL import steps on touch', () => {
     expect(labels).toHaveLength(2);
     for (const l of labels) expect(l.className).toContain('max-lg:min-h-11');
     for (const name of [/Back/, /Import 1 rows/]) expect(screen.getByRole('button', { name }).className, String(name)).toContain('max-lg:min-h-11');
-    expect(screen.getByRole('button', { name: /Back/ }).parentElement!.className).toContain('max-lg:flex-wrap');
+    expect(screen.getByRole('button', { name: /Back/ }).parentElement!.className.split(' ')).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
 
   it('makes the two result actions 44px and lets them wrap', () => {
