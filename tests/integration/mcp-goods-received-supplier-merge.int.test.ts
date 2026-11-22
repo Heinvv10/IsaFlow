@@ -22,6 +22,9 @@ import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/servic
 import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
 import { BillSupplierDeletedError } from '@/modules/accounting/services/ap/billSupplierLive';
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+/** #1656: mergeEntities' bank-rule guard (a customer merge's); a supplier merge re-points no bank rule. */
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -84,7 +87,7 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     const { bill } = await billOnlyTiedByItsNote();
     const merge = async () => {
       const req = await openRequest(pool, f, f.owner);
-      try { const r = await req.run(() => mergeEntities(f.co, 'supplier', target, f.supplier, f.owner, 'owner')); await req.commit(); return r; } catch (err) { await req.rollback(); return err; }
+      try { const r = await req.run(() => mergeEntities(f.co, 'supplier', target, f.supplier, f.owner, NO_RULE_GUARD, 'owner')); await req.commit(); return r; } catch (err) { await req.rollback(); return err; }
     };
     const refused = await merge();
     expect(refused).toBeInstanceOf(SupplierMergeRefusal);
@@ -125,7 +128,7 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
       try {
         await creating.run(() => createSupplierInvoice(own.co, billInput(String(note.body.grn_id), own), own.owner));
         const m = await openRequest(pool, own, own.owner);
-        merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner'))
+        merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, NO_RULE_GUARD, 'owner'))
           .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
         expect(await waitsOnLock('FROM suppliers')).toBe(true);
         await creating.commit();
@@ -150,7 +153,7 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
       await hold.query('BEGIN');
       await hold.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [plain.id]);
       const m = await openRequest(pool, own, own.owner);
-      const merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner'))
+      const merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, NO_RULE_GUARD, 'owner'))
         .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
       let creating: Promise<unknown> | undefined;
       try {
@@ -185,7 +188,7 @@ describe('the merge\'s supplier lock is bounded', () => {
       await holder.query('SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [own.supplier]);
       const req = await openRequest(pool, own, own.owner);
       let out: unknown;
-      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner')); await req.commit(); }
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, NO_RULE_GUARD, 'owner')); await req.commit(); }
       catch (err) { await req.rollback(); out = err; }
       expect(out).toBeInstanceOf(RowLockTimeoutError);
       expect((out as RowLockTimeoutError).code).toBe('ROW_LOCK_TIMEOUT');
@@ -222,7 +225,7 @@ describe('only live bills block the merge (follow-up: the live-only filter)', ()
       } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
       const req = await openRequest(pool, own, own.owner);
       let out: unknown;
-      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner')); await req.commit(); }
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, NO_RULE_GUARD, 'owner')); await req.commit(); }
       catch (err) { await req.rollback(); out = err; }
       expect(out).not.toBeInstanceOf(Error);
       const moved = (await pool.query('SELECT supplier_id::text AS s FROM supplier_invoices WHERE id = ANY($1::uuid[])', [bills])).rows.map((r) => r.s);

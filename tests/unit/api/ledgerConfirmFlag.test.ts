@@ -12,6 +12,7 @@ const svc = vi.hoisted(() => ({
   runBulkPeriodAction: vi.fn(),
   meterCalls: 0,
 }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/modules/accounting/services/gl/yearEndService', () => ({
   closeFiscalYear: svc.closeFiscalYear, listFiscalYears: svc.listFiscalYears,
 }));

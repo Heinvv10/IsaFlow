@@ -41,6 +41,7 @@ const TOOL = 'apply_receipt_to_invoice';
 
 export const applyReceiptToInvoiceTool: McpTool = {
   name: TOOL,
+  approveModule: 'customers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Apply a customer receipt to the invoices it settles: writes the allocation, raises each '
     + "invoice's amount_paid and moves it to partially_paid or paid. This is what makes "

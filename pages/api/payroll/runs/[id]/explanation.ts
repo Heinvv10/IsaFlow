@@ -24,6 +24,7 @@ import { getClientIp } from '@/lib/rateLimit';
 import {
   auditImpersonatedExplanationRead, getLineExplanation, LineExplanationNotFound,
 } from '@/modules/accounting/services/payroll/payrollLineExplanation';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,4 +59,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))))));

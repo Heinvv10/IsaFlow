@@ -18,6 +18,7 @@ import { checkAutoRateLimit } from './autoRateLimit';
 import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
+import { normalizeCompanyRole } from './companyRoles';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -163,7 +164,7 @@ export function withAuth(handler: Handler): NextApiHandler {
         claims: claims as Record<string, unknown>,
       };
       (req as CompanyAuthedRequest).companyId = activeCompanyId;
-      (req as CompanyAuthedRequest).companyRole = membership.rows[0]!.role;
+      (req as CompanyAuthedRequest).companyRole = normalizeCompanyRole(membership.rows[0]!.role); // #1656: a legacy value reads as its mapped role
 
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with

@@ -15,6 +15,7 @@ import {
   closeLoanPeriod,
   isPeriodLocked,
 } from '@/modules/accounting/services/loans/loanPeriodCloseService';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -31,6 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'loan journals')) return; // #1656 (Hein: gate everything), before any write
     const result = await withJournalDateRefusal(res, () => closeLoanPeriod(companyId, yyyymm, userId));
     if (result === JOURNAL_DATE_REFUSED) return;
     return apiResponse.created(res, result);

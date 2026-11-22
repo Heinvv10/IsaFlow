@@ -14,6 +14,7 @@
  * That is the reason this file exists: a column default, a NOT NULL and a bound
  * `undefined` are three facts only the database holds.
  */
+import { anyRuleWrite } from '../../../helpers/ruleGuards';
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
@@ -70,7 +71,7 @@ describe('createRule — auto_apply against a real database', () => {
     if (!dbUp) return;
     await withCompany(async (companyId) => {
       // The call that used to raise 23502: no auto_apply anywhere in the input.
-      const rule = await createRule(companyId, input(), USER);
+      const rule = await createRule(companyId, input(), USER, anyRuleWrite);
       expect(rule.autoApply).toBe('fifo');
     });
   }, 60000);
@@ -78,7 +79,7 @@ describe('createRule — auto_apply against a real database', () => {
   it('stores the mode the caller chose', async () => {
     if (!dbUp) return;
     await withCompany(async (companyId) => {
-      const rule = await createRule(companyId, { ...input(), autoApply: 'none' }, USER);
+      const rule = await createRule(companyId, { ...input(), autoApply: 'none' }, USER, anyRuleWrite);
       expect(rule.autoApply).toBe('none');
     });
   }, 60000);
@@ -86,13 +87,13 @@ describe('createRule — auto_apply against a real database', () => {
   it('changes the mode on an existing rule, and leaves it alone when unnamed', async () => {
     if (!dbUp) return;
     await withCompany(async (companyId) => {
-      const rule = await createRule(companyId, { ...input(), autoApply: 'none' }, USER);
+      const rule = await createRule(companyId, { ...input(), autoApply: 'none' }, USER, anyRuleWrite);
 
       // updateRule's COALESCE path: an unnamed field keeps what the row has.
-      const renamed = await updateRule(companyId, rule.id, { ruleName: 'Renamed' }, USER);
+      const renamed = await updateRule(companyId, rule.id, { ruleName: 'Renamed' }, USER, anyRuleWrite);
       expect(renamed.autoApply).toBe('none');
 
-      const switched = await updateRule(companyId, rule.id, { autoApply: 'fifo' }, USER);
+      const switched = await updateRule(companyId, rule.id, { autoApply: 'fifo' }, USER, anyRuleWrite);
       expect(switched.autoApply).toBe('fifo');
     });
   }, 60000);
@@ -101,7 +102,7 @@ describe('createRule — auto_apply against a real database', () => {
     if (!dbUp) return;
     await withCompany(async (companyId) => {
       await expect(
-        createRule(companyId, { ...input(), autoApply: 'oldest' as never }, USER),
+        createRule(companyId, { ...input(), autoApply: 'oldest' as never }, USER, anyRuleWrite),
       ).rejects.toThrow(/auto_apply must be one of/);
     });
   }, 60000);

@@ -6,8 +6,10 @@
 import { Loader2, Check, X } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { formatLastSeen } from '@/components/admin/formatLastSeen';
+import { NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
-const ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
+/** users.role values the form offers: super_admin (shown for a super admin; the API refuses a promotion) and the company roles but owner (#1656). */
+const ROLES = ['super_admin', ...NON_OWNER_COMPANY_ROLES];
 
 interface UserSnapshot {
   first_name: string;

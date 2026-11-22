@@ -72,7 +72,8 @@ function call(method: 'PUT' | 'DELETE', companyRole: string, body: Record<string
 const writes = () => h.statements.filter((s) => /^(UPDATE|DELETE)/.test(s));
 
 afterEach(() => {
-  expect(h.onSql.filter((s) => /company_users/.test(s) && !/company_member_directory/.test(s))).toEqual([]);
+  // No company_users statement on the request pool but the directory read and the read-only approve_withheld flag (migration 1010c): every write goes through memberWrites.
+  expect(h.onSql.filter((s) => /company_users/.test(s) && !/company_member_directory/.test(s) && !/^SELECT user_id FROM company_users WHERE company_id = \?::UUID AND approve_withheld = true$/.test(s.trim()))).toEqual([]);
   h.onSql.length = 0;
 });
 const statusOf = (res: NextApiResponse) => (res.status as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];

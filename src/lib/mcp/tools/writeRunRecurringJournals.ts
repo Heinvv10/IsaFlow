@@ -20,6 +20,7 @@ import { ok, strArg, toolError } from './toolHelpers';
 
 export const runRecurringJournalsTool: McpTool = {
   name: 'run_recurring_journals',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Generate the journals that recurring journal templates have due in one month (period, YYYY-MM), for every active '
     + 'template — each run exactly once: re-running a month generates nothing new. Each journal is dated its run date. '

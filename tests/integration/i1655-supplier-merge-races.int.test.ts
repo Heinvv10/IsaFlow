@@ -13,12 +13,15 @@ import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurcha
 import { SupplierMergeRefusal, mergeEntities, PO_BILL_LINKS_REFUSAL } from '@/modules/accounting/services/core/duplicateMergeService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageMergedWorld } from './helpers/sageMergedSupplierWorld';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+/** #1656: mergeEntities' bank-rule guard (a customer merge's); a supplier merge re-points no bank rule. */
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 
 assertDisposable();
 const w = sageMergedWorld('races');
 const { pool, companyId, userId, tag, inRequestTx, insPlain, bill, billSupplier } = w;
 
-const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, 'admin'), true);
+const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, NO_RULE_GUARD, 'admin'), true);
 const seedPo = async (supplierId: string, number: string) => String((await pool.query(
   "INSERT INTO purchase_orders (company_id, po_number, supplier_id, status, approved_by) VALUES ($1, $2, $3, 'approved', 'original-approver') RETURNING id",
   [companyId, `${number}-${tag}`, supplierId])).rows[0].id);

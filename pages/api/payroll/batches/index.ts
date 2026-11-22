@@ -22,6 +22,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollBatchService';
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const CreateBody = z
   .object({
@@ -80,4 +81,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

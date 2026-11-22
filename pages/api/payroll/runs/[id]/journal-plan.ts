@@ -19,6 +19,7 @@ import { canWrite } from '@/lib/auth/writeRoles';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { toJournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
 import { withCostCentreLabels } from '@/modules/accounting/services/payroll/payrollJournalPlanLabels';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,4 +40,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, await withCostCentreLabels(companyId, toJournalPlanPreview(preview)));
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withPayrollModule(handler)));

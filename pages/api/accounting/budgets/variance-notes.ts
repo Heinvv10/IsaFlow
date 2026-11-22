@@ -18,6 +18,7 @@ import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -70,6 +71,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const actor = { userId: user.id, role: companyRole };
   const body = parsed.data;
+  // #1656 (round 4): approving a variance note publishes the explanation of a budget figure: Budgets Approve (the service also narrows it to owner / admin).
+  if (body.action === 'approve' && await refuseWithoutApprove(res, companyId, user.id, 'budgets', 'variance notes')) return;
   const out = body.action === 'save'
     ? await saveVarianceNote(companyId, actor, body)
     : body.action === 'approve'

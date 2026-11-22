@@ -25,6 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   try {
     const { version_id: versionId, fiscal_year: fiscalYear } = parsed.data;
+    // census-exempt(getThreeWay, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     return apiResponse.success(res, await getThreeWay(companyId, { versionId, fiscalYear }, localISODate()));
   } catch (err) {
     if (respondThreeWayError(res, err)) return;

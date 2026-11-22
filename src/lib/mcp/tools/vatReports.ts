@@ -135,6 +135,7 @@ export const lockVatPeriodTool: McpTool = {
   // NOT requiresPost/write:post — this never posts a journal. write:vat's
   // consent label names locking a VAT period explicitly (item 10).
   requiresScope: 'write:vat',
+  approveModule: 'vat', // #1656 (filing ruled 2026-11-21): recording the filed return takes VAT & Tax Approve; the module fence asks it
   inputSchema: {
     type: 'object',
     properties: {

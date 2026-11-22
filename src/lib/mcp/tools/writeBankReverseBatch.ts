@@ -28,6 +28,7 @@ const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
 export const reverseBankAllocationBatchTool: McpTool = {
   name: REVERSE_TOOL,
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Undo a whole bulk allocation: reverses the posted journal behind every transaction in the batch and '
     + 'returns them all to unallocated. The batch holds only the lines that actually POSTED — anything the '

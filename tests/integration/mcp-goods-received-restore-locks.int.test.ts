@@ -43,7 +43,7 @@ describe('the undo of an approved bill and a holder of journal lock 857 that the
         items: [{ description: 'Goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: fx.acc.opex }],
       }, fx.owner));
       await inReq(fx, fx.manager, () => approveSupplierInvoice(fx.co, bill.id, fx.manager));
-      await inReq(fx, fx.owner, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner));
+      await inReq(fx, fx.owner, () => softDelete(fx.co, 'supplier_invoice', bill.id, fx.owner, { allowReversal: true }));
       expect((await pool.query('SELECT status, deleted_at IS NOT NULL AS deleted FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0])
         .toEqual({ status: 'approved', deleted: true });
 
@@ -52,7 +52,7 @@ describe('the undo of an approved bill and a holder of journal lock 857 that the
       await t3.query('BEGIN');
       await t3.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill.id]);
       const u = await openRequest(pool, fx, fx.owner);
-      const undoing = u.run(() => undoDelete(fx.co, 'supplier_invoice', bill.id, fx.owner))
+      const undoing = u.run(() => undoDelete(fx.co, 'supplier_invoice', bill.id, fx.owner, { allowReversal: true }))
         .then(async (v) => { await u.commit(); return v as unknown; }, async (e: { code?: string }) => { await u.rollback(); return e; });
       const t1 = await pool.connect();
       let holder: unknown;

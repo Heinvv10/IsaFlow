@@ -47,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // The same read the ratio list beside this scorecard uses, so the two
   // cannot state different things about one ratio.
+  // census-exempt(readExtendedRatioInputs, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const { data, figures } = await readExtendedRatioInputs(companyId, from, to);
   const ratios = calculateExtendedRatios(data);
   const scorecard = buildKPIScorecard(ratios, DEFAULT_TARGETS);

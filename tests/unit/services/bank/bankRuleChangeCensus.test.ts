@@ -65,7 +65,7 @@ describe('who writes bank_categorisation_rules', () => {
   it('customer merge re-points rules only through the control, before its other writes', () => {
     const merge = files.find((f) => f.file === 'src/modules/accounting/services/ar/customerMergeService.ts')!.text;
     expect(matching(/\bmoveRulesToCustomer\(/)).toEqual(['src/modules/accounting/services/ar/customerMergeService.ts', CONTROL]);
-    const at = merge.indexOf('await moveRulesToCustomer(tx, companyId, sourceId, targetId);');
+    const at = merge.indexOf('await moveRulesToCustomer(tx, companyId, sourceId, targetId, ruleGuard);');
     expect(at).toBeGreaterThan(merge.indexOf('await refuseOrLock(tx, companyId, sourceId, targetId);'));
     expect(at).toBeLessThan(merge.indexOf('await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);'));
   });
