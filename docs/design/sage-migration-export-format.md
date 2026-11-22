@@ -131,7 +131,8 @@ to one IsaFlow supplier are both refused).
   and the dry run. A writer that adds an item with an export code between the dry run and a live batch can still be overwritten by
   that batch: the tool matches by code. External systems of items and categories are compared exactly (case-sensitive `sage`), as
   those tools do; PO and supplier lookups are case-insensitive, as theirs are.
-- **Exit codes.** 3 = the run finished but `--report` could not be written (the summary is printed before the report is written).
+- **Exit codes.** 0 = ok; 1 = not ok (blocked, refusals or differences not allowed, figures off); 2 = refused or failed to START, nothing written (bad arguments, not a local database, another run holds the lock); 3 = the run finished but `--report` could not be written (the summary is printed before the report is written); 4 = the run STOPPED on an error after its live phase started (a lost connection, a lost run lock): batches may be committed, the message lists them, and a re-run resumes.
+- **Flows.** Every registry tool the runner calls (`list_suppliers`, `find_by_external_ref`, `upsert_item_category`, `bulk_upsert_items`, `bulk_create_purchase_orders`) is free in `flowMetering` (`null` operation), so a dry run and a live run cost a PAYG company 0 Flows and a wallet that runs out cannot stop a run mid-way (a test asserts the wallet is unchanged). If a tool were ever metered, the debit is refunded when the call fails or its request rolls back (the dry run), but a committed batch keeps its charge.
 - **Batches follow IsaFlow's state.** Every batch's idempotency key (category, item and PO: one shared salt, `stateSalt`) is salted with a hash of the state of the existing rows it touches (for a PO: the fields the PO tool compares, its line items and updated_at), so
   once a person has changed an owned item in IsaFlow the batch is not replayed from the stored answer of the run that wrote it (that would
   write nothing and leave the item as the person left it, while the dry run said it would be put back). With no owned row (a first run, or
@@ -140,4 +141,4 @@ to one IsaFlow supplier are both refused).
   combines the dry run's findings with the live run's.
 - **One run per company.** A session advisory lock is held on its own connection for the whole run, dry runs included. A second run for the
   same company is refused at its start ("another Sage migration is running for this company", exit 2) and writes nothing; other companies
-  are not held up. The lock goes with its connection if the process dies.
+  are not held up. The lock goes with its connection if the process dies. The connection is watched: an error on it is recorded (it does not kill the process), and the run checks it before the live phase and between phases; if it is gone the run stops with "the run lock is lost" (exit 4, committed batches listed), because another run could now start.

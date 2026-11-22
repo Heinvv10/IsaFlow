@@ -18,9 +18,13 @@ Local throwaway databases only.
 | `sageItemMapping.ts` / `sagePurchaseOrderMapping.ts` | PURE mapping to the tools' arguments (the table is in each header). |
 | `sageSuppliers.ts` | Supplier by Sage reference (`find_by_external_ref`), else exact name (`list_suppliers`); none or two is a refusal of the PO. |
 | `sageMigrationPlan.ts` | PURE. What is sent and what is refused first: each row goes through the tool's own pure validator (`validateItemFields`, `parsePurchaseOrder`) and against what the company already holds (`sageSnapshot.ts`: a code another item carries, a deleted item, a taken PO number), so one bad row costs that row, not its batch. A PO line naming a refused item goes unlinked (suffix kept, counted); the PO is refused only when the item is not in the export (`line_item_unknown`) or is refused with no readable Code (`line_item_refused`). |
-| `sageBatches.ts` / `sageBatchRun.ts` | Batches (items 500, POs 100: the tools' own caps, pinned equal by a test), stable order, deterministic keys `sage-mig-<entity>-<n>-<hash of the rows>`; the one call that sends a batch. |
+| `sageBatches.ts` / `sageBatchRun.ts` | Batches (items 500, POs 100: the tools' own caps, pinned equal by a test), stable order, deterministic keys `sage-mig-<entity>-<n>-<hash of the rows>`, plus the state salt (`stateSalt`: a hash of the existing rows a batch touches) and the `--run-tag` when given, so a key is `sage-mig-<entity>-<n>-<hash>` with the salt and tag folded into the hash; the one call that sends a batch. |
 | `sageToolSession.ts` | One request transaction as `app_user` with the member's claims, the real `mcpRegistry.call`; `commit: false` rolls the lot back. What keeps a run inside its company is NOT the `company_id` argument sent on writes (the registry only compares it with the context's own company: it selects nothing): it is the membership check (the user must be an active member of the named company), `app_user` under RLS with that company's claims, and the tools' own ownership checks. |
 | `sageMigrationRunner.ts` | Dry run, then live; `sageSnapshot.ts` + `sageReconciliation.ts` + `sageReportSummary.ts` measure and print the result. |
+| `sageRunLock.ts` | One run per company: a session advisory lock on its own connection for the whole run; the connection is watched (`check()` before the live phase and between phases, `LockLostError` -> `MigrationStopped` "lock lost", exit 4). |
+| `sageOwnership.ts` / `sageDifferences.ts` | What the migration owns (system exactly `sage`, this ref) and the checks that the books hold what a batch sent; the PO / item / category differences list, deduped. |
+| `sageLineLinks.ts` / `sageAccountCheck.ts` / `sageBudgetReport.ts` | PO lines not linked to an item (informational), the `--po-gl-account` check, and the budget findings of the dry run. |
+| `sageMigrationTypes.ts` / `sageMigrationStopped.ts` / `sageStopMessage.ts` | Report and option types; the error after the live phase started (with what was committed); the CLI message and its exit code (`exitCodeForError`: 2 nothing written, 4 stopped after live started). |
 | `localGuard.ts` | The runner starts only on a local throwaway database (127.0.0.1/localhost, explicit port outside 7770-7776, db `isaflow_schema_fixture` / `isaflow_test` / `isaflow_sagemig_*`), for DATABASE_URL and every other database URL set. |
 
 ## Rules
@@ -40,6 +44,7 @@ Local throwaway databases only.
 - The dry run is one rolled-back transaction. Categories and purchase orders are written LIVE inside it (items' preview needs the
   categories; PO batch k's budget check must see batches 1..k-1, as the live run's does); items are written live too (the same code and constraints). Its idempotency and audit
   rows roll back with it (a test proves it). A dry run that is not clean stops the run: nothing is written, even with `live`.
+- Exit codes: 0 ok, 1 not ok, 2 refused/failed to start (nothing written), 3 report not written, 4 stopped after the live phase started (batches may be committed). Every tool the runner calls is free in `flowMetering`: a PAYG wallet is untouched by a dry or live run.
 - Exit 0 needs a clean dry run or a live run that booked everything it sent, `--expect-*` figures that match what was SENT (dry) or
   BOOKED (live), and no refused row unless `--allow-refusals`.
 - Item codes and PO numbers are unique case-sensitively (plain unique indexes), so the checks against what the company holds are exact.
