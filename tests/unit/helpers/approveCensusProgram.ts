@@ -175,13 +175,27 @@ export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<strin
 
 /**
  * Does a gate for module `gate` cover a need for `need`? Equal modules do. '*' (a gate deciding per document) covers any but a
- * strict need. A resolved return gate 'returns:<m>' covers <m> and the form-agnostic 'returns'. UNREADABLE covers nothing.
+ * strict need. UNREADABLE covers nothing. Returns: a gate whose form the census reads, 'returns:<m>', covers that form's filings
+ * ('returns:<m>') and <m> itself (a VAT201 gate covers the VAT lock), but NOT a filing of another form nor one whose form it cannot
+ * read ('returns': #1670 follow-up L-a/L-b, an EMP501 gate before a VAT201 or an unknown form's finalise is a finding). A gate whose
+ * form it cannot read ('returns') covers any filing: the census cannot tell the two forms apart, so it cannot call them different.
  */
 function gateCovers(gate: string, need: string, strict: ReadonlySet<string>): boolean {
   if (gate === UNREADABLE) return false;
   if (gate === need) return true;
   if (gate === '*') return !strict.has(need);
-  return gate.startsWith('returns:') && (need === 'returns' || need === gate.slice('returns:'.length));
+  if (gate === 'returns') return need.startsWith('returns:');
+  return gate.startsWith('returns:') && need === gate.slice('returns:'.length);
+}
+
+/** A sink whose module is read from one of its arguments by a resolver (finaliseReturn(c, 'VAT201', ...) -> 'returns:vat'). */
+export type SinkModuleArg = { arg: number; resolver: string };
+
+/** The module a sink CALL needs: its fixed module, or, when it reads one from an argument, the resolver's answer for that argument. */
+export function sinkModuleOf(c: ts.CallExpression, fixed: string, spec: SinkModuleArg | undefined,
+  resolvers: Readonly<Record<string, ModuleResolver>>, r: ConstResolver): string {
+  const resolve = spec ? resolvers[spec.resolver] : undefined;
+  return resolve ? resolve(staticString(c.arguments[spec!.arg], r)) : fixed;
 }
 
 /** Every need covered by one of the gates ('*' needs: any gate the census can read). */

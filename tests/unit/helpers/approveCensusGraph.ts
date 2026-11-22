@@ -24,7 +24,7 @@
 import ts from 'typescript';
 import { resolve } from 'path';
 import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, moduleOfArg, objectProp, primitiveModule, programFor, ROOT,
-  gatesCover, sqlTextOf, unwrap, type MarkerScope, type ModuleResolver, type SqlPrimitive } from './approveCensusProgram';
+  gatesCover, sinkModuleOf, sqlTextOf, unwrap, type MarkerScope, type ModuleResolver, type SinkModuleArg, type SqlPrimitive } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -43,6 +43,7 @@ export interface CensusConfig {
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
   markerScope?: MarkerScope; // the census whose markers apply (`census-exempt(<callee>, <scope>)`, scope required); none: every marker
   moduleResolvers?: Readonly<Record<string, ModuleResolver>>; // a gate's module from a resolver call, given its argument (r13 L2)
+  sinkModuleArgs?: Readonly<Record<string, SinkModuleArg>>; // a sink whose module a resolver reads from one of its arguments
   strictModules?: readonly string[]; // modules a '*' gate (a module the census cannot read) does not cover: 'returns'
 }
 export interface BadRoute { file: string; unit: string; sites: string[] }
@@ -208,7 +209,8 @@ export function analyse(cfg: CensusConfig): Census {
         const decl = declOf(n);
         const target = decl ? (units.get(decl) ?? null) : null;
         // A sink's module binds where a route calls it; in the service layer a chain mixes modules, so a helper needs 'any gate'.
-        const sinkModule = name !== null && Object.hasOwn(cfg.sinks, name) ? (routeSet.has(rel(sf.fileName)) ? cfg.sinks[name]! : '*') : null;
+        const sinkModule = name !== null && Object.hasOwn(cfg.sinks, name) ? (routeSet.has(rel(sf.fileName))
+          ? sinkModuleOf(n, cfg.sinks[name]!, cfg.sinkModuleArgs?.[name], cfg.moduleResolvers ?? {}, constResolver(checker)) : '*') : null;
         // A marker binds to the OUTERMOST call of that name in its statement: a same-named call nested inside it is not exempted.
         const outermost = name !== null && !callAncestors(n).some((a) => calleeName(a) === name);
         const exempt = outermost ? (markersAbove(n, cfg.markerScope).find((m) => m.callee === name) ?? null) : null;

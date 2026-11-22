@@ -8,7 +8,7 @@
  * is caught without being named here (round 4, F-M2).
  */
 import type { GateSpec } from './approveCensusGraph';
-import type { ModuleResolver, SqlPrimitive } from './approveCensusProgram';
+import type { ModuleResolver, SinkModuleArg, SqlPrimitive } from './approveCensusProgram';
 import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 export const SINK_MODULES: Readonly<Record<string, string>> = {
@@ -35,7 +35,10 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
   postBankTransfer: 'banking', postProvisional: 'banking', reopenReconciliation: 'banking',
   // VAT, items, practice, budgets, approvals
   // finaliseReturn: VAT201 (vat) or EMP501 (payroll), the return's own module
-  approveVATAdjustment: 'vat', finaliseReturn: 'returns',
+  // A return's finalise / filing / amend: the FORM's module, read from the call's form argument (SINK_MODULE_ARGS); finaliseVatReturn
+  // (the VAT201 finalise, and its period lock) is VAT's wherever a route calls it (#1670 follow-up L-b).
+  approveVATAdjustment: 'vat', finaliseReturn: 'returns', markReturnFiled: 'returns', amendReturn: 'returns', finaliseVatReturn: 'vat',
+  submitVAT201ToSars: 'returns:vat', // the ISV VAT201 filing: its SQL names no form, the sink is VAT201's
   approveAdjustment: 'items', approveEntries: 'accountant',
   approvePracticeEntries: 'accountant', transitionVersion: 'budgets', decideRequest: '*', approvePurchaseOrder: 'suppliers',
   // payroll
@@ -48,6 +51,13 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
 };
 
 export const POSTING_SERVICES = Object.keys(SINK_MODULES);
+
+/** The sinks whose form argument says which return, and so which module (#1670 follow-up L-a): finaliseReturn(c, 'VAT201', ...). */
+export const SINK_MODULE_ARGS: Readonly<Record<string, SinkModuleArg>> = {
+  finaliseReturn: { arg: 1, resolver: 'returnApproveModule' },
+  markReturnFiled: { arg: 1, resolver: 'returnApproveModule' },
+  amendReturn: { arg: 1, resolver: 'returnApproveModule' },
+};
 
 /**
  * A gate whose module argument is returnApproveModule(<form>) asks the form's module, read from the REAL mapping (r13 L2): a literal
@@ -64,11 +74,13 @@ export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, ModuleResolver>> =
  * Budgets gate does not cover a bill flipped to approved. '*' where the document decides the module (a journal, posted by every module;
  * a credit note; a tax return). The documents and modules follow APPROVE_MODULE_BY_DOCUMENT and SINK_MODULES above.
  */
-const flips = (tables: string, statuses: string, module: string, caseForm = true) => {
+const flips = (tables: string, statuses: string, module: string, caseForm: 'any' | 'notPaid' = 'any') => {
   const T = `(?:public\\.)?(?:${tables})\\b`;
   const noWhere = (n: number) => `(?:(?!\\bWHERE\\b)[^;]){0,${n}}?`;
   // `status = '<s>'`, or `status = CASE ... THEN '<s>'` (r13 L3)
-  const set = `\\bstatus\\s*=\\s*${caseForm ? '(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?\\bTHEN\\s*)?' : ''}'(?:${statuses})'`;
+  // 'notPaid': a CASE arm counts only when its WHEN names no paid state (the un-payment back to 'approved' is no approval).
+  const arm = caseForm === 'any' ? '\\bTHEN' : '\\bWHEN\\b(?:(?!\\bTHEN\\b|paid)[^;]){0,300}\\bTHEN';
+  const set = `\\bstatus\\s*=\\s*(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?${arm}\\s*)?'(?:${statuses})'`;
   return {
     module,
     // `SET ... status = '<s>'` before any WHERE (a cancel `WHERE status = 'approved'` is no approval); `SET (status, ...) = ('<s>', ...)`;
@@ -85,9 +97,11 @@ export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   { module: '*', re: /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i },
   { module: 'customers', re: /UPDATE\s+(?:public\.)?customer_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
   { module: 'suppliers', re: /UPDATE\s+(?:public\.)?supplier_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
-  // Invoices without the CASE form: their payment recompute sets `status = CASE ... WHEN status IN ('partially_paid', 'paid') THEN
-  // 'approved'`, an un-payment back to the approved state, no approval (invoiceStatusRecompute, the allocation reversals).
-  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', false), flips('supplier_invoices', 'approved', 'suppliers', false),
+  // Invoices: a CASE arm whose WHEN names a paid state is the payment recompute's un-payment back to 'approved' (`WHEN status IN
+  // ('partially_paid', 'paid') THEN 'approved'`, `WHEN GREATEST(0, amount_paid - x) <= 0 THEN 'approved'`), no approval; any
+  // other CASE arm to 'approved' (`WHEN status = 'draft' THEN 'approved'`) is one (#1670 follow-up L-c).
+  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', 'notPaid'),
+  flips('supplier_invoices', 'approved', 'suppliers', 'notPaid'),
   flips('credit_notes', 'approved', '*'),
   flips('supplier_payments', 'approved|processed', 'suppliers'),
   flips('supplier_payment_batches', 'approved|processed|reversed', 'suppliers'),
@@ -163,5 +177,5 @@ export const PAYROLL_READ_WRAPPERS: Readonly<Record<string, string>> = { withPay
  */
 export const POSTING_RULES = {
   sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
-  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'],
+  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'], sinkModuleArgs: SINK_MODULE_ARGS,
 } as const;
