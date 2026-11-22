@@ -16,12 +16,15 @@ import { createSession } from '@/modules/accounting/services/core/migrationServi
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageMergedWorld } from './helpers/sageMergedSupplierWorld';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+/** #1656: mergeEntities' bank-rule guard (a customer merge's); a supplier merge re-points no bank rule. */
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 
 assertDisposable();
 const w = sageMergedWorld('race-writers');
 const { pool, companyId, userId, tag, inRequestTx, insPlain, bill } = w;
 
-const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, 'admin'), true);
+const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, NO_RULE_GUARD, 'admin'), true);
 const settle = <T>(p: Promise<T>) => p.then((v) => ({ v, e: undefined as unknown }), (e: unknown) => ({ v: undefined as T | undefined, e }));
 const TODAY = '2026-06-01';
 
