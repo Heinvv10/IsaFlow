@@ -19,6 +19,16 @@ export function readId(o: Raw, key: string, why: string[], required = true): str
   return undefined;
 }
 
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/** Why text cannot be stored (Postgres refuses a NUL byte; a lone surrogate would be written as U+FFFD, merging distinct values), or null. */
+export function invalidTextProblem(t: string): string | null {
+  if (t.includes('\u0000')) return 'a NUL byte';
+  if (LONE_SURROGATE.test(t)) return 'a lone surrogate';
+  return null;
+}
+
+/** A text field: trimmed, within `max`; a NUL byte or a lone surrogate is `invalid_text` naming the field. */
 export function readText(o: Raw, key: string, max: number, why: string[], required = true): string | null | undefined {
   const v = o[key];
   if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
@@ -27,6 +37,8 @@ export function readText(o: Raw, key: string, max: number, why: string[], requir
   }
   if (typeof v !== 'string') { why.push(`${key} must be text`); return undefined; }
   const t = v.trim();
+  const bad = invalidTextProblem(t);
+  if (bad) { why.push(`${key} contains ${bad} (invalid_text)`); return undefined; }
   if (t.length > max) { why.push(`${key} is longer than ${max} characters`); return undefined; }
   return t;
 }

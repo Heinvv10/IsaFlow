@@ -136,3 +136,65 @@ describe('an item a PO line names must be one that is imported', () => {
     expect(refused[0]!.reasons[0]).toMatch(/names item 50005, which is refused/);
   });
 });
+
+describe('invalid_text: a NUL byte or a lone surrogate in a text field refuses the row, naming the field', () => {
+  const NUL = 'a\u0000b';
+  const LONE_HIGH = 'X\ud800';
+  const LONE_LOW = '\udc00Y';
+  const item = (over: Row) => ({ ...fixture().Items.$resources[0], ...over });
+  const code = (r: ReturnType<typeof parseSageItem> | ReturnType<typeof parseSagePurchaseOrder>) => (r.ok ? 'ok' : `${r.refusal.code}: ${r.refusal.reasons.join(' | ')}`);
+
+  it('item Code, Description and category description', () => {
+    expect(code(parseSageItem(item({ Code: NUL }), 0))).toMatch(/^invalid_text: Code contains a NUL byte/);
+    expect(code(parseSageItem(item({ Description: LONE_HIGH }), 0))).toMatch(/^invalid_text: Description contains a lone surrogate/);
+    expect(code(parseSageItem(item({ Category: { ID: 5, Description: LONE_LOW } }), 0))).toMatch(/^invalid_text: .*Description contains a lone surrogate/);
+    expect(code(parseSageItem(item({ Category: { ID: 5, Description: NUL } }), 0))).toMatch(/^invalid_text/);
+  });
+  it('PO DocumentNumber, Reference, Comments, SupplierName and a line Description', () => {
+    expect(code(parseSagePurchaseOrder(po({ DocumentNumber: NUL }), 0))).toMatch(/^invalid_text: DocumentNumber contains a NUL byte/);
+    expect(code(parseSagePurchaseOrder(po({ Reference: NUL }), 0))).toMatch(/^invalid_text: Reference/);
+    expect(code(parseSagePurchaseOrder(po({ Comments: LONE_LOW }), 0))).toMatch(/^invalid_text: Comments/);
+    expect(code(parseSagePurchaseOrder(po({ SupplierName: LONE_HIGH }), 0))).toMatch(/^invalid_text: SupplierName/);
+    const line = { ...(po().Lines as Row[])[0], Description: NUL };
+    expect(code(parseSagePurchaseOrder(po({ Lines: [line] }), 0))).toMatch(/^invalid_text: Lines\[0\]\.Description contains a NUL byte/);
+  });
+  it('well-formed text is fine: an emoji pair, accents, a tab', () => {
+    expect(code(parseSageItem(item({ Description: 'caf\u00e9 \ud83d\ude00\tok' }), 0))).toBe('ok');
+  });
+  it('two codes that would collapse to the same UTF-8 are each refused, not imported as one', () => {
+    const f = fixture();
+    f.Items.$resources[0] = { ...f.Items.$resources[0], Code: 'X\ud800' };
+    f.Items.$resources[1] = { ...f.Items.$resources[1], Code: 'X\ud801' };
+    const p = parseSageExport(f);
+    expect(p.refusals.filter((r) => r.code === 'invalid_text').map((r) => r.sageId).sort()).toEqual(['50001', '50002']);
+    expect(p.items).toHaveLength(18);
+  });
+});
+
+describe('F4 more: a page that is not the whole export', () => {
+  const shape = (f: unknown) => { try { parseSageExport(f); return 'accepted'; } catch (e) { return e instanceof Error ? e.message : String(e); } };
+  const rows = () => fixture().Items.$resources;
+  it('$totalResults must be an integer number: a string, a float, a negative are refused', () => {
+    expect(shape({ Items: { $totalResults: '20', $resources: rows() } })).toMatch(/Items: \$totalResults must be a whole number/);
+    expect(shape({ Items: { $totalResults: 20.5, $resources: rows() } })).toMatch(/\$totalResults must be a whole number/);
+    expect(shape({ Items: { $totalResults: -1, $resources: rows() } })).toMatch(/\$totalResults must be a whole number/);
+    expect(shape({ Items: { $totalResults: 20, $resources: rows() } })).toBe('accepted');
+    expect(shape({ Items: { $resources: rows() } })).toBe('accepted');
+  });
+  it('a page with $startIndex above 0 is the middle of an export, not the whole', () => {
+    expect(shape({ Items: { $startIndex: 200, $totalResults: 20, $resources: rows() } })).toMatch(/Items: a page starts at \$startIndex 200/);
+    expect(shape({ Items: { $startIndex: 0, $totalResults: 20, $resources: rows() } })).toBe('accepted');
+    expect(shape({ Items: { $startIndex: '0', $resources: rows() } })).toMatch(/\$startIndex must be a whole number/);
+  });
+  it('a page with a $back link is not the first', () => {
+    expect(shape({ Items: { $back: 'https://api.example/items?$startIndex=0', $resources: rows() } })).toMatch(/Items: a page has a \$back link/);
+    expect(shape({ Items: { $back: null, $resources: rows() } })).toBe('accepted');
+  });
+  it('an array of pages is the whole export only if each page starts where the one before ended: later pages may carry $startIndex and $back', () => {
+    const ok = [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 10, $back: 'x', $resources: rows().slice(10) }];
+    expect(shape({ Items: ok })).toBe('accepted');
+    expect(shape({ Items: [{ $startIndex: 10, $resources: rows().slice(10) }, ok[0]] })).toMatch(/\$startIndex 10/);
+    expect(shape({ Items: [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 12, $resources: rows().slice(10) }] })).toMatch(/\$startIndex 12, but 10 rows came before/);
+    expect(shape({ Items: [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 0, $resources: rows().slice(10) }] })).toMatch(/\$startIndex 0, but 10 rows came before/);
+  });
+});

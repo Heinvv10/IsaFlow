@@ -25,7 +25,12 @@ function category(o: Raw, why: string[]): SageItem['category'] | undefined {
   const before = why.length;
   const id = readId(c, 'ID', why);
   const description = readText(c, 'Description', 255, why);
-  if (why.length > before) { why.splice(before, why.length - before, 'Category needs both ID and Description'); return undefined; }
+  if (why.length > before) {
+    // An invalid_text fault keeps its own reason (it names the field); any other fault is "needs both".
+    if (!why.slice(before).some((w) => w.includes('(invalid_text)'))) why.splice(before, why.length - before, 'Category needs both ID and Description');
+    else why.splice(before, why.length - before, ...why.slice(before).map((w) => `Category.${w}`));
+    return undefined;
+  }
   return { id: id as string, description: description as string };
 }
 
@@ -49,7 +54,7 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
       ok: false,
       refusal: {
         entity: 'item', sageId: typeof id === 'string' ? id : null,
-        label: typeof code === 'string' ? code : `items[${index}]`, code: 'invalid_row', reasons: why,
+        label: typeof code === 'string' ? code : `items[${index}]`, code: why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
       },
     };
   }

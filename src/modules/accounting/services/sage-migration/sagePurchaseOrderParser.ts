@@ -125,7 +125,7 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
       ok: false,
       refusal: {
         entity: 'purchase_order', sageId: typeof id === 'string' ? id : null,
-        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : 'invalid_row', reasons: why,
+        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
       },
     };
   }

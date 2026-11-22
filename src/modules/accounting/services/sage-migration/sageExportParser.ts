@@ -34,12 +34,22 @@ export function rowsOf(value: unknown, key: string): unknown[] {
     throw new SageExportShapeError(`${key} must be an array of rows, a Sage page with $resources, or an array of pages`);
   }
   const rows = pages.flatMap((p) => p.$resources);
-  for (const p of pages) {
+  const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+  let before = 0;
+  pages.forEach((p, n) => {
     if (p.$next !== undefined && p.$next !== null && p.$next !== '') throw new SageExportShapeError(`${key}: a page has a $next link, so the export stops before its end`);
-    if (typeof p.$totalResults === 'number' && p.$totalResults > rows.length) {
-      throw new SageExportShapeError(`${key}: $totalResults is ${p.$totalResults} but ${rows.length} rows were read, so the export is partial`);
+    // Only the first page may lack a $back link: a page that has one is not the start of the export.
+    if (n === 0 && p.$back !== undefined && p.$back !== null && p.$back !== '') throw new SageExportShapeError(`${key}: a page has a $back link, so it is not the start of the export`);
+    if (p.$totalResults !== undefined && p.$totalResults !== null) {
+      if (!whole(p.$totalResults)) throw new SageExportShapeError(`${key}: $totalResults must be a whole number (got ${JSON.stringify(p.$totalResults)}); it is how a partial export is told`);
+      if (p.$totalResults > rows.length) throw new SageExportShapeError(`${key}: $totalResults is ${p.$totalResults} but ${rows.length} rows were read, so the export is partial`);
     }
-  }
+    if (p.$startIndex !== undefined && p.$startIndex !== null) {
+      if (!whole(p.$startIndex)) throw new SageExportShapeError(`${key}: $startIndex must be a whole number (got ${JSON.stringify(p.$startIndex)})`);
+      if (p.$startIndex !== before) throw new SageExportShapeError(`${key}: a page starts at $startIndex ${p.$startIndex}, but ${before} rows came before it, so the export is not whole`);
+    }
+    before += p.$resources.length;
+  });
   return rows;
 }
 
