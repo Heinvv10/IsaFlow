@@ -54,6 +54,12 @@ describe('exit code and summary with differences', () => {
     }
     expect(exitCodeFor(base(), false)).toBe(0);
   });
+  it('allowing differences does not allow refusals, and allowing refusals does not allow differences', () => {
+    const refused = { ...base(), reconciliation: { ...base().reconciliation, nothingRefused: false } };
+    expect(exitCodeFor(refused, false, true)).toBe(1);
+    expect(exitCodeFor(refused, true, false)).toBe(0);
+    expect(exitCodeFor(withPoDiff(), true, false)).toBe(1);
+  });
   it('the summary lists each difference and says the stored PO is not changed', () => {
     const t = summaryLines(withPoDiff()).join('\n');
     expect(t).toContain('PO9 is already in IsaFlow with other figures than Sage');
