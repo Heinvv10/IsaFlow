@@ -60,7 +60,8 @@ describe.each(CASES)('$file preset pick', ({ file, pill, boxes }) => {
     await settle();
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.length).toBeGreaterThan(before));
     const urls = vi.mocked(apiFetch).mock.calls.slice(before).map((c) => String(c[0]));
-    for (const iso of Object.values(boxes)) expect(urls.some((u) => u.includes(iso()))).toBe(true);
+    // Exactly one request per pick carries the preset's range (a double fetch would show twice).
+    for (const iso of Object.values(boxes)) expect(urls.filter((u) => u.includes(iso())).length).toBe(1);
     typeDate(field, 'zz');
     expect(await screen.findByText(NOTICE)).toBeTruthy();
     await settle();
