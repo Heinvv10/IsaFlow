@@ -136,6 +136,15 @@ describe('purchase order mapping', () => {
     expect(lines[2]).toMatchObject({ description: 'Installation visit', item_code: 'SVC-005' });
   });
 
+  it('a line linked to an item already in the books carries item_id (not item_code); a sent item\'s line carries item_code', () => {
+    const byId = mapSagePurchaseOrder(p.purchaseOrders[0]!, SUPPLIER, { '50001': { code: 'FIB-0001 ', link: true, id: 'u-1' }, '50005': { code: 'SVC-005', link: true } });
+    const l = byId.lines as Array<Record<string, unknown>>;
+    expect(l[0]).toMatchObject({ item_id: 'u-1' });
+    expect(l[0]).not.toHaveProperty('item_code');
+    expect(l[2]).toMatchObject({ item_code: 'SVC-005' });
+    expect(l[2]).not.toHaveProperty('item_id');
+  });
+
   it('an UNLINKED line carries its item\'s code in the description and no item_code', () => {
     const lines = map(0, false).lines as Array<{ description: string; item_code?: string }>;
     expect(lines[0]!.description).toBe('Fibre cable drum (PO 197) [item FIB-0001]');

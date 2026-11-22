@@ -16,7 +16,7 @@ const file = () => JSON.parse(readFileSync('tests/fixtures/sage-export/sage-expo
 const NONE = { items: [], categories: [], poNumbers: new Map(), budgetPolicy: 'warn', inactiveSuppliers: new Set<string>() };
 const resolved = (): Map<string, SupplierResolution> => new Map([['301', { id: SUPPLIER }], ['302', { id: SUPPLIER }], ['303', { id: SUPPLIER }]]);
 const plan = (f = file(), existing: Record<string, unknown> = NONE) => planMigration(parseSageExport(f), resolved(), existing as never);
-type Line = { description: string; item_code?: string };
+type Line = { description: string; item_code?: string; item_id?: string };
 const lines = (p: ReturnType<typeof plan>, number: string) => (p.purchaseOrders.find((x) => x.documentNumber === number)!.element.lines as Line[]);
 // Fixture: PO0000197 names item 50001 (FIB-0001) on line 1 and 50005 (SVC-005) on line 3; PO0000202 names 50001; 201 and 205 name 50005.
 
@@ -78,12 +78,13 @@ describe('a line whose item is refused goes without item_code and keeps the suff
 
 describe('an owned item that is present but not sent this run', () => {
   const owned = (over: Record<string, unknown>) => ({
-    ...NONE, items: [{ id: 'i1', code: 'FIB-0001-IS', system: 'sage', ref: '50001', deleted: false, itemType: 'physical', inventoryTracked: true, hasMovements: true, isActive: true, ...over }],
+    ...NONE, items: [{ id: '11111111-1111-4111-8111-111111111111', code: 'FIB-0001-IS', system: 'sage', ref: '50001', deleted: false, itemType: 'physical', inventoryTracked: true, hasMovements: true, isActive: true, ...over }],
   });
-  it('(it is refused as item_has_stock_movements) active: linked, by ITS stored code', () => {
+  it('(it is refused as item_has_stock_movements) active: linked BY ITS ID (item_id), never by a code', () => {
     const p = plan(file(), owned({}));
     expect(p.refusals.some((r) => r.code === 'item_has_stock_movements')).toBe(true);
-    expect(lines(p, 'PO0000197')[0]).toMatchObject({ description: 'Fibre cable drum (PO 197)', item_code: 'FIB-0001-IS' });
+    expect(lines(p, 'PO0000197')[0]).toMatchObject({ description: 'Fibre cable drum (PO 197)', item_id: '11111111-1111-4111-8111-111111111111' });
+    expect(lines(p, 'PO0000197')[0]).not.toHaveProperty('item_code');
   });
   it('inactive: unlinked, reason inactive, suffix with the stored code', () => {
     const p = plan(file(), owned({ isActive: false }));
@@ -112,5 +113,40 @@ describe('the suffix and the description limit', () => {
     f.Items.$resources[0] = { ...f.Items.$resources[0], Active: false }; // now unlinked: 490 + " [item FIB-0001]" = 506
     const r = plan(f).refusals;
     expect(r).toEqual([expect.objectContaining({ label: 'PO0000197', code: 'line_description_too_long' })]);
+  });
+});
+
+describe('B1 (round 3): an owned item that is not sent is linked by id; codes are compared trimmed', () => {
+  const owned = (over: Record<string, unknown>) => ({ id: '22222222-2222-4222-8222-222222222222', code: 'FIB-0001 ', system: 'sage', ref: '50001', deleted: false, itemType: 'physical', inventoryTracked: false, hasMovements: false, isActive: true, ...over });
+  const foreign = { id: '33333333-3333-4333-8333-333333333333', code: 'FIB-0001', system: null, ref: null, deleted: false, itemType: 'service', inventoryTracked: false, hasMovements: false, isActive: true };
+  const refusedItem = (f = file()) => { f.Items.$resources[0] = { ...f.Items.$resources[0], TaxTypeIdSales: 9 }; return f; };
+
+  it('B1a: an owned item stored "FIB-0001 " and a foreign "FIB-0001": the Sage row is ref_code_conflict, the line links the OWNED item by id, never the foreign one', () => {
+    const p = plan(file(), { ...NONE, items: [owned({}), foreign] });
+    expect(p.refusals.find((r) => r.label === 'FIB-0001')).toMatchObject({ code: 'ref_code_conflict' });
+    for (const po of ['PO0000197', 'PO0000202']) {
+      expect(lines(p, po)[0]).toMatchObject({ item_id: '22222222-2222-4222-8222-222222222222' });
+      expect(lines(p, po)[0]).not.toHaveProperty('item_code');
+      expect(JSON.stringify(lines(p, po)[0])).not.toContain('33333333-3333-4333-8333-333333333333');
+    }
+  });
+  it('B1b: no foreign item, 50001 refused this run: the line still links by id (not a code the PO tool would fail the batch on)', () => {
+    const p = plan(refusedItem(), { ...NONE, items: [owned({})] });
+    expect(lines(p, 'PO0000197')[0]).toMatchObject({ item_id: '22222222-2222-4222-8222-222222222222' });
+    expect(p.lineLinks.notLinked.filter((x) => x.itemCode === 'FIB-0001 ')).toEqual([]);
+  });
+  it('an inactive owned item is not linked at all (no id sent), and the suffix carries its code as stored', () => {
+    const p = plan(refusedItem(), { ...NONE, items: [owned({ isActive: false })] });
+    expect(lines(p, 'PO0000197')[0]).not.toHaveProperty('item_id');
+    expect(p.lineLinks.notLinked[0]).toMatchObject({ reason: 'inactive' });
+  });
+  it('an item stored "FIB-0001 " that is NOT the migration\'s holds the trimmed code: the Sage row is refused code_held_by_existing_item', () => {
+    const p = plan(file(), { ...NONE, items: [{ ...foreign, code: 'FIB-0001 ' }] });
+    expect(p.refusals.find((r) => r.label === 'FIB-0001')).toMatchObject({ code: 'code_held_by_existing_item' });
+  });
+  it('the migration\'s own item stored with whitespace, nothing else holding the code: the row is sent (the tool re-stores it trimmed)', () => {
+    const p = plan(file(), { ...NONE, items: [owned({})] });
+    expect(p.refusals).toEqual([]);
+    expect(p.items.find((i) => i.sageId === '50001')).toBeTruthy();
   });
 });

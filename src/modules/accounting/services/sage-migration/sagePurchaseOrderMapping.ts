@@ -11,7 +11,7 @@
  *   Exclusive / Tax / Total                expected_totals subtotal / tax_amount / total (checked to the cent by the tool)
  *   SupplierId / SupplierName              supplier_id (resolved by the runner: external ref, else exact name)
  *   Lines[].Description                    description; when the line names an item that is imported and active (or present, owned and
- *                                          active): item_code, no suffix. When the item is inactive or refused: " [item <Code>]" appended
+ *                                          active): item_id (an item already in the books) or item_code (one this run sends), no suffix. When the item is inactive or refused: " [item <Code>]" appended
  *                                          and no item_code (the PO tool refuses a whole batch for an inactive or unknown item)
  *   Lines[].Quantity / UnitPriceExclusive  quantity / unit_price
  *   Lines[].TaxPercentage or TaxTypeId     tax_rate
@@ -28,7 +28,7 @@ import { SAGE_SYSTEM } from './sageItemMapping';
 export const MAX_LINE_DESCRIPTION = 500;
 
 /** What the plan decided for the item a line names: its code, and whether the line is LINKED (item_code) or only carries it as text. */
-export interface ItemLink { code: string; link: boolean }
+export interface ItemLink { code: string; link: boolean; /** The item's id, for an item already in the books (linked by id); absent for an item this run sends (linked by its code). */ id?: string }
 
 /** The text of an UNLINKED line that names an item: its description and " [item CODE]". Never cut: over the limit is an error (the plan refuses first). */
 export function suffixedDescription(description: string, code: string): string {
@@ -59,7 +59,7 @@ export function mapSagePurchaseOrder(
       const item = l.itemId === null ? undefined : itemLinks[l.itemId];
       return {
         description: item && !item.link ? suffixedDescription(l.description, item.code) : l.description,
-        ...(item?.link ? { item_code: item.code } : {}),
+        ...(item?.link ? (item.id ? { item_id: item.id } : { item_code: item.code }) : {}),
         quantity: l.quantity,
         unit_price: l.unitPriceExclusive,
         tax_rate: l.taxRate,

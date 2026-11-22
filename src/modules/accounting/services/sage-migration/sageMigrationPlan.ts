@@ -41,14 +41,17 @@ export interface MigrationPlan {
 export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'>;
 
 /** The company's items indexed ONCE by (system sage) reference and by code: the plan looks items up per item and per PO line. First one wins. */
-interface ItemIndex { byRef: ReadonlyMap<string, ExistingItem>; byCode: ReadonlyMap<string, ExistingItem> }
+interface ItemIndex { byRef: ReadonlyMap<string, ExistingItem>; byCode: ReadonlyMap<string, readonly ExistingItem[]> }
 
 function indexItems(items: readonly ExistingItem[]): ItemIndex {
   const byRef = new Map<string, ExistingItem>();
-  const byCode = new Map<string, ExistingItem>();
+  // By the TRIMMED code: the item tool trims what it stores, the app's own edit does not, and the PO tool trims item_code; a code with
+  // whitespace is the same code to a person and to the PO tool. Several items can share one trimmed code ('FIB-0001' and 'FIB-0001 ').
+  const byCode = new Map<string, ExistingItem[]>();
   for (const i of items) {
     if (i.system === SAGE_SYSTEM && i.ref !== null && !byRef.has(i.ref)) byRef.set(i.ref, i);
-    if (!byCode.has(i.code)) byCode.set(i.code, i);
+    const key = i.code.trim();
+    byCode.set(key, [...(byCode.get(key) ?? []), i]);
   }
   return { byRef, byCode };
 }
@@ -61,12 +64,12 @@ function indexItems(items: readonly ExistingItem[]): ItemIndex {
  */
 function itemConflict(sageId: string, code: string, index: ItemIndex): { code: string; reason: string } | null {
   const byRef = index.byRef.get(sageId);
-  const byCode = index.byCode.get(code);
+  const byCode = (index.byCode.get(code.trim()) ?? []).find((h) => h.id !== byRef?.id); // an item OTHER than the migration's own holding the code
   const held = (i: ExistingItem) => `item ${i.code} (id ${i.id}, ${i.ref ? `${i.system ?? 'no system'} ${i.ref}` : 'no external reference'}${i.deleted ? ', deleted' : ''})`;
-  if (byRef && byCode && byRef.id !== byCode.id) {
+  if (byRef && byCode) {
     return { code: 'ref_code_conflict', reason: `Sage id ${sageId} is already ${held(byRef)} and code ${code} belongs to a different item, ${held(byCode)}` };
   }
-  if (byCode && byCode.id !== byRef?.id) {
+  if (byCode) {
     // Another Sage item (a different Sage id) is the migration's own, only under another id; anything else is not the migration's.
     const why = byCode.system === SAGE_SYSTEM && byCode.ref !== null
       ? `under a different Sage id (this row is Sage id ${sageId}): the migration does not overwrite one Sage item with another`
@@ -80,12 +83,13 @@ function itemConflict(sageId: string, code: string, index: ItemIndex): { code: s
 /** Whether a PO line naming Sage item `id` is linked by item_code, and the code to name it by. */
 function linkFor(
   id: string, sent: ReadonlyMap<string, { code: string; active: boolean }>, index: ItemIndex, displayCodes: Readonly<Record<string, string>>,
-): { code: string; link: true } | { code: string; link: false; reason: NotLinkedReason } {
+): ItemLink & ({ link: true } | { link: false; reason: NotLinkedReason }) {
   const s = sent.get(id);
   if (s) return s.active ? { code: s.code, link: true } : { code: s.code, link: false, reason: 'inactive' };
-  // Not sent this run: only an item already in the books, owned by the migration, can be linked (by the code IsaFlow holds it under).
+  // Not sent this run: only an item already in the books, owned by the migration, can be linked, BY ITS ID (a stored code can carry
+  // whitespace the PO tool trims, and the trimmed code can belong to another item or to none).
   const owned = index.byRef.get(id);
-  if (owned && !owned.deleted) return owned.isActive ? { code: owned.code, link: true } : { code: owned.code, link: false, reason: 'inactive' };
+  if (owned && !owned.deleted) return owned.isActive ? { code: owned.code, id: owned.id, link: true } : { code: owned.code, link: false, reason: 'inactive' };
   return { code: displayCodes[id]!, link: false, reason: 'refused' };
 }
 
@@ -160,7 +164,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     for (const [n, l] of po.lines.entries()) {
       if (l.itemId === null) continue;
       const decision = linkFor(l.itemId, sent, index, parsed.itemCodes);
-      links[l.itemId] = { code: decision.code, link: decision.link };
+      links[l.itemId] = { code: decision.code, link: decision.link, ...(decision.link && decision.id ? { id: decision.id } : {}) };
       if (decision.link) linked++;
       else notLinked.push({ poNumber: po.documentNumber, line: n + 1, itemCode: decision.code, reason: decision.reason });
     }
