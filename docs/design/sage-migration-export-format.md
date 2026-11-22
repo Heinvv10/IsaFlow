@@ -52,7 +52,7 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 
 **Item links.** `bulk_create_purchase_orders` takes `item_code` on a line and refuses the WHOLE batch for an unknown, inactive or other-company
 item, so the plan sends `item_code` only for an item it knows is active and sent in this run, or already present, owned by Sage and active
-(then by the code IsaFlow holds it under). Any other line goes WITHOUT `item_code`, keeps " [item CODE]" in its description (the Sage
+(then BY ITS ID: a code stored with whitespace is trimmed by the PO tool and could resolve to another item, or to none, which fails the whole batch; item codes are compared trimmed throughout the plan). Any other line goes WITHOUT `item_code`, keeps " [item CODE]" in its description (the Sage
 code stays readable) and is counted in the report as "line not linked: item inactive" or "item refused"; one such line cannot cost its
 batch. A linked line has no suffix. An item the export does not contain still refuses the PO (`line_item_unknown`). A PO found already
 there is never changed, so re-running a file imported before the links existed (or while the item was inactive) lists each new link as a
@@ -130,3 +130,9 @@ to one IsaFlow supplier are both refused).
   that batch: the tool matches by code. External systems of items and categories are compared exactly (case-sensitive `sage`), as
   those tools do; PO and supplier lookups are case-insensitive, as theirs are.
 - **Exit codes.** 3 = the run finished but `--report` could not be written (the summary is printed before the report is written).
+- **Item batches follow IsaFlow's state.** An item batch's idempotency key is salted with a hash of the state of the owned rows it touches, so
+  once a person has changed an owned item in IsaFlow the batch is not replayed from the stored answer of the run that wrote it (that would
+  write nothing and leave the item as the person left it, while the dry run said it would be put back). With no owned row (a first run, or
+  rows deleted) the key is the plain one, so a failed batch still resumes under its key. After the items phase the books are also checked
+  against what was sent (code, active flag, type, tracking); on a mismatch the PO phase is not started. The report's differences list
+  combines the dry run's findings with the live run's.

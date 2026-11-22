@@ -23,6 +23,13 @@ describe('differencesFrom', () => {
     ] })]);
     expect(d.items).toEqual([{ code: 'C', changed: ['sales_price', 'is_active'] }]);
   });
+  it('the same PO or item named by two batches (dry run and live) is listed once', () => {
+    const po = batch('purchase_order', { purchase_orders: [{ po_number: 'PO1', payload_differs: true, differences: [{ field: 'status', existing: 'a', requested: 'b' }] }] });
+    const it = batch('item', { rows: [{ outcome: 'updated', code: 'C', changed: ['is_active'] }] });
+    const d = differencesFrom([it, po, it, po]);
+    expect(d.purchaseOrders).toHaveLength(1);
+    expect(d.items).toEqual([{ code: 'C', changed: ['is_active'] }]);
+  });
   it('reads categories as no difference, a failed batch (null answer) as none, and joins every batch', () => {
     const po = (n: string) => ({ purchase_orders: [{ po_number: n, payload_differs: true, differences: [{ field: 'total', existing: 1, requested: 2 }] }] });
     const d = differencesFrom([batch('category', { outcome: 'updated' }), batch('purchase_order', null), batch('purchase_order', po('PO7')), batch('purchase_order', po('PO8'))]);

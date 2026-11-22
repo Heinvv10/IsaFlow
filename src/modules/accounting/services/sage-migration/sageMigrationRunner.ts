@@ -16,10 +16,10 @@ import type { Pool } from 'pg';
 import { log } from '@/lib/logger';
 import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
-import { batchKey, RUN_TAG } from './sageBatches';
+import { RUN_TAG } from './sageBatches';
 import { assertPoGlAccount } from './sageAccountCheck';
-import { checkRowsPresent, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
-import { ownershipProblem } from './sageOwnership';
+import { checkRowsPresent, keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
+import { itemsMismatch, ownershipProblem } from './sageOwnership';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -78,7 +78,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       // never came may still have landed, so the books are the judge: the run's final reconciliation reads them, and a re-run replays.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
-      b = { entity: s.entity, n: s.n, size: s.size, key: batchKey(s.entity, s.n, s.args, s.runTag), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
+      b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -121,10 +121,21 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
     const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, snapshot));
     return { batches, failed: batches.filter((b) => b.status === 'failed').length };
   };
+  // After the items phase the books must also hold what was SENT (code, active flag, type, tracking): the PO phase names these items, and
+  // a batch answered "ok" that left them otherwise (an answer replayed from an earlier run, a writer in between) must not be built on.
+  const verifiedItems = async (phase: PhaseReport, snapshot: Snapshot): Promise<PhaseReport> => {
+    const present = verified(phase, all.items, snapshot);
+    const batches = present.batches.map((b) => {
+      const send = all.items.find((x) => x.n === b.n);
+      const wrong = b.status === 'ok' && send?.itemSent ? itemsMismatch(send.itemSent, snapshot) : [];
+      return wrong.length === 0 ? b : { ...b, status: 'failed' as const, error: `the items in the books are not what this batch sent (${wrong.length}): ${wrong.slice(0, 5).join(' | ')}. The PO phase is not started. Run again.` };
+    });
+    return { batches, failed: batches.filter((b) => b.status === 'failed').length };
+  };
   const liveCategories = await livePhase(pool, opts, all.categories, before);
   const categoriesVerified = liveCategories.failed === 0 ? verified(liveCategories, all.categories, await readAfter()) : liveCategories;
   const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
-  const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? verified(liveItems, all.items, await readAfter()) : liveItems;
+  const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
   const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
   const after = await readAfter();
   const purchaseOrders = verified(livePos, all.purchaseOrders, after);
@@ -133,7 +144,8 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   return {
     ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders }, lineLinks: buildLineLinks(plan, before, after),
     budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
-    differences: differencesFrom([...items.batches, ...purchaseOrders.batches]),
+    // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.
+    differences: differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches, ...items.batches, ...purchaseOrders.batches]),
     reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),
   };
 }

@@ -2,10 +2,12 @@
  * The batches of a plan (categories one call each, item batches <= 500, PO batches <= 100) and the one call that sends a batch.
  * The caps are the tools' own (bulk_upsert_items 500, bulk_create_purchase_orders 100); a test pins them equal.
  */
+import { createHash } from 'node:crypto';
 import type { BatchEntity, BatchReport, MigrationOptions } from './sageMigrationTypes';
 import { MAX_ITEM_BATCH, MAX_PO_BATCH, batchKey, chunk } from './sageBatches';
 import type { MigrationPlan } from './sageMigrationPlan';
-import type { Snapshot } from './sageSnapshot';
+import type { SentItem } from './sageOwnership';
+import type { ExistingItem, Snapshot } from './sageSnapshot';
 import type { ToolSession } from './sageToolSession';
 
 export interface Send {
@@ -21,6 +23,28 @@ export interface Send {
   runTag?: string;
   /** The items of an item batch, in order (`index` of the tool's answer): for the ownership check of the dry run. */
   itemRows?: Array<{ sageId: string; code: string }>;
+  /** What the batch sends for each item, to check the books after the items phase. */
+  itemSent?: SentItem[];
+}
+
+/**
+ * The salt of an item batch's key: a hash of the state (every column the item tool compares) of the OWNED rows the batch touches. With
+ * none (a first run, rows deleted) there is no salt and the key is the plain one, so a failed batch resumes under its key. Once a
+ * person has changed an owned item in IsaFlow the key changes, so the batch is not replayed from the stored answer of the run that
+ * wrote it (which would write nothing and leave the item as the person left it, while the dry run said it would be put back).
+ */
+export function itemBatchSalt(rows: ReadonlyArray<{ sageId: string }>, existing: readonly ExistingItem[]): string | undefined {
+  const mine = rows.flatMap((r) => {
+    const item = existing.find((i) => i.system === 'sage' && i.ref === r.sageId && !i.deleted);
+    return item ? [`${r.sageId}:${item.stateHash}`] : [];
+  }).sort();
+  return mine.length === 0 ? undefined : createHash('sha256').update(mine.join('|')).digest('hex').slice(0, 16);
+}
+
+/** The idempotency key a batch is sent under (a dry run's carries "-dry"). */
+export function keyFor(s: Send, before: Snapshot, dry: boolean): string {
+  const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : undefined;
+  return batchKey(s.entity, s.n, s.args, s.runTag, salt) + (dry ? '-dry' : '');
 }
 
 export interface PlannedBatches { categories: Send[]; items: Send[]; purchaseOrders: Send[] }
@@ -37,6 +61,7 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
     present: (before) => rows.every((r) => before.itemRefs.has(r.sageId)),
     absent: (after) => rows.map((r) => r.sageId).filter((id) => !after.itemRefs.has(id)), runTag: opts.runTag,
     itemRows: rows.map((r) => ({ sageId: r.sageId, code: String(r.row.code) })),
+    itemSent: rows.map((r) => ({ sageId: r.sageId, code: String(r.row.code), isActive: r.row.is_active !== false, itemType: String(r.row.item_type), inventoryTracked: r.row.inventory_tracked === true })),
   }));
   const purchaseOrders = chunk(plan.purchaseOrders, poSize).map((rows, i): Send => ({
     entity: 'purchase_order', n: i + 1, tool: 'bulk_create_purchase_orders', size: rows.length,
@@ -55,7 +80,7 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
  * "-dry" as well, so even a failed rollback could not make the live run replay a dry run's answer.
  */
 export async function sendBatch(session: ToolSession, s: Send, before: Snapshot, dry: boolean): Promise<BatchReport> {
-  const key = batchKey(s.entity, s.n, s.args, s.runTag) + (dry ? '-dry' : '');
+  const key = keyFor(s, before, dry);
   const r = await session.call(s.tool, { ...s.args, idempotency_key: key });
   return {
     entity: s.entity, n: s.n, size: s.size, key, status: r.isError ? 'failed' : 'ok',

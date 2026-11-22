@@ -107,7 +107,7 @@ describe('F5: rows deleted after a run', () => {
     // The same tag again is a re-run like any other: it replays and changes nothing.
     const again = await run({ runTag: 'again1' });
     expect(again.status).toBe('completed');
-    expect(again.live!.items.batches[0]!.key).toBe(fresh.live!.items.batches[0]!.key);
+    expect(again.live!.purchaseOrders.batches[0]!.key).toBe(fresh.live!.purchaseOrders.batches[0]!.key); // (item keys follow the owned rows' state)
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 });
   });
 

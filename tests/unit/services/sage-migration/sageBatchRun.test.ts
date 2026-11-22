@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_UPSERT_ROWS } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { MAX_PURCHASE_ORDERS } from '@/lib/mcp/tools/purchaseOrderImportArgs';
+import { itemBatchSalt } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { batchKey, MAX_ITEM_BATCH, MAX_PO_BATCH, RUN_TAG } from '@/modules/accounting/services/sage-migration/sageBatches';
 import { checkRowsPresent, planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { budgetWouldHaveFailed } from '@/modules/accounting/services/sage-migration/sageBudgetReport';
@@ -146,5 +147,44 @@ describe('F5: --run-tag and rows absent after a replay', () => {
     const po = { ...ok(2), entity: 'purchase_order' as const };
     expect(checkRowsPresent(po, batch(2).purchaseOrders[0]!, { ...empty(), poTotals: new Map([['1', 1], ['2', 1]]) })).toEqual(po);
     expect(checkRowsPresent(po, batch(2).purchaseOrders[0]!, empty())).toMatchObject({ status: 'failed', rowsAbsent: 2 });
+  });
+});
+
+describe('B3 (round 3): an item batch key follows the state of the owned rows it touches', () => {
+  const own = (ref: string, stateHash: string) => ({ id: `id${ref}`, code: `C${ref}`, system: 'sage', ref, deleted: false, itemType: 'physical', inventoryTracked: false, isActive: true, hasMovements: false, stateHash });
+  const rows = [{ sageId: '1', code: 'C1' }, { sageId: '2', code: 'C2' }];
+
+  it('no owned row in the batch (a first run, or rows deleted): no salt, so the key is what it always was', () => {
+    expect(itemBatchSalt(rows, [])).toBeUndefined();
+    expect(itemBatchSalt(rows, [own('9', 'h')])).toBeUndefined(); // an owned item that is not in this batch
+  });
+  it('the salt follows the owned rows: the same state gives the same salt, a changed row another, whatever the order', () => {
+    const a = itemBatchSalt(rows, [own('1', 'h1'), own('2', 'h2')]);
+    expect(a).toBeDefined();
+    expect(itemBatchSalt(rows, [own('2', 'h2'), own('1', 'h1')])).toBe(a);
+    expect(itemBatchSalt(rows, [own('1', 'h1'), own('2', 'CHANGED')])).not.toBe(a);
+    expect(itemBatchSalt(rows, [own('1', 'h1')])).not.toBe(a);
+  });
+  it('a deleted owned item and an item of another system are not the migration\'s rows', () => {
+    expect(itemBatchSalt(rows, [{ ...own('1', 'h1'), deleted: true }, { ...own('2', 'h2'), system: 'Sage' }])).toBeUndefined();
+  });
+  it('a salt changes the key (and a missing one does not); the run tag still does too', () => {
+    const args = [{ a: 1 }];
+    expect(batchKey('item', 1, args, undefined, 's1')).not.toBe(batchKey('item', 1, args));
+    expect(batchKey('item', 1, args, undefined, 's1')).toBe(batchKey('item', 1, args, undefined, 's1'));
+    expect(batchKey('item', 1, args, undefined, 's1')).not.toBe(batchKey('item', 1, args, undefined, 's2'));
+    expect(batchKey('item', 1, args, undefined, undefined)).toBe(batchKey('item', 1, args));
+    expect(batchKey('item', 1, args, 't', 's1')).not.toBe(batchKey('item', 1, args, undefined, 's1'));
+  });
+  it('sendBatch sends the salted key for an item batch whose owned rows changed', async () => {
+    const batches = planBatches(plan(2, 0), {});
+    const sent: string[] = [];
+    const s: ToolSession = { companyId: 'c', call: async (_n, a) => { sent.push(String(a.idempotency_key)); return { isError: false, text: '{}', body: {} }; } };
+    const before = (hash: string) => ({ ...empty(), items: [own('1', hash), own('2', 'x')] });
+    const k1 = (await sendBatch(s, batches.items[0]!, before('A'), false)).key;
+    const k2 = (await sendBatch(s, batches.items[0]!, before('B'), false)).key;
+    const k0 = (await sendBatch(s, batches.items[0]!, empty(), false)).key;
+    expect(new Set([k0, k1, k2]).size).toBe(3);
+    expect(k0).toMatch(/^sage-mig-item-0001-[0-9a-f]{16}$/);
   });
 });

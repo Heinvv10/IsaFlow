@@ -30,7 +30,7 @@ const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: R
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
 
 describe('a re-run', () => {
-  it('under the same keys replays every batch and touches no row', async () => {
+  it('a re-run replays the PO batches under their keys; the item batches (keyed by the state of the owned rows) run and find everything unchanged; no row is touched', async () => {
     const first = await run();
     expect(first.status).toBe('completed');
     const afterFirst = { counts: await booked(pool, s.companyId), stamps: await stamps(pool, s.companyId) };
@@ -39,11 +39,14 @@ describe('a re-run', () => {
     expect(again.reconciliation).toMatchObject({ items: { presentBefore: 20, addedByRun: 0 }, purchaseOrders: { presentBefore: 10, addedByRun: 0 }, allSentBooked: true, nothingRefused: true });
     const batches = [...again.live!.items.batches, ...again.live!.purchaseOrders.batches];
     expect(batches.every((b) => b.allRowsAlreadyPresent && b.status === 'ok')).toBe(true);
-    expect(batches.map((b) => b.key)).toEqual([...first.live!.items.batches, ...first.live!.purchaseOrders.batches].map((b) => b.key));
+    expect(again.live!.purchaseOrders.batches.map((b) => b.key)).toEqual(first.live!.purchaseOrders.batches.map((b) => b.key)); // POs are never changed: replayed
+    // B3 (round 3): an item batch's key follows the state of the owned rows, so it is NOT replayed from the first run's answer: it runs and finds every row unchanged.
+    expect(again.live!.items.batches[0]!.key).not.toBe(first.live!.items.batches[0]!.key);
+    expect(again.live!.items.batches[0]!.toolReported).toMatchObject({ written: false, counts: { created: 0, updated: 0, unchanged: 20 } });
     expect(again.differences).toEqual({ purchaseOrders: [], items: [] });
     expect(exitCodeFor(again, false)).toBe(0);
-    // A replay records nothing: not one new audit row, not one row touched.
-    expect(await booked(pool, s.companyId)).toEqual(afterFirst.counts);
+    // Nothing is written: not one row touched (the unchanged item call leaves an audit row of its own, nothing else).
+    expect({ ...(await booked(pool, s.companyId)), toolCalls: 0 }).toEqual({ ...afterFirst.counts, toolCalls: 0 });
     expect(await stamps(pool, s.companyId)).toEqual(afterFirst.stamps);
   });
 

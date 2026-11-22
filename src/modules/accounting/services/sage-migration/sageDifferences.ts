@@ -24,5 +24,7 @@ export function differencesFrom(batches: readonly BatchReport[]): MigrationRepor
       }
     }
   }
-  return { purchaseOrders, items };
+  // The same PO or item named by the dry run and the live run is listed once.
+  const once = <T,>(list: T[], key: (x: T) => string): T[] => list.filter((x, i) => list.findIndex((y) => key(y) === key(x)) === i);
+  return { purchaseOrders: once(purchaseOrders, (x) => x.poNumber), items: once(items, (x) => x.code) };
 }

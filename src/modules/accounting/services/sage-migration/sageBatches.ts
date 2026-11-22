@@ -14,7 +14,9 @@ export function chunk<T>(rows: readonly T[], size: number): T[][] {
 
 /**
  * The same rows in the same batch position always get the same key, so a re-run replays instead of repeating; changed rows
- * get a different key (the tools' own external_ref idempotency then decides what is new). 1-based `n`.
+ * get a different key (the tools' own external_ref idempotency then decides what is new). 1-based `n`. `salt`: for an item batch, the state of
+ * the owned rows it touches (sageBatchRun.itemBatchSalt), so a batch is never replayed from a stored answer once IsaFlow's state of those
+ * rows has changed since.
  */
 export const RUN_TAG = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -22,8 +24,9 @@ export const RUN_TAG = /^[A-Za-z0-9_-]{1,32}$/;
  * `runTag` salts the keys for a DELIBERATE fresh import: the same rows under another tag are another request, so a registry that
  * remembers the answer of a run whose rows were deleted does not replay it. Untagged keys are what they always were.
  */
-export function batchKey(entity: string, n: number, args: unknown, runTag?: string): string {
-  const hash = createHash('sha256').update(JSON.stringify(runTag === undefined ? args : [runTag, args])).digest('hex').slice(0, 16);
+export function batchKey(entity: string, n: number, args: unknown, runTag?: string, salt?: string): string {
+  const input = runTag === undefined && salt === undefined ? args : [runTag ?? null, salt ?? null, args];
+  const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 16);
   return `sage-mig-${entity}-${String(n).padStart(4, '0')}-${hash}`;
 }
 
