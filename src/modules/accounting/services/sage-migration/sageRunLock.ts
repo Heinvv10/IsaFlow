@@ -19,8 +19,8 @@ export function migrationLockKey(companyId: string): [number, number] {
 export class LockLostError extends Error {}
 
 export interface RunLock {
-  /** Releases the lock (call it in a `finally`). */
-  release: () => Promise<void>;
+  /** Gives the lock up (call it in a `finally`). */
+  unlock: () => Promise<void>;
   /** Throws LockLostError when the lock's connection is gone: the run is no longer the only one for this company. */
   check: () => Promise<void>;
 }
@@ -65,7 +65,7 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     }
     if (lost) throw new LockLostError(`lock lost (${lost.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
   };
-  const release = async (): Promise<void> => {
+  const unlock = async (): Promise<void> => {
     let unlockFailure: Error | undefined = lost;
     if (!lost) {
       try {
@@ -77,5 +77,5 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     client.removeListener('error', onError);
     client.release(unlockFailure);
   };
-  return { release, check };
+  return { unlock, check };
 }

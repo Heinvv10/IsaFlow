@@ -34,7 +34,7 @@ describe('migrationLockKey', () => {
 describe('acquireRunLock', () => {
   it('takes the lock on a connection of its own, and the release function unlocks and returns the connection', async () => {
     const { pool, client, calls } = fakePool();
-    const { release } = await acquireRunLock(pool, A);
+    const { unlock: release } = await acquireRunLock(pool, A);
     expect(calls).toEqual(['lock']);
     expect(client.release).not.toHaveBeenCalled(); // held for the whole run
     await release();
@@ -54,7 +54,7 @@ describe('acquireRunLock', () => {
   });
   it('an unlock that fails destroys the connection (which drops the lock) instead of pooling it with the lock on', async () => {
     const { pool, client } = fakePool({ unlockFails: true });
-    const { release } = await acquireRunLock(pool, A);
+    const { unlock: release } = await acquireRunLock(pool, A);
     await release();
     expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ message: 'unlock failed' }));
   });
@@ -76,7 +76,7 @@ describe('the lock connection is watched (M2, round 5)', () => {
   });
   it('the listener is removed when the lock is released (the connection goes back to the pool clean)', async () => {
     const { pool, client } = fakePool();
-    const { release } = await acquireRunLock(pool, A);
+    const { unlock: release } = await acquireRunLock(pool, A);
     expect(client.listenerCount('error')).toBe(1);
     await release();
     expect(client.listenerCount('error')).toBe(0);

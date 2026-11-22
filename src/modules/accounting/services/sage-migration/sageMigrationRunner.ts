@@ -98,7 +98,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   try {
     return await runLocked(pool, parsed, opts, lock.check);
   } finally {
-    await lock.release();
+    await lock.unlock();
   }
 }
 
