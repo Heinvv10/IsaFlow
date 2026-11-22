@@ -78,8 +78,12 @@ const flips = (tables: string, statuses: string, module: string, caseForm: 'any'
   const T = `(?:public\\.)?(?:${tables})\\b`;
   const noWhere = (n: number) => `(?:(?!\\bWHERE\\b)[^;]){0,${n}}?`;
   // `status = '<s>'`, or `status = CASE ... THEN '<s>'` (r13 L3)
-  // 'notPaid': a CASE arm counts only when its WHEN names no paid state (the un-payment back to 'approved' is no approval).
-  const arm = caseForm === 'any' ? '\\bTHEN' : '\\bWHEN\\b(?:(?!\\bTHEN\\b|paid)[^;]){0,300}\\bTHEN';
+  // 'notPaid': a CASE arm counts unless its WHEN is an un-payment back to 'approved': a status test naming a paid state
+  // (`status IN ('partially_paid', 'paid')`, `status = 'paid'`) or the allocation reversal's `amount_paid ... <= 0`. Any other
+  // WHEN, `amount_paid = 0 AND status = 'draft'` included, counts (#1720 review L1).
+  const unpay = `(?:\\bstatus\\s*(?:IN\\s*\\([^)]*'(?:partially_)?paid'|=\\s*'(?:partially_)?paid')|\\bamount_paid\\b(?:(?!\\bTHEN\\b)[^;]){0,120}?<=\\s*0\\b)`;
+  const arm = caseForm === 'any' ? '\\bTHEN'
+    : `\\bWHEN\\b(?!(?:(?!\\bTHEN\\b)[^;]){0,300}?${unpay})(?:(?!\\bTHEN\\b)[^;]){0,300}\\bTHEN`;
   const set = `\\bstatus\\s*=\\s*(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?${arm}\\s*)?'(?:${statuses})'`;
   return {
     module,

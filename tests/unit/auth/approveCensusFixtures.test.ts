@@ -14,13 +14,15 @@ function fixture(route: string) {
 export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
 export declare function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string): Promise<boolean>;
 export declare function returnApproveModule(form: string): 'vat' | 'payroll' | null;
+export declare function refuseApprovalRequestWithoutApprove(res: unknown, c: string, u: string, t: string, id: string): Promise<boolean>;
 export async function finaliseReturn(c: string, form: string, id: string) { return id; }
 export async function markReturnFiled(c: string, form: string, id: string) { return id; }
 export async function amendReturn(c: string, form: string, id: string) { return id; }
 export async function finaliseVatReturn(c: string, id: string) { return id; }
 export async function fileIt(id: string) { await client.query("UPDATE tax_return_versions SET status = 'filed' WHERE id = $1", [id]); }
 export async function flipBill(id: string) { await client.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]); }`,
-    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill, returnApproveModule, fileIt, finaliseReturn, markReturnFiled, amendReturn, finaliseVatReturn } from './lib';\ndeclare const res: unknown;
+    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, refuseApprovalRequestWithoutApprove, flipBill, returnApproveModule, fileIt, finaliseReturn, markReturnFiled,
+  amendReturn, finaliseVatReturn } from './lib';\ndeclare const res: unknown;
 const MODULE_Q = "UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1";\n${route}\nexport default handler;`,
   };
   return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
@@ -122,6 +124,15 @@ describe('posting census fixtures (#1670)', () => {
       expect(fixture(handler(`${viaConst} await ${sink}('c', id, id);`)), `unknown gate, unknown ${sink}`).toEqual([]);
       expect(fixture(handler(`${viaConst} ${vat}`)), `unknown gate, VAT201 ${sink}`).toEqual([]);
     }
+    // #1720 review M1: a gate deciding per document ('*') never covers a filing, of a known form or not
+    const perDocument = "if (await refuseApprovalRequestWithoutApprove(res, 'c', 'u', 'x', id)) return;";
+    for (const call of ["await finaliseReturn('c', 'VAT201', id);", "await markReturnFiled('c', 'EMP501', id);", 'await amendReturn(\'c\', id, id);']) {
+      expect(fixture(handler(`${perDocument} ${call}`)), `'*' gate, ${call}`).toHaveLength(1);
+    }
+    // #1720 review L2: an unmapped form (ITR14) is refused by every gate, its own resolver included
+    for (const g of [form('VAT201'), form('ITR14'), viaConst, perDocument, gate('vat'), gate('payroll')]) {
+      expect(fixture(handler(`${g} await finaliseReturn('c', 'ITR14', id);`)), `${g} ITR14`).toHaveLength(1);
+    }
     // L-b: the VAT201 finalise (and its period lock) is VAT's wherever a route calls it
     expect(fixture(handler(`${form('EMP501')} await finaliseVatReturn('c', id);`))).toHaveLength(1);
     expect(fixture(handler(`${form('VAT201')} await finaliseVatReturn('c', id);`))).toEqual([]);
@@ -135,6 +146,11 @@ describe('posting census fixtures (#1670)', () => {
         `${table} recompute`).toEqual([]);
       expect(fixture(handler(`await sql\`UPDATE ${table} SET amount_paid = GREATEST(0, amount_paid - \${id}), status = CASE WHEN GREATEST(0, amount_paid - \${id}) <= 0 THEN 'approved' ELSE 'partially_paid' END WHERE id = \${id}\`;`)),
         `${table} allocation reversal`).toEqual([]);
+      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN status = 'paid' THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
+        `${table} paid -> approved`).toEqual([]);
+      // #1720 review L1: naming amount_paid is not an un-payment; a draft with nothing paid flipped to approved is an approval
+      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN amount_paid = 0 AND status = 'draft' THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
+        `${table} draft with nothing paid -> approved`).toHaveLength(1);
     }
   });
 

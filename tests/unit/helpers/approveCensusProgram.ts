@@ -183,7 +183,8 @@ export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<strin
 function gateCovers(gate: string, need: string, strict: ReadonlySet<string>): boolean {
   if (gate === UNREADABLE) return false;
   if (gate === need) return true;
-  if (gate === '*') return !strict.has(need);
+  // a strict module and every one of its forms ('returns' and 'returns:vat'...) take their own gate, never '*' (#1720 review M1)
+  if (gate === '*') return !strict.has(need) && ![...strict].some((s) => need.startsWith(`${s}:`));
   if (gate === 'returns') return need.startsWith('returns:');
   return gate.startsWith('returns:') && need === gate.slice('returns:'.length);
 }
@@ -201,7 +202,9 @@ export function sinkModuleOf(c: ts.CallExpression, fixed: string, spec: SinkModu
 /** Every need covered by one of the gates ('*' needs: any gate the census can read). */
 export function gatesCover(gates: ReadonlySet<string>, needs: Iterable<string>, strict: ReadonlySet<string>): boolean {
   const g = [...gates];
-  return g.length > 0 && [...needs].every((m) => (m === '*' ? g.some((x) => x !== UNREADABLE) : g.some((x) => gateCovers(x, m, strict))));
+  // an UNREADABLE need (an unmapped form: finaliseReturn(c, 'ITR14')) is covered by no gate (#1720 review L2)
+  return g.length > 0 && [...needs].every((m) => m !== UNREADABLE
+    && (m === '*' ? g.some((x) => x !== UNREADABLE) : g.some((x) => gateCovers(x, m, strict))));
 }
 
 /** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */
