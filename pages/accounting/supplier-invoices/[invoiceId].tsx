@@ -21,6 +21,7 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useSupplierInvoiceActions } from '@/modules/accounting/hooks/useSupplierInvoiceActions';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { notifyCancelReopens } from '@/components/accounting/supplier-invoices/cancelReopenNotice';
 import { notifyPostingWarnings, type PostingWarningsBody } from '@/components/accounting/postingWarningsNotice';
 import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/SupplierInvoiceApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
@@ -101,6 +102,7 @@ export default function SupplierInvoiceDetailPage() {
       const json = await res.json() as PostingWarningsBody;
       notifyLateClaims(json); // approve: VAT claimed in a later period (s16(3))
       notifyPostingWarnings(json); // approve: a cost centre on the bill that was not applied
+      if (action === 'cancel') notifyCancelReopens(json); // a PO the bill no longer leaves fully billed reopened (PR #1703)
       await loadInvoice();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not complete that action - try again'));

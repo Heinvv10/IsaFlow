@@ -97,14 +97,13 @@ export const FK_PAIRS = new Set<string>([
   'product_categories.id|products.category_id',
   'products.id|stock_adjustments.product_id',
   'project_time_entries.project_id|projects.id',
+  'po_items.purchase_order_id|purchase_orders.id',
   'purchase_orders.supplier_id|suppliers.id',
   'supplier_invoice_items.supplier_invoice_id|supplier_invoices.id',
   'supplier_invoices.id|supplier_payment_allocations.invoice_id',
   'supplier_invoices.supplier_id|suppliers.id',
   'supplier_payment_allocations.payment_id|supplier_payments.id',
   'supplier_payments.supplier_id|suppliers.id',
-  'supplier_purchase_order_items.purchase_order_id|supplier_purchase_orders.id',
-  'supplier_purchase_orders.supplier_id|suppliers.id',
 ]);
 
 /**
@@ -146,7 +145,7 @@ export const NO_COMPANY_TABLES = new Set<string>([
   'asset_categories', 'asset_depreciation_schedule', 'asset_disposals',
   'customer_invoice_items', 'customer_payment_allocations', 'customer_quote_lines',
   'customer_sales_order_items', 'gl_account_balances', 'leave_balances', 'leave_types',
-  'supplier_invoice_items', 'supplier_payment_allocations', 'supplier_purchase_order_items',
+  'po_items', 'supplier_invoice_items', 'supplier_payment_allocations',
 ]);
 
 /**

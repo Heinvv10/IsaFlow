@@ -19,7 +19,7 @@ export const listPurchaseOrdersTool: McpTool = {
     + 'subtotal / tax_amount / total, line_count, has_document (a PDF or other file is filed on it, entity_type purchase_order) '
     + 'and the external reference an import stamped. Filter by po_number (exact), status (one or a list), supplier_id, '
     + 'from_date / to_date (order date), external_system + external_ref. '
-    + 'Committed spend counts approved, partially_received and received POs only; closed (billed in full) and cancelled commit nothing. '
+    + 'Committed spend counts approved, partially_received and received POs, and a PO closed because it was fully billed only for what has since become unbilled; a PO closed by hand (close_purchase_order) and a cancelled one commit nothing. '
     + `Returns {purchase_orders, total, totals, next_offset}: up to limit rows (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}); `
     + 'call again with offset=next_offset until it is null.',
   scope: 'read:invoices',
