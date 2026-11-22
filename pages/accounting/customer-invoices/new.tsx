@@ -236,9 +236,9 @@ export default function NewCustomerInvoicePage() {
                 hints={contact.hints} onDueDateEdited={() => contact.touch('dueDate')} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                <InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
-                  taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />
-                <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
+                <InvoiceLineItemsTable settings={<InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
+                  taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />}
+                  lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType pricesIncludeVat={taxMode === 'inclusive'}
                   discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} accountHint={contact.hints.account}
                   {...(vatMode === 'none' ? {} : { vatTypes: types, vatDate: form.invoiceDate, vatHint: contact.hints.vat, vatWarning: lineVatWarning(contact.vatType, types) })} />
@@ -254,7 +254,7 @@ export default function NewCustomerInvoicePage() {
         <InvoiceActionBar status={<>
           <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
           {scanLookup !== null && <span role="status" className="text-slate-600 dark:text-slate-400">Finding the scanned customer…</span>}
-          <span className="text-slate-500 dark:text-slate-400">Create saves a draft. Approve &amp; email approves it and opens the email form; nothing is sent until you click Send.</span>
+          <span className="text-slate-600 dark:text-slate-400">Create saves a draft. Approve &amp; email opens the email form; nothing is sent until you click Send.</span>
         </>}>
           <NewInvoiceActions busy={busy} submitting={submitting} saveAndNew={saveAndNew} approving={approve.busy}
             onCreate={() => { void handleSubmit(false); }} onSaveAndNew={() => { void handleSubmit(true); }} onApprove={approve.start} />

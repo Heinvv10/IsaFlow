@@ -98,11 +98,15 @@ export const formLineNet = (line: FormVatLine, type: LineVatTypeOrNone, mode: Ta
 
 export interface VatByType { type: LineVatType; net: number; vat: number }
 
-/** The net and VAT of each type the lines carry, in list order (the totals' breakdown; the sums are formTotals'). */
+/**
+ * The net and VAT of each type the priced lines carry, in list order (the totals' breakdown; the sums are formTotals').
+ * A line with no price yet (a fresh blank line) adds no row of its own, unless no line has a price.
+ */
 export function formVatByType(lines: readonly FormVatLine[], types: readonly LineVatTypeOrNone[], mode: TaxMode, date: string): VatByType[] {
   if (mode === 'none') return [];
+  const priced = lines.some((l) => l.unitPrice);
   return DOCUMENT_LINE_VAT_TYPES.flatMap((type) => {
-    const mine = lines.filter((_, i) => (types[i] ?? 'zero_rated') === type);
+    const mine = lines.filter((l, i) => (types[i] ?? 'zero_rated') === type && (!priced || l.unitPrice));
     if (mine.length === 0) return [];
     const t = formTotals(mine, mine.map(() => type), mode, date);
     return [{ type, net: t.subtotal, vat: t.tax }];

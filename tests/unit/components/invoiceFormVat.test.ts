@@ -64,6 +64,10 @@ describe('formTotals', () => {
       { type: 'standard', net: 1000, vat: 150 }, { type: 'zero_rated', net: 300, vat: 0 }, { type: 'exempt', net: 200, vat: 0 },
     ]);
   });
+  it('a blank line adds no row of its own to the breakdown; with no priced line every line\'s type shows', () => {
+    expect(formVatByType([l(1, 500), l(1, 0)], ['standard', 'exempt'], 'exclusive', D)).toEqual([{ type: 'standard', net: 500, vat: 75 }]);
+    expect(formVatByType([l(1, 0)], ['exempt'], 'exclusive', D)).toEqual([{ type: 'exempt', net: 0, vat: 0 }]);
+  });
   it('the breakdown sums to the totals, inclusive too', () => {
     const lines = [l(3, 33.33, 5), l(1, 115), l(2, 49.99)];
     const types = ['standard', 'exempt', 'standard'] as const;

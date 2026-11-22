@@ -270,9 +270,9 @@ export default function EditCustomerInvoicePage() {
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                <InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
-                  taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />
-                <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
+                <InvoiceLineItemsTable settings={<InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
+                  taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />}
+                  lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={wip.remove} billsTimeEntry={(key) => lines.some(l => l.key === key && Boolean(l.timeEntryId))} options={codingOptions} pricesIncludeVat={taxMode === 'inclusive'}
                   {...(vatMode === 'none' ? {} : { vatTypes: types, vatDate: form.invoiceDate, vatWarning: lineVatWarning(customer.defaults?.vatType, types) })} />
                 {wip.note && <p className="px-5 pb-3 text-xs text-amber-800 dark:text-amber-300">{wip.note}</p>}

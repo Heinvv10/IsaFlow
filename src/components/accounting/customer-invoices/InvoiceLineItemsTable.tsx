@@ -17,7 +17,7 @@
  * edits them. The page also loads the picker options
  * (useInvoiceLineCodingOptions), which its own header Project picker shares.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { Plus, Trash2, SlidersHorizontal, Tags } from 'lucide-react';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { CodingOption, InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
@@ -77,6 +77,8 @@ interface Props {
   /** Muted note saying the lines' VAT type came from the customer; a warning when the customer and the lines disagree. */
   vatHint?: string;
   vatWarning?: string;
+  /** The settings row ("Amounts are", currency: InvoiceSettingsRow), shown under the Line Items header. */
+  settings?: ReactNode;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -122,7 +124,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 
 export function InvoiceLineItemsTable({
   lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, accountHint, billsTimeEntry,
-  vatTypes, vatDate = '', vatHint, vatWarning,
+  vatTypes, vatDate = '', vatHint, vatWarning, settings,
 }: Props) {
   const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
   // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
@@ -149,6 +151,7 @@ export function InvoiceLineItemsTable({
           <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
+      {settings}
       {discountHint && <p className="px-5 pt-3 text-xs text-gray-600 dark:text-gray-400">{discountHint}</p>}
       {accountHint && <p role="status" className="px-5 pt-3 text-xs text-amber-700 dark:text-amber-400">{accountHint}</p>}
       {/* Always mounted: a status region announces a change only if it was in the page before the change. */}
