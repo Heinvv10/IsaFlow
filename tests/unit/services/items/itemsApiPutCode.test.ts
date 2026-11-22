@@ -54,6 +54,22 @@ describe('items PUT code', () => {
     expect(updateItem).not.toHaveBeenCalled();
   });
 
+  it('refuses a code that is not text (null would be stored as "null")', async () => {
+    const res = await put({ id: ID, code: null });
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Item code must be text');
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses a code over 50 characters (the column limit)', async () => {
+    const res = await put({ id: ID, code: 'X'.repeat(51) });
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('at most 50 characters');
+    expect(updateItem).not.toHaveBeenCalled();
+    const ok = await put({ id: ID, code: ` ${'X'.repeat(50)} ` });
+    expect(ok.statusCode).toBe(200);
+  });
+
   it('leaves the code out of the update when the body has none', async () => {
     await put({ id: ID, description: 'x' });
     const input = vi.mocked(updateItem).mock.calls[0][1];

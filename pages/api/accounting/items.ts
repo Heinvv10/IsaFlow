@@ -126,9 +126,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!exists) return apiResponse.notFound(res, 'Item', id);
 
     if (body.code !== undefined) {
-      const newCode = String(body.code).trim();
+      if (typeof body.code !== 'string') {
+        return apiResponse.validationError(res, { code: 'Item code must be text' });
+      }
+      const newCode = body.code.trim();
       if (!newCode) {
         return apiResponse.validationError(res, { code: 'Item code cannot be blank' });
+      }
+      if (newCode.length > 50) {
+        return apiResponse.validationError(res, { code: 'Item code must be at most 50 characters' });
       }
       const isDupe = await checkCodeDuplicate(companyId, newCode, id);
       if (isDupe) {

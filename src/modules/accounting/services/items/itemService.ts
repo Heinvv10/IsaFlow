@@ -184,13 +184,13 @@ export async function checkCodeDuplicate(
   if (excludeId) {
     const rows = await sql`
       SELECT id FROM items
-      WHERE company_id = ${companyId} AND code = ${code} AND id != ${excludeId}
+      WHERE company_id = ${companyId} AND btrim(code) = ${code} AND id != ${excludeId}
       LIMIT 1
     ` as Row[];
     return rows.length > 0;
   }
   const rows = await sql`
-    SELECT id FROM items WHERE company_id = ${companyId} AND code = ${code} LIMIT 1
+    SELECT id FROM items WHERE company_id = ${companyId} AND btrim(code) = ${code} LIMIT 1
   ` as Row[];
   return rows.length > 0;
 }
