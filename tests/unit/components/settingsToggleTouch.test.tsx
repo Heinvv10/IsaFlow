@@ -1,24 +1,26 @@
-// The shared settings Toggle: a 44px tap area on phones without changing its layout box; desktop untouched.
+// The shared settings Toggle: its row is a 44px tap target on phones (the label wraps the switch, so a tap anywhere
+// on the row toggles it); desktop untouched. A row, not an oversized hit box, so stacked toggles never overlap.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Toggle } from '@/components/accounting/settings/settingsTypes';
 
 afterEach(cleanup);
-const classes = (el: HTMLElement) => el.className.split(/\s+/);
+const classes = (el: Element | null) => (el?.className ?? '').split(/\s+/);
 
 describe('Toggle touch target', () => {
-  it('extends the switch hit area to 44px below lg with a pseudo-element, not by resizing it', () => {
+  it('makes the row 44px high below lg: 20px switch + 2 x py-3', () => {
     render(<Toggle checked={false} onChange={vi.fn()} label="Enabled" />);
-    const sw = screen.getByRole('switch');
-    // h-5 (20px) + 2 * 12px = 44px tall; w-9 (36px) + 2 * 4px = 44px wide. The switch itself keeps h-5 w-9.
-    for (const c of ['max-lg:before:absolute', 'max-lg:before:-inset-y-3', 'max-lg:before:-inset-x-1']) expect(classes(sw)).toContain(c);
-    expect(classes(sw)).toEqual(expect.arrayContaining(['relative', 'h-5', 'w-9']));
+    const row = screen.getByRole('switch').closest('label');
+    expect(classes(row)).toContain('max-lg:py-3');
+    expect(classes(screen.getByRole('switch'))).toEqual(expect.arrayContaining(['h-5', 'w-9']));
   });
 
-  it('adds nothing for desktop', () => {
+  it('keeps the desktop row: py-1 and no unscoped extra padding or pseudo-element', () => {
     render(<Toggle checked onChange={vi.fn()} label="Enabled" />);
-    const extra = classes(screen.getByRole('switch')).filter(c => c.includes('before:') && !c.startsWith('max-lg:'));
-    expect(extra).toEqual([]);
+    const row = screen.getByRole('switch').closest('label');
+    expect(classes(row)).toContain('py-1');
+    expect(classes(row).filter(c => /^(py-[2-9]|lg:|min-h-)/.test(c))).toEqual([]);
+    expect(classes(screen.getByRole('switch')).filter(c => c.includes('before:'))).toEqual([]);
   });
 
   it('still toggles from the switch and from its label text', () => {

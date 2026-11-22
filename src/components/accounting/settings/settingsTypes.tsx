@@ -208,7 +208,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }
   ariaLabel?: string;
 }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer py-1">
+    <label className="flex items-center gap-3 cursor-pointer py-1 max-lg:py-3">
       <button
         type="button"
         role="switch"
@@ -216,7 +216,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }
         aria-label={ariaLabel || undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-3 ${checked ? 'bg-brand-600' : 'bg-gray-600'}`}
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${checked ? 'bg-brand-600' : 'bg-gray-600'}`}
       >
         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform mt-0.5 ${checked ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}`} />
       </button>
