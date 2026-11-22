@@ -38,6 +38,7 @@ import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccount
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { settleByContraTool } from '@/lib/mcp/tools/writeSettleByContra';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
+import { bindRequestTx } from '../../helpers/boundRequestTx';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const USER = '99999999-9999-4999-8999-999999999999';
@@ -62,6 +63,7 @@ const PAYLOAD = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  bindRequestTx(COMPANY);
   vi.mocked(mayApprove).mockResolvedValue(true);
   vi.mocked(agentNewSupplierPaymentRefusal).mockResolvedValue(null);
   vi.mocked(assertContraAccountUsable).mockResolvedValue({
@@ -106,7 +108,7 @@ describe('settle_by_contra payloads', () => {
   it('a refusal the service raises after the tool\'s own reads passed (a lost race) is a toolError, not a throw', async () => {
     vi.mocked(assertContraAccountUsable)
       .mockResolvedValueOnce({ accountId: CONTRA, accountCode: '2400', accountName: 'Loan', accountType: 'liability' })
-      .mockRejectedValueOnce(new Error('2400 Loan is deactivated.'));
+      .mockRejectedValueOnce(Object.assign(new Error('2400 Loan is deactivated.'), { code: 'CONTRA_SETTLEMENT_REFUSED' }));
     const r = await settleByContraTool.handler(BASE, ctx());
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/deactivated/);

@@ -28,13 +28,16 @@
  * UNTIL A STORED HUMAN DECISION RECORD EXISTS, the person who creates the
  * payment IS the approver: `actor.userId` must equal `actor.approverUserId`, and
  * that one id must hold the Approve permission. A caller cannot name someone
- * else as approver on that person's behalf. `actor.postingAgent` must carry a
- * machine prefix (mcp:, ai:, system:, rule:): it labels the journal's author
- * and may not impersonate a person.
+ * else as approver on that person's behalf. `actor.postingAgent` must be
+ * `mcp:` or `system:` plus a short [a-z0-9_.:-] label: it labels the journal's
+ * author and may not read as a person.
  *
- * ATOMIC. The writes run in one savepoint, so a throw after the payment was
- * created (or approved) leaves no draft or approved contra payment behind for a
- * caller that catches the error and commits.
+ * ATOMIC, INSIDE A BOUND TRANSACTION ONLY. The writes run in one savepoint, so a
+ * throw after the payment was created (or approved) leaves no draft or approved
+ * contra payment behind for a caller that catches the error and commits. That
+ * holds only when a request or receiver transaction is bound (`als`); without
+ * one `withSavepoint` is a plain call and each write commits alone, so the
+ * service refuses to run unbound (an untagged programming error).
  */
 
 import { getSystemAccount } from '../gl/systemAccountResolver';
@@ -42,6 +45,8 @@ import { agentNewSupplierPaymentRefusal } from '../gl/approvalUnattended';
 import { ApprovePermissionError, mayApprove } from './approvePermission';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { withSavepoint } from '@/lib/neon';
+import { als } from '@/lib/als';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
 import {
   assertContraAccountUsable,
@@ -117,14 +122,20 @@ export function isContraPreWriteRefusal(err: unknown): err is ContraSettlementRe
   return typeof err === 'object' && err !== null && preWriteRefusals.has(err);
 }
 
-/** A guard's own refusal: no `code`, or one of this codebase's refusal codes. Anything else (40P01, 57014, a lost connection) is not a refusal. */
+/**
+ * A guard's own refusal: an error carrying one of this codebase's refusal codes (the contra guards'
+ * CONTRA_SETTLEMENT_REFUSED, a foreign-currency refusal), or the resolver's missing-role error. A codeless
+ * error (a dropped connection, a TypeError) and a driver code (40P01, 57014) are NOT refusals.
+ */
 function isGuardRefusal(err: unknown): err is Error {
+  if (err instanceof MissingSystemAccountError) return true;
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: unknown }).code;
-  return code === undefined || (typeof code === 'string' && REFUSAL_CODES.has(code));
+  return typeof code === 'string' && REFUSAL_CODES.has(code);
 }
 
-const MACHINE_AGENT = /^(mcp|ai|system|rule):\S/;
+/** A machine author only: ai:/rule: read as a person in the audit trail. Anchored both ends; no control characters. */
+const MACHINE_AGENT = /^(mcp|system):[a-z0-9_.:-]{1,80}$/;
 
 /**
  * Read and validate everything a settlement depends on. READ-ONLY. Throws the
@@ -183,13 +194,22 @@ export async function settleDocumentByContra(
   if (!Number.isFinite(amount) || amount <= 0 || !hasWholeCents(amount)) {
     return refuse(new ContraSettlementRefusal(`amount must be a positive number of whole cents (${amount})`));
   }
+  if (typeof p.reason !== 'string' || p.reason.trim() === '') {
+    return refuse(new ContraSettlementRefusal('reason is required: a contra settlement moves a debt without cash, and the record has to say why.'));
+  }
   if (typeof actor.postingAgent !== 'string' || !MACHINE_AGENT.test(actor.postingAgent)) {
-    return refuse(new ContraSettlementRefusal('postingAgent must carry a machine prefix (mcp:, ai:, system:, rule:)'));
+    return refuse(new ContraSettlementRefusal('postingAgent must be "mcp:" or "system:" followed by a short lower-case label'));
   }
   if (!actor.userId || actor.userId !== actor.approverUserId) {
     return refuse(new ContraSettlementRefusal(
       'the person who creates a contra settlement must be the one who approves it: no stored approval decision exists yet to act on someone else\'s behalf',
     ));
+  }
+  // Programming errors, not refusals (untagged): the writes below are atomic only inside a bound transaction of this company.
+  const store = als.getStore();
+  if (!store?.client) throw new Error('settleDocumentByContra needs a request or receiver transaction');
+  if (store.companyId !== undefined && store.companyId !== companyId) {
+    throw new Error('settleDocumentByContra: the bound transaction belongs to another company');
   }
   // Round 4 / #1656: the approver is asked here, so no caller can record one who may not approve.
   if (subledger === 'ar') {

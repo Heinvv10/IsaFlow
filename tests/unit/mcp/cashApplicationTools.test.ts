@@ -82,6 +82,7 @@ import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccount
 import { applyPaymentToSupplierInvoiceTool } from '@/lib/mcp/tools/writeApplySupplierPayment';
 import { settleByContraTool } from '@/lib/mcp/tools/writeSettleByContra';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
+import { bindRequestTx } from '../../helpers/boundRequestTx';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const SUPPLIER = '22222222-2222-4222-8222-222222222222';
@@ -208,6 +209,9 @@ describe('apply_payment_to_supplier_invoice', () => {
 });
 
 describe('settle_by_contra', () => {
+  // The posting service refuses to run outside a bound request transaction.
+  beforeEach(() => { bindRequestTx(COMPANY); });
+
   const CONTRA_OK = {
     accountId: CONTRA, accountCode: '2400', accountName: 'Loan — Director', accountType: 'liability',
   };
