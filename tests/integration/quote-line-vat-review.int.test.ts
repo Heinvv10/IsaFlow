@@ -107,6 +107,18 @@ describeIfDisposable('per-line VAT on quotes, review round 1', () => {
     expect(await lines(twins)).toEqual(before);
   });
 
+  it('round 3: twins standard + exempt saved notes-only (resent unchanged, no ids) keep their types; a new "Fee" above the re-priced exempt one is a 400', async () => {
+    const id = await create([{ description: 'W', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'W', quantity: 1, unitPrice: 100, vatType: 'exempt' }]);
+    const r = await put(id, [{ description: 'W', quantity: 1, unitPrice: 100 }, { description: 'W', quantity: 1, unitPrice: 100 }], { notes: 'n' });
+    expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(200);
+    expect((await lines(id)).map((l) => l.vat_type)).toEqual(['standard', 'exempt']);
+    const fee = await create([{ description: 'Fee', quantity: 1, unitPrice: 50, vatType: 'exempt' }]);
+    const before = await lines(fee);
+    const refused = await put(fee, [{ description: 'Fee', quantity: 1, unitPrice: 10 }, { description: 'Fee', quantity: 1, unitPrice: 60 }]);
+    expect(refused.state.statusCode).toBe(400);
+    expect(await lines(fee)).toEqual(before);
+  });
+
   it('a quote dated 2018-03-31 (14%) converts at today\'s 15% and the response says so', async () => {
     const id = await create([{ description: 'Backdated', quantity: 1, unitPrice: 100, vatType: 'standard' }], { quoteDate: '2018-03-31' });
     expect(await head(id)).toMatchObject({ tax: 14, total: 114 });
