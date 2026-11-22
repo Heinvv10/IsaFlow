@@ -52,15 +52,19 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 OC: the month's regular run, the bonus components, the new off-cycle run and its employees
   'regularId', 'componentIds', 'String(run.id)', 'e.employeeId', 'e.componentId ?? null',
-  // wave 6 OC (review L3 of 819c2861c0): the pending approval request cancel locks and re-reads
-  'requestId',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
-const unlistedUuidBinds = (line: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
-  .map((m) => m[1]!.trim()).filter((expr) => !NON_ACTOR_UUID_BINDS.has(expr));
+/** Non-actor uuid binds allowed in ONE file only (review L-b of 87708dc593): a generic name stays an actor suspect elsewhere. */
+const NON_ACTOR_UUID_BINDS_IN_FILE: Readonly<Record<string, ReadonlySet<string>>> = {
+  // wave 6 OC (review L3 of 819c2861c0): the pending approval request cancel locks and re-reads
+  'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts': new Set(['requestId']),
+};
+const unlistedUuidBinds = (line: string, file?: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
+  .map((m) => m[1]!.trim())
+  .filter((expr) => !NON_ACTOR_UUID_BINDS.has(expr) && !(file && NON_ACTOR_UUID_BINDS_IN_FILE[file]?.has(expr)));
 
 /** file -> line -> exact trimmed text of every actor-column line in a file that names one of the tables. */
 const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
@@ -196,7 +200,7 @@ function trackedFiles(): string[] {
     .split('\n').filter((f) => /\.tsx?$/.test(f));
 }
 const lines = (f: string) => readFileSync(resolve(ROOT, f), 'utf8').split('\n');
-const castsActorToUuid = (line: string) => ACTOR_UUID_CAST.some((re) => re.test(line)) || unlistedUuidBinds(line).length > 0;
+const castsActorToUuid = (line: string, file?: string) => ACTOR_UUID_CAST.some((re) => re.test(line)) || unlistedUuidBinds(line, file).length > 0;
 
 describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa census)', () => {
   const found: Record<string, Record<number, string>> = {};
@@ -206,7 +210,7 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     if (!TABLE.test(stripped)) continue;
     stripped.split('\n').forEach((l, i) => {
       if (COLUMN.test(l)) (found[f] ??= {})[i + 1] = l.trim();
-      if (castsActorToUuid(l)) castLines.push(`${f}:${i + 1}`);
+      if (castsActorToUuid(l, f)) castLines.push(`${f}:${i + 1}`);
     });
   }
 
@@ -233,6 +237,10 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     expect(castsActorToUuid('VALUES (${companyId}::uuid, ${actor}::uuid)')).toBe(true);
     expect(castsActorToUuid('VALUES (${companyId}::uuid, ${runId}::uuid, ${actor})')).toBe(false);
     expect(castsActorToUuid('WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid')).toBe(false);
+    // A file-scoped non-actor bind is allowed in its file only.
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts')).toBe(false);
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleRun.ts')).toBe(true);
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid')).toBe(true);
     expect(castsActorToUuid('prepared_by::text AS prepared_by')).toBe(false);
     expect(TABLE.test(code('// payroll_run_headers in a comment only'))).toBe(false);
   });
