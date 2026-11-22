@@ -14,7 +14,7 @@ import { FieldFrame, describedBy } from './FieldFrame';
 import type { FieldHelpContent } from './FieldHelp';
 import { useParsedField, type FieldValidity, type ParseOutcome } from './useParsedField';
 import { MonthPopup } from './MonthPopup';
-import { addMonths, formatMonth, parseMonth } from '@/lib/monthParser';
+import { addMonths, clampMonth, formatMonth, parseMonth } from '@/lib/monthParser';
 import { todayInSast } from '@/lib/saDateParser';
 
 export type MonthFieldCode = 'empty' | 'unreadable' | 'before-min' | 'after-max';
@@ -95,9 +95,9 @@ export const MonthField = React.forwardRef<HTMLInputElement, MonthFieldProps>(fu
 
   /** One month up or down from the month on screen (or from this month when empty). Unreadable text is left alone. */
   const step = (months: number): boolean => {
-    if (field.text.trim() === '') { field.commit(formatMonth(thisMonth)); return true; }
+    if (field.text.trim() === '') { field.commit(formatMonth(clampMonth(thisMonth, minMonth, maxMonth))); return true; }
     if (!understood?.ok) return false;
-    field.commit(formatMonth(addMonths(understood.ym, months)));
+    field.commit(formatMonth(clampMonth(addMonths(understood.ym, months), minMonth, maxMonth)));
     return true;
   };
 

@@ -12,10 +12,18 @@ describe('PeriodControl', () => {
     const onChange = vi.fn();
     render(<PeriodControl from="2026-06-01" to="2026-06-30" onChange={onChange} />);
     expect(screen.getByRole('combobox', { name: 'Invoice date period' }).textContent).toBe('Month');
-    expect(screen.getByLabelText('Invoice month')).toHaveProperty('value', 'Jun 2026');
+    expect(screen.getByRole('textbox', { name: /Invoice month/ })).toHaveProperty('value', 'Jun 2026');
 
-    typeMonth(screen.getByLabelText('Invoice month'), '2028-02');
+    typeMonth(screen.getByRole('textbox', { name: /Invoice month/ }), '2028-02');
     expect(onChange).toHaveBeenLastCalledWith('2028-02-01', '2028-02-29');
+  });
+
+  it('an emptied month box says so instead of silently keeping the old month', () => {
+    const onChange = vi.fn();
+    render(<PeriodControl from="2026-06-01" to="2026-06-30" onChange={onChange} />);
+    typeMonth(screen.getByRole('textbox', { name: /Invoice month/ }), '');
+    expect(screen.getByRole('alert').textContent).toMatch(/Enter a month/);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('a partial range opens as a custom range with both bounds editable', () => {

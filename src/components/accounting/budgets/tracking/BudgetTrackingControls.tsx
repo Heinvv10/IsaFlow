@@ -76,7 +76,7 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       </div>
       {c.period === 'month' && (
         <div>
-          <MonthField id="bva-month" data-testid="bva-month" label="Month" value={c.month || p.today}
+          <MonthField id="bva-month" data-testid="bva-month" label="Month" required value={c.month || p.today}
             onChange={(ym) => { if (ym) update({ month: ym }); }} className="w-40" />
         </div>
       )}
@@ -106,11 +106,11 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       {c.period === 'custom' && (
         <>
           <div>
-            <MonthField id="bva-from" data-testid="bva-from" label="From month" value={c.from}
+            <MonthField id="bva-from" data-testid="bva-from" label="From month" required value={c.from}
               onChange={(ym) => { if (ym) update({ from: ym }); }} className="w-40" />
           </div>
           <div>
-            <MonthField id="bva-to" data-testid="bva-to" label="To month" value={c.to}
+            <MonthField id="bva-to" data-testid="bva-to" label="To month" required value={c.to}
               invalid={p.problem !== null} describedById={p.problem ? 'bva-range-error' : undefined}
               onChange={(ym) => { if (ym) update({ to: ym }); }} className="w-40" />
           </div>

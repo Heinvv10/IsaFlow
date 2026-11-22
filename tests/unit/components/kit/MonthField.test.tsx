@@ -209,6 +209,40 @@ describe('MonthField bounds on the shortcut buttons', () => {
   });
 });
 
+describe('MonthField review fixes', () => {
+  it('clicking a disabled month then pressing Enter picks nothing', () => {
+    render(<Harness initial="2026-03" maxMonth="2026-06" />);
+    fireEvent.click(openBtn());
+    const aug = cell('2026-08');
+    fireEvent.focus(aug); fireEvent.click(aug);
+    expect(cell('2026-03').tabIndex).toBe(0); // the roving stop did not move onto the disabled month
+    expect(aug.tabIndex).toBe(-1);
+    fireEvent.keyDown(screen.getByRole('grid'), { key: 'Enter' });
+    expect(out()).toBe('2026-03'); // Enter picked the month that still has the roving stop, never August
+  });
+  it('ArrowUp / ArrowDown stay inside min / max, and an empty box starts from the nearest allowed month', () => {
+    const { unmount } = render(<Harness initial="2026-06" maxMonth="2026-06" minMonth="2026-01" />);
+    input().focus();
+    fireEvent.keyDown(input(), { key: 'ArrowUp' }); expect(out()).toBe('2026-06');
+    unmount();
+    render(<Harness maxMonth="2026-06" />); // this month (Nov 2026) is past the max
+    input().focus();
+    fireEvent.keyDown(input(), { key: 'ArrowUp' }); expect(out()).toBe('2026-06');
+  });
+  it('a different value from the parent replaces refused text on screen', () => {
+    const { rerender } = render(<MonthField label="Period" value="2026-03" getToday={NOW} onChange={() => {}} />);
+    type('abc');
+    expect(input().value).toBe('abc');
+    rerender(<MonthField label="Period" value="2026-07" getToday={NOW} onChange={() => {}} />);
+    expect(input().value).toBe('Jul 2026');
+  });
+  it('a hidden label is still the accessible name and leaves no gap row', () => {
+    render(<MonthField label="Period" labelHidden value={null} getToday={NOW} onChange={() => {}} />);
+    expect(screen.getByRole('textbox', { name: 'Period' })).toBeTruthy();
+    expect(screen.getByText('Period').closest('div')?.className).toContain('sr-only');
+  });
+});
+
 describe('MonthField accessibility (axe)', () => {
   it('has no violations closed or open', async () => {
     const run = async (ctx: Element | Document) => (await axe.run(ctx as Element, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } } })).violations;

@@ -98,7 +98,7 @@ export default function NewPayrollRunPage() {
             <Select label="Pay frequency" options={FREQUENCIES} value={frequency}
               onChange={v => { if (v) { setFrequency(v as Frequency); setError(''); } }} />
             {frequency === 'monthly' ? (
-              <MonthField label="Month" required value={payMonth} onChange={ym => setPayMonth(ym)} />
+              <MonthField label="Month" required minMonth="2000-01" maxMonth="2100-12" value={payMonth} onChange={ym => setPayMonth(ym)} />
             ) : (
               <RunPeriodPicker frequency={frequency} value={periodStart} onChange={setPeriodStart} />
             )}

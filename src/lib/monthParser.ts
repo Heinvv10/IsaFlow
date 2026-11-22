@@ -44,7 +44,10 @@ export function parseMonth(input: string, now: Date = new Date()): MonthParseRes
   const mmyyyy = /^(\d{1,2})[-/. ]+(\d{4})$/.exec(text);
   if (mmyyyy) return build(Number(mmyyyy[2]), Number(mmyyyy[1]));
   const packed = /^(\d{2})(\d{4})$/.exec(text);
-  if (packed) return build(Number(packed[2]), Number(packed[1]));
+  if (packed) {
+    // mmyyyy (032026), else yyyymm (202603) when the first two digits cannot be a month
+    return Number(packed[1]) <= 12 ? build(Number(packed[2]), Number(packed[1])) : build(Number(`${packed[1]}${packed[2]?.slice(0, 2)}`), Number(packed[2]?.slice(2)));
+  }
 
   const named = /^([a-z]+)\.?(?:[-/ ]*(\d{4}|\d{2}))?$/.exec(text);
   if (named) {

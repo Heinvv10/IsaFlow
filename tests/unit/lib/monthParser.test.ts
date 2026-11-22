@@ -12,6 +12,8 @@ describe('parseMonth', () => {
     expect(ok('3-2026')).toBe('2026-03');
     expect(ok('3 2026')).toBe('2026-03');
     expect(ok('032026')).toBe('2026-03');
+    expect(ok('202603')).toBe('2026-03');
+    expect(ok('122026')).toBe('2026-12');
   });
   it('reads month names in English and Afrikaans, with a year or without', () => {
     expect(ok('Mar 2026')).toBe('2026-03');

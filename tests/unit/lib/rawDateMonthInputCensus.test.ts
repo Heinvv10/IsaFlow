@@ -20,8 +20,13 @@ export const ALLOWED: Readonly<Record<string, string>> = {
 };
 
 const FORBIDDEN = 'date|month|week|time|datetime-local';
-/** type="month", type='month', type={'month'}, type={"month"}, type: 'month', createElement('input', { type: `month` }). */
-export const RAW_INPUT_TYPE = new RegExp(`\\btype\\s*[=:]\\s*\\{?\\s*['"\`](?:${FORBIDDEN})['"\`]`);
+/**
+ * type="month", type='month', type={'month'}, type: 'month', createElement('input', { type: `month` }), and a quoted
+ * forbidden type anywhere inside type={...} (a ternary: type={kind === 'month' ? 'month' : 'text'}). Case-insensitive.
+ */
+export const RAW_INPUT_TYPE = new RegExp(
+  `\\btype\\s*[=:]\\s*(?:\\{[^}\\n]*['"\`](?:${FORBIDDEN})['"\`]|['"\`](?:${FORBIDDEN})['"\`])`, 'i',
+);
 
 export function rawInputLines(source: string): number[] {
   return source.split('\n').flatMap((line, i) => {
@@ -42,7 +47,11 @@ describe('raw date / month inputs', () => {
     expect(rawInputLines('a\n<input\n  type="month"\n/>')).toEqual([3]);
     expect(rawInputLines(' * an `<input type="date">` renders')).toEqual([]);
     expect(rawInputLines('// <input type="month">')).toEqual([]);
+    expect(rawInputLines("<input type={col.kind === 'month' ? 'month' : 'text'} />")).toEqual([1]);
+    expect(rawInputLines('<input type={isDate ? "date" : "text"} />')).toEqual([1]);
+    expect(rawInputLines('<input type="Date" />')).toEqual([1]);
     expect(rawInputLines('<input type="text" /><input type="number" />')).toEqual([]);
+    expect(rawInputLines("<input type={kind} placeholder='month' />")).toEqual([]);
     expect(rawInputLines('<MonthField label="x" />')).toEqual([]);
   });
 

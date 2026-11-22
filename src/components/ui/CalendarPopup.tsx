@@ -37,7 +37,7 @@ const PANEL_HEIGHT = 360;
 const PANEL_WIDTH = 288;
 const HINT = 'Type 15 or 15/3 or 15/03/2026 · t today · +30 days · eom month end';
 const selectClass = 'h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 ff-focus-ring dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100';
-const navClass = 'inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
+const navClass = 'inline-flex h-9 w-9 max-lg:h-11 max-lg:w-11 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
 
 const ymOf = (iso: string): YearMonth => {
   const [y, m] = iso.split('-').map(Number) as [number, number];
@@ -150,7 +150,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                     aria-disabled={disabled || undefined}
                     tabIndex={iso === focusIso ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(iso); }}
-                    onFocus={() => { grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}
+                    onFocus={() => { if (disabled) return; grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}
                     className={cn(
                       cellSize, 'cursor-pointer rounded-md ff-focus-ring tabular-nums hover:bg-gray-100 dark:hover:bg-gray-700',
                       !inMonth && 'text-ink-muted',
@@ -168,8 +168,8 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
         </tbody>
       </table>
       <div className="flex items-center justify-between gap-2">
-        <button type="button" disabled={todayOff} onClick={() => onPick(today)} className="h-9 rounded-md border border-gray-300 px-3 text-sm ff-focus-ring disabled:opacity-40 dark:border-gray-600">Today</button>
-        <button type="button" onClick={() => onClose(true)} className="h-9 rounded-md px-3 text-sm text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
+        <button type="button" disabled={todayOff} onClick={() => onPick(today)} className="h-9 rounded-md border border-gray-300 px-3 text-sm max-lg:h-11 ff-focus-ring disabled:opacity-40 dark:border-gray-600">Today</button>
+        <button type="button" onClick={() => onClose(true)} className="h-9 rounded-md px-3 text-sm max-lg:h-11 text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
       </div>
       <p className="text-xs text-gray-600 dark:text-gray-400">{HINT}</p>
     </div>

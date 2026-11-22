@@ -93,7 +93,7 @@ export function FilterBar({
 
         {filters.datePreset === 'month' && (
           <MonthField
-            label="Invoice month" labelHidden name="month" value={wholeMonthOf(filters.fromDate, filters.toDate)}
+            label="Invoice month" labelHidden required name="month" value={wholeMonthOf(filters.fromDate, filters.toDate)}
             onChange={(ym) => { if (ym) setMonth(ym); }} className="w-40"
           />
         )}

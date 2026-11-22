@@ -30,7 +30,7 @@ const PANEL_HEIGHT = 330;
 const PANEL_WIDTH = 288;
 const HINT = 'Type Mar 2026 or 03/2026 · t this month · +1 / -1 months';
 const NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const navClass = 'inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
+const navClass = 'inline-flex h-9 w-9 max-lg:h-11 max-lg:w-11 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export function MonthPopup({ anchor, trigger, selected, start, today, minMonth, maxMonth, onPick, onClose }: MonthPopupProps) {
@@ -53,7 +53,7 @@ export function MonthPopup({ anchor, trigger, selected, start, today, minMonth, 
 
   const onGridKey = (e: KeyboardEvent<HTMLElement>): void => {
     e.stopPropagation();
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(focusYm); return; } // focus is always clamped into the bounds, so it is never on a disabled month
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!off(focusYm)) onPick(focusYm); return; }
     const col = (Number(focusYm.slice(5)) - 1) % 3;
     const step: Record<string, number> = {
       ArrowRight: 1, ArrowLeft: -1, ArrowDown: 3, ArrowUp: -3, PageDown: 12, PageUp: -12, Home: -col, End: 2 - col,
@@ -108,7 +108,7 @@ export function MonthPopup({ anchor, trigger, selected, start, today, minMonth, 
                     aria-disabled={disabled || undefined}
                     tabIndex={v === focusYm ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(v); }}
-                    onFocus={() => { grabFocus.current = true; if (v !== focusYm) setFocusYm(v); }}
+                    onFocus={() => { if (disabled) return; grabFocus.current = true; if (v !== focusYm) setFocusYm(v); }}
                     className={cn(
                       cellSize, 'cursor-pointer rounded-md ff-focus-ring hover:bg-gray-100 dark:hover:bg-gray-700',
                       v === today && 'font-bold ring-1 ring-teal-500',
@@ -125,8 +125,8 @@ export function MonthPopup({ anchor, trigger, selected, start, today, minMonth, 
         </tbody>
       </table>
       <div className="flex items-center justify-between gap-2">
-        <button type="button" disabled={off(today)} onClick={() => onPick(today)} className="h-9 rounded-md border border-gray-300 px-3 text-sm ff-focus-ring disabled:opacity-40 dark:border-gray-600">This month</button>
-        <button type="button" onClick={() => onClose(true)} className="h-9 rounded-md px-3 text-sm text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
+        <button type="button" disabled={off(today)} onClick={() => onPick(today)} className="h-9 rounded-md border border-gray-300 px-3 text-sm max-lg:h-11 ff-focus-ring disabled:opacity-40 dark:border-gray-600">This month</button>
+        <button type="button" onClick={() => onClose(true)} className="h-9 rounded-md px-3 text-sm max-lg:h-11 text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
       </div>
       <p className="text-xs text-gray-600 dark:text-gray-400">{HINT}</p>
     </div>

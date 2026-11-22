@@ -59,7 +59,7 @@ export function PeriodControl({ from, to, onChange }: Props) {
       </div>
       {mode === 'month' && (
         <MonthField
-          label="Invoice month" labelHidden name="month" value={month || null}
+          label="Invoice month" labelHidden required name="month" value={month || null}
           onChange={ym => {
             const r = ym ? monthRange(ym) : null;
             if (r) onChange(r.from, r.to);

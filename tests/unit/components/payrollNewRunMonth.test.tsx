@@ -45,6 +45,13 @@ describe('new payroll run: month', () => {
     await waitFor(() => expect(posts().length).toBe(1));
     expect(JSON.parse(posts()[0]![1].body)).toEqual({ month: 8, year: 2026 });
   });
+  it('a year the API would refuse (before 2000) is refused here, not posted', async () => {
+    render(<NewRunPage />);
+    type('mar 1999');
+    fireEvent.click(screen.getByRole('button', { name: /Create Run/ }));
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0));
+    expect(posts().length).toBe(0);
+  });
   it('refused or empty text posts nothing and says why', async () => {
     render(<NewRunPage />);
     type('zzz');

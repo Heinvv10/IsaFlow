@@ -42,7 +42,7 @@ export function FieldFrame({ id, label, labelHidden, required, error, helperText
   const ids = fieldIds(id);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
+      <div className={labelHidden && !help ? 'sr-only' : 'flex items-center gap-1.5'}>
         <label htmlFor={id} className={labelHidden ? 'sr-only' : 'text-sm font-medium text-gray-700 dark:text-gray-300'}>
           {label}
           {required && (
