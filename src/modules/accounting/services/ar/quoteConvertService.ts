@@ -96,7 +96,7 @@ export async function convertToSalesOrder(
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
   // A quote its status already refuses answers that (409, the winner's order id) before any VAT refusal.
-  if (!CONVERTIBLE_TO_ORDER.includes(quote.status) || quote.convertedInvoiceId) await refuseOrder(companyId, id, quote.status);
+  if (!CONVERTIBLE_TO_ORDER.includes(quote.status) || quote.convertedInvoiceId || quote.convertedOrderId) await refuseOrder(companyId, id, quote.status);
   // What a sales order cannot carry yet (an inclusive quote, an exempt line), refused before the claim.
   assertOrderableVat(quote);
 
@@ -172,7 +172,7 @@ export async function convertToInvoice(
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
   // A quote its status already refuses answers that (409, the winner's invoice id) before any line or VAT refusal.
-  if (quote.status !== 'accepted' || quote.convertedInvoiceId) await refuseInvoice(companyId, id, quote.status);
+  if (quote.status !== 'accepted' || quote.convertedInvoiceId || quote.convertedOrderId) await refuseInvoice(companyId, id, quote.status);
   // The lines' accounts are copied onto the invoice, and posting credits them
   // (migration 874): re-checked against the chart as it is now, before the
   // claim below writes anything. A quote saved before 874 was never checked.

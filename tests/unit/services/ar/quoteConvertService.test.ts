@@ -251,6 +251,27 @@ describe('a quote its status refuses answers 409 before any VAT refusal (the win
   });
 });
 
+describe('both conversion links are checked first: the 409 precedes any 400', () => {
+  it('convertToInvoice on an accepted quote already linked to an ORDER, with a VAT problem: QuoteNotInvoiceableError', async () => {
+    mockSql.mockReset();
+    const base = acceptedQuote();
+    mockGetQuote.mockResolvedValueOnce({ ...base, convertedOrderId: 'so-1',
+      lines: [{ ...base.lines[0]!, vatType: 'standard', taxAmount: 30 }, { ...base.lines[0]!, vatType: null, taxAmount: null }] } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'accepted', converted_invoice_id: null }] as never);
+    await expect(inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID))).rejects.toBeInstanceOf(QuoteNotInvoiceableError);
+    expect(mockSql.mock.calls.some((c) => /UPDATE|INSERT/.test(sqlTextOf(c)))).toBe(false);
+  });
+
+  it('convertToSalesOrder on an accepted inclusive quote already linked to an ORDER: QuoteNotConvertibleError with that order', async () => {
+    mockSql.mockReset();
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), convertedOrderId: 'so-2', amountsAre: 'inclusive' } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'accepted', converted_order_id: 'so-2' }] as never);
+    const err = await inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuoteNotConvertibleError);
+    expect(err).toMatchObject({ existingOrderId: 'so-2' });
+  });
+});
+
 describe('convertToSalesOrder: a typed quote with an exempt line', () => {
   it('is refused before the claim (a sales order would invoice it zero-rated)', async () => {
     mockSql.mockReset();

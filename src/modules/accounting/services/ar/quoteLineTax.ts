@@ -7,9 +7,9 @@
  *            rate, line by line: the standard rate on the quote date -> standard, 0 -> zero_rated, anything else refused;
  *            on an edit the line's stored match whose type has that rate keeps it (an exempt line resent at 0 stays
  *            exempt). A `vatType` and a `taxRate` on one quote are refused, as an invoice refuses a line type with its
- *            header rate. Else, on an edit, its stored match's type (quoteEditLines: by id, then position, then the
- *            identical line); else the default chain (the customer's zero-rated / exempt default, the item's
- *            vat_on_sales, standard).
+ *            header rate. Else, on an edit, its stored match's type (quoteEditLines: by id, then position and content;
+ *            refused, never guessed, when it cannot be told); else the default chain (the customer's zero-rated /
+ *            exempt default, the item's vat_on_sales, standard).
  *   legacy   an edit of a LEGACY quote (no line typed) that leaves every line as stored (quoteEditLines
  *            .legacyLinesUnchanged: notes, customer, expiry) keeps its lines and figures as stored, whatever rate they
  *            carry (a 14% quote stays 14%): a legacy line is never re-priced. Any other edit types the whole quote.
@@ -26,7 +26,7 @@
 import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
 import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
-import { keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, type StoredQuote, type StoredQuoteVatLine } from './quoteEditLines';
+import { keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, unmatchedVatProblem, type StoredQuote, type StoredQuoteVatLine } from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
 
@@ -85,7 +85,8 @@ export async function priceQuoteLines(companyId: string, args: {
   if (args.lines.some((l) => given(l.vatType)) && args.lines.some((l) => given(l.taxRate))) {
     throw new InvoiceLineVatRefusal('Send a vatType on each line or a taxRate, not both: the rate comes from the VAT type.');
   }
-  const matches = args.stored ? matchQuoteLines(args.lines, args.stored.lines, args.quoteDate) : undefined;
+  const matched = args.stored ? matchQuoteLines(args.lines, args.stored.lines, args.quoteDate) : undefined;
+  const matches = matched?.matches;
   if (args.stored && matches && legacyLinesUnchanged(args.lines, args.stored.lines, matches, args.amountsAre)) {
     const { subtotal, tax, total, taxRate } = args.stored;
     return {
@@ -93,6 +94,9 @@ export async function priceQuoteLines(companyId: string, args: {
       header: { subtotal, tax, total, taxRate, amountsAre: null },
     };
   }
+  // A line whose saved type cannot be told (twins of different types, or a saved exempt line it may be): asked, not guessed.
+  const unread = args.stored && matched ? unmatchedVatProblem(args.lines, args.stored.lines, matched, args.quoteDate) : null;
+  if (unread) throw new InvoiceLineVatRefusal(unread);
   const vat = await resolveQuoteVat(companyId, args.clientId, args.quoteDate, args.lines, matches && keptQuoteTypes(matches));
   const priced = priceInvoiceVat(args.lines.map((l) => ({ quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })), vat, args.quoteDate, amountsAre);
   // numeric(15,2): priceInvoiceVat leaves a line past the column unpriced and carries it into the total.

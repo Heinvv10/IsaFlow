@@ -23,7 +23,7 @@ const line = (o: Partial<QuoteLine>): QuoteLine => ({
 });
 const quote = (lines: QuoteLine[], o: Partial<Quote> = {}): Quote => ({
   id: 'q', quoteNumber: 'QUO1', clientId: null, customerName: 'Acme', quoteDate: '2026-11-11', expiryDate: null, status: 'accepted',
-  subtotal: 0, taxAmount: 0, total: 0, taxRate: 15, amountsAre: 'exclusive', notes: null, terms: null, convertedInvoiceId: null,
+  subtotal: 0, taxAmount: 0, total: 0, taxRate: 15, amountsAre: 'exclusive', notes: null, terms: null, convertedInvoiceId: null, convertedOrderId: null,
   createdAt: '', updatedAt: '', lines, ...o,
 });
 const figures = (v: Awaited<ReturnType<typeof quoteInvoiceVat>>) => ({
@@ -62,7 +62,16 @@ describe('quoteInvoiceVat, a typed quote', () => {
     const v = await quoteInvoiceVat(COMPANY_ID, q, '2018-04-01');
     expect(figures(v).head).toEqual([100, 15, 115, 15, 'exclusive']);
     expect(v.warnings).toEqual([expect.objectContaining({ code: 'QUOTE_TOTAL_CHANGED', quoteTotal: 114, invoiceTotal: 115, quoteRatePct: 14, invoiceRatePct: 15 })]);
-    expect(v.warnings[0]!.message).toMatch(/totals 115\.00, not the quote's 114\.00/);
+    expect(v.warnings[0]!.message).toMatch(/totals 115\.00, not the quote's 114\.00: VAT is charged at the rate on the invoice date/);
+  });
+
+  it('figures that differ at the same rate are said as figures, not blamed on the rate', async () => {
+    // A stored header that does not foot to its lines (nothing writes one): the invoice's are the lines'.
+    const q = quote([line({ vatType: 'standard', taxAmount: 15 })], { subtotal: 100, taxAmount: 15.5, total: 115.5 });
+    const [w] = (await quoteInvoiceVat(COMPANY_ID, q, '2026-11-22')).warnings;
+    expect(w).toMatchObject({ code: 'QUOTE_TOTAL_CHANGED', quoteTotal: 115.5, invoiceTotal: 115, quoteRatePct: 15, invoiceRatePct: 15 });
+    expect(w!.message).toMatch(/at the same VAT rate/);
+    expect(w!.message).not.toMatch(/rate on the invoice date/);
   });
 
   it('no warning when the invoice totals what the quote did', async () => {

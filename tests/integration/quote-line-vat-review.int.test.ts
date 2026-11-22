@@ -95,6 +95,18 @@ describeIfDisposable('per-line VAT on quotes, review round 1', () => {
     expect(await head(id)).toMatchObject({ subtotal: 100, tax: 0, total: 100 });
   });
 
+  it('round 2: Hosting (standard) deleted and Fee (exempt) re-priced stays exempt; a typeless line that cannot be told is a 400, nothing written', async () => {
+    const id = await create([{ description: 'Hosting', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'Fee', quantity: 1, unitPrice: 50, vatType: 'exempt' }]);
+    expect((await put(id, [{ description: 'Fee', quantity: 1, unitPrice: 60 }])).state.statusCode).toBe(200);
+    expect((await lines(id)).map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 60]]);
+    const twins = await create([{ description: 'X', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'X', quantity: 1, unitPrice: 100, vatType: 'exempt' }]);
+    const before = await lines(twins);
+    const r = await put(twins, [{ description: 'X', quantity: 1, unitPrice: 100 }]);
+    expect(r.state.statusCode).toBe(400);
+    expect((r.state.body as { error?: { details?: { code?: string } } }).error?.details?.code).toBe('INVOICE_LINE_VAT_REFUSED');
+    expect(await lines(twins)).toEqual(before);
+  });
+
   it('a quote dated 2018-03-31 (14%) converts at today\'s 15% and the response says so', async () => {
     const id = await create([{ description: 'Backdated', quantity: 1, unitPrice: 100, vatType: 'standard' }], { quoteDate: '2018-03-31' });
     expect(await head(id)).toMatchObject({ tax: 14, total: 114 });

@@ -53,7 +53,7 @@ export interface Quote {
   amountsAre: 'exclusive' | 'inclusive' | null;
   notes: string | null;
   terms: string | null;
-  convertedInvoiceId: string | null;
+  convertedInvoiceId: string | null; convertedOrderId: string | null;
   createdAt: string;
   updatedAt: string;
   lines?: QuoteLine[];
@@ -94,6 +94,7 @@ function mapQuote(r: Row): Quote {
     total: Number(r.total), taxRate: Number(r.tax_rate ?? 15),
     amountsAre: r.amounts_are === 'inclusive' || r.amounts_are === 'exclusive' ? r.amounts_are : null, notes: r.notes != null ? String(r.notes) : null, terms: r.terms != null ? String(r.terms) : null,
     convertedInvoiceId: r.converted_invoice_id != null ? String(r.converted_invoice_id) : null,
+    convertedOrderId: r.converted_order_id != null ? String(r.converted_order_id) : null,
     createdAt: String(r.created_at), updatedAt: String(r.updated_at),
   };
 }

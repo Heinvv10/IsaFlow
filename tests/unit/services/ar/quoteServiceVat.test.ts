@@ -256,6 +256,28 @@ describe('updateQuote: per-line VAT', () => {
     expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt']);
   });
 
+  it('Hosting (standard) deleted and Fee (exempt) re-priced, sent with no id or rate: Fee stays exempt', async () => {
+    world.stored = [
+      storedLine({ id: 'h', description: 'Hosting', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
+      storedLine({ id: 'f', sort_order: 2, description: 'Fee', unit_price: '50.00', amount: '50.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
+    ];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee', quantity: 1, unitPrice: 60 }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 60]]);
+  });
+
+  it('a typeless line whose saved type cannot be told (twins of different types, a renamed exempt line) is refused, nothing written', async () => {
+    world.stored = [
+      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
+      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
+    ];
+    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Widget', quantity: 1, unitPrice: 100 }] }, 'u1'))
+      .rejects.toThrow(/items\[0\] could be more than one saved line of different VAT types/);
+    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'Widget (Nov)', quantity: 1, unitPrice: 90 },
+    ] }, 'u1')).rejects.toThrow(InvoiceLineVatRefusal);
+    expect(wrote()).toBe(false);
+  });
+
   it('refuses before the first write', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'A', quantity: 1, unitPrice: 1, taxRate: 7 }] }, 'u1'))
       .rejects.toThrow(InvoiceLineVatRefusal);

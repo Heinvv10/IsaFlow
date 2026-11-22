@@ -11,7 +11,7 @@
  *   LEGACY quote (no line typed: written before 1024, or for a company not registered for VAT): the stored figures are
  *     copied as before (each line's own rate and amount, the header totals), never re-priced; the invoice is untyped.
  *   A quote with some lines typed and some not is refused: neither shape can carry it.
- * When the invoice's total is not the quote's (the rate moved), the conversion says so: `warnings` (QUOTE_TOTAL_CHANGED,
+ * When the invoice's figures are not the quote's (the rate moved, or the stored figures do not foot), the conversion says so: `warnings` (QUOTE_TOTAL_CHANGED,
  * both totals and both standard rates), which the convert response carries to the caller.
  *
  * assertOrderableVat: what a sales order (no amounts_are, no line VAT type yet) cannot carry, refused before its claim.
@@ -108,8 +108,13 @@ export async function quoteInvoiceVat(companyId: string, quote: Quote, invoiceDa
     }, 'quoteInvoiceVat');
     warnings.push({
       code: 'QUOTE_TOTAL_CHANGED', quoteTotal: quote.total, invoiceTotal: total, quoteRatePct, invoiceRatePct,
-      message: `The invoice totals ${total.toFixed(2)}, not the quote's ${quote.total.toFixed(2)}: VAT is charged at the rate on the `
-        + `invoice date ${invoiceDate} (${invoiceRatePct ?? '?'}%), not the quote's ${quote.quoteDate} (${quoteRatePct ?? '?'}%). Check the draft before sending it.`,
+      // Said by what moved: the standard rate between the two dates, else the figures themselves (the rate is the same).
+      message: quoteRatePct !== invoiceRatePct
+        ? `The invoice totals ${total.toFixed(2)}, not the quote's ${quote.total.toFixed(2)}: VAT is charged at the rate on the `
+          + `invoice date ${invoiceDate} (${invoiceRatePct ?? '?'}%), not the quote's ${quote.quoteDate} (${quoteRatePct ?? '?'}%). Check the draft before sending it.`
+        : `The invoice totals ${total.toFixed(2)}, not the quote's ${quote.total.toFixed(2)}: its lines priced to other figures than the `
+          + `quote stored (subtotal ${subtotal.toFixed(2)} and VAT ${tax.toFixed(2)}, quoted ${quote.subtotal.toFixed(2)} and ${quote.taxAmount.toFixed(2)}), `
+          + 'at the same VAT rate. Check the draft before sending it.',
     });
   }
   return {
