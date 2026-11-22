@@ -35,6 +35,8 @@ describe('Customer receipts on touch', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons.length).toBeGreaterThanOrEqual(7); // Export, Record Payment, 5 tabs
     for (const b of buttons) expect(b.className, b.textContent ?? '').toContain('max-lg:min-h-11');
+    // Five tabs are wider than a phone: the row wraps instead of clipping the last one.
+    expect(screen.getByRole('button', { name: /^All$/ }).parentElement!.className).toContain('max-lg:flex-wrap');
     const search = container.querySelector('input')!;
     expect(search.className).toContain('max-lg:min-h-11');
     expect(search.className).toContain('max-lg:w-full');
