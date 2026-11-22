@@ -46,8 +46,8 @@ const STATUS_META: Record<CardStatus, { label: string; tone: StatusTone; iconCol
 function NoAccessTile({ title }: { title: string }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4 h-full" data-testid="no-access-tile">
-      <h3 className="text-sm font-medium text-zinc-400">{title}</h3>
-      <p className="mt-3 text-sm text-zinc-500">No access. You do not have Payroll access in this company.</p>
+      <h3 className="text-sm font-medium text-ink-muted">{title}</h3>
+      <p className="mt-3 text-sm text-ink-faint">No access. You do not have Payroll access in this company.</p>
     </div>
   );
 }
