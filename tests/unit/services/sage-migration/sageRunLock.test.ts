@@ -1,21 +1,23 @@
 /** R2 (round 4): one Sage migration per company at a time. */
 import { describe, expect, it, vi } from 'vitest';
-import { acquireRunLock, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
+import { EventEmitter } from 'node:events';
+import { acquireRunLock, LockLostError, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 
-function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean } = {}) {
+function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean; checkFails?: boolean } = {}) {
   const calls: string[] = [];
-  const client = {
+  const client = Object.assign(new EventEmitter(), {
     query: vi.fn(async (text: string) => {
-      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : 'unlock');
+      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('SELECT 1') ? 'check' : 'unlock');
       if (text.includes('pg_try_advisory_lock')) { if (over.lockThrows) throw new Error('lock query failed'); return { rows: [{ ok: over.ok ?? true }] }; }
-      if (over.unlockFails) throw new Error('unlock failed');
+      if (text.includes('SELECT 1') && over.checkFails) throw new Error('Connection terminated');
+      if (over.unlockFails && text.includes('unlock')) throw new Error('unlock failed');
       return { rows: [{}] };
     }),
     release: vi.fn(),
-  };
+  });
   return { pool: { connect: vi.fn(async () => client) } as never, client, calls };
 }
 
@@ -32,7 +34,7 @@ describe('migrationLockKey', () => {
 describe('acquireRunLock', () => {
   it('takes the lock on a connection of its own, and the release function unlocks and returns the connection', async () => {
     const { pool, client, calls } = fakePool();
-    const release = await acquireRunLock(pool, A);
+    const { release } = await acquireRunLock(pool, A);
     expect(calls).toEqual(['lock']);
     expect(client.release).not.toHaveBeenCalled(); // held for the whole run
     await release();
@@ -52,8 +54,36 @@ describe('acquireRunLock', () => {
   });
   it('an unlock that fails destroys the connection (which drops the lock) instead of pooling it with the lock on', async () => {
     const { pool, client } = fakePool({ unlockFails: true });
-    const release = await acquireRunLock(pool, A);
+    const { release } = await acquireRunLock(pool, A);
     await release();
     expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ message: 'unlock failed' }));
+  });
+});
+
+describe('the lock connection is watched (M2, round 5)', () => {
+  it('an error event on the idle lock connection is recorded, not thrown into the process; the next check says the lock is lost', async () => {
+    const { pool, client } = fakePool();
+    const { check } = await acquireRunLock(pool, A);
+    await expect(check()).resolves.toBeUndefined();
+    expect(() => client.emit('error', new Error('terminating connection due to administrator command'))).not.toThrow(); // an EventEmitter with no listener throws
+    await expect(check()).rejects.toThrow(LockLostError);
+    await expect(check()).rejects.toThrow(/lock lost.*terminating connection/s);
+  });
+  it('a connection whose probe query fails is a lost lock too', async () => {
+    const { pool } = fakePool({ checkFails: true });
+    const { check } = await acquireRunLock(pool, A);
+    await expect(check()).rejects.toThrow(/lock lost.*Connection terminated/s);
+  });
+  it('the listener is removed when the lock is released (the connection goes back to the pool clean)', async () => {
+    const { pool, client } = fakePool();
+    const { release } = await acquireRunLock(pool, A);
+    expect(client.listenerCount('error')).toBe(1);
+    await release();
+    expect(client.listenerCount('error')).toBe(0);
+  });
+  it('a failed lock attempt leaves no listener behind either', async () => {
+    const { pool, client } = fakePool({ ok: false });
+    await acquireRunLock(pool, A).catch(() => null);
+    expect(client.listenerCount('error')).toBe(0);
   });
 });

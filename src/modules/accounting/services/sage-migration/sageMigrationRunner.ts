@@ -94,15 +94,15 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing, and one run per company.
   assertLocalDatabase();
   assertLocalPool(pool);
-  const release = await acquireRunLock(pool, opts.companyId);
+  const lock = await acquireRunLock(pool, opts.companyId);
   try {
-    return await runLocked(pool, parsed, opts);
+    return await runLocked(pool, parsed, opts, lock.check);
   } finally {
-    await release();
+    await lock.release();
   }
 }
 
-async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
+async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lockHeld: () => Promise<void>): Promise<MigrationReport> {
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
@@ -129,6 +129,8 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   // From here the live phase has STARTED: an error carries what was committed, and says the run may have committed.
   const committed: BatchReport[] = [];
   try {
+    // The lock's connection sits idle all run: if its backend was dropped, another run could start now, so this one stops (between phases).
+    await lockHeld();
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
     // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy. It is
     // checked BETWEEN the phases, so the next phase does not start behind absent rows (an item batch replayed "ok" with its rows gone would
@@ -159,19 +161,27 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     };
     const liveCategories = await livePhase(pool, opts, all.categories, before, committed);
     const categoriesVerified = liveCategories.failed === 0 ? verifiedCategories(liveCategories, await readAfter()) : liveCategories;
+    await lockHeld();
     const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed) : emptyPhase();
     const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
+    await lockHeld();
     const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed) : emptyPhase();
+    await lockHeld();
     const after = await readAfter();
     const purchaseOrders = verified(livePos, all.purchaseOrders, after);
     const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
     const phaseSkipped = categoriesVerified.failed > 0 || items.failed > 0;
+    // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.
+    const differences = differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches, ...categoriesVerified.batches, ...items.batches, ...purchaseOrders.batches]);
     return {
       ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders }, lineLinks: buildLineLinks(plan, before, after),
       budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
-      // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.
-      differences: differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches, ...categoriesVerified.batches, ...items.batches, ...purchaseOrders.batches]),
-      reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),
+      differences,
+      reconciliation: buildReconciliation({
+        parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true,
+        // Only when the person allowed differences: otherwise a PO booked with another total keeps the run from being complete.
+        differingPos: opts.allowDifferences ? new Set(differences.purchaseOrders.map((d) => d.poNumber)) : undefined,
+      }),
     };
   } catch (err) {
     throw new MigrationStopped(err, true, committed);
