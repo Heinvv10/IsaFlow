@@ -18,22 +18,23 @@ import Page from '../../../pages/accounting/customer-payments/index';
 afterEach(cleanup);
 
 describe('Customer receipts on touch', () => {
-  it('turns the table into labelled cards on phones, desktop width unchanged', async () => {
+  it('turns the table into labelled cards on phones', async () => {
     const { container } = render(<Page />);
     await screen.findByText('RCT-1');
     const table = container.querySelector('table')!;
     expect(table.className).toContain('table-cards');
     const labels = [...table.querySelectorAll('tbody tr:first-child td')].map(td => td.getAttribute('data-label'));
     const heads = [...table.querySelectorAll('thead th')].map(th => th.textContent);
+    expect(heads).toHaveLength(6);
     expect(labels).toEqual(heads);
   });
 
   it('gives every control 44px on phones', async () => {
     const { container } = render(<Page />);
     await screen.findByText('RCT-1');
-    for (const name of [/Record Payment/, /^All$/, /Draft/, /Confirmed/, /Reconciled/, /Cancelled/]) {
-      for (const b of screen.getAllByRole('button', { name })) expect(b.className).toContain('max-lg:min-h-11');
-    }
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.length).toBeGreaterThanOrEqual(7); // Export, Record Payment, 5 tabs
+    for (const b of buttons) expect(b.className, b.textContent ?? '').toContain('max-lg:min-h-11');
     const search = container.querySelector('input')!;
     expect(search.className).toContain('max-lg:min-h-11');
     expect(search.className).toContain('max-lg:w-full');
