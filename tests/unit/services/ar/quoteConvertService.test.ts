@@ -40,7 +40,7 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
-import { convertToInvoice, convertToSalesOrder } from '@/modules/accounting/services/ar/quoteConvertService';
+import { convertToInvoice, convertToSalesOrder, QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
 import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
 import { InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
@@ -216,10 +216,48 @@ describe('convertToInvoice: a typed quote (migration 1024)', () => {
     expect(items.map((i) => [i.vat_type, i.amount, i.tax_amount, i.tax_rate, i.line_position])).toEqual([['standard', 200, 30, 15, 0], ['zero_rated', 50, 0, 0, 1]]);
   });
 
+  it('returns the conversion\'s warnings (none when the totals agree)', async () => {
+    typed('bi-monthly');
+    expect((await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID)))!.warnings).toEqual([]);
+  });
+
   it('a VAT refusal is raised before the claim: nothing is written', async () => {
     typed('none');
     await expect(inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID))).rejects.toThrow(InvoiceVatNotRegisteredRefusal);
     expect(mockSql.mock.calls.some((c) => /UPDATE|INSERT/.test(sqlTextOf(c)))).toBe(false);
+  });
+});
+
+describe('a quote its status refuses answers 409 before any VAT refusal (the winner\'s id)', () => {
+  it('convertToInvoice on a converted, partly typed quote: QuoteNotInvoiceableError with the existing invoice id', async () => {
+    mockSql.mockReset();
+    const base = acceptedQuote();
+    mockGetQuote.mockResolvedValueOnce({ ...base, status: 'converted', convertedInvoiceId: 'inv-9',
+      lines: [{ ...base.lines[0]!, vatType: 'standard', taxAmount: 30 }, { ...base.lines[0]!, vatType: null, taxAmount: null }] } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'converted', converted_invoice_id: 'inv-9' }] as never);
+    const err = await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuoteNotInvoiceableError);
+    expect(err).toMatchObject({ quoteStatus: 'converted', existingInvoiceId: 'inv-9' });
+    expect(mockSql.mock.calls.some((c) => /UPDATE|INSERT/.test(sqlTextOf(c)))).toBe(false);
+  });
+
+  it('convertToSalesOrder on a converted inclusive quote: QuoteNotConvertibleError with the existing order id', async () => {
+    mockSql.mockReset();
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted_to_order', amountsAre: 'inclusive' } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'converted_to_order', converted_order_id: 'so-3' }] as never);
+    const err = await inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuoteNotConvertibleError);
+    expect(err).toMatchObject({ existingOrderId: 'so-3' });
+  });
+});
+
+describe('convertToSalesOrder: a typed quote with an exempt line', () => {
+  it('is refused before the claim (a sales order would invoice it zero-rated)', async () => {
+    mockSql.mockReset();
+    const base = acceptedQuote();
+    mockGetQuote.mockResolvedValueOnce({ ...base, lines: [{ ...base.lines[0]!, vatType: 'exempt', taxAmount: 0, taxRate: 0 }] } as never);
+    await expect(inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID))).rejects.toThrow(/exempt from VAT/);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
 

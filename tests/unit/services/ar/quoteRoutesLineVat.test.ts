@@ -59,6 +59,12 @@ describe('customer-quotes-action', () => {
       .toEqual({ kind: 'badRequest', error: NOT_REG.message, details: { code: 'INVOICE_VAT_NOT_REGISTERED' } });
   });
 
+  it('convert answers the conversion\'s warnings with the invoice (a total moved by a rate change)', async () => {
+    const warnings = [{ code: 'QUOTE_TOTAL_CHANGED', message: 'The invoice totals 115.00, not the quote\'s 114.00', quoteTotal: 114, invoiceTotal: 115, quoteRatePct: 14, invoiceRatePct: 15 }];
+    m.convert.mockResolvedValueOnce({ quote: { id: 'q1' }, invoiceId: 'inv-1', warnings });
+    expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert' })).toEqual({ kind: 'success', data: { quote: { id: 'q1' }, invoiceId: 'inv-1', warnings } });
+  });
+
   it('convert-to-order answers an inclusive quote\'s refusal 400', async () => {
     const err = new LineValidationError('Quote QUO1\'s prices include VAT, and a sales order holds prices before VAT');
     m.toOrder.mockRejectedValueOnce(err);

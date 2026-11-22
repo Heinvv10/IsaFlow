@@ -11,6 +11,7 @@ import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
 import { priceQuoteLines, type PricedQuote } from './quoteLineTax';
+import { storedQuoteOf } from './quoteEditLines';
 import { LineValidationError, assertValidLines } from './quoteLineChecks';
 import { applyItemDefaultsToAccountIdLines } from '../items/itemLineDefaults';
 import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
@@ -72,15 +73,12 @@ interface QuoteInput {
   expiryDate?: string;
   notes?: string;
   terms?: string;
-  /** 'exclusive' (default) | 'inclusive': how each unit price reads (quoteLineTax). */
+  /** 'exclusive' (default; an edit: the stored mode) | 'inclusive'. Per line: `vatType` (standard | zero_rated | exempt) or the
+   * LEGACY `taxRate` (the standard rate or 0), never both; on an edit `id` = the stored line's (quoteLineTax, quoteEditLines). */
   amountsAre?: unknown;
   lines: {
-    description: string; quantity: number; unitPrice: number;
-    /** LEGACY: the standard rate on the quote date (standard) or 0 (zero_rated); never with a vatType. */
-    taxRate?: number | null;
-    /** standard | zero_rated | exempt; the rate comes from the type and the quote date. */
-    vatType?: unknown;
-    accountId?: string; itemId?: string | null; lineNo?: number;
+    description: string; quantity: number; unitPrice: number; taxRate?: number | null; vatType?: unknown;
+    accountId?: string; itemId?: string | null; lineNo?: number; id?: unknown;
   }[];
 }
 
@@ -238,8 +236,12 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
     itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`);
   await assertValidLines(companyId, lines);
   const qd = input.quoteDate || existing.quoteDate;
-  // Every line is re-priced at the quote's date; a line sent without a type keeps its identical stored line's (quoteLineTax).
-  const priced = await priceQuoteLines(companyId, { clientId: input.clientId || null, quoteDate: qd, lines, amountsAre: input.amountsAre, stored });
+  // Every line is re-priced at the quote's date; a line sent without a type keeps its stored match's (quoteLineTax). A
+  // LEGACY quote whose lines the edit leaves as they are keeps them as stored. An edit naming no mode keeps the stored one.
+  const priced = await priceQuoteLines(companyId, {
+    clientId: input.clientId || null, quoteDate: qd, lines, amountsAre: input.amountsAre ?? existing.amountsAre,
+    stored: storedQuoteOf(existing),
+  });
   const { subtotal, tax, total, taxRate, amountsAre } = priced.header;
 
   await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {

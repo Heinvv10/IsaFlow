@@ -5,6 +5,7 @@
 import { shownPosition } from '@/lib/lineNumbers';
 import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import type { AmountsAre } from './invoiceLineVatPricing';
+import { toColumnCents } from './invoiceLineAmount';
 
 interface QuoteCheckedLine { quantity: number; unitPrice: number; taxRate?: unknown; accountId?: string | null; lineNo?: unknown }
 
@@ -43,6 +44,8 @@ export async function assertValidLines(companyId: string, lines: readonly QuoteC
     if (Number(l.unitPrice) < 0) throw new LineValidationError(`Line ${n}: unit price cannot be negative`);
     // The columns' bounds (quantity numeric(10,2), unit_price numeric(15,2)), as the invoice create checks them.
     if (Number(l.quantity) >= 1e8) throw new LineValidationError(`Line ${n}: quantity must be below 100 000 000`);
+    // Stored to two places, as an invoice's: 0.004 would store a line of quantity 0 and amount 0 (priceDraftLines refuses it too).
+    if (toColumnCents(Number(l.quantity)) <= 0) throw new LineValidationError(`Line ${n}: quantity must be at least 0.01`);
     if (Number(l.unitPrice) >= 1e13) throw new LineValidationError(`Line ${n}: unit price must be below 10 000 000 000 000`);
     const rateProblem = taxRateProblem(l.taxRate);
     if (rateProblem) throw new LineValidationError(`Line ${n}: ${rateProblem}`);

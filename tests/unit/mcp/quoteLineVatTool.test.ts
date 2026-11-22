@@ -15,6 +15,7 @@ import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { createDraftQuoteTool } from '@/lib/mcp/tools/writeInvoices';
 import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
+import { hashArgs } from '@/lib/mcp/audit';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const ctx = { companyId: '11111111-1111-4111-8111-111111111111', userId: 'u1', scopes: ['write:invoices'] } as unknown as McpToolContext;
@@ -51,5 +52,13 @@ describe('create_draft_quote: per-line VAT', () => {
     create.mockRejectedValueOnce(err);
     await expect(run({ items: [{ description: 'A', unit_price: 1, vat_type: 'standard' }] })).rejects.toBe(err);
     expect(safeErrorText(err, 'hidden')).toContain('its quotes carry no VAT');
+  });
+
+  it('a replay is keyed on every argument: the same idempotency_key with another vat_type or amounts_are is a different request', () => {
+    // create_draft_quote has no external_ref; the registry's replay compares hashArgs of the whole call.
+    const base = { customer_name: 'Acme', idempotency_key: 'k', items: [{ description: 'A', unit_price: 1, vat_type: 'standard' }] };
+    expect(hashArgs({ ...base, items: [{ ...base.items[0]!, vat_type: 'exempt' }] })).not.toBe(hashArgs(base));
+    expect(hashArgs({ ...base, amounts_are: 'inclusive' })).not.toBe(hashArgs(base));
+    expect(createDraftQuoteTool.inputSchema).not.toHaveProperty('properties.external_ref');
   });
 });

@@ -35,7 +35,7 @@ const text = (call: unknown[]) => (call[0] as readonly string[]).join('?');
 const header = { id: QUOTE_ID, quote_number: 'QUO1', client_id: null, customer_name: 'Acme', quote_date: '2026-11-11', expiry_date: null,
   status: 'draft', subtotal: '0', tax_amount: '0', total: '0', notes: null, terms: null, converted_invoice_id: null, created_at: '', updated_at: '' };
 
-interface World { vatPeriod: string; customerVat: string | null; itemVat: string | null; stored: Record<string, unknown>[] }
+interface World { vatPeriod: string; customerVat: string | null; itemVat: string | null; stored: Record<string, unknown>[]; head: Record<string, unknown> }
 let world: World;
 
 function serve() {
@@ -45,7 +45,7 @@ function serve() {
     if (t.includes('FROM items')) return [{ id: ITEM_ID, is_active: true, sales_account_id: null, purchases_account_id: null, vat_on_sales: world.itemVat, vat_on_purchases: null }];
     if (t.includes('INSERT INTO customer_quotes')) return [{ id: QUOTE_ID }];
     if (t.includes('FROM customer_quote_lines')) return world.stored;
-    if (t.includes('FROM customer_quotes')) return [header];
+    if (t.includes('FROM customer_quotes')) return [{ ...header, ...world.head }];
     return [];
   });
 }
@@ -73,7 +73,7 @@ const create = (lines: Line[], extra: Record<string, unknown> = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockSql.mockReset();
-  world = { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [] };
+  world = { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {} };
   serve();
 });
 
@@ -158,6 +158,11 @@ describe('createQuote: per-line VAT types', () => {
     expect(wrote()).toBe(false);
   });
 
+  it('refuses a quantity that stores as 0 (0.004), as an invoice does', async () => {
+    await expect(create([{ description: 'A', quantity: 0.004, unitPrice: 100 }])).rejects.toThrow(new LineValidationError('Line 1: quantity must be at least 0.01'));
+    expect(wrote()).toBe(false);
+  });
+
   it('refuses an amountsAre that is not exclusive or inclusive, and a total past numeric(15,2)', async () => {
     await expect(create([{ description: 'A', quantity: 1, unitPrice: 1 }], { amountsAre: 'gross' })).rejects.toThrow(LineValidationError);
     await expect(create([{ description: 'A', quantity: 9_999_999, unitPrice: 9_999_999_999 }])).rejects.toThrow(LineValidationError);
@@ -192,7 +197,7 @@ describe('createQuote: a company not registered for VAT', () => {
 describe('updateQuote: per-line VAT', () => {
   const storedLine = (o: Record<string, unknown>) => ({ id: 'l1', quote_id: QUOTE_ID, sort_order: 1, quantity: '1.00', gl_account_id: null, item_id: null, ...o });
 
-  it('an identical stored line keeps its type (an exempt line, a legacy 0% line reads zero_rated); a changed one takes the default chain', async () => {
+  it('a stored line keeps its type: identical (an exempt line; a legacy 0% line reads zero_rated) or edited in place (its price changed)', async () => {
     world.stored = [
       storedLine({ description: 'Exempt', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
       storedLine({ description: 'Legacy zero', unit_price: '20.00', amount: '20.00', tax_rate: '0', vat_type: null, tax_amount: null }),
@@ -203,13 +208,51 @@ describe('updateQuote: per-line VAT', () => {
       { description: 'Legacy zero', quantity: 1, unitPrice: 20 },
       { description: 'Old', quantity: 1, unitPrice: 31 },
     ] }, 'u1');
-    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount])).toEqual([['exempt', 0], ['zero_rated', 0], ['standard', 4.65]]);
-    expect(updatedHeader()).toMatchObject({ subtotal: 61, tax_amount: 4.65, total: 65.65, tax_rate: 15, amounts_are: 'exclusive' });
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount])).toEqual([['exempt', 0], ['zero_rated', 0], ['zero_rated', 0]]);
+    expect(updatedHeader()).toMatchObject({ subtotal: 61, tax_amount: 0, total: 61, tax_rate: 0, amounts_are: 'exclusive' });
+  });
+
+  it('a line that is new (no stored line at its position or like it) takes the default chain', async () => {
+    world.stored = [storedLine({ description: 'Rent', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { description: 'Rent', quantity: 1, unitPrice: 10 }, { description: 'New', quantity: 1, unitPrice: 31 },
+    ] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount])).toEqual([['exempt', 0], ['standard', 4.65]]);
   });
 
   it('a legacy taxRate 0 resent on an exempt line keeps it exempt (a type of that rate)', async () => {
     world.stored = [storedLine({ description: 'Exempt', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
     await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Exempt', quantity: 1, unitPrice: 10, taxRate: 0 }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt']);
+  });
+
+  it('an edit that names no amountsAre keeps the stored inclusive mode (115 incl stays 115, not 132.25)', async () => {
+    world.head = { amounts_are: 'inclusive', subtotal: '100', tax_amount: '15', total: '115', tax_rate: '15' };
+    world.stored = [storedLine({ description: 'A', unit_price: '115.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', notes: 'n', lines: [{ description: 'A', quantity: 1, unitPrice: 115 }] }, 'u1');
+    expect(updatedHeader()).toMatchObject({ subtotal: 100, tax_amount: 15, total: 115, amounts_are: 'inclusive' });
+  });
+
+  it('a LEGACY 14% quote edited without touching its lines keeps them and its figures as stored', async () => {
+    world.head = { amounts_are: null, subtotal: '100', tax_amount: '14', total: '114', tax_rate: '14' };
+    world.stored = [storedLine({ description: 'Old', unit_price: '100.00', amount: '100.00', tax_rate: '14', vat_type: null, tax_amount: null })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', notes: 'only notes', lines: [{ description: 'Old', quantity: 1, unitPrice: 100, taxRate: 14 }] }, 'u1');
+    expect(lineVat(inserted('customer_quote_lines'))).toEqual([{ vat: null, tax: null, rate: 14, amount: 100 }]);
+    expect(updatedHeader()).toMatchObject({ subtotal: 100, tax_amount: 14, total: 114, tax_rate: 14, amounts_are: null });
+  });
+
+  it('a legacy taxRate 0 on a stored EXEMPT line whose price changed keeps it exempt', async () => {
+    world.stored = [storedLine({ description: 'Rent', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Rent', quantity: 1, unitPrice: 12, taxRate: 0 }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 12]]);
+  });
+
+  it('twins "Widget 1 x 100" standard and exempt, the first deleted: the remaining line resent at 0 stays exempt', async () => {
+    world.stored = [
+      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
+      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
+    ];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }] }, 'u1');
     expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt']);
   });
 

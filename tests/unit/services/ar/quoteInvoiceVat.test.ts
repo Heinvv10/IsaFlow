@@ -8,7 +8,8 @@ import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vites
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { quoteInvoiceVat } from '@/modules/accounting/services/ar/quoteInvoiceVat';
+import { assertOrderableVat, quoteInvoiceVat } from '@/modules/accounting/services/ar/quoteInvoiceVat';
+import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
 import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import type { Quote, QuoteLine } from '@/modules/accounting/services/ar/quoteService';
 
@@ -56,9 +57,17 @@ describe('quoteInvoiceVat, a typed quote', () => {
     });
   });
 
-  it('invoiced across a change of the standard rate, it charges the rate on the invoice date (net kept)', async () => {
+  it('invoiced across a change of the standard rate, it charges the rate on the invoice date (net kept) and says so', async () => {
     const q = quote([line({ vatType: 'standard', taxAmount: 14, taxRate: 14 })], { quoteDate: '2018-03-31', subtotal: 100, taxAmount: 14, total: 114 });
-    expect(figures(await quoteInvoiceVat(COMPANY_ID, q, '2018-04-01')).head).toEqual([100, 15, 115, 15, 'exclusive']);
+    const v = await quoteInvoiceVat(COMPANY_ID, q, '2018-04-01');
+    expect(figures(v).head).toEqual([100, 15, 115, 15, 'exclusive']);
+    expect(v.warnings).toEqual([expect.objectContaining({ code: 'QUOTE_TOTAL_CHANGED', quoteTotal: 114, invoiceTotal: 115, quoteRatePct: 14, invoiceRatePct: 15 })]);
+    expect(v.warnings[0]!.message).toMatch(/totals 115\.00, not the quote's 114\.00/);
+  });
+
+  it('no warning when the invoice totals what the quote did', async () => {
+    const q = quote([line({ vatType: 'standard', taxAmount: 15 })], { subtotal: 100, taxAmount: 15, total: 115 });
+    expect((await quoteInvoiceVat(COMPANY_ID, q, '2026-11-22')).warnings).toEqual([]);
   });
 
   it('a company no longer registered for VAT: a standard line is refused, zero-rated / exempt lines convert untyped', async () => {
@@ -91,5 +100,15 @@ describe('quoteInvoiceVat, a legacy quote', () => {
   it('refuses a partly typed quote', async () => {
     await expect(quoteInvoiceVat(COMPANY_ID, quote([line({ vatType: 'standard', taxAmount: 15 }), line({})]), '2026-11-22'))
       .rejects.toThrow(InvoiceLineVatRefusal);
+  });
+});
+
+describe('assertOrderableVat (until sales orders carry per-line VAT)', () => {
+  it('refuses an inclusive quote and a typed quote with an exempt line; standard / zero-rated and legacy pass', () => {
+    expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 })], { amountsAre: 'inclusive' }))).toThrow(LineValidationError);
+    expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 }), line({ vatType: 'exempt', taxAmount: 0, taxRate: 0 })])))
+      .toThrow(/line 2 is exempt from VAT/);
+    expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 }), line({ vatType: 'zero_rated', taxAmount: 0, taxRate: 0 })]))).not.toThrow();
+    expect(() => assertOrderableVat(quote([line({ taxRate: 0 })], { amountsAre: null }))).not.toThrow();
   });
 });
