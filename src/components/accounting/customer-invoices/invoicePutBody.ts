@@ -4,24 +4,21 @@
  * prices change together (taxModeSwitch.switchTaxMode), so a body that took its lines from one render and its mode from another
  * would read gross prices as ex-VAT (PR D's warning).
  *
- * Per-line VAT (formVat): prices go as typed with the mode (`amountsAre`). Each line carries its `vatType` (the type it
- * loaded with while the form's rate is unchanged, else the one the rate gives) and the header no rate; when the form's
- * rate gives no type (neither the standard rate nor 0) the header `taxRate` goes instead, lines untyped, and the server
- * refuses it saying why. No per-line `taxRate`.
+ * Per-line VAT (formVat): prices go as typed with the mode (`amountsAre`). Each line carries its own `vatType`
+ * (formVat.lineVatType: its own, else the customer's default chain) and the header no rate. A company not registered
+ * for VAT ('none') sends the legacy header rate 0 and untyped lines. A line with no type yet is never sent: Save and
+ * autosave refuse first (vatTypeProblem). No per-line `taxRate`.
  *
  * Pure: safe in a client bundle.
  */
 import { invoiceDateProblem, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
-import { effectiveTaxRate, pricesToNothing, pricesToNothingMessage, type TaxMode } from './taxMode';
-import { amountsAreFor, formLineTypes, NO_VAT_TYPE_PROBLEM } from './formVat';
+import { pricesToNothing, pricesToNothingMessage, type TaxMode } from './taxMode';
+import { amountsAreFor, lineVatTypes, vatRoundsToNothingProblem, vatTypeProblem } from './formVat';
 import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
-/**
- * CC1 is re-sent only while the line's CC2 is the one it loaded with; otherwise null, so derivation sets it. `vatType` /
- * `vatRateAtLoad`: the type the line loaded with and the form's effective rate then (formVat).
- */
-export type EditLine = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string; timeEntryId?: string | null; vatType?: string | null; vatRateAtLoad?: number };
+/** CC1 is re-sent only while the line's CC2 is the one it loaded with; otherwise null, so derivation sets it. */
+export type EditLine = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string; timeEntryId?: string | null };
 
 export interface InvoicePutItem {
   description: string; quantity: number; unitPrice: number; vatType?: string; discount: number;
@@ -34,7 +31,7 @@ export interface InvoicePutBody {
   taxRate?: number; amountsAre: AmountsAre; notes?: string; currencyCode: string; exchangeRate: number; projectId: string | null; items: InvoicePutItem[];
 }
 
-/** `customerVat`: the customer's default VAT type as read (an exempt customer's lines go exempt at rate 0, formVat). */
+/** `customerVat`: the customer's default VAT type as read (a line with no type of its own follows it, formVat). */
 interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode; customerVat?: string | null }
 
 /**
@@ -54,10 +51,9 @@ const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEnt
  * clearedDateProblem refuses it first.
  */
 export function invoicePutBody(id: string, { form, lines, taxMode, customerVat }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
-  const taxRate = effectiveTaxRate(taxMode, form.taxRate);
   const sent = savedLines(lines);
-  const types = formLineTypes(sent, taxRate, form.invoiceDate, customerVat);
-  const typed = types.every((t) => t !== null);
+  const types = lineVatTypes(sent, customerVat);
+  const typed = taxMode !== 'none' && types.every((t) => t !== null);
   return {
     id,
     clientId: form.clientId,
@@ -65,11 +61,11 @@ export function invoicePutBody(id: string, { form, lines, taxMode, customerVat }
     dueDate: opts.omitDueDate ? undefined : form.dueDate || (opts.markClearedDue ? '' : undefined),
     billingPeriodStart: form.billingPeriodStart || undefined,
     billingPeriodEnd: form.billingPeriodEnd || undefined,
-    ...(typed ? {} : { taxRate }),
+    ...(taxMode === 'none' ? { taxRate: 0 } : {}),
     amountsAre: amountsAreFor(taxMode),
     notes: form.notes, // '' clears them; left out, the server would keep the old notes and Saved would be untrue
     currencyCode: form.currencyCode,
-    exchangeRate: form.exchangeRate,
+    exchangeRate: form.currencyCode === 'ZAR' ? 1 : form.exchangeRate, // ZAR's is 1 (a stored 0 the server would refuse)
     projectId: form.projectId || null,
     items: sent.map((l, i) => ({
       description: l.description, quantity: l.quantity, unitPrice: l.unitPrice,
@@ -128,20 +124,21 @@ export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refuse
   if (!lines.some((l) => l.description)) return 'Add at least one line item';
   const dateOrCleared = invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
   if (dateOrCleared) return dateOrCleared;
-  // A rate that gives a line no VAT type: the server refuses it (the rate comes from the type), so Save holds and says why.
-  const rate = effectiveTaxRate(taxMode, form.taxRate);
-  return finite(rate) && formLineTypes(savedLines(lines), rate, form.invoiceDate, customerVat).some((t) => t === null) ? NO_VAT_TYPE_PROBLEM : null;
+  // The server refuses a rate of 0 (a foreign currency just picked starts there: InvoiceSettingsRow). ZAR has no rate
+  // field and always sends 1, so a ZAR draft stored at 0 is never held.
+  if (form.currencyCode !== 'ZAR' && (!finite(form.exchangeRate) || form.exchangeRate <= 0)) return 'Exchange rate must be greater than 0';
+  // A line with no VAT type yet: the server refuses it (the rate comes from the type), so Save holds and says why.
+  if (taxMode === 'none') return null;
+  const sent = savedLines(lines);
+  const types = lineVatTypes(sent, customerVat);
+  return vatTypeProblem(sent, types) ?? vatRoundsToNothingProblem(sent, types, taxMode, form.invoiceDate);
 }
 
-/**
- * Why autosave holds this draft back, or null: Save's refusals, plus no priced line yet, and a rate or exchange rate
- * the server would refuse (a 400 would stop autosave for a value still being typed).
- */
+/** Why autosave holds this draft back, or null: Save's refusals (an exchange rate the server would refuse among them: a
+ * 400 would stop autosave for a value still being typed), plus no priced line yet. */
 export function autosaveProblem(draft: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   const refusal = saveProblem(draft, refused, stored);
   if (refusal) return refusal;
-  const { form, lines } = draft;
-  if (!lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
-  if (!finite(form.taxRate, form.exchangeRate) || form.taxRate < 0 || form.taxRate > 100 || form.exchangeRate <= 0) return 'Check the VAT and exchange rates';
+  if (!draft.lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
   return null;
 }

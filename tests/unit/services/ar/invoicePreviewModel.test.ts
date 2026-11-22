@@ -14,8 +14,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
 import type { InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
-import { effectiveTaxRate, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { formTotals } from '@/components/accounting/customer-invoices/formVat';
+import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { formTotals, lineVatTypes } from '@/components/accounting/customer-invoices/formVat';
 import { parsePreviewBody, PREVIEW_MAX_BYTES, PREVIEW_MAX_LINES, PreviewBodyError } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { buildInvoicePreviewModel, JOB_NOT_RECOGNISED } from '@/modules/accounting/services/ar/invoicePreviewModel';
 import { priceInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
@@ -31,15 +31,15 @@ const ROW = {
   bank_name: null, bank_account_number: null, bank_branch_code: null, primary_color: null, company_logo: null,
 };
 const FORM: InvoiceHeaderForm = { clientId: CLIENT, invoiceDate: '2026-11-06', dueDate: '', billingPeriodStart: '2026-11-06',
-  billingPeriodEnd: '2026-11-06', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' };
-const line = (key: string, quantity: number, unitPrice: number, discount = 0): InvoiceLine => ({ key, description: `Line ${key}`,
-  quantity, unitPrice, discount, glAccountId: '', projectId: '', cc2Id: '', buId: '', incomeType: 'other' });
+  billingPeriodEnd: '2026-11-06', notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' };
+const line = (key: string, quantity: number, unitPrice: number, discount = 0, vatType?: string): InvoiceLine => ({ key, description: `Line ${key}`,
+  quantity, unitPrice, discount, glAccountId: '', projectId: '', cc2Id: '', buId: '', incomeType: 'other', ...(vatType ? { vatType } : {}) });
 
 /** What the page shows and what the preview prints, for one form. */
 async function both(mode: TaxMode, lines: InvoiceLine[], form: InvoiceHeaderForm = FORM) {
-  const rate = effectiveTaxRate(mode, form.taxRate);
-  const page = formTotals(lines, rate, mode, form.invoiceDate);
-  const built = createBody(form, lines, mode, rate, {});
+  const types = lineVatTypes(lines, null);
+  const page = formTotals(lines, types, mode, form.invoiceDate);
+  const built = createBody(form, lines, mode, types, {});
   if (!('body' in built)) throw new Error(built.problem);
   const preview = await buildInvoicePreviewModel(CO, parsePreviewBody(JSON.parse(JSON.stringify(built.body))));
   const inv = preview!.model.invoice;
@@ -54,6 +54,8 @@ describe('the preview prints the totals the page shows (create\'s pricing)', () 
     ['inclusive', [line('1', 3, 10)]], // 3 × R10 incl.: stored as entered, R26.09 + R3.91 = R30.00 (it was R30.02)
     ['inclusive', [line('1', 7, 33.33, 5), line('2', 2, 0.07)]],
     ['none', [line('1', 3, 10), line('2', 2, 49.995)]],
+    ['exclusive', [line('1', 3, 10), line('2', 1, 300, 0, 'zero_rated'), line('3', 3, 33.33, 12.5, 'exempt')]], // mixed types
+    ['inclusive', [line('1', 7, 33.33, 5, 'exempt'), line('2', 2, 115)]],
   ])('%s', async (mode, lines) => {
     const { page, printed } = await both(mode, lines);
     expect(printed).toEqual(page);
