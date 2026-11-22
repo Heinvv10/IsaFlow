@@ -1,18 +1,18 @@
 /**
- * taxModeSwitch (#1701 round 8 items 2-4), pure: each line at its own rate, a switch that moves a line refused, a company
- * not registered for VAT converts nothing and is offered No VAT only; and an ordinary one-unit price never refuses.
+ * taxModeSwitch (#1701 round 8 items 2-4), pure: each line at its own type's rate, a switch that moves a line refused, a
+ * company not registered for VAT converts nothing and is offered No VAT only (a registered one Excluding / Including:
+ * VAT-free lines are typed per line); and an ordinary one-unit price never refuses.
  */
 import { describe, expect, it } from 'vitest';
 import { switchTaxMode, taxModesFor } from '@/components/accounting/customer-invoices/taxModeSwitch';
 
 const D = '2026-09-15';
-const base = { formRate: 15, date: D, registered: true };
+const base = { date: D, registered: true, types: ['standard' as const] };
 
 describe('switchTaxMode', () => {
   it('a mixed draft converts each line at its own rate (exempt unchanged)', () => {
-    const lines = [{ description: 'S', quantity: 1, unitPrice: 100, vatType: 'standard', vatRateAtLoad: 15 },
-      { description: 'E', quantity: 1, unitPrice: 100, vatType: 'exempt', vatRateAtLoad: 15 }];
-    const out = switchTaxMode(lines, { ...base, from: 'exclusive', to: 'inclusive' });
+    const lines = [{ description: 'S', quantity: 1, unitPrice: 100 }, { description: 'E', quantity: 1, unitPrice: 100 }];
+    const out = switchTaxMode(lines, { ...base, types: ['standard', 'exempt'], from: 'exclusive', to: 'inclusive' });
     expect('lines' in out && out.lines.map((l) => l.unitPrice)).toEqual([115, 100]);
   });
   it('1,000 x R0.03 to inclusive is refused, naming both totals', () => {
@@ -23,11 +23,7 @@ describe('switchTaxMode', () => {
     expect(switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, registered: false, from: 'none', to: 'inclusive' }))
       .toEqual({ mode: 'none', lines: [{ quantity: 1, unitPrice: 100 }] });
     expect(taxModesFor(false).map((o) => o.value)).toEqual(['none']);
-    expect(taxModesFor(true).map((o) => o.value)).toEqual(['exclusive', 'inclusive', 'none']);
-  });
-  it('No VAT to Including VAT keeps the net (the VAT is added by design)', () => {
-    const out = switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, from: 'none', to: 'inclusive' });
-    expect('lines' in out && out.lines[0]!.unitPrice).toBe(115);
+    expect(taxModesFor(true).map((o) => o.value)).toEqual(['exclusive', 'inclusive']);
   });
   it('seeded, one unit: excl. to incl. never refuses; incl. to excl. refuses only where no ex-VAT price gives that gross', () => {
     // Excluding VAT can only show a gross p + round(15% of p): some grosses (5,553.92: 4,829.49 gives 5,553.91, 4,829.50
@@ -47,15 +43,14 @@ describe('switchTaxMode', () => {
       expect(refused, `${p}`).toBe(!expressible);
     }
   });
-  it('a form rate below 0 or mid-edit converts nothing: prices kept, the mode changes', () => {
-    for (const formRate of [-5, Number.NaN]) {
-      expect(switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, formRate, from: 'exclusive', to: 'inclusive' }))
+  it('VAT-free lines convert nothing: prices kept, the mode changes', () => {
+    for (const t of ['zero_rated', 'exempt'] as const) {
+      expect(switchTaxMode([{ quantity: 1, unitPrice: 100 }], { ...base, types: [t], from: 'exclusive', to: 'inclusive' }))
         .toEqual({ mode: 'inclusive', lines: [{ quantity: 1, unitPrice: 100 }] });
     }
   });
-  it('round 11 nit a: a standard line converts at the standard rate ON THE INVOICE DATE (14% before April 2018), not the form\'s', () => {
-    const out = switchTaxMode([{ description: 'S', quantity: 1, unitPrice: 100, vatType: 'standard', vatRateAtLoad: 15 }],
-      { ...base, date: '2018-03-01', from: 'exclusive', to: 'inclusive' });
+  it('round 11 nit a: a standard line converts at the standard rate ON THE INVOICE DATE (14% before April 2018)', () => {
+    const out = switchTaxMode([{ description: 'S', quantity: 1, unitPrice: 100 }], { ...base, date: '2018-03-01', from: 'exclusive', to: 'inclusive' });
     expect('lines' in out && out.lines[0]!.unitPrice).toBe(114);
   });
   it('round 11 nit a: the refusal names the amounts in the invoice\'s currency', () => {

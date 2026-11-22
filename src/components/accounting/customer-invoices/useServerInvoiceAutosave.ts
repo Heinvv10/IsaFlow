@@ -4,7 +4,7 @@
  *
  * - Only when the body differs from what the server last took (the body the page loaded with, then each one saved). An
  *   edit PUT stamps the editor as an approval author (R-035 PR4), so loading the page, or typing a value back, sends nothing.
- * - Never while `paused` (a VAT rate edit under way: in inclusive mode each keystroke reprices the net) or while
+ * - Never while `paused` (the edit page: Approve & email under way, which saves the draft itself) or while
  *   `problem` holds (autosaveProblem: a half-typed line, a refused date, no client, no priced line).
  * - One PUT at a time. A change made while one is out goes next, as the newest body then. A reply is applied only if it
  *   answers the newest request (sequence number), and it marks saved only the body it carried, never a newer one.
@@ -36,7 +36,7 @@ export interface ServerAutosaveOptions {
   body: InvoicePutBody | null;
   /** autosaveProblem's answer this render: why the body is held back, or null. */
   problem: string | null;
-  /** A VAT rate edit is under way. */
+  /** Hold every send (the edit page: Approve & email is under way and saves the draft itself). */
   paused: boolean;
   /** The invoice is no longer a draft (approved here): nothing more is saved. */
   done?: boolean;
