@@ -17,6 +17,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '@/modules/accounting/services/core/supplierLiveLock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -65,10 +66,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // R-068: before the number reservation, the first write.
+    // Then locked live until the request commits (supplierLiveLock), so a merge of this supplier cannot leave the note behind.
     try {
       await assertSupplierInCompany(companyId, supplierId);
+      if (!(await lockSupplierIfLive(companyId, String(supplierId)))) return apiResponse.badRequest(res, SUPPLIER_NOT_LIVE_REFUSAL);
     } catch (err) {
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
 

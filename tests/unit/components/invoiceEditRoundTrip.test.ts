@@ -154,4 +154,12 @@ describe('round 11 MAJOR 1: a LEGACY mixed-rate draft keeps each line\'s effecti
     const d = legacy([{ description: 'Old', amount: 100, tax_rate: 14 }], 14);
     expect(linesFromStoredItems(d.items ?? [], '', vatAtLoad(d)).map((l) => l.vatType)).toEqual([undefined]);
   });
+  it('round 12: a legacy invoice with a header rate of 0 and a line at the column default 15.00 follows the header (No VAT prices R100, not R115)', () => {
+    const d = legacy([{ description: 'L', amount: 100, tax_rate: 15 }], 0);
+    const v = vatAtLoad(d);
+    expect(v.mode).toBe('none');
+    const lines = linesFromStoredItems(d.items ?? [], '', v);
+    expect(formTotals(lines, v.effectiveRate, v.mode, DATE).total).toBe(100);
+    expect(invoicePutBody('inv-1', { form: FORM(v.formRate), lines, taxMode: v.mode }).items.map((i) => i.vatType)).toEqual(['zero_rated']);
+  });
 });

@@ -24,7 +24,8 @@ import type { BackfillSource } from './autoApplyBackfillPlan';
 /** Why a contended credit-note source was skipped (the run's `failed` entry for it). */
 export const contendedReason = (number: string): string =>
   `Credit note ${number} is being changed by another request (an approval, apply, unapply or cancel); it was skipped. `
-  + 'Re-run auto_apply_unapplied once that request has finished.';
+  + 'Re-run auto_apply_unapplied once that request has finished, with a NEW idempotency_key: the same key returns this '
+  + 'result again (it applied the other sources, so it is kept), and the skipped note would never apply.';
 
 /**
  * Takes the locks above for the run's AR sources: the keys held (undefined when it has no credit-note source) and the

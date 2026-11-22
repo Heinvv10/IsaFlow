@@ -14,6 +14,7 @@ import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, res
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 import { checkTakeOnAmounts } from './migrationApRowAmounts';
+import { lockLiveSurvivor } from '../core/supplierLiveLock';
 type Row = DbRow;
 
 
@@ -86,8 +87,8 @@ export async function importAPInvoices(
         skipped++;
         continue;
       }
-      const supplierId = overrideId ? String(overrideId) : matchContact(inv.supplierName, supRows);
-      if (!supplierId) {
+      const matchedId = overrideId ? String(overrideId) : matchContact(inv.supplierName, supRows);
+      if (!matchedId) {
         errors.push({ step: 'ap_invoices', row: fileRow(i), field: 'supplierName', message: `Supplier not found: ${inv.supplierName}` });
         skipped++;
         continue;
@@ -101,17 +102,26 @@ export async function importAPInvoices(
       const balance = inv.totalAmount - amountPaid;
       const status  = balance <= 0 ? 'paid' : amountPaid > 0 ? 'partially_paid' : 'approved';
 
-      const matchedSupplier = supRows.find(s => String(s.id) === supplierId);
-      const migFingerprint = computeFingerprint(
-        matchedSupplier?.vat_number ?? null,
-        inv.invoiceNumber,
-        inv.totalAmount,
-      );
-
       // Every statement for this row runs inside its own savepoint: a caught
       // per-row failure must not leave the request transaction aborted, or the
       // updateSession below dies with 25P02 and the whole route 500s.
       const rowImported = await withSavepoint('mig_ap_invoice_row', async () => {
+        // The supplier list above is read once per batch, and a supplier merge may have moved this supplier's bills and
+        // soft-deleted it since (Codex gate at ecc452ea6b, finding 3). Its row is locked FOR KEY SHARE (supplierLiveLock) and
+        // followed to the merge's survivor, so the duplicate check below looks where the bills are, and no merge can move them
+        // until this import commits. Before any bill or journal row, the merge's order too.
+        const supplierId = await lockLiveSurvivor(companyId, matchedId);
+        if (!supplierId) {
+          errors.push({ step: 'ap_invoices', row: fileRow(i), field: 'supplierName', message: `Supplier not found: ${inv.supplierName}` });
+          return false;
+        }
+        const matchedSupplier = supRows.find(s => String(s.id) === supplierId);
+        const migFingerprint = computeFingerprint(
+          matchedSupplier?.vat_number ?? null,
+          inv.invoiceNumber,
+          inv.totalAmount,
+        );
+
         // Idempotency by lookup, not by constraint, and keyed on the bill's
         // IDENTITY — supplier plus invoice number — rather than on its amount.
         // The fingerprint carries the total (asciiLower(vat|invoice_number|total)),

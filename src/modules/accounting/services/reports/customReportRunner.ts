@@ -17,6 +17,9 @@ import type { ReportConfig, RunResult } from './customReportService';
 
 type Row = Record<string, unknown>;
 
+/** Sources whose base table has deleted_at: their soft-deleted rows are left out. */
+const SOFT_DELETED_SOURCES: ReadonlySet<string> = new Set(['customer_invoices', 'supplier_invoices', 'customers', 'suppliers', 'items']);
+
 export async function runReport(companyId: string, config: ReportConfig): Promise<RunResult> {
   const { dataSource, columns, filters = [], sortBy = [], limit = 500, offset = 0 } = config;
 
@@ -47,6 +50,9 @@ export async function runReport(companyId: string, config: ReportConfig): Promis
     : dataSource === 'bank_transactions'
     ? [`${alias}.company_id = $1`, `${alias}.feed_state = 'posted'`]
     : [`${alias}.company_id = $1`];
+  // A soft-deleted row (a merged-away supplier or customer, a deleted item or invoice) is not report data: it would
+  // show as a duplicate row and add its balance to the totals.
+  if (SOFT_DELETED_SOURCES.has(dataSource)) whereParts.push(`${alias}.deleted_at IS NULL`);
 
   for (const filter of filters) {
     const fd = getFieldDef(dataSource, filter.field);

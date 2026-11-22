@@ -16,7 +16,7 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/admin/services/sageMigrationCommitService', () => ({
-  commitARInvoice: vi.fn(), commitAPInvoice: vi.fn(), upsertCustomer: vi.fn(), upsertSupplier: vi.fn(),
+  commitARInvoice: vi.fn(), commitAPInvoice: vi.fn(), upsertCustomer: vi.fn(), upsertSupplier: vi.fn(async () => ({ id: 'sup-1', created: true })),
 }));
 const assertRolesKept = vi.fn(async () => { order.push('invariant'); });
 vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({ lockSystemRoleWrites: vi.fn(async () => { order.push('lock'); }) }));
