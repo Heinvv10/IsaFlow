@@ -1,6 +1,9 @@
 /** The answer shape and the rand formatter. No server imports: the palette's client code uses both. */
 
 export interface AskLine { label: string; value: number }
+/** What the asker may be told. Required wherever a question is answered, so a caller must decide: payroll questions only for `payrollRead: true`. */
+export interface AskAccess { payrollRead: boolean }
+
 export interface AskAnswer {
   understood: boolean;
   text: string;

@@ -4,6 +4,7 @@
  */
 import type { NavIndexEntry } from '@/components/accounting/navSections/navIndex';
 import { trailForPath } from '@/components/accounting/navSections/navIndex';
+import { hidden } from '@/components/accounting/navSections/flagNav';
 import { filterActions, PALETTE_ACTIONS, type PaletteAction } from './commandActions';
 
 export interface SearchResult {
@@ -103,9 +104,16 @@ export interface BuildArgs {
   recent: SearchResult[];
   /** Server hits: records, plus page hits that the nav does not list. */
   server: SearchResult[];
+  /**
+   * The company's nav flags (`useNavFlags`): a row that opens a page the flags hide (Payroll without Payroll read, a
+   * feature the company lacks) is dropped, whether it is an action, a recent, a page or a record. Absent: no row is dropped.
+   */
+  flags?: ReadonlySet<string>;
 }
 
-export function buildSections({ query, index, recent, server }: BuildArgs): PaletteSection[] {
+const rowUrl = (r: PaletteRow): string | undefined => (r.kind === 'item' ? r.item.url : r.action.url);
+
+export function buildSections({ query, index, recent, server, flags }: BuildArgs): PaletteSection[] {
   const q = query.trim();
   const seen = new Set<string>();
   const take = (rows: PaletteRow[]): PaletteRow[] => rows.filter((r) => {
@@ -130,5 +138,8 @@ export function buildSections({ query, index, recent, server }: BuildArgs): Pale
     sections.push({ id: 'pages', heading: 'Pages', rows: take([...pages, ...serverPages].slice(0, 8).map((p) => itemRow('page', p))) });
     sections.push({ id: 'records', heading: 'Records', rows: take(server.filter((r) => r.type !== 'page').map((r) => itemRow('record', r))) });
   }
-  return sections.filter((s) => s.rows.length > 0);
+  const visible = flags
+    ? sections.map((s) => ({ ...s, rows: s.rows.filter((r) => { const u = rowUrl(r); return !u || !hidden(u, flags); }) }))
+    : sections;
+  return visible.filter((s) => s.rows.length > 0);
 }

@@ -209,6 +209,11 @@ export function buildSetupProgress(f: SetupFacts): SetupProgress {
   return { modules, doneCount, totalCount, allComplete: doneCount === totalCount };
 }
 
-export async function getSetupProgress(companyId: string): Promise<SetupProgress> {
-  return buildSetupProgress(await probeSetupFacts(companyId));
+/**
+ * `access` is required, so a caller must decide: without Payroll read the Payroll module (its "Run payroll" link, and the fact that
+ * the company has employees or runs) is left out, as for a company that runs no payroll.
+ */
+export async function getSetupProgress(companyId: string, access: { payrollRead: boolean }): Promise<SetupProgress> {
+  const facts = await probeSetupFacts(companyId);
+  return buildSetupProgress(access.payrollRead ? facts : { ...facts, hasEmployees: false, hasPayrollRuns: false });
 }
