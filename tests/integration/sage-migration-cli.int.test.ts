@@ -6,7 +6,7 @@
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -159,6 +159,33 @@ describe('scripts/sage-migration/run.ts', () => {
     } finally {
       await holder.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);
       holder.release();
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
+  }, 180_000);
+
+  it('M1 (round 5): a run that stops after its live phase started (its lock lost) is exit 4, not 2, and the message says the books may hold batches', async () => {
+    const world = await sageWorld(pool);
+    const [k1, k2] = migrationLockKey(world.companyId);
+    const child = spawn('bun', ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json',
+      '--live', '--expect-items', '20', '--expect-pos', '10'], { env: { ...process.env, DATABASE_SSL: 'disable' } });
+    let err = '';
+    child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
+    const closed = new Promise<number | null>((resolve) => child.on('close', resolve));
+    try {
+      // Kill the run's lock connection as soon as it exists (the dry run is still going): the check before the live phase finds it gone.
+      const deadline = Date.now() + 60_000;
+      for (let killed = 0; killed === 0 && Date.now() < deadline;) {
+        killed = (await pool.query(
+          `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,
+          [String(BigInt.asUintN(32, BigInt(k1))), String(BigInt.asUintN(32, BigInt(k2)))])).rowCount ?? 0;
+        if (killed === 0) await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(await closed).toBe(4);
+      expect(err).toMatch(/sage migration stopped: lock lost/);
+      expect(err).toMatch(/the live run may already have committed some batches/);
+    } finally {
+      child.kill();
       await cleanupSageWorld(pool, world);
       await cleanupWorld(pool, world.w);
     }
