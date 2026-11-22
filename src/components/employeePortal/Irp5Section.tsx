@@ -25,24 +25,26 @@ const muted = 'text-sm text-gray-600 dark:text-gray-300';
 function Lines({ caption, lines }: { caption: string; lines: Line[] }) {
   if (lines.length === 0) return null;
   return (
-    <table className="mb-3 w-full text-left text-sm">
-      <caption className="sr-only">{caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col" className={`${cell} w-16`}>Code</th>
-          <th scope="col" className={cell}>{caption}</th>
-          <th scope="col" className={`${cell} text-right`}>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        {lines.map((l) => (
-          <tr key={`${l.code}-${l.label}`}>
-            <td className={cell}>{l.code}</td><td className={cell}>{l.label}</td>
-            <td className={`${cell} text-right`}><Money amount={l.amount} /></td>
+    <div className="mb-3 max-lg:overflow-x-auto" data-testid="irp5-lines-scroll">
+      <table className="w-full text-left text-sm">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col" className={`${cell} w-16`}>Code</th>
+            <th scope="col" className={cell}>{caption}</th>
+            <th scope="col" className={`${cell} text-right`}>Amount</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={`${l.code}-${l.label}`}>
+              <td className={cell}>{l.code}</td><td className={cell}>{l.label}</td>
+              <td className={`${cell} text-right`}><Money amount={l.amount} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -78,7 +80,7 @@ export function Irp5Section() {
         <article key={c.versionId} aria-labelledby={`irp5-${c.versionId}`} className="mb-4 rounded border border-gray-200 p-3 dark:border-gray-800">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 id={`irp5-${c.versionId}`} className="font-semibold">Tax year {c.taxYear}: {kindLabel(c.kind)}</h3>
-            <a className="font-medium text-teal-700 underline dark:text-teal-400" href={`/api/employee-portal/irp5/${c.versionId}`}>
+            <a className="font-medium text-teal-700 underline dark:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11" href={`/api/employee-portal/irp5/${c.versionId}`}>
               Download PDF<span className="sr-only"> IRP5 copy for tax year {c.taxYear}, {c.kind}</span>
             </a>
           </div>
