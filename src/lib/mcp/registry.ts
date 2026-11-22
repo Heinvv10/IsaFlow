@@ -11,12 +11,11 @@ import { withSavepoint } from '@/lib/neon';
 import { runAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolManifest, McpToolResult } from './types';
-import { roleFenceRefusal } from './roleFence';
 import { moduleFenceRefusal } from './moduleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { insufficientFlowsText } from './flowRefusal';
-import { insufficientScopeMessage } from './scopeRemediation';
+import { accessRefusal } from './toolAccess';
 import { thrownToolErrorText } from './thrownToolErrorText';
 import { toolAnnotationsFor } from './toolAnnotations';
 import { oversizedReadRefusal } from './resultSize';
@@ -91,26 +90,12 @@ export class McpRegistry {
     const tool = this.tools.get(name);
     if (!tool) return reject(`Unknown tool: ${name}`, null);
 
-    if (tool.scope && !ctx.scopes.includes(tool.scope)) {
-      // A scope added after tokens were minted is missing from every existing
-      // connection, so this reply is the whole user experience of that change:
-      // it has to say what to do, not merely what failed. See scopeRemediation.
-      return reject(insufficientScopeMessage(tool.scope), null);
-    }
-
-    if (tool.requiresPost && !ctx.scopes.includes('write:post')) {
-      return reject(
-        'This operation posts irreversible entries and requires the write:post permission, which this connection was not granted.',
-        null,
-      );
-    }
-
-    if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) {
-      return reject(insufficientScopeMessage(tool.requiresScope), null);
-    }
-
-    const roleRefusal = roleFenceRefusal(tool, ctx) ?? await moduleFenceRefusal(tool, args, ctx); // #1656: module fence
-    if (roleRefusal) return reject(roleRefusal, null);
+    // Scope, write:post, requiresScope, then the role fence: one rule (toolAccess), shared with token_info's listing. A scope added after
+    // tokens were minted is missing from every existing connection, so the reply is the whole user experience of that change: it says
+    // what to do, not merely what failed (scopeRemediation).
+    // The module fence (#1656) reads the token owner's per-module permissions from the database, so it runs after the sync fences.
+    const refusal = accessRefusal(tool, ctx) ?? await moduleFenceRefusal(tool, args, ctx);
+    if (refusal) return reject(refusal, null);
 
     // A NUL byte reaches Postgres as 22021 and aborts the transaction; refuse it before any
     // handler rather than leave it to the tool's savepoint.

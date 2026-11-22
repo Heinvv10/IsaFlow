@@ -28,6 +28,7 @@ const money = (v: number | null) => (v === null ? null : randText(v));
 
 export const budgetRemainingTool: McpTool = {
   name: 'budget_remaining',
+  admits: canWrite,
   description:
     'Remaining budget per account, slice and month, as the app\'s approve dialog and purchase-order form preview it: budget (the PRIMARY version of the month\'s year, at the account\'s level), posted actual, committed (open purchase-order lines less what their bills posted) and remaining = budget - actual - committed. '
     + 'TRAPS FIRST: budget null means "No budget" (no primary version, the account holds no budget there, or the line misses the level\'s dimension: unassigned), never 0 (a budgeted zero is 0); off_slice true means the account is budgeted but not on this slice (an approval warns or refuses it); '

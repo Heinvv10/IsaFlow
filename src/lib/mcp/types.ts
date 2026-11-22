@@ -111,6 +111,12 @@ export interface McpTool {
    */
   requiresScope?: string;
   /**
+   * A tool that accepts ANY of these scopes (list_items: read:items, or the old read:reports for one release), declared with
+   * `scope: null`. The registry refuses a token holding none of them, before the handler, with the first scope's remediation text;
+   * token_info lists the tool under each of them the token holds. The handler may keep its own check.
+   */
+  anyOfScopes?: readonly string[];
+  /**
    * Per-employee payroll data or a payroll write: only owner/admin/manager (the HTTP routes'
    * `withWriteAccess` set) may call it, whatever scope the token holds. Enforced once, in the
    * registry, before the handler — a viewer's token with `read:payroll` is refused.
@@ -122,6 +128,12 @@ export interface McpTool {
    * fiscal-period controls' level.
    */
   requiresRole?: WithRoleLevel;
+  /**
+   * The role predicate the tool's OWN handler applies to refuse a caller the registry's fences admit (budget_remaining: owner / admin /
+   * manager; take_audit_snapshot: owner / admin). The registry does not enforce it: the handler answers its own refusal. It is declared
+   * so `token_info` lists a tool only to a role that can call it (toolAccess.callableBy). Set it to the predicate the handler calls.
+   */
+  admits?: (role: string | null | undefined) => boolean;
   /**
    * A READ that returns a file or other bulk content by design (get_document with include_content). Exempts it from
    * the registry's oversized-result refusal (resultSize.ts); every other read is held to MAX_READ_RESULT_BYTES.
