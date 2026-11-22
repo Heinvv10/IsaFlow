@@ -138,6 +138,57 @@ describe('a category name IsaFlow already holds', () => {
   });
 });
 
+describe('#10: external_system is compared exactly as the item and category tools do (case-sensitive "sage")', () => {
+  it('B1d: an item stored with external_system "Sage" is not owned: its row is refused per row, the dry run stays clean', async () => {
+    await pool.query(`INSERT INTO items (company_id, code, description, item_type, external_system, external_ref) VALUES ($1, 'FIB-0001', 'x', 'physical', 'Sage', '50001')`, [s.companyId]);
+    const dry = await run({ live: false });
+    expect(dry.status).toBe('dry_run_ok');
+    const r = await run();
+    expect(r.status).toBe('completed');
+    expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0001', 'code_held_by_existing_item']]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 8 }); // 19 + the one that was there; POs naming FIB-0001 follow it
+  });
+  it('B1c: a category stored with external_system "Sage" is not owned: refused category_name_in_use, its items category_refused, dry run clean', async () => {
+    await pool.query(`INSERT INTO item_categories (company_id, name, external_system, external_ref) VALUES ($1, 'Optics', 'Sage', '10')`, [s.companyId]);
+    const dry = await run({ live: false });
+    expect(dry.status).toBe('dry_run_ok');
+    const r = await run();
+    expect(r.refused.find((x) => x.entity === 'category')).toMatchObject({ label: 'Optics', code: 'category_name_in_use' });
+    expect(r.refused.filter((x) => x.entity === 'item').every((x) => x.code === 'category_refused')).toBe(true);
+  });
+  it('an item stored with exactly "sage" is the migration\'s own (updated, not refused)', async () => {
+    await pool.query(`INSERT INTO items (company_id, code, description, item_type, external_system, external_ref) VALUES ($1, 'FIB-0001', 'x', 'physical', 'sage', '50001')`, [s.companyId]);
+    const r = await run();
+    expect(r.refused).toEqual([]);
+  });
+});
+
+describe('#11: an owned item with stock movements keeps its type and tracking', () => {
+  it('a tracked owned item with movements: the Sage row is refused per row, nothing is changed', async () => {
+    const item = String((await pool.query(
+      `INSERT INTO items (company_id, code, description, item_type, inventory_tracked, external_system, external_ref)
+       VALUES ($1, 'FIB-0001', 'x', 'physical', true, 'sage', '50001') RETURNING id`, [s.companyId])).rows[0].id);
+    const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'P-1', 'P') RETURNING id`, [s.companyId])).rows[0].id);
+    await pool.query(`INSERT INTO stock_movements (company_id, product_id, item_id, movement_type, quantity) VALUES ($1, $2, $3, 'purchase', 5)`, [s.companyId, product, item]);
+    const dry = await run({ live: false });
+    expect(dry.status).toBe('dry_run_ok');
+    const r = await run();
+    expect(r.refused.filter((x) => x.entity === 'item')).toEqual([expect.objectContaining({ label: 'FIB-0001', code: 'item_has_stock_movements' })]);
+    expect((await pool.query('SELECT inventory_tracked, item_type FROM items WHERE id = $1', [item])).rows[0]).toEqual({ inventory_tracked: true, item_type: 'physical' });
+    await pool.query('DELETE FROM stock_movements WHERE company_id = $1', [s.companyId]);
+    await pool.query('DELETE FROM products WHERE company_id = $1', [s.companyId]);
+  });
+});
+
+describe('a PO of an inactive supplier', () => {
+  it('is refused supplier_inactive per row; the other suppliers\' POs are booked', async () => {
+    await pool.query('UPDATE suppliers SET is_active = false WHERE id = $1', [s.suppliers.bravo]);
+    const r = await run();
+    expect(r.refused.filter((x) => x.entity === 'purchase_order').map((x) => x.code)).toEqual(['supplier_inactive', 'supplier_inactive', 'supplier_inactive']);
+    expect(await booked(pool, s.companyId)).toMatchObject({ pos: 7 });
+  });
+});
+
 describe('what the company already holds', () => {
   it('with the figures that were sent and booked, and refusals allowed, the exit is 0; without the allowance it is 1', async () => {
     const file = exportFile();

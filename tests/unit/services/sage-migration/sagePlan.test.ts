@@ -14,7 +14,7 @@ import type { MigrationReport } from '@/modules/accounting/services/sage-migrati
 
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 const parsed = () => parseSageExport(JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8')));
-const NONE = { items: [], categories: [], poNumbers: new Map() };
+const NONE = { items: [], categories: [], poNumbers: new Map(), inactiveSuppliers: new Set<string>() };
 const allResolved = (): Map<string, SupplierResolution> => new Map([['301', { id: SUPPLIER }], ['302', { id: SUPPLIER }], ['303', { id: SUPPLIER }]]);
 
 describe('planMigration', () => {
@@ -96,7 +96,7 @@ describe('batching and keys', () => {
 
 describe('reconciliation and its lines', () => {
   const snap = (items: string[], pos: Array<[string, number]>, stock = 0) => ({
-    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(),
+    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), inactiveSuppliers: new Set<string>(),
   });
   const base = () => {
     const p = parsed();
@@ -193,7 +193,7 @@ describe('exitCodeFor', () => {
   const { reconciliation: base } = (() => {
     const p = parsed();
     const plan = planMigration(p, allResolved(), NONE);
-    const none = { items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map() };
+    const none = { items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), inactiveSuppliers: new Set<string>() };
     const after = { ...none, itemRefs: new Set(plan.items.map((i) => i.sageId)), poTotals: new Map(plan.purchaseOrders.map((x) => [x.sageId, x.totalCents] as [string, number])), stockMovements: 0 };
     return { reconciliation: buildReconciliation({ parsed: p, plan, before: { ...none, itemRefs: new Set<string>(), poTotals: new Map<string, number>(), stockMovements: 0 }, after, failedBatches: 0, expect: undefined, live: true }) };
   })();

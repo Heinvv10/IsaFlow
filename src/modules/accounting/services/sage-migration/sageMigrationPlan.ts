@@ -29,7 +29,7 @@ export interface MigrationPlan {
   refusals: RowRefusal[];
 }
 
-export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy'>;
+export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'>;
 
 /**
  * Why `sageId`/`code` must not be sent, or null. bulk_upsert_items matches by Sage reference and then by CODE, and updates what it
@@ -76,6 +76,15 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     }
     const conflict = itemConflict(item.id, item.code, existing.items);
     if (conflict) { refusals.push({ entity: 'item', sageId: item.id, label: item.code, code: conflict.code, reasons: [conflict.reason] }); continue; }
+    // An owned item with stock movements keeps its type and tracking: the migration always sends untracked, and a Sage service is a service.
+    const owned = existing.items.find((i) => i.system === SAGE_SYSTEM && i.ref === item.id && !i.deleted);
+    if (owned?.hasMovements && (owned.itemType !== (item.physical ? 'physical' : 'service') || owned.inventoryTracked)) {
+      refusals.push({
+        entity: 'item', sageId: item.id, label: item.code, code: 'item_has_stock_movements',
+        reasons: [`item ${owned.code} (id ${owned.id}) has stock movements and is ${owned.itemType}, ${owned.inventoryTracked ? 'tracked' : 'untracked'}; the export would make it ${item.physical ? 'physical' : 'service'} and untracked, which a book with stock cannot take`],
+      });
+      continue;
+    }
     const row = mapSageItem(item);
     const checked = validateItemFields(row);
     if (!checked.ok) {
@@ -95,6 +104,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const refuse = (code: string, reason: string) => refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code, reasons: [reason] });
     if (!supplier) { refuse('supplier_unresolved', `supplier ${po.supplierId} was not looked up`); continue; }
     if (!('id' in supplier)) { refuse(supplier.code, supplier.reason); continue; }
+    if (existing.inactiveSuppliers.has(supplier.id)) { refuse('supplier_inactive', `supplier ${supplier.id} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
     const unsent = po.lines.find((l) => l.itemId !== null && !Object.hasOwn(sentCodes, l.itemId));
     if (unsent) { refuse('line_item_refused', `a line names item ${unsent.itemId}, which is refused and so is not imported`); continue; }
     const holder = existing.poNumbers.get(po.documentNumber);

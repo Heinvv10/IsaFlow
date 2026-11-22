@@ -10,12 +10,12 @@ import type { SupplierResolution } from '@/modules/accounting/services/sage-migr
 
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 const parsed = () => parseSageExport(JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8')));
-const NONE = { items: [], categories: [], poNumbers: new Map(), budgetPolicy: 'warn' };
+const NONE = { items: [], categories: [], poNumbers: new Map(), budgetPolicy: 'warn', inactiveSuppliers: new Set<string>() };
 const allResolved = (): Map<string, SupplierResolution> => new Map([['301', { id: SUPPLIER }], ['302', { id: SUPPLIER }], ['303', { id: SUPPLIER }]]);
 
 describe('rows the company\'s own data would make a tool refuse are refused here, one reason per row', () => {
   const held = (over: Partial<{ id: string; code: string; system: string | null; ref: string | null; deleted: boolean }>) =>
-    ({ items: [{ id: 'i1', code: 'X', system: null, ref: null, deleted: false, ...over }], categories: [], poNumbers: new Map() });
+    ({ items: [{ id: 'i1', code: 'X', system: null, ref: null, deleted: false, ...over }], categories: [], poNumbers: new Map(), inactiveSuppliers: new Set<string>() });
   const refusalFor = (existing: ReturnType<typeof held>, label = 'FIB-0001') => planMigration(parsed(), allResolved(), existing).refusals.find((r) => r.label === label);
 
   it('F1: a code an existing item holds that this migration does not own is refused, naming that item, whatever the item\'s reference', () => {
@@ -35,7 +35,7 @@ describe('rows the company\'s own data would make a tool refuse are refused here
   it('the Sage id on one item and the code on another: ref_code_conflict', () => {
     const existing = { items: [
       { id: 'a', code: 'OLD', system: 'sage', ref: '50001', deleted: false }, { id: 'b', code: 'FIB-0001', system: null, ref: null, deleted: false },
-    ], categories: [], poNumbers: new Map() };
+    ], categories: [], poNumbers: new Map(), inactiveSuppliers: new Set<string>() };
     expect(refusalFor(existing)).toMatchObject({ code: 'ref_code_conflict' });
   });
   it('the SAME item (this Sage id, this code) is the migration\'s own: sent as an update', () => {
@@ -49,7 +49,7 @@ describe('rows the company\'s own data would make a tool refuse are refused here
     expect(refusalFor(held({ code: 'fib-0001', system: 'sage', ref: '12345' }))).toBeUndefined();
   });
   it('a PO number another purchase order holds: po_number_taken; the same Sage PO again is sent (the tool replays it)', () => {
-    const none = (system: string | null, ref: string | null) => ({ items: [], categories: [], poNumbers: new Map([['PO0000197', { system, ref }]]) });
+    const none = (system: string | null, ref: string | null) => ({ items: [], categories: [], poNumbers: new Map([['PO0000197', { system, ref }]]), inactiveSuppliers: new Set<string>() });
     expect(planMigration(parsed(), allResolved(), none(null, null)).refusals.find((r) => r.label === 'PO0000197')).toMatchObject({ entity: 'purchase_order', code: 'po_number_taken' });
     expect(planMigration(parsed(), allResolved(), none('sage', '555')).refusals.find((r) => r.label === 'PO0000197')).toMatchObject({ code: 'po_number_taken' });
     expect(planMigration(parsed(), allResolved(), none('sage', '900197')).refusals).toEqual([]);
@@ -87,7 +87,7 @@ describe('rows the company\'s own data would make a tool refuse are refused here
 });
 
 describe('a category name an IsaFlow category the migration does not own holds', () => {
-  const cats = (...c: Array<{ id: string; name: string; system: string | null; ref: string | null }>) => ({ items: [], categories: c, poNumbers: new Map() });
+  const cats = (...c: Array<{ id: string; name: string; system: string | null; ref: string | null }>) => ({ items: [], categories: c, poNumbers: new Map(), inactiveSuppliers: new Set<string>() });
   const plan = (existing: ReturnType<typeof cats>) => planMigration(parsed(), allResolved(), existing);
 
   it('the category row is refused category_name_in_use naming the holder; the category is not sent', () => {
@@ -126,7 +126,7 @@ describe('a category name an IsaFlow category the migration does not own holds',
 });
 
 describe('M1: an approved PO with no GL account under the block policy is refused per row', () => {
-  const under = (policy: string) => ({ items: [], categories: [], poNumbers: new Map(), budgetPolicy: policy });
+  const under = (policy: string) => ({ items: [], categories: [], poNumbers: new Map(), budgetPolicy: policy, inactiveSuppliers: new Set<string>() });
   const open = () => parsed().purchaseOrders.filter((p) => p.status === 'Pending' || p.status === 'Overdue').map((p) => p.documentNumber);
   const refused = (policy: string, opts = {}) => planMigration(parsed(), allResolved(), under(policy), opts).refusals.filter((r) => r.code === 'accountless_under_block_policy');
 
@@ -148,5 +148,48 @@ describe('M1: an approved PO with no GL account under the block policy is refuse
   it('block with an account for every line, or with the budget check skipped: nothing is refused', () => {
     expect(refused('block', { poGlAccountId: '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f7' })).toEqual([]);
     expect(refused('block', { skipBudgetCheck: true })).toEqual([]);
+  });
+});
+
+describe('#11: an owned item with stock movements is not flipped to another type or to untracked', () => {
+  const own = (over: Record<string, unknown>) => ({
+    items: [{ id: 'i1', code: 'FIB-0001', system: 'sage', ref: '50001', deleted: false, itemType: 'physical', inventoryTracked: true, hasMovements: true, ...over }],
+    categories: [], poNumbers: new Map(), budgetPolicy: 'warn', inactiveSuppliers: new Set<string>(),
+  });
+  const refusal = (existing: ReturnType<typeof own>, mutate?: (p: ReturnType<typeof parsed>) => void) => {
+    const p = parsed();
+    mutate?.(p);
+    return planMigration(p, allResolved(), existing).refusals.find((r) => r.label === 'FIB-0001');
+  };
+  it('tracked with movements, and the export always sends untracked: refused item_has_stock_movements, naming it', () => {
+    const r = refusal(own({}));
+    expect(r).toMatchObject({ entity: 'item', code: 'item_has_stock_movements' });
+    expect(r!.reasons[0]).toMatch(/item FIB-0001 \(id i1\) has stock movements and is physical, tracked.*untracked/);
+  });
+  it('an untracked physical item with movements that stays physical is fine; so is a tracked item with none', () => {
+    expect(refusal(own({ inventoryTracked: false }))).toBeUndefined();
+    expect(refusal(own({ hasMovements: false }))).toBeUndefined();
+  });
+  it('a type flip (physical to a Sage service) on an item with movements is refused, flip or not tracked', () => {
+    const toService = (p: ReturnType<typeof parsed>) => { p.items.find((i) => i.id === '50001')!.physical = false; };
+    expect(refusal(own({ inventoryTracked: false }), toService)).toMatchObject({ code: 'item_has_stock_movements' });
+    expect(refusal(own({ inventoryTracked: false, hasMovements: false }), toService)).toBeUndefined();
+  });
+  it('an item the migration does not own is still refused as held, not as has-movements', () => {
+    expect(refusal(own({ system: null, ref: null }))).toMatchObject({ code: 'code_held_by_existing_item' });
+  });
+});
+
+const A = '1b7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
+const B = '2c7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
+describe('a PO of an inactive supplier is refused supplier_inactive', () => {
+  it('only that supplier\'s POs; the others are sent', () => {
+    const existing = { items: [], categories: [], poNumbers: new Map(), budgetPolicy: 'warn', inactiveSuppliers: new Set([B]) };
+    const resolved = new Map<string, SupplierResolution>([['301', { id: A }], ['302', { id: B }], ['303', { id: A }]]);
+    const plan = planMigration(parsed(), resolved, existing);
+    const refused = plan.refusals.filter((r) => r.code === 'supplier_inactive');
+    expect(refused.map((r) => r.label).sort()).toEqual(['PO0000198', 'PO0000201', 'PO0000204']);
+    expect(refused[0]!.reasons[0]).toMatch(/inactive/);
+    expect(plan.purchaseOrders).toHaveLength(7);
   });
 });

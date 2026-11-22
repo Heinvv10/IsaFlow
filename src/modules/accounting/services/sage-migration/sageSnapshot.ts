@@ -13,6 +13,10 @@ export interface ExistingItem {
   system: string | null;
   ref: string | null;
   deleted: boolean;
+  itemType: string;
+  inventoryTracked: boolean;
+  /** The item has stock_movements rows: its type and tracking are no longer free to change. */
+  hasMovements: boolean;
 }
 
 /** An item category of the company. The category tool matches by reference, code, then name (case-insensitively). */
@@ -33,6 +37,8 @@ export interface Snapshot {
   categories: ExistingCategory[];
   /** The company's budget check policy (off | warn | block; warn when none is set), as the PO import reads it. */
   budgetPolicy: string;
+  /** Suppliers of the company that are inactive (is_active false): a PO to one is refused. */
+  inactiveSuppliers: Set<string>;
   /** supplier uuid -> the Sage reference it carries (live suppliers; none carrying one are absent). */
   supplierSageRefs: Map<string, string>;
   /** po_number -> the external reference the PO carries (null: none). Numbers are unique per company, case-sensitively. */
@@ -41,24 +47,29 @@ export interface Snapshot {
 
 export async function readSnapshot(companyId: string): Promise<Snapshot> {
   const items = (await sql`
-    SELECT id::TEXT AS id, code, external_system, external_ref, (deleted_at IS NOT NULL) AS deleted FROM items
-    WHERE company_id = ${companyId}::UUID
-  `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean }>;
+    SELECT i.id::TEXT AS id, i.code, i.external_system, i.external_ref, (i.deleted_at IS NOT NULL) AS deleted, i.item_type, i.inventory_tracked,
+           EXISTS (SELECT 1 FROM stock_movements m WHERE m.company_id = i.company_id AND m.item_id = i.id) AS has_movements
+      FROM items i WHERE i.company_id = ${companyId}::UUID
+  `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean; item_type: string; inventory_tracked: boolean; has_movements: boolean }>;
+  // PO and supplier reference lookups of the tools are case-insensitive (lower(external_system)), so they are read the same way here.
   const pos = (await sql`
     SELECT po_number, lower(external_system) AS external_system, external_ref, round(total * 100)::BIGINT AS cents FROM purchase_orders
     WHERE company_id = ${companyId}::UUID
   `) as Array<{ po_number: string; external_system: string | null; external_ref: string | null; cents: string | number }>;
   const categories = (await sql`
-    SELECT id::TEXT AS id, name, lower(external_system) AS external_system, external_ref FROM item_categories WHERE company_id = ${companyId}::UUID
+    SELECT id::TEXT AS id, name, external_system, external_ref FROM item_categories WHERE company_id = ${companyId}::UUID
   `) as Array<{ id: string; name: string; external_system: string | null; external_ref: string | null }>;
   const suppliers = (await sql`
     SELECT id::TEXT AS id, external_ref FROM suppliers
     WHERE company_id = ${companyId}::UUID AND lower(external_system) = 'sage' AND external_ref IS NOT NULL AND deleted_at IS NULL
   `) as Array<{ id: string; external_ref: string }>;
+  const inactive = (await sql`SELECT id::TEXT AS id FROM suppliers WHERE company_id = ${companyId}::UUID AND is_active = false AND deleted_at IS NULL`) as Array<{ id: string }>;
   const stock = (await sql`SELECT count(*)::INT AS n FROM stock_movements WHERE company_id = ${companyId}::UUID`) as Array<{ n: number }>;
   const existing = items.map((r): ExistingItem => ({
-    id: String(r.id), code: r.code, system: r.external_system ? r.external_system.toLowerCase() : null,
+    // The item and category tools compare external_system EXACTLY (case-sensitive 'sage'): a row stored as 'Sage' is not theirs, nor ours.
+    id: String(r.id), code: r.code, system: r.external_system,
     ref: r.external_ref === null ? null : String(r.external_ref), deleted: r.deleted === true,
+    itemType: String(r.item_type), inventoryTracked: r.inventory_tracked === true, hasMovements: r.has_movements === true,
   }));
   return {
     itemRefs: new Set(existing.filter((i) => i.system === 'sage' && i.ref !== null && !i.deleted).map((i) => i.ref!)),
@@ -66,6 +77,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
     budgetPolicy: await readCheckPolicy(companyId),
+    inactiveSuppliers: new Set(inactive.map((r) => String(r.id))),
     categories: categories.map((c) => ({ id: String(c.id), name: c.name, system: c.external_system, ref: c.external_ref === null ? null : String(c.external_ref) })),
     supplierSageRefs: new Map(suppliers.map((r) => [String(r.id), String(r.external_ref)])),
     poNumbers: new Map(pos.map((r) => [String(r.po_number), { system: r.external_system, ref: r.external_ref === null ? null : String(r.external_ref) }])),
