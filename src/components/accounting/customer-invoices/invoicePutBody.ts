@@ -124,21 +124,19 @@ export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refuse
   if (!lines.some((l) => l.description)) return 'Add at least one line item';
   const dateOrCleared = invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
   if (dateOrCleared) return dateOrCleared;
+  // The server refuses a rate of 0 (a foreign currency just picked starts there: InvoiceSettingsRow).
+  if (!finite(form.exchangeRate) || form.exchangeRate <= 0) return 'Exchange rate must be greater than 0';
   // A line with no VAT type yet: the server refuses it (the rate comes from the type), so Save holds and says why.
   if (taxMode === 'none') return null;
   const sent = savedLines(lines);
   return vatTypeProblem(sent, lineVatTypes(sent, customerVat));
 }
 
-/**
- * Why autosave holds this draft back, or null: Save's refusals, plus no priced line yet, and an exchange rate the server
- * would refuse (a 400 would stop autosave for a value still being typed).
- */
+/** Why autosave holds this draft back, or null: Save's refusals (an exchange rate the server would refuse among them: a
+ * 400 would stop autosave for a value still being typed), plus no priced line yet. */
 export function autosaveProblem(draft: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   const refusal = saveProblem(draft, refused, stored);
   if (refusal) return refusal;
-  const { form, lines } = draft;
-  if (!lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
-  if (!finite(form.exchangeRate) || form.exchangeRate <= 0) return 'Check the exchange rate';
+  if (!draft.lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
   return null;
 }

@@ -34,6 +34,12 @@ export function InvoiceSettingsRow({ form, currencies, onChange, registered, tax
   useEffect(() => { if (taxModeProblem) problem.current?.scrollIntoView?.({ block: 'nearest' }); }, [taxModeProblem]);
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
+  // Another currency's rate is never this one's (a ZAR form holds 1): it starts at 0, which Create and Save refuse
+  // until the user gives one. ZAR is 1; picking the same currency again keeps the rate typed.
+  const pickCurrency = (v: string | null) => {
+    const code = v ?? 'ZAR';
+    onChange({ currencyCode: code, exchangeRate: code === 'ZAR' ? 1 : code === form.currencyCode ? form.exchangeRate : 0 });
+  };
   return (
     <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -47,7 +53,7 @@ export function InvoiceSettingsRow({ form, currencies, onChange, registered, tax
         )}
         <div className="w-64">
           <Select label="Currency" labelClassName={lbl} size="sm" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
-            onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />
+            onChange={pickCurrency} />
         </div>
         {isFx && (
           <div className="w-48">
