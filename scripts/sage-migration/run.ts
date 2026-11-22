@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 
   const parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
     const report = await runSageMigration(pool, parsed, {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'],

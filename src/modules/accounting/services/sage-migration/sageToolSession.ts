@@ -13,6 +13,7 @@ import { getCompanyMembership } from '@/lib/auth/companyMembership';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
@@ -51,7 +52,7 @@ export async function withToolSession<T>(
   const client = await pool.connect();
   let committed = false;
   let owned: RequestContext | null = null;
-  let broken = false;
+  let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
@@ -80,7 +81,7 @@ export async function withToolSession<T>(
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
     if (!commit) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'sage-migration');
       return result;
     }
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
@@ -89,10 +90,10 @@ export async function withToolSession<T>(
     drainAfterCommit(txCtx);
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => { broken = true; });
+    unusable = await rollbackFailed(client, 'sage-migration');
     throw err;
   } finally {
-    client.release(broken);
+    client.release(unusable);
     settleAfterRollback(owned, committed);
   }
 }

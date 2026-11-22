@@ -1,7 +1,8 @@
 /** The few lines a person reads at the end of a run; the full report is the JSON file. PURE. */
+import { formatCents } from '@/lib/money/formatMoney';
 import type { MigrationReport, PhaseReport } from './sageMigrationTypes';
 
-const money = (cents: number): string => `R${(cents / 100).toFixed(2)}`;
+const money = formatCents;
 const phase = (name: string, p: PhaseReport | undefined): string =>
   p ? `${name}: ${p.batches.length} batches, ${p.failed} failed` : `${name}: not run`;
 

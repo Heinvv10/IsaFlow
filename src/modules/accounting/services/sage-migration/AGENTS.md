@@ -35,7 +35,3 @@ Local throwaway databases only.
 - The PO tool has no `item_id` on a line; the link to the item is " [item CODE]" in the description until it has one.
 - PDFs are listed in the report, not uploaded.
 - The reconciliation is measured in the database (before and after), never taken from a tool's answer.
-
-## Recent changes
-
-- 2026-11-22: created (items + PO importer, runner, local guard).
