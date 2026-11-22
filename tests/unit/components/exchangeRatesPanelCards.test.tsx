@@ -2,15 +2,14 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExchangeRatesPanel } from '../../../src/components/accounting/currencies/ExchangeRatesPanel';
-
-vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn() }));
+import type { ExchangeRate } from '../../../src/modules/accounting/services/core/currencyService';
 
 afterEach(cleanup);
 const currencies = [
   { code: 'ZAR', name: 'Rand', symbol: 'R', decimalPlaces: 2, isActive: true },
   { code: 'USD', name: 'US Dollar', symbol: '$', decimalPlaces: 2, isActive: true },
 ];
-const rates = [{ id: 'r1', fromCurrency: 'USD', toCurrency: 'ZAR', rate: 18.5, effectiveDate: '2026-11-01', source: 'manual' }] as never;
+const rates = [{ id: 'r1', fromCurrency: 'USD', toCurrency: 'ZAR', rate: 18.5, effectiveDate: '2026-11-01', source: 'manual' }] as unknown as ExchangeRate[];
 const HEADS = ['Pair', 'Rate', 'Effective', 'Source'];
 
 describe('Exchange rates panel on touch', () => {
@@ -20,7 +19,7 @@ describe('Exchange rates panel on touch', () => {
     expect(table.className).toContain('table-cards');
     expect([...table.querySelectorAll(':scope > thead th')].map(th => th.textContent)).toEqual(HEADS);
     const row = table.querySelector(':scope > tbody > tr')!;
-    expect([...row.querySelectorAll(':scope > td')].map(td => td.getAttribute('data-label'))).toEqual([null, 'Rate', 'Effective', 'Source']);
+    expect([...row.querySelectorAll(':scope > td')].map(td => td.getAttribute('data-label'))).toEqual([null, ...HEADS.slice(1)]); // labels equal the headers; Pair heads the card
   });
 
   it('makes every select, number input and button of the set-rate form and the converter 44px', () => {
