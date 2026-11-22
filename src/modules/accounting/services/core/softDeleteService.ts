@@ -8,7 +8,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { softDeleteRow, restoreRow } from './softDeleteRowOps';
 import { assertNoOpenDocuments } from './masterDeleteGuards';
-import { prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
+import { lockUndoReversalAccounts, prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { underFlowLockBudget } from './rowLockBudget';
 import { isLockTimeoutError } from '@/lib/lockTimeout';
@@ -142,6 +142,7 @@ async function undoDeleteInner(
   userId: string,
 ): Promise<boolean> {
   try {
+    if (INVOICE_ENTITY_TYPES.has(entityType)) await lockUndoReversalAccounts(entityType, entityId, companyId); // 1018 round 15 L1
     const restored = await restoreRow(entityType, entityId, companyId);
     // Put the journal back, or the restored invoice is in the subledger with
     // nothing behind it on the control account — the delete's defect mirrored.

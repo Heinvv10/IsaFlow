@@ -88,6 +88,11 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
 // helper finds and locks — proven against a real ledger, chains included, in
 // tests/integration/d8-r2-chain-head-cancel-void. Here it answers "the journal
 // itself stands" unless a case says otherwise.
+// 1018 round 15 L1: the journal's accounts before the document row (proven on a real ledger in
+// tests/integration/ledger-freeze-round15); the positional sql queue must not see its reads.
+vi.mock('@/modules/accounting/services/shared/documentJournalAccountsLock', () => ({
+  lockDocumentJournalAccounts: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
   lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
 }));

@@ -29,6 +29,12 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
 // 1018 round 13: the sorted chain locks before the claim (gl/ledgerLinkKeys); the positional sql queue must not see it.
 vi.mock('@/modules/accounting/services/gl/ledgerLinkKeys', () => ({ lockJournalChains: vi.fn(async () => undefined) }));
+// 1018 round 15 L2: the lines' accounts re-read under the claim (gl/reversalLines, real-ledger proof in
+// ledger-freeze-round15.int.test.ts); the positional sql queue must not see that read.
+vi.mock('@/modules/accounting/services/gl/reversalLines', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/reversalLines')>()),
+  accountsUnderClaim: vi.fn(async (_c: string, _id: string, _orig: unknown[], contra: unknown[]) => contra),
+}));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),

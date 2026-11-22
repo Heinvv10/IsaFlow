@@ -38,6 +38,19 @@ export async function lockJournalChains(entryIds: readonly string[], busy: () =>
 }
 
 /**
+ * Round 15 L1: FOR KEY SHARE, in id order, on the accounts of `entryIds`' lines (ledger_lock_accounts), for a service
+ * about to lock a DOCUMENT row and then reverse the document's journal (cancel, credit-note cancel, soft delete, undo).
+ * An account merge holds its accounts FOR UPDATE and then UPDATEs every document with an item on the source
+ * (repointDocumentRows); a service holding that document while its claim waited on the account deadlocked with it.
+ * Taken first, the wait happens before the document row, holding nothing. Read the journal ids unlocked: a posted
+ * journal's lines move only with a merge, which this lock waits out. A held one past the 5 s bound is `busy()`.
+ */
+export async function lockJournalAccounts(entryIds: readonly (string | null | undefined)[], busy: () => Error): Promise<void> {
+  const ids = entryIds.filter((id): id is string => Boolean(id));
+  if (ids.length > 0) await busyAs(busy, () => sql`SELECT public.ledger_lock_accounts(${ids}::uuid[])`);
+}
+
+/**
  * Round 12 L3: before a bulk line move (the account merge), take the link keys of every journal with a line on the
  * account, in sorted uuid order: the order a reversal link takes them. The deferred check later asks for keys already
  * held, so a merge and a link wait for one another instead of deadlocking (40P01). Round 14 L1: the caller already holds

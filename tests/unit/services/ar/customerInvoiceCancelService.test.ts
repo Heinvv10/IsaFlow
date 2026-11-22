@@ -35,6 +35,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 // D8: which entry to reverse is the shared chain-head helper's answer, proven
 // against a real ledger in tests/integration/d8-r2-chain-head-cancel-void.
 // Here: "the journal itself stands" unless a case says otherwise.
+// 1018 round 15 L1: the journal's accounts before the document row (proven on a real ledger in
+// tests/integration/ledger-freeze-round15); the positional sql queue must not see its reads.
+vi.mock('@/modules/accounting/services/shared/documentJournalAccountsLock', () => ({
+  lockDocumentJournalAccounts: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
   lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
 }));

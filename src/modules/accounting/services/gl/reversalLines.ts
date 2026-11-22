@@ -64,6 +64,7 @@
 
 import type { VatLockRoll } from './journalEntryReversalVatRoll';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { ownedDimensions, ownedOrNull } from './journalLineOwnership';
 import type { JournalEntry, JournalLine, JournalLineInput } from '../../types/gl.types';
 
@@ -136,4 +137,21 @@ export async function buildReversalLines(
   });
 
   return { lines: reversalLines, droppedLineCount };
+}
+
+/**
+ * 1018 round 15 L2: the contra lines with each account as the original's line stands UNDER the reversal's claim. The
+ * claim waits on the accounts a merge holds (ledger_lock_accounts); when that merge commits it has moved the lines onto
+ * its target and deactivated the source, so a contra built from the lines read before the claim posted to an inactive
+ * account (InactiveAccountError, "reactivate the account"). Only the account can change: a posted line is otherwise
+ * frozen (migration 1018). `contra[i]` mirrors `original[i]` (buildReversalLines maps line for line).
+ */
+export async function accountsUnderClaim(
+  companyId: string, entryId: string, original: readonly JournalLine[], contra: JournalLineInput[],
+): Promise<JournalLineInput[]> {
+  const rows = (await sql`
+    SELECT id, gl_account_id FROM gl_journal_lines
+    WHERE journal_entry_id = ${entryId}::UUID AND company_id = ${companyId}::UUID`) as { id: string; gl_account_id: string }[];
+  const now = new Map(rows.map((r) => [String(r.id), String(r.gl_account_id)]));
+  return contra.map((l, i) => ({ ...l, glAccountId: now.get(String(original[i]?.id)) ?? l.glAccountId }));
 }

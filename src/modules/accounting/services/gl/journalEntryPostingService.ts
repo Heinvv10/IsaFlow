@@ -7,7 +7,7 @@ import { log } from '@/lib/logger';
 import type { JournalEntry } from '../../types/gl.types';
 import { getJournalEntryById, createJournalEntry } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
-import { buildReversalLines, type ReversalEntry } from './reversalLines';
+import { accountsUnderClaim, buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
   claimJournalReversal,
   JournalReversalLockTimeoutError,
@@ -152,6 +152,8 @@ async function reverseJournalEntryInner(
       // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
       await assertNoLiveUndoShares(companyId, id, entry.entryNumber);
     });
+    // 1018 round 15 L2: a claim that waited on an account merge sees the lines where the merge put them.
+    carried.lines = await accountsUnderClaim(companyId, id, entry.lines, carried.lines);
 
     let reversalEntry: JournalEntry;
     try {

@@ -13,6 +13,7 @@ const reinstateInvoiceJournal = vi.fn();
 vi.mock('@/modules/accounting/services/core/softDeleteJournalService', () => ({
   prepareInvoiceDelete: (...a: unknown[]) => prepareInvoiceDelete(...a),
   reinstateInvoiceJournal: (...a: unknown[]) => reinstateInvoiceJournal(...a),
+  lockUndoReversalAccounts: async () => undefined, // 1018 round 15 L1 (real-ledger proof: ledger-freeze-round15)
 }));
 vi.mock('@/modules/accounting/services/core/softDeleteRowOps', () => ({
   softDeleteRow: vi.fn(async () => true), restoreRow: vi.fn(async () => true),
