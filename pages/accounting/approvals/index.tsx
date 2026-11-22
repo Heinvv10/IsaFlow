@@ -17,6 +17,7 @@ import {
   DOC_TYPE_LABELS, formatCurrency, type ApprovalRuleRow as ApprovalRule,
 } from '@/components/accounting/approvals/approvalRuleDisplay';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useHrefVisible } from '@/hooks/useHrefVisible';
 
 interface ApprovalRequest {
   id: string;
@@ -43,6 +44,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function ApprovalsPage() {
+  const mayOffer = useHrefVisible();
   const [tab, setTab] = useState<'pending' | 'rules' | 'history'>('pending');
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [rules, setRules] = useState<ApprovalRule[]>([]);
@@ -224,7 +226,7 @@ export default function ApprovalsPage() {
                       // R-035: the document the request is for, linked where it has a page.
                       const label = req.documentReference || req.documentId.slice(0, 8);
                       const href = approvalDocumentHref(req.documentType, req.documentId);
-                      return href ? <Link href={href} className="hover:text-teal-500 hover:underline">{label}</Link> : label;
+                      return href && mayOffer(href) ? <Link href={href} className="hover:text-teal-500 hover:underline">{label}</Link> : label;
                     })()}
                     {req.amount != null && <span className="ml-2 text-teal-500">{formatCurrency(req.amount)}</span>}
                   </p>

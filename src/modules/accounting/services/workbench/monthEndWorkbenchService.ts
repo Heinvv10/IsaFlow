@@ -37,7 +37,12 @@ export interface MonthEndWorkbench {
   cards: WorkbenchCard[];
   trialBalanceBalanced: boolean;
   trialBalanceDiff: number;
+  /** The caller has no Payroll read in this company: the payroll card is left out (and so from every count made from `cards`). */
+  payrollHidden?: boolean;
 }
+
+/** What the caller may see. Required, so a new caller must decide: the payroll card is built only for `payrollRead: true`. */
+export interface WorkbenchAccess { payrollRead: boolean }
 
 function parsePeriod(period: string): { start: string; end: string } {
   const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
@@ -195,6 +200,7 @@ function failedCard(
 export async function getMonthEndWorkbench(
   companyId: string,
   period: string,
+  access: WorkbenchAccess,
 ): Promise<MonthEndWorkbench> {
   const { start, end } = parsePeriod(period);
 
@@ -211,7 +217,8 @@ export async function getMonthEndWorkbench(
     isolated('sales', () => buildSalesCard(companyId, end)),
     isolated('purchases', () => buildPurchasesCard(companyId, end)),
     isolated('vat', () => buildVatCard(companyId, start, end)),
-    isolated('payroll', () => buildPayrollCard(companyId, period)),
+    // Not built at all without Payroll read: nothing about payroll is read for a user who may not see it.
+    access.payrollRead ? isolated('payroll', () => buildPayrollCard(companyId, period)) : Promise.resolve(null),
     isolated('afs', () => buildAfsCard(companyId, period)),
     isolated('exceptions', () => buildExceptionsCard(companyId, end)),
     isolated('review', () => buildReviewCard(companyId, start, end, period)),
@@ -254,8 +261,9 @@ export async function getMonthEndWorkbench(
     periodStart: start,
     periodEnd: end,
     generatedAt: new Date().toISOString(),
-    cards: [banking, sales, purchases, vat, payroll, afs, exceptions, review],
+    cards: [banking, sales, purchases, vat, ...(access.payrollRead ? [payroll] : []), afs, exceptions, review],
     trialBalanceBalanced: tb.balanced,
     trialBalanceDiff: tb.diff,
+    ...(access.payrollRead ? {} : { payrollHidden: true }),
   };
 }

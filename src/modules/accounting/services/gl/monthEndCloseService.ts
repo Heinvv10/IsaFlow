@@ -56,9 +56,9 @@ export function generateCloseChecklist(companyType: string): CloseChecklistItem[
 export function checkCompleteness(input: {
   hasPayrollPosted: boolean; hasDepreciationRun: boolean;
   hasBankRecon: boolean; hasVATRecon: boolean; hasAccruals: boolean;
-}): CompletenessResult {
+}, /** `payroll: false` (the caller has no Payroll read): "Payroll posted" is not one of the checks, and its answer is ignored. */ opts: { payroll?: boolean } = {}): CompletenessResult {
   const checks = [
-    { name: 'Payroll posted', done: input.hasPayrollPosted },
+    ...(opts.payroll === false ? [] : [{ name: 'Payroll posted', done: input.hasPayrollPosted }]),
     { name: 'Depreciation run', done: input.hasDepreciationRun },
     { name: 'Bank reconciliation', done: input.hasBankRecon },
     { name: 'VAT reconciliation', done: input.hasVATRecon },
