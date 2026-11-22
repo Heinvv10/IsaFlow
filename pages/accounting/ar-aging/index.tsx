@@ -72,7 +72,7 @@ export default function ARAgingPage() {
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 max-lg:flex-wrap">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-teal-500/10">
                   <Clock className="h-6 w-6 text-teal-500" />
@@ -85,7 +85,7 @@ export default function ARAgingPage() {
                 </div>
               </div>
               <button onClick={handleExport} disabled={buckets.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -138,7 +138,7 @@ export default function ARAgingPage() {
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="w-6 px-4 py-3"></th>
@@ -155,22 +155,22 @@ export default function ARAgingPage() {
                 <tbody>
                   {buckets.map(b => (
                     <Fragment key={b.entityId}>
-                    <tr {...rowProps(b.entityId)} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer">
-                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
+                    <tr {...rowProps(b.entityId)} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer max-lg:relative">
+                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-lg:absolute max-lg:right-2 max-lg:top-2 max-lg:!flex max-lg:!w-auto max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center max-lg:justify-center">
                         {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/customer-statements/${b.entityId}?as_at_date=${asAtDate}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 transition-colors">
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium max-lg:!pr-14">
+                        <Link href={`/accounting/customer-statements/${b.entityId}?as_at_date=${asAtDate}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                           {b.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(b.current)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.days30)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.disputed ?? 0)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
+                      <td data-label="Current" className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(b.current)}</td>
+                      <td data-label="1-30 Days" className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.days30)}</td>
+                      <td data-label="31-60 Days" className="px-4 py-3 text-right tabular-nums text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
+                      <td data-label="61-90 Days" className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
+                      <td data-label="90+ Days" className="px-4 py-3 text-right tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
+                      <td data-label="Disputed" className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.disputed ?? 0)}</td>
+                      <td data-label="Total" className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                     {expandedId === b.entityId && (
                       <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={9} />
@@ -179,15 +179,15 @@ export default function ARAgingPage() {
                   ))}
                   {/* Totals row */}
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
-                    <td className="px-4 py-3"></td>
+                    <td className="px-4 py-3 max-lg:!hidden"></td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.current)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.days30)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.disputed)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
+                    <td data-label="Current" className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.current)}</td>
+                    <td data-label="1-30 Days" className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.days30)}</td>
+                    <td data-label="31-60 Days" className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
+                    <td data-label="61-90 Days" className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
+                    <td data-label="90+ Days" className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
+                    <td data-label="Disputed" className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.disputed)}</td>
+                    <td data-label="Total" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
                   </tr>
                 </tbody>
               </table>
