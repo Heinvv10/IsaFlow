@@ -23,6 +23,7 @@ let f: BillFixture;
 let other: BillFixture;
 let cab: string;
 let theirs: string;
+let gone: string;
 
 beforeAll(async () => {
   f = await seedBillFixture(pool, 'po-line-items');
@@ -30,7 +31,7 @@ beforeAll(async () => {
   await setPolicy(pool, f, 'warn');
   cab = await seedItem(pool, f, { code: 'CAB-1', acct: f.acc.travel });
   await seedItem(pool, f, { code: 'OFF-1', acct: f.acc.travel, active: false });
-  const gone = await seedItem(pool, f, { code: 'GONE-1', acct: f.acc.travel });
+  gone = await seedItem(pool, f, { code: 'GONE-1', acct: f.acc.travel });
   await pool.query('UPDATE items SET deleted_at = now() WHERE id = $1', [gone]);
   theirs = await seedItem(pool, other, { code: 'THEIRS-1', acct: other.acc.travel });
 }, 60_000);
@@ -92,6 +93,7 @@ describe('refusals name the PO and the line and write nothing', () => {
     ['unknown item_code', () => ({ item_code: 'NOPE' }), /^purchase_orders\[1\]\.lines\[0\]\.item_code: no item with the code "NOPE" in this company/],
     ['another company\'s item_code', () => ({ item_code: 'THEIRS-1' }), /^purchase_orders\[1\]\.lines\[0\]\.item_code: no item with the code "THEIRS-1" in this company/],
     ['a deleted item (by code)', () => ({ item_code: 'GONE-1' }), /^purchase_orders\[1\]\.lines\[0\]\.item_code: no item with the code "GONE-1"/],
+    ['a deleted item (by id)', () => ({ item_id: gone }), /^purchase_orders\[1\]\.lines\[0\]\.item_id is not an item of your company/],
     ['an inactive item (by code)', () => ({ item_code: 'OFF-1' }), /^purchase_orders\[1\]\.lines\[0\]\.item_id is an inactive item/],
     ['both given', () => ({ item_id: cab, item_code: 'CAB-1' }), /^purchase_orders\[1\]\.lines\[0\]: give item_id or item_code, not both/],
     ['a malformed item_id', () => ({ item_id: 'cable' }), /^purchase_orders\[1\]\.lines\[0\]\.item_id must be an item UUID/],
