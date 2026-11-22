@@ -43,8 +43,8 @@ describe('Portfolio workbench on touch', () => {
     for (const row of rows) expect(labels(row)).toEqual([null, ...LABELS]);
   });
 
-  it('makes the client button and the filter 44px, centred against the heading', async () => {
-    const { container } = render(<Page />);
+  it('makes the client button and the filter 44px, with the filter taking the full row', async () => {
+    render(<Page />);
     await screen.findByText('Acme (Pty) Ltd');
     const btn = screen.getByRole('button', { name: 'Acme (Pty) Ltd' });
     expect(btn.className).toContain('max-lg:min-h-11');
@@ -52,6 +52,5 @@ describe('Portfolio workbench on touch', () => {
     // w-48 beside the period field overflowed a 360px phone: the filter takes the row and the period wraps below it.
     for (const c of ['max-lg:min-h-11', 'max-lg:w-full']) expect(filter.className.split(' ')).toContain(c);
     expect(filter.parentElement!.className.split(' ')).toEqual(expect.arrayContaining(['max-lg:w-full', 'max-lg:flex-wrap']));
-    expect(container.querySelector('tbody tr td')!.getAttribute('data-label')).toBeNull();
   });
 });
