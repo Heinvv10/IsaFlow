@@ -9,7 +9,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { ok } from '../helpers/d2CensusG4';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
-import { fillLine, invoiceDate, pickClient, pickMode, prices, serve, submitAndWait } from '../helpers/invoiceDefaultsHarness';
+import { fillLine, invoiceDate, pickClient, pickMode, pickVatType, prices, serve, submitAndWait, vatTypesShown } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
 const job = vi.hoisted(() => ({ finish: undefined as undefined | ((d: unknown) => void) }));
@@ -29,7 +29,7 @@ configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
 afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); job.finish = undefined; });
 
-const summaryTotal = () => screen.getByText('Invoice Summary').closest('.rounded-2xl')!.textContent;
+const summaryTotal = () => screen.getByRole('region', { name: 'Invoice totals' }).textContent;
 const modeShown = () => screen.getByRole('combobox', { name: 'Amounts are' }).textContent;
 
 async function open() {
@@ -99,15 +99,16 @@ describe('the mode changes while a scan reads', () => {
     expect(summaryTotal()).toMatch(/Total\s*R?\s*230\.00/);
   });
 
-  it('the rate typed while it reads is the one the conversion uses', async () => {
+  it('a VAT type picked while it reads stands when the scan brings no rate and no lines', async () => {
     await open();
     await pickMode(/Including VAT/);
     fillLine(0, '110');
     await startScan();
-    fireEvent.change(screen.getByLabelText('VAT rate %'), { target: { value: '10' } });
-    await finishScan({ vatRate: null, lineItems: [{ description: 'Scanned', quantity: 1, unitPrice: 200 }] });
-    expect(modeShown()).toMatch(/Excluding VAT/);
-    expect(prices()).toEqual(['200']);
-    expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('10');
+    await pickVatType(0, /Exempt/);
+    await finishScan({ vatRate: null, lineItems: [] });
+    expect(modeShown()).toMatch(/Including VAT/);
+    expect(prices()).toEqual(['110']);
+    expect(vatTypesShown()).toEqual(['Exempt']);
+    expect(summaryTotal()).toMatch(/Total\s*R?\s*110\.00/);
   });
 });

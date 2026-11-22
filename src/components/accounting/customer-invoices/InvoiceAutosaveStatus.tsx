@@ -30,10 +30,10 @@ export function InvoiceAutosaveStatus({ where, state, savedAt, error, held }: Pr
   const onDevice = where === 'device' && state === 'saved' && savedAt !== null;
   const now = useSecondTick(onDevice);
   if (state === null) return null;
-  if (held) return <AutosaveStatus state="error" errorMessage={`Not saved: ${held}`} className="mt-3" />;
-  if (!onDevice) return <AutosaveStatus state={state} savedAt={savedAt} {...(error ? { errorMessage: error } : {})} className="mt-3" />;
+  if (held) return <AutosaveStatus state="error" errorMessage={`Not saved: ${held}`} />;
+  if (!onDevice) return <AutosaveStatus state={state} savedAt={savedAt} {...(error ? { errorMessage: error } : {})} />;
   return (
-    <p role="status" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+    <p role="status" className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
       <Check size={14} aria-hidden="true" />
       <span>{`Saved on this device · ${formatSavedAgo(now - savedAt)}`}</span>
     </p>

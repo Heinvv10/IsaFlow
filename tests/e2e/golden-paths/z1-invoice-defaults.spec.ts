@@ -4,7 +4,7 @@
  * Pick a customer with 30-day terms and a 10% discount: Due date and the discount appear with nothing typed. Type 115
  * including VAT: the summary shows 100.00 + 15.00 and the draft stores unit_price 115 as entered with amounts_are
  * inclusive (per-line VAT writer PR: the server backs the VAT out; it used to store the converted 100). A zero-rated
- * customer stores tax_rate 0. Three units at R10 incl total exactly the R30.00 typed (it showed a R30.02 difference). A
+ * customer types its line zero-rated (the line-level form: a VAT type per line, no rate field) and stores tax_rate 0. Three units at R10 incl total exactly the R30.00 typed (it showed a R30.02 difference). A
  * stored 1000 + 500 at 15% saves unchanged through "Including VAT" and back, and saved while inclusive keeps its totals. axe reports nothing serious in either theme on the new and edit pages, and
  * at 390 px the page does not scroll sideways.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots at 390 and 1568 in both themes.
@@ -84,7 +84,7 @@ async function saveDraft(page: Page): Promise<string> {
 }
 
 const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth);
-const summary = (page: Page) => page.getByRole('heading', { name: 'Invoice Summary' }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]');
+const summary = (page: Page) => page.getByRole('region', { name: 'Invoice totals' });
 // The figure on a summary row alone: `15.00` anywhere in the card would also match 115.00.
 const summaryFigure = (page: Page, label: string) => summary(page).locator('div.justify-between', { hasText: label }).locator('span').last();
 const shot = async (page: Page, name: string) => {
@@ -207,23 +207,29 @@ test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back; saved
   }
 });
 
-test('a VAT choice that conflicts with the customer stands, and the form says so', async ({ page, context, baseURL }) => {
+async function pickVatType(page: Page, type: string, line = 0): Promise<void> {
+  await page.getByRole('combobox', { name: 'VAT type' }).nth(line).click();
+  await page.locator('li[role=option]').filter({ hasText: type }).click();
+}
+
+test('a line\'s VAT type that conflicts with the customer stands, and the form says so', async ({ page, context, baseURL }) => {
   await sandbox(context, baseURL!);
   await open(page);
-  await pickMode(page, 'Excluding VAT');
+  await pickVatType(page, 'Standard');
   await pickClient(page, ZERO.name);
-  await expect(page.getByText('This customer is zero-rated, but this invoice charges VAT at 15%.')).toBeVisible();
-  await expect(page.getByLabel('VAT rate %')).toHaveValue('15');
-  await pickMode(page, 'No VAT');
-  await expect(page.getByText(/but this invoice/)).toHaveCount(0);
+  await expect(page.getByText('This customer is zero-rated, but a line is standard-rated.')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'VAT type' })).toContainText('Standard');
+  await pickVatType(page, 'Zero-rated');
+  await expect(page.getByText(/but a line is/)).toHaveCount(0);
 });
 
-test('a zero-rated customer selects No VAT and stores tax_rate 0', async ({ page, context, baseURL }) => {
+test('a zero-rated customer types its line zero-rated and stores tax_rate 0', async ({ page, context, baseURL }) => {
   const api = await sandbox(context, baseURL!);
   await open(page);
   await pickClient(page, ZERO.name);
-  await expect(page.getByText('From customer: zero-rated')).toBeVisible();
-  await expect(page.getByLabel('VAT rate %')).toBeDisabled();
+  await expect(page.getByText('VAT type from customer: zero-rated')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'VAT type' })).toContainText('Zero-rated');
+  await expect(page.getByLabel('VAT rate %')).toHaveCount(0);
   await page.getByPlaceholder('Item description').fill(`Z1 zero ${Date.now().toString(36)}`);
   await page.getByLabel('Unit price').fill('115');
   const id = await saveDraft(page);

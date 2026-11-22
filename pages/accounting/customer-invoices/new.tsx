@@ -1,5 +1,6 @@
 /**
- * Create Customer Invoice — two-column document editor layout. The form is kept on this device until it is created
+ * Create Customer Invoice — one-column document editor: the line grid with its settings row (Amounts are, currency) and
+ * its totals under it, a VAT type per line (formVat), and the actions in a bar at the bottom of the viewport. The form is kept on this device until it is created
  * (PR S: never a server draft, as create is wallet-metered), leaving with a change unsaved asks first, and Approve &
  * email creates, approves and opens the email form (sending stays the user's click).
  */
@@ -14,23 +15,24 @@ import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { formLineNet, formTotals } from '@/components/accounting/customer-invoices/formVat';
+import { formLineNet, formTotals, formVatByType, fromKeptDraft, lineVatTypes, lineVatWarning, typeForRate } from '@/components/accounting/customer-invoices/formVat';
 import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
-import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
+import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
+import { InvoiceSettingsRow } from '@/components/accounting/customer-invoices/InvoiceSettingsRow';
 import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { inclusiveTypedTotal, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
-import { KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
+import { InvoiceActionBar, KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
 import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 import { useScannedClientMatch } from '@/components/accounting/customer-invoices/useScannedClientMatch';
 
@@ -49,13 +51,15 @@ export default function NewCustomerInvoicePage() {
 
   const dates = useInvoiceDateValidity();
   const [resetKey, setResetKey] = useState(0);
-  const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+  const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', ...BLANK_LINE }]);
   const { scanned, lookupSeq, scanLookup, setScanLookup, matchScannedClient } = useScannedClientMatch(setForm, setError);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
-  const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
-  // taxModeSwitch: each line at its own rate; refused (prices and mode kept) when a line would come to another figure.
-  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, formRate: form.taxRate, date: form.invoiceDate, currencyCode: form.currencyCode, customerVat: contact.vatType, onSwitched: () => contact.touch('taxMode') });
+  const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines });
+  // Each line's VAT type: its own, else the customer's default chain (formVat), read at render so it follows the customer.
+  const types = lineVatTypes(lines, contact.vatType);
+  // taxModeSwitch: each line at its own type's rate; refused (prices and mode kept) when a line would come to another figure.
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, types, date: form.invoiceDate, currencyCode: form.currencyCode });
   const { vatMode } = modeSwitch;
 
   useEffect(() => {
@@ -78,24 +82,24 @@ export default function NewCustomerInvoicePage() {
 
   // Priced as the server stores it (formVat: per-line VAT); a half-typed field previews as 0, not a crash. A company not
   // registered for VAT prices and sends no VAT, as the server forces it.
-  const taxRate = effectiveTaxRate(vatMode, form.taxRate);
-  const lineTotal = (l: LineItem) => formLineNet(l, taxRate, vatMode, form.invoiceDate);
-  const { subtotal, tax, total } = formTotals(lines, taxRate, vatMode, form.invoiceDate);
+  const lineTotal = (l: LineItem) => formLineNet(l, types[lines.indexOf(l)] ?? null, vatMode, form.invoiceDate);
+  const { subtotal, tax, total } = formTotals(lines, types, vatMode, form.invoiceDate);
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
   // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
-  const built = createBody(form, lines, vatMode, taxRate, dates.refused, contact.vatType);
+  const built = createBody(form, lines, vatMode, types, dates.refused);
 
-  const [rateEditing, setRateEditing] = useState(false);
-  // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
-  const restoreDraft = (d: LocalDraftData) => {
+  // A kept draft comes back whole: its mode with its prices (one kept before per-line VAT typed as it priced then), and
+  // nothing the customer's defaults may then overwrite.
+  const restoreDraft = (kept: LocalDraftData) => {
     if (inert) return;
-    contact.touch('dueDate'); contact.touch('taxMode'); lookupSeq.current++;
+    const d = fromKeptDraft(kept);
+    contact.touch('dueDate'); lookupSeq.current++;
     setForm(d.form); setLines(d.lines); setTaxMode(d.taxMode); dates.clear(); setResetKey(k => k + 1);
   };
   const owner = useInvoiceDraftOwner();
-  const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, paused: rateEditing, onRestore: restoreDraft });
+  const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, paused: false, onRestore: restoreDraft });
 
   function handleExtracted(data: ExtractedDocument) {
     if (inert) return; // a scan landing while the invoice is created or approved, or after, changes nothing
@@ -103,18 +107,20 @@ export default function NewCustomerInvoicePage() {
     const updates: Partial<InvoiceHeaderForm> = {};
     if (data.date) updates.invoiceDate = isoOrEmpty(data.date);
     if (data.dueDate) { updates.dueDate = isoOrEmpty(data.dueDate); contact.touch('dueDate'); }
-    if (data.vatRate !== null) updates.taxRate = data.vatRate;
+    // The scan's rate types its lines (0 zero-rated, the standard rate standard, any other none yet: the line asks).
+    const scannedType = data.vatRate !== null ? { vatType: typeForRate(data.vatRate, updates.invoiceDate || form.invoiceDate) } : {};
     // A scan reads the rate and ex-VAT prices off the document, so the form goes back to taking them as they are; with
     // no lines on the scan, the gross prices already typed stay gross.
     const keepsTypedGross = taxMode === 'inclusive' && data.lineItems.length === 0;
     // Nothing to convert (taken from the gate fixer's round 8): inclusive only changes here when the scan's lines replace the typed ones.
-    if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) { contact.touch('taxMode'); setTaxMode('exclusive'); }
+    if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) setTaxMode('exclusive');
+    if (data.vatRate !== null && data.lineItems.length === 0) setLines(prev => prev.map(l => ({ ...l, ...scannedType })));
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);
     const seq = ++lookupSeq.current;
     if (data.customerName) void matchScannedClient(data.customerName, seq);
     if (data.lineItems.length > 0) {
-      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId })));
+      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId, ...scannedType })));
     }
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
@@ -145,7 +151,7 @@ export default function NewCustomerInvoicePage() {
 
   const resetForm = () => {
     const today = localISODate();
-    setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+    setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
     setLines([{ key: '1', ...BLANK_LINE }]);
     setTaxMode('exclusive'); contact.reset();
     dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
@@ -203,7 +209,7 @@ export default function NewCustomerInvoicePage() {
   return (
     <AppLayout>
       <Head><title>New invoice · Sales · IsaFlow</title></Head>
-      <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
+      <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
         <PageHeader
           icon={FileText}
           title="Customer Invoice"
@@ -212,9 +218,8 @@ export default function NewCustomerInvoicePage() {
           className="mb-0"
         />
 
-        <div className="p-4 sm:p-6 xl:p-8">
-          <div className="max-w-screen-2xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
-            <div className="min-w-0 space-y-5">
+        <div className="flex-1 p-4 sm:p-6 xl:p-8">
+          <div className="max-w-screen-2xl mx-auto min-w-0 space-y-5">
               {scanBanner && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-sm flex items-center gap-2">
                   <Info className="h-4 w-4 flex-shrink-0" />{scanBanner}
@@ -225,34 +230,35 @@ export default function NewCustomerInvoicePage() {
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
               <fieldset disabled={inert} className="min-w-0 space-y-5">
-              <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
-                onChange={patch => { if ('clientId' in patch) { lookupSeq.current++; setScanLookup(null); } if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
+              <InvoiceHeaderFields form={form} options={codingOptions}
+                onChange={patch => { if ('clientId' in patch) { lookupSeq.current++; setScanLookup(null); } setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
-                taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
+                hints={contact.hints} onDueDateEdited={() => contact.touch('dueDate')} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                <InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
+                  taxMode={vatMode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType pricesIncludeVat={taxMode === 'inclusive'}
-                  discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} accountHint={contact.hints.account} />
+                  discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} accountHint={contact.hints.account}
+                  {...(vatMode === 'none' ? {} : { vatTypes: types, vatDate: form.invoiceDate, vatHint: contact.hints.vat, vatWarning: lineVatWarning(contact.vatType, types) })} />
+                <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode={form.currencyCode} byType={formVatByType(lines, types, vatMode, form.invoiceDate)} date={form.invoiceDate}
+                  fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
               </fieldset>
               <InvoicePdfPreview unsaved={'body' in built ? { body: built.body } : { problem: built.problem }} />
-            </div>
-
-            <div className="lg:sticky lg:top-6 space-y-4">
-              <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode}
-                fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
-                {scanLookup !== null && <p role="status" className="mt-3 text-xs text-slate-600 dark:text-slate-400">Finding the scanned customer…</p>}
-                <NewInvoiceActions busy={busy} submitting={submitting} saveAndNew={saveAndNew} approving={approve.busy}
-                  onCreate={() => { void handleSubmit(false); }} onSaveAndNew={() => { void handleSubmit(true); }} onApprove={approve.start} />
-              </InvoiceSummaryCard>
-              <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2">Create saves a draft. Approve &amp; email approves it and opens the email form; nothing is sent until you click Send.</p>
-            </div>
           </div>
         </div>
+        <InvoiceActionBar status={<>
+          <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
+          {scanLookup !== null && <span role="status" className="text-slate-600 dark:text-slate-400">Finding the scanned customer…</span>}
+          <span className="text-slate-500 dark:text-slate-400">Create saves a draft. Approve &amp; email approves it and opens the email form; nothing is sent until you click Send.</span>
+        </>}>
+          <NewInvoiceActions busy={busy} submitting={submitting} saveAndNew={saveAndNew} approving={approve.busy}
+            onCreate={() => { void handleSubmit(false); }} onSaveAndNew={() => { void handleSubmit(true); }} onApprove={approve.start} />
+        </InvoiceActionBar>
         {approve.modal && <InvoiceEmailModal {...approve.modal} />}
       </div>
     </AppLayout>

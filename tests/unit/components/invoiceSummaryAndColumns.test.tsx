@@ -5,7 +5,7 @@
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
-import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
+import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
 import { discounts, fillLine, invoiceDate, pickClient, pickMode, price, serve } from '../helpers/invoiceDefaultsHarness';
@@ -25,9 +25,9 @@ afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
 
 const open = async () => { serve(); render(<NewPage />); await screen.findByRole('combobox', { name: 'Client' }); typeDate(invoiceDate(), '1 Oct 2026'); };
 
-describe('InvoiceSummaryCard', () => {
+describe('InvoiceTotals', () => {
   const card = (typedTotal?: number) => (
-    <InvoiceSummaryCard subtotal={26.1} tax={3.92} total={30.02} taxRate={15} currencyCode="ZAR" {...(typedTotal === undefined ? {} : { typedTotal })}><span /></InvoiceSummaryCard>
+    <InvoiceTotals subtotal={26.1} tax={3.92} total={30.02} currencyCode="ZAR" date="2026-10-01" byType={[{ type: 'standard', net: 26.1, vat: 3.92 }]} {...(typedTotal === undefined ? {} : { typedTotal })} />
   );
 
   it('keeps its status region mounted while there is nothing to say, so the difference is announced when it comes', () => {
@@ -45,16 +45,34 @@ describe('InvoiceSummaryCard', () => {
   });
 });
 
+describe('the totals rows', () => {
+  const card = () => <InvoiceTotals subtotal={26.1} tax={3.92} total={30.02} currencyCode="ZAR" date="2026-10-01" byType={[{ type: 'standard', net: 26.1, vat: 3.92 }]} />;
+  it('one type: "VAT (15%)"; one VAT-free type names it; mixed types a row each, on its own net', () => {
+    const { rerender } = render(card());
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/VAT \(15%\)R\s?3\.92/);
+    rerender(<InvoiceTotals subtotal={100} tax={0} total={100} currencyCode="ZAR" date="2026-10-01" byType={[{ type: 'exempt', net: 100, vat: 0 }]} />);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/VAT \(exempt\)R\s?0\.00/);
+    rerender(<InvoiceTotals subtotal={300} tax={15} total={315} currencyCode="ZAR" date="2026-10-01"
+      byType={[{ type: 'standard', net: 100, vat: 15 }, { type: 'zero_rated', net: 200, vat: 0 }]} />);
+    const t = screen.getByRole('region', { name: 'Invoice totals' }).textContent;
+    expect(t).toMatch(/VAT Standard \(15%\) on R\s?100\.00R\s?15\.00/);
+    expect(t).toMatch(/VAT Zero-rated \(0%\) on R\s?200\.00R\s?0\.00/);
+  });
+  it('a company not registered for VAT: no VAT row at all', () => {
+    render(<InvoiceTotals subtotal={100} tax={0} total={100} currencyCode="ZAR" date="2026-10-01" byType={[]} />);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).not.toMatch(/VAT/);
+  });
+});
+
 describe('the VAT note', () => {
-  it('is in the page before the customer answers, and describes the field once it says something', async () => {
+  it('is in the page before the customer answers, and says where the lines\' type came from once it does', async () => {
     await open();
-    const box = screen.getByRole('combobox', { name: 'Amounts are' });
-    const region = screen.getAllByRole('status').find((s) => s.closest('.grid') !== null)!;
-    expect(region.textContent).toBe('');
-    expect(box.hasAttribute('aria-describedby')).toBe(false);
+    const before = screen.getAllByRole('status');
+    expect(screen.queryByText(/VAT type from customer/)).toBeNull();
     await pickClient('c-zero');
-    await waitFor(() => expect(region.textContent).toMatch(/From customer: zero-rated/));
-    expect(box.getAttribute('aria-describedby')).toBe(region.id);
+    const note = await screen.findByText('VAT type from customer: zero-rated');
+    const region = note.closest('[role="status"]')!;
+    expect(before).toContain(region); // the same region, mounted before it had anything to say
   });
 });
 
