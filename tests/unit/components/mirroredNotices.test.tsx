@@ -42,7 +42,7 @@ describe('MirroredDroppedNotice', () => {
   it.each([
     ['variance', /Fix: the receiver corrects or re-books its document so that it carries the sender's figures in the same financial year, or the sender cancels or credits the sale\./],
     ['cancelled', /Fix: the receiver books its document again, or the sender cancels or credits the sale\./],
-    ['rejected', /Fix: the receiver booked no expense for this sale\. A rejection is final: the sale returns to the sender's outbox, where it is corrected and sent again, or the sender cancels the sale\./],
+    ['rejected', /Fix: the receiver booked no expense for this sale\. A rejection is final and the same sale cannot be sent again: the sender cancels the sale and issues it afresh\./],
     ['dismissed', /Fix: the receiver booked no expense for this sale\. It can restore the message and accept it, or the sender cancels the sale\./],
     ['failed', /Fix: the receiver booked no expense for this sale\. It can accept the message itself, or the sender cancels the sale\./],
   ])('says what fixes a %s row, and none of it is a manual elimination', (code, fix) => {
@@ -55,8 +55,8 @@ describe('MirroredDroppedNotice', () => {
   it('a credit note is worded as one, not as a sale', () => {
     render(<MirroredDroppedNotice rows={[{ ...unresolved, amount: -400, code: 'rejected', detail: 'the receiver rejected it' }]} />);
     const text = screen.getByRole('alert').textContent ?? '';
-    expect(text).toMatch(/the credit note returns to the sender's outbox/);
-    expect(text).not.toMatch(/the sale returns/);
+    expect(text).toMatch(/the same credit note cannot be sent again: the sender cancels the credit note and issues it afresh/);
+    expect(text).not.toMatch(/the sale cannot|sent again, or|corrected and sent/);
   });
 
   it('nothing is shown for no rows; a body without a kind parses as the unmapped kind (older payloads)', () => {

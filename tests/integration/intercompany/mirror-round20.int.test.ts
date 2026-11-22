@@ -66,6 +66,14 @@ const total = async (s: string, e: string) => {
   const rows = await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, s, e));
   return rows.filter((a) => a.automatic || a.status === 'posted').reduce((x, a) => x + a.lines.reduce((y, l) => y + Number(l.debit), 0), 0);
 };
+async function reverseBillOn(bill: string, date: string) {
+  const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM supplier_invoices WHERE id = $1', [bill])).rows[0].je as string;
+  const rev = (await pool.query(`INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
+    SELECT $2::date, 'reversal', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je, date])).rows[0].id as string;
+  await pool.query(`INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
+    SELECT $2, gl_account_id, credit, debit, company_id, 'reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, rev]);
+  await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [rev, je]);
+}
 const jhbToday = async () => (await pool.query("SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::text AS d")).rows[0].d as string;
 const reasonOf = (g: Awaited<ReturnType<typeof gen>>, row: string) => g.flagged.find((f) => f.transactionId === row)?.reason;
 
@@ -134,7 +142,8 @@ describe('L1: a stored note says when it was true', () => {
     const m = await mirror('2026-03-15', 1000);
     const s = await manual('2026-03-15'); await matchRows([s.id]);
     expect((await gen('2026-03-01', '2026-03-31')).skipped).toEqual([s.id]);
-    await L.cancelSender(m.inv.id);
+    // the RECEIVER's side stops (its bill's journal reversed): the link is released and the row drafted. (A sender's cancel does not draft: round 26, M2.)
+    await reverseBillOn(m.bill, '2026-03-15');
     const again = await gen('2026-03-01', '2026-03-31');
     expect(again.drafted).toEqual([s.id]);
     const row = await listed(s.id, '2026-03-01', '2026-03-31');

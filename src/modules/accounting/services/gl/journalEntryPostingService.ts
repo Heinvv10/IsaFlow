@@ -46,7 +46,6 @@ type ReverseOpts = PostingActorOpts & {
   bankLinesHandled?: boolean;
 };
 
-
 import {
   ClosedFiscalPeriodError,
   InactiveAccountError,
@@ -58,8 +57,7 @@ import {
 export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
 export type { PostJournalOpts } from './vatLateClaimPlan';
-// Split out to hold this file under 300 lines; re-exported because every
-// caller — and every test that mocks this module — reaches it through here.
+// Split out to hold this file under 300 lines; re-exported: every caller and every test that mocks this module reaches it here.
 export { postJournalEntry } from './journalEntryPostService';
 
 /**
@@ -261,8 +259,7 @@ async function reverseJournalEntryInner(
       if (refusal) throw refusal;
       throw err;
     }
-    // Intercompany P2: a message / group row that records this journal follows the ledger (a reversal done directly, not through a cancel, is no hook).
-    await journalChainChanged(companyId, id);
+    await journalChainChanged(companyId, id);   // Intercompany P2: a message / group row that records this journal follows the ledger (a direct reversal, not a cancel, is no hook)
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).
     if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 

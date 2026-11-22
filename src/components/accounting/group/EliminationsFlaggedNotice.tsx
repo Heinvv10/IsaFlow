@@ -11,7 +11,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 /** What a person recognises a row by (never its id). */
 interface RowLabel { description: string; date: string; amount: number }
 export interface FlaggedRow extends RowLabel { transactionId: string; adjustmentId: string; mirroredRef: string; reason: string }
-export interface SkippedRow extends RowLabel { transactionId: string; reason: string; cutover: string; mirroredRef: string; detail: string }
+export interface SkippedRow extends RowLabel { transactionId: string; reason: string; cutover: string; mirroredRef: string; detail: string; senderCancelled?: boolean }
 
 const labelOf = (x: Partial<RowLabel>): RowLabel => ({ description: typeof x.description === 'string' ? x.description : '',
   date: typeof x.date === 'string' ? x.date : '', amount: typeof x.amount === 'number' ? x.amount : 0 });
@@ -25,7 +25,7 @@ export function parseSkipped(json: unknown): SkippedRow[] {
     const x = r as Partial<SkippedRow>;
     return typeof x?.transactionId === 'string' && typeof x.reason === 'string'
       ? [{ transactionId: x.transactionId, reason: x.reason, cutover: typeof x.cutover === 'string' ? x.cutover : '',
-          mirroredRef: typeof x.mirroredRef === 'string' ? x.mirroredRef : '', detail: typeof x.detail === 'string' ? x.detail : '', ...labelOf(x) }] : [];
+          mirroredRef: typeof x.mirroredRef === 'string' ? x.mirroredRef : '', detail: typeof x.detail === 'string' ? x.detail : '', senderCancelled: x.senderCancelled === true, ...labelOf(x) }] : [];
   });
 }
 
@@ -41,8 +41,11 @@ export function parseFlagged(json: unknown): FlaggedRow[] {
   });
 }
 
-export function EliminationsFlaggedNotice({ rows, skipped = [], onDismiss }: { rows: FlaggedRow[]; skipped?: SkippedRow[]; onDismiss: () => void }) {
-  if (rows.length === 0 && skipped.length === 0) return null;
+export function EliminationsFlaggedNotice({ rows, skipped: all = [], onDismiss }: { rows: FlaggedRow[]; skipped?: SkippedRow[]; onDismiss: () => void }) {
+  if (rows.length === 0 && all.length === 0) return null;
+  // not drafted because the SENDER cancelled the sale (nothing is left to eliminate), apart from the rows a mirrored document eliminates
+  const cancelled = all.filter((r) => r.senderCancelled);
+  const skipped = all.filter((r) => !r.senderCancelled);
   return (
     <div role="status" aria-label="Auto-generate notes"
       className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-[var(--ff-text-primary)] mb-6">
@@ -60,6 +63,12 @@ export function EliminationsFlaggedNotice({ rows, skipped = [], onDismiss }: { r
           </p>}
           {skipped.length > 0 && <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
             {skipped.map((r) => <li key={r.transactionId}>{rowText(r)}: mirrored document {r.mirroredRef || 'unnamed'}, which is {r.detail || 'eliminated automatically'}</li>)}
+          </ul>}
+          {cancelled.length > 0 && <p className={rows.length + skipped.length > 0 ? 'mt-2' : ''}>
+            {cancelled.length} intercompany {cancelled.length === 1 ? 'row was' : 'rows were'} not drafted: the sender cancelled {cancelled.length === 1 ? 'its sale' : 'their sales'}, so there is no revenue left to eliminate.
+          </p>}
+          {cancelled.length > 0 && <ul className="mt-1 space-y-0.5 list-disc pl-5 text-[var(--ff-text-secondary)]">
+            {cancelled.map((r) => <li key={r.transactionId}>{rowText(r)}: mirrored document {r.mirroredRef || 'unnamed'}, {r.detail}</li>)}
           </ul>}
         </div>
       </div>

@@ -1,9 +1,14 @@
 # Intercompany P2b: a person's elimination of a mirrored row (follow-up, NOT BUILT)
 
-Status: design only. Descoped from the P2 mirror PR (review rounds 22-24). Until this is built a person CANNOT eliminate a mirrored row:
+Status: design only. Descoped from the P2 mirror PR (review rounds 22-24). Until this is built a person cannot NAME a mirrored row in an elimination:
 `create-elimination` answers 400 (`mirrored_row_manual_elimination_unsupported`) to a body naming `sourceIntercompanyId`, and
 `createEliminationAdjustment` refuses a source row that a message records (`EliminationMirroredRowUnsupportedError`).
 Parent design: `docs/plans/2026-11-17-intercompany-mirror-posting.md`.
+
+**Known limit of the descoped state (round 26, L1; not built).** The refusal is on the NAMED row only. A free-form manual elimination (`create-elimination` with no
+`sourceIntercompanyId`) dated BEFORE its pair's cutover needs no typed reason and gets no duplicate check, so a document mirrored between the connection's
+cut-over date and the pair's cutover (`eliminationDuplicates.ts` header: dated after the connection's cut-over, approved once both sides were on) can be eliminated
+by mirroring AND by hand, i.e. twice. The first invariant below (ONE match source, seeing mirrors of every message status, used by every caller including a row-less elimination) is what closes it.
 
 ## The problem
 

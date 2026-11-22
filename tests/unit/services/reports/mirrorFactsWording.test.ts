@@ -20,7 +20,7 @@ const VARIANTS: Variant[] = ['plain', 'creditNote', 'byTotal', 'late', 'otherRol
 
 function factsFor(kind: 'single' | 'sum', standing: Standing, link: MirrorLinkState, v: Variant): MirrorFacts | null {
   if (v === 'otherRole' && link !== 'none') return null;          // (the other role's link is said only where no link of this role holds it)
-  const extra = (m: MirrorFact): MirrorFact => ({ ...m, byTotal: m.byTotal ?? false, elimDate: v === 'late' ? '2026-04-03' : '2026-03-10', otherRole: v === 'otherRole' ? 'purchase' : null });
+  const extra = (m: MirrorFact): MirrorFact => ({ ...m, byTotal: m.byTotal ?? false, elimDate: v === 'late' ? '2026-04-03' : '2026-03-10', otherRole: v === 'otherRole' ? 'purchase' : null, senderCancelled: false });
   if (kind === 'single') {
     if (standing === 'partly' || v === 'creditNote' || v === 'byTotal') return null;   // (one mirror stands or not; the sum-only variants)
     return { label: 'INV-1 (mirrored)', sum: false, periodEnd: END, mirrors: [extra({ ref: 'INV-1 (mirrored)', amount: 1000, stands: standing === 'stands', link })] };

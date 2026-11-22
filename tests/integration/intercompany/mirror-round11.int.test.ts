@@ -74,17 +74,18 @@ describe('B-M1: a rejected mirror or a loan never touches a manual elimination; 
     }
   });
 
-  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: drafted, flagged with that mirror, and its confirm says the mirror is NOT eliminated', async () => {
+  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: drafted (before any cutover), flagged with that mirror, and its confirm says the sender cancelled it', async () => {
     const m = await bookedOn('2026-01-15');
     await L.cancelSender(m.inv.id);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
     const { made, flagged } = await manualPair('sale', 'purchase');
     // round 17 (R16 breaker H1): a cancelled mirror stays a candidate, judged as at the period, never by today's cancel stamp; so the draft
-    // is flagged with it, and its confirm says the mirror is NOT eliminated automatically (the sale's own elimination is this draft)
+    // is flagged with it. Round 26 (M2): the SENDER cancelled it, so the note and the confirm say there is no revenue left to eliminate, never that this
+    // draft is "the sale's only elimination" (a row before any cutover is still drafted: it may be another sale)
     const ref = (await pool.query('SELECT description FROM intercompany_transactions WHERE id = $1', [m.message.group_transaction_id])).rows[0].description as string;
     expect(made.length).toBe(1);   // (the matched pair is one elimination)
     expect(flagged.map((f) => [f.adjustmentId, f.mirroredRef])).toEqual([[made[0]!.id, ref]]);
-    expect(flagged[0]!.reason).toBe(`Possibly the same sale as mirrored document ${ref}, which is NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination.`);
+    expect(flagged[0]!.reason).toBe(`Possibly the same sale as mirrored document ${ref}, which the sender cancelled (as at 2026-01-31): there is no revenue left to eliminate.`);
     const sale = made.find((a) => flagged[0]!.adjustmentId === a.id)!;
     const listed = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-01-01', '2026-01-31'))).find((a) => a.id === sale.id)!;
     expect([listed.mirroredDuplicateOf, listed.mirrorStands]).toEqual([ref, false]);

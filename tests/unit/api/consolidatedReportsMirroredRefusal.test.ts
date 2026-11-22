@@ -58,7 +58,8 @@ describe('create-elimination naming an intercompany row', () => {
     const text = payload(res);
     expect(text).toContain('mirrored_row_manual_elimination_unsupported');
     expect(text).toMatch(/not supported yet/);
-    expect(text).toMatch(/Correct or re-accept the receiving company's document \(or cancel the sale\) so that mirroring eliminates it/);
+    expect(text).toMatch(/the Eliminations page says what to do for each document \(a dismissed message is restored and accepted, a failed one accepted; a rejected message is final, so the sender cancels the document and issues it afresh; if the sender cancels the sale nothing is left to eliminate\)/);
+    expect(text).not.toMatch(/re-accept/);
     expect(text).toContain(MIRRORED_ROW_MANUAL_ELIMINATION_DOC);
     expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
   });

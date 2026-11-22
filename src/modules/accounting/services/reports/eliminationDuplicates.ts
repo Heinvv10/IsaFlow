@@ -13,7 +13,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { EliminationPossibleDuplicateError, EliminationStateError } from './eliminationErrors';
+import { EliminationMirroredRowUnsupportedError, EliminationPossibleDuplicateError, EliminationStateError } from './eliminationErrors';
 import { factsFromRows } from './mirrorFacts';
 
 /** The group's mirroring pairs and their cutover dates (YYYY-MM-DD), keyed by `${low}|${high}` (lowercase uuids). */
@@ -64,7 +64,7 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
     ), fa AS (
       SELECT f.adj_id, json_agg(json_build_object('label', f.label, 'is_sum', f.is_sum, 'ord', f.ord, 'mirror_ref', f.mirror_ref, 'amount', f.amount,
                                                   'stands', f.stands, 'link', f.link, 'by_total', f.by_total, 'elim_date', f.elim_date::TEXT,
-                                                  'other_role', f.other_role) ORDER BY f.ord) AS mirror_facts,
+                                                  'other_role', f.other_role, 'sender_cancelled', f.sender_cancelled) ORDER BY f.ord) AS mirror_facts,
              array_agg(f.mirror_row ORDER BY f.mirror_row) AS mset
         FROM f GROUP BY f.adj_id
     )
@@ -83,13 +83,14 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
     const result = (await sql`
       UPDATE consolidation_adjustments ca SET status='posted', posted_at=NOW(), updated_at=NOW()
       WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft'
+        AND (ca.source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))   -- (a hidden draft of a mirrored row: never posted by id)
         AND (${confirmDuplicate}::BOOLEAN OR ca.source_intercompany_id IS NULL
              OR NOT EXISTS (SELECT 1 FROM public.intercompany_mirrored_duplicate(ca.source_intercompany_id, ca.period_end::DATE)))
       RETURNING ca.id
     `) as DbRow[];
     if (result.length === 0) {
       const dup = (await sql`
-        SELECT ca.period_end::TEXT AS pe,
+        SELECT ca.period_end::TEXT AS pe, ca.source_intercompany_id AS row_id, COALESCE(public.intercompany_is_mirrored_row(ca.source_intercompany_id), false) AS mirrored,
                (SELECT json_agg(to_jsonb(f) ORDER BY f.ord) FROM public.intercompany_mirror_facts(ca.source_intercompany_id, ca.period_end::DATE) f) AS facts,
                (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
                   ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
@@ -97,6 +98,7 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
           FROM consolidation_adjustments ca
          WHERE ca.id=${adjustmentId}::UUID AND ca.group_id=${groupId}::UUID AND ca.status='draft' AND ca.source_intercompany_id IS NOT NULL
       `) as DbRow[] | undefined;
+      if (Array.isArray(dup) && dup[0]?.mirrored === true) throw new EliminationMirroredRowUnsupportedError(String(dup[0].row_id));
       const facts = Array.isArray(dup) && dup[0] ? factsFromRows(dup[0].facts as DbRow[] | null, String(dup[0].pe)) : null;
       if (!confirmDuplicate && facts) throw new EliminationPossibleDuplicateError(adjustmentId, facts, dup![0]!.pair_cutover ? String(dup![0]!.pair_cutover) : null);
       throw new EliminationStateError(adjustmentId, 'draft');

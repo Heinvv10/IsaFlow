@@ -66,6 +66,14 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
+-- What an EARLIER shape of this migration created for the descoped manual elimination of a mirrored row (docs/plans/2026-11-22-intercompany-manual-
+-- elimination-of-mirrored-rows.md) is dropped here, so a database that applied it converges on this one (idempotent: IF EXISTS). The unique index's
+-- earlier (row, has-a-reason) shape is replaced below, where the index is built.
+DROP FUNCTION IF EXISTS public.intercompany_row_manually_eliminated(uuid, date, date), public.intercompany_manual_cover(uuid);
+DELETE FROM public.app_definer_reviews WHERE signature IN ('intercompany_row_manually_eliminated(uuid,date,date)', 'intercompany_manual_cover(uuid)');
+ALTER TABLE consolidation_adjustments DROP COLUMN IF EXISTS discarded_by, DROP COLUMN IF EXISTS discarded_at;
+DROP INDEX IF EXISTS public.idx_consolidation_adjustments_source;
+
 -- ── 1. Columns ──────────────────────────────────────────────────────────────
 
 -- No app role is granted these: they are set by the guard and the definers below.
@@ -110,6 +118,10 @@ BEGIN
   IF v_dups > 0 THEN
     RAISE NOTICE '1019: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created', v_dups;
   ELSE
+    IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uq_consolidation_adjustments_standing_source'
+                 AND indexdef LIKE '%manual_reason IS NOT NULL%') THEN
+      DROP INDEX public.uq_consolidation_adjustments_standing_source;   -- (an earlier shape: one per row AND has-a-reason, which lets two stand)
+    END IF;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
       WHERE status IN ('draft', 'posted');   -- (NULLs never collide: a manual adjustment has no source row)
   END IF;
@@ -414,7 +426,7 @@ AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.intercompany_transactions it
      WHERE it.id = p_row AND it.source_company_id = p_from AND it.target_company_id = p_to
-       AND it.source_journal_entry_id IS NOT DISTINCT FROM p_je
+       AND p_je IS NOT NULL AND it.source_journal_entry_id = p_je   -- (NULL is no journal: a row with none is not "the same journal" as a message with none)
        AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = it.group_id AND a.company_id = p_from)
        AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = it.group_id AND b.company_id = p_to))
 $$;
@@ -676,7 +688,7 @@ DECLARE
 BEGIN
   SELECT x.kind, x.to_company_id AS co, x.target_doc_type AS dtype, x.target_doc_id AS did,
          (x.payload->>'taxAmount')::numeric AS tax, (x.payload->>'total')::numeric AS total INTO m
-    FROM public.intercompany_messages x WHERE x.group_transaction_id = p_row AND x.kind IN ('invoice', 'credit_note') LIMIT 1;
+    FROM public.intercompany_messages x WHERE x.group_transaction_id = p_row AND x.kind IN ('invoice', 'credit_note') AND x.status = 'accepted' LIMIT 1;
   IF NOT FOUND OR m.did IS NULL THEN RETURN NULL; END IF;
   SELECT it.amount, it.transaction_date AS td, it.first_target_journal_entry_id AS first_je INTO t FROM public.intercompany_transactions it WHERE it.id = p_row;
   IF t.first_je IS NOT NULL
@@ -776,7 +788,7 @@ AS $$
       FROM public.intercompany_transactions it
       JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
      WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
-       AND m.source_journal_entry_id IS NOT NULL AND m.target_doc_id IS NOT NULL
+       AND m.status = 'accepted' AND m.source_journal_entry_id IS NOT NULL AND m.target_doc_id IS NOT NULL   -- (a pending message may carry a target a handler set)
        AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = it.source_company_id AND a.left_date IS NULL)
        AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = p_group AND b.company_id = it.target_company_id AND b.left_date IS NULL)
   ), up (id, parent) AS (
@@ -1693,7 +1705,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 -- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
 -- different row"), 'none'; other_role: the role of another row's active link of the OTHER role (the sale's other side); by_total: matched by
 -- its total with VAT (mirroring eliminates net of VAT); elim_date: the date its elimination falls on (the later document date, which can be
--- after the period: "stands" judges the pair, not that date). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
+-- after the period: "stands" judges the pair, not that date); sender_cancelled: the sender's sent-with journal is reversed as at the period end (no revenue is left to eliminate). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
 -- closest that stands and no other row's link holds (stopping there); else the closest no other row's link holds (none of those stands: it is
 -- named NOT eliminated, never a mirror that is another row's sale); else the closest. A month sum names every member. The ONE source of the
 -- generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded from anything else. label: the
@@ -1702,7 +1714,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 DROP FUNCTION IF EXISTS public.intercompany_mirror_facts(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_facts(p_row uuid, p_asat date DEFAULT NULL)
 RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text,
-               by_total boolean, elim_date date, other_role text)
+               by_total boolean, elim_date date, other_role text, sender_cancelled boolean)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -1764,10 +1776,14 @@ BEGIN
            -- the date its elimination falls on: the later of the sender's and the receiver's document dates (may be after the period)
            GREATEST(o.transaction_date, COALESCE(x.bd, o.transaction_date)),
            -- the role of an active link of the OTHER role (the purchase side of the sale for a sale row, and the reverse)
-           (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1)
+           (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1),
+           -- the SENDER cancelled it as at the period end (the same date "stands" judges the pair at): its sent-with journal's chain is out, having been in
+           COALESCE(x.chain > 0 AND x.chain % 2 = 0, false)
       FROM unnest(v_ids) WITH ORDINALITY AS u(id, n)
       JOIN public.intercompany_transactions o ON o.id = u.id
       LEFT JOIN LATERAL (SELECT m.payload,
+                                public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id,
+                                  LEAST(COALESCE(p_asat, (now() AT TIME ZONE 'Africa/Johannesburg')::date), (now() AT TIME ZONE 'Africa/Johannesburg')::date)) AS chain,
                                 COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id),
                                          (SELECT cn.credit_date FROM public.credit_notes cn WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id)) AS bd
                            FROM public.intercompany_messages m WHERE m.group_transaction_id = o.id AND m.kind IN ('invoice', 'credit_note') LIMIT 1) x ON true
@@ -2317,7 +2333,7 @@ BEGIN
     END IF;
   END LOOP;
   UPDATE public.intercompany_messages m SET group_transaction_id = (m.payload->>'groupTransactionId')::uuid
-   WHERE m.group_transaction_id IS NULL AND m.kind IN ('invoice', 'credit_note') AND m.payload->>'groupTransactionId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+   WHERE m.group_transaction_id IS NULL AND m.source_journal_entry_id IS NOT NULL AND m.kind IN ('invoice', 'credit_note') AND m.payload->>'groupTransactionId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      AND public.intercompany_group_row_ok((m.payload->>'groupTransactionId')::uuid, m.from_company_id, m.to_company_id, m.source_journal_entry_id);
   PERFORM pg_catalog.set_config('app.intercompany_system_update', '', true);
   RESET ROLE;

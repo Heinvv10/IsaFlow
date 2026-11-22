@@ -57,7 +57,8 @@ describe('the create-elimination route', () => {
     expect(err.details.reason).toBe('mirrored_row_manual_elimination_unsupported');
     expect(err.details.doc).toBe(MIRRORED_ROW_MANUAL_ELIMINATION_DOC);
     expect(err.message).toMatch(/not supported yet/);
-    expect(err.message).toMatch(/Correct or re-accept the receiving company's document \(or cancel the sale\) so that mirroring eliminates it/);
+    expect(err.message).toMatch(/the Eliminations page says what to do for each document \(a dismissed message is restored and accepted, a failed one accepted; a rejected message is final, so the sender cancels the document and issues it afresh; if the sender cancels the sale nothing is left to eliminate\)/);
+    expect(err.message).not.toMatch(/re-accept/);
     expect(await count()).toBe(0);
     expect((await dropped()).map((d) => d.code)).toEqual(['variance']);   // (still listed: informational)
   });

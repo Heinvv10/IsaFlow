@@ -43,12 +43,15 @@ export const MIRRORED_ROW_MANUAL_ELIMINATION_DOC = 'docs/plans/2026-11-22-interc
 /**
  * A manual elimination may not carry an intercompany row that a mirrored document records (400). Manual elimination of a mirrored row is NOT
  * SUPPORTED YET: its interactions with the derived elimination and with manual (P1) rows are not designed (MIRRORED_ROW_MANUAL_ELIMINATION_DOC).
- * Fix the receiver's side instead, so that mirroring eliminates the row.
+ * Put the receiving side right instead, so that mirroring eliminates the row. (What can be done depends on why: a rejected message is final, and the same
+ * document cannot be sent again, since a message is unique per sender, document and kind: only a cancel and a new document does.)
  */
 export class EliminationMirroredRowUnsupportedError extends Error {
   constructor(readonly sourceIntercompanyId: string | null = null) {
-    super('Manual elimination of a mirrored intercompany row is not supported yet. Correct or re-accept the receiving company\'s document (or cancel the sale) '
-      + `so that mirroring eliminates it. The planned follow-up is described in ${MIRRORED_ROW_MANUAL_ELIMINATION_DOC}.`);
+    super('Manual elimination of a mirrored intercompany row is not supported yet. Mirroring eliminates it once the receiving side is right: '
+      + 'the Eliminations page says what to do for each document (a dismissed message is restored and accepted, a failed one accepted; a rejected message is final, '
+      + 'so the sender cancels the document and issues it afresh; if the sender cancels the sale nothing is left to eliminate). '
+      + `The planned follow-up is described in ${MIRRORED_ROW_MANUAL_ELIMINATION_DOC}.`);
     this.name = 'EliminationMirroredRowUnsupportedError';
   }
 }

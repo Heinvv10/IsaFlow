@@ -40,7 +40,7 @@ const Block = ({ title, help, children }: { title: string; help: string; childre
 const ADVICE: Record<string, (doc: string) => string> = {
   variance: (d) => `Fix: the receiver corrects or re-books its document so that it carries the sender's figures in the same financial year, or the sender cancels ${d === 'sale' ? 'or credits ' : ''}the ${d}.`,
   cancelled: (d) => `Fix: the receiver books its document again, or the sender cancels ${d === 'sale' ? 'or credits ' : ''}the ${d}.`,
-  rejected: (d) => `Fix: the receiver booked no expense for this ${d}. A rejection is final: the ${d} returns to the sender's outbox, where it is corrected and sent again, or the sender cancels the ${d}.`,
+  rejected: (d) => `Fix: the receiver booked no expense for this ${d}. A rejection is final and the same ${d} cannot be sent again: the sender cancels the ${d} and issues it afresh.`,
   dismissed: (d) => `Fix: the receiver booked no expense for this ${d}. It can restore the message and accept it, or the sender cancels the ${d}.`,
   failed: (d) => `Fix: the receiver booked no expense for this ${d}. It can accept the message itself, or the sender cancels the ${d}.`,
 };

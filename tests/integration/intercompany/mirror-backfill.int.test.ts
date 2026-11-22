@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { withoutTrigger } from './intercompany.helpers';
-import { clearMirrorRows, connect, mirrorCleanup, mirrorSetup, sentInvoice } from './mirror.helpers';
+import { clearMirrorRows, co, connect, mirrorCleanup, mirrorSetup, sentInvoice } from './mirror.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -82,5 +82,22 @@ describe('the backfill', () => {
     expect(await row(honest.id)).toMatchObject({ source_journal_entry_id: await journalOf(honest.inv.id), group_transaction_id: honest.message.payload.groupTransactionId });
     expect(await row(forged.id)).toMatchObject({ source_journal_entry_id: await journalOf(forged.inv.id), group_transaction_id: null });
     expect((await pool.query("SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'trg_intercompany_messages_guard' AND tgenabled = 'A'")).rows[0].n).toBe(1); // the guard never went off
+  });
+  it('a message whose journal cannot be proved is bound to NO group row: a P1 manual row with no source journal (NULL) is not "the same journal" (round 26, M1)', async () => {
+    const m = await sentInvoice(pool);
+    await legacy(m.id);
+    // a manual (P1) row of the same sender and receiver, with no source journal, whose elimination is already posted
+    const manual = (await pool.query(
+      `INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, transaction_type, amount, transaction_date, description, source_journal_entry_id)
+       VALUES ($1, $2, $3, 'sale', $4, '2026-12-05', 'manual P1 sale', NULL) RETURNING id`, [co.G, co.A, co.B, m.message.payload.subtotal ?? 100])).rows[0].id as string;
+    // the legacy payload names it, and the document has no provable journal (its link is gone)
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
+      "UPDATE intercompany_messages SET payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text)) WHERE id = $1", [m.id, manual]));
+    await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE id = $1', [m.inv.id]);
+    await pool.query(BACKFILL);
+    expect(await row(m.id)).toMatchObject({ source_journal_entry_id: null, group_transaction_id: null });
+    expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m).toBe(false);
+    // the check itself never matches NULL to NULL
+    expect((await pool.query('SELECT public.intercompany_group_row_ok($1, $2, $3, NULL) AS ok', [manual, co.A, co.B])).rows[0].ok).toBe(false);
   });
 });
