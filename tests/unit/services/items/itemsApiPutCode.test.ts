@@ -99,7 +99,7 @@ describe('items POST code', () => {
   beforeEach(() => { vi.clearAllMocks(); vi.mocked(createItem).mockResolvedValue({ id: ID } as never); });
 
   it('refuses a code that is not text (an object would become "[object Object]")', async () => {
-    for (const code of [{ a: 1 }, 123, true, ['X']]) {
+    for (const code of [{ a: 1 }, 123, true, ['X'], 0, false, Number.NaN]) {
       const res = await post({ code });
       expect(res.statusCode).toBe(422);
       expect(JSON.stringify(res.body)).toContain('Item code must be text');

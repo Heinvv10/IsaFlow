@@ -78,11 +78,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { item_type: 'Must be physical or service' });
     }
 
-    // A missing / null / empty code means "generate one"; a code that is sent must be text that fits VARCHAR(50), as on PUT.
-    if (body.code && typeof body.code !== 'string') {
+    // A missing or null code means "generate one"; a code that is sent must be text that fits VARCHAR(50), as on PUT.
+    if (body.code !== undefined && body.code !== null && typeof body.code !== 'string') {
       return apiResponse.validationError(res, { code: 'Item code must be text' });
     }
-    const code = ((body.code as string | undefined) || '').trim();
+    const code = (body.code ?? '').trim();
     if (code.length > 50) {
       return apiResponse.validationError(res, { code: 'Item code must be at most 50 characters' });
     }
