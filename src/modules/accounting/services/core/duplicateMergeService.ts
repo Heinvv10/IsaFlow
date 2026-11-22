@@ -9,7 +9,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { SupplierMergeRefusal } from './supplierMergeRefusal';
 import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
-import { assertSupplierMergeMovesNoPoTiedBill } from './supplierMergePoTies';
+import { assertSupplierMergeMovesNoPoTiedBill, refuseIfMovedPoTiedBills } from './supplierMergePoTies';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
@@ -28,7 +28,7 @@ export interface MergeResult {
 export { SupplierMergeRefusal } from './supplierMergeRefusal';
 // A source bill carrying a goods received note (#1708): checked before the move, and on the bill UPDATE's RETURNING rows.
 export { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
-export { assertSupplierMergeMovesNoPoTiedBill } from './supplierMergePoTies';
+export { assertSupplierMergeMovesNoPoTiedBill, refuseIfMovedPoTiedBills } from './supplierMergePoTies';
 
 /**
  * DRC VAT eligibility reads the supplier's `subject_to_drc_vat` flag, and a
@@ -138,6 +138,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   `;
   // A bill made live and noted while this ran, without the supplier lock, is moved by this UPDATE after it waited on the row.
   refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
+  await refuseIfMovedPoTiedBills(companyId, duplicateId, r2 as Array<{ id: unknown }>); // a late header / line tie (review of cce5386b17)
   count += r2.length;
 
   await sql`

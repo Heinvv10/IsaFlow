@@ -2,9 +2,10 @@
  * Supplier Merge API
  * POST /api/accounting/supplier-merge
  *
- * Re-parents the source's payments and bills onto target_id within a single transaction (purchase orders, their goods
- * received notes and their links stay with the source; a bill tied to one is refused first), then deactivates the source (is_active = false) and renames it "... [MERGED]". It does NOT
- * soft-delete it (deleted_at stays NULL): see docs/design/mcp-goods-received.md, Known limits.
+ * Re-parents the source's payments and bills onto target_id within a single transaction, then deactivates the source
+ * (is_active = false) and renames it "... [MERGED]". Purchase orders, their goods received notes and their links stay with the
+ * source; a bill tied to one of them is refused (supplierMergePoTies). It does NOT soft-delete the source (deleted_at stays
+ * NULL): see docs/design/mcp-goods-received.md, Known limits.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -18,7 +19,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, assertSupplierMergeMovesNoPoTiedBill,
-  refuseIfMovedNotedBills,
+  refuseIfMovedNotedBills, refuseIfMovedPoTiedBills,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -79,10 +80,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
-      // 3. Purchase orders are NOT moved (#1697's invariant; PR #1703 merge review HIGH 1): they, their goods received notes and
+      // Purchase orders are NOT moved (#1697's invariant; PR #1703 merge review HIGH 1): they, their goods received notes and
       // their links stay with the source, and a bill still tied to one was refused above.
 
-      // 4. Re-parent supplier_invoices — AFTER the payments, as every payment
+      // 3. Re-parent supplier_invoices — AFTER the payments, as every payment
       // writer takes a payment and then its bills (bank/.claude.md lock order;
       // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
       // approval content (R-035): the merging user becomes an author of every
@@ -93,16 +94,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING invoice_number, grn_id, deleted_at, status
+        RETURNING id, invoice_number, grn_id, deleted_at, status
       `;
       // A bill made live and noted while this ran, without the supplier lock, is moved here after it waited on the row (#1708):
       // refused, and this transaction's savepoint takes the whole merge back.
       refuseIfMovedNotedBills(movedBills as Array<Record<string, unknown>>);
+      // A late header / line tie to a source PO (a draft edit between the check and this UPDATE; review of cce5386b17).
+      await refuseIfMovedPoTiedBills(companyId, source_id, movedBills as Array<{ id: unknown }>);
 
       // Note: unified credit_notes table covers both customer and supplier
       // credit notes; no separate supplier_credit_notes table exists.
 
-      // 6. Deactivate and rename the source (not a soft-delete: deleted_at is left NULL)
+      // 4. Deactivate and rename the source (not a soft-delete: deleted_at is left NULL)
       await tx`
         UPDATE suppliers
         SET is_active = false,

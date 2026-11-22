@@ -5,6 +5,8 @@
  * FK KEY SHARE, the merge waits for it, and then sees the create's app link and refuses (a 400 class); nothing moves.
  * Merge review HIGH 1: purchase orders never move, so a bill tied to a source PO by its HEADER or a LINE only (no link row) is refused
  * too, on both paths (the REST route, 400; mergeEntities, SupplierMergeRefusal): no bill ends up naming another supplier's PO.
+ * Review of cce5386b17: in any bill state; only the SOURCE's bills count; the REST check runs after its supplier lock too; and a
+ * header tie set by an edit racing the merge (after the check, before the bill UPDATE) is refused by the post-UPDATE re-check.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -90,3 +92,99 @@ describe('a bill tied to a source PO only by its header or a line (no link row)'
   }
 });
 
+const tieOf = async (own: BillFixture, kind: 'header' | 'cancelled' | 'deleted' | 'other-supplier') => {
+  const target = await seedSupplier(pool, own, `Merge target (${kind})`);
+  const po = await seedPo(pool, own, { lines: [100] });
+  const bill = await seedBill(pool, own, { lines: [100] });
+  await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+  await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, po.po]);
+  if (kind === 'cancelled') await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bill.id]);
+  if (kind === 'deleted') await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [bill.id]);
+  // A legacy cross-supplier header: the bill is the TARGET's, naming a PO of the source. Not the source's bill: no tie of the merge.
+  if (kind === 'other-supplier') await pool.query('UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [bill.id, target]);
+  return { target, po, bill };
+};
+const dupMerge = async (own: BillFixture, target: string) => {
+  const req = await openRequest(pool, own, own.owner);
+  try { const r = await req.run(() => mergeEntities(own.co, 'supplier', target, own.supplier, own.owner)); await req.commit(); return r; }
+  catch (e) { await req.rollback(); return e; }
+};
+
+describe('review of cce5386b17: any state, the source\'s bills only', () => {
+  for (const kind of ['cancelled', 'deleted'] as const) {
+    it(`a ${kind} bill whose header names a source PO is a tie too: refused`, async () => {
+      const own = await seedBillFixture(pool, `spo-merge-${kind}`);
+      try {
+        const { target } = await tieOf(own, kind);
+        expect(await dupMerge(own, target)).toBeInstanceOf(SupplierMergeRefusal);
+      } finally { await dropBillFixture(pool, own); }
+    }, 60_000);
+  }
+  it('a bill of ANOTHER supplier naming a source PO (legacy data) does not refuse the merge', async () => {
+    const own = await seedBillFixture(pool, 'spo-merge-other');
+    try {
+      const { target } = await tieOf(own, 'other-supplier');
+      expect(await dupMerge(own, target)).not.toBeInstanceOf(Error);
+    } finally { await dropBillFixture(pool, own); }
+  }, 60_000);
+});
+
+describe('review of cce5386b17: the REST route checks after its supplier lock', () => {
+  it('a create in flight naming a PO of the source: the REST merge waits on the supplier, then refuses with a 400; nothing moves', async () => {
+    const own = await seedBillFixture(pool, 'spo-merge-rest-lock');
+    try {
+      const target = await seedSupplier(pool, own, 'REST target (lock order)');
+      const po = await seedPo(pool, own, { lines: [100] });
+      const creating = await openRequest(pool, own, own.owner);
+      let merging: ReturnType<typeof callRoute> | undefined;
+      let billId = '';
+      try {
+        billId = (await creating.run(() => createSupplierInvoice(own.co, {
+          invoiceNumber: `REST-LOCK-${crypto.randomUUID().slice(0, 8)}`, supplierId: own.supplier, invoiceDate: '2026-06-15', purchaseOrderId: po.po,
+          items: [{ description: 'Billed on the PO', quantity: 1, unitPrice: 100, taxRate: 15, glAccountId: own.acc.opex }],
+        }, own.owner))).id;
+        merging = callRoute(mergeRoute as never, own, own.owner, '/api/accounting/supplier-merge', { source_id: own.supplier, target_id: target });
+        void merging.catch(() => undefined);
+        expect(await waitsOnLock('FROM suppliers')).toBe(true);
+        await creating.commit();
+      } catch (err) { await creating.rollback(); throw err; }
+      const out = await merging!;
+      expect(out.statusCode).toBe(400);
+      expect(JSON.stringify(out.body)).toContain('bills linked to purchase orders');
+      expect((await pool.query('SELECT supplier_id::TEXT AS s FROM supplier_invoices WHERE id = $1', [billId])).rows[0].s).toBe(own.supplier);
+    } finally { await dropBillFixture(pool, own); }
+  }, 60_000);
+});
+
+describe('review of cce5386b17: a header tie set while the merge runs', () => {
+  for (const path of ['duplicates', 'rest'] as const) {
+    it(`${path}: an edit setting the header to a source PO, committed while the merge's bill UPDATE waits on it: refused, nothing moves`, async () => {
+      const own = await seedBillFixture(pool, `spo-merge-late-${path}`);
+      const holder = await pool.connect();
+      try {
+        const target = await seedSupplier(pool, own, `Late tie target (${path})`);
+        const po = await seedPo(pool, own, { lines: [100] });
+        const bill = await seedBill(pool, own, { status: 'draft', lines: [100] });
+        await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+        // The draft edit: holds the bill row and sets its header to a source PO (no link row: the 1006 guard does not see it).
+        await holder.query('BEGIN');
+        await holder.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, po.po]);
+        const merging: Promise<unknown> = path === 'duplicates'
+          ? dupMerge(own, target)
+          : callRoute(mergeRoute as never, own, own.owner, '/api/accounting/supplier-merge', { source_id: own.supplier, target_id: target });
+        void merging.catch(() => undefined);
+        expect(await waitsOnLock('UPDATE supplier_invoices')).toBe(true); // past both checks, at its bill UPDATE
+        await holder.query('COMMIT');
+        const out = await merging;
+        if (path === 'duplicates') expect(out).toBeInstanceOf(SupplierMergeRefusal);
+        else expect((out as { statusCode: number }).statusCode).toBe(400);
+        const row = (await pool.query('SELECT supplier_id::TEXT AS s, purchase_order_id::TEXT AS p FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0];
+        expect(row).toEqual({ s: own.supplier, p: po.po });
+        expect((await pool.query('SELECT is_active, deleted_at IS NULL AS live FROM suppliers WHERE id = $1', [own.supplier])).rows[0]).toEqual({ is_active: true, live: true });
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined); holder.release();
+        await dropBillFixture(pool, own);
+      }
+    }, 60_000);
+  }
+});
