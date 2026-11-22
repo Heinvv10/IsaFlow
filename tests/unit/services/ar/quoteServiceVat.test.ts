@@ -278,6 +278,31 @@ describe('updateQuote: per-line VAT', () => {
     expect(wrote()).toBe(false);
   });
 
+  it('twins standard and exempt resent unchanged in their places (notes only) save, each keeping its type', async () => {
+    world.stored = [
+      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
+      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
+    ];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', notes: 'n', lines: [
+      { description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'Widget', quantity: 1, unitPrice: 100 },
+    ] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['standard', 'exempt']);
+  });
+
+  it('a company not registered for VAT is never asked for a type: its renamed legacy 0% line saves untyped', async () => {
+    world.vatPeriod = 'none';
+    world.stored = [storedLine({ description: 'Fee', unit_price: '50.00', amount: '50.00', tax_rate: '0', vat_type: null, tax_amount: null })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([[null, 60]]);
+  });
+
+  it('a registered company\'s renamed legacy 0% line is refused (it may be zero-rated), nothing written', async () => {
+    world.stored = [storedLine({ description: 'Fee', unit_price: '50.00', amount: '50.00', tax_rate: '0', vat_type: null, tax_amount: null })];
+    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }] }, 'u1'))
+      .rejects.toThrow(/had a zero-rated line it may be/);
+    expect(wrote()).toBe(false);
+  });
+
   it('refuses before the first write', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'A', quantity: 1, unitPrice: 1, taxRate: 7 }] }, 'u1'))
       .rejects.toThrow(InvoiceLineVatRefusal);

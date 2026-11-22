@@ -272,6 +272,26 @@ describe('both conversion links are checked first: the 409 precedes any 400', ()
   });
 });
 
+describe('a 409 names both links (review round 3)', () => {
+  it('convertToSalesOrder on a quote already INVOICED: the invoice id rides on the refusal', async () => {
+    mockSql.mockReset();
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted', convertedInvoiceId: 'inv-7' } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'converted', converted_invoice_id: 'inv-7', converted_order_id: null }] as never);
+    const err = await inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuoteNotConvertibleError);
+    expect(err).toMatchObject({ existingOrderId: null, existingInvoiceId: 'inv-7' });
+  });
+
+  it('convertToInvoice on a quote already turned into an ORDER: the order id rides on the refusal', async () => {
+    mockSql.mockReset();
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted_to_order', convertedOrderId: 'so-8' } as never);
+    mockSql.mockResolvedValueOnce([{ status: 'converted_to_order', converted_invoice_id: null, converted_order_id: 'so-8' }] as never);
+    const err = await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuoteNotInvoiceableError);
+    expect(err).toMatchObject({ existingInvoiceId: null, existingOrderId: 'so-8' });
+  });
+});
+
 describe('convertToSalesOrder: a typed quote with an exempt line', () => {
   it('is refused before the claim (a sales order would invoice it zero-rated)', async () => {
     mockSql.mockReset();

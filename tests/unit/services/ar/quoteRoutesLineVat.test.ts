@@ -17,7 +17,7 @@ vi.mock('@/lib/apiResponse', () => ({
     success: vi.fn((_r: unknown, data: unknown) => ({ kind: 'success', data })),
     created: vi.fn((_r: unknown, data: unknown) => ({ kind: 'created', data })),
     badRequest: vi.fn((_r: unknown, error: string, details?: unknown) => ({ kind: 'badRequest', error, details })),
-    conflict: vi.fn(() => ({ kind: 'conflict' })),
+    conflict: vi.fn((_r: unknown, error: string, details?: unknown) => ({ kind: 'conflict', error, details })),
     notFound: vi.fn(() => ({ kind: 'notFound' })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
@@ -32,6 +32,7 @@ import quotesHandler from '../../../../pages/api/accounting/customer-quotes';
 import quoteActionHandler from '../../../../pages/api/accounting/customer-quotes-action';
 import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
+import { QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
 
 type Out = { kind: string; error?: string; details?: unknown };
 const run = (h: unknown, method: string, body: unknown) =>
@@ -69,5 +70,14 @@ describe('customer-quotes-action', () => {
     const err = new LineValidationError('Quote QUO1\'s prices include VAT, and a sales order holds prices before VAT');
     m.toOrder.mockRejectedValueOnce(err);
     expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert-to-order' })).toEqual({ kind: 'badRequest', error: err.message, details: undefined });
+  });
+
+  it('a 409 carries both conversion links: convert-to-order on an invoiced quote names the invoice, convert on an ordered one the order', async () => {
+    m.toOrder.mockRejectedValueOnce(new QuoteNotConvertibleError('converted', null, 'inv-7'));
+    expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert-to-order' }))
+      .toMatchObject({ kind: 'conflict', details: { quoteStatus: 'converted', salesOrderId: null, invoiceId: 'inv-7' } });
+    m.convert.mockRejectedValueOnce(new QuoteNotInvoiceableError('converted_to_order', null, 'so-8'));
+    expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert' }))
+      .toMatchObject({ kind: 'conflict', details: { quoteStatus: 'converted_to_order', invoiceId: null, salesOrderId: 'so-8' } });
   });
 });
