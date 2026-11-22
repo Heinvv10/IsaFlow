@@ -46,6 +46,7 @@ describe('B5-A3: a lost run lock', () => {
     const err = await run(exportFile(), {}, hooked).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(MigrationStopped);
     expect((err as MigrationStopped).message).toMatch(/lock lost/);
+    expect((err as MigrationStopped).committed.map((b) => b.entity)).not.toContain('item'); // stopped at the next boundary, before its items phase
     expect(second).not.toBeNull();
     expect(second!.status).toBe('completed');
     expect(second!.reconciliation.items.addedByRun).toBe(20);
