@@ -60,10 +60,10 @@ describe('sendBatch', () => {
   };
   const batches = planBatches(plan(2, 2, 1), {});
 
-  it('the dry run calls categories and POs LIVE (inside its rolled-back transaction) and items with dry_run', async () => {
+  it('M3: the dry run calls categories, items and POs ALL live (inside its rolled-back transaction); none carries dry_run', async () => {
     const { s, sent } = fake();
     for (const b of [batches.categories[0]!, batches.items[0]!, batches.purchaseOrders[0]!]) await sendBatch(s, b, empty(), true);
-    expect(sent.map((x) => [x.name, x.args.dry_run])).toEqual([['upsert_item_category', undefined], ['bulk_upsert_items', true], ['bulk_create_purchase_orders', undefined]]);
+    expect(sent.map((x) => [x.name, 'dry_run' in x.args])).toEqual([['upsert_item_category', false], ['bulk_upsert_items', false], ['bulk_create_purchase_orders', false]]);
   });
   it('the live run never sets dry_run', async () => {
     const { s, sent } = fake();

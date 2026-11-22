@@ -2,9 +2,9 @@
  * The Sage migration runner (Phase D): one company, one export, categories -> items -> purchase orders.
  *
  *   1. Parse the export and resolve each PO's supplier (read tools); refuse what no tool could take (sageMigrationPlan).
- *   2. DRY RUN, always: one request transaction that is rolled back. Categories and purchase orders are written LIVE inside it
- *      (the items' preview needs the categories; PO batch k's budget check needs the POs of batches 1..k-1, as the live run's has),
- *      items run with dry_run: true. Nothing it did survives, idempotency and audit rows included. A batch a tool refuses (a
+ *   2. DRY RUN, always: one request transaction that is rolled back. Categories, items and purchase orders are all written LIVE
+ *      inside it (the items' preview needs the categories; PO batch k's budget check needs the POs of batches 1..k-1, as the live run's
+ *      has; the same code runs as live). Nothing it did survives, idempotency and audit rows included. A batch a tool refuses (a
  *      budget block among them) makes the dry run not clean and the run stops there.
  *   3. LIVE (opts.live and a clean dry run): each category, then each item batch (<= 500), then each PO batch (<= 100) is ONE
  *      committed request through the real registry, under a key derived from its rows, so a re-run replays instead of repeating

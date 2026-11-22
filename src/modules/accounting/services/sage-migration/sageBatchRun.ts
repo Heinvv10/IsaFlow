@@ -44,14 +44,15 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
 }
 
 /**
- * Sends one batch. In the DRY RUN (a request transaction the runner rolls back) categories and purchase orders are called LIVE,
- * and items with dry_run: the categories must exist for the items' preview, and a PO batch must see the POs of the batches
- * before it, as the live run's budget check will (a dry_run PO batch rolls itself back, so batch k would not). Nothing the dry
- * run does survives its transaction, idempotency and audit rows included; its keys carry "-dry" as well.
+ * Sends one batch. The DRY RUN is the live run inside a request transaction the runner rolls back: every tool is called LIVE (no
+ * dry_run flag), so the items' preview finds their categories, a PO batch sees the POs of the batches before it as the live run's
+ * budget check will (a dry_run PO batch rolls itself back, so batch k would not), and the same code and constraints run as in the
+ * live call. Nothing the dry run does survives its transaction, idempotency and audit rows included (tests prove it); its keys carry
+ * "-dry" as well, so even a failed rollback could not make the live run replay a dry run's answer.
  */
 export async function sendBatch(session: ToolSession, s: Send, before: Snapshot, dry: boolean): Promise<BatchReport> {
   const key = batchKey(s.entity, s.n, s.args, s.runTag) + (dry ? '-dry' : '');
-  const r = await session.call(s.tool, { ...s.args, idempotency_key: key, ...(dry && s.entity === 'item' ? { dry_run: true } : {}) });
+  const r = await session.call(s.tool, { ...s.args, idempotency_key: key });
   return {
     entity: s.entity, n: s.n, size: s.size, key, status: r.isError ? 'failed' : 'ok',
     allRowsAlreadyPresent: s.present(before) || (s.entity === 'category' && r.body?.outcome === 'unchanged'), rowsAbsent: 0,

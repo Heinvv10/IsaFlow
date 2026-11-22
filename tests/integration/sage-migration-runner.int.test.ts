@@ -32,13 +32,16 @@ describe('the dry run', () => {
     const before = await booked(pool, s.companyId);
     const audits = () => pool.query('SELECT count(*)::INT AS n FROM audit_log WHERE company_id = $1', [s.companyId]);
     const auditsBefore = (await audits()).rows[0].n;
+    const callsBefore = (await booked(pool, s.companyId)).toolCalls;
     const report = await runSageMigration(pool, parsedExport(), opts());
-    expect((await audits()).rows[0].n).toBe(auditsBefore); // the dry run's PO audit rows went with its transaction
+    expect((await audits()).rows[0].n).toBe(auditsBefore); // the dry run's audit rows went with its transaction
+    expect((await booked(pool, s.companyId)).toolCalls).toBe(callsBefore); // and its idempotency rows: the live run replays nothing of it
     expect(report.status).toBe('dry_run_ok');
     expect(report.live).toBeNull();
     expect(report.dryRun).toMatchObject({ clean: true, categories: { failed: 0 }, items: { failed: 0 }, purchaseOrders: { failed: 0 } });
     expect(report.dryRun.categories.batches).toHaveLength(4);
-    expect(report.dryRun.items.batches[0]!.toolReported).toMatchObject({ dry_run: true, counts: { created: 20, total: 20 } });
+    // Items run LIVE inside the rolled-back dry-run transaction too (the same code path as the live run): written, then rolled back.
+    expect(report.dryRun.items.batches[0]!.toolReported).toMatchObject({ written: true, counts: { created: 20, total: 20 } });
     // POs run LIVE inside the rolled-back dry-run transaction (so a batch sees the ones before it): created, then rolled back.
     expect(report.dryRun.purchaseOrders.batches[0]!.toolReported).toMatchObject({ created: 10, already_existed: 0 });
     expect(await booked(pool, s.companyId)).toEqual(before);
