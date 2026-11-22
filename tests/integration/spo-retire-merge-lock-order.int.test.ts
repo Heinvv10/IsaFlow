@@ -6,6 +6,9 @@
  *     its app link and refuse (a 400 class); nothing moves;
  *   - a bill tied to a source PO by its HEADER or a LINE only (no link row), set before the merge or by an edit racing it, ends on
  *     the survivor together with that PO: no bill names another supplier's PO;
+ *   - (orchestrator's decision (a) for #1703) an open PO with a goods received note and no bill link moves to the survivor with its
+ *     note still on it, its received quantities, its committed figure and closed_by_billing unchanged; a source PO with a linked bill
+ *     refuses the merge (master's PO_BILL_LINKS_REFUSAL) and nothing moves; both paths;
  *   - the accepted liveness cycle (isaflow-c8's review of #1699): a bill create holding the PO's KEY SHARE before its INSERT,
  *     against a merge holding both supplier rows FOR UPDATE and waiting on that PO, ends in a 40P01 for one side, nothing written.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -14,7 +17,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
-import { seedBill, seedPo, seedSupplier } from './helpers/poBillLinkHarness';
+import { approveBill, seedBill, seedPo, seedSupplier } from './helpers/poBillLinkHarness';
+import { callTool as maintTool, dropGrnExtras, dropMaintExtras, grnArgs, seedQtyPo } from './helpers/grnHarness';
+import { callTool } from './helpers/poImportHarness';
+import { createGoodsReceivedTool as createGrn } from '@/lib/mcp/tools/writeCreateGoodsReceived';
+import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
+import { poCommittedCents } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
@@ -26,10 +34,12 @@ beforeAll(async () => { f = await seedBillFixture(pool, 'spo-merge-lock'); await
 afterAll(async () => { try { await dropBillFixture(pool, f); } finally { await pool.end(); } }, 60_000);
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-async function waitsOnLock(fragment: string): Promise<boolean> {
+/** A backend of this test waiting on `holder` (pg_blocking_pids), at a query containing `fragment`: never a parallel suite's wait. */
+async function waitsOnLock(fragment: string, holder: number): Promise<boolean> {
   for (let i = 0; i < 200; i++) {
     const rows = (await pool.query(
-      "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database() AND query LIKE '%' || $1 || '%'", [fragment])).rows;
+      `SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database() AND query LIKE '%' || $1 || '%'
+          AND $2::INT = ANY(pg_blocking_pids(pid))`, [fragment, holder])).rows;
     if (rows.length > 0) return true;
     await sleep(25);
   }
@@ -64,7 +74,7 @@ describe('a create in flight naming a PO of the source', () => {
           expect((await creating.client.query('SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [billId])).rows[0].n).toBe(1);
           merging = path === 'duplicates' ? dupMerge(own, target) : restMerge(own, target);
           void merging.catch(() => undefined);
-          expect(await waitsOnLock('FROM suppliers')).toBe(true);
+          expect(await waitsOnLock('FROM suppliers', creating.pid)).toBe(true);
           await creating.commit();
         } catch (err) { await creating.rollback(); throw err; }
         const out = await merging!;
@@ -114,10 +124,11 @@ describe('a header tie set while the merge runs', () => {
         const bill = await seedBill(pool, own, { status: 'draft', lines: [100] });
         await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
         await holder.query('BEGIN');
+        const holderPid = Number((await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
         await holder.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, po.po]);
         const merging: Promise<unknown> = path === 'duplicates' ? dupMerge(own, target) : restMerge(own, target);
         void merging.catch(() => undefined);
-        expect(await waitsOnLock('UPDATE supplier_invoices')).toBe(true);
+        expect(await waitsOnLock('UPDATE supplier_invoices', holderPid)).toBe(true);
         await holder.query('COMMIT');
         const out = await merging;
         if (path === 'duplicates') expect(out).not.toBeInstanceOf(Error);
@@ -140,13 +151,14 @@ describe('accepted cycle: a bill create holding the PO KEY SHARE before its INSE
       const target = await seedSupplier(pool, own, 'Cycle target');
       const po = await seedPo(pool, own, { lines: [100] });
       await a.query('BEGIN'); await b.query('BEGIN');
+      const aPid = Number((await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
       // A, the bill create's order: the named PO FOR KEY SHARE first (assertBillPoLinks / lockNotePo).
       await a.query('SELECT id FROM purchase_orders WHERE id = $1 FOR KEY SHARE', [po.po]);
       // B, the merge's order: both suppliers FOR UPDATE (assertSupplierMergeKeepsDrcFlag), then the source's POs FOR UPDATE.
       await b.query('SELECT id FROM suppliers WHERE id = ANY($1::UUID[]) ORDER BY id FOR UPDATE', [[own.supplier, target]]);
       const bWait = b.query('SELECT id FROM purchase_orders WHERE supplier_id = $1 ORDER BY id FOR UPDATE', [own.supplier])
         .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
-      expect(await waitsOnLock('FROM purchase_orders WHERE supplier_id')).toBe(true);
+      expect(await waitsOnLock('FROM purchase_orders WHERE supplier_id', aPid)).toBe(true);
       // A: the INSERT's supplier FK takes KEY SHARE on the source, held by B: the cycle.
       const number = `CYCLE-${crypto.randomUUID().slice(0, 8)}`;
       const aWait = a.query(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status)
@@ -162,4 +174,55 @@ describe('accepted cycle: a bill create holding the PO KEY SHARE before its INSE
       await dropBillFixture(pool, own);
     }
   }, 60_000);
+});
+
+describe('decision (a): a merge moves an open PO with its goods received note; a linked PO refuses', () => {
+  for (const path of ['duplicates', 'rest'] as const) {
+    it(`${path}: an approved PO, part received (note, no bill link), moves to the survivor; note, quantities, committed and closed_by_billing unchanged`, async () => {
+      const own = await seedBillFixture(pool, `spo-merge-grn-${path}`);
+      try {
+        await setPolicy(pool, own, 'warn');
+        const target = await seedSupplier(pool, own, `GRN target (${path})`);
+        const po = await seedQtyPo(pool, own, { lines: [{ qty: 4, price: 10 }] });
+        const note = await maintTool(pool, own, createGrn, grnArgs(po, [[0, 2]]));
+        expect(note.isError, note.text).toBe(false);
+        const state = async () => ({
+          ...(await pool.query(`SELECT supplier_id::TEXT AS supplier, status, closed_by_billing FROM purchase_orders WHERE id = $1`, [po.po])).rows[0],
+          note_po: (await pool.query(`SELECT purchase_order_id::TEXT AS p, status FROM goods_received_notes WHERE id = $1`, [String(note.body.grn_id)])).rows[0],
+          received: (await pool.query(`SELECT quantity_received::TEXT AS q FROM po_items WHERE purchase_order_id = $1 ORDER BY id`, [po.po])).rows.map((r) => r.q),
+          committed: (await poCommittedCents(own.co, [po.po])).get(po.po.toLowerCase()) ?? 0,
+        });
+        const before = await state();
+        expect(before).toMatchObject({ supplier: own.supplier, status: 'partially_received', closed_by_billing: false, committed: 4000 });
+        const out = path === 'duplicates' ? await dupMerge(own, target) : await restMerge(own, target);
+        if (path === 'duplicates') expect(out).not.toBeInstanceOf(Error);
+        else expect((out as { statusCode: number }).statusCode, JSON.stringify((out as { body: unknown }).body)).toBe(200);
+        expect(await state()).toEqual({ ...before, supplier: target });
+      } finally { await dropGrnExtras(pool, own); await dropMaintExtras(pool, own); await dropBillFixture(pool, own); }
+    }, 60_000);
+
+    it(`${path}: a source PO with a linked bill refuses the merge (master's rule); nothing moves`, async () => {
+      const own = await seedBillFixture(pool, `spo-merge-linked-${path}`);
+      try {
+        await setPolicy(pool, own, 'warn');
+        const target = await seedSupplier(pool, own, `Linked target (${path})`);
+        const po = await seedPo(pool, own, { lines: [100] });
+        const bill = await seedBill(pool, own, { status: 'draft', lines: [100] });
+        await approveBill(pool, own, bill.id);
+        await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+        const l = await callTool(pool, own, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
+        expect(l.isError, l.text).toBe(false);
+        const out = path === 'duplicates' ? await dupMerge(own, target) : await restMerge(own, target);
+        if (path === 'duplicates') {
+          expect(out).toBeInstanceOf(SupplierMergeRefusal);
+          expect((out as Error).message).toContain('bills linked to purchase orders');
+        } else {
+          expect((out as { statusCode: number }).statusCode).toBe(400);
+          expect(JSON.stringify((out as { body: unknown }).body)).toContain('bills linked to purchase orders');
+        }
+        expect(await suppliersOf(bill.id, po.po)).toEqual({ bill: own.supplier, po: own.supplier });
+        expect((await pool.query('SELECT count(*)::INT AS n FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows[0].n).toBe(1);
+      } finally { await dropBillFixture(pool, own); }
+    }, 60_000);
+  }
 });
