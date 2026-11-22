@@ -113,6 +113,8 @@ describe('the migration backfill', () => {
     const file = readFileSync('scripts/migrations/sql/1006_purchase_order_bill_links.sql', 'utf8');
     const functions = file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.po_bill_posted_cents'), file.indexOf('SELECT public.purchase_order_bill_links_backfill();'));
     await pool.query(functions);
+    const later = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8'); // 1022 redefines the backfill: the LIVE one
+    await pool.query(later.slice(later.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'), later.indexOf('-- ── 1c.')));
     await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     const rows = await linkRows(pool, f);
     const byBill = new Map(rows.map((r) => [r.bill, r]));
@@ -202,7 +204,7 @@ describe('the bill header follows the links only where it is theirs to rewrite',
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [unlinkedHeader.id, b.po]);
     const plain = await seedBill(pool, f, { lines: [100] });
     const r = await callTool(pool, f, link, { links: [
-      { po_id: a.po, bill_id: legacy.id }, { po_id: a.po, bill_id: unlinkedHeader.id }, { po_id: a.po, bill_id: plain.id },
+      { po_id: a.po, bill_id: legacy.id }, { po_id: a.po, bill_id: unlinkedHeader.id, lines: [{ po_item_id: a.items[0], bill_line_id: unlinkedHeader.lines[0] }] }, { po_id: a.po, bill_id: plain.id },
     ] });
     expect(r.isError, r.text).toBe(false);
     expect(await billHeader(pool, legacy.id)).toBe(legacyId);

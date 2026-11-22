@@ -23,13 +23,15 @@ export async function generatePurchaseOrderPdf(
 
   const rows = (await sql`
     SELECT po.*,
+           po.po_number              AS order_number,
+           po.expected_delivery_date AS delivery_date,
            s.name           AS supplier_name,
            s.email          AS supplier_email,
            s.phone          AS supplier_phone,
            s.vat_number     AS supplier_vat,
            s.address        AS supplier_address,
            s.contact_person AS supplier_contact
-    FROM supplier_purchase_orders po
+    FROM purchase_orders po
     LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
     WHERE po.id = ${poId}::UUID
       AND po.company_id = ${companyId}::UUID
@@ -39,9 +41,10 @@ export async function generatePurchaseOrderPdf(
   const po = rows[0]!;
 
   const items = (await sql`
-    SELECT * FROM supplier_purchase_order_items
-    WHERE purchase_order_id = ${poId}::UUID
-    ORDER BY created_at
+    SELECT i.* FROM po_items i
+      JOIN purchase_orders p ON p.id = i.purchase_order_id AND p.company_id = ${companyId}::UUID
+    WHERE i.purchase_order_id = ${poId}::UUID
+    ORDER BY i.sort_order, i.created_at, i.id
   `) as DbRow[];
 
   log.info('Generating PO PDF', {

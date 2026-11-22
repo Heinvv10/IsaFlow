@@ -33,13 +33,14 @@ export async function generateSupplierInvoicePdf(
            s.bank_name     AS supplier_bank_name,
            s.bank_account_number AS supplier_bank_account,
            s.bank_branch_code    AS supplier_branch_code,
-           -- The older supplier_purchase_orders number, else the canonical purchase orders the bill is linked to (migration 1006).
-           COALESCE(po.order_number, (SELECT string_agg(p.po_number, ', ' ORDER BY p.po_number) FROM purchase_order_bill_links l
+           -- The header's purchase order (since migration 1022 a former supplier_purchase_orders id names its copy), else the
+           -- purchase orders the bill is linked to (migration 1006).
+           COALESCE(po.po_number, (SELECT string_agg(p.po_number, ', ' ORDER BY p.po_number) FROM purchase_order_bill_links l
                                         JOIN purchase_orders p ON p.id = l.purchase_order_id AND p.company_id = l.company_id
                                        WHERE l.supplier_invoice_id = si.id AND l.company_id = si.company_id)) AS po_number
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
-    LEFT JOIN supplier_purchase_orders po ON po.id = si.purchase_order_id
+    LEFT JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id
     WHERE si.id = ${invoiceId}::UUID
       AND si.company_id = ${companyId}::UUID
   `) as DbRow[];

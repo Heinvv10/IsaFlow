@@ -30,7 +30,6 @@ const ALL_PAGES = [
   '/accounting/supplier-returns', '/accounting/supplier-allocations',
   '/accounting/supplier-statements',
   '/accounting/batch-payments', '/accounting/batch-payments/new',
-  '/accounting/supplier-purchase-orders',
   // Items
   '/accounting/items', '/accounting/items/new',
   '/accounting/item-adjustments', '/accounting/item-pricing',

@@ -71,7 +71,6 @@
   "pages/accounting/settings/integrations-mcp.tsx": 4,
   "pages/accounting/supplier-payments/[paymentId].tsx": 1,
   "pages/accounting/supplier-payments/index.tsx": 1,
-  "pages/accounting/supplier-purchase-orders/index.tsx": 1,
   "pages/accounting/supplier-returns/index.tsx": 2,
   "pages/accounting/supplier-statements/[supplierId].tsx": 1,
   "pages/accounting/suppliers/expectations.tsx": 1,
