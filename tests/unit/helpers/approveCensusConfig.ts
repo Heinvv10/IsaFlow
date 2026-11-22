@@ -8,7 +8,7 @@
  * is caught without being named here (round 4, F-M2).
  */
 import type { GateSpec } from './approveCensusGraph';
-import type { ModuleResolver, SqlPrimitive } from './approveCensusProgram';
+import type { ModuleResolver, PinnedStatement, SinkModuleArg, SqlPrimitive } from './approveCensusProgram';
 import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 export const SINK_MODULES: Readonly<Record<string, string>> = {
@@ -35,7 +35,10 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
   postBankTransfer: 'banking', postProvisional: 'banking', reopenReconciliation: 'banking',
   // VAT, items, practice, budgets, approvals
   // finaliseReturn: VAT201 (vat) or EMP501 (payroll), the return's own module
-  approveVATAdjustment: 'vat', finaliseReturn: 'returns',
+  // A return's finalise / filing / amend: the FORM's module, read from the call's form argument (SINK_MODULE_ARGS); finaliseVatReturn
+  // (the VAT201 finalise, and its period lock) is VAT's wherever a route calls it (#1670 follow-up L-b).
+  approveVATAdjustment: 'vat', finaliseReturn: 'returns', markReturnFiled: 'returns', amendReturn: 'returns', finaliseVatReturn: 'vat',
+  submitVAT201ToSars: 'returns:vat', // the ISV VAT201 filing: its SQL names no form, the sink is VAT201's
   approveAdjustment: 'items', approveEntries: 'accountant',
   approvePracticeEntries: 'accountant', transitionVersion: 'budgets', decideRequest: '*', approvePurchaseOrder: 'suppliers',
   // payroll
@@ -48,6 +51,13 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
 };
 
 export const POSTING_SERVICES = Object.keys(SINK_MODULES);
+
+/** The sinks whose form argument says which return, and so which module (#1670 follow-up L-a): finaliseReturn(c, 'VAT201', ...). */
+export const SINK_MODULE_ARGS: Readonly<Record<string, SinkModuleArg>> = {
+  finaliseReturn: { arg: 1, resolver: 'returnApproveModule' },
+  markReturnFiled: { arg: 1, resolver: 'returnApproveModule' },
+  amendReturn: { arg: 1, resolver: 'returnApproveModule' },
+};
 
 /**
  * A gate whose module argument is returnApproveModule(<form>) asks the form's module, read from the REAL mapping (r13 L2): a literal
@@ -64,13 +74,14 @@ export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, ModuleResolver>> =
  * Budgets gate does not cover a bill flipped to approved. '*' where the document decides the module (a journal, posted by every module;
  * a credit note; a tax return). The documents and modules follow APPROVE_MODULE_BY_DOCUMENT and SINK_MODULES above.
  */
-const flips = (tables: string, statuses: string, module: string, caseForm = true) => {
+const flips = (tables: string, statuses: string, module: string, exemptIn?: readonly PinnedStatement[]) => {
   const T = `(?:public\\.)?(?:${tables})\\b`;
   const noWhere = (n: number) => `(?:(?!\\bWHERE\\b)[^;]){0,${n}}?`;
   // `status = '<s>'`, or `status = CASE ... THEN '<s>'` (r13 L3)
-  const set = `\\bstatus\\s*=\\s*${caseForm ? '(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?\\bTHEN\\s*)?' : ''}'(?:${statuses})'`;
+  const set = `\\bstatus\\s*=\\s*(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?\\bTHEN\\s*)?'(?:${statuses})'`;
   return {
     module,
+    exemptIn,
     // `SET ... status = '<s>'` before any WHERE (a cancel `WHERE status = 'approved'` is no approval); `SET (status, ...) = ('<s>', ...)`;
     // an upsert's `ON CONFLICT ... DO UPDATE SET status = '<s>'` (r13 L3)
     re: new RegExp([
@@ -80,14 +91,34 @@ const flips = (tables: string, statuses: string, module: string, caseForm = true
     ].join('|'), 'i'),
   };
 };
+
+/**
+ * The invoice payment recompute's un-payment writers: a CASE that puts an invoice back to 'approved' when what was paid is taken
+ * off (WHEN status IN ('partially_paid', 'paid') / amount_paid falls to 0). No approval, so these NAMED statements are exempt from
+ * the invoice flips, pinned by file and their WHOLE static text (binds read as ?, whitespace collapsed; `line`: the THEN 'approved'
+ * arm). Any other CASE setting an invoice to 'approved', a pinned one with anything added included, is a finding; a pin whose
+ * statement is no longer in its file, word for word, fails as stale (#1720 fix-verify).
+ */
+const AR = 'src/modules/accounting/services/ar/';
+export const INVOICE_UNPAYMENT_WRITERS: readonly PinnedStatement[] = [
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 111, why: 'recomputeInvoiceStatus, customer: the recompute after a payment moves',
+    statement: "UPDATE customer_invoices SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN amount_paid >= total_amount THEN COALESCE(paid_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND status = ANY(?)" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 130, why: 'recomputeInvoiceStatus, supplier: the same, one-cent tolerance',
+    statement: "UPDATE supplier_invoices SET status = CASE WHEN amount_paid >= total_amount - 0.01 THEN 'paid' WHEN amount_paid > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(paid_at, NOW()) ELSE NULL END, payment_matched = (amount_paid >= total_amount - 0.01), payment_matched_at = CASE WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(payment_matched_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND status = ANY(?)" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 174, why: 'moveSupplierBillPaid: the bill paid figure and its status in one write',
+    statement: "UPDATE supplier_invoices SET amount_paid = COALESCE(amount_paid, 0) + ?, updated_at = NOW(), status = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN status WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN 'paid' WHEN COALESCE(amount_paid, 0) + ? > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN paid_at WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN COALESCE(paid_at, NOW()) ELSE NULL END, payment_matched = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN payment_matched ELSE (COALESCE(amount_paid, 0) + ? >= total_amount - 0.01) END, payment_matched_at = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN payment_matched_at WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN COALESCE(payment_matched_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND (?::NUMERIC IS NULL OR amount_paid >= ?::NUMERIC) RETURNING id" },
+  { file: `${AR}customerPaymentAllocationService.ts`, line: 211, why: 'cancelCustomerPayment: an allocation reversed off the invoice',
+    statement: "UPDATE customer_invoices SET amount_paid = GREATEST(0, amount_paid - ?), status = CASE WHEN GREATEST(0, amount_paid - ?) <= 0 THEN 'approved' WHEN GREATEST(0, amount_paid - ?) < total_amount THEN 'partially_paid' ELSE status END, paid_at = CASE WHEN GREATEST(0, amount_paid - ?) < total_amount THEN NULL ELSE paid_at END WHERE id = ?::UUID AND company_id = ?" },
+];
+
 export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   { module: '*', re: /UPDATE\s+(?:public\.)?gl_journal_entries[^;]{0,400}?status\s*=\s*'posted'/i },
   { module: '*', re: /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i },
   { module: 'customers', re: /UPDATE\s+(?:public\.)?customer_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
   { module: 'suppliers', re: /UPDATE\s+(?:public\.)?supplier_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
-  // Invoices without the CASE form: their payment recompute sets `status = CASE ... WHEN status IN ('partially_paid', 'paid') THEN
-  // 'approved'`, an un-payment back to the approved state, no approval (invoiceStatusRecompute, the allocation reversals).
-  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', false), flips('supplier_invoices', 'approved', 'suppliers', false),
+  // Invoices: every CASE to 'approved' counts, but the pinned un-payment writers (INVOICE_UNPAYMENT_WRITERS, #1720 fix-verify)
+  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', INVOICE_UNPAYMENT_WRITERS),
+  flips('supplier_invoices', 'approved', 'suppliers', INVOICE_UNPAYMENT_WRITERS),
   flips('credit_notes', 'approved', '*'),
   flips('supplier_payments', 'approved|processed', 'suppliers'),
   flips('supplier_payment_batches', 'approved|processed|reversed', 'suppliers'),
@@ -163,5 +194,5 @@ export const PAYROLL_READ_WRAPPERS: Readonly<Record<string, string>> = { withPay
  */
 export const POSTING_RULES = {
   sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
-  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'],
+  markerScope: 'posting', moduleResolvers: RETURN_MODULE_RESOLVERS, strictModules: ['returns'], sinkModuleArgs: SINK_MODULE_ARGS,
 } as const;
