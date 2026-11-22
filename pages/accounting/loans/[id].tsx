@@ -176,8 +176,8 @@ export default function LoanDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <Link href="/accounting/loans" className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
+            <div className="flex items-center gap-3 max-lg:flex-wrap">
+              <Link href="/accounting/loans" className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                 <ArrowLeft className="h-5 w-5" />
               </Link>
               <div className="p-2 rounded-lg bg-teal-500/10">
@@ -198,19 +198,19 @@ export default function LoanDetailPage() {
             </div>
             <button
               onClick={loadLoan}
-              className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]"
+              className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
               title="Refresh"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="flex gap-1 mt-4">
+          <div className="flex gap-1 mt-4 max-lg:overflow-x-auto max-lg:flex-nowrap">
             {TABS.map(t => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`px-4 py-2 rounded-t text-sm font-medium transition-colors ${
+                className={`px-4 py-2 rounded-t text-sm font-medium transition-colors max-lg:min-h-11 max-lg:shrink-0 max-lg:whitespace-nowrap ${
                   tab === t.id
                     ? 'bg-brand-600 text-white'
                     : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]'
