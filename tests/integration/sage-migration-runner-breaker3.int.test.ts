@@ -110,6 +110,24 @@ describe('B3: a re-run does what its dry run said after an owned item was change
   });
 });
 
+describe('the books are checked against what the items phase sent, before any PO is written', () => {
+  it('an item changed after its batch committed: the items batch is failed naming it, and the PO phase is not started', async () => {
+    // connects: 1 snapshot, 2 dry run, 3-6 the four categories, 7 their check, 8 the item batch, 9 the check that follows it.
+    let n = 0;
+    const hooked = { options: pool.options, connect: async () => {
+      n++;
+      if (n === 9) await pool.query(`UPDATE items SET is_active = false WHERE company_id = $1 AND external_ref = '50002'`, [s.companyId]);
+      return pool.connect();
+    } } as unknown as Pool;
+    const r = await runSageMigration(hooked, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true });
+    expect(r.status).toBe('failed');
+    expect(r.live!.items.batches[0]).toMatchObject({ status: 'failed' });
+    expect(r.live!.items.batches[0]!.error).toMatch(/not what this batch sent.*FIB-0002 \(Sage id 50002\): is_active is false, sent true.*PO phase is not started/);
+    expect(r.live!.purchaseOrders.batches).toEqual([]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 0 });
+  });
+});
+
 describe('B4: the linked-lines count is the books\', not the plan\'s', () => {
   it('a PO already there (never changed) is not counted: linked equals the linked lines of the POs THIS run created, here none', async () => {
     const inactive = exportFile();
