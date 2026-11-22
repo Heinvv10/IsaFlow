@@ -9,7 +9,7 @@ import type { SagePurchaseOrder } from './sageExportTypes';
 import type { ToolSession } from './sageToolSession';
 import { SAGE_SYSTEM } from './sageItemMapping';
 
-export type SupplierResolution = { id: string } | { code: 'supplier_unresolved' | 'supplier_ambiguous' | 'supplier_ref_conflict'; reason: string };
+export type SupplierResolution = { id: string } | { code: 'supplier_unresolved' | 'supplier_ambiguous' | 'supplier_ref_conflict' | 'supplier_collapsed'; reason: string };
 
 const PAGE = 200;
 const MAX_PAGES = 5;
@@ -66,5 +66,16 @@ export async function resolveSuppliers(
   for (const po of pos) if (!names.get(po.supplierId)) names.set(po.supplierId, po.supplierName);
   const out = new Map<string, SupplierResolution>();
   for (const [id, name] of names) out.set(id, await resolveOne(session, id, name, refs));
+  // Two different Sage suppliers that land on one IsaFlow supplier (found by the same name) would be merged silently: both are refused.
+  const bySupplier = new Map<string, string[]>();
+  for (const [id, r] of out) if ('id' in r) bySupplier.set(r.id, [...(bySupplier.get(r.id) ?? []), id]);
+  for (const [uuid, sageIds] of bySupplier) {
+    if (sageIds.length < 2) continue;
+    const list = sageIds.length === 2 ? sageIds.join(' and ') : `${sageIds.slice(0, -1).join(', ')} and ${sageIds[sageIds.length - 1]}`;
+    const named = [...new Set(sageIds.map((i) => names.get(i)).filter((n): n is string => Boolean(n)))].map((n) => `"${n}"`).join(' / ');
+    for (const id of sageIds) {
+      out.set(id, { code: 'supplier_collapsed', reason: `Sage suppliers ${list} (named ${named}) all resolve to one IsaFlow supplier ${uuid}; they are different Sage suppliers, so none is matched` });
+    }
+  }
   return out;
 }

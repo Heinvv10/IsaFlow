@@ -82,4 +82,20 @@ describe('resolveSuppliers', () => {
     expect(await one(s, '9', 'Acme', new Map([['a', '9']]))).toEqual({ id: 'a' });
     expect(await one(s, '9', 'Acme', new Map())).toEqual({ id: 'a' });
   });
+
+  it('L1: two different Sage suppliers that resolve by name to one IsaFlow supplier are BOTH refused supplier_collapsed, naming both ids', async () => {
+    const { s } = session({ suppliers: () => ({ suppliers: [{ id: 'u1', name: 'Acme' }], next_offset: null }) });
+    const r = await resolveSuppliers(s, [po('77', 'Acme'), po('88', 'ACME'), po('99', 'Other')], new Map());
+    for (const id of ['77', '88']) {
+      expect(r.get(id)).toMatchObject({ code: 'supplier_collapsed' });
+      expect((r.get(id) as { reason: string }).reason).toMatch(/Sage suppliers 77 and 88 .*"Acme".* one IsaFlow supplier u1/);
+    }
+  });
+  it('L1: two Sage ids to one supplier by reference or by one id twice are not a collapse; three ids are all named', async () => {
+    const one = session({ suppliers: () => ({ suppliers: [{ id: 'u1', name: 'Acme' }], next_offset: null }) });
+    const same = await resolveSuppliers(one.s, [po('77', 'Acme'), po('77', 'Acme')], new Map());
+    expect(same.get('77')).toEqual({ id: 'u1' });
+    const three = await resolveSuppliers(one.s, [po('1', 'Acme'), po('2', 'Acme'), po('3', 'Acme')], new Map());
+    expect((three.get('2') as { reason: string }).reason).toMatch(/Sage suppliers 1, 2 and 3/);
+  });
 });

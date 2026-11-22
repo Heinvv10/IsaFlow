@@ -1,7 +1,8 @@
 /**
  * One Sage item row -> a typed SageItem, or a refusal naming every fault. PURE.
  *
- * HARD RULE (Hein): `QuantityOnHand` is read for one thing only, to know the row had one (the report counts them). Its value
+ * HARD RULE (Hein): `QuantityOnHand` is read for one thing only, to know the row had a numeric one (the report counts them; any other
+ * value is ignored like the field itself, not a reason to refuse the item). Its value
  * is not stored on SageItem, so nothing downstream can import it as opening stock.
  */
 import type { RowResult, SageItem } from './sageExportTypes';
@@ -43,9 +44,6 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
   const taxSales = taxField(o, 'TaxTypeIdSales', why);
   const taxPurchases = taxField(o, 'TaxTypeIdPurchases', why);
   const cat = category(o, why);
-  if (o.QuantityOnHand !== undefined && o.QuantityOnHand !== null && typeof o.QuantityOnHand !== 'number') {
-    why.push('QuantityOnHand must be a number when present (it is ignored, but a malformed row is not trusted)');
-  }
   if (why.length > 0) {
     return {
       ok: false,

@@ -127,8 +127,15 @@ describe('item rows', () => {
     const none = parseSageItem(item({ Category: null }), 0);
     expect(none.ok && none.value.category).toBeNull();
   });
-  it('does not trust a row whose QuantityOnHand is malformed, and never keeps a valid one', () => {
-    expect(reasons(parseSageItem(item({ QuantityOnHand: 'lots' }), 0))[0]).toMatch(/QuantityOnHand must be a number/);
+  it('ignores a QuantityOnHand that is not a number (the field is discarded anyway): the item is accepted, nothing of it kept', () => {
+    for (const v of ['12', 'lots', true, { n: 1 }, [3]]) {
+      const r = parseSageItem(item({ QuantityOnHand: v }), 0);
+      expect(r.ok, JSON.stringify(v)).toBe(true);
+      expect(r.ok && r.value.hadQuantityOnHand).toBe(false);
+      expect(JSON.stringify(r)).not.toContain('lots');
+    }
+  });
+  it('a numeric QuantityOnHand is only counted, its value never kept', () => {
     const r = parseSageItem(item({ QuantityOnHand: 99 }), 0);
     expect(r.ok && r.value.hadQuantityOnHand).toBe(true);
     expect(JSON.stringify(r)).not.toContain('99');
