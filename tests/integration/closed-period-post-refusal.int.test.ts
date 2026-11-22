@@ -9,17 +9,28 @@
  *   3.  supplier invoice approve        approveSupplierInvoice (supplier-invoices-action)
  *   4.  supplier credit note 'post'     approveCreditNote (supplier-credit-notes PATCH action=post)
  *
- * Strictest reading of "writes nothing": every call but 1a runs in a transaction that is COMMITTED even though
- * the call threw (withAuth commits every answer below 500), and without the routes' withJournalDateRefusal
- * savepoint, so a refusal raised after the draft journal was written would leave that draft behind and fail here.
- * 1a is the one path whose route answers 500 for this refusal (a plain Error), so it runs as the route does:
- * rolled back. Its journal count is therefore guaranteed by the rollback, and what it pins is the refusal itself.
+ * What "writes nothing" means here: the document is unchanged (status, journal link) and NO journal or journal line
+ * exists afterwards. Other tables are not asserted.
+ *
+ * Strictest reading: every call but 1a runs in a transaction that is COMMITTED even though the call threw, and
+ * without the routes' withJournalDateRefusal savepoint, so a refusal raised after the draft journal was written would
+ * leave that draft behind and fail here. The routes are safer than this: all four wrap the call in
+ * withJournalDateRefusal -> withSavepoint, which rolls back to the savepoint on ANY error, so the pre-write guards
+ * (customerInvoiceGlPosting, assertCreditNoteCanPost) are a second layer, not the only one. Path 3 has no pre-write
+ * guard: its refusal comes after createJournalEntry, and nothing is left because approveSupplierInvoice runs inside its
+ * own savepoint ('approve_supplier_invoice').
+ * 1a runs as its route does, rolled back (a plain Error answers 500), so its journal count is guaranteed by the
+ * rollback and what it pins is the refusal itself. (Path 4's route also answered 500 until it mapped
+ * ClosedFiscalPeriodError to 400; see tests/unit/api/supplierCreditNotePostClosedPeriod.test.ts.)
+ *
+ * The fixture company's cleanup deletes closed and locked periods, which fiscal_periods_guard_delete allows only to a
+ * superuser: the integration gate's `postgres` is one; run this against a disposable database, never a dev tenant.
  *
  * getPeriodStatusForDate maps every non-'open' status to 'closed', so 'locked' and 'closing' are expected to be
  * refused exactly as 'closed' is; each is asserted, not assumed.
  *
- * NO PERIOD (no fiscal_periods row covers the date): createJournalEntry creates the fiscal year on demand
- * (fiscalPeriodAutoCreate, within 10 years back / 2 forward of today), so every path POSTS and the period exists
+ * NO PERIOD (no fiscal_periods or fiscal_years row covers the date): createJournalEntry creates the fiscal year on
+ * demand (fiscalPeriodAutoCreate, within 10 years back / 2 forward of today), so every path POSTS and the period exists
  * afterwards — see the 'no_period' cases below, which assert it.
  */
 import { describe, it, expect, afterEach } from 'vitest';
@@ -87,7 +98,7 @@ const PATHS: PostingPath[] = [
     before: 'draft', after: 'approved', commitOnError: true, refusal: BILL_REFUSAL,
     async setup(fx) {
       const id = await seedDraftBill(fx);
-      return { state: () => billState(fx, id), call: () => approveSupplierInvoice(fx.companyId, id, fx.userId) };
+      return { state: () => billState(fx, id), call: () => approveSupplierInvoice(fx.companyId, id, fx.userId, { allowLateInputClaim: true }) };
     },
   },
   {
@@ -138,7 +149,7 @@ describeIfDb('posting into a fiscal period that is not open', () => {
     }, 60000);
 
     // Observed, not designed here: no covering row is not a refusal. createJournalEntry creates the fiscal year
-    // (fiscalPeriodAutoCreate), so the post succeeds, into a period that did not exist and is now open.
+    // (fiscalPeriodAutoCreate), so the post succeeds, into a year and period that did not exist and are now open.
     it('no_period: posts, and the fiscal year is created on demand (open)', async () => {
       const out = await run(path, 'no_period');
       expect(out.refusal).toBeNull();

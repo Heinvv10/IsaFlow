@@ -18,6 +18,15 @@ export const DOC_DATE = '2026-03-15';
 
 export async function seedWorld(state: PeriodState, databaseUrl: string): Promise<Fixture> {
   const fx = await seedFixture('CPP', databaseUrl);
+  try {
+    return await buildWorld(fx, state);
+  } catch (e) {
+    await dropWorld(fx); // a half-built world must not leak its company or pool
+    throw e;
+  }
+}
+
+async function buildWorld(fx: Fixture, state: PeriodState): Promise<Fixture> {
   // The revenue account a customer invoice / note posts to (the shared fixture has none).
   await sql`
     INSERT INTO gl_accounts
@@ -26,7 +35,9 @@ export async function seedWorld(state: PeriodState, databaseUrl: string): Promis
     VALUES (${fx.companyId}::UUID, '4000', ${`Revenue ${fx.tag}`}, 'revenue', 'default_revenue',
             'credit', true, true)`;
   if (state === 'no_period') {
+    // The periods AND their year: the trigger that links a period to its year created one when seedFixture inserted the period.
     await sql`DELETE FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM fiscal_years WHERE company_id = ${fx.companyId}::UUID`;
   } else if (state !== 'open') {
     await sql`UPDATE fiscal_periods SET status = ${state} WHERE company_id = ${fx.companyId}::UUID`;
   }
@@ -45,8 +56,10 @@ export async function commitingTx<T>(fx: Fixture, fn: () => Promise<T>): Promise
   try {
     return await als.run({ client: c, userId: fx.userId, companyId: fx.companyId, claims: {} } as never, fn);
   } finally {
-    await c.query('COMMIT'); // on an aborted transaction Postgres rolls back and answers ROLLBACK
+    // On an aborted transaction Postgres rolls back and answers ROLLBACK: then a zero-count assertion would prove nothing.
+    const ended = await c.query('COMMIT');
     c.release();
+    if (ended.command !== 'COMMIT') throw new Error(`the request transaction did not commit (${ended.command}); a refusal from a failed statement cannot prove "writes nothing"`);
   }
 }
 
@@ -105,7 +118,7 @@ export async function seedDraftBill(fx: Fixture): Promise<string> {
 /** A draft credit note with no journal, as the 'post' / approve action finds it. */
 export function seedDraftNote(fx: Fixture, side: 'customer' | 'supplier'): Promise<string> {
   return seedPostedNote(fx, { side, number: 'CN', total: 100, posted: null, status: 'draft' }).then(async (id) => {
-    await sql`UPDATE credit_notes SET credit_date = ${DOC_DATE}::DATE WHERE id = ${id}::UUID`;
+    await sql`UPDATE credit_notes SET credit_date = ${DOC_DATE}::DATE WHERE id = ${id}::UUID AND company_id = ${fx.companyId}::UUID`;
     return id;
   });
 }
