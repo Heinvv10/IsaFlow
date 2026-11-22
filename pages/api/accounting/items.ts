@@ -135,7 +135,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     if (body.code !== undefined) {
       if (body.code === null) {
-        return apiResponse.validationError(res, { code: 'code: null is not allowed on update; omit code to keep it' });
+        return apiResponse.validationError(res, { code: 'null is not allowed on update; omit code to keep it' });
       }
       if (typeof body.code !== 'string') {
         return apiResponse.validationError(res, { code: 'Item code must be text' });

@@ -18,6 +18,7 @@ vi.mock('@/modules/accounting/services/items/itemService', () => ({
   updateItem: vi.fn(async (_c: string, i: unknown) => i),
 }));
 
+import { MAX_CODE_LENGTH } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { checkCodeDuplicate, createItem, updateItem } from '@/modules/accounting/services/items/itemService';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
@@ -60,16 +61,16 @@ describe('items PUT code', () => {
   it('refuses a code that is not text (null would be stored as "null")', async () => {
     const res = await put({ id: ID, code: null });
     expect(res.statusCode).toBe(422);
-    expect(JSON.stringify(res.body)).toContain('code: null is not allowed on update; omit code to keep it');
+    expect(JSON.stringify(res.body)).toContain('null is not allowed on update; omit code to keep it');
     expect(updateItem).not.toHaveBeenCalled();
   });
 
-  it('refuses a code over 50 characters (the column limit)', async () => {
-    const res = await put({ id: ID, code: 'X'.repeat(51) });
+  it('refuses a code over the code limit (the column limit)', async () => {
+    const res = await put({ id: ID, code: 'X'.repeat(MAX_CODE_LENGTH + 1) });
     expect(res.statusCode).toBe(422);
-    expect(JSON.stringify(res.body)).toContain('at most 50 characters');
+    expect(JSON.stringify(res.body)).toContain(`at most ${MAX_CODE_LENGTH} characters`);
     expect(updateItem).not.toHaveBeenCalled();
-    const ok = await put({ id: ID, code: ` ${'X'.repeat(50)} ` });
+    const ok = await put({ id: ID, code: ` ${'X'.repeat(MAX_CODE_LENGTH)} ` });
     expect(ok.statusCode).toBe(200);
   });
 
@@ -107,14 +108,14 @@ describe('items POST code', () => {
     expect(createItem).not.toHaveBeenCalled();
   });
 
-  it('refuses a code over 50 characters (VARCHAR(50) would 500), accepts 50 after trimming', async () => {
-    const res = await post({ code: 'X'.repeat(51) });
+  it('refuses a code over the code limit (VARCHAR(50) would 500), accepts 50 after trimming', async () => {
+    const res = await post({ code: 'X'.repeat(MAX_CODE_LENGTH + 1) });
     expect(res.statusCode).toBe(422);
-    expect(JSON.stringify(res.body)).toContain('Item code must be at most 50 characters');
+    expect(JSON.stringify(res.body)).toContain(`Item code must be at most ${MAX_CODE_LENGTH} characters`);
     expect(createItem).not.toHaveBeenCalled();
-    const ok = await post({ code: ` ${'X'.repeat(50)} ` });
+    const ok = await post({ code: ` ${'X'.repeat(MAX_CODE_LENGTH)} ` });
     expect(ok.statusCode).toBe(201);
-    expect(createItem).toHaveBeenCalledWith('c1', expect.objectContaining({ code: 'X'.repeat(50) }));
+    expect(createItem).toHaveBeenCalledWith('c1', expect.objectContaining({ code: 'X'.repeat(MAX_CODE_LENGTH) }));
   });
 
   it('a missing, null or blank code still means auto-generate', async () => {
