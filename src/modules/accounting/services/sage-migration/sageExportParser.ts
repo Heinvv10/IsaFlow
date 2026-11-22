@@ -115,20 +115,20 @@ export function parseSageExport(file: unknown): ParsedExport {
   const poRows = rowsOf(file.PurchaseOrders, 'PurchaseOrders');
   const refusals: RowRefusal[] = [];
   const knownIds = new Set<string>();
-  /** Every item row with a readable ID and Code, refused or not: what a PO line's suffix names. */
+  /** Every item row with a readable ID and Code, refused or not: what a PO line's suffix names. For a duplicated Sage id, the FIRST code seen. */
   const itemCodes: Record<string, string> = {};
   let itemsWithQuantityOnHand = 0;
 
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
     const r = parseSageItem(raw, i);
-    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] = r.value.code; if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
+    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] ??= r.value.code; if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
     else {
       refusals.push(r.refusal);
       if (r.refusal.sageId) {
         knownIds.add(r.refusal.sageId);
         const code = isRaw(raw) && typeof raw.Code === 'string' ? raw.Code.trim() : '';
-        if (code !== '' && code.length <= 50 && invalidTextProblem(code) === null) itemCodes[r.refusal.sageId] = code;
+        if (code !== '' && code.length <= 50 && invalidTextProblem(code) === null) itemCodes[r.refusal.sageId] ??= code;
       }
     }
   });

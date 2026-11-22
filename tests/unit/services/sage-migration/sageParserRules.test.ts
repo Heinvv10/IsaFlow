@@ -126,6 +126,18 @@ describe('the item codes a PO line may be suffixed with, and the items a line ma
     expect(p.itemCodes['50005']).toBe('FIB-0004');
     expect(p.itemCodes['50001']).toBe('FIB-0001');
   });
+  it('L13: two rows with one Sage id: the suffix names the FIRST seen code, whichever way the rows are ordered or refused', () => {
+    const f = fixture();
+    f.Items.$resources[1] = { ...f.Items.$resources[1], ID: 50001 }; // 50001 is now FIB-0001 (row 0) and FIB-0002 (row 1)
+    expect(parseSageExport(f).itemCodes['50001']).toBe('FIB-0001');
+    const g = fixture();
+    g.Items.$resources[0] = { ...g.Items.$resources[0], TaxTypeIdSales: 9 }; // the first is refused, the second is accepted
+    g.Items.$resources[1] = { ...g.Items.$resources[1], ID: 50001 };
+    expect(parseSageExport(g).itemCodes['50001']).toBe('FIB-0001');
+    const h = fixture();
+    h.Items.$resources[1] = { ...h.Items.$resources[1], ID: 50001, TaxTypeIdSales: 9 }; // the later is refused
+    expect(parseSageExport(h).itemCodes['50001']).toBe('FIB-0001');
+  });
   it('an item row whose Code is unreadable (NUL, empty, too long) has no code to name it by', () => {
     const f = fixture();
     f.Items.$resources[0] = { ...f.Items.$resources[0], Code: 'a\u0000b' };
