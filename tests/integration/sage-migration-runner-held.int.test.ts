@@ -1,7 +1,6 @@
 /**
  * Sage migration runner against what the company already holds, and rows deleted after a run, on a real database:
- *   - F1: an item the migration did not import is never updated (the breaker's tracked-item and inactive-row repros);
- *   - F3: a supplier carrying another Sage reference is not matched by name;
+ *   - F1 / F3: an item the migration did not import is never updated; a supplier with another Sage reference is not matched by name;
  *   - F5: rows deleted after a run: the replay says "replayed, rows absent"; --run-tag imports afresh;
  *   - a category name IsaFlow holds, a PO number another PO carries, a deleted item: refused per row, the dry run stays clean.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -202,6 +201,14 @@ describe('#1: an owned-ness the snapshot got wrong is caught by the dry run, bef
     expect((await pool.query(`SELECT description, item_type, inventory_tracked, selling_price_excl FROM items WHERE company_id = $1`, [s.companyId])).rows)
       .toEqual([{ description: 'HUMAN MADE', item_type: 'physical', inventory_tracked: true, selling_price_excl: '500.00' }]);
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 1, categories: 0, pos: 0, toolCalls: 0 });
+  });
+  it('L9: a category a human adds after the snapshot fails the dry run on that category, and the items phase is not started behind it', async () => {
+    const p2 = hooked(2, async () => { await pool.query(`INSERT INTO item_categories (company_id, name) VALUES ($1, 'Optics')`, [s.companyId]); });
+    const r = await run({}, exportFile(), p2);
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.dryRun.categories.batches.some((b) => b.status === 'failed' && /name_in_use/.test(b.error ?? ''))).toBe(true);
+    expect([r.dryRun.items.batches, r.dryRun.purchaseOrders.batches]).toEqual([[], []]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, pos: 0, categories: 1 });
   });
 
   it('with nothing landing in between, the same run is clean (the check is not a false alarm on a re-run of owned items)', async () => {
