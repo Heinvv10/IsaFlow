@@ -62,4 +62,11 @@ describe('the dimensions cannot be hidden while a line carries one', () => {
     fireEvent.click(toggle());
     expect(buPickers()).toHaveLength(0);
   });
+
+  it('a loaded BU cleared (never toggled): the pickers stay open to pick another', async () => {
+    render(<Grid initial={[{ ...LINE, buId: 'bu-1' }]} />);
+    await pickBu('No BU');
+    expect(buPickers()).toHaveLength(1);
+    expect(toggle().disabled).toBe(false);
+  });
 });
