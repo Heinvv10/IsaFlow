@@ -212,8 +212,6 @@
   "pages/accounting/capture/settings/mirror.tsx": 22,
   "pages/accounting/capture/settings.tsx": 11,
   "pages/accounting/capture/inbox.tsx": 10,
-  "pages/accounting/supplier-purchase-orders/index.tsx": 9,
-  "pages/accounting/supplier-purchase-orders/[poId].tsx": 1,
   "pages/accounting/month-end-workbench.tsx": 5,
   "pages/accounting/audit-packs/index.tsx": 4,
   "pages/accounting/assets/index.tsx": 1,

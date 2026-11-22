@@ -1,0 +1,116 @@
+/**
+ * Codex gate on PR #1703: cancelling a bill can reopen a purchase order it no longer leaves fully billed; the service returns the
+ * reopened POs and a warning each. The single-bill detail page and the bulk bar must SHOW them (rendered and clicked, not grepped).
+ */
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
+
+const route = vi.hoisted(() => ({ query: {} as Record<string, string> }));
+const company = vi.hoisted(() => ({ companyRole: 'owner', activeCompany: { id: 'co-1', name: 'Co' } }));
+vi.mock('next/router', () => ({
+  useRouter: () => ({ isReady: true, pathname: '/accounting', query: route.query, push: vi.fn(), events: { on: () => {}, off: () => {} } }),
+}));
+vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => company }));
+vi.mock('@/components/accounting/ap/ThreeWayMatchPanel', () => ({ ThreeWayMatchPanel: () => null }));
+vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null, default: () => null }));
+vi.mock('@/utils/toast', () => ({ notify: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
+
+import { apiFetch } from '@/lib/apiFetch';
+import { notify } from '@/utils/toast';
+import SupplierInvoiceDetailPage from '../../../pages/accounting/supplier-invoices/[invoiceId]';
+import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
+
+const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+function serve(routes: Array<[string, unknown]>) {
+  vi.mocked(apiFetch).mockImplementation(async (url) => ok(routes.find(([part]) => String(url).includes(part))?.[1] ?? {}));
+}
+const REOPENED = 'Purchase order PO-9 reopened to approved: it is no longer fully billed, so it commits spend again.';
+const OVER = 'Reopened. Purchase order PO-9 commits spend again and is now over budget on BB-6100 Opex · 2026-06.';
+
+beforeEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(notify.warning).mockReset(); route.query = {}; });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe('supplier invoice detail: Cancel Invoice', () => {
+  const invoice = {
+    id: 'inv-1', invoiceNumber: 'INV-001', supplierName: 'Acme Supplies', status: 'approved', invoiceDate: '2026-03-01',
+    dueDate: '2026-03-31', paymentTerms: '30 days', subtotal: 1000, taxAmount: 150, taxRate: 15, totalAmount: 1150,
+    balance: 1150, amountPaid: 0, notes: '', items: [], approval: { state: 'not_required', enforced: false, requiredRole: null, ruleName: null, requestId: null },
+  };
+  const cancel = async (answer: unknown) => {
+    route.query = { invoiceId: 'inv-1' };
+    serve([['supplier-invoices-action', answer], ['supplier-invoices-detail', invoice]]);
+    render(<SupplierInvoiceDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'More invoice actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Cancel Invoice/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel Invoice' }));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('supplier-invoices-action')).length).toBe(1));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('supplier-invoices-detail')).length).toBe(2));
+  };
+  it('a cancel that reopened a PO says which, and its budget warning', async () => {
+    await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'approved' }], budgetWarnings: [REOPENED] });
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to approved', 'Commits again: PO-9', { live: true }));
+  });
+  it('a cancel that reopened nothing says nothing', async () => {
+    await cancel({ ...invoice, status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [] });
+    expect(notify.warning).not.toHaveBeenCalled();
+  });
+});
+
+describe('the cancel toast (title carries the facts, the line fits)', () => {
+  it('a PO closed by billing meanwhile that could not be re-checked is said', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    expect(cancelReopenToast([], [{ poId: 'p2', poNumber: 'PO-2' }]))
+      .toEqual({ title: 'Purchase order PO-2 could not be re-checked', line: 'If still closed: under-billed, still commits' });
+    expect(cancelReopenToast([], [])).toBeNull();
+  });
+  // Codex gate review M4: two bills of one bulk cancel that reopen the same PO name it once (by its id), and a long list is capped.
+  it('names a PO two bills share once; a long list ends "and k more"', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const p9 = { poId: 'p9', poNumber: 'PO-9', reopenedTo: 'approved' };
+    expect(cancelReopenToast([p9, { ...p9, poId: 'P9' }], [{ poId: 'p9', poNumber: 'PO-9' }]))
+      .toEqual({ title: 'Purchase order PO-9 reopened to approved', line: 'Commits again: PO-9' });
+    const many = cancelReopenToast(Array.from({ length: 30 }, (_, i) => ({ poId: `p${i}`, poNumber: `PO-1000${String(i).padStart(2, '0')}`, reopenedTo: 'approved' })), []);
+    expect(many!.title).toMatch(/^Purchase orders reopened: PO-100000 to approved, .* and \d+ more$/);
+    expect(many!.title.length).toBeLessThanOrEqual(90);
+    expect(many!.line.length).toBeLessThanOrEqual(45);
+  });
+  // Review r14 M1: the WHOLE title fits, reopened + unchecked + joiner together, and one long PO number is cut.
+  it('a mixed 30 reopened + 30 unchecked title fits whole; a single long label is cut', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const po = (k: string, i: number) => ({ poId: `${k}${i}`, poNumber: `PO-${k}-${String(i).padStart(5, '0')}`, reopenedTo: 'partially_received' });
+    const mixed = cancelReopenToast(Array.from({ length: 30 }, (_, i) => po('r', i)), Array.from({ length: 30 }, (_, i) => po('u', i)))!;
+    expect(mixed.title.length).toBeLessThanOrEqual(90);
+    expect(mixed.title).toMatch(/reopened/);
+    expect(mixed.title).toMatch(/30 purchase orders could not be re-checked|and \d+ more could not be re-checked/);
+    const long = 'PO-' + 'X'.repeat(120);
+    const one = cancelReopenToast([{ poId: 'p1', poNumber: long, reopenedTo: 'partially_received' }], [{ poId: 'p2', poNumber: long + 'Y' }])!;
+    expect(one.title.length).toBeLessThanOrEqual(90);
+    expect(one.title).not.toContain(long);
+    expect(cancelReopenToast([{ poId: 'p1', poNumber: long, reopenedTo: 'approved' }], [])!.title)
+      .toBe(`Purchase order ${long.slice(0, 23)}\u2026 reopened to approved`);
+  });
+  // Codex gate review L11: the line reads the server's flags, never the warning prose.
+  it('the line follows the flags: over budget, then outside the slices', async () => {
+    const { cancelReopenToast } = await import('@/components/accounting/supplier-invoices/cancelReopenNotice');
+    const po = (n: string, f: Record<string, boolean>) => ({ poId: n, poNumber: n, reopenedTo: 'approved', ...f });
+    expect(cancelReopenToast([po('PO-1', { outsideSlices: true }), po('PO-2', { overBudget: true })], [])!.line).toBe('Now over budget: PO-2');
+    expect(cancelReopenToast([po('PO-1', { outsideSlices: true })], [])!.line).toBe('Outside the budget: PO-1');
+  });
+});
+
+describe('supplier invoice bulk bar: Cancel', () => {
+  it('a bulk cancel that reopened a PO says it reopened, not that a bill was approved over budget', async () => {
+    vi.stubGlobal('confirm', () => true);
+    serve([['supplier-invoices-bulk-action', { total: 1, succeeded: 1, failed: 0, results: [{ invoiceId: 'b1', invoiceNumber: 'INV-1', ok: true,
+      budgetWarnings: [REOPENED, OVER], reopenedPurchaseOrders: [{ poId: 'p9', poNumber: 'PO-9', reopenedTo: 'partially_received', overBudget: true }] }] }]]);
+    const onComplete = vi.fn(async () => {});
+    render(<BulkActionBar selected={new Set(['b1'])} busy={null} onBusyChange={() => {}} onError={() => {}} onComplete={onComplete} onClear={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('Purchase order PO-9 reopened to partially received', 'Now over budget: PO-9', { live: true }));
+  });
+});

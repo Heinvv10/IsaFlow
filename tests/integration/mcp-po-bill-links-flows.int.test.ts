@@ -6,7 +6,7 @@
  *   - a bill cancelled after the close does NOT reopen the PO; get_purchase_order says closed_under_billed;
  *   - R2: an unlink that makes the PO commit again never blocks, even under the block policy, and returns budget_warning;
  *   - unlink across companies (by po_id and by po_number) and of an unknown PO changes nothing;
- *   - line links on bills that really carry journals write no journal; line links reduce committed, header-only ones do not.
+ *   - line links on bills that really carry journals write no journal; line links and header-only links both reduce committed (PR #1703), each bill once.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -88,47 +88,40 @@ describe('unlink', () => {
     expect((await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).map((l) => l.closed_po_from_status)).toEqual([null]);
   });
 
-  it('the closing record moves to another link while the PO stays fully billed, so a later unlink still reopens it', async () => {
+  // PR #1703 breaker R4-1: the closing record is on the PO itself (closed_by_billing + closed_from_status), so no link's removal
+  // can lose it: while the PO stays fully billed it stays closed with its record, and the unlink that leaves it under-billed reopens it.
+  it('the closing record stays on the PO while it is fully billed, so a later unlink still reopens it', async () => {
     const po = await seedPo(pool, f, { lines: [100], status: 'received' });
     const b1 = await seedBill(pool, f, { lines: [100] });
     const b2 = await seedBill(pool, f, { lines: [100] });
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b1.id }] });
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b2.id }], close_when_fully_billed: true });
-    expect((await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).map((l) => l.closed_po_from_status)).toEqual([null, 'received']);
+    const rec = async () => (await pool.query('SELECT status, closed_from_status, closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0];
+    expect(await rec()).toEqual({ status: 'closed', closed_from_status: 'received', closed_by_billing: true });
     const first = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b2.id, reason: 'dup' });
     expect(first.body).toMatchObject({ po_status: 'closed', reopened_to: null, fully_billed: true });
-    expect((await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).map((l) => [l.bill, l.closed_po_from_status])).toEqual([[b1.id, 'received']]);
+    expect(await rec()).toEqual({ status: 'closed', closed_from_status: 'received', closed_by_billing: true });
     const second = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'gone' });
     expect(second.body).toMatchObject({ po_status: 'received', reopened_to: 'received' });
+    expect(await rec()).toEqual({ status: 'received', closed_from_status: null, closed_by_billing: false });
   });
 
-  it('the closing record moves only to a link on a BILLED bill, never a draft\'s app link; and a draft\'s remade link carries a record it held', async () => {
+  it('a draft\'s app link never counts: a draft edit leaves the PO\'s record alone, and unlinking the draft never reopens it', async () => {
     const po = await seedPo(pool, f, { lines: [100], status: 'received' });
     const draft = await seedBill(pool, f, { lines: [40], status: 'draft' });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [draft.id, po.po]);
-    // The draft's app link exists FIRST (oldest), so a naive "any other link" heir would pick it.
     await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 40, 'app')", [f.co, po.po, draft.id]);
     const b1 = await seedBill(pool, f, { lines: [100] });
-    const b2 = await seedBill(pool, f, { lines: [100] });
-    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b1.id }] });
-    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b2.id }], close_when_fully_billed: true });
-    const recordOn = async () => (await linkRows(pool, f, `l.purchase_order_id = '${po.po}' AND l.closed_po_from_status IS NOT NULL`)).map((l) => l.bill);
-    expect(await recordOn()).toEqual([b2.id]);
-    const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b2.id, reason: 'dup' });
-    expect(r.body).toMatchObject({ po_status: 'closed', fully_billed: true });
-    expect(await recordOn()).toEqual([b1.id]);
-    // The draft is edited: its link is made again (the subtotal moved); the record on b1's link is untouched and is not on the draft's.
+    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b1.id }], close_when_fully_billed: true });
     await pool.query('UPDATE supplier_invoices SET subtotal = 30 WHERE id = $1', [draft.id]);
     const req = await openRequest(pool, f, f.owner);
     try { await req.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await req.commit(); } catch (e) { await req.rollback(); throw e; }
     expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '30.00', closed_po_from_status: null });
-    expect(await recordOn()).toEqual([b1.id]);
-    // A record a draft's link did hold (set here as old data could carry it) survives the remake.
-    await pool.query("UPDATE purchase_order_bill_links SET closed_po_from_status = 'approved' WHERE supplier_invoice_id = $1", [draft.id]);
-    await pool.query('UPDATE supplier_invoices SET subtotal = 20 WHERE id = $1', [draft.id]);
-    const again = await openRequest(pool, f, f.owner);
-    try { await again.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await again.commit(); } catch (e) { await again.rollback(); throw e; }
-    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '20.00', closed_po_from_status: 'approved' });
+    expect(await poStatus(pool, po.po)).toBe('closed');
+    const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: draft.id, reason: 'not this one' });
+    expect(r.body).toMatchObject({ po_status: 'closed', reopened_to: null, fully_billed: true });
+    const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'gone' });
+    expect(u.body).toMatchObject({ po_status: 'received', reopened_to: 'received' });
   });
 
   it('a PO closed by hand, or cancelled meanwhile, is not touched', async () => {
@@ -141,12 +134,12 @@ describe('unlink', () => {
     const p2 = await seedPo(pool, f, { lines: [100], status: 'approved' });
     const b2 = await seedBill(pool, f, { lines: [100] });
     await callTool(pool, f, link, { links: [{ po_id: p2.po, bill_id: b2.id }], close_when_fully_billed: true });
-    await pool.query("UPDATE purchase_orders SET status = 'cancelled' WHERE id = $1", [p2.po]);
+    await pool.query("UPDATE purchase_orders SET status = 'cancelled', closed_from_status = NULL WHERE id = $1", [p2.po]);
     await callTool(pool, f, unlink, { po_id: p2.po, bill_id: b2.id, reason: 'cancelled meanwhile' });
     expect(await poStatus(pool, p2.po)).toBe('cancelled');
   });
 
-  it('a bill cancelled after the close does not reopen the PO; get_purchase_order says closed_under_billed', async () => {
+  it('a bill cancelled OUTSIDE the app after the close leaves the PO closed; get_purchase_order says closed_under_billed (the app cancel reopens it: budgets-committed-breaker-r4)', async () => {
     const po = await seedPo(pool, f, { lines: [100], status: 'approved' });
     const bill = await seedBill(pool, f, { lines: [100] });
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }], close_when_fully_billed: true });
@@ -258,7 +251,8 @@ describe('unlink', () => {
 });
 
 describe('budget committed', () => {
-  it('line links reduce a PO line\'s committed amount; a header-only link does not', async () => {
+  // PR #1703: a header-only link nets committed too (its amount, pro rata over the PO's lines); a line-linked bill nets once.
+  it('line links and header-only links both reduce committed, each bill once', async () => {
     const po = await seedPo(pool, f, { lines: [400, 600], status: 'approved' });
     const bill = await seedBill(pool, f, { lines: [400] });
     const committed = async () => (await asOwner(pool, f, () => readCommitments(f.co, [f.acc.opex], '2026-06-01', '2026-06-30', { excludePoItemIds: [] })))
@@ -267,7 +261,10 @@ describe('budget committed', () => {
     expect(await committed()).toBe(1000);
     const headerOnly = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     expect(headerOnly.isError, headerOnly.text).toBe(false);
+    expect(await committed()).toBe(600);
+    await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'header gone' });
     expect(await committed()).toBe(1000);
+    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] });
     await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo with lines' });
     const withLines = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });
     expect(withLines.isError, withLines.text).toBe(false);

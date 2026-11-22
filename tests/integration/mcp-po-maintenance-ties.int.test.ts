@@ -174,7 +174,9 @@ describe('every tie kind: the refusal names unlink, and unlink frees the PO', ()
     expect((await refs(bill.id, po2.po)).header).toBe(true);
   });
 
-  it('clearing a line or header reference never reopens a closed PO (only removing a link can)', async () => {
+  // PR #1703 breaker R3-3: a line or header reference counts in billed now (budgets/billAttribution), so clearing the one that kept the
+  // PO fully billed reopens it to the status its link call closed it from, as removing a link does.
+  it('clearing a line reference that leaves a link-closed PO under-billed reopens it', async () => {
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     const linked = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: linked.id }], close_when_fully_billed: true })).isError).toBe(false);
@@ -183,8 +185,8 @@ describe('every tie kind: the refusal names unlink, and unlink frees the PO', ()
     await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [po.items[0], stray.lines[0]]);
     const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: stray.id, reason: 'x' });
     expect(r.isError, r.text).toBe(false);
-    expect(r.body).toMatchObject({ reopened_to: null });
-    expect((await poRow(pool, po.po)).status).toBe('closed');
+    expect(r.body).toMatchObject({ reopened_to: 'approved' });
+    expect((await poRow(pool, po.po)).status).toBe('approved');
   });
 });
 

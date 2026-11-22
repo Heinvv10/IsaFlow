@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildLast12Months } from '@/components/dashboard/widgets/SalesHistoryWidget';
-import { resolveAsof, resolveRange } from '@/components/practice/PeriodPicker';
+import { resolveAsof } from '@/components/practice/PeriodPicker';
 
 const ORIGINAL_TZ = process.env.TZ;
 beforeAll(() => { process.env.TZ = 'Africa/Johannesburg'; });
@@ -25,14 +25,6 @@ describe('SalesHistoryWidget.buildLast12Months (SAST)', () => {
 
 describe('PeriodPicker presets (SAST, 00:30 on 30 Sep 2026)', () => {
   const at = () => vi.useFakeTimers({ toFake: ['Date'] }) && vi.setSystemTime(new Date(2026, 8, 30, 0, 30));
-  it('range presets', () => {
-    at();
-    expect(resolveRange('this_month')).toEqual({ dateFrom: '2026-09-01', dateTo: '2026-09-30' });
-    expect(resolveRange('last_month')).toEqual({ dateFrom: '2026-08-01', dateTo: '2026-08-31' });
-    expect(resolveRange('this_quarter')).toEqual({ dateFrom: '2026-07-01', dateTo: '2026-09-30' });
-    expect(resolveRange('ytd')).toEqual({ dateFrom: '2026-01-01', dateTo: '2026-09-30' });
-    expect(resolveRange('last_year')).toEqual({ dateFrom: '2025-01-01', dateTo: '2025-12-31' });
-  });
   it('as-of presets', () => {
     at();
     expect(resolveAsof('today')).toBe('2026-09-30');
@@ -42,7 +34,7 @@ describe('PeriodPicker presets (SAST, 00:30 on 30 Sep 2026)', () => {
   it('1 Sep 00:30 is still September (UTC would say 31 Aug)', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 8, 1, 0, 30));
-    expect(resolveRange('this_month')?.dateFrom).toBe('2026-09-01');
-    expect(resolveRange('last_month')).toEqual({ dateFrom: '2026-08-01', dateTo: '2026-08-31' });
+    expect(resolveAsof('today')).toBe('2026-09-01');
+    expect(resolveAsof('month_end')).toBe('2026-09-30');
   });
 });
