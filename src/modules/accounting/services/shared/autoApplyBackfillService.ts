@@ -38,6 +38,10 @@
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { SimulationDocument } from './autoApplySimulation';
+import { readCapacities, unreadCapacities, type CapacityCache } from './creditNoteTypedPlan';
+import { typedCreditCapacity } from '../ar/creditNoteTypedApplication';
+import { detachedProfiles } from '../ar/creditNoteDetachedRead';
+import { contendedReason, lockBackfillCreditNoteKeys } from './autoApplyBackfillLocks';
 import {
   fetchDocumentFacts,
   fetchOpenDocuments,
@@ -145,9 +149,26 @@ async function planDryRun(req: BackfillRequest, sources: BackfillSource[]): Prom
   const documentDates = new Map(
     [...facts].map(([id, f]) => [id, f.invoiceDate]),
   );
-  return buildBackfillPlan({
-    subledger: req.subledger, sources, openByEntity, oldestFirstByEntity, documentDates,
-  });
+  // The AR credit notes are capped at each typed invoice's credit capacity, as the live walk caps them
+  // (shared/creditNoteTypedPlan): plan, read the capacity of each typed candidate the plan reaches, plan again. Each
+  // consumes it by what its applications count there (rule A, ar/creditNoteDetached), as the live read counts them.
+  if (req.subledger === 'ar') {
+    const profiles = await detachedProfiles(req.companyId,
+      sources.filter((s) => s.kind === 'credit_note' && !s.skippedReason).map((s) => s.paymentId));
+    sources = sources.map((s) => (profiles.has(s.paymentId) ? { ...s, detached: profiles.get(s.paymentId) } : s));
+  }
+  const capacity: CapacityCache = new Map();
+  for (;;) {
+    const plan = buildBackfillPlan({ subledger: req.subledger, sources, openByEntity, oldestFirstByEntity, documentDates, capacity });
+    if (req.subledger !== 'ar') return plan;
+    const unread = new Set(plan.applications.flatMap((a) => {
+      const source = sources.find((s) => s.paymentId === a.payment_id && s.kind === a.kind);
+      return a.kind !== 'credit_note' ? [] : unreadCapacities(
+        a.lines.map((l) => ({ invoiceId: l.document_id })), capacity, { type: 'customer', customerInvoiceId: source?.linkedDocumentId ?? null });
+    }));
+    if (unread.size === 0) return plan;
+    await readCapacities(async (id) => (await typedCreditCapacity(req.companyId, id))?.cap ?? null, [...unread], capacity);
+  }
 }
 
 async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise<BackfillPlan> {
@@ -158,6 +179,11 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     idempotencyKey: req.idempotencyKey ?? null,
     oldestFirstFor: makeStrategyReader(req.companyId, req.subledger),
   };
+  // Before the first source, so no source's invoice rows are held when a key is taken (round 9: a receipt source's rows,
+  // then a credit-note source's keys, deadlocked against an approval holding a key and waiting for a row). A note
+  // another request holds is skipped and reported alone (round 11); the rest of the run goes on.
+  const locks = req.subledger === 'ar' ? await lockBackfillCreditNoteKeys(req.companyId, sources) : null;
+  ctx.heldKeys = locks?.keys;
 
   const decided: { source: BackfillSource; lines: PlannedLine[] }[] = [];
   const failed: BackfillPlan['failed'] = [];
@@ -168,6 +194,10 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     // a rule applied in one mode and not the other is a preview that lies.
     if (source.skippedReason) {
       decided.push({ source, lines: [] });
+      continue;
+    }
+    if (locks?.contended.has(source.paymentId.toLowerCase())) {
+      failed.push({ payment_id: source.paymentId, payment_number: source.paymentNumber, error: contendedReason(source.paymentNumber) });
       continue;
     }
     try {

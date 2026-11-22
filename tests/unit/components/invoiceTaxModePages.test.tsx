@@ -1,7 +1,8 @@
 /**
- * Master plan wave 3, PR D: the "Amounts are" choice on the new and edit pages reaches the request body as a rate and
- * ex-VAT prices, a customer's VAT type pre-selects it unless the user chose, and the edit page keeps a stored invoice
- * as it is until the user changes it. Pricing itself: invoiceTaxMode.test.ts.
+ * Master plan wave 3, PR D: the "Amounts are" choice on the new and edit pages reaches the request body (since the
+ * per-line VAT writer PR: as `amountsAre` with the prices as typed, and on the edit page a VAT type per line instead of a
+ * rate), a customer's VAT type pre-selects it unless the user chose, and the edit page keeps a stored invoice as it is
+ * until the user changes it. Pricing itself: invoiceTaxMode.test.ts, invoiceFormVat.test.ts.
  */
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -80,7 +81,7 @@ describe('VAT mode', () => {
     expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('15');
   });
 
-  it('inclusive 115 posts unitPrice 100', async () => {
+  it('inclusive 115 posts unitPrice 115 with its mode (the server backs the VAT out; it was sent as 100)', async () => {
     serve();
     await open();
     await pickClient('c-bare');
@@ -88,17 +89,18 @@ describe('VAT mode', () => {
     fillLine();
     await submit();
     const body = sentBody('POST');
-    expect(body.items[0]!.unitPrice).toBe(100);
+    expect(body.items[0]!.unitPrice).toBe(115);
+    expect(body.amountsAre).toBe('inclusive');
     expect(body.taxRate).toBe(15);
   });
 
-  it('the summary says when the stored total differs from the typed one', async () => {
+  it('an inclusive total is exactly the typed one now: 3 x R10 incl. totals R30.00 and no "these prices come to" note', async () => {
     serve();
     await open();
     await pickMode(/Including VAT/);
     fillLine(0, '10', '3');
-    const note = await screen.findByText(/these prices come to/i);
-    expect(note.textContent?.replace(/\s/g, ' ')).toMatch(/^These prices come to R ?30\.00 incl\. VAT; the invoice total is R ?30\.02\.$/);
+    await waitFor(() => expect(within(screen.getByText('Invoice Summary').closest('.rounded-2xl') as HTMLElement).getAllByText(/30\.00/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/these prices come to/i)).toBeNull();
   });
 
   it('no message when the two agree', async () => {
@@ -153,7 +155,10 @@ describe('edit page', () => {
     await waitFor(() => expect(push).toHaveBeenCalled());
     const body = sentBody('PUT');
     expect(body.items[0]!.unitPrice).toBe(115);
-    expect(body.taxRate).toBe(15);
+    // Per-line VAT: the line goes with its type (the form's 15% is the standard rate), the header with no rate.
+    expect(body.items[0]!.vatType).toBe('standard');
+    expect(body.amountsAre).toBe('exclusive');
+    expect(body.taxRate).toBeUndefined();
   });
 
   it('reads the loaded customer only to warn: a stored invoice is not refilled', async () => {
@@ -165,15 +170,15 @@ describe('edit page', () => {
     expect(discountsOnScreen()).toEqual([]);
   });
 
-  it('No VAT saves rate 0 on the header and the lines, at the stored price', async () => {
+  it('No VAT saves every line zero_rated (no rate sent), at the stored price', async () => {
     serve();
     await load();
     await pickMode(/No VAT/);
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await waitFor(() => expect(push).toHaveBeenCalled());
     const body = sentBody('PUT');
-    expect(body.taxRate).toBe(0);
-    expect(body.items[0]!.taxRate).toBe(0);
+    expect(body.taxRate).toBeUndefined();
+    expect(body.items[0]!.vatType).toBe('zero_rated');
     expect(body.items[0]!.unitPrice).toBe(115);
   });
 

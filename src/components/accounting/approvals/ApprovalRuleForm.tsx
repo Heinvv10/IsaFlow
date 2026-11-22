@@ -19,6 +19,8 @@ import {
 } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
 import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface Props {
   actorRole: string;
@@ -61,7 +63,9 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
     return { id: rule.id, ...changes };
   }
 
+  const guard = useAmountGuard();
   const save = async () => {
+    if (guard.blocked()) return;
     const body = buildBody();
     if (typeof body === 'string') { setError(body); return; }
     if (rule && Object.keys(body).length === 1) { onClose(); return; } // nothing changed
@@ -105,10 +109,10 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
               {operators.map((op) => <option key={op} value={op}>{OPERATOR_LABELS[op] ?? op}</option>)}
             </select>
           </div>
-          <div>
+          <div ref={guard.ref}>
             <label htmlFor="rule-amount" className={LABEL}>Amount (R)</label>
-            <input id="rule-amount" type="number" min={0} step="0.01" value={operator === 'any' ? '0' : amount}
-              disabled={operator === 'any'} onChange={(e) => setAmount(e.target.value)} className={FIELD} />
+            <AmountInput min={0} id="rule-amount" value={operator === 'any' ? '0' : amount}
+              disabled={operator === 'any'} onValueChange={(_n, t) => setAmount(t)} className={FIELD} />
           </div>
         </div>
         <div>

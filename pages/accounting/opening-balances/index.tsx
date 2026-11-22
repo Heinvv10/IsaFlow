@@ -10,6 +10,8 @@ import { BookMarked, Loader2, AlertCircle, Save } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface AccountBalance {
   id: string;
@@ -54,7 +56,9 @@ export default function OpeningBalancesPage() {
   const totalCredits = accounts.reduce((sum, a) => sum + (a.opening_credit || 0), 0);
   const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
+  const guard = useAmountGuard();
   const handleSave = async () => {
+    if (guard.blocked()) return;
     if (!isBalanced) {
       setMessage({ type: 'error', text: 'Debits must equal credits before saving' });
       return;
@@ -84,7 +88,7 @@ export default function OpeningBalancesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
@@ -167,23 +171,17 @@ export default function OpeningBalancesPage() {
                       <td className="py-2 px-4 text-[var(--ff-text-primary)]">{acct.account_name}</td>
                       <td className="py-2 px-4 text-[var(--ff-text-secondary)] capitalize">{acct.account_type}</td>
                       <td className="py-2 px-4 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <AmountInput min={0}
                           value={acct.opening_debit || ''}
-                          onChange={(e) => updateBalance(acct.id, 'opening_debit', e.target.value)}
+                          onValueChange={(_n, t) => updateBalance(acct.id, 'opening_debit', t)}
                           className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                           placeholder="0.00"
                         />
                       </td>
                       <td className="py-2 px-4 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <AmountInput min={0}
                           value={acct.opening_credit || ''}
-                          onChange={(e) => updateBalance(acct.id, 'opening_credit', e.target.value)}
+                          onValueChange={(_n, t) => updateBalance(acct.id, 'opening_credit', t)}
                           className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                           placeholder="0.00"
                         />

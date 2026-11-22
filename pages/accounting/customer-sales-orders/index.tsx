@@ -12,6 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { numberLines } from '@/lib/lineNumbers';
 import { useDateGate } from '@/hooks/useDateGate';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface SalesOrder {
   id: string; orderNumber: string; customerName: string;
@@ -21,6 +22,8 @@ interface SalesOrder {
 interface CustomerOption { id: string; name: string }
 
 const fmt = (n: number) => formatMoney(n);
+/** A line's total the way the server stores it (salesOrderService: round to the cent), so the modal never shows a hidden fraction. */
+const lineTotal = (l: { quantity: number; unit_price: number }) => Math.round(l.quantity * l.unit_price * 100) / 100;
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 
@@ -43,7 +46,7 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState('');
   const dates = useDateGate();
-  const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
+  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
 
   const handleCreate = async () => {
     if (dates.blocked || lines.every(l => !l.description)) return;
@@ -102,9 +105,9 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
                   {lines.map((l, i) => (
                     <tr key={i} className="group">
                       <td className="px-2 py-2"><input value={l.description} onChange={e => { const n = [...lines]; n[i] = { ...l, description: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.quantity} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, quantity: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.unit_price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, unit_price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.quantity * l.unit_price)}</td>
+                      <td className="px-2 py-2"><AmountInput aria-label={`Quantity, line ${i + 1}`} value={l.quantity} min={0.0001} decimals={4} onValueChange={v => { const n = [...lines]; n[i] = { ...l, quantity: v }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="px-2 py-2"><AmountInput aria-label={`Unit price, line ${i + 1}`} value={l.unit_price} min={0} onValueChange={v => { const n = [...lines]; n[i] = { ...l, unit_price: v }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(lineTotal(l))}</td>
                       <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} aria-label={`Remove line ${i + 1}`} className="p-1 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
