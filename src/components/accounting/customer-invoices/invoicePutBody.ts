@@ -14,7 +14,7 @@
 import { invoiceDateProblem, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import { pricesToNothing, pricesToNothingMessage, type TaxMode } from './taxMode';
-import { amountsAreFor, lineVatTypes, vatTypeProblem } from './formVat';
+import { amountsAreFor, lineVatTypes, vatRoundsToNothingProblem, vatTypeProblem } from './formVat';
 import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 /** CC1 is re-sent only while the line's CC2 is the one it loaded with; otherwise null, so derivation sets it. */
@@ -129,7 +129,8 @@ export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refuse
   // A line with no VAT type yet: the server refuses it (the rate comes from the type), so Save holds and says why.
   if (taxMode === 'none') return null;
   const sent = savedLines(lines);
-  return vatTypeProblem(sent, lineVatTypes(sent, customerVat));
+  const types = lineVatTypes(sent, customerVat);
+  return vatTypeProblem(sent, types) ?? vatRoundsToNothingProblem(sent, types, taxMode, form.invoiceDate);
 }
 
 /** Why autosave holds this draft back, or null: Save's refusals (an exchange rate the server would refuse among them: a

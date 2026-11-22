@@ -11,7 +11,7 @@ import { droppedLineProblem } from '@/components/accounting/customer-invoices/in
 import { invoiceDateProblem, type InvoiceHeaderForm, type Refused } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import type { InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { pricesToNothing, pricesToNothingMessage, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { amountsAreFor, vatTypeProblem, type LineVatType, type LineVatTypeOrNone } from '@/components/accounting/customer-invoices/formVat';
+import { amountsAreFor, vatRoundsToNothingProblem, vatTypeProblem, type LineVatType, type LineVatTypeOrNone } from '@/components/accounting/customer-invoices/formVat';
 import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 type SentLine = Omit<InvoiceLine, 'discountFromDefault' | 'accountFromDefault' | 'vatType' | 'vatFallback'>;
@@ -34,7 +34,8 @@ export function createBody(form: InvoiceHeaderForm, lines: readonly InvoiceLine[
   const strip = ({ discountFromDefault: _d, accountFromDefault: _a, vatType: _t, vatFallback: _f, ...l }: InvoiceLine): SentLine => l;
   if (taxMode === 'none') return { body: { ...form, taxRate: 0, amountsAre: 'exclusive', items: kept.map(({ l }) => strip(l)) } };
   // A line with no type yet (a scanned 14% today): the server would refuse it, so Create holds and says why.
-  const untyped = vatTypeProblem(kept.map(({ l }) => l), kept.map(({ type }) => type));
+  const untyped = vatTypeProblem(kept.map(({ l }) => l), kept.map(({ type }) => type))
+    ?? vatRoundsToNothingProblem(kept.map(({ l }) => l), kept.map(({ type }) => type), taxMode, form.invoiceDate); // approve would refuse it
   if (untyped) return { problem: untyped };
   return { body: { ...form, amountsAre: amountsAreFor(taxMode), items: kept.map(({ l, type }) => ({ ...strip(l), vatType: type! })) } };
 }

@@ -115,6 +115,22 @@ export function formVatByType(lines: readonly FormVatLine[], types: readonly Lin
   });
 }
 
+const cents = (n: number): number => Math.round(n * 100);
+
+/**
+ * Why a save holds: lines of a rated type (standard) whose VAT, on their net together, rounds to nothing (1 x R0.03).
+ * Approve would refuse it (they reach no VAT201 field), so create and the draft edit refuse it first
+ * (invoiceLineVatDefaults.assertPricedPostable, the poster's invoiceVatLegs.typedLinesProblem); the form says so before
+ * sending, so Create and Save get no 400 and autosave never sends a body the server refuses.
+ */
+export function vatRoundsToNothingProblem(lines: readonly FormVatLine[], types: readonly LineVatTypeOrNone[], mode: TaxMode, date: string): string | null {
+  const nothing = formVatByType(lines, types, mode, date)
+    .find((t) => t.type !== null && lineVatRate(t.type, date) > 0 && cents(t.net) !== 0 && cents(t.vat) === 0);
+  if (!nothing) return null;
+  return `The ${nothing.type === 'standard' ? 'standard-rated' : nothing.type} lines come to ${(cents(nothing.net) / 100).toFixed(2)} but the VAT on them `
+    + 'rounds to nothing: raise them as one line large enough to carry VAT, or remove them';
+}
+
 /** What to tell the user when the customer's VAT type conflicts with the lines' types. Their choice stands. */
 export function lineVatWarning(customerVat: string | null | undefined, types: readonly LineVatTypeOrNone[]): string | undefined {
   const raw = (customerVat ?? '').trim().toLowerCase();
