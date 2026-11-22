@@ -5,7 +5,7 @@
  */
 
 // Rank ladder for approver authority. ROLE_HIERARCHY in @/lib/auth/types has no
-// entry for 'accountant', 'bookkeeper' or 'user', and its `?? 0` fallback would
+// entry for accountant, bookkeeper or user, and its `?? 0` fallback would
 // let anybody satisfy a rule whose approver_role is 'accountant' — one of the
 // defaults seeded by migration 234. The roles a company can actually hold come
 // from two allowlists: ALLOWED_COMPANY_ROLES in adminUserActionsService and the

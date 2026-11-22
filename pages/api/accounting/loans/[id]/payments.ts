@@ -10,6 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
@@ -60,6 +61,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       periodNumber: body.periodNumber,
       bankAccountId: body.bankAccountId,
     };
+
+    // #1656 (round 3): a loan payment posts a journal: Chart of Accounts & GL Approve (loans map to 'accounts', as loan-periods and gl-postings do).
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'loan journals')) return;
 
     try {
       const result = await withJournalDateRefusal(res, () => recordLoanPayment(companyId, loanId, input, userId));

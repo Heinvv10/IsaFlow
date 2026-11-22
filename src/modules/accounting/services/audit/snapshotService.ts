@@ -14,7 +14,7 @@ import type { PoolClient } from 'pg';
 import { log } from '@/lib/logger';
 import { getPool } from '@/lib/neon';
 import { listEntityChanges } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
-import { ENTITY_TYPES, mayReadType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { readableEntityTypes } from '@/modules/accounting/services/core/entityChanges/entityChangeAccess';
 import { AUDIT_WAIT_MS, SNAPSHOT_TIME_BUDGET_MS, runAuditTx, tightenStatementTimeout, transactionNow, type AuditPrincipal } from './auditTx';
 import { withSnapshotSlot } from './snapshotSlots';
 import { SNAPSHOT_SEAL_DOMAIN, checkSeal, sign, signingKey, type SigningKey } from './seal';
@@ -71,9 +71,9 @@ async function roleOf(client: PoolClient, companyId: string): Promise<string | u
 }
 
 /** The newest change the taker may read — informational; comparisons use taken_at. */
-async function highWater(client: PoolClient, companyId: string): Promise<string | null> {
+async function highWater(client: PoolClient, companyId: string, userId: string): Promise<string | null> {
   const role = await roleOf(client, companyId);
-  const page = await listEntityChanges(companyId, { types: ENTITY_TYPES.filter((t) => mayReadType(role, t)), limit: 1 });
+  const page = await listEntityChanges(companyId, { types: await readableEntityTypes(companyId, userId, role), limit: 1 });
   const at = page.items[0]?.recordedAt;
   if (!at) return null;
   // Spelled as the column will read back on verification.
@@ -170,7 +170,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       };
       const header: SnapshotHeader = {
         id: crypto.randomUUID(), companyId: p.companyId, cutoff: input.cutoff, takenAt, takenBy: p.userId,
-        trigger: input.trigger, caveat: SNAPSHOT_CAVEAT, masterDataHighWater: await highWater(client, p.companyId), totals,
+        trigger: input.trigger, caveat: SNAPSHOT_CAVEAT, masterDataHighWater: await highWater(client, p.companyId, p.userId), totals,
         checkRun: { id: run.id, canonicalHash: run.canonicalHash },
       };
       const canonicalHash = snapshotHash(header, tb, journals, lines);

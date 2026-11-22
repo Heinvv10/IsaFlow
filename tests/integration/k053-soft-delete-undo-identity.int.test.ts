@@ -243,12 +243,12 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     const vatAfterManual = await controlBalance(vatOutput);
     const entriesAfterManual = await postedEntryCount();
 
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', manuallyReversed, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', manuallyReversed, USER, { allowReversal: true }));
     // The delete found nothing live to reverse, so it recorded nothing.
     expect(await recordedReversals(manuallyReversed)).toBe(0);
     expect(await controlBalance(receivable)).toBeCloseTo(receivableAfterManual, 2);
 
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', manuallyReversed, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', manuallyReversed, USER, { allowReversal: true }))).toBe(true);
 
     // Identity: no journal posted, and the user's reversal still stands.
     expect(await postedEntryCount()).toBe(entriesAfterManual);
@@ -259,28 +259,28 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
 
   it('a delete records its reversal and the undo consumes exactly that row', async () => {
     const before = await controlBalance(receivable);
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
     expect(await recordedReversals(arInvoice)).toBe(1);
     expect(await controlBalance(receivable)).toBeCloseTo(before - GROSS, 2);
 
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
     expect(await recordedReversals(arInvoice)).toBe(0);
     expect(await controlBalance(receivable)).toBeCloseTo(before, 2);
 
     // A second delete records a FRESH reversal, not the stale one.
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
     expect(await recordedReversals(arInvoice)).toBe(1);
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
     expect(await controlBalance(receivable)).toBeCloseTo(before, 2);
   });
 
   it('a bill delete records its reversal and the undo consumes exactly that row', async () => {
     const before = await controlBalance(payable);
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
     expect(await recordedReversals(apInvoice)).toBe(1);
     expect(await controlBalance(payable)).toBeCloseTo(before + GROSS, 2);
 
-    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }))).toBe(true);
     expect(await recordedReversals(apInvoice)).toBe(0);
     expect(await controlBalance(payable)).toBeCloseTo(before, 2);
   });
@@ -288,24 +288,24 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
   it('refuses to delete an invoice carrying a DRAFT payment allocation', async () => {
     const paid = (await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${allocatedInvoice}::UUID`) as { amount_paid: string }[];
     expect(Number(paid[0]!.amount_paid)).toBe(0);
-    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', allocatedInvoice, USER)))
+    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', allocatedInvoice, USER, { allowReversal: true })))
       .rejects.toThrow(/with payments/i);
   });
 
   it('refuses to delete a bill carrying a DRAFT payment allocation', async () => {
-    await expect(inTx(() => softDelete(COMPANY, 'supplier_invoice', allocatedBill, USER)))
+    await expect(inTx(() => softDelete(COMPANY, 'supplier_invoice', allocatedBill, USER, { allowReversal: true })))
       .rejects.toThrow(/with payments/i);
   });
 
   it('refuses, rather than silently skipping, when the journal link is unreachable', async () => {
-    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', crossTenantLinked, USER)))
+    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', crossTenantLinked, USER, { allowReversal: true })))
       .rejects.toThrow(/does not exist in this company/i);
     const rows = (await sql`SELECT deleted_at FROM customer_invoices WHERE id = ${crossTenantLinked}::UUID`) as { deleted_at: unknown }[];
     expect(rows[0]!.deleted_at).toBeNull();
   });
 
   it('the undo route answers 400, not 500, when the period closed since the delete', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${COMPANY}::UUID`;
     try {
       const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'PUT');
@@ -316,7 +316,7 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     } finally {
       await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${COMPANY}::UUID`;
     }
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
   });
 
   it('blocks on the journal row, so a concurrent GL reversal cannot land mid-delete', async () => {
@@ -331,7 +331,7 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
       await holder.query('BEGIN');
       await holder.query('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [entry]);
 
-      const deleting = inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER))
+      const deleting = inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))
         .then(() => { settled = true; }, () => { settled = true; });
 
       await new Promise((resolve) => setTimeout(resolve, 700));
@@ -344,7 +344,7 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     } finally {
       holder.release();
     }
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
   });
 
   it('cancelling a soft-deleted document is refused as not found, not a 500', async () => {
@@ -355,10 +355,10 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     // threw 'Journal entry already reversed', an uncaught fault the cancel route
     // and the MCP cancel tools both map to 500. Refusing on the lock read is the
     // fix; the document is not found because the delete already removed it.
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
 
-    await expect(inTx(() => cancelCustomerInvoice(COMPANY, arInvoice, USER)))
+    await expect(inTx(() => cancelCustomerInvoice(COMPANY, arInvoice, USER, { allowReversal: true })))
       .rejects.toThrow(/not found/i);
     await expect(inTx(() => cancelSupplierInvoice(COMPANY, apInvoice, USER)))
       .rejects.toThrow(/not found/i);
@@ -372,8 +372,8 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     `) as { status: string }[];
     expect(statuses[0]!.status).not.toBe('cancelled');
 
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
-    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }))).toBe(true);
   });
 
   it('the route decides 400 vs 500 by TYPE: refusals are 400, data faults stay 500', async () => {

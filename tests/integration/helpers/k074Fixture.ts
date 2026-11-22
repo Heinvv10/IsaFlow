@@ -56,6 +56,8 @@ export async function seedK074(pool: Pool): Promise<K074Fixture> {
     [user, `${user}@test.local`]);
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K074 company']);
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [otherCompany, 'K074 other']);
+  // The actor is a member (an owner): the routes ask the module Approve from company_users (#1656 checkPermission), which a bare users row fails.
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [company, user]);
   await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)',
     [supplier, company, 'K074 supplier']);
   // `auto_allocate_strategy` stays 'off': the customer arm names the invoice it
@@ -165,6 +167,7 @@ export async function confirmMatch(
 
 export async function cleanupK074(pool: Pool, fx: K074Fixture): Promise<void> {
   const ids = [fx.company, fx.otherCompany];
+  await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id=ANY($1::UUID[]))', [ids]);
   await pool.query('DELETE FROM customer_payments WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM customer_invoices WHERE company_id=ANY($1::UUID[])', [ids]);

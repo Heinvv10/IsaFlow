@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import runDetail from '../../pages/api/payroll/runs/[id]';
 import companyUsers from '../../pages/api/accounting/company-users';
+import permissions from '../../pages/api/accounting/permissions';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { rig, type Route } from './brkr.helpers';
 
@@ -139,3 +140,50 @@ describe('the last other eligible approver of a pending pay-run approval cannot 
     expect((await del(manager2)).statusCode).toBe(200);
   }, 90000);
 });
+
+// #1670 Codex: who can decide a pay run is EFFECTIVE Payroll Approve, so a permission write that takes it away is a demotion too.
+describe('withholding Approve or unticking Payroll Approve from the last other approver is refused (409)', () => {
+  const put = (user: string, role: string) => r.call(companyUsers as Route, 'PUT', '/api/accounting/company-users', undefined, { body: { userId: user, role } });
+  const withhold = (user: string, approveWithheld: boolean) =>
+    r.call(permissions as Route, 'PUT', '/api/accounting/permissions', undefined, { body: { userId: user, approveWithheld } });
+  const payrollApprove = (user: string, canApprove: boolean) => r.call(permissions as Route, 'POST', '/api/accounting/permissions', undefined,
+    { body: { userId: user, moduleKey: 'payroll', canRead: true, canWrite: true, canDelete: false, canExport: true, canApprove } });
+  const withheldOf = async (user: string) =>
+    (await r.pool.query('SELECT approve_withheld FROM company_users WHERE company_id = $1 AND user_id = $2', [r.company, user])).rows[0]?.approve_withheld;
+
+  it('the only other effective approver keeps Payroll Approve while the request is pending; a manager without it is no other approver', async () => {
+    // Migration 270 seeds permission_modules; the schema-only CI baseline holds no rows, and the route refuses an unknown module.
+    const seeded = (await r.pool.query(`INSERT INTO permission_modules (module_key, module_name, display_order)
+      VALUES ('payroll', 'Payroll', 80) ON CONFLICT (module_key) DO NOTHING RETURNING id`)).rowCount === 1;
+    try {
+      await withPayrollModuleRow();
+    } finally {
+      if (seeded) await r.pool.query("DELETE FROM permission_modules WHERE module_key = 'payroll'");
+    }
+  }, 90000);
+
+  async function withPayrollModuleRow(): Promise<void> {
+    await setRole(r.approver, 'viewer');
+    const manager = await r.addUser('manager');
+    const withheldManager = await r.addUser('manager');
+    expect((await withhold(withheldManager, true)).statusCode).toBe(200); // nothing pending yet: allowed
+    const id = await newRun(5);
+    const request = (await raise(id, r.admin)).body.data as { id: string; documentDigest: string };
+
+    // withheldManager holds the role but not Payroll Approve: `manager` is the last other approver.
+    expect((await put(manager, 'viewer')).statusCode).toBe(409);
+    const refused = await withhold(manager, true);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body.error?.message ?? refused.body.message).toMatch(/only other person who can approve a pay run/);
+    expect(await withheldOf(manager)).toBe(false);
+    expect((await payrollApprove(manager, false)).statusCode).toBe(409);
+    expect((await r.pool.query(
+      "SELECT 1 FROM company_user_permissions WHERE company_id = $1 AND user_id = $2 AND module_key = 'payroll'", [r.company, manager])).rowCount).toBe(0);
+
+    // withheldManager granted Payroll Approve by a row: now another approver, so `manager` may lose it.
+    expect((await payrollApprove(withheldManager, true)).statusCode).toBe(200);
+    expect((await withhold(manager, true)).statusCode).toBe(200);
+    expect((await decide('reject', request, r.admin)).statusCode).toBe(200);
+  }
+});
+

@@ -8,13 +8,14 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
 import { globalSearch } from '@/modules/accounting/services/core/globalSearchService';
 import { searchPages } from '@/modules/accounting/services/core/pageSearch';
 
 const MAX_QUERY_LENGTH = 100;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -36,7 +37,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Pages first (at most 3): "sage" or "import" found nothing when only records were searched.
     const pages = searchPages(query, Math.min(3, parsedLimit));
-    const records = await globalSearch(companyId, query, parsedLimit);
+    // An employee's name and number are Payroll's: found only by someone who may read Payroll (#1656, round 7).
+    // census-exempt(globalSearch, payroll-read): employees are searched only with includeEmployees, the Payroll read answer on the next line; nothing else it searches is payroll
+    const records = await globalSearch(companyId, query, parsedLimit, { includeEmployees: await mayReadPayroll(companyId, user.id) });
     const results = [...pages, ...records].slice(0, parsedLimit);
 
     return apiResponse.success(res, { results });

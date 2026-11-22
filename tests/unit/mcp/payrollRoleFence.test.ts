@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // What the costing withholds is read from the database; its own integration suite covers it.
 vi.mock('@/modules/accounting/services/payroll/payrollLoanWithholding', () => ({ withheldLoansReport: vi.fn(async () => []) }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: this file is the ROLE fence; the module fence reads company_users and is proven in approvePermissionPaths / mcp moduleFence tests
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return { sql: sqlFn, withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()), withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)) };

@@ -12,7 +12,6 @@ import { log } from '@/lib/logger';
 import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from './sageMigrationCommitService';
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
-import { findSageCustomer, findSageSupplier } from './sagePartyMatch';
 import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -77,10 +76,11 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const c of pulled.customers?.records ?? []) {
     await sp(`cust_${i++}`, async () => {
       try {
-        // The same match upsertCustomer makes (sagePartyMatch), so "skipped" means "matched a live customer".
-        const existed = await findSageCustomer(companyId, c);
-        await upsertCustomer(companyId, c);
-        if (existed) summary.customers.skipped += 1; else summary.customers.created += 1;
+        const { created, alongside } = await upsertCustomer(companyId, c);
+        if (created) summary.customers.created += 1; else summary.customers.skipped += 1;
+        if (alongside) {
+          summary.warnings.push(`Customer "${c.name}" (Sage ${String(c.sageId ?? '')}) was created alongside a same-name customer already linked to ${alongside.heldRef ?? 'another reference'}; check they are different customers.`);
+        }
       } catch (err) {
         summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
@@ -93,9 +93,13 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const s of pulled.suppliers?.records ?? []) {
     await sp(`supp_${i++}`, async () => {
       try {
-        const existed = await findSageSupplier(companyId, s);
-        await upsertSupplier(companyId, s);
-        if (existed) summary.suppliers.skipped += 1; else summary.suppliers.created += 1;
+        const { created, alongside } = await upsertSupplier(companyId, s);
+        if (created) summary.suppliers.created += 1; else summary.suppliers.skipped += 1;
+        if (alongside) {
+          summary.warnings.push(`Supplier "${s.name}" (Sage ${String(s.sageId ?? '')}) was created alongside a same-name supplier `
+            + (alongside.heldRef ? `already linked to ${alongside.heldRef}` : `that Sage ${alongside.otherSageIds.join(', ')} was merged into`)
+            + '; check they are different suppliers.');
+        }
       } catch (err) {
         summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;

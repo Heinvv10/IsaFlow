@@ -15,6 +15,7 @@ import type {
   PaginatedResult,
 } from '../types/admin.types';
 import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
+import { NON_OWNER_COMPANY_ROLES, normalizeCompanyRole, type BureauRole } from '@/lib/auth/companyRoles';
 
 type Row = DbRow;
 
@@ -183,7 +184,7 @@ export async function getUserDetail(
   const bureaus = (bureauRows as Row[]).map((b) => ({
     bureau_id: b.bureau_id as string,
     bureau_name: b.bureau_name as string,
-    role: b.role as 'owner' | 'accountant' | 'viewer',
+    role: b.role as BureauRole,
   }));
 
   const companyRows = await sql`
@@ -201,7 +202,7 @@ export async function getUserDetail(
   const companies: AdminUserCompany[] = (companyRows as Row[]).map((c) => ({
     company_id: c.company_id as string,
     company_name: c.company_name as string,
-    role: c.role as string,
+    role: normalizeCompanyRole(c.role as string),
     is_default: c.is_default as boolean,
   }));
 
@@ -229,8 +230,9 @@ export async function getUserDetail(
   };
 }
 
-// 'super_admin' is intentionally excluded — promotion via API is not permitted (H13)
-const ALLOWED_ROLES = ['admin', 'manager', 'storeman', 'technician', 'viewer'];
+// The platform role (users.role) an admin may set: the company roles but owner (#1656). 'super_admin' is
+// intentionally excluded — promotion via API is not permitted (H13).
+const ALLOWED_ROLES: readonly string[] = NON_OWNER_COMPANY_ROLES;
 
 export async function updateUser(
   userId: string,

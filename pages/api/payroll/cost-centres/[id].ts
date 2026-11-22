@@ -28,6 +28,7 @@ import {
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { UUID_RE } from '@/lib/validation';
 import { getPayrollCostCentre } from '@/modules/accounting/services/core/costCentreService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const PatchBody = z
   .object({
@@ -67,4 +68,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, req.method === 'PATCH' ? { updated: true } : { deactivated: true });
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

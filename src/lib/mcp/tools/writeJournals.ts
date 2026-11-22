@@ -86,6 +86,7 @@ export const createDraftJournalTool: McpTool = {
 
 export const postJournalTool: McpTool = {
   name: 'post_journal',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Post an existing DRAFT journal entry by id — irreversible. Requires the write:post permission.',
   scope: 'write:journals',

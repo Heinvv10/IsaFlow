@@ -5,6 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// #1656: the approver's module Approve is the subject of tests/unit/api/*ApprovePermission*; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusals: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({

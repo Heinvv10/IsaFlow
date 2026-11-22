@@ -156,8 +156,8 @@ describeIfDb('D7 VAT201 journal_reversed reads the chain, not one link', () => {
 
   it('a document deleted and restored inside its open period does not block', async () => {
     for (const [type, id] of [['customer_invoice', restored.ar], ['supplier_invoice', restored.ap]] as const) {
-      await inTx(() => softDelete(COMPANY, type, id, USER));
-      await inTx(() => undoDelete(COMPANY, type, id, USER));
+      await inTx(() => softDelete(COMPANY, type, id, USER, { allowReversal: true }));
+      await inTx(() => undoDelete(COMPANY, type, id, USER, { allowReversal: true }));
     }
     // The premise: O <- R <- R2, all three posted and dated in the period.
     const inPeriod = (await sql`

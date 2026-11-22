@@ -31,7 +31,8 @@
  * month of the period), then, for a run's journal, 2 then 3; a stand-alone directive payment (directivePaymentEti) takes
  * 1 first too. Nothing takes 1 after 2 or 3, so no cycle.
  * Outside this order, a LEAF: the member writers' approver lock `pay_run_approvers:<company id>`
- * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset). It is
+ * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset, and a pay_run
+ * approval raise after the header it stamps, #1670 L5). It is
  * taken after the member rows and the owner lock and nothing in 1-3 (calculate, approve, reopen, post) ever takes it
  * or waits on a member row while holding one of them, so it can sit in no cycle with them. A platform-admin write
  * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a pool full of

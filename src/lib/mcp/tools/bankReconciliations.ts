@@ -138,6 +138,7 @@ export const cancelBankReconciliationTool: McpTool = {
 
 export const reopenBankReconciliationTool: McpTool = {
   name: 'reopen_bank_reconciliation',
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Reopen a COMPLETED reconciliation so a wrong allocation inside it can be corrected. The '
     + 'session goes back to in_progress and every line completion marked reconciled returns to '

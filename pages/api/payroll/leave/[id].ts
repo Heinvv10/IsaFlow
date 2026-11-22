@@ -14,6 +14,7 @@ import {
   deleteLeaveRequest,
 } from '@/modules/accounting/services/payroll/payrollLeaveService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -50,4 +51,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

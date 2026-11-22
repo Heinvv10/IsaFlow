@@ -12,14 +12,11 @@ import { findUserByEmail } from '@/lib/auth/gotrue';
 import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
+import { COMPANY_ROLES as VALID_ROLES, isCompanyRole } from '@/lib/auth/companyRoles';
 
 
-export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
-type CompanyRole = (typeof VALID_ROLES)[number];
-
-function isValidRole(role: string): role is CompanyRole {
-  return (VALID_ROLES as readonly string[]).includes(role);
-}
+export { VALID_ROLES };
+const isValidRole = isCompanyRole;
 
 function toIso(val: Date | string | null): string | null {
   if (!val) return null;

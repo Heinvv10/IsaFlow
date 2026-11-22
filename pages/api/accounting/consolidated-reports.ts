@@ -29,6 +29,7 @@ import type { FlaggedEliminationRow, SkippedEliminationRow } from '@/modules/acc
 import { cutoverRequiringReason } from '@/modules/accounting/services/reports/eliminationDuplicates';
 import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
 import type { DroppedMirroredElimination } from '@/modules/accounting/services/reports/mirrorEliminations';
+import { refuseWithoutGroupApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /**
  * 400 text for a bad date range, or null — checked before any query, because an unvalidated
@@ -180,6 +181,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'post-elimination') {
+      if (await refuseWithoutGroupApprove(res, gId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write; asked in the group's companies, not the session company
       return answerRefusals(res, async () => {
         await postEliminationAdjustment(body.adjustmentId as string, gId, body.confirmDuplicate === true);   // (a possible duplicate needs the person's confirm)
         return apiResponse.success(res, { posted: true });
@@ -187,6 +189,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'reverse-elimination') {
+      if (await refuseWithoutGroupApprove(res, gId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write; asked in the group's companies, not the session company
       return answerRefusals(res, async () => {
         await reverseEliminationAdjustment(body.adjustmentId as string, gId);
         return apiResponse.success(res, { reversed: true });

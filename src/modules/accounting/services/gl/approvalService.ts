@@ -159,7 +159,8 @@ export async function deleteRule(companyId: string, id: string, actor: RuleActor
 // ── Approval Requests ────────────────────────────────────────────────────────
 
 /** List approval requests with optional status filter */
-export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
+/** `includePayRun`: the caller holds Payroll read; without it the pay_run requests (a run's amount) are left out in the query itself (#1656 round 8). */
+export async function listRequests(companyId: string, status: ApprovalStatus | undefined, includePayRun: boolean): Promise<ApprovalRequest[]> {
   // Name lookup goes through approval_company_member_name (mig 714), not a
   // plain join to `users`: app_user can only SELECT its own row there
   // (users_self_read, FORCE RLS), so a join resolved a name only when the
@@ -172,7 +173,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
                public.approval_company_member_name(ar.company_id, ar.decided_by::TEXT) AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-        WHERE ar.company_id = ${companyId} AND ar.status = ${status}
+        WHERE ar.company_id = ${companyId} AND ar.status = ${status} AND (${includePayRun}::BOOLEAN OR ar.document_type <> 'pay_run')
         ORDER BY ar.created_at DESC
       `) as Record<string, unknown>[]
     : (await sql`
@@ -181,7 +182,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
                public.approval_company_member_name(ar.company_id, ar.decided_by::TEXT) AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-        WHERE ar.company_id = ${companyId}
+        WHERE ar.company_id = ${companyId} AND (${includePayRun}::BOOLEAN OR ar.document_type <> 'pay_run')
         ORDER BY ar.created_at DESC
       `) as Record<string, unknown>[];
   return rows.map(mapRequest);
@@ -215,10 +216,12 @@ export async function decideRequest(companyId: string,
 }
 
 /** Get pending approval count for dashboard badge */
-export async function getPendingCount(companyId?: string): Promise<number> {
+/** `includePayRun`: the caller holds Payroll read. Without it the pay_run requests are not counted, in the query (#1656 round 8). */
+export async function getPendingCount(companyId: string | undefined, includePayRun: boolean): Promise<number> {
   if (!companyId) return 0;
   const rows = (await sql`
-    SELECT COUNT(*) AS count FROM approval_requests WHERE company_id = ${companyId} AND status = 'pending'
+    SELECT COUNT(*) AS count FROM approval_requests
+    WHERE company_id = ${companyId} AND status = 'pending' AND (${includePayRun}::BOOLEAN OR document_type <> 'pay_run')
   `) as Record<string, unknown>[];
   return Number(rows[0]?.count ?? 0);
 }
