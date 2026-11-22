@@ -22,7 +22,8 @@ const stored = (over: Partial<ExistingItem> & Pick<ExistingItem, 'id' | 'code'>)
 function ctxOf(items: ExistingItem[], movements: string[] = []): UpsertContext {
   const byId = new Map(items.map((i) => [i.id, i]));
   const byCode = new Map(items.map((i) => [i.code, i]));
-  const paddedByCode = new Map(items.filter((i) => i.code.trim() !== i.code).map((i) => [i.code.trim(), i]));
+  const paddedByCode = new Map<string, ExistingItem[]>();
+  for (const i of items.filter((x) => x.code.trim() !== x.code)) paddedByCode.set(i.code.trim(), [...(paddedByCode.get(i.code.trim()) ?? []), i]);
   const byRef = new Map(items.filter((i) => i.externalSystem && i.externalRef).map((i) => [refKey(i.externalSystem!, i.externalRef!), i]));
   return {
     byId, byCode, paddedByCode, byRef,
@@ -250,5 +251,26 @@ describe('planItemRows — a code held by an item stored with surrounding whites
   it('leaves an unrelated code alone', () => {
     const { refusals } = planItemRows([row(0, { code: 'FIB-0002', description: 'New' })], ctxOf([legacy]));
     expect(refusals).toEqual([]);
+  });
+
+  it('a clean item sharing the trimmed code keeps working: update, unchanged and price change all pass', () => {
+    const clean = stored({ id: 'C', code: 'FIB-0001' });
+    const ctx = ctxOf([legacy, clean]);
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001', description: 'Fibre 1km', purchase_price: 10 })], ctx);
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'unchanged', itemId: 'C' });
+    const upd = planItemRows([row(0, { code: 'FIB-0001', sales_price: 99 })], ctx);
+    expect(upd.refusals).toEqual([]);
+    expect(upd.planned[0]).toMatchObject({ outcome: 'updated', itemId: 'C' });
+  });
+
+  it('refuses when ANY of several legacy holders is another item, and lets only a holder rename itself if it is alone', () => {
+    const l1 = stored({ id: 'L1', code: 'X ' });
+    const l2 = stored({ id: 'L2', code: 'X\t' });
+    const ctx = ctxOf([l1, l2]);
+    expect(planItemRows([row(0, { code: 'X', description: 'New' })], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    // L1 renaming itself to X is blocked by L2; L2 renaming is blocked by L1.
+    expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    expect(planItemRows([row(0, { code: 'X' }, 'L2')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
   });
 });

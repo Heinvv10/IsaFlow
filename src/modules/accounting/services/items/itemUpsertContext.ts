@@ -45,7 +45,7 @@ export interface UpsertContext {
   byId: Map<string, ExistingItem>;
   byCode: Map<string, ExistingItem>;
   /** Items stored with surrounding whitespace in their code ('FIB-0001 '), by the code trimmed. The unique index does not see them as 'FIB-0001'. */
-  paddedByCode: Map<string, ExistingItem>;
+  paddedByCode: Map<string, ExistingItem[]>;
   byRef: Map<string, ExistingItem>;
   categories: CategoryRef[];
   /** account id -> is_active, for the accounts of THIS company only (anything else is absent). */
@@ -106,12 +106,12 @@ export async function loadUpsertContext(
   const byId = new Map<string, ExistingItem>();
   const byCode = new Map<string, ExistingItem>();
   const byRef = new Map<string, ExistingItem>();
-  const paddedByCode = new Map<string, ExistingItem>();
+  const paddedByCode = new Map<string, ExistingItem[]>();
   for (const r of existing) {
     const item = mapExisting(r);
     byId.set(item.id, item);
     byCode.set(item.code, item);
-    if (item.code.trim() !== item.code) paddedByCode.set(item.code.trim(), item);
+    if (item.code.trim() !== item.code) paddedByCode.set(item.code.trim(), [...(paddedByCode.get(item.code.trim()) ?? []), item]);
     if (item.externalSystem && item.externalRef) byRef.set(refKey(item.externalSystem, item.externalRef), item);
   }
 
