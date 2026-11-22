@@ -2,6 +2,8 @@
  * Field readers for the Sage export. PURE. Each returns the value, or pushes a reason into `why` and returns undefined, so a
  * row's parser reports every fault in the row at once. An absent or null optional field is `null`.
  */
+import { hasWholeCents } from '@/lib/money/wholeCents';
+
 export type Raw = Record<string, unknown>;
 
 export const isRaw = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -50,7 +52,6 @@ export function readBool(o: Raw, key: string, why: string[]): boolean | undefine
   return undefined;
 }
 
-const isWholeCents = (n: number): boolean => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
 
 /** A non-negative number. `cents: 'whole'` refuses a third decimal; `'round'` rounds half up to 2 dp (costs carry more). */
 export function readNumber(
@@ -65,7 +66,7 @@ export function readNumber(
   if (typeof v !== 'number' || !Number.isFinite(v)) { why.push(`${key} must be a number`); return undefined; }
   if (opts.positive ? v <= 0 : v < 0) { why.push(`${key} must be ${opts.positive ? 'more than 0' : 'not negative'}`); return undefined; }
   if (v > 1e11) { why.push(`${key} is larger than any amount a document holds`); return undefined; }
-  if (opts.cents === 'whole' && !isWholeCents(v)) { why.push(`${key} must be whole cents`); return undefined; }
+  if (opts.cents === 'whole' && !hasWholeCents(v)) { why.push(`${key} must be whole cents`); return undefined; }
   if (opts.cents === 'round') return Math.round(v * 100 + 1e-9) / 100;
   return v;
 }

@@ -7,6 +7,7 @@
  */
 import type { RowResult, SagePoLine, SagePurchaseOrder } from './sageExportTypes';
 import { isRaw, readDate, readId, readNumber, readText, type Raw } from './sageValues';
+import { hasWholeCents } from '@/lib/money/wholeCents';
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
 
@@ -74,7 +75,7 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   const sub: string[] = [];
   const description = readText(raw, 'Description', 500, sub);
   const quantity = readNumber(raw, 'Quantity', sub, { required: true, positive: true });
-  if (typeof quantity === 'number' && Math.abs(quantity * 100 - Math.round(quantity * 100)) > 1e-6) sub.push('Quantity has at most two decimals');
+  if (typeof quantity === 'number' && !hasWholeCents(quantity)) sub.push('Quantity has at most two decimals');
   const unit = readNumber(raw, 'UnitPriceExclusive', sub, { required: true, cents: 'any' });
   const exclusive = readNumber(raw, 'Exclusive', sub, { cents: 'whole' });
   const tax = readNumber(raw, 'Tax', sub, { cents: 'whole' });

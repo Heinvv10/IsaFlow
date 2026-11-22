@@ -229,3 +229,26 @@ describe('F4 more: a page that is not the whole export', () => {
     expect(shape({ Items: [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 0, $resources: rows().slice(10) }] })).toMatch(/\$startIndex 0, but 10 rows came before/);
   });
 });
+
+describe('L5 (round 5): whole-cent checks hold at large amounts (an absolute tolerance on n*100 refused them)', () => {
+  const big = (over: Row, line: Row = {}) => parseSagePurchaseOrder(po({ Exclusive: 123456789.1, Tax: 18518518.37, Total: 141975307.47, ...over,
+    Lines: [{ ...(po().Lines as Row[])[0], UnitPriceExclusive: 123456789.1, Quantity: 1, Exclusive: 123456789.1, Tax: 18518518.37, ...line }] }), 0);
+  it('a header and a line of R123 456 789.10 + R18 518 518.37 are accepted', () => {
+    expect(refusedFor(big({}))).toBe('NOT REFUSED');
+  });
+  it('R999 999 999.99 is accepted, and a third decimal is still refused at that size', () => {
+    expect(refusedFor(big({ Exclusive: 999999999.99, Tax: 0, Total: 999999999.99 }, { Exclusive: 999999999.99, Tax: 0 }))).toBe('NOT REFUSED');
+    expect(refusedFor(big({ Exclusive: 123456789.105, Tax: 0, Total: 123456789.105 }))).toMatch(/Exclusive must be whole cents/);
+  });
+  it('a large quantity with two decimals is accepted, a third decimal refused', () => {
+    expect(refusedFor(big({}, { Quantity: 12345678.91 }))).toBe('NOT REFUSED');
+    expect(refusedFor(big({}, { Quantity: 12345678.915 }))).toMatch(/Quantity has at most two decimals/);
+  });
+  it('the small cases still behave: 0.07 and 1.15 are whole cents, 1.005 and 10.005 are not', () => {
+    const r = (v: number) => refusedFor(parseSagePurchaseOrder(po({ Exclusive: v, Tax: 0, Total: v }), 0));
+    expect(r(0.07)).not.toMatch(/Exclusive must be whole cents/);
+    expect(r(1.15)).not.toMatch(/Exclusive must be whole cents/);
+    expect(r(1.005)).toMatch(/Exclusive must be whole cents/);
+    expect(r(10.005)).toMatch(/Exclusive must be whole cents/);
+  });
+});
