@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import {
   createOffCycleRun, OffCycleRunRefusedError, type OffCycleEmployeeInput,
@@ -47,4 +48,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
 // Payroll-detail roles, like the run detail routes (review #1620 security).
 // The request log masks each employee's amount (review #1679 B1): an employee id beside what they are paid.
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler))), { maskBodyKeys: ['amount'] }));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))), { maskBodyKeys: ['amount'] }));

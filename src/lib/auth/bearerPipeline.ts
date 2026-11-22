@@ -27,6 +27,7 @@ import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
+import { normalizeCompanyRole } from './companyRoles';
 
 
 /** Postgres SQLSTATE for invalid_text_representation — i.e. UUID cast errors. */
@@ -201,7 +202,7 @@ export async function runBearerRequest(
     const authedReq = req as BearerAuthedRequest;
     authedReq.user = { id: ctx.userId, claims };
     authedReq.companyId = ctx.companyId;
-    authedReq.companyRole = membership.rows[0]!.role;
+    authedReq.companyRole = normalizeCompanyRole(membership.rows[0]!.role); // #1656: a legacy value reads as its mapped role
     authedReq.scopes = ctx.scopes;
     authedReq.authMethod = ctx.method;
     authedReq.tokenExpiresAt = ctx.expiresAt;

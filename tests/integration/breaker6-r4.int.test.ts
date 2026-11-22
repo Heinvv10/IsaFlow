@@ -7,7 +7,7 @@ import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEnt
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import { apSubledger, billWithJournal, dropStepExtras, ledger, postedJournal, seedStepAccounts, type StepAccounts } from './helpers/shareUndoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -53,8 +53,9 @@ describe.skipIf(!DATABASE_URL)('breaker6 round 4', () => {
   beforeAll(async () => {
     assertNotProductionDb('breaker6 r4 posts journals.');
     fx = await seedFixture('BRK6R4', DATABASE_URL!); a = await seedStepAccounts(fx);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
   }, 120000);
-  afterAll(async () => { await dropStepExtras(fx); await dropFixture(fx); }, 120000);
+  afterAll(async () => { await dropStepExtras(fx); await dropFixtureMember(fx); await dropFixture(fx); }, 120000);
 
   it('REPRO 16: share dated in May covers an April bill; hand undo dated in the BILL month (April) is outside the window', async () => {
     const v0 = await vatAprMay();

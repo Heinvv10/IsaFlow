@@ -40,7 +40,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: chain-length matrix (k =
       const t0 = await tb(c);
       const inv = await postedInvoice(c);
       const chain = await buildChain(c, inv.je, k);
-      const r = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+      const r = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
       const d = diff(t0, await tb(c));
       const newContras = await postedReversalsOf(c, chain[chain.length - 1]!);
       const [st] = (await sql`SELECT status FROM customer_invoices WHERE id = ${inv.id}::UUID`) as Row[];

@@ -66,6 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // client, and `getReportPackInput` takes a savepoint around its cash-flow
   // read: a trend query landing inside it is refused with 25P02 when that
   // read fails, and the route 500s where the pack was built to degrade.
+  // census-exempt(getReportPackInput, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const input = await getReportPackInput(companyId, name, from, to);
   const trend = await getPackTrend(companyId, to, TREND_MONTHS);
 

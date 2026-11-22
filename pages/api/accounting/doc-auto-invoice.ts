@@ -46,7 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 
   // Fuzzy match supplier
-  const suppliers = await sql`SELECT id, name FROM suppliers WHERE company_id = ${companyId}::UUID AND is_active = true` as Row[];
+  const suppliers = await sql`SELECT id, name FROM suppliers WHERE company_id = ${companyId}::UUID AND is_active = true AND deleted_at IS NULL` as Row[];
   const vendorName = extracted.vendorName || extracted.vendor?.name || '';
   const supplierMatch = fuzzyMatchSupplier(vendorName, suppliers.map((s: Row) => ({ id: String(s.id), name: String(s.name) })));
 

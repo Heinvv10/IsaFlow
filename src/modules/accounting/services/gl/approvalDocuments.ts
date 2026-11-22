@@ -23,6 +23,7 @@ import { ApprovalDocumentNotDraftError, ApprovalDocumentNotFoundError, ApprovalR
 import { shareLockCreditNoteStatus } from '../ar/creditNoteLock';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
+import { lockPayRunApprovers } from '../core/payRunApproverGuard';
 
 /**
  * The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError,
@@ -226,6 +227,8 @@ export async function requestApproval(companyId: string, input: {
   // R-035 PR2-must (4): under Login-as the requester would be recorded as the
   // TARGET, and the real one pushed into past_requesters. Raising is refused.
   await assertNotImpersonating();
+  // A pay run's raise takes the approver lock a member write judging it takes (#1670 breaker L5), before its roster snapshot.
+  if (input.documentType === 'pay_run') await lockPayRunApprovers(companyId);
   // A stricter rule (or a new amount) between the read below and the write is
   // refused by the definer (RA010) with nothing written; re-reading once binds
   // the rule that governs now. A second race is the 409 the route answers.

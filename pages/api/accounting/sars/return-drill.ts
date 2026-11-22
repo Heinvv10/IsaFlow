@@ -11,6 +11,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { refuseWithoutPayrollRead } from '@/lib/auth/payrollReadGate';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -56,29 +57,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'runId must be a UUID');
   }
 
-  if (ret === 'emp201') {
-    if (!canWrite(companyRole)) return apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
-    if ((await currentSessionActor()) === 'unknown') {
-      return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Only a person signed in as themselves can read payroll detail; an agent or a job cannot.',
-        { reason: 'AGENT_FORBIDDEN' });
-    }
-    // Per-employee pay for everyone: refused under a platform admin's Login-as, as the payslip export is.
-    try {
-      await assertNotImpersonating();
-    } catch (err) {
-      if (respondIfImpersonationForbidden(res, err)) return;
-      throw err;
-    }
-  }
-  if (!(await checkReportRateLimit(companyId, `return-drill:${ret}:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
+  const rateLimited = async () => !(await checkReportRateLimit(companyId, `return-drill:${ret}:u:${user.id}`, INTERACTIVE_REPORT_LIMIT));
+  const tooMany = () => {
     log.warn('Return drill rate limit exceeded', { companyId, userId: user.id, ret }, 'return-drill');
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
-  }
+  };
 
   if (ret === 'vat201') {
+    if (await rateLimited()) return tooMany();
     const drill = await vat201FieldDrill(companyId, from, to, field, page, pageSize);
     return drill ? apiResponse.success(res, drill) : apiResponse.notFound(res, 'VAT201 field');
   }
+
+  // EMP201 from here: per-employee pay. A write role is not enough (#1656, round 6): Payroll read, from the database, on this path.
+  if (!canWrite(companyRole)) return apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
+  if (await refuseWithoutPayrollRead(res, companyId, user.id)) return;
+  if ((await currentSessionActor()) === 'unknown') {
+    return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Only a person signed in as themselves can read payroll detail; an agent or a job cannot.',
+      { reason: 'AGENT_FORBIDDEN' });
+  }
+  // Per-employee pay for everyone: refused under a platform admin's Login-as, as the payslip export is.
+  try {
+    await assertNotImpersonating();
+  } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
+    throw err;
+  }
+  if (await rateLimited()) return tooMany();
   if (!isEmp201DrillField(field)) return apiResponse.notFound(res, 'EMP201 field');
   const drill = await emp201FieldDrill(companyId, from, to, field, { runId, page, pageSize });
   return drill ? apiResponse.success(res, drill) : apiResponse.notFound(res, 'Payroll run');

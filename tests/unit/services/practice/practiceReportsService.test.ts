@@ -157,7 +157,7 @@ describe('getClientProfitability', () => {
     const result = await getClientProfitability(COMPANY, {
       dateFrom: '2026-04-01',
       dateTo: '2026-04-30',
-    });
+    }, true);
 
     expect(result).toHaveLength(1);
     const row = result[0]!;
@@ -186,7 +186,7 @@ describe('getClientProfitability', () => {
     const result = await getClientProfitability(COMPANY, {
       dateFrom: '2026-04-01',
       dateTo: '2026-04-30',
-    });
+    }, true);
 
     const row = result[0]!;
     expect(row.marginPct).toBe(0);
@@ -208,7 +208,7 @@ describe('getClientProfitability', () => {
     const result = await getClientProfitability(COMPANY, {
       dateFrom: '2026-04-01',
       dateTo: '2026-04-30',
-    });
+    }, true);
 
     const row = result[0]!;
     expect(row.timeCost).toBe(0);

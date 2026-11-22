@@ -131,10 +131,11 @@ describe('every tracked table records', () => {
           bank_account_number) VALUES($1,'EC1','EC Bank','asset','debit','bank','5555666677') RETURNING id`, [c]),
         payroll_employee: await one(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, id_number,
           employment_type, start_date, medical_aid_main_member) VALUES($1,'E1','Ec','Emp','8001015009087','permanent','2026-01-01', true) RETURNING id`, [c]),
-        company_user_permission: await one(`INSERT INTO company_user_permissions(company_id, user_id, module_key, can_read)
-          VALUES($1,$2,'payroll',true) RETURNING id`, [c, a]),
       };
     });
+    // Module permissions are written on the migration_admin pool, under the request's claims (1010d, #1656 round 7 M4).
+    const company_user_permission = await asInviter(c, async (db) => (await db.query(`INSERT INTO company_user_permissions(company_id, user_id,
+      module_key, can_read) VALUES($1,$2,'payroll',true) RETURNING id`, [c, a])).rows[0].id as string);
     // Invitations are written on the migration_admin pool, under the request's claims (S-07c, 930).
     const company_invitation = await asInviter(c, async (db) => (await db.query(`INSERT INTO company_invitations(company_id, email,
       role, invited_by, token, expires_at) VALUES($1,'inv@x.test','manager',$2,'tok-hash',now() + interval '1 day') RETURNING id`,
@@ -146,7 +147,7 @@ describe('every tracked table records', () => {
     const member = (await pool.query('SELECT id FROM company_users WHERE company_id = $1 AND user_id = $2', [c, a])).rows[0].id;
     // Member roles are written on the migration_admin pool, under the request's claims (S-07d, 937).
     await asInviter(c, (db) => db.query("UPDATE company_users SET role = 'manager' WHERE id = $1", [member]));
-    const expected: Record<string, string> = { ...ids, company_invitation, approval_rule: rule, approval_enforcement: sw };
+    const expected: Record<string, string> = { ...ids, company_user_permission, company_invitation, approval_rule: rule, approval_enforcement: sw };
     for (const [type, id] of Object.entries(expected)) {
       const rows = await changesOf(pool, id);
       expect(rows.length, type).toBeGreaterThan(0);

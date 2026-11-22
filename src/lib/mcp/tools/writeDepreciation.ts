@@ -27,6 +27,7 @@ import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const runDepreciationTool: McpTool = {
   name: 'run_depreciation',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Runs the monthly depreciation for every eligible fixed asset in one period, writing the per-asset result to the fixed asset subledger and posting DR Depreciation Expense / CR Accumulated Depreciation to the general ledger. '
     + 'period_date is the LAST DAY of the period being depreciated (YYYY-MM-DD) and defaults to the last day of the current month. It decides the journal date, the journal entry number (DEP-<asset number>-YYYY-MM) and the subledger period, so a run for an earlier month posts into THAT month. '

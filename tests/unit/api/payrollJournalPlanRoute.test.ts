@@ -13,12 +13,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const auth = vi.hoisted(() => ({ role: 'manager' }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth')>();
   return {
     ...actual,
     withAuth: (h: (req: unknown, res: unknown) => unknown) => (req: Record<string, unknown>, res: unknown) =>
-      h(Object.assign(req, { companyId: 'co-A', companyRole: auth.role }), res),
+      h(Object.assign(req, { companyId: 'co-A', companyRole: auth.role, user: { id: 'u-1' } }), res), // user: withPayrollModule asks checkPermission for it
   };
 });
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({ previewPayrollApproval: vi.fn() }));

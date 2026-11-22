@@ -18,6 +18,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { bankFileWriter, respondIfBankFileRefused, UUID } from '@/lib/payrollBankFileApi';
 import { generateSalaryBankFile } from '@/modules/accounting/services/payroll/payrollBankFileService';
 import { readRunBankFileState } from '@/modules/accounting/services/payroll/payrollBankFileStatus';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({ actionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'actionDate must be YYYY-MM-DD') }).strict();
 
@@ -41,4 +42,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))))));

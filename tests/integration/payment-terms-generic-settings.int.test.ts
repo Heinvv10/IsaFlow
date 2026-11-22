@@ -25,7 +25,7 @@ afterAll(async () => {
   await cleanupEntityChanges(pool, companies, [admin, manager, accountant]);
 });
 
-const company = () => newCompany(pool, [[admin, 'admin'], [manager, 'manager'], [accountant, 'accountant']], companies);
+const company = () => newCompany(pool, [[admin, 'admin'], [manager, 'manager'], [accountant, 'storeman']], companies);
 const put = (user: string, c: string, body: unknown) =>
   callRoute(settingsRoute, tokens[user]!, c, 'PUT', body, '/api/accounting/accounting-settings');
 const stored = async (c: string, key: string) =>
@@ -33,12 +33,13 @@ const stored = async (c: string, key: string) =>
 const SIXTY = JSON.stringify({ days: 60, type: 'invoice_days' });
 
 describe('the generic settings route cannot write the default payment terms', () => {
-  // manager passes withWriteAccess (owner/admin/manager) and meets the route's key allowlist: 400. accountant is not a write
+  // manager passes withWriteAccess (owner/admin/manager) and meets the route's key allowlist: 400. A legacy storeman reads as
+  // viewer (#1656; a former accountant now reads as manager) and is not a write
   // role: withWriteAccess answers 403 before the handler runs.
-  it.each([['manager', 400], ['accountant', 403]])('a %s PUTting default_payment_terms is refused with %i and the stored default is unchanged', async (who, status) => {
+  it.each([['manager', 400], ['storeman', 403]])('a %s PUTting default_payment_terms is refused with %i and the stored default is unchanged', async (who, status) => {
     const c = await company();
     await pool.query("INSERT INTO accounting_settings(company_id, key, value) VALUES($1, 'default_payment_terms', $2)", [c, SIXTY]);
-    const res = await put({ manager, accountant }[who]!, c, { key: 'default_payment_terms', value: JSON.stringify({ days: 1, type: 'invoice_days' }) });
+    const res = await put({ manager, storeman: accountant }[who]!, c, { key: 'default_payment_terms', value: JSON.stringify({ days: 1, type: 'invoice_days' }) });
     expect(res.state.statusCode, messageOf(res)).toBe(status);
     expect(await stored(c, 'default_payment_terms')).toBe(SIXTY);
     expect((await pool.query("SELECT 1 FROM entity_changes WHERE company_id = $1 AND entity_type = 'company_setting'", [c])).rows).toHaveLength(1); // the seed only

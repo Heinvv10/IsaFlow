@@ -135,7 +135,7 @@ export async function importSuppliers(
 
   const existingRows = (await sql`
     SELECT id, COALESCE(company_name, name) AS name FROM suppliers
-    WHERE company_id = ${companyId}::UUID
+    WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
   `) as DbRow[];
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 

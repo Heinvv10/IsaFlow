@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -34,6 +35,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const { sessionId, invoices } = parsed.data;
+  // #1656 (round 3): the import posts each bill's journal: Suppliers & AP Approve, before any write.
+  if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'imported supplier invoices')) return;
 
   // A blank invoice number is legitimate on the AP side; a MISSING one is a
   // mapping mistake, and the two arrive at the service looking identical. If

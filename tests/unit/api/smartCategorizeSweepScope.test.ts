@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   sql: vi.fn(), smartCategorizeForAccount: vi.fn(), bulkCategorize: vi.fn(), getAutoPostSettings: vi.fn(),
   buildRunDeps: vi.fn(), runAfterCommit: vi.fn(),
 }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / routeApproveGates
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));

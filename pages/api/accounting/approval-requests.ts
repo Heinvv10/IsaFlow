@@ -31,6 +31,8 @@ import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payr
 import { assertOffCycleSubmittable, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { sql } from '@/lib/neon';
 import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
+import { mayReadPayroll, refuseWithoutPayrollRead, refuseWithoutPayrollWrite } from '@/lib/auth/payrollReadGate';
+import { refuseApprovalRequestWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
@@ -58,6 +60,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(documentId)) {
         return apiResponse.badRequest(res, 'documentId must be a UUID');
       }
+      // A pay run's amount is Payroll's: reading it here needs Payroll read (#1656, round 7).
+      if (documentType === 'pay_run' && await refuseWithoutPayrollRead(res, companyId, userId)) return;
       // The amount is NOT read from the query. The advisory answer has to be the
       // same rule the request path would bind, and that one is resolved from the
       // stored document — otherwise this endpoint reports the rule a caller-chosen
@@ -74,13 +78,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // Payroll read decides whether the pay_run requests are counted and listed: asked once, applied in the queries (#1656 round 8).
+    const payrollRead = await mayReadPayroll(companyId, userId);
     if (req.query.action === 'count') {
-      const count = await getPendingCount(companyId);
+      const count = await getPendingCount(companyId, payrollRead);
       return apiResponse.success(res, { count });
     }
 
-    const requests = await listRequests(companyId, status);
-    return apiResponse.success(res, { items: requests });
+    // The pay_run requests carry a run's amount: left out, in the query, for a person without Payroll read (#1656, rounds 7 and 8).
+    return apiResponse.success(res, { items: await listRequests(companyId, status, payrollRead) });
   }
 
   if (req.method === 'POST') {
@@ -102,10 +108,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Cast `::UUID` downstream. Unchecked, a malformed id is a 22P02 from
       // inside the transaction — a 500 and a logged stack for a bad request.
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
+      // Raising a pay-run request is a Payroll write (#1656, round 7), before the plan is read or anything is written.
+      if (documentType === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
       try {
         let payRunPlanHash: string | null = null;
         if (documentType === 'pay_run') {
+          // census-exempt(assertOffCycleSubmittable, payroll-read): Payroll write is asked just above for a pay_run; it reads the run's kind, month and pay date to refuse, returning no employee's pay
           await assertOffCycleSubmittable(companyId, documentId); // wave 6 OC: nothing is submitted that approval refuses
+          // census-exempt(preparePayRunApprovalRequest, payroll-read): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
           payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         }
         const request = await requestApproval(companyId, {
@@ -162,11 +172,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
         `) ?? []) as Array<{ document_type: string; document_id: string }>;
         const requestRow = requestRows[0];
-        if (requestRow?.document_type === 'pay_run') {
+        // No pending request of this company: refused 404 here, BEFORE the gate (round 10). The read is unlocked, and the gate is judged from
+        // the row it returns: without a row there is nothing to judge, so nothing may reach decideRequest (fail closed; same answer as decideRequest's).
+        if (!requestRow) return apiResponse.notFound(res, `Approval request ${requestId} not found or already decided`);
+        // #1656: approving a request approves its document, so it takes that document's module Approve, before
+        // any write. Fails closed: a type with no module, not resolvable and not listed as ungated, is refused.
+        if (decision === 'approved' && await refuseApprovalRequestWithoutApprove(res, companyId, userId, requestRow)) return;
+        // Deciding a pay-run request is Payroll's too: a rejection needs Payroll write (an approval asked the Approve gate above).
+        if (decision === 'rejected' && requestRow.document_type === 'pay_run' && await refuseWithoutPayrollWrite(res, companyId, userId)) return;
+        if (requestRow.document_type === 'pay_run') {
+          // census-exempt(preparePayRunApprovalRequest, payroll-read): Payroll Approve (an approval) or Payroll write (a rejection) is asked just above; it reads the run's kind and plan hash only
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }
+        // census-exempt(decideRequest, posting): approving asks the document type's Approve first (refuseApprovalRequestWithoutApprove, above); a rejection posts nothing. approveGateEverything / approvePermissionPaths
         const result = await decideRequest(companyId, requestId, decision, userId, notes, expectedDigest);
-        if (requestRow?.document_type === 'pay_run' && result.documentDigest) {
+        if (requestRow.document_type === 'pay_run' && result.documentDigest) {
           await recordPayRunApprovalAudit({
             companyId, runId: String(requestRow.document_id), actorId: userId,
             event: decision === 'approved' ? 'authorised' : 'declined',

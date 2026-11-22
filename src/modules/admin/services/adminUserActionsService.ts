@@ -16,6 +16,7 @@ import { cancelPendingInvitations, deletedUserIdentity } from './deletedUserInvi
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
+import { ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './companyRoleRules';
 
 // Admin password reset lives in its own module (this one passed 300 lines); re-exported so callers keep one import.
 export { resetPassword, resetPasswordRefusal, type ResetPasswordRefusal, type ResetPasswordTarget } from './adminPasswordResetService';
@@ -155,14 +156,7 @@ export async function forceLogout(userId: string): Promise<void> {
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
 }
 
-/** The roles the admin portal may grant (never `owner`; migration 883 refuses it too). */
-export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
-
-/** The refusal for removing or demoting a company's last owner (the admin site shows it). */
-export const ONLY_OWNER_MESSAGE = "This user is the company's only owner. Make someone else owner first.";
-
-/** Migration 908b's trigger refusal (RC011): no writer but app_user removes or demotes a last owner. */
-export const isOnlyOwnerRefusal = (err: unknown): boolean => (err as { code?: string } | null)?.code === 'RC011';
+export { ALLOWED_COMPANY_ROLES, ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './companyRoleRules';
 
 /**
  * Deleting a user, or resetting their onboarding, removes them from every

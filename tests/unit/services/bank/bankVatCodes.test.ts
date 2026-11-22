@@ -17,7 +17,7 @@ describe('bank allocation VAT codes', () => {
   it('are the same four the MCP tools and the allocate routes accept', () => {
     expect([...ALLOCATION_VAT_CODES].sort()).toEqual([...VAT_CODES].sort());
     // The split route's enum and the rule routes' enum name the same four.
-    for (const route of ['pages/api/accounting/bank-transactions-action.ts', 'pages/api/accounting/bank-rules.ts']) {
+    for (const route of ['src/modules/accounting/services/bank/bankTxActionSchema.ts', 'pages/api/accounting/bank-rules.ts']) {
       expect(readFileSync(resolve(ROOT, route), 'utf8'), route).toContain("z.enum(['none', 'standard', 'zero_rated', 'exempt'])");
     }
   });

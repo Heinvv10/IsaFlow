@@ -53,6 +53,7 @@ const BULK_TOOL = 'bulk_allocate_bank_transactions';
 
 export const bulkAllocateBankTransactionsTool: McpTool = {
   name: BULK_TOOL,
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Allocate up to 500 bank transactions in one call, each to a GL account (optionally matching a supplier '
     + 'or customer invoice). Identify each transaction by transaction_id OR by bank_reference — the reference '

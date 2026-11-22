@@ -10,6 +10,7 @@
  * block, and the cutoff (bank_rule's switch-on, or auto-post's last switch-off,
  * whichever is later) is kept where app_user cannot move it later.
  */
+import { anyRuleWrite } from '../helpers/ruleGuards';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import bankAutoPost from '../../pages/api/accounting/bank-auto-post';
@@ -162,7 +163,7 @@ describe('R3-1: a change is placed by when it was RECORDED, not when its transac
     const edit = await openRequest(u.a, c);
     try {
       await cutoff();
-      const written = await inRequest(edit, u.a, c, () => updateRule(c, rule, { glAccountId: to }, u.a));
+      const written = await inRequest(edit, u.a, c, () => updateRule(c, rule, { glAccountId: to }, u.a, anyRuleWrite));
       await edit.query('COMMIT');
       expect(written.status).toBe('applied'); // auto-post was off when it classified
     } finally { edit.release(); }

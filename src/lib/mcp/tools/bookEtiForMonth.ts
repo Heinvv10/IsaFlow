@@ -15,6 +15,8 @@ const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 export const bookEtiForMonthTool: McpTool = {
   name: 'book_eti_for_month',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
+  approveModule: 'payroll', // #1656: moduleFence asks this Approve before the handler
   description:
     'Book a month\'s Employment Tax Incentive in the ledger as the EMP201 declares it: posts the month\'s ETI journal '
     + '(reference ETI-YYYY-MM; DR PAYE payable / CR labour cost for ETI used, DR ETI refund receivable / CR labour cost for an '

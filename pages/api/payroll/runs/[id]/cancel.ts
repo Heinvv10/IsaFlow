@@ -10,7 +10,9 @@ import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approval
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollOffCycleCancel';
 import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 
@@ -18,14 +20,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
-  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   if (companyRole !== 'owner' && companyRole !== 'admin') {
     return apiResponse.forbidden(res, 'Only an owner or admin can cancel an off-cycle run.');
   }
   const id = String(req.query.id);
   if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'Invalid payroll run ID');
+  // Cancelling withdraws the run's pending approval request: it takes Payroll Approve, as reopen does (#1656 census).
+  if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'pay runs (cancel)')) return;
   try {
-    const run = await cancelOffCycleRun(companyId, id, req.user?.id ?? null);
+    const run = await cancelOffCycleRun(companyId, id, user.id);
     if (!run) return apiResponse.notFound(res, 'PayrollRun', id);
     return apiResponse.success(res, run);
   } catch (err) {
@@ -38,4 +42,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 }
 
 // Payroll-detail roles, like the run detail routes (review #1620 security).
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(withWriteAccess(handler))))));

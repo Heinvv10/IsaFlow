@@ -24,6 +24,7 @@ import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetC
 import {
   approvePurchaseOrder, PurchaseOrderChangedError, PurchaseOrderNotApprovableError, PurchaseOrderNotFoundError,
 } from '@/modules/accounting/services/ap/purchaseOrderApprove';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const ApproveSchema = z.object({
   budgetReason: z.string().trim().max(BUDGET_REASON_MAX).optional(),
@@ -43,6 +44,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (typeof id !== 'string' || !isUuidParam(id)) return apiResponse.notFound(res, 'Purchase order');
   const parsed = ApproveSchema.safeParse(req.body ?? {});
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
+  // #1656: Suppliers & AP Approve, before the purchase order is read or locked.
+  if (!(await mayApprove(companyId, req.user.id, 'suppliers'))) {
+    return apiResponse.forbidden(res, approveRefusedMessage('suppliers', 'purchase orders'));
+  }
 
   try {
     const { budgetReason, budgetOverride } = parsed.data;

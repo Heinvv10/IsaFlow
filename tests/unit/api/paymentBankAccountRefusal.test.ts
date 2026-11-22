@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withWriteAccess', () => ({ withWriteAccess: (h: unknown) => h }));
@@ -34,7 +35,7 @@ vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({
   markUifDeclarationPaid: vi.fn(),
   UifDeclarationNotSubmittedError: class extends Error {},
 }));
-vi.mock('@/modules/accounting/services/payroll/uifDeclarationService', () => ({ getUifDeclaration: vi.fn(), markUifSubmitted: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/uifDeclarationService', () => ({ getUifDeclaration: vi.fn(), markUifSubmitted: vi.fn(), UifDeclarationNotDraftError: class extends Error {} }));
 vi.mock('@/modules/accounting/services/loans/loanPaymentService', () => ({ listLoanPayments: vi.fn(), recordLoanPayment: vi.fn() }));
 
 import { BankAccountRefusedError } from '@/modules/accounting/services/gl/paymentBankAccount';

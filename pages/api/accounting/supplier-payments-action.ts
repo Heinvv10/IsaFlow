@@ -28,6 +28,7 @@ import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/ser
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -46,10 +47,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
+        // #1656: Suppliers & AP Approve, before the payment is read or locked.
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments')) return;
         const payment = await approveSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }
       case 'process': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments (process)')) return; // #1656 (Hein: gate everything), before any write
         const payment = await withJournalDateRefusal(res, () => processSupplierPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
@@ -62,7 +66,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
       }
       case 'void': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'supplier payments')) return; // #1656: reverses the journal
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
+        // census-exempt(voidSupplierPayment, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const payment = await withJournalDateRefusal(res, () => voidSupplierPayment(companyId, paymentId, userId));
         if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);

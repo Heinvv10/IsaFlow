@@ -63,12 +63,12 @@ const unlistedUuidBinds = (line: string) => [...line.matchAll(/\$\{([^}]*)\}\s*:
 /** file -> line -> exact trimmed text of every actor-column line in a file that names one of the tables. */
 const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}core/payRunApproverGuard.ts`]: {
-    78: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
-    82: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
-    83: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
-    109: 'const requester = request.requested_by.toLowerCase();',
+    100: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
+    104: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
+    105: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
+    133: 'const requester = request.requested_by.toLowerCase();',
   },
-  [`${S}gl/approvalDocuments.ts`]: { 170: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
+  [`${S}gl/approvalDocuments.ts`]: { 171: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
   [`${S}payroll/payRunDecision.ts`]: {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
@@ -93,7 +93,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     198: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
     209: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
   },
-  [`${S}payroll/payrollRunLock.ts`]: { 238: 'prepared_by     = ${preparedBy},' },
+  [`${S}payroll/payrollRunLock.ts`]: { 239: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 93: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
@@ -105,7 +105,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/taxDirectivePaymentService.ts`]: {
     94: 'createdBy: r.created_by != null ? String(r.created_by) : null,',
-    209: 'bank_account_id, created_by',
+    210: 'bank_account_id, created_by',
   },
   [`${S}payroll/taxDirectiveService.ts`]: {
     91: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
@@ -114,7 +114,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/uifDeclarationService.ts`]: {
     94: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
     236: 'status, submitted_by, updated_at',
-    276: 'submitted_by = ${submittedByUserId},',
+    289: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     49: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -162,7 +162,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 141: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
-  [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
+  [`${S}payroll/taxDirectivePaymentService.ts`]: { 214: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 241: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {

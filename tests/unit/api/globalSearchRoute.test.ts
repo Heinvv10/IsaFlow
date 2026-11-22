@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const searchMock = vi.fn();
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>()));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
@@ -19,7 +20,7 @@ function call(q: string) {
     setHeader() { return r; },
     end() { return r; },
   };
-  const req = { method: 'GET', query: { q }, companyId: 'c1' } as unknown as NextApiRequest;
+  const req = { method: 'GET', query: { q }, companyId: 'c1', user: { id: 'u1' } } as unknown as NextApiRequest;
   return Promise.resolve((handler as (a: NextApiRequest, b: NextApiResponse) => unknown)(req, r as unknown as NextApiResponse)).then(() => res);
 }
 

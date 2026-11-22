@@ -13,6 +13,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { employeeHasFinalRun } from '@/modules/accounting/services/payroll/employeeFinalRun';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,4 +31,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { hasFinalRun });
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))))));

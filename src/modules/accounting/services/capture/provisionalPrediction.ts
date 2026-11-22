@@ -73,7 +73,7 @@ export async function predictFromHistory(
   // Load active suppliers for this company
   const supplierRows = (await sql`
     SELECT id, name FROM suppliers
-    WHERE company_id = ${companyId}::UUID AND is_active = true
+    WHERE company_id = ${companyId}::UUID AND is_active = true AND deleted_at IS NULL
   `) as Row[];
 
   // Fuzzy-match against supplier names

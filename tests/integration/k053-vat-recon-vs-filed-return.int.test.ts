@@ -74,8 +74,8 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     // The premise: the filed July return is the ledger's July, M included.
     expect([july.totalOutputTax, july.totalInputTax]).toEqual([-150, -60]);
 
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', ar, co.user));
-    await inTx(co, () => softDelete(co.id, 'supplier_invoice', ap, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', ar, co.user, { allowReversal: true }));
+    await inTx(co, () => softDelete(co.id, 'supplier_invoice', ap, co.user, { allowReversal: true }));
     const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-07-31');
     expect(recon.months.map(row)).toEqual([
       // Revenue: the deleted invoice stays in June on both legs, and M — a
@@ -91,8 +91,8 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     const co = await makeCompany('D7V2'); cos.push(co);
     const ar = await arInvoice(co, '-AR', '2026-06-15', 1000, 150);
     const ap = await apBill(co, '-AP', '2026-06-15', 400, 60);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', ar, co.user));
-    await inTx(co, () => softDelete(co.id, 'supplier_invoice', ap, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', ar, co.user, { allowReversal: true }));
+    await inTx(co, () => softDelete(co.id, 'supplier_invoice', ap, co.user, { allowReversal: true }));
     await reverseTip(co, await journalOf(co, ar), '2026-08-05');
     await reverseTip(co, await journalOf(co, ap), '2026-08-05');
     await file(co, '06');
@@ -115,7 +115,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     // the ledger's VAT over the revenue arm read 30%.
     const co = await makeCompany('D7V3'); cos.push(co);
     const del = await arInvoice(co, '-DEL', '2026-06-15', 1000, 150);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user, { allowReversal: true }));
     await reverseTip(co, await journalOf(co, del), '2026-08-05');
     await arInvoice(co, '-LIVE', '2026-08-10', 1000, 150);
 
@@ -136,7 +136,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
     await arInvoice(co, '-LIVE', '2026-07-20', 2000, 300);
     await file(co, '06'); // finalising June locks it
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user, { allowReversal: true }));
     await file(co, '07');
 
     const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-07-31');
@@ -151,7 +151,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     // flagged a month with no live supplies.
     const co = await makeCompany('D7V5'); cos.push(co);
     const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user, { allowReversal: true }));
 
     const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-06-30');
     // The revenue arm still carries the original (the invoice leg does too).
@@ -164,7 +164,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     const co = await makeCompany('D7V6'); cos.push(co);
     await arInvoice(co, '-LIVE', '2026-06-10', 1000, 150);
     const zero = await arInvoice(co, '-ZERO', '2026-06-15', 1000, 0);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', zero, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', zero, co.user, { allowReversal: true }));
 
     const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-06-30');
     expect(recon.months.map((m) => [m.month, m.glRevenue, m.revenueVariance, m.glOutputVat, m.effectiveVatRate]))
@@ -194,7 +194,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     const co = await makeCompany('D7V8'); cos.push(co);
     const mixed = await arInvoice(co, '-MIX', '2026-07-15', 1000, 75);
     await arInvoice(co, '-LIVE', '2026-07-20', 1000, 150);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user, { allowReversal: true }));
     const moved = (await sql`UPDATE gl_journal_entries SET entry_date = '2026-06-10'::date
       WHERE company_id = ${co.id}::UUID AND reversal_of_id = ${await journalOf(co, mixed)}::UUID RETURNING id`) as { id: string }[];
     expect(moved).toHaveLength(1);

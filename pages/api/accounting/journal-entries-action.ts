@@ -28,6 +28,7 @@ import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/s
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -72,6 +73,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // R-032 L5: postJournalEntry is the posting primitive every workflow shares,
         // so the explicit "post this journal" act is guarded here, not inside it.
         await assertNotImpersonating();
+        // #1656 (Hein: gate everything): posting a draft journal approves it: Chart of Accounts & GL Approve, pre-read.
+        if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal entries')) return;
         // R-035 PR6, for the same reason: a person posting a draft — ANY draft,
         // whatever created it — is the act manual-journal approval governs.
         // Under enforcement the draft is locked and gated first (409 before
@@ -91,12 +94,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         break;
       }
       case 'reverse':
+        // #1656 (round 3): reversing a posted journal asks Chart of Accounts & GL Approve, as 'post' does, before anything is locked.
+        if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal entries')) return;
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
         // Step 2 (decision 4) under the same lock: a bank allocation's journal is reversed from its bank line while
         // enforced — refused 409 on the locked set (bankReversalGate.lockJournalCashForGlReversal), before any write.
         const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id);
+        // census-exempt(reverseJournalEntry, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
           reversalDate, cashLinesLocked }));
         if (reversed === JOURNAL_DATE_REFUSED) return;

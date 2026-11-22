@@ -129,7 +129,7 @@ export async function rebookEtiAfterEvent(
   return posted;
 }
 
-/** The description applyTaxDirective gives its journal ("SARS directive <number> — <employee>"). */
+/** The description applyTaxDirective gives its journal ("SARS directive <number>"; journals posted before #1656 round 7 also carry " — <employee>", never backfilled). */
 const DIRECTIVE_JOURNAL = /^SARS directive /;
 
 /**

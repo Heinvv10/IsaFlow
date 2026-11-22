@@ -20,7 +20,7 @@ import { approveCustomerInvoice } from '@/modules/accounting/services/ar/custome
 import { approveCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx, runOn } from './helpers/l1FifoFixture';
+import { dropFixtureMember, inTx, runOn, seedFixtureMember } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 import { untypeLines } from './helpers/lineVatFixture';
 import { applyCreditNoteTool } from '@/lib/mcp/tools/writeApplyCreditNote';
@@ -119,6 +119,8 @@ const revenueTakes = async (noteId: string) => sql`
 describeIfDisposable('per-line VAT writers, review round 8', () => {
   beforeAll(async () => {
     f = await seedLineRevenue(process.env.DATABASE_URL!);
+    // #1656: the MCP tools ask the token owner's module Approve from company_users, so the fixture's actor is a member (owner).
+    await seedFixtureMember(f.fx);
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     user = await createUser(pool, tokens);
     await pool.query('INSERT INTO company_users(company_id, user_id, role) VALUES($1, $2, $3)', [f.fx.companyId, user, 'owner']);
@@ -132,6 +134,7 @@ describeIfDisposable('per-line VAT writers, review round 8', () => {
       await sql`DELETE FROM mcp_tool_calls WHERE company_id = ${c}::UUID`;
     }
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [user]);
+    await dropFixtureMember(f.fx);
     await dropLineRevenue(f);
     await pool.query('DELETE FROM users WHERE id = $1', [user]);
     await pool.end();

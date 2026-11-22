@@ -18,7 +18,8 @@
 import { sql } from '@/lib/neon';
 import type { CompanyMeta } from './bureauWorkTypes';
 
-export type BureauRole = 'owner' | 'accountant' | 'viewer';
+import type { BureauRole } from '@/lib/auth/companyRoles';
+export type { BureauRole };
 export type AccountType = 'direct' | 'bureau_owner' | 'bureau_member';
 
 export interface Bureau {

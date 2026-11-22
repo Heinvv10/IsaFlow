@@ -65,6 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // same period. One read after the other: both run on the request's one
   // connection, and the producer takes a savepoint around its cash-flow read.
   const companyRow = await getCompanyName(companyId);
+  // census-exempt(readReportPackInput, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const { input: data, figures } = await readReportPackInput(
     companyId, companyRow?.name || 'Company', from, to,
   );

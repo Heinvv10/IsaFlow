@@ -64,6 +64,7 @@ function offCycleToolError(err: OffCycleRunRefusedError) {
 
 export const calculatePayRunTool: McpTool = {
   name: 'calculate_pay_run',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Cost an open pay run: apply the PAYE, UIF, SDL and ETI engines to every active employee '
     + 'and write the run lines. Posts NOTHING to the ledger — approve_pay_run does that. '

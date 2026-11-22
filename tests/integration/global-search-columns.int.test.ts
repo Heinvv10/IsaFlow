@@ -12,6 +12,9 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { setup, teardown, type Ctx } from './d8-r4-helpers';
 
+/** A caller with Payroll read: the route asks checkPermission and passes this; without it no employee is searched. */
+const WITH_EMPLOYEES = { includeEmployees: true };
+
 let c: Ctx;
 type Row = Record<string, unknown>;
 
@@ -118,18 +121,22 @@ describe.skipIf(!process.env.DATABASE_URL)('global search against the real schem
   }, 120000);
 
   it('finds an active employee by name or number, and never one that has left', async () => {
-    const byName = await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50);
+    const byName = await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50, WITH_EMPLOYEES);
     const [emp] = (await sql`SELECT id FROM payroll_employees WHERE employee_number = ${`E${c.fx.tag.slice(-12)}`}`) as Row[];
     expect(byName.filter((r) => r.type === 'employee').map((r) => [r.id, r.title, r.subtitle, r.url])).toEqual([
       [String(emp!.id), `Thandi${c.fx.tag} Nkosi`, `E${c.fx.tag.slice(-12)}`, `/payroll/employees/${String(emp!.id)}`],
     ]);
-    expect((await globalSearch(c.fx.companyId, `E${c.fx.tag.slice(-12)}`, 50)).filter((r) => r.type === 'employee')).toHaveLength(1);
+    expect((await globalSearch(c.fx.companyId, `E${c.fx.tag.slice(-12)}`, 50, WITH_EMPLOYEES)).filter((r) => r.type === 'employee')).toHaveLength(1);
     await sql`UPDATE payroll_employees SET status = 'terminated' WHERE id = ${String(emp!.id)}::UUID`;
     try {
-      expect((await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50)).filter((r) => r.type === 'employee')).toEqual([]);
+      expect((await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50, WITH_EMPLOYEES)).filter((r) => r.type === 'employee')).toEqual([]);
     } finally {
       await sql`UPDATE payroll_employees SET status = 'active' WHERE id = ${String(emp!.id)}::UUID`;
     }
+  }, 60000);
+
+  it('without Payroll read (the default) no employee is returned, even by exact name (#1656 round 7)', async () => {
+    expect((await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50)).filter((r) => r.type === 'employee')).toEqual([]);
   }, 60000);
 
   it('an employee in company B is never returned for company A, and the reverse', async () => {
@@ -140,11 +147,11 @@ describe.skipIf(!process.env.DATABASE_URL)('global search against the real schem
         VALUES (${o.fx.companyId}::UUID, ${`E${o.fx.tag.slice(-12)}`}, ${`Sipho${o.fx.tag}`}, 'Dlamini', '2026-01-01')`;
       const employees = (rows: { type: string; title: string }[]) => rows.filter((r) => r.type === 'employee').map((r) => r.title);
       // B's employee, searched by name and by number, as company A.
-      expect(employees(await globalSearch(c.fx.companyId, `Sipho${o.fx.tag}`, 50))).toEqual([]);
-      expect(employees(await globalSearch(c.fx.companyId, `E${o.fx.tag.slice(-12)}`, 50))).toEqual([]);
+      expect(employees(await globalSearch(c.fx.companyId, `Sipho${o.fx.tag}`, 50, WITH_EMPLOYEES))).toEqual([]);
+      expect(employees(await globalSearch(c.fx.companyId, `E${o.fx.tag.slice(-12)}`, 50, WITH_EMPLOYEES))).toEqual([]);
       // ...and A's as B; each company still finds its own.
-      expect(employees(await globalSearch(o.fx.companyId, `Thandi${c.fx.tag}`, 50))).toEqual([]);
-      expect(employees(await globalSearch(o.fx.companyId, `Sipho${o.fx.tag}`, 50))).toEqual([`Sipho${o.fx.tag} Dlamini`]);
+      expect(employees(await globalSearch(o.fx.companyId, `Thandi${c.fx.tag}`, 50, WITH_EMPLOYEES))).toEqual([]);
+      expect(employees(await globalSearch(o.fx.companyId, `Sipho${o.fx.tag}`, 50, WITH_EMPLOYEES))).toEqual([`Sipho${o.fx.tag} Dlamini`]);
     } finally {
       await sql`DELETE FROM payroll_employees WHERE company_id = ${o.fx.companyId}::UUID`;
       await teardown(o);

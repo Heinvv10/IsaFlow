@@ -52,6 +52,8 @@ export { calculatePayRunTool } from './writePayrollRunCalculate';
 
 export const approvePayRunTool: McpTool = {
   name: 'approve_pay_run',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
+  approveModule: 'payroll', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve a costed pay run AND POST its journal to the ledger — DR employment cost '
     + '(including employer UIF and SDL) / CR PAYE, UIF, SDL, deductions and net pay. '
