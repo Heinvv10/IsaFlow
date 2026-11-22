@@ -14,7 +14,9 @@ vi.mock('@/lib/apiFetch', async (orig) => ({
       supplierBalance: 300, isaflowBalance: 250, variance: 50, status: 'unreconciled', extractionError: null, retryable: false, pagesDone: null, pagesTotal: null,
       missingInIsaflowCount: 0, missingInStatementCount: 1, amountDiffCount: 0, openingBalance: null,
       lines: [{ id: 'l1', lineDate: '2026-08-01', reference: 'REF1', description: 'Goods', debit: 100, credit: 0, runningBalance: null,
-        matchedSupplierInvoiceId: 'inv1', matchedInvoiceNumber: 'INV-1', matchConfidence: 1, mismatchReason: null, isOpeningBalance: false }],
+        matchedSupplierInvoiceId: 'inv1', matchedInvoiceNumber: 'INV-1', matchConfidence: 1, mismatchReason: null, isOpeningBalance: false },
+        { id: 'l2', lineDate: '2026-08-05', reference: 'REF2', description: 'Payment', debit: 0, credit: 200, runningBalance: null,
+          matchedSupplierInvoiceId: null, matchedInvoiceNumber: null, matchConfidence: null, mismatchReason: 'missing_in_isaflow', isOpeningBalance: false }],
       missingInvoices: [{ invoiceId: 'inv2', invoiceNumber: 'INV-2', invoiceDate: '2026-08-02', totalAmount: 50 }],
       createdAt: '2026-09-01T00:00:00Z', reconciledAt: null,
     },
@@ -51,7 +53,7 @@ describe('AP statement detail on touch', () => {
   it('gives every control 44px on phones', async () => {
     render(<Page />);
     await screen.findByText('Goods');
-    for (const name of [/Back to statements/, /Rematch/, /Mark reconciled/, /Invoices not on statement/, /INV-1/]) {
+    for (const name of [/Back to statements/, /Rematch/, /Mark reconciled/, /Invoices not on statement/, /INV-1/, /Create invoice/]) {
       expect(screen.getByRole('button', { name }).className).toContain('max-lg:min-h-11');
     }
   });

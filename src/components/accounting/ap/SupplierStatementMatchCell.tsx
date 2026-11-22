@@ -41,7 +41,7 @@ export function MatchStatusCell({ line, opening = null }: { line: StatementLine;
       <div className="flex items-center gap-1.5">
         <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/30">Missing in IsaFlow</span>
         <div className="relative group/tip">
-          <button disabled className="text-xs text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)] px-2 py-0.5 rounded opacity-50 cursor-not-allowed">Create invoice</button>
+          <button disabled className="text-xs text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)] px-2 py-0.5 max-lg:min-h-11 rounded opacity-50 cursor-not-allowed">Create invoice</button>
           <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 px-2 py-1 rounded text-xs bg-gray-900 text-gray-200 whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity z-10">
             Phase 7 scope — create manually for now
           </span>
