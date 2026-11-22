@@ -30,6 +30,9 @@ export function summaryLines(r: MigrationReport): string[] {
     lines.push(`BUDGET: ${r.budgetWouldHaveFailed.length} purchase order(s) would have failed the budget check (skipped by --skip-budget-check):`);
     for (const x of r.budgetWouldHaveFailed) lines.push(`  ${x.poNumber}: ${x.reasons.join('; ') || 'no reason given'}`);
   }
+  lines.push(`PO lines linked to their item: ${r.lineLinks.linked}; not linked: ${r.lineLinks.notLinked.length}`);
+  for (const n of r.lineLinks.notLinked.slice(0, 20)) lines.push(`  line not linked: item ${n.reason}: ${n.poNumber} line ${n.line} (${n.itemCode}), sent with " [item ${n.itemCode}]" in its description`);
+  if (r.lineLinks.notLinked.length > 20) lines.push(`  ... and ${r.lineLinks.notLinked.length - 20} more not-linked lines (see the report file)`);
   for (const p of r.differences.purchaseOrders) {
     lines.push(`DIFFERS: ${p.poNumber} is already in IsaFlow with other figures than Sage (the stored PO is not changed): ${p.differences.map((d) => `${d.field} ${String(d.existing)} -> ${String(d.requested)}`).join('; ') || 'no detail given'}`);
   }

@@ -55,34 +55,12 @@ describe('rows the company\'s own data would make a tool refuse are refused here
     expect(planMigration(parsed(), allResolved(), none('sage', '900197')).refusals).toEqual([]);
     expect(planMigration(parsed(), allResolved(), none('pastel', '900197')).refusals).toHaveLength(1);
   });
-  it('F7b: a line whose description plus the item suffix passes 500 characters refuses its PO; nothing is cut', () => {
-    const p = parsed();
-    const long = 'x'.repeat(490); // " [item FIB-0001]" makes 506
-    const po0 = { ...p.purchaseOrders[0]!, lines: [{ ...p.purchaseOrders[0]!.lines[0]!, description: long }, ...p.purchaseOrders[0]!.lines.slice(1)] };
-    const plan = planMigration({ ...p, purchaseOrders: [po0, ...p.purchaseOrders.slice(1)] }, allResolved(), NONE);
-    const r = plan.refusals.find((x) => x.label === 'PO0000197')!;
-    expect(r).toMatchObject({ entity: 'purchase_order', code: 'line_description_too_long' });
-    expect(r.reasons[0]).toMatch(/line 1: .*506 characters.*500/);
-    expect(plan.purchaseOrders.map((x) => x.documentNumber)).not.toContain('PO0000197');
-    // Exactly 500 with its suffix is fine, and a line with no item may be 500 long on its own.
-    const fits = { ...po0, lines: [{ ...po0.lines[0]!, description: 'x'.repeat(500 - ' [item FIB-0001]'.length) }, ...po0.lines.slice(1)] };
-    expect(planMigration({ ...p, purchaseOrders: [fits] }, allResolved(), NONE).refusals).toEqual([]);
-  });
-  it('a refused item takes the POs that name it with it (line_item_refused), and the others are untouched', () => {
+  it('a refused item no longer takes the POs that name it: they are sent, the line goes unlinked with its suffix (sagePlanLinks.test.ts)', () => {
     const plan = planMigration(parsed(), allResolved(), held({ code: 'FIB-0001', system: 'sage', ref: '12345' }));
     expect(plan.items.map((i) => i.sageId)).not.toContain('50001');
-    const poRefused = plan.refusals.filter((r) => r.entity === 'purchase_order');
-    expect(poRefused.map((r) => [r.label, r.code]).sort()).toEqual([['PO0000197', 'line_item_refused'], ['PO0000202', 'line_item_refused']]);
-    expect(plan.purchaseOrders).toHaveLength(8);
-  });
-  it('an item the tool\'s validator refuses takes its POs too, and a PO line carries only a SENT item\'s code', () => {
-    const p = parsed();
-    const bad = { ...p, items: p.items.map((i) => (i.id === '50005' ? { ...i, code: '' } : i)) };
-    const plan = planMigration(bad, allResolved(), NONE);
-    expect(plan.refusals.filter((r) => r.entity === 'purchase_order').map((r) => r.code)).toEqual(['line_item_refused', 'line_item_refused', 'line_item_refused']);
-    const sent = JSON.stringify(plan.purchaseOrders.map((x) => x.element));
-    expect(sent).not.toContain('[item SVC-005]');
-    expect(sent).toContain('[item FIB-0001]');
+    expect(plan.refusals.filter((r) => r.entity === 'purchase_order')).toEqual([]);
+    expect(plan.purchaseOrders).toHaveLength(10);
+    expect(plan.lineLinks.notLinked.map((x) => [x.poNumber, x.itemCode, x.reason])).toEqual([['PO0000197', 'FIB-0001', 'refused'], ['PO0000202', 'FIB-0001', 'refused']]);
   });
 });
 
@@ -107,10 +85,11 @@ describe('a category name an IsaFlow category the migration does not own holds',
     expect(p.items.map((i) => i.sageId)).toHaveLength(20 - optics.length);
     expect(p.items.map((i) => i.sageId)).toContain('50013'); // FIB-0013 has no category
   });
-  it('the POs naming a refused item follow it (line_item_refused), the rest are sent', () => {
+  it('the POs naming an item of that category are sent, those lines unlinked as refused', () => {
     const p = plan(cats({ id: 'c1', name: 'Optics', system: null, ref: null }));
-    expect(p.refusals.filter((x) => x.entity === 'purchase_order').every((x) => x.code === 'line_item_refused')).toBe(true);
-    expect(p.refusals.filter((x) => x.entity === 'purchase_order').length).toBeGreaterThan(0);
+    expect(p.refusals.filter((x) => x.entity === 'purchase_order')).toEqual([]);
+    expect(p.lineLinks.notLinked.length).toBeGreaterThan(0);
+    expect(p.lineLinks.notLinked.every((x) => x.reason === 'refused')).toBe(true);
   });
   it('the migration\'s OWN category (this Sage id) is no conflict, even under another name (the tool renames it)', () => {
     expect(plan(cats({ id: 'c1', name: 'Optics', system: 'sage', ref: '10' })).refusals).toEqual([]);

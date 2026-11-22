@@ -146,7 +146,7 @@ describe('#10: external_system is compared exactly as the item and category tool
     const r = await run();
     expect(r.status).toBe('completed');
     expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0001', 'code_held_by_existing_item']]);
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 8 }); // 19 + the one that was there; POs naming FIB-0001 follow it
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 }); // 19 + the one that was there; the POs naming FIB-0001 go with that line unlinked
   });
   it('B1c: a category stored with external_system "Sage" is not owned: refused category_name_in_use, its items category_refused, dry run clean', async () => {
     await pool.query(`INSERT INTO item_categories (company_id, name, external_system, external_ref) VALUES ($1, 'Optics', 'Sage', '10')`, [s.companyId]);
@@ -228,6 +228,50 @@ describe('#8: replayed categories whose rows are gone', () => {
   });
 });
 
+describe('item links (#1740): a line the plan is not sure of goes without item_code and cannot cost its batch', () => {
+  const lineRows = async (po: string) => (await pool.query(
+    `SELECT p.description, i.code AS item_code FROM po_items p JOIN purchase_orders o ON o.id = p.purchase_order_id LEFT JOIN items i ON i.id = p.item_id
+      WHERE o.company_id = $1 AND o.po_number = $2 ORDER BY p.sort_order`, [s.companyId, po])).rows as Array<{ description: string; item_code: string | null }>;
+
+  it('an inactive item and a refused item on lines of a 10-PO batch: every PO is booked, those lines unlinked with the suffix, the others linked', async () => {
+    const file = exportFile();
+    rowsOf(file)[0] = { ...rowsOf(file)[0], Active: false }; // 50001 imports inactive
+    rowsOf(file)[4] = { ...rowsOf(file)[4], TaxTypeIdSales: 9 }; // 50005 is refused
+    const po3 = posOf(file)[2]!; // PO0000199: its first line names an ACTIVE item (50002), in the same batch as the unlinked ones
+    posOf(file)[2] = { ...po3, Lines: [{ ...(po3.Lines as Row[])[0], ItemId: 50002 }, ...(po3.Lines as Row[]).slice(1)] };
+    const r = await run({ poBatchSize: 100 }, file);
+    expect(r.status).toBe('completed');
+    expect(await booked(pool, s.companyId)).toMatchObject({ pos: 10 });
+    expect(r.live!.purchaseOrders.batches).toHaveLength(1);
+    expect(r.live!.purchaseOrders.batches[0]!.status).toBe('ok');
+    expect(await lineRows('PO0000197')).toEqual([
+      { description: 'Fibre cable drum (PO 197) [item FIB-0001]', item_code: null }, // inactive
+      { description: 'Delivery charge', item_code: null },
+      { description: 'Installation visit [item SVC-005]', item_code: null }, // refused
+    ]);
+    expect((await lineRows('PO0000199'))[0]).toEqual({ description: 'Fibre cable drum (PO 199)', item_code: 'FIB-0002' }); // linked, same batch
+    expect(r.lineLinks.linked).toBe(1);
+    expect(r.lineLinks.notLinked.map((x) => [x.poNumber, x.itemCode, x.reason]).sort()).toEqual([
+      ['PO0000197', 'FIB-0001', 'inactive'], ['PO0000197', 'SVC-005', 'refused'], ['PO0000201', 'SVC-005', 'refused'],
+      ['PO0000202', 'FIB-0001', 'inactive'], ['PO0000205', 'SVC-005', 'refused'],
+    ]);
+    expect(summaryLines(r).join('\n')).toMatch(/line not linked: item inactive: PO0000197 line 1 \(FIB-0001\)/);
+  });
+
+  it('a re-run once the item is active names the new links as differences (lines[0].item_id), changes nothing, and blocks live unless allowed', async () => {
+    const inactive = exportFile();
+    rowsOf(inactive)[0] = { ...rowsOf(inactive)[0], Active: false };
+    await run({}, inactive);
+    expect((await lineRows('PO0000197'))[0]!.item_code).toBeNull();
+    const r = await run({ allowDifferences: false }, exportFile());
+    expect(r.status).toBe('live_blocked');
+    const d = r.differences.purchaseOrders.find((x) => x.poNumber === 'PO0000197')!;
+    expect(d.differences).toEqual([expect.objectContaining({ field: 'lines[0].item_id', existing: null })]);
+    expect((await lineRows('PO0000197'))[0]!.item_code).toBeNull(); // a PO found already there is never changed
+    expect(r.differences.items).toEqual([{ code: 'FIB-0001', changed: ['is_active'] }]);
+  });
+});
+
 describe('a PO of an inactive supplier', () => {
   it('is refused supplier_inactive per row; the other suppliers\' POs are booked', async () => {
     await pool.query('UPDATE suppliers SET is_active = false WHERE id = $1', [s.suppliers.bravo]);
@@ -260,13 +304,14 @@ describe('what the company already holds', () => {
     expect(exitCodeFor(r, false)).toBe(1);
   });
 
-  it('a code held by an item with another Sage reference is refused for that item, and so are the POs naming it', async () => {
+  it('a code held by an item with another Sage reference is refused for that item; the POs naming it are booked, those lines unlinked', async () => {
     await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'FIB-0001', 'someone else', 'sage', '1')`, [s.companyId]);
     const r = await run();
     expect(r.status).toBe('completed');
     expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0001', 'code_held_by_existing_item']]);
-    expect(r.refused.filter((x) => x.entity === 'purchase_order').map((x) => [x.label, x.code])).toEqual([['PO0000197', 'line_item_refused'], ['PO0000202', 'line_item_refused']]);
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 8 }); // 19 imported + the one that was there
+    expect(r.refused.filter((x) => x.entity === 'purchase_order')).toEqual([]);
+    expect(r.lineLinks.notLinked.map((x) => [x.poNumber, x.itemCode, x.reason])).toEqual([['PO0000197', 'FIB-0001', 'refused'], ['PO0000202', 'FIB-0001', 'refused']]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 }); // 19 imported + the one that was there
   });
 
   it('a DELETED item with the code is read from the books too: item_deleted for that row, the rest booked', async () => {

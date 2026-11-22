@@ -115,25 +115,44 @@ describe('line VAT is the rate that applied on the PO date (14% before 2018-04-0
   });
 });
 
-describe('an item a PO line names must be one that is imported', () => {
-  it('itemCodes holds only the rows that survive: a refused or duplicated item is not in it', () => {
+describe('the item codes a PO line may be suffixed with, and the items a line may name', () => {
+  it('itemCodes holds every item row with a readable ID and Code, refused or duplicated ones included (the plan decides the link)', () => {
     const f = fixture();
     f.Items.$resources[2] = { ...f.Items.$resources[2], TaxTypeIdSales: 9 }; // 50003 refused
     f.Items.$resources[4] = { ...f.Items.$resources[4], Code: f.Items.$resources[3]!.Code }; // 50004 and 50005 duplicated
     const p = parseSageExport(f);
-    expect(Object.keys(p.itemCodes)).not.toEqual(expect.arrayContaining(['50003']));
-    expect(p.itemCodes['50004']).toBeUndefined();
-    expect(p.itemCodes['50005']).toBeUndefined();
+    expect(p.itemCodes['50003']).toBe('FIB-0003');
+    expect(p.itemCodes['50004']).toBe('FIB-0004');
+    expect(p.itemCodes['50005']).toBe('FIB-0004');
     expect(p.itemCodes['50001']).toBe('FIB-0001');
   });
-  it('a PO whose line names a refused item is refused with line_item_refused (not line_item_unknown)', () => {
+  it('an item row whose Code is unreadable (NUL, empty, too long) has no code to name it by', () => {
     const f = fixture();
-    f.Items.$resources[4] = { ...f.Items.$resources[4], Code: f.Items.$resources[3]!.Code }; // 50005 (named by POs 197, 201, 205) duplicated
+    f.Items.$resources[0] = { ...f.Items.$resources[0], Code: 'a\u0000b' };
+    f.Items.$resources[1] = { ...f.Items.$resources[1], Code: '' };
+    f.Items.$resources[2] = { ...f.Items.$resources[2], Code: 'x'.repeat(51) };
     const p = parseSageExport(f);
-    const refused = p.refusals.filter((r) => r.entity === 'purchase_order');
-    expect(refused.length).toBeGreaterThan(0);
+    expect([p.itemCodes['50001'], p.itemCodes['50002'], p.itemCodes['50003']]).toEqual([undefined, undefined, undefined]);
+  });
+  it('a PO naming a refused item WITH a readable code is accepted by the parser (its line goes unlinked in the plan)', () => {
+    const f = fixture();
+    f.Items.$resources[4] = { ...f.Items.$resources[4], TaxTypeIdSales: 9 }; // 50005, named by POs 197, 201, 205
+    const p = parseSageExport(f);
+    expect(p.refusals.filter((r) => r.entity === 'purchase_order')).toEqual([]);
+    expect(p.purchaseOrders).toHaveLength(10);
+  });
+  it('a PO naming a refused item with NO readable code is refused line_item_refused: there is nothing to name it by', () => {
+    const f = fixture();
+    f.Items.$resources[4] = { ...f.Items.$resources[4], Code: 'a\u0000b' };
+    const refused = parseSageExport(f).refusals.filter((r) => r.entity === 'purchase_order');
+    expect(refused.map((r) => r.label).sort()).toEqual(['PO0000197', 'PO0000201', 'PO0000205']);
     expect(refused.every((r) => r.code === 'line_item_refused')).toBe(true);
-    expect(refused[0]!.reasons[0]).toMatch(/names item 50005, which is refused/);
+    expect(refused[0]!.reasons[0]).toMatch(/names item 50005, which is refused and has no readable Code/);
+  });
+  it('a PO naming an item the export does not contain is refused line_item_unknown', () => {
+    const f = fixture();
+    f.PurchaseOrders[1] = { ...f.PurchaseOrders[1], Lines: [{ ...(f.PurchaseOrders[1]!.Lines as Row[])[0], ItemId: 777777 }] };
+    expect(parseSageExport(f).refusals.map((r) => r.code)).toEqual(['line_item_unknown']);
   });
 });
 

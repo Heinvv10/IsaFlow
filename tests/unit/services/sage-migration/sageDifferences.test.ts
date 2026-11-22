@@ -35,7 +35,7 @@ describe('exit code and summary with differences', () => {
   const base = (): MigrationReport => ({
     companyId: 'c', status: 'completed', refused: [], budgetWouldHaveFailed: [], live: null,
     dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-    differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [],
+    differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, notLinked: [] },
     reconciliation: {
       items: { presentBefore: 3 }, purchaseOrders: { exportTotalCents: 0, sentTotalCents: 0, notSentTotalCents: 0, bookedTotalCents: 0, differenceCents: 0, exportRowsWithoutTotal: 0 },
       expected: { items: null, purchaseOrders: null, purchaseOrderTotalCents: null }, stock: { written: 0, itemsWithQuantityOnHandIgnored: 0 },
@@ -93,5 +93,16 @@ describe('exit code and summary with differences', () => {
     const t = summaryLines(r).join('\n');
     expect(t).toContain('company c: live_blocked');
     expect(t).toContain('LIVE NOT STARTED: --expect-pos 3, but the dry run would send 10');
+  });
+
+  it('the summary counts linked lines and lists each line not linked, with why', () => {
+    const r: MigrationReport = { ...base(), lineLinks: { linked: 3, notLinked: [
+      { poNumber: 'PO1', line: 2, itemCode: 'A-1', reason: 'inactive' }, { poNumber: 'PO2', line: 1, itemCode: 'B-2', reason: 'refused' },
+    ] } };
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain('PO lines linked to their item: 3; not linked: 2');
+    expect(t).toContain('line not linked: item inactive: PO1 line 2 (A-1), sent with " [item A-1]" in its description');
+    expect(t).toContain('line not linked: item refused: PO2 line 1 (B-2)');
+    expect(summaryLines(base()).join('\n')).toContain('PO lines linked to their item: 0; not linked: 0');
   });
 });

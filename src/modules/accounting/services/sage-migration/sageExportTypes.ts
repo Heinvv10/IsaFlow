@@ -82,7 +82,7 @@ export interface ParsedExport {
   items: SageItem[];
   purchaseOrders: SagePurchaseOrder[];
   refusals: RowRefusal[];
-  /** Sage item ID -> item Code, for every item row with a usable ID and Code (a PO line names its item by it). */
+  /** Sage item ID -> item Code, for every item row with a readable ID and Code, refused ones included (a PO line without a link is suffixed with it). */
   itemCodes: Record<string, string>;
   /** Rows read per entity, accepted or refused. */
   rowsIn: { items: number; purchaseOrders: number };

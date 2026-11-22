@@ -11,7 +11,7 @@
  */
 import type { ParsedExport, RowRefusal } from './sageExportTypes';
 import { mapSageCategory, mapSageItem } from './sageItemMapping';
-import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder } from './sagePurchaseOrderMapping';
+import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder, type ItemLink } from './sagePurchaseOrderMapping';
 import type { SupplierResolution } from './sageSuppliers';
 import { byStableKey } from './sageBatches';
 import { SAGE_SYSTEM } from './sageItemMapping';
@@ -22,11 +22,17 @@ import { parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 export interface PlannedItem { sageId: string; row: Record<string, unknown> }
 export interface PlannedPo { sageId: string; documentNumber: string; totalCents: number; element: Record<string, unknown>; pdfFile: string | null }
 
+export type NotLinkedReason = 'inactive' | 'refused';
+/** A line that names an item but is sent WITHOUT item_code (the item is inactive or refused): it keeps the item's code as a suffix. */
+export interface NotLinkedLine { poNumber: string; line: number; itemCode: string; reason: NotLinkedReason }
+
 export interface MigrationPlan {
   categories: Array<Record<string, unknown>>;
   items: PlannedItem[];
   purchaseOrders: PlannedPo[];
   refusals: RowRefusal[];
+  /** PO lines (of the POs that are sent) linked to their item by item_code, and those that are not, with why. */
+  lineLinks: { linked: number; notLinked: NotLinkedLine[] };
 }
 
 export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'>;
@@ -51,6 +57,18 @@ function itemConflict(sageId: string, code: string, items: readonly ExistingItem
   return null;
 }
 
+/** Whether a PO line naming Sage item `id` is linked by item_code, and the code to name it by. */
+function linkFor(
+  id: string, sent: ReadonlyMap<string, { code: string; active: boolean }>, existing: readonly ExistingItem[], displayCodes: Readonly<Record<string, string>>,
+): { code: string; link: true } | { code: string; link: false; reason: NotLinkedReason } {
+  const s = sent.get(id);
+  if (s) return s.active ? { code: s.code, link: true } : { code: s.code, link: false, reason: 'inactive' };
+  // Not sent this run: only an item already in the books, owned by the migration, can be linked (by the code IsaFlow holds it under).
+  const owned = existing.find((i) => i.system === SAGE_SYSTEM && i.ref === id && !i.deleted);
+  if (owned) return owned.isActive ? { code: owned.code, link: true } : { code: owned.code, link: false, reason: 'inactive' };
+  return { code: displayCodes[id]!, link: false, reason: 'refused' };
+}
+
 export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string; skipBudgetCheck?: boolean } = {}): MigrationPlan {
   const refusals: RowRefusal[] = [...parsed.refusals];
 
@@ -66,8 +84,8 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
   }
 
   const items: PlannedItem[] = [];
-  /** The items that will really be sent: the only ones a PO line may name. */
-  const sentCodes: Record<string, string> = {};
+  /** The items that will really be sent (id -> code, active): a PO line is linked to one of these only when it is active. */
+  const sent = new Map<string, { code: string; active: boolean }>();
   const usedCategories = new Set<string>();
   for (const item of byStableKey(parsed.items, (i) => i.id)) {
     if (item.category && refusedCategories.has(item.category.id)) {
@@ -92,30 +110,42 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       continue;
     }
     items.push({ sageId: item.id, row });
-    sentCodes[item.id] = item.code;
+    sent.set(item.id, { code: item.code, active: item.active });
     if (item.category) usedCategories.add(item.category.id);
   }
   // Only categories an item that is being sent uses.
   const categories = byStableKey(parsed.categories.filter((c) => usedCategories.has(c.id)), (c) => c.id).map(mapSageCategory);
 
   const purchaseOrders: PlannedPo[] = [];
+  const lineLinks: MigrationPlan['lineLinks'] = { linked: 0, notLinked: [] };
   for (const po of byStableKey(parsed.purchaseOrders, (p) => p.id)) {
     const supplier = suppliers.get(po.supplierId);
     const refuse = (code: string, reason: string) => refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code, reasons: [reason] });
     if (!supplier) { refuse('supplier_unresolved', `supplier ${po.supplierId} was not looked up`); continue; }
     if (!('id' in supplier)) { refuse(supplier.code, supplier.reason); continue; }
     if (existing.inactiveSuppliers.has(supplier.id)) { refuse('supplier_inactive', `supplier ${supplier.id} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
-    const unsent = po.lines.find((l) => l.itemId !== null && !Object.hasOwn(sentCodes, l.itemId));
-    if (unsent) { refuse('line_item_refused', `a line names item ${unsent.itemId}, which is refused and so is not imported`); continue; }
     const holder = existing.poNumbers.get(po.documentNumber);
     if (holder && !(holder.system === SAGE_SYSTEM && holder.ref === po.id)) {
       refuse('po_number_taken', `${po.documentNumber} already belongs to a purchase order (${holder.ref ? `${holder.system} ${holder.ref}` : 'no external reference'}); the tool would refuse the whole batch`);
       continue;
     }
-    const tooLong = po.lines.map((l, n) => ({ n, len: l.description.length + (l.itemId !== null && sentCodes[l.itemId] ? ` [item ${sentCodes[l.itemId]}]`.length : 0) }))
+    // The plan's decision for each item a line names: linked by item_code (the item is sent and active, or present, owned and active),
+    // or not linked (inactive; refused) and then it keeps " [item CODE]". The PO tool refuses a WHOLE batch for an inactive or unknown
+    // item, so a line the plan is not sure of must go without item_code. An item with no readable code at all cannot be named.
+    const links: Record<string, ItemLink> = {};
+    const notLinked: NotLinkedLine[] = [];
+    let linked = 0;
+    for (const [n, l] of po.lines.entries()) {
+      if (l.itemId === null) continue;
+      const decision = linkFor(l.itemId, sent, existing.items, parsed.itemCodes);
+      links[l.itemId] = { code: decision.code, link: decision.link };
+      if (decision.link) linked++;
+      else notLinked.push({ poNumber: po.documentNumber, line: n + 1, itemCode: decision.code, reason: decision.reason });
+    }
+    const tooLong = po.lines.map((l, n) => ({ n, len: l.description.length + (l.itemId !== null && !links[l.itemId]?.link ? ` [item ${links[l.itemId!]!.code}]`.length : 0) }))
       .find((x) => x.len > MAX_LINE_DESCRIPTION);
     if (tooLong) { refuse('line_description_too_long', `line ${tooLong.n + 1}: the description with its item code is ${tooLong.len} characters, over the ${MAX_LINE_DESCRIPTION} a PO line takes (nothing is cut)`); continue; }
-    const element = mapSagePurchaseOrder(po, supplier.id, sentCodes, opts.poGlAccountId);
+    const element = mapSagePurchaseOrder(po, supplier.id, links, opts.poGlAccountId);
     // Under the block policy the PO tool refuses the WHOLE batch for any approved PO with an account-less line (unless the budget check
     // is skipped): refused here, per row, so the dry run does not fail on it.
     if (existing.budgetPolicy === 'block' && !opts.skipBudgetCheck && !opts.poGlAccountId && element.status === 'open') {
@@ -125,6 +155,8 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile });
+    lineLinks.linked += linked;
+    lineLinks.notLinked.push(...notLinked);
   }
-  return { categories, items, purchaseOrders, refusals };
+  return { categories, items, purchaseOrders, refusals, lineLinks };
 }

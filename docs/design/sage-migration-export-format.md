@@ -48,9 +48,15 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 | `Lines[].Description`, `Quantity` (> 0, 2 dp), `UnitPriceExclusive` | required | `description`, `quantity`, `unit_price` |
 | `Lines[].TaxPercentage` / `TaxTypeId` | one of them; both must agree. The rate is the one that applied on the PO date: standard 14% before 2018-04-01, 15% from then; a percentage is that rate or 0, any other is refused | `tax_rate` |
 | `Lines[].Exclusive`, `Tax` | optional, whole cents | `line_total`, `tax_amount` |
-| `Lines[].ItemId` (alias `SelectionId`) | optional; must be an item in the file | " [item CODE]" appended to the description |
+| `Lines[].ItemId` (alias `SelectionId`) | optional; must be an item in the file | `item_code` on the line (links `po_items.item_id`), see below |
 
-The PO tool has no `item_id` on a line, so the link to the item is the code in the description until it has one.
+**Item links.** `bulk_create_purchase_orders` takes `item_code` on a line and refuses the WHOLE batch for an unknown, inactive or other-company
+item, so the plan sends `item_code` only for an item it knows is active and sent in this run, or already present, owned by Sage and active
+(then by the code IsaFlow holds it under). Any other line goes WITHOUT `item_code`, keeps " [item CODE]" in its description (the Sage
+code stays readable) and is counted in the report as "line not linked: item inactive" or "item refused"; one such line cannot cost its
+batch. A linked line has no suffix. An item the export does not contain still refuses the PO (`line_item_unknown`). A PO found already
+there is never changed, so re-running a file imported before the links existed (or while the item was inactive) lists each new link as a
+difference (`lines[i].item_id`) rather than adding it.
 
 ## Refusals
 
@@ -59,7 +65,7 @@ A row is refused with a code and every reason: `invalid_row`, `duplicate_id`, `d
 `supplier_ambiguous` (also when a supplier name search hits its 1000-row cap), `line_item_refused` (a line names an item that is
 refused), `category_name_in_use` (an IsaFlow category the migration did not import holds the name, case-insensitively; it is never renamed or adopted) with its items `category_refused`, `code_held_by_existing_item` (an item the migration did not import holds the code, with or without a reference, deleted or not:
 the migration only ever updates an item it owns, never one it matched by code), `ref_code_conflict`, `item_deleted`,
-`line_description_too_long` (a description with its " [item CODE]" passes 500: nothing is cut), `supplier_ref_conflict` (the
+`line_description_too_long` (an UNLINKED line's description with its " [item CODE]" passes 500: nothing is cut), `supplier_ref_conflict` (the
 supplier of that name already carries another Sage reference), `foreign_currency`, `po_number_taken` (another PO carries the number), `tool_refuses` (the item or PO tool's own
 validator). A refused row is reported and not sent; the rest of the file goes on. A batch a tool refuses as a whole (a budget
 block, a race) fails the dry run, so nothing is written; its whole message is in the report file, the console shows its start.

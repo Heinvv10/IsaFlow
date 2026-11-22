@@ -7,10 +7,11 @@
  *   - an ID or a Code (item), an ID or a DocumentNumber (PO) used by more than one row refuses EVERY row that uses it;
  *   - a category ID described two ways, or two category IDs with one name (case-insensitive), refuses the later items;
  *   - a PO status outside the table refuses the PO, and so does a line naming an item the export does not contain (`line_item_unknown`)
- *     or one that is refused and so never imported (`line_item_refused`).
+ *     or one refused with no readable Code to name it by (`line_item_refused`). A line naming an item that is refused but has a
+ *     readable code is the PLAN's business: the line goes unlinked (sageMigrationPlan).
  */
 import type { ParsedExport, RowRefusal, SageCategory, SageItem, SagePurchaseOrder } from './sageExportTypes';
-import { isRaw } from './sageValues';
+import { invalidTextProblem, isRaw } from './sageValues';
 import { parseSageItem } from './sageItemParser';
 import { parseSagePurchaseOrder } from './sagePurchaseOrderParser';
 import { importStatusFor } from './sagePoStatus';
@@ -114,15 +115,21 @@ export function parseSageExport(file: unknown): ParsedExport {
   const poRows = rowsOf(file.PurchaseOrders, 'PurchaseOrders');
   const refusals: RowRefusal[] = [];
   const knownIds = new Set<string>();
+  /** Every item row with a readable ID and Code, refused or not: what a PO line's suffix names. */
+  const itemCodes: Record<string, string> = {};
   let itemsWithQuantityOnHand = 0;
 
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
     const r = parseSageItem(raw, i);
-    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
+    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] = r.value.code; if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
     else {
       refusals.push(r.refusal);
-      if (r.refusal.sageId) knownIds.add(r.refusal.sageId);
+      if (r.refusal.sageId) {
+        knownIds.add(r.refusal.sageId);
+        const code = isRaw(raw) && typeof raw.Code === 'string' ? raw.Code.trim() : '';
+        if (code !== '' && code.length <= 50 && invalidTextProblem(code) === null) itemCodes[r.refusal.sageId] = code;
+      }
     }
   });
   const uniqueItems = dedupe(items, (i) => i.id, (i) => i.code, 'item', [
@@ -132,8 +139,6 @@ export function parseSageExport(file: unknown): ParsedExport {
   refusals.push(...uniqueItems.refusals);
   const cats = itemCategories(uniqueItems.kept);
   refusals.push(...cats.refusals);
-  // The codes a PO line may name: the items that SURVIVE every check, nothing else (a refused or duplicated item is never imported).
-  const itemCodes = Object.fromEntries(cats.kept.map((i) => [i.id, i.code]));
 
   const pos: SagePurchaseOrder[] = [];
   let exportPoTotalCents = 0;
@@ -155,8 +160,9 @@ export function parseSageExport(file: unknown): ParsedExport {
     if (!importStatusFor(po.status)) reasons.push(`Status "${po.status}" is not one of Pending, Overdue, Invoiced, Cancelled`);
     for (const [n, l] of po.lines.entries()) {
       if (l.itemId === null || Object.hasOwn(itemCodes, l.itemId)) continue;
+      // An item with no readable code cannot be named on the line at all (the suffix needs it): refused, or not in the export.
       reasons.push(knownIds.has(l.itemId)
-        ? `Lines[${n}] names item ${l.itemId}, which is refused and so is not imported`
+        ? `Lines[${n}] names item ${l.itemId}, which is refused and has no readable Code to name it by`
         : `Lines[${n}] names item ${l.itemId}, which the export does not contain`);
     }
     if (reasons.length === 0) purchaseOrders.push(po);

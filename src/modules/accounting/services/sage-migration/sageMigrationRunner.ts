@@ -97,7 +97,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   });
   const all = planBatches(plan, opts);
   const dry = await dryRun(pool, opts, all, before);
-  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
+  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, lineLinks: plan.lineLinks };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   const dryDifferences = differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches]);
   const dryReconciliation = buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false });

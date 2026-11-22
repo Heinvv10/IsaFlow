@@ -127,7 +127,22 @@ describe('the live run', () => {
     expect(rows[0]).toMatchObject({ external_system: 'sage', external_ref: '900197', external_document_number: 'PO0000197', d: '2026-01-10', reference: 'JOB-400' });
     expect(rows[3]!.notes).toBe('Sage status: Overdue\nUrgent: chase supplier');
     const line = (await pool.query(`SELECT description FROM po_items WHERE purchase_order_id = (SELECT id FROM purchase_orders WHERE company_id = $1 AND po_number = 'PO0000197') ORDER BY sort_order, id`, [s.companyId])).rows;
-    expect(line.map((l) => l.description)).toContain('Fibre cable drum (PO 197) [item FIB-0001]');
+    expect(line.map((l) => l.description)).toContain('Fibre cable drum (PO 197)'); // linked: no suffix
+  });
+
+  it('linked lines have po_items.item_id set to the imported item; free-text lines have none; the report counts them', async () => {
+    const rows = (await pool.query(
+      `SELECT o.po_number, p.sort_order, p.description, i.code AS item_code, i.external_ref FROM po_items p JOIN purchase_orders o ON o.id = p.purchase_order_id
+         LEFT JOIN items i ON i.id = p.item_id WHERE o.company_id = $1 AND p.item_id IS NOT NULL ORDER BY o.po_number, p.sort_order`, [s.companyId])).rows;
+    expect(rows.map((r) => [r.po_number, r.item_code, r.external_ref])).toEqual([
+      ['PO0000197', 'FIB-0001', '50001'], ['PO0000197', 'SVC-005', '50005'], ['PO0000201', 'SVC-005', '50005'],
+      ['PO0000202', 'FIB-0001', '50001'], ['PO0000205', 'SVC-005', '50005'],
+    ]);
+    expect(rows.some((r) => /\[item /.test(r.description))).toBe(false);
+    const unlinked = (await pool.query(
+      `SELECT count(*)::INT AS n FROM po_items p JOIN purchase_orders o ON o.id = p.purchase_order_id WHERE o.company_id = $1 AND p.item_id IS NULL`, [s.companyId])).rows[0].n;
+    expect(unlinked).toBe(18 - 5); // the fixture's 18 lines, 5 of them name an item
+    expect(report.lineLinks).toEqual({ linked: 5, notLinked: [] });
   });
 
   it('the report lists the PDFs still to attach and the batches with their keys', () => {

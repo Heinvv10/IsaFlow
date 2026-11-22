@@ -15,6 +15,7 @@ export interface ExistingItem {
   deleted: boolean;
   itemType: string;
   inventoryTracked: boolean;
+  isActive: boolean;
   /** The item has stock_movements rows: its type and tracking are no longer free to change. */
   hasMovements: boolean;
 }
@@ -47,10 +48,10 @@ export interface Snapshot {
 
 export async function readSnapshot(companyId: string): Promise<Snapshot> {
   const items = (await sql`
-    SELECT i.id::TEXT AS id, i.code, i.external_system, i.external_ref, (i.deleted_at IS NOT NULL) AS deleted, i.item_type, i.inventory_tracked,
+    SELECT i.id::TEXT AS id, i.code, i.external_system, i.external_ref, (i.deleted_at IS NOT NULL) AS deleted, i.item_type, i.inventory_tracked, i.is_active,
            EXISTS (SELECT 1 FROM stock_movements m WHERE m.company_id = i.company_id AND m.item_id = i.id) AS has_movements
       FROM items i WHERE i.company_id = ${companyId}::UUID
-  `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean; item_type: string; inventory_tracked: boolean; has_movements: boolean }>;
+  `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean; item_type: string; inventory_tracked: boolean; is_active: boolean; has_movements: boolean }>;
   // PO and supplier reference lookups of the tools are case-insensitive (lower(external_system)), so they are read the same way here.
   const pos = (await sql`
     SELECT po_number, lower(external_system) AS external_system, external_ref, round(total * 100)::BIGINT AS cents FROM purchase_orders
@@ -69,7 +70,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     // The item and category tools compare external_system EXACTLY (case-sensitive 'sage'): a row stored as 'Sage' is not theirs, nor ours.
     id: String(r.id), code: r.code, system: r.external_system,
     ref: r.external_ref === null ? null : String(r.external_ref), deleted: r.deleted === true,
-    itemType: String(r.item_type), inventoryTracked: r.inventory_tracked === true, hasMovements: r.has_movements === true,
+    itemType: String(r.item_type), inventoryTracked: r.inventory_tracked === true, isActive: r.is_active !== false, hasMovements: r.has_movements === true,
   }));
   return {
     itemRefs: new Set(existing.filter((i) => i.system === 'sage' && i.ref !== null && !i.deleted).map((i) => i.ref!)),

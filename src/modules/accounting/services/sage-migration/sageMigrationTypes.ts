@@ -1,5 +1,6 @@
 /** The shapes of a migration run's report. Plain data: it is written to a JSON file and read by a person. */
 import type { RowRefusal } from './sageExportTypes';
+import type { NotLinkedLine } from './sageMigrationPlan';
 
 export type BatchEntity = 'category' | 'item' | 'purchase_order';
 
@@ -76,6 +77,8 @@ export interface MigrationReport {
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
   /** With skip_budget_check_for_import: the POs the budget check would have blocked, with its reasons (live run, else dry run). */
   budgetWouldHaveFailed: Array<{ poNumber: string; reasons: string[] }>;
+  /** PO lines (of the POs sent) linked to their item by item_code, and those sent without it because the item is inactive or refused. */
+  lineLinks: { linked: number; notLinked: NotLinkedLine[] };
   /** A re-run's findings (live run, else dry run): POs already there with other figures (not changed), owned items that Sage's values would change. */
   differences: {
     purchaseOrders: Array<{ poNumber: string; differences: Array<{ field: string; existing: unknown; requested: unknown }> }>;

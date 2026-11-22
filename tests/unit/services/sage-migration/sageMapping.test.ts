@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 import { mapSageCategory, mapSageItem } from '@/modules/accounting/services/sage-migration/sageItemMapping';
-import { mapSagePurchaseOrder } from '@/modules/accounting/services/sage-migration/sagePurchaseOrderMapping';
+import { mapSagePurchaseOrder, suffixedDescription } from '@/modules/accounting/services/sage-migration/sagePurchaseOrderMapping';
 import { importStatusFor, OPEN_SAGE_PO_IMPORTED_AS, statusTableFor } from '@/modules/accounting/services/sage-migration/sagePoStatus';
 import { validateItemFields } from '@/modules/accounting/services/items/itemFieldValidation';
 import { IMPORT_STATUS_ALIASES, parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
@@ -97,7 +97,8 @@ describe('F7e: how a Pending or Overdue Sage PO is imported is one decision', ()
 
 describe('purchase order mapping', () => {
   const p = parsed();
-  const map = (n: number) => mapSagePurchaseOrder(p.purchaseOrders[n]!, SUPPLIER, p.itemCodes);
+  const links = (link: boolean) => Object.fromEntries(Object.entries(p.itemCodes).map(([id, code]) => [id, { code, link }]));
+  const map = (n: number, link = true) => mapSagePurchaseOrder(p.purchaseOrders[n]!, SUPPLIER, links(link));
 
   it('every fixture PO maps to an element the PO tool\'s own parser accepts, with the totals it was sent', () => {
     p.purchaseOrders.forEach((po, n) => {
@@ -127,18 +128,29 @@ describe('purchase order mapping', () => {
     expect(map(0).notes).toBe('Sage status: Pending');
   });
 
-  it('a line that names an item carries its code in the description; a free-text line does not', () => {
-    const lines = map(0).lines as Array<{ description: string }>;
+  it('a LINKED line names its item by item_code and keeps its own description; a free-text line has neither', () => {
+    const lines = map(0).lines as Array<{ description: string; item_code?: string }>;
+    expect(lines[0]).toMatchObject({ description: 'Fibre cable drum (PO 197)', item_code: 'FIB-0001' });
+    expect(lines[1]).toMatchObject({ description: 'Delivery charge' });
+    expect(lines[1]).not.toHaveProperty('item_code');
+    expect(lines[2]).toMatchObject({ description: 'Installation visit', item_code: 'SVC-005' });
+  });
+
+  it('an UNLINKED line carries its item\'s code in the description and no item_code', () => {
+    const lines = map(0, false).lines as Array<{ description: string; item_code?: string }>;
     expect(lines[0]!.description).toBe('Fibre cable drum (PO 197) [item FIB-0001]');
+    expect(lines[0]).not.toHaveProperty('item_code');
     expect(lines[1]!.description).toBe('Delivery charge');
     expect(lines[2]!.description).toBe('Installation visit [item SVC-005]');
   });
 
-  it('F7b: a description that no longer fits with the item suffix is an error, never a silent cut', () => {
+  it('F7b: an unlinked description that no longer fits with the item suffix is an error, never a silent cut', () => {
     const po = { ...p.purchaseOrders[0]!, lines: [{ ...p.purchaseOrders[0]!.lines[0]!, description: 'x'.repeat(500) }] };
-    expect(() => mapSagePurchaseOrder(po, SUPPLIER, p.itemCodes)).toThrow(/516 characters/);
-    const exact = { ...po, lines: [{ ...po.lines[0]!, description: 'x'.repeat(500 - ' [item FIB-0001]'.length) }] };
-    expect((mapSagePurchaseOrder(exact, SUPPLIER, p.itemCodes).lines as Array<{ description: string }>)[0]!.description).toHaveLength(500);
+    expect(() => mapSagePurchaseOrder(po, SUPPLIER, links(false))).toThrow(/516 characters/);
+    expect(() => suffixedDescription('x'.repeat(500 - ' [item FIB-0001]'.length), 'FIB-0001')).not.toThrow();
+    expect(suffixedDescription('x'.repeat(500 - ' [item FIB-0001]'.length), 'FIB-0001')).toHaveLength(500);
+    // Linked, the same 500-character description needs no suffix and passes.
+    expect((mapSagePurchaseOrder(po, SUPPLIER, links(true)).lines as Array<{ description: string }>)[0]!.description).toHaveLength(500);
   });
 
   it('sends the source\'s own line figures and header totals', () => {
@@ -148,6 +160,6 @@ describe('purchase order mapping', () => {
   });
 
   it('refuses to map a status it has no word for (the parser never lets one through)', () => {
-    expect(() => mapSagePurchaseOrder({ ...p.purchaseOrders[0]!, status: 'Draft' }, SUPPLIER, p.itemCodes)).toThrow(/no mapping/);
+    expect(() => mapSagePurchaseOrder({ ...p.purchaseOrders[0]!, status: 'Draft' }, SUPPLIER, {})).toThrow(/no mapping/);
   });
 });
