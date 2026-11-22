@@ -64,17 +64,17 @@ const COLUMN_DEFS: ReadonlyArray<{ id: string; label: string }> = [
 
 interface ApiEnvelope<T> { success: boolean; data: T; error?: { message?: string } }
 
-function StatusCell({ row, columnId }: { row: PortfolioRow; columnId: string }) {
+function StatusCell({ row, columnId, label }: { row: PortfolioRow; columnId: string; label: string }) {
   // The server leaves the payroll card out of a client where the user has no Payroll read (portfolioPayrollAccess).
   if (columnId === 'payroll' && row.payrollHidden) {
-    return <td className="px-2 py-2 text-center text-xs text-ink-faint" title="You do not have Payroll access in this client">No access</td>;
+    return <td data-label={label} className="px-2 py-2 text-center text-xs text-ink-faint" title="You do not have Payroll access in this client">No access</td>;
   }
   const card = row.cards.find(c => c.id === columnId);
   if (!card) {
-    return <td className="px-2 py-2 text-center text-zinc-700">—</td>;
+    return <td data-label={label} className="px-2 py-2 text-center text-zinc-700">—</td>;
   }
   return (
-    <td className="px-2 py-2 text-center">
+    <td data-label={label} className="px-2 py-2 text-center">
       <div
         className="flex items-center justify-center gap-1.5"
         title={`${STATUS_LABEL[card.status]} · ${card.primary}`}
@@ -166,14 +166,14 @@ export default function PortfolioWorkbenchPage() {
               Month-end status across every client — {periodLabel(period)}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 max-lg:w-full max-lg:flex-wrap">
             <input
               type="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Filter clients…"
               aria-label="Filter clients"
-              className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 w-48 focus:outline-none focus:border-teal-500"
+              className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 w-48 focus:outline-none focus:border-teal-500 max-lg:min-h-11 max-lg:w-full"
             />
             <MonthField id="portfolio-period" label="Period" labelHidden required value={period}
               onChange={ym => { if (ym) setPeriod(ym); }} className="w-40" />
@@ -221,7 +221,7 @@ export default function PortfolioWorkbenchPage() {
 
         {data && !loading && filteredRows.length > 0 && (
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="table-cards w-full text-sm">
               <thead className="bg-zinc-900/60 text-zinc-400">
                 <tr>
                   <th className="text-left font-medium px-4 py-2.5 sticky top-0">Client</th>
@@ -242,7 +242,7 @@ export default function PortfolioWorkbenchPage() {
                         type="button"
                         onClick={() => void openClientWorkbench(row.companyId)}
                         disabled={switching !== null}
-                        className="text-zinc-100 hover:text-teal-300 font-medium text-left disabled:opacity-50 disabled:cursor-wait"
+                        className="text-zinc-100 hover:text-teal-300 font-medium text-left disabled:opacity-50 disabled:cursor-wait max-lg:min-h-11"
                       >
                         {row.companyName}
                       </button>
@@ -253,7 +253,7 @@ export default function PortfolioWorkbenchPage() {
                         <span className="ml-2 text-xs text-rose-400">{row.failedReason}</span>
                       )}
                     </td>
-                    <td className="px-2 py-2.5 text-center">
+                    <td data-label="TB" className="px-2 py-2.5 text-center">
                       {row.failed ? (
                         <span className="text-zinc-700">—</span>
                       ) : row.trialBalanceBalanced ? (
@@ -263,9 +263,9 @@ export default function PortfolioWorkbenchPage() {
                       )}
                     </td>
                     {COLUMN_DEFS.map(col => (
-                      <StatusCell key={col.id} row={row} columnId={col.id} />
+                      <StatusCell key={col.id} row={row} columnId={col.id} label={col.label} />
                     ))}
-                    <td className="px-2 py-2.5 text-center text-zinc-300 tabular-nums">
+                    <td data-label="Ready" className="px-2 py-2.5 text-center text-zinc-300 tabular-nums">
                       <span className={row.readyCount === (row.payrollHidden ? 7 : 8) ? 'text-emerald-300' : ''}>
                         {row.readyCount}/{row.payrollHidden ? 7 : 8}
                       </span>

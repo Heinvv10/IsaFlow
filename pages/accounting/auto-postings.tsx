@@ -110,7 +110,7 @@ export default function AutoPostingsPage() {
             <select
               value={sourceFilter}
               onChange={(e) => { setPage(0); setSourceFilter(e.target.value); }}
-              className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]"
+              className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] max-lg:min-h-11"
             >
               <option value="">All sources</option>
               {sourceChips.map(([src, n]) => (
@@ -134,7 +134,7 @@ export default function AutoPostingsPage() {
             {(sourceFilter || fromDate || toDate) && (
               <button
                 onClick={() => { setSourceFilter(''); setFromDate(''); setToDate(''); setPage(0); }}
-                className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-secondary)]"
+                className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-secondary)] max-lg:min-h-11"
               >
                 Clear
               </button>
@@ -174,7 +174,7 @@ export default function AutoPostingsPage() {
 
           {!loading && !error && data && data.entries.length > 0 && (
             <div className="overflow-x-auto rounded-lg border border-[var(--ff-border-light)]">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-[var(--ff-bg-secondary)] text-left">
                   <tr>
                     <th className="px-4 py-3 font-medium">Entry #</th>
@@ -193,28 +193,28 @@ export default function AutoPostingsPage() {
                     const balanced = Math.abs(e.totalDebit - e.totalCredit) < 0.01;
                     return (
                       <tr key={e.id} className="border-t border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-secondary)]/50">
-                        <td className="px-4 py-2 font-mono text-xs">
-                          <Link href={`/accounting/journal-entries/${e.id}`} className="text-teal-500 hover:underline">
+                        <td data-label="Entry #" className="px-4 py-2 font-mono text-xs max-lg:items-center">
+                          <Link href={`/accounting/journal-entries/${e.id}`} className="text-teal-500 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                             {e.entryNumber}
                           </Link>
                         </td>
-                        <td className="px-4 py-2">{formatDisplayDate(e.entryDate)}</td>
-                        <td className="px-4 py-2">
+                        <td data-label="Date" className="px-4 py-2">{formatDisplayDate(e.entryDate)}</td>
+                        <td data-label="Source" className="px-4 py-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-teal-500/10 text-teal-400 border border-teal-500/20">
                             {sourceLabel(e.source)}
                           </span>
                         </td>
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-md truncate">
+                        <td data-label="Description" className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-md truncate max-lg:max-w-none max-lg:whitespace-normal">
                           {e.description || '—'}
                         </td>
-                        <td className="px-4 py-2 text-right">{e.lineCount}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{fmtR(e.totalDebit)}</td>
-                        <td className={`px-4 py-2 text-right tabular-nums ${balanced ? '' : 'text-red-400'}`}>
+                        <td data-label="Lines" className="px-4 py-2 text-right">{e.lineCount}</td>
+                        <td data-label="Debit" className="px-4 py-2 text-right tabular-nums">{fmtR(e.totalDebit)}</td>
+                        <td data-label="Credit" className={`px-4 py-2 text-right tabular-nums ${balanced ? '' : 'text-red-400'}`}>
                           {fmtR(e.totalCredit)}{!balanced && ' ⚠'}
                         </td>
-                        <td className="px-4 py-2">
+                        <td data-label="Source doc" className="px-4 py-2 max-lg:items-center">
                           {docHref ? (
-                            <Link href={docHref} className="text-xs text-teal-500 hover:underline">
+                            <Link href={docHref} className="text-xs text-teal-500 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                               Open
                             </Link>
                           ) : (
@@ -239,7 +239,7 @@ export default function AutoPostingsPage() {
                 <button
                   disabled={page === 0}
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  className="px-3 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40"
+                  className="px-3 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40 max-lg:min-h-11"
                 >
                   Previous
                 </button>
@@ -247,7 +247,7 @@ export default function AutoPostingsPage() {
                 <button
                   disabled={page + 1 >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
-                  className="px-3 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40"
+                  className="px-3 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40 max-lg:min-h-11"
                 >
                   Next
                 </button>
