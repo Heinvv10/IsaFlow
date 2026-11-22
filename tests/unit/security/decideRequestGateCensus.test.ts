@@ -33,6 +33,24 @@ function resolvesTo(checker: ts.TypeChecker, id: ts.Node, name: string, declFile
   return Boolean(d && rel(d.getSourceFile().fileName) === declFile && sym!.name === name);
 }
 
+/** A callee without the parentheses, `as` casts and non-null assertions around it. */
+const unwrapCallee = (e: ts.Expression): ts.Expression => {
+  let x = e;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isNonNullExpression(x) || ts.isTypeAssertionExpression(x)) x = x.expression;
+  return x;
+};
+
+/** `e` names a namespace import (`import * as m`) of `declFile`'s module. */
+function isNamespaceOf(checker: ts.TypeChecker, e: ts.Node, declFile: string, rel: (f: string) => string): boolean {
+  if (!ts.isIdentifier(e)) return false;
+  let sym = checker.getSymbolAtLocation(e);
+  if (!sym || !(sym.flags & ts.SymbolFlags.Alias)) return false;
+  if (!sym.declarations?.some((d) => ts.isNamespaceImport(d))) return false;
+  sym = checker.getAliasedSymbol(sym);
+  const d = sym.declarations?.[0];
+  return Boolean(d && ts.isSourceFile(d) && rel(d.fileName) === declFile);
+}
+
 /** Every call (with its file's relative path) that RESOLVES to a function declared `name` in `declFile`. */
 function callsOf(program: ts.Program, name: string, declFile: string, rel: (f: string) => string): { file: string; call: ts.CallExpression }[] {
   const checker = program.getTypeChecker();
@@ -41,8 +59,14 @@ function callsOf(program: ts.Program, name: string, declFile: string, rel: (f: s
     if (sf.isDeclarationFile || sf.fileName.includes('node_modules')) continue;
     const visit = (n: ts.Node) => {
       if (ts.isCallExpression(n)) {
-        const id = ts.isPropertyAccessExpression(n.expression) ? n.expression.name : n.expression;
-        if (resolvesTo(checker, id, name, declFile, rel)) out.push({ file: rel(sf.fileName), call: n });
+        const callee = unwrapCallee(n.expression);
+        // `ns.decideRequest(...)`, `ns['decideRequest'](...)` (review L-a of 87708dc593) or `decideRequest(...)`.
+        const id = ts.isPropertyAccessExpression(callee) ? callee.name
+          : ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression : callee;
+        const hit = resolvesTo(checker, id, name, declFile, rel)
+          || (ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression) && callee.argumentExpression.text === name
+            && isNamespaceOf(checker, unwrapCallee(callee.expression), declFile, rel));
+        if (hit) out.push({ file: rel(sf.fileName), call: n });
       }
       ts.forEachChild(n, visit);
     };
@@ -69,6 +93,18 @@ function decisionsIn(program: ts.Program, file: string, declFile: string, rel: (
   const sf = program.getSourceFiles().find((f) => rel(f.fileName) === file);
   const checker = program.getTypeChecker();
   const visit = (n: ts.Node) => {
+    // A namespace import of approvalService is used only as `m.name` or `m['literal']` (review L-a of 87708dc593): anything
+    // else (a computed key, a cast, passing the namespace on) could reach decideRequest unseen.
+    if (ts.isIdentifier(n) && !ts.isNamespaceImport(n.parent) && isNamespaceOf(checker, n, declFile, rel)) {
+      const named = (ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)
+        || (ts.isElementAccessExpression(n.parent) && n.parent.expression === n && ts.isStringLiteralLike(n.parent.argumentExpression));
+      if (!named) {
+        let outer: ts.Node = n;
+        while (ts.isParenthesizedExpression(outer.parent) || ts.isAsExpression(outer.parent) || ts.isNonNullExpression(outer.parent)) outer = outer.parent;
+        const shown = ts.isElementAccessExpression(outer.parent) ? outer.parent : outer;
+        out.push(`<a namespace import used other than by a property name: ${shown.getText()}>`);
+      }
+    }
     if (ts.isIdentifier(n) && !ts.isImportSpecifier(n.parent) && !ts.isNamespaceImport(n.parent) && resolvesTo(checker, n, 'decideRequest', declFile, rel)) {
       const callee = ts.isPropertyAccessExpression(n.parent) && n.parent.name === n ? n.parent : n;
       if (!(ts.isCallExpression(callee.parent) && callee.parent.expression === callee)) out.push(`<a reference, not a call: ${n.parent.getText()}>`);
@@ -154,6 +190,16 @@ describe('decideRequest and approval_request_decide', () => {
     });
     it('cancel pin: an approving call through an aliased import is caught', () => {
       expect(decisions("import { decideRequest as settle } from './svc';\nexport const x = () => settle('c', 'r', 'approved');")).toEqual(['approved']);
+    });
+    it('cancel pin: an approving call through a string-literal element access on a namespace is caught (review L-a of 87708dc593)', () => {
+      expect(decisions("import * as m from './svc';\nexport const x = () => m['decideRequest']('c', 'r', 'approved');")).toEqual(['approved']);
+    });
+    it('cancel pin: a computed element access on a namespace that holds decideRequest is flagged', () => {
+      expect(decisions("import * as m from './svc';\nconst k = 'decide' + 'Request';\nexport const x = () => (m as Record<string, Function>)[k]('c', 'r', 'approved');"))
+        .toEqual(['<a namespace import used other than by a property name: (m as Record<string, Function>)[k]>']);
+    });
+    it('the analyser: a string-literal element access on a namespace is a caller', () => {
+      expect(project({ '/v/fifth.ts': "import * as svc from './svc';\nexport async function x() { await svc['decideRequest']('c'); }" })).toEqual(['/v/fifth.ts', '/v/route.ts']);
     });
     it('cancel pin: decideRequest passed on as a value is caught', () => {
       expect(decisions("import { decideRequest } from './svc';\nconst f = decideRequest;\nexport const x = () => f('c', 'r', 'approved');"))
