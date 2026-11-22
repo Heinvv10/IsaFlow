@@ -42,7 +42,10 @@ describe('AP aging on touch', () => {
     expect(row.className).toContain('max-lg:relative');
     const chevron = row.querySelector('td')!;
     for (const c of ['max-lg:absolute', 'max-lg:min-h-11', 'max-lg:min-w-11']) expect(chevron.className).toContain(c);
-    expect(screen.getByRole('link', { name: 'Acme Supplies' }).className).toContain('max-lg:min-h-11');
+    const name = screen.getByRole('link', { name: 'Acme Supplies' });
+    expect(name.className).toContain('max-lg:min-h-11');
+    // The card CSS sets td padding with higher specificity than a plain utility, so the name cell must clear the chevron with !important.
+    expect(name.closest('td')!.className.split(' ')).toContain('max-lg:!pr-14');
     expect(screen.getByRole('button', { name: /Export CSV/ }).className).toContain('max-lg:min-h-11');
   });
 

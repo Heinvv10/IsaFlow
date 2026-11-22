@@ -151,10 +151,10 @@ export default function APAgingPage() {
                   {buckets.map(b => (
                     <Fragment key={b.entityId}>
                     <tr {...rowProps(b.entityId)} className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer max-lg:relative">
-                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-lg:absolute max-lg:right-2 max-lg:top-2 max-lg:!flex max-lg:!w-auto max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center max-lg:justify-center max-lg:p-0">
+                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-lg:absolute max-lg:right-2 max-lg:top-2 max-lg:!flex max-lg:!w-auto max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center max-lg:justify-center">
                         {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)] max-lg:pr-14">
+                      <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)] max-lg:!pr-14">
                         <Link href={`/accounting/supplier-statements/${b.entityId}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                           {b.entityName}
                         </Link>
