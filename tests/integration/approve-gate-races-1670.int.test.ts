@@ -13,6 +13,7 @@ import type { PoolClient } from 'pg';
 import recurring from '../../pages/api/accounting/recurring-transactions';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import uifRoute from '../../pages/api/payroll/uif/[id]';
+import uifListRoute from '../../pages/api/payroll/uif/index';
 import { rig, type Route } from './brkr.helpers';
 
 let r: Awaited<ReturnType<typeof rig>>;
@@ -115,3 +116,24 @@ describe('r12 M2: a UIF declaration is marked submitted only from draft', () => 
     expect((await mark(draft)).statusCode).toBe(409); // not twice
   }, 60000);
 });
+
+describe('r13 L5: generating a period\'s UIF declaration never re-totals one that is no draft', () => {
+  it('a submitted / paid declaration is refused 409 with its filed totals unchanged; a draft is re-totalled', async () => {
+    const gen = (month: number) => r.call(uifListRoute as Route, 'POST', '/api/payroll/uif', undefined, { body: { year: 2025, month } });
+    const totals = async (month: number) => (await r.pool.query(`SELECT status, total_employees, total_employee_contribution::float8 AS c
+      FROM uif_declarations WHERE company_id = $1 AND period_year = 2025 AND period_month = $2`, [r.company, month])).rows[0];
+    for (const [month, status] of [[5, 'submitted'], [6, 'paid']] as const) {
+      await r.pool.query(`INSERT INTO uif_declarations (company_id, period_year, period_month, total_employees, total_employee_contribution, status)
+        VALUES ($1, 2025, $2, 7, 123.45, $3)`, [r.company, month, status]);
+      const refused = await gen(month);
+      expect(refused.statusCode, `${status}`).toBe(409);
+      expect(r.msg(refused)).toMatch(new RegExp(`Only a draft UIF declaration can be regenerated \\(current: ${status}\\)`));
+      expect(await totals(month)).toEqual({ status, total_employees: 7, c: 123.45 });
+    }
+    await r.pool.query(`INSERT INTO uif_declarations (company_id, period_year, period_month, total_employees, total_employee_contribution, status)
+      VALUES ($1, 2025, 7, 7, 123.45, 'draft')`, [r.company]);
+    expect((await gen(7)).statusCode).toBe(201);
+    expect(await totals(7)).toEqual({ status: 'draft', total_employees: 0, c: 0 }); // no run in that month: re-totalled from the runs
+  }, 60000);
+});
+

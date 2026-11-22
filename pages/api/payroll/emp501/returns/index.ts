@@ -92,6 +92,7 @@ async function post(req: NextApiRequest, res: NextApiResponse, companyId: string
     log.info('EMP501 filed', { companyId, versionId: out.version.id }, 'emp501-returns');
     return apiResponse.success(res, { version: summary(out.version), submissionId: out.submission.id });
   }
+  if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('EMP501'), 'EMP501 returns')) return; // an amend (#1670 r13 M1)
   const version = await amendReturn(companyId, 'EMP501', b.versionId, b.reason, actor);
   log.info('EMP501 amended', { companyId, versionId: version.id }, 'emp501-returns');
   return apiResponse.success(res, { version: summary(version) });

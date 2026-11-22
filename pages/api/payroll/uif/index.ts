@@ -12,6 +12,7 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   listUifDeclarations,
   generateUifDeclaration,
+  UifDeclarationNotDraftError,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
@@ -43,8 +44,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       return apiResponse.badRequest(res, 'month must be an integer between 1 and 12');
     }
 
-    const declaration = await generateUifDeclaration(companyId, y, m, user.id);
-    return apiResponse.created(res, declaration);
+    try {
+      const declaration = await generateUifDeclaration(companyId, y, m, user.id);
+      return apiResponse.created(res, declaration);
+    } catch (err) {
+      // #1670 r13 L5: a filed declaration is not re-totalled; nothing was written.
+      if (err instanceof UifDeclarationNotDraftError) return apiResponse.conflict(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

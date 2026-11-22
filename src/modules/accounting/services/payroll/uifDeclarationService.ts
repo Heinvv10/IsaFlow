@@ -242,15 +242,15 @@ export async function generateUifDeclaration(
       total_leviable_salary       = EXCLUDED.total_leviable_salary,
       total_employee_contribution = EXCLUDED.total_employee_contribution,
       total_employer_contribution = EXCLUDED.total_employer_contribution,
-      status = CASE
-        WHEN uif_declarations.status = 'draft' THEN 'draft'
-        ELSE uif_declarations.status
-      END,
       updated_at = NOW()
+    WHERE uif_declarations.status = 'draft' -- #1670 r13 L5: a submitted / accepted / paid declaration's totals are what was filed
     RETURNING *
   `) as Row[];
-
-  if (!upsertRows[0]) throw new Error('Upsert returned no row');
+  if (!upsertRows[0]) { // the period's declaration exists and is no draft: unchanged (409), never re-totalled
+    const [current] = (await sql`SELECT status FROM uif_declarations WHERE company_id = ${companyId}::uuid
+      AND period_year = ${year} AND period_month = ${month}`) as Row[];
+    throw current ? new UifDeclarationNotDraftError(String(current.status), 'regenerated') : new Error('Upsert returned no row');
+  }
 
   log.info(
     'UIF declaration generated',
@@ -264,8 +264,8 @@ export async function generateUifDeclaration(
 /** A declaration that is not a draft any more (submitted, accepted or paid) is not marked submitted again. Routes answer 409. */
 export class UifDeclarationNotDraftError extends Error {
   readonly code = 'UIF_DECLARATION_NOT_DRAFT';
-  constructor(readonly status: string) {
-    super(`Only a draft UIF declaration can be marked submitted (current: ${status})`);
+  constructor(readonly status: string, what: 'marked submitted' | 'regenerated' = 'marked submitted') {
+    super(`Only a draft UIF declaration can be ${what} (current: ${status})`);
     this.name = 'UifDeclarationNotDraftError';
   }
 }
