@@ -74,7 +74,7 @@ export function RecordNavigation({ entity, currentId, basePath }: Props) {
         title={failed ? 'Could not load the neighbouring records' : 'Previous record'}
         aria-label="Previous record"
         className={`
-          inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium
+          inline-flex items-center gap-1 px-2.5 py-1.5 max-lg:min-h-11 rounded-md text-xs font-medium
           border border-[var(--ff-border-light)] transition-colors
           ${adjacent.prevId && !loading
             ? 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-medium)] hover:bg-[var(--ff-bg-primary)] cursor-pointer'
@@ -92,7 +92,7 @@ export function RecordNavigation({ entity, currentId, basePath }: Props) {
         title={failed ? 'Could not load the neighbouring records' : 'Next record'}
         aria-label="Next record"
         className={`
-          inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium
+          inline-flex items-center gap-1 px-2.5 py-1.5 max-lg:min-h-11 rounded-md text-xs font-medium
           border border-[var(--ff-border-light)] transition-colors
           ${adjacent.nextId && !loading
             ? 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-medium)] hover:bg-[var(--ff-bg-primary)] cursor-pointer'

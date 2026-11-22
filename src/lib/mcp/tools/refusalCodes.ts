@@ -43,6 +43,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // raised (gl/approvalDocumentErrors). Names the caller's own document type
   // and id; nothing is written. No MCP tool raises requests (Q6).
   'APPROVAL_RULES_CHANGED',
+  // #1656 (core/approvePermission): no Approve on the document's module; pre-write, fixed wording.
+  'APPROVE_PERMISSION_REFUSED',
   // Budgets P6 three-way engine (budgets/threeWay/errors.ts): the assumptions document failed validation (field paths
   // and fixed messages only). No MCP tool runs the engine today.
   'ASSUMPTIONS_INVALID',
@@ -319,6 +321,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TIME_ENTRY_LOCK_TIMEOUT',
   'UPLOAD_STAGE_LOCK_TIMEOUT', // mcpUploadIntentStore.stageUploadBytes: a held row / busy upload pool; nothing staged, PUT again
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
+  'UIF_DECLARATION_NOT_DRAFT', // uifDeclarationService.markUifSubmitted: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back
   // 988: approving a mirror_bill credit note the bill can no longer carry (ap/supplierCreditNoteMirrorApprove). Names the

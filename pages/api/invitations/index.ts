@@ -13,6 +13,7 @@ import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import {
   assertCanInvite, InvitationForbiddenError, markInvitationEmailFailed, markInvitationEmailSent,
 } from '@/modules/accounting/services/core/userInvitationService';
+import { NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
 const listInvitations: NextApiHandler = async (req, res) => {
   const { companyId } = req as CompanyAuthedRequest;
@@ -40,7 +41,7 @@ const createInvitation: NextApiHandler = async (req, res) => {
   }
 
   const { email, role } = req.body ?? {};
-  if (typeof email !== 'string' || typeof role !== 'string' || !['admin', 'manager', 'viewer', 'storeman', 'technician'].includes(role)) {
+  if (typeof email !== 'string' || typeof role !== 'string' || !(NON_OWNER_COMPANY_ROLES as readonly string[]).includes(role)) {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'email and role required' } });
   }
 

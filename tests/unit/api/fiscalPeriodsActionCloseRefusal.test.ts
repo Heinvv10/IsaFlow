@@ -10,6 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const svc = vi.hoisted(() => ({ closePeriod: vi.fn(), lockPeriod: vi.fn(), reopenPeriod: vi.fn(), closeYear: vi.fn() }));
 const bulk = vi.hoisted(() => ({ runBulkPeriodAction: vi.fn() }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => svc);
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodBulk', () => bulk);
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));

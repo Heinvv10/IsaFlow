@@ -13,6 +13,7 @@
  * tests/integration/customer-ownership-fence-routes.int.test.ts.
  */
 
+import { anyRuleWrite } from '../../helpers/ruleGuards';
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 const sqlTexts: string[] = [];
@@ -72,9 +73,9 @@ const CASES: { name: string; run: () => Promise<unknown> }[] = [
     name: 'createRule',
     run: () => createRule(COMPANY, {
       ruleName: 'Rule', matchField: 'description', matchType: 'contains', matchPattern: 'X', clientId: FOREIGN,
-    } as never, USER),
+    } as never, USER, anyRuleWrite),
   },
-  { name: 'updateRule', run: () => updateRule(COMPANY, ROW, { clientId: FOREIGN }, USER) },
+  { name: 'updateRule', run: () => updateRule(COMPANY, ROW, { clientId: FOREIGN }, USER, anyRuleWrite) },
   { name: 'setOverride', run: () => setOverride(COMPANY, FOREIGN, { suppress_dunning: true }) },
   {
     name: 'createTimeEntry',

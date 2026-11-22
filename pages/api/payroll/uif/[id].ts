@@ -13,10 +13,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getUifDeclaration,
   markUifSubmitted,
+  UifDeclarationNotDraftError,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,6 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const body = (req.body ?? {}) as PatchBody;
 
     if (body.markPaid === true) {
+      if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'UIF payments')) return; // #1656: posts the payment journal, before any write
       try {
         const result = await withJournalDateRefusal(res, () => markUifDeclarationPaid(
           companyId,
@@ -64,9 +68,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }
 
     if (body.markSubmitted === true) {
-      const updated = await markUifSubmitted(companyId, id, user.id);
-      if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
-      return apiResponse.success(res, updated);
+      // Filing the declaration with the Department of Labour takes Payroll Approve (#1670 breaker M2), before any write.
+      if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'UIF declarations')) return;
+      try {
+        const updated = await markUifSubmitted(companyId, id, user.id);
+        if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
+        return apiResponse.success(res, updated);
+      } catch (err) {
+        if (err instanceof UifDeclarationNotDraftError) return apiResponse.conflict(res, err.message);
+        throw err;
+      }
     }
 
     return apiResponse.badRequest(res, 'unknown patch operation — send markSubmitted or markPaid');
@@ -75,4 +86,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

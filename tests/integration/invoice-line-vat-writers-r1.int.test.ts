@@ -46,7 +46,7 @@ import { createDraftInvoiceTool } from '@/lib/mcp/tools/writeInvoices';
 import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustomerInvoices';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { dropFixtureMember, inTx, seedFixtureMember } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
 import { untypeLines } from './helpers/lineVatFixture';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -98,6 +98,8 @@ const MIXED = () => [
 describeIfDisposable('per-line VAT writers, review round 1', () => {
   beforeAll(async () => {
     f = await seedLineRevenue(process.env.DATABASE_URL!);
+    // #1656: the MCP tools ask the token owner's module Approve from company_users, so the fixture's actor is a member (owner).
+    await seedFixtureMember(f.fx);
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     user = await createUser(pool, tokens);
     for (const c of [f.fx.companyId, f.other.companyId]) {
@@ -119,6 +121,7 @@ describeIfDisposable('per-line VAT writers, review round 1', () => {
       await sql`DELETE FROM items WHERE company_id = ${c}::UUID`;
     }
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [user]);
+    await dropFixtureMember(f.fx);
     await dropLineRevenue(f);
     await pool.query('DELETE FROM users WHERE id = $1', [user]);
     await pool.end();

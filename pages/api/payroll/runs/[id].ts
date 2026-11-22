@@ -25,6 +25,7 @@ import { deleteDraftPayrollRun, RunNotDeletableError } from '@/modules/accountin
 import { describePayRunApproval } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { describePayRunDecision } from '@/modules/accounting/services/payroll/payRunDecision';
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET' && req.method !== 'DELETE') {
@@ -61,4 +62,4 @@ async function deleteRun(req: AuthenticatedNextApiRequest, res: NextApiResponse,
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

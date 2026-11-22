@@ -7,6 +7,7 @@
  */
 
 import type { WithRoleLevel } from '@/lib/auth/withRole';
+import type { ApproveModule } from '@/modules/accounting/services/core/approvePermission';
 
 export interface McpToolContext {
   userId: string;
@@ -126,5 +127,17 @@ export interface McpTool {
    * the registry's oversized-result refusal (resultSize.ts); every other read is held to MAX_READ_RESULT_BYTES.
    */
   allowLargeResult?: boolean;
+  /**
+   * #1656: a payroll tool. The registry asks the token owner's Payroll read (a read) or Payroll write
+   * (a write tool) from company_user_permissions, before the handler (moduleFence.ts).
+   */
+  permissionModule?: 'payroll';
+  /**
+   * #1656 (Hein, 2026-11-19: gate everything): a tool that approves or posts. The registry asks the
+   * token owner's Approve on this module before the handler (moduleFence.ts). 'credit_note_by_id': the
+   * module of args.credit_note_id's type; 'by_subledger': args.subledger ar → customers, ap → suppliers;
+   * 'per_document': the tool asks per document itself (a batch of mixed types).
+   */
+  approveModule?: ApproveModule | 'credit_note_by_id' | 'by_subledger' | 'per_document';
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
 }

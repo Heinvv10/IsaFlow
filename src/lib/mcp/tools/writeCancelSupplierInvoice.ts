@@ -30,6 +30,7 @@ const TOOL = 'cancel_supplier_invoice';
 
 export const cancelSupplierInvoiceTool: McpTool = {
   name: TOOL,
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Cancel a supplier bill (supplier invoice). A draft, pending or disputed bill simply becomes '
     + 'cancelled. An APPROVED bill also has its approval journal (DR Expense/VAT, CR Accounts Payable) '

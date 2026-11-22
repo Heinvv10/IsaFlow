@@ -177,8 +177,8 @@ describeIfDb('K-053 the soft-delete exclusion is dated to the reversal', () => {
   }, 120000);
 
   it('the delete is dated TODAY because the document period is closed', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
 
     const rows = (await sql`
       SELECT e.id, e.entry_date

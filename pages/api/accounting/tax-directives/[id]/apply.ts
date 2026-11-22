@@ -12,6 +12,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -56,6 +58,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'bankAccountId must be a valid UUID');
   }
 
+  // #1656 (round 3): paying a tax directive posts its journal: Payroll Approve here, and Payroll write from the route wrapper.
+  if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'tax directive payments')) return;
+
   log.info('applyTaxDirective request', { companyId, directiveId, paymentDate }, 'taxDirective');
 
   let result: Awaited<ReturnType<typeof applyTaxDirective>> | typeof JOURNAL_DATE_REFUSED;
@@ -86,4 +91,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

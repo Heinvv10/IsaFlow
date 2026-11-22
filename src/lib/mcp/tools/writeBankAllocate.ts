@@ -31,6 +31,7 @@ import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Allocate one bank transaction to a GL account (optionally matching a supplier or customer invoice). '
     + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
@@ -141,6 +142,7 @@ export const allocateBankTransactionTool: McpTool = {
 
 export const reverseBankAllocationTool: McpTool = {
   name: 'reverse_bank_allocation',
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Undo an allocation: reverses the posted journal and returns the bank transaction to unallocated. '
     + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '

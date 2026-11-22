@@ -88,7 +88,7 @@ describeIfDb('D7 chain walks: one tenant, posted entries only', () => {
 
     const del = await arInvoice(co, '-del', '2026-07-12', 400, 60);
     const o = await journalOf(co, del);
-    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user));
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user, { allowReversal: true }));
     const r = ((await sql`SELECT id FROM gl_journal_entries
       WHERE company_id = ${co.id}::UUID AND reversal_of_id = ${o}::UUID`) as { id: string }[])[0]!.id;
     await draftEntry(co, r);

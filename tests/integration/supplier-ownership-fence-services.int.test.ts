@@ -16,6 +16,7 @@
 // 3. The fence's read is savepointed: a malformed id leaves the request
 //    transaction usable.
 
+import { anyRuleWrite } from '../helpers/ruleGuards';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
@@ -133,9 +134,9 @@ describeIfDb('R-068 — supplier ids on paths outside the route fences', () => {
   });
 
   it('bank rule update refuses a foreign supplier with the typed error, not the FK violation', async () => {
-    await expect(inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_B }, ids.USER)))
+    await expect(inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_B }, ids.USER, anyRuleWrite)))
       .rejects.toBeInstanceOf(SupplierNotInCompanyError);
-    const rule = await inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_A }, ids.USER));
+    const rule = await inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_A }, ids.USER, anyRuleWrite));
     expect(rule.supplierId).toBe(SUP_A);
   });
 

@@ -23,6 +23,7 @@ import {
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 interface ComponentSpec {
   sarsSourceCode: string;
@@ -102,4 +103,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, { created, existing });
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

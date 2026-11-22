@@ -175,7 +175,7 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
              (${COMPANY}::UUID, ${pairReversal}::UUID, ${receivable}::UUID, ${PAIR}, 0, ${'reversal'})`;
 
     await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
   }, 180000);
 
   afterAll(async () => {
@@ -227,7 +227,7 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   });
 
   it('after a delete/undo round trip neither leg is a reconciling item', async () => {
-    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
 
     // The premise: the undo removed the sdjr row that had been excluding R, and
     // posted R2, so BOTH now pass every NOT EXISTS the query makes.
@@ -252,8 +252,8 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   });
 
   it('a SECOND round trip extends the chain and still leaves nothing behind', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
-    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
 
     // The premise: four unclaimed reversals on the document's chain now, all
     // dated TODAY, so nothing but the chain itself distinguishes their order.
@@ -279,8 +279,8 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   });
 
   it('a THIRD round trip is no different', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
-    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
 
     const chain = (await sql`
       SELECT COUNT(*)::int AS n FROM gl_journal_entries je
@@ -298,7 +298,7 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   });
 
   it('mid-chain, with the document still deleted, exactly one leg is reported', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
 
     // The document is deleted again, so the query excludes its whole reversal
     // chain, R7 and the six restored legs with it (orphanControlPostings). The reconciler is back
@@ -309,6 +309,6 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
     expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
     expect(cash.total).toBeCloseTo(ORPHAN, 2);
 
-    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER, { allowReversal: true }));
   });
 });

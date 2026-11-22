@@ -46,6 +46,7 @@ import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -158,7 +159,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
   const heldForPerson = mealsVatNeedsAPerson({ confirmed: doc.vendor_name as string | null, extracted: extracted.vendorName }, claimedVat);
   if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 }) && !heldForPerson;
+  // #1656 (Hein: gate everything): a user without Accounts Approve gets the journal as a draft, never auto-posted.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 }) && !heldForPerson && await mayApprove(companyId, userId, 'accounts');
 
   // Create the entry through the validated posting service.
   //

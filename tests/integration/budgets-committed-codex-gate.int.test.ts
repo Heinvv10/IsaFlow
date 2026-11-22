@@ -79,7 +79,7 @@ describe('2b: a soft delete racing a billing close (the shared re-read, lockPosC
     await l.run(() => linkBillsToPurchaseOrders(f.co, [{ index: 0, poId: p.po, poNumber: null, billId: h.id, amountCents: null, lines: [], ref: null }],
       { userId: f.owner, source: 'mcp', via: 'link_bills_to_purchase_order', closeWhenFullyBilled: true }));
     const d = await openRequest(pool, f, f.owner);
-    const del = d.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner));
+    const del = d.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner, { allowReversal: true }));
     del.catch(() => undefined); // marked handled at once; the await below still sees a rejection (review r16)
     let res: Awaited<ReturnType<typeof softDelete>>;
     try {

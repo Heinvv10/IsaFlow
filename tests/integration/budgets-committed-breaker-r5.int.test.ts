@@ -87,7 +87,7 @@ describe('STRUCTURAL: a PO closed by billing commits whatever becomes unbilled',
     await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [h.id]);
     const c = await seedRawBill(pool, f, { items: [{ total: 1 }], subtotal: 1, total: 1.15 });
     const req = await openRequest(pool, f, f.owner);
-    await req.run(() => (how === 'cancel' ? cancelSupplierInvoice(f.co, h.id, f.owner) : softDelete(f.co, 'supplier_invoice', h.id, f.owner)));
+    await req.run(() => (how === 'cancel' ? cancelSupplierInvoice(f.co, h.id, f.owner) : softDelete(f.co, 'supplier_invoice', h.id, f.owner, { allowReversal: true })));
     const args = { links: [{ po_id: p.po, bill_id: c.id, amount: 1 }], close_when_fully_billed: true };
     try {
       await expect(callTool(pool, f, link, args)).rejects.toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
@@ -181,7 +181,7 @@ describe('M1 / B5-6 a cancel and a delete say what they reopened; bulk cancel ta
       } else {
         const req = await openRequest(pool, f, f.owner);
         let res: Awaited<ReturnType<typeof softDelete>>;
-        try { res = await req.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner)); await req.commit(); } catch (e) { await req.rollback(); throw e; }
+        try { res = await req.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner, { allowReversal: true })); await req.commit(); } catch (e) { await req.rollback(); throw e; }
         out = { reopened: res.reopenedPurchaseOrders.map((x) => ({ po_number: x.poNumber, reopened_to: x.reopenedTo })), warnings: res.budgetWarnings };
       }
       expect(out.reopened, how).toEqual([{ po_number: po.number, reopened_to: 'approved' }]);

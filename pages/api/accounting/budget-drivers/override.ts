@@ -44,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { versionId, expectedUpdatedAt, ...row } = parsed.data;
   try {
+    // census-exempt(resetOverride, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     return apiResponse.success(res, await resetOverride(companyId, userId, { versionId, expectedUpdatedAt }, row));
   } catch (err) {
     if (respondBudgetDriverError(res, err)) return;

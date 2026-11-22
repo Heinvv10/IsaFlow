@@ -89,7 +89,7 @@ describe('F2 the link locks every bill that ties the PO', () => {
         const c = await openRequest(pool, f, f.owner);
         try {
           if (kind === 'cancel') await settle(c.run(() => cancelSupplierInvoice(f.co, b.id, f.owner)), kind, out);
-          else if (kind === 'softDelete') await settle(c.run(() => softDelete(f.co, 'supplier_invoice', b.id, f.owner)), kind, out);
+          else if (kind === 'softDelete') await settle(c.run(() => softDelete(f.co, 'supplier_invoice', b.id, f.owner, { allowReversal: true })), kind, out);
           else {
             await c.run(() => lockPosClosedByBilling(f.co, [b.id]));
             await settle(c.run(() => withSavepoint('bulk_supplier_invoice_item', () => cancelSupplierInvoice(f.co, b.id, f.owner))), kind, out);

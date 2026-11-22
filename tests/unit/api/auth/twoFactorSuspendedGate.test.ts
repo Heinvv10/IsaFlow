@@ -8,9 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { SignJWT } from 'jose';
 
-const TEST_SECRET = 'a'.repeat(40);
+const JWT_TEST = 'a'.repeat(40);
 // Set BEFORE the handler import — @/lib/auth/gotrue reads the secret eagerly.
-process.env.JWT_SECRET = TEST_SECRET;
+process.env.JWT_SECRET = JWT_TEST;
 process.env.GOTRUE_URL = 'http://example.test/auth/v1';
 
 // Holder the hoisted cookies mock reads, so the route sees a real signed JWT.
@@ -67,7 +67,7 @@ type Handler = (req: NextApiRequest, res: NextApiResponse) => unknown | Promise<
 async function pendingToken() {
   return new SignJWT({ sub: 'user-1', email: 'u@example.com', aud: 'authenticated', role: 'authenticated' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
-    .sign(new TextEncoder().encode(TEST_SECRET));
+    .sign(new TextEncoder().encode(JWT_TEST));
 }
 
 function mkReqRes(pending: string) {

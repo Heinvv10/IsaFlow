@@ -26,8 +26,11 @@ import { poCommittedCents } from '@/modules/accounting/services/ap/purchaseOrder
 import mergeRoute from '../../pages/api/accounting/supplier-merge';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 
 assertDisposable();
+// #1656: mergeEntities takes the bank-rule write guard before the role (customer merges use it; a supplier merge does not).
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 let f: BillFixture;
 beforeAll(async () => { f = await seedBillFixture(pool, 'spo-merge-lock'); await setPolicy(pool, f, 'warn'); }, 60_000);
@@ -47,7 +50,7 @@ async function waitsOnLock(fragment: string, holder: number): Promise<boolean> {
 }
 const dupMerge = async (own: BillFixture, target: string) => {
   const req = await openRequest(pool, own, own.owner);
-  try { const r = await req.run(() => mergeEntities(own.co, 'supplier', target, own.supplier, own.owner, 'owner')); await req.commit(); return r; }
+  try { const r = await req.run(() => mergeEntities(own.co, 'supplier', target, own.supplier, own.owner, NO_RULE_GUARD, 'owner')); await req.commit(); return r; }
   catch (e) { await req.rollback(); return e; }
 };
 const restMerge = (own: BillFixture, target: string) =>

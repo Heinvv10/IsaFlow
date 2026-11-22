@@ -12,6 +12,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { payslipEmailHandler, type AdmitPayslipEmails } from '@/lib/payslipEmailApi';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 /**
  * Weighted by recipients; a payroll's employees fit in one company window. Unused units come back: sendEmail records
@@ -20,4 +21,4 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 export const admitPayslipEmails: AdmitPayslipEmails = (req, companyId, count) =>
   checkSendRateLimit(req, companyId, 'payslips', { count, companyMax: 500, dailyMax: 1000, refundUnused: true });
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(sendEmail, admitPayslipEmails))))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(payslipEmailHandler(sendEmail, admitPayslipEmails)))))));

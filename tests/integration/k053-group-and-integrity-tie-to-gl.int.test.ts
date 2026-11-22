@@ -208,9 +208,9 @@ describeIfDb('K-053 the group dashboard and the document integrity checks tie to
     await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
     for (const id of [ar, noDue, noRev]) {
-      await inTx(() => softDelete(COMPANY, 'customer_invoice', id, USER));
+      await inTx(() => softDelete(COMPANY, 'customer_invoice', id, USER, { allowReversal: true }));
     }
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER, { allowReversal: true }));
     for (const id of [arLegacy, noDueLegacy, noRevLegacy]) await legacyDelete(id);
     await sql`UPDATE supplier_invoices SET deleted_at = NOW()
               WHERE id = ${apLegacy}::UUID AND company_id = ${COMPANY}::UUID`;

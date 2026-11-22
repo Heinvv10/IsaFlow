@@ -111,11 +111,11 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
       await cl.query('SET LOCAL ROLE platform_admin');
       return finish(cl, statement, params);
     };
-    expect(await portal("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'accountant')", [c, p.x])).toBe('ok');
+    expect(await portal("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'manager')", [c, p.x])).toBe('ok'); // #1656 (1010)
     expect(await portal("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('ok');
     expect(await portal(DEMOTE, [c, p.o2])).toBe('40001');
     expect(await portal(REMOVE, [c, p.o2])).toBe('40001');
-    expect([await roleOf(pool, c, p.x), await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2)]).toEqual(['accountant', 'viewer', 'owner']);
+    expect([await roleOf(pool, c, p.x), await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2)]).toEqual(['manager', 'viewer', 'owner']);
   });
 });
 

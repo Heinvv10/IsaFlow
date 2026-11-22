@@ -35,6 +35,7 @@ const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
 
 export const createPayRunTool: McpTool = {
   name: 'create_pay_run',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Open a payroll run: a monthly run for one calendar month (month, year), or a weekly or fortnightly run for one period of the company\'s pay week (frequency, period_start: the period\'s first day, on the pay-week start day; a fortnight also on the company\'s fortnight step). A run pays only the employees of its own frequency. The run starts in draft with no employees costed and no journal — creating it posts NOTHING to the general ledger. ' +
     'A company may have only one regular run per frequency and period; asking for one that already exists, or a weekly or fortnightly period that overlaps another, is refused rather than duplicated. ' +
@@ -155,6 +156,8 @@ async function createPeriodPayRun(
 
 export const postPayrollJournalTool: McpTool = {
   name: 'post_payroll_journal',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
+  approveModule: 'payroll', // #1656: moduleFence asks this Approve before the handler
   description:
     'Post the general-ledger journal for an APPROVED payroll run: debit labour cost with gross pay plus the employer UIF and SDL the company owes on top of it, and credit PAYE payable, UIF payable (both halves), SDL payable, any voluntary deductions, and net pay. ' +
     'This is the entry that is missing from these books. Today net pay alone is coded to Salaries & Wages, so employment cost is understated by every employer contribution and no PAYE, UIF or SDL liability is ever raised. ' +

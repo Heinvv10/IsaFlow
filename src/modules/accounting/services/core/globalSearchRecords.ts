@@ -186,8 +186,8 @@ export async function searchItems(companyId: string, pattern: string): Promise<S
 }
 
 /**
- * Active employees by name or number. Visibility matches GET /api/payroll/employees: any member of the company,
- * and only what that route gives a read-only role (name and employee number, nothing personal).
+ * Active employees by name or number. The caller (globalSearch) asks only when the person has Payroll read, as GET /api/payroll/employees
+ * does through withPayrollModule; the result is name and employee number, nothing personal.
  */
 export async function searchEmployees(companyId: string, pattern: string): Promise<SearchResult[]> {
   try {

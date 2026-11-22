@@ -29,20 +29,13 @@ export function withModulePermission(moduleKey: string, action: Action) {
       const authReq = req as UserAuthedRequest;
 
       const companyId = companyReq.companyId;
-      const companyRole = companyReq.companyRole;
       const userId = authReq.user?.id;
 
-      if (!companyId || !companyRole || !userId) {
+      if (!companyId || !userId) {
         return apiResponse.forbidden(res, 'Company context or user identity missing.');
       }
 
-      const allowed = await checkPermission(
-        companyId,
-        userId,
-        companyRole,
-        moduleKey,
-        action
-      );
+      const allowed = await checkPermission(companyId, userId, moduleKey, action);
 
       if (!allowed) {
         return apiResponse.forbidden(

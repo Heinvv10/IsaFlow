@@ -66,7 +66,7 @@ beforeEach(() => {
   h.failRollback = false;
   h.role = 'manager';
   client.release.mockClear();
-  vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
+  vi.stubEnv('DATABASE_URL', 'postgresql://dummy@dummy/test');
 });
 
 describe('withExtensionToken finalize (mirrors withAuth)', () => {

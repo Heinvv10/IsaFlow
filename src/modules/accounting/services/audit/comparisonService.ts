@@ -13,7 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import { listEntityChanges } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
-import { ENTITY_TYPES, mayReadType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { readableEntityTypes } from '@/modules/accounting/services/core/entityChanges/entityChangeAccess';
 import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
 import { getSnapshot, snapshotRows, snapshotTb, type SnapshotRecord, type StoredRow } from './snapshotRead';
 import { journalRows, lineRows, tbRows } from './snapshotRows';
@@ -163,8 +163,8 @@ async function sealedSnapshot(companyId: string, id: string): Promise<{ s: Snaps
   return { s, verified: v.status };
 }
 
-async function masterDataSince(companyId: string, role: string | undefined, since: string): Promise<NonNullable<Comparison['masterData']>> {
-  const types = ENTITY_TYPES.filter((t) => mayReadType(role, t));
+async function masterDataSince(companyId: string, userId: string, role: string | undefined, since: string): Promise<NonNullable<Comparison['masterData']>> {
+  const types = await readableEntityTypes(companyId, userId, role);
   const items: NonNullable<Comparison['masterData']>['items'] = [];
   let before: string | undefined;
   let truncated = false;
@@ -202,7 +202,7 @@ export async function compareSnapshotToLive(p: AuditPrincipal, snapshotId: strin
       for (const r of out.removed) r.statusNow = by.get(r.id) ?? 'deleted';
     }
     const { rows: [role] } = await client.query<{ r: string | null }>('SELECT public.company_member_actor_role($1::uuid) AS r', [p.companyId]);
-    out.masterData = await masterDataSince(p.companyId, role?.r ?? undefined, base.takenAt);
+    out.masterData = await masterDataSince(p.companyId, p.userId, role?.r ?? undefined, base.takenAt);
     return out;
   });
 }

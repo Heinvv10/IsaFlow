@@ -17,6 +17,7 @@ import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const linkDocumentToJournalTool: McpTool = {
   name: 'link_document_to_journal',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Links (action:"link") or unlinks (action:"unlink") a captured document to a POSTED, unreversed journal entry of this company, for a journal that has no other way to carry evidence — manual, recurring, Sage-GL-import and migration journals never get source_document_id. '
     + 'A linked document is read by vat_status / vat_exceptions the same way a created-from-capture journal is: it clears that journal from the blocking "unsupported input VAT" list. Unlinking restores the block. '

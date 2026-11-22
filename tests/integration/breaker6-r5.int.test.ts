@@ -7,7 +7,7 @@ import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEnt
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import { apSubledger, billWithJournal, dropStepExtras, ledger, postedJournal, seedStepAccounts, type StepAccounts } from './helpers/shareUndoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -54,8 +54,9 @@ describe.skipIf(!DATABASE_URL)('breaker6 round 5', () => {
   beforeAll(async () => {
     assertNotProductionDb('breaker6 r5 posts journals.');
     fx = await seedFixture('BRK6R5', DATABASE_URL!); a = await seedStepAccounts(fx);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
   }, 120000);
-  afterAll(async () => { await dropStepExtras(fx); await dropFixture(fx); }, 120000);
+  afterAll(async () => { await dropStepExtras(fx); await dropFixtureMember(fx); await dropFixture(fx); }, 120000);
   const vatM = async (m: string) => (await getVATReturn(fx.companyId, `2026-${m}-01`, `2026-${m}-${m === '06' || m === '09' ? '30' : '31'}`)).totalInputTax;
 
   it('REPRO 18: hand undo of A inside a net-zero month-end correction journal (remove A, add C) is not seen', async () => {

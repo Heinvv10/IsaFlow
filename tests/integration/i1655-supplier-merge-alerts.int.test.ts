@@ -8,12 +8,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageMergedWorld } from './helpers/sageMergedSupplierWorld';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+/** #1656: mergeEntities' bank-rule guard (a customer merge's); a supplier merge re-points no bank rule. */
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 
 assertDisposable();
 const w = sageMergedWorld('alerts');
 const { pool, companyId, userId, inRequestTx, insPlain, bill } = w;
 
-const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, 'admin'), true);
+const merge = (survivor: string, gone: string) => inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, NO_RULE_GUARD, 'admin'), true);
 
 beforeAll(() => w.seed(), 60000);
 afterAll(() => w.drop(), 60000);

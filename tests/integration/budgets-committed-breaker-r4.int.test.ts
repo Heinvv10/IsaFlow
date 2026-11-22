@@ -87,7 +87,7 @@ describe('R4-1 "closed because fully billed" lives on the purchase order', () =>
       expect(r.isError, r.text).toBe(false);
     } else {
       const req = await openRequest(pool, f, f.owner);
-      try { await req.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner)); await req.commit(); } catch (e) { await req.rollback(); throw e; }
+      try { await req.run(() => softDelete(f.co, 'supplier_invoice', h.id, f.owner, { allowReversal: true })); await req.commit(); } catch (e) { await req.rollback(); throw e; }
     }
     expect(await flag(po)).toEqual({ status: 'approved', closed_from_status: null, closed_by_billing: false });
     expect(await openOf(po)).toEqual([100000]);

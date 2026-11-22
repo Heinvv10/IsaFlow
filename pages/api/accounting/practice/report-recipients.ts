@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
+import { isFullAccessRole } from '@/lib/auth/companyRoles';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -15,7 +16,7 @@ import {
 } from '@/modules/accounting/services/practice/practiceReportRecipientsService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
   const actorId = req.user.id;
 
   if (req.method === 'GET') {
@@ -28,6 +29,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    // Who receives the monthly report (which can carry per-client margins) is an owner / admin decision (#1656 round 9).
+    if (!isFullAccessRole(companyRole)) return apiResponse.forbidden(res, 'Only an owner or admin can add report recipients.');
     const { email, name, reportTypes } = req.body as Record<string, unknown>;
     if (!email) return apiResponse.badRequest(res, 'email is required');
 

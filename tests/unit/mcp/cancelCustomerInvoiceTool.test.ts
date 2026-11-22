@@ -137,7 +137,7 @@ describe('cancel_customer_invoice', () => {
   it.each(['draft', 'pending_approval'])('cancels a %s invoice through the service and reports it', async (status) => {
     db(row({ status }));
     const r = await cancelCustomerInvoiceTool.handler({ invoice_id: INV, ...KEY }, ctx);
-    expect(cancelCustomerInvoice).toHaveBeenCalledWith(COMPANY, INV, 'u-1');
+    expect(cancelCustomerInvoice).toHaveBeenCalledWith(COMPANY, INV, 'u-1', { allowReversal: false });
     expect(JSON.parse(text(r))).toMatchObject({
       invoice_id: INV, invoice_number: 'INV0000225', status_before: status, status: 'cancelled',
     });
