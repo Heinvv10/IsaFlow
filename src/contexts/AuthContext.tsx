@@ -98,8 +98,6 @@ const ROLE_HIERARCHY: Record<AuthRole, number> = {
   system: 5,
   admin: 4,
   manager: 3,
-  storeman: 2,
-  technician: 2,
   viewer: 1,
 };
 

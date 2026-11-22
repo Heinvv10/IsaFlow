@@ -36,9 +36,8 @@ import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/
 import {
   EntityChangeCursorError, listEntityChanges, MAX_PAGE, type ListEntityChangesOptions,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
-import {
-  ENTITY_TYPES, isHistoryAdmin, mayReadType,
-} from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { ENTITY_TYPES, isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { mayReadTypeFor, readableEntityTypes } from '@/modules/accounting/services/core/entityChanges/entityChangeAccess';
 
 const Query = z.object({
   entityType: z.enum(ENTITY_TYPES).optional(),
@@ -50,7 +49,8 @@ const Query = z.object({
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
-  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
+  const userId = user.id;
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   const { entityType, entityId, employeeId, before, limit } = parsed.data;
@@ -71,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (entityId || entityType !== 'payroll_bank_detail') {
       return apiResponse.badRequest(res, 'employeeId goes with entityType=payroll_bank_detail alone');
     }
-    if (!mayReadType(companyRole, entityType)) {
+    if (!(await mayReadTypeFor(companyId, userId, companyRole, entityType))) {
       return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot view this history.`);
     }
     return page(res, companyId, { types: [entityType], entityType, employeeId, before, limit });
@@ -79,7 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (entityId) {
     if (!entityType) return apiResponse.badRequest(res, 'entityType is required with entityId');
-    if (!mayReadType(companyRole, entityType)) {
+    if (!(await mayReadTypeFor(companyId, userId, companyRole, entityType))) {
       return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot view this history.`);
     }
     return page(res, companyId, { types: [entityType], entityType, entityId, before, limit });
@@ -89,7 +89,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   // The all-types feed carries bank-detail rows too: a Login-as or token session gets the feed without them.
   const human = entityType ? true : await isHumanSession();
-  const types = entityType ? [entityType] : ENTITY_TYPES.filter((t) => human || t !== 'payroll_bank_detail');
+  const readable = await readableEntityTypes(companyId, userId, companyRole);
+  const types = entityType ? [entityType] : readable.filter((t) => human || t !== 'payroll_bank_detail');
   return page(res, companyId, { types, entityType, before, limit });
 }
 

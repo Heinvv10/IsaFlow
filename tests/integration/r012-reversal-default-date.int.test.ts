@@ -32,7 +32,7 @@ import { lockPaymentBankLeg } from '@/modules/accounting/services/ap/paymentJour
 import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -92,6 +92,7 @@ describeIfDb('R-012: the default reversal date', () => {
   beforeAll(async () => {
     assertNotProductionDb('This test posts and reverses journals.');
     fx = await seedFixture('R012', DATABASE_URL!);
+    await seedFixtureMember(fx); // an owner: cancel_credit_note on a non-draft asks Approve from company_users (#1656)
     acc.expense = await account('default_expense');
     acc.ap = await account('payable');
     // One layout for every case: today sits in a CLOSED period; an open window
@@ -101,6 +102,7 @@ describeIfDb('R-012: the default reversal date', () => {
 
   afterAll(async () => {
     await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
+    await dropFixtureMember(fx);
     await dropFixture(fx);
   }, 120000);
 
@@ -171,9 +173,7 @@ describeIfDb('R-012: the default reversal date', () => {
       VALUES (${fx.companyId}::UUID, 'supplier', ${day(40)}::DATE, 100, 100, ${fx.userId}, 'approved',
               ${fx.supplierId}::UUID, ${je}::UUID, ${`R012S-${fx.tag.slice(-12)}`})
       RETURNING id`) as Row[])[0]!.id);
-    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`r012-${fx.userId}@isaflow.test`}, 'admin', true)
-              ON CONFLICT (id) DO NOTHING`;
-    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'admin')`;
+    // The actor's users row and owner membership come from seedFixtureMember (beforeAll).
     try {
       const token = await new SignJWT({ sub: fx.userId, aal: 'aal2' })
         .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -189,9 +189,7 @@ describeIfDb('R-012: the default reversal date', () => {
       expect(state.statusCode).toBe(400);
       expect(String(state.body.error?.message)).toMatch(/would precede it/);
     } finally {
-      await sql`DELETE FROM company_users WHERE company_id = ${fx.companyId}::UUID`;
       await sql`DELETE FROM credit_notes WHERE id = ${cn}::UUID`;
-      await sql`DELETE FROM users WHERE id = ${fx.userId}`;
     }
   });
 

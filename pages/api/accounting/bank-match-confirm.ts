@@ -39,6 +39,7 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -64,6 +65,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId: string = req.user?.id ?? 'system';
+  // #1656 (Hein: gate everything): a match that posts the bank line's journal asks Banking Approve, before any write.
+  // journal_line / bank_transfer tie the line to a journal that already exists, so they post nothing (as `match`).
+  const posts = candidateType !== 'journal_line' && candidateType !== 'bank_transfer';
+  if (posts && await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return;
 
   try {
     // Get the bank transaction amount for partial payment calculations
@@ -106,6 +111,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     let receipt: { customerPaymentId: string; allocated: number } | undefined;
 
     if (candidateType === 'supplier_invoice') {
+      if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the branch that posts
       // The whole arm lives in `confirmSupplierInvoiceMatch`: what it may
       // settle, what it must refuse, and — load-bearing — the fact that every
       // refusal is decided from READS, before the first write, because a 4xx
@@ -131,6 +137,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       };
 
     } else if (candidateType === 'customer_invoice') {
+      if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the branch that posts
       // The mirror of the supplier arm, and moved out for the same reason: this
       // branch used to write `amount_paid` absolutely with no
       // `customer_payment_allocations` row behind it, which no reversal can
@@ -157,6 +164,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       };
 
     } else if (candidateType === 'purchase_order') {
+      if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the branch that posts
       // `confirmPurchaseOrderMatch` (audit row 8): links the line to the order through `linked_po_id` — the PO's own
       // status is never written ('paid' is not one of its statuses) — and refuses, from READS before the first write,
       // an order that is not approved or a line larger than what is still outstanding on it, to the cent.

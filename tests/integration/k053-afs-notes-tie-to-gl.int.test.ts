@@ -204,8 +204,8 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
     await inTx(() => postSupplierInvoiceToGL(COMPANY, legacyApInvoice, USER));
     await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
     await sql`UPDATE customer_invoices SET deleted_at = NOW()
               WHERE id = ${legacyArInvoice}::UUID AND company_id = ${COMPANY}::UUID`;
     await sql`UPDATE supplier_invoices SET deleted_at = NOW()

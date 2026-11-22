@@ -37,7 +37,7 @@ const exportAudits = async (c: string, id: string) => (await pool.query(
 
 describe('GET ?view=masked', () => {
   it.each(['owner', 'admin'])('answers %s masked and leaves no audit row; without it the read is full and audited', async (role) => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const user = role === 'owner' ? o : a;
@@ -55,7 +55,7 @@ describe('GET ?view=masked', () => {
   });
 
   it('a manager gets the same masked view, and no audit row, with or without it', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const [{ id }] = (await pool.query<{ id: string }>('SELECT id FROM payroll_bank_details WHERE employee_id = $1', [e])).rows as [{ id: string }];
@@ -66,7 +66,7 @@ describe('GET ?view=masked', () => {
   });
 
   it('any other view value is the ordinary read', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     expect(dataOf(await masked(o, c, e, 'full'))).toMatchObject({ accountNumber: ROW.accountNumber, masked: false });
@@ -81,7 +81,7 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
       .flatMap((i) => i.fields.filter((f) => f.key === key).map((f) => f.after));
 
   it('returns the old and the new account across the retired row, masked, and nothing of another employee', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     const other = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
@@ -107,8 +107,10 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
     expect(afterOf(res, 'account_number')).toEqual(['…3456']);
   });
 
-  it.each([['viewer', () => v], ['accountant', () => x]])('a %s is refused 403 by the role check', async (_r, user) => {
-    const c = await newCompany(pool, [[o, 'owner'], [v, 'viewer'], [x, 'accountant']], companies);
+  // #1656: a legacy storeman reads as viewer; a former accountant now reads as a manager (Hein, 2026-11-19), so it is no
+  // longer the read-only legacy role this case needs.
+  it.each([['viewer', () => v], ['storeman', () => x]])('a %s is refused 403 by the role check', async (_r, user) => {
+    const c = await newCompany(pool, [[o, 'owner'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const res = await byEmployee(user(), c, { entityType: 'payroll_bank_detail', employeeId: e });
@@ -160,7 +162,7 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
   });
 
   it('is refused (400) without the bank-detail entity type, with another type, or with an entity id', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'storeman']], companies);
     const e = await employee(pool, c);
     expect((await byEmployee(o, c, { employeeId: e })).state.statusCode).toBe(400);
     expect((await byEmployee(o, c, { entityType: 'payroll_employee', employeeId: e })).state.statusCode).toBe(400);

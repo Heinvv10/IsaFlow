@@ -93,7 +93,7 @@ export const cancelCustomerInvoiceTool: McpTool = {
     }
 
     // No catch: only pre-write validation may return toolError (contracts/mutation.ts rule 2).
-    await cancelCustomerInvoice(ctx.companyId, invoiceId, ctx.userId);
+    await cancelCustomerInvoice(ctx.companyId, invoiceId, ctx.userId, { allowReversal: false }); // this tool never reverses: it refuses a journalled invoice above, and the service re-checks under the same lock
     return ok({ invoice_id: invoiceId, invoice_number: number, status_before: status, status: 'cancelled' });
   },
 };

@@ -158,6 +158,14 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   // Its one write sets invited_by NULL only where no users row matches (orphans the old NOT VALID FK let in): it
   // changes no role, company, invitee, token or acceptance, so it grants nothing.
   '997c_company_invitations_invited_by_set_null.sql': ['alters', 'writes'],
+  // #1656: patches both guards' role lists in place (916's pg_get_functiondef rewrite; the portal grants admin, manager,
+  // viewer, never owner, RC007 kept; invitations owner/admin/manager/viewer) and maps the legacy roles: accountant and
+  // bookkeeper (the portal's working roles, 403 on every app write) to manager, storeman/technician/user to viewer. It
+  // grants no owner.
+  '1010_unify_company_roles.sql': ['alters', 'writes'],
+  // #1656 round 3: adds company_users.approve_withheld and sets it true for the memberships 1010 promoted from accountant /
+  // bookkeeper (role_values_1656_backup). It changes no role, company or user, and grants and guards nothing.
+  '1010c_company_users_approve_withheld.sql': ['alters', 'writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

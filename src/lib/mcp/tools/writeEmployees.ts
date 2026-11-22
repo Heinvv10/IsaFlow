@@ -57,6 +57,7 @@ export { asDate };
 
 export const createEmployeeTool: McpTool = {
   name: 'create_employee',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Create a payroll employee. Posts NOTHING to the ledger — this is subledger setup. '
     + 'An employee created here is paid NOTHING until assign_employee_component gives them a salary: '
@@ -171,6 +172,7 @@ export const createEmployeeTool: McpTool = {
 
 export const updateEmployeeTool: McpTool = {
   name: 'update_employee',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'Update a payroll employee. Only the fields you pass change; the rest are left alone. '
     + 'Setting end_date to today or a past date TERMINATES the employee; a future end_date '

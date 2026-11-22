@@ -43,6 +43,8 @@ import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoi
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 type Row = Record<string, unknown>;
 
 /**
@@ -141,8 +143,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // balance (see customerInvoiceCancelService). Handled in the service layer
     // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
+      // #1656: cancelling an invoice that carries a journal reverses it, so that asks Approve. Whether THIS invoice does is
+      // decided by the service under its row lock (a status read here, before the lock, could be outrun by an approval);
+      // the route passes only what the person may do.
+      const allowReversal = await mayApprove(companyId, userId, 'customers');
       try {
-        const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId));
+        // census-exempt(cancelCustomerInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+        const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId, { allowReversal }));
         if (posted === JOURNAL_DATE_REFUSED) return;
         const { reversedJournalEntryId } = posted;
         log.info('Customer invoice action', { id, action, newStatus: 'cancelled', reversedJournalEntryId });
@@ -151,6 +158,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: null, reversedJournalEntryId,
         });
       } catch (err) {
+        if (respondIfApprovePermissionRefused(res, err)) return; // the locked invoice carries a journal and the person lacks Approve: 403, nothing written
         if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
         if (err instanceof InvoiceNotFoundError) return apiResponse.notFound(res, 'Invoice', id);
         if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
@@ -175,6 +183,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if ((expectedTotal !== undefined || expectedCurrency !== undefined || expectedExchangeRate !== undefined) && expectedContentDigest === undefined) {
         return apiResponse.conflict(res, 'This page is out of date: reload it, then approve again.', { code: 'INVOICE_APPROVE_VIEW_INCOMPLETE' });
       }
+      // #1656 (Hein: gate everything): Customers & AR Approve, before the invoice is read or locked.
+      if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return;
       try {
         const result = await withJournalDateRefusal(res, () =>
           approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }));

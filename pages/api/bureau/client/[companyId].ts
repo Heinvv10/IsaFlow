@@ -32,6 +32,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Client');
   }
 
+  // census-exempt(aggregateBureauWork, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const [metrics, work] = await Promise.all([
     clientMetricsSnapshot(companyId),
     aggregateBureauWork(

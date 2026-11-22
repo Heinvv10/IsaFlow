@@ -11,6 +11,7 @@ import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError } from './
 import { lockRecurringTransactionTemplate } from './recurringTemplateLock';
 import { newManualJournalGate, settleUnattendedJournal } from '../gl/manualJournalApproval';
 import { templateAuthors } from '../gl/manualJournalAuthors';
+import { approveRefusedMessage, mayApprove, recordApproveWithheld } from './approvePermission';
 import {
   mintRecurringCustomerInvoice,
   mintRecurringSupplierInvoice,
@@ -218,12 +219,20 @@ export async function executeRecurring(
     await settleUnattendedJournal(companyId, je.id, userId, { enforced: approval.enforced, held },
       await templateAuthors(companyId, { kind: 'recurring_transaction_template', id: template.id }));
     if (held) heldForApproval.push(je.id);
-    else if (template.autoPost) {
+    else if (template.autoPost && !(await mayApprove(companyId, userId, 'accounts'))) {
+      // #1656 (Hein: gate everything): the person running the template posts the journal, so it takes their Accounts
+      // Approve. Without it the journal is left a draft, recorded, and the schedule advances.
+      await recordApproveWithheld({ companyId, userId, module: 'accounts', entityType: 'journal_entry', entityId: je.id,
+        entityRef: template.name ?? null, path: 'recurring_run' });
+      warnings.push(`Left as a draft: ${approveRefusedMessage('accounts', 'journals')}`);
+    } else if (template.autoPost) {
       await postJournalEntry(companyId, je.id, userId);
       posted = true;
     }
   } else if (template.entityType === 'customer_invoice') {
-    ({ entityId, posted } = await afterFirstWrite(() => mintRecurringCustomerInvoice(companyId, template, userId)));
+    const minted = await afterFirstWrite(() => mintRecurringCustomerInvoice(companyId, template, userId));
+    ({ entityId, posted } = minted);
+    warnings = minted.warnings ?? []; // #1656: left a draft without Customers & AR Approve
   } else {
     const minted = await afterFirstWrite(() => mintRecurringSupplierInvoice(companyId, template, userId));
     ({ entityId, posted } = minted);

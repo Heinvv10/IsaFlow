@@ -12,6 +12,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // R-035 PR3: the approval skip is proven against a real database (r035-pr3-mcp.int.test.ts).
+// #1656: the approver's module Approve is the subject of tests/unit/api/*ApprovePermission*; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusals: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -62,6 +64,7 @@ import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplie
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { listCreditNoteAllocations } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
@@ -96,6 +99,16 @@ beforeEach(() => {
 });
 
 describe('bulk_approve_credit_notes', () => {
+  it("#1656: a note whose module Approve the token owner lacks is skipped (no_approve_permission), never approved", async () => {
+    vi.mocked(mayApprove).mockResolvedValueOnce(false);
+    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01', credit_note_number: 'CN-1', type: 'customer' });
+    const res = await bulkApproveCreditNotesTool.handler({ credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx) as Result;
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('no_approve_permission');
+    expect(vi.mocked(mayApprove).mock.calls[0]!.slice(1)).toEqual(['user-1', 'customers']);
+    expect(approveCreditNote).not.toHaveBeenCalled();
+  });
+
   it('only drafts are approvable', async () => {
     rows({ id: ID(1), status: 'approved', credit_date: '2026-09-01',
            credit_note_number: 'CN-1', type: 'customer' });

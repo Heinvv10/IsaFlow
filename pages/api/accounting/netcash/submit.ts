@@ -2,6 +2,7 @@
  * POST /api/accounting/netcash/submit
  * Submit an EFT batch to Netcash.
  * Body: { batchPaymentId: string } - an approved supplier payment batch. A raw payments[] list is refused (400).
+ * Takes Suppliers & AP Approve (it sends money), before anything is read.
  */
 
 import type { NextApiResponse } from 'next';
@@ -12,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { payeesNotInCompany } from '@/modules/accounting/services/ap/payeeNotInCompany';
@@ -37,6 +39,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   await assertNotImpersonating(); // R-032 L5: first, before any read or write; nothing is claimed for a Login-as session
+  // Sending the batch moves money: Suppliers & AP Approve (#1656, Hein: gate everything), before any read, claim or send.
+  if (await refuseWithoutApprove(res, companyId, req.user?.id ?? '', 'suppliers', 'supplier payments')) return;
   void probeSpoolWritable(); // once per process: log.error if the spool directory is not writable, before an outage needs it
   void replaySpooledAnswers(); // residual 3a: answers spooled while the database was unwell move into audit_log; bounded, never throws
 

@@ -48,6 +48,7 @@ import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClai
 import { assertNotImpersonating, ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { lockPosClosedByBilling } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 
@@ -124,6 +125,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { action, invoiceIds, budgetReason } = parsed.data;
   const userId = req.user.id;
+  // #1656: Suppliers & AP "Approve" (User Access), for the whole batch before any bill is read. Every action posts or
+  // reverses a journal (approve, post_gl; cancel reverses an approved bill's), so every action asks it (gate everything).
+  if (!(await mayApproveSupplierInvoices(companyId, userId))) {
+    return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
+  }
   const results: ItemResult[] = [];
   let held = 0;
 
@@ -167,6 +173,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           case 'approve':
             return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
           case 'cancel': {
+            // census-exempt(cancelSupplierInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
             const r = await cancelSupplierInvoice(companyId, invoiceId, userId, { heldPos });
             return { ...NOTHING, budgetWarnings: r.budgetWarnings.length > 0 ? r.budgetWarnings : undefined,
               reopened: r.reopenedPurchaseOrders, unchecked: r.uncheckedPurchaseOrders };

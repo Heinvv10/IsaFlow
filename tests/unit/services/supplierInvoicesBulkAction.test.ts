@@ -17,6 +17,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import type { PoolClient } from 'pg';
 
+// #1656: the approver's module Approve is the subject of tests/unit/api/*ApprovePermission*; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -103,6 +105,7 @@ function req(method: string, body: unknown): NextApiRequest {
     method,
     body,
     companyId: COMPANY_ID,
+    companyRole: 'owner', // #1656: an owner approves without a permission read
     user: { id: USER_ID },
   } as unknown as NextApiRequest;
 }

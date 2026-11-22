@@ -16,13 +16,13 @@
  * gains a price this must become a per-element debit, not a flat one.
  */
 import type { McpTool } from '../types';
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
@@ -31,10 +31,7 @@ import { mayReadBudgetFigures } from './budgetFigures';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import {
-  type BulkApproveAdapter,
-  type DocumentState,
-  partitionDocuments,
-  postPartitionedDocuments,
+  type BulkApproveAdapter, type DocumentState, partitionDocuments, postPartitionedDocuments,
 } from './bulkApproveRunner';
 import {
   MAX_DOCUMENTS,
@@ -147,6 +144,7 @@ async function postWithGate(ctx: Parameters<BulkApproveAdapter<ApprovedRow>['pos
 
 export const bulkApproveSupplierInvoicesTool: McpTool = {
   name: TOOL,
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '
@@ -180,6 +178,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids');
     if (typeof ids === 'string') return toolError(ids);
+    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED); // #1656, before any read
 
     // A chart missing one of these roles fails EVERY element, so it is a
     // refusal about the request's preconditions rather than 100 identical

@@ -48,6 +48,7 @@ const MAX_RANGE = 500;
 
 export const reverseAllocationsTool: McpTool = {
   name: REVERSE_RANGE_TOOL,
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Reverse EVERY allocation in one bank account between two dates, inclusive — including allocations made by bank rules or by an import, which carry no batch_id and cannot be reversed by reverse_bank_allocation_batch. ' +
     'ALL OR NOTHING: if any reversal fails, none are applied, so the account is never left half-unwound. ' +

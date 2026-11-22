@@ -11,6 +11,7 @@ import { SupplierMergeRefusal } from './supplierMergeRefusal';
 import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
+import type { RuleWriteGuard } from '../bank/bankRuleChangeControl';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
@@ -81,6 +82,8 @@ export async function mergeEntities(
   primaryId: string,
   duplicateId: string,
   userId: string,
+  /** For a customer merge: run for each bank rule it re-points (autoPostApprovalGuard). */
+  ruleGuard: RuleWriteGuard,
   /** The caller's company role: a supplier merge moves approved purchase orders only for one that may edit them (owner, admin). */
   companyRole?: string | null,
 ): Promise<MergeResult> {
@@ -91,7 +94,7 @@ export async function mergeEntities(
   // One customer merge for both routes (K-061): this path used to move five
   // tables and leave the duplicate's recurring invoices billing a deleted customer.
   if (entityType === 'customer') {
-    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId);
+    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId, ruleGuard);
     return {
       reassignedTransactions: merged.movedDocuments,
       pausedRecurring: merged.pausedRecurring,
