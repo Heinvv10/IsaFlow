@@ -11,12 +11,12 @@ export type ImportStatusWord = 'open' | 'draft' | 'billed' | 'cancelled';
 
 export const OPEN_SAGE_PO_IMPORTED_AS: 'open' | 'draft' = 'open';
 
-const TABLE: Readonly<Record<string, ImportStatusWord>> = {
-  pending: OPEN_SAGE_PO_IMPORTED_AS,
-  overdue: OPEN_SAGE_PO_IMPORTED_AS,
-  invoiced: 'billed',
-  cancelled: 'cancelled',
-};
+/** The status table for a choice of how open Sage POs go in (exported so a test can try the other choice). */
+export function statusTableFor(openAs: 'open' | 'draft'): Readonly<Record<string, ImportStatusWord>> {
+  return { pending: openAs, overdue: openAs, invoiced: 'billed', cancelled: 'cancelled' };
+}
+
+const TABLE = statusTableFor(OPEN_SAGE_PO_IMPORTED_AS);
 
 export function importStatusFor(sageStatus: string): ImportStatusWord | null {
   const key = sageStatus.trim().toLowerCase();

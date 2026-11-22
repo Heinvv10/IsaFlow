@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 import { mapSageCategory, mapSageItem } from '@/modules/accounting/services/sage-migration/sageItemMapping';
 import { mapSagePurchaseOrder } from '@/modules/accounting/services/sage-migration/sagePurchaseOrderMapping';
-import { importStatusFor, OPEN_SAGE_PO_IMPORTED_AS } from '@/modules/accounting/services/sage-migration/sagePoStatus';
+import { importStatusFor, OPEN_SAGE_PO_IMPORTED_AS, statusTableFor } from '@/modules/accounting/services/sage-migration/sagePoStatus';
 import { validateItemFields } from '@/modules/accounting/services/items/itemFieldValidation';
 import { IMPORT_STATUS_ALIASES, parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 
@@ -85,6 +85,10 @@ describe('F7e: how a Pending or Overdue Sage PO is imported is one decision', ()
     expect(importStatusFor('Overdue')).toBe(OPEN_SAGE_PO_IMPORTED_AS);
     expect(importStatusFor('Invoiced')).toBe('billed');
     expect(importStatusFor('Cancelled')).toBe('cancelled');
+  });
+  it('choosing draft moves exactly Pending and Overdue to draft and nothing else', () => {
+    expect(statusTableFor('draft')).toEqual({ pending: 'draft', overdue: 'draft', invoiced: 'billed', cancelled: 'cancelled' });
+    expect(statusTableFor('open')).toEqual({ pending: 'open', overdue: 'open', invoiced: 'billed', cancelled: 'cancelled' });
   });
   it('the words it can be set to are ones the PO tool accepts', () => {
     for (const w of ['draft', 'open']) expect(Object.keys(IMPORT_STATUS_ALIASES)).toContain(w);
