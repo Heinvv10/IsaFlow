@@ -16,6 +16,9 @@ export function migrationLockKey(companyId: string): [number, number] {
   return [int32('sage-migration'), int32(`sage-migration:${companyId.toLowerCase()}`)];
 }
 
+/** How often the idle lock connection is pinged: a proxy or firewall that drops idle sessions would otherwise take the lock without a word. */
+export const KEEPALIVE_MS = 15_000;
+
 export class LockLostError extends Error {}
 
 export interface RunLock {
@@ -55,6 +58,16 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     client.release(failure);
     throw new RunInProgressError(`another Sage migration is running for this company (${companyId}): wait for it to finish, then run again; nothing was written`);
   }
+  // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
+  // session only it is off. A failure here is a failure of the connection like any other.
+  try {
+    await client.query('SET idle_session_timeout = 0');
+  } catch (err) {
+    failure = err instanceof Error ? err : new Error(String(err));
+    client.removeListener('error', onError);
+    client.release(failure);
+    throw failure;
+  }
   const check = async (): Promise<void> => {
     if (!lost) {
       try {
@@ -65,11 +78,15 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     }
     if (lost) throw new LockLostError(`lock lost (${lost.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
   };
+  const keepalive = setInterval(() => { check().catch(() => undefined); }, KEEPALIVE_MS); // a failed ping records the loss (check() sets it)
+  keepalive.unref();
   const unlock = async (): Promise<void> => {
+    clearInterval(keepalive);
     let unlockFailure: Error | undefined = lost;
     if (!lost) {
       try {
         await client.query('SELECT pg_advisory_unlock($1::int, $2::int)', [k1, k2]);
+        await client.query('RESET idle_session_timeout'); // the connection goes back to the pool as the server configured it
       } catch (err) {
         unlockFailure = err instanceof Error ? err : new Error(String(err));
       }

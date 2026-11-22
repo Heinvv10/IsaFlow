@@ -1,7 +1,7 @@
 /** R2 (round 4): one Sage migration per company at a time. */
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { acquireRunLock, LockLostError, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
+import { acquireRunLock, KEEPALIVE_MS, LockLostError, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -10,7 +10,7 @@ function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: bool
   const calls: string[] = [];
   const client = Object.assign(new EventEmitter(), {
     query: vi.fn(async (text: string) => {
-      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('SELECT 1') ? 'check' : 'unlock');
+      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('idle_session_timeout') ? text.split(' ')[0]!.toLowerCase() : text.includes('SELECT 1') ? 'check' : 'unlock');
       if (text.includes('pg_try_advisory_lock')) { if (over.lockThrows) throw new Error('lock query failed'); return { rows: [{ ok: over.ok ?? true }] }; }
       if (text.includes('SELECT 1') && over.checkFails) throw new Error('Connection terminated');
       if (over.unlockFails && text.includes('unlock')) throw new Error('unlock failed');
@@ -35,10 +35,10 @@ describe('acquireRunLock', () => {
   it('takes the lock on a connection of its own, and the release function unlocks and returns the connection', async () => {
     const { pool, client, calls } = fakePool();
     const { unlock: release } = await acquireRunLock(pool, A);
-    expect(calls).toEqual(['lock']);
+    expect(calls).toEqual(['lock', 'set']);
     expect(client.release).not.toHaveBeenCalled(); // held for the whole run
     await release();
-    expect(calls).toEqual(['lock', 'unlock']);
+    expect(calls).toEqual(['lock', 'set', 'unlock', 'reset']);
     expect(client.release).toHaveBeenCalledWith(undefined); // returned to the pool, not destroyed
   });
   it('a lock someone else holds is RunInProgressError, naming the company, and the connection goes back', async () => {
@@ -85,5 +85,42 @@ describe('the lock connection is watched (M2, round 5)', () => {
     const { pool, client } = fakePool({ ok: false });
     await acquireRunLock(pool, A).catch(() => null);
     expect(client.listenerCount('error')).toBe(0);
+  });
+});
+
+describe('the lock connection is kept from idling out (round 5, B5-B2)', () => {
+  it('sets idle_session_timeout to 0 on the lock session once it holds the lock, and resets it when the lock is given up', async () => {
+    const { pool, calls } = fakePool();
+    const { unlock } = await acquireRunLock(pool, A);
+    expect(calls).toEqual(['lock', 'set']);
+    await unlock();
+    expect(calls).toEqual(['lock', 'set', 'unlock', 'reset']);
+  });
+  it('a refused lock sets nothing on the connection it hands back', async () => {
+    const { pool, calls } = fakePool({ ok: false });
+    await acquireRunLock(pool, A).catch(() => null);
+    expect(calls).toEqual(['lock']);
+  });
+  it('pings the connection while the lock is held, and not after it is given up', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool, calls } = fakePool();
+      const { unlock } = await acquireRunLock(pool, A);
+      await vi.advanceTimersByTimeAsync(KEEPALIVE_MS * 3 + 10);
+      expect(calls.filter((c) => c === 'check')).toHaveLength(3);
+      await unlock();
+      const n = calls.length;
+      await vi.advanceTimersByTimeAsync(KEEPALIVE_MS * 3);
+      expect(calls).toHaveLength(n);
+    } finally { vi.useRealTimers(); }
+  });
+  it('a failed ping is a lost lock', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool } = fakePool({ checkFails: true });
+      const { check } = await acquireRunLock(pool, A);
+      await vi.advanceTimersByTimeAsync(KEEPALIVE_MS + 10);
+      await expect(check()).rejects.toThrow(/lock lost/);
+    } finally { vi.useRealTimers(); }
   });
 });
