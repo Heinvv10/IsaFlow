@@ -25,6 +25,12 @@ Local throwaway databases only.
 
 ## Rules
 
+- **The migration only updates items it owns.** `bulk_upsert_items` matches by code and updates what it matches, so a Sage code equal to any other item (no reference, another reference, deleted) is refused `code_held_by_existing_item` in the plan and the item named.
+- A supplier carrying another Sage reference is never matched by name. A PO in a foreign currency, or with a description that would pass 500 with its item suffix, is refused.
+- A partial export (no container, unknown top-level key, `$totalResults` above the rows, `$next`) is refused whole; `--live` needs `--expect-items` and `--expect-pos`.
+- A replayed batch whose rows are gone is `replayed, rows absent` (failed); `--run-tag` salts the keys for a deliberate fresh import.
+- Pending/Overdue go in through one constant, `OPEN_SAGE_PO_IMPORTED_AS`.
+
 - **`QuantityOnHand` is NEVER imported** (Hein). It is not on the typed row (`hadQuantityOnHand` only), not on any mapped row, and
   no `stock_movements`, `opening_qty` or `current_qty` is written; the report counts the movements before and after.
 - `inventory_tracked` is always false; a Sage service code (`Physical` false) is a service.
