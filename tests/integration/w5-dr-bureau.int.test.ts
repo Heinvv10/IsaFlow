@@ -20,7 +20,7 @@ afterAll(async () => {
 
 const renewal = async (today: string) => {
   const meta = new Map([[f.company, { bureau_id: 'b', bureau_name: 'B', company_id: f.company, company_name: 'DR bureau' }]]);
-  const { items } = await aggregateBureauWork([f.company], meta, new Date(`${today}T08:00:00Z`));
+  const { items } = await aggregateBureauWork([f.company], meta, new Date(`${today}T08:00:00Z`), { payrollCompanyIds: [f.company] });
   return items.find(i => i.task === 'Tax directive renewal')?.detail ?? null;
 };
 

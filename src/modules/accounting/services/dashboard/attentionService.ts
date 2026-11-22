@@ -35,7 +35,10 @@ async function getOpenPayRuns(companyId: string): Promise<OpenPayRun[]> {
   }));
 }
 
-export async function getAttentionList(companyId: string, now: Date = new Date()): Promise<AttentionList> {
+/** What the caller may see. Required, so a caller must decide: payroll is read only for `payrollRead: true`. */
+export interface AttentionAccess { payrollRead: boolean }
+
+export async function getAttentionList(companyId: string, access: AttentionAccess, now: Date = new Date()): Promise<AttentionList> {
   const asAt = todayInSast(now);
   const [counts, ar, unreconciledBankTxns, openPriorPeriods, cashBalance, payRuns] = await Promise.all([
     getHeadlineCounts(companyId, asAt),
@@ -44,14 +47,15 @@ export async function getAttentionList(companyId: string, now: Date = new Date()
     getUnreconciledBankTxns(companyId),
     getOpenPriorPeriods(companyId),
     getCashBalance(companyId, asAt),
-    getOpenPayRuns(companyId),
+    // Without Payroll read nothing about payroll is read: no open pay runs here, no payroll section of the cash position, no payroll signals.
+    access.payrollRead ? getOpenPayRuns(companyId) : Promise.resolve([] as OpenPayRun[]),
   ]);
   const meta = new Map<string, CompanyMeta>([
     [companyId, { bureau_id: '', bureau_name: '', company_id: companyId, company_name: '' }],
   ]);
   const [work, cash] = await Promise.all([
-    aggregateBureauWork([companyId], meta, now),
-    getOwnerCashPosition(companyId, cashBalance.total, now),
+    aggregateBureauWork([companyId], meta, now, { payrollCompanyIds: access.payrollRead ? [companyId] : [] }),
+    getOwnerCashPosition(companyId, cashBalance.total, now, { payroll: access.payrollRead }),
   ]);
   const items = shapeAttention({
     asAt,

@@ -16,8 +16,25 @@ const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
 };
 
-/** Every flag the nav filters on (what `useNavFlags` asks the server about). */
-export const NAV_FLAGS: readonly string[] = [...new Set(Object.values(FLAGGED_SURFACES))];
+/** The marker `useNavFlags` puts in the set when the user may read `moduleKey`. */
+export const moduleReadFlag = (moduleKey: string): string => `module_read:${moduleKey}`;
+
+/** Page path → the module (permission_modules.module_key) whose Read permission it needs. */
+const MODULE_SURFACES: Readonly<Record<string, string>> = {
+  '/payroll': 'payroll',
+};
+
+/** The feature flags the nav filters on (what `useNavFlags` asks `/api/features/check` about). */
+export const FEATURE_NAV_FLAGS: readonly string[] = [...new Set(Object.values(FLAGGED_SURFACES))];
+
+/** The modules whose pages the nav hides without Read (what `useNavFlags` asks `/api/accounting/my-permissions` about). */
+export const NAV_MODULES: readonly string[] = [...new Set(Object.values(MODULE_SURFACES))];
+
+/** The read markers of `NAV_MODULES`. */
+export const MODULE_READ_NAV_FLAGS: readonly string[] = NAV_MODULES.map(moduleReadFlag);
+
+/** Every flag the nav filters on: a set holding all of them hides nothing. */
+export const NAV_FLAGS: readonly string[] = [...FEATURE_NAV_FLAGS, ...MODULE_READ_NAV_FLAGS];
 
 /** The flag a link needs, or null. Query strings are ignored; the match is the exact page or below it. */
 export function flagOfHref(href: string): string | null {
@@ -25,10 +42,14 @@ export function flagOfHref(href: string): string | null {
   for (const [surface, flag] of Object.entries(FLAGGED_SURFACES)) {
     if (path === surface || path.startsWith(`${surface}/`)) return flag;
   }
+  for (const [surface, moduleKey] of Object.entries(MODULE_SURFACES)) {
+    if (path === surface || path.startsWith(`${surface}/`)) return moduleReadFlag(moduleKey);
+  }
   return null;
 }
 
-function hidden(href: string, enabled: ReadonlySet<string>): boolean {
+/** Whether the nav hides `href` from a user whose enabled flags are `enabled`. */
+export function hidden(href: string, enabled: ReadonlySet<string>): boolean {
   const flag = flagOfHref(href);
   return flag !== null && !enabled.has(flag);
 }

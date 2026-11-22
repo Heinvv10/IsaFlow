@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { TABS } from '@/components/accounting/accountingNavConfig';
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { rankPages } from '@/components/layout/paletteRank';
 import type { Tab } from '@/components/accounting/navSections/types';
 
@@ -34,8 +35,8 @@ const top = (index: ReturnType<typeof buildNavIndex>, q: string) => rankPages(in
 
 describe.each([true, false])('palette top page after the daily-link renames (VAT vendor: %s)', (vat) => {
   it('every query keeps its top page, except the listed prefixes of the new names', () => {
-    const head = buildNavIndex(TABS, vat);
-    const base = buildNavIndex(BASE, vat);
+    const head = buildNavIndex(TABS, vat, new Set(NAV_FLAGS));
+    const base = buildNavIndex(BASE, vat, new Set(NAV_FLAGS));
     expect(base).not.toEqual(head); // the mapping really undid the renames
     const names = new Set([...head, ...base].flatMap((e) => [e.label, ...(e.aliases ?? []), ...e.trail]));
     const queries = new Set([...names].flatMap((n) => Array.from({ length: Math.max(0, n.length - 2) }, (_, i) => n.slice(0, i + 3)))

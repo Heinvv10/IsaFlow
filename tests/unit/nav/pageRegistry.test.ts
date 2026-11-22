@@ -7,12 +7,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildPageIndex, EXTRA_PAGES } from '@/components/accounting/navSections/pageRegistry';
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { TABS, settingsTab } from '@/components/accounting/accountingNavConfig';
 import { documentTitle } from '@/components/layout/shellRoutes';
 import { getActiveModuleId } from '@/components/accounting/navSections/activeTab';
 import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 
-const idx = buildPageIndex(true);
+const ALL_FLAGS: ReadonlySet<string> = new Set(NAV_FLAGS); // every page indexed, Payroll included
+const idx = buildPageIndex(true, ALL_FLAGS);
 
 describe('documentTitle over the page registry', () => {
   it.each([
@@ -49,8 +51,8 @@ describe('documentTitle over the page registry', () => {
       '/accounting/company-settings?tab=netcash', '/accounting/company-settings?tab=general',
       '/accounting/company-settings?tab=vat', '/accounting/timesheets',
     ]);
-    const menus = new Set(buildNavIndex([...TABS, settingsTab], true).map((e) => e.href));
-    const wrong = buildPageIndex(true)
+    const menus = new Set(buildNavIndex([...TABS, settingsTab], true, ALL_FLAGS).map((e) => e.href));
+    const wrong = buildPageIndex(true, ALL_FLAGS)
       .filter((e) => menus.has(e.href) && e.trail.length > 0 && !allowed.has(e.href))
       .map((e) => {
         const [p = '', qs = ''] = e.href.split('?');
@@ -75,14 +77,14 @@ describe('documentTitle over the page registry', () => {
   });
 
   it('lists every menu entry before any extra, so a menu entry wins a shared href (trailForPath takes the first)', () => {
-    const menuCount = buildNavIndex([...TABS, settingsTab], true).length;
+    const menuCount = buildNavIndex([...TABS, settingsTab], true, ALL_FLAGS).length;
     expect(idx.slice(menuCount)).toEqual(EXTRA_PAGES);
   });
 
   it('has no duplicate extra and no extra the nav already names (a dead row)', () => {
     const hrefs = EXTRA_PAGES.map((e) => e.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
-    const nav = new Set(buildNavIndex([...TABS, settingsTab], true).map((e) => e.href));
+    const nav = new Set(buildNavIndex([...TABS, settingsTab], true, ALL_FLAGS).map((e) => e.href));
     expect(hrefs.filter((h) => nav.has(h))).toEqual([]);
   });
 });

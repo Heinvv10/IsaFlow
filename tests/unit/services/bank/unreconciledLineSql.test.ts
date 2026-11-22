@@ -61,7 +61,7 @@ describe('every unreconciled count splices the one definition', () => {
     const meta = new Map<string, CompanyMeta>([
       [COMPANY, { bureau_id: 'b1', bureau_name: 'Bureau', company_id: COMPANY, company_name: 'Client' }],
     ]);
-    await aggregateBureauWork([COMPANY], meta, new Date('2026-11-15T10:00:00Z'));
+    await aggregateBureauWork([COMPANY], meta, new Date('2026-11-15T10:00:00Z'), { payrollCompanyIds: [] });
     const recon = bankTxCalls().filter((c) => /GROUP BY bt\.company_id/.test(text(c)));
     expect(recon).toHaveLength(1);
     expect(splices(recon[0]!)).toBe(true);

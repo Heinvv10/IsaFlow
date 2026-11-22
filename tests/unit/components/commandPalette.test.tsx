@@ -3,6 +3,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 
 const push = vi.fn();
 const toggleTheme = vi.fn();
+// Payroll is hidden until the user is known to have Payroll read (`useNavFlags`); these cases are about its menus.
+vi.mock('@/hooks/useNavFlags', async () => {
+  const { MODULE_READ_NAV_FLAGS } = await import('@/components/accounting/navSections/flagNav');
+  const readable: ReadonlySet<string> = new Set(MODULE_READ_NAV_FLAGS);
+  return { useNavFlags: () => readable };
+});
 vi.mock('next/router', () => ({ useRouter: () => ({ push, asPath: '/accounting', query: {}, pathname: '/' }) }));
 vi.mock('@/contexts/ThemeContext', () => ({ useTheme: () => ({ toggleTheme }) }));
 vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true, known: true }) }));
