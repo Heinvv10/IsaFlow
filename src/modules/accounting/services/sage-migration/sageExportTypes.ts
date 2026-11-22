@@ -88,6 +88,8 @@ export interface ParsedExport {
   rowsIn: { items: number; purchaseOrders: number };
   /** Sum of the header Total of EVERY PO row that has a readable one, accepted or refused, in cents. */
   exportPoTotalCents: number;
+  /** PO rows the total above does not include because their Total is not a number (or the row is not an object). */
+  exportRowsWithoutTotal: number;
   /** Items whose export row carried a QuantityOnHand (all ignored). */
   itemsWithQuantityOnHand: number;
 }

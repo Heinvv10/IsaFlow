@@ -8,9 +8,9 @@ import { readFileSync } from 'node:fs';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 import { mapSageCategory, mapSageItem } from '@/modules/accounting/services/sage-migration/sageItemMapping';
 import { mapSagePurchaseOrder } from '@/modules/accounting/services/sage-migration/sagePurchaseOrderMapping';
-import { importStatusFor } from '@/modules/accounting/services/sage-migration/sagePoStatus';
+import { importStatusFor, OPEN_SAGE_PO_IMPORTED_AS } from '@/modules/accounting/services/sage-migration/sagePoStatus';
 import { validateItemFields } from '@/modules/accounting/services/items/itemFieldValidation';
-import { parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
+import { IMPORT_STATUS_ALIASES, parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 const parsed = () => parseSageExport(JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8')));
@@ -77,6 +77,20 @@ describe('purchase order status', () => {
   });
 });
 
+describe('F7e: how a Pending or Overdue Sage PO is imported is one decision', () => {
+  it('Pending and Overdue both take the one constant (open today); Invoiced and Cancelled do not', () => {
+    expect(OPEN_SAGE_PO_IMPORTED_AS).toBe('open');
+    expect(['draft', 'open']).toContain(OPEN_SAGE_PO_IMPORTED_AS);
+    expect(importStatusFor('Pending')).toBe(OPEN_SAGE_PO_IMPORTED_AS);
+    expect(importStatusFor('Overdue')).toBe(OPEN_SAGE_PO_IMPORTED_AS);
+    expect(importStatusFor('Invoiced')).toBe('billed');
+    expect(importStatusFor('Cancelled')).toBe('cancelled');
+  });
+  it('the words it can be set to are ones the PO tool accepts', () => {
+    for (const w of ['draft', 'open']) expect(Object.keys(IMPORT_STATUS_ALIASES)).toContain(w);
+  });
+});
+
 describe('purchase order mapping', () => {
   const p = parsed();
   const map = (n: number) => mapSagePurchaseOrder(p.purchaseOrders[n]!, SUPPLIER, p.itemCodes);
@@ -116,11 +130,11 @@ describe('purchase order mapping', () => {
     expect(lines[2]!.description).toBe('Installation visit [item SVC-005]');
   });
 
-  it('a long description is cut to leave room for the item suffix, within the tool\'s 500', () => {
+  it('F7b: a description that no longer fits with the item suffix is an error, never a silent cut', () => {
     const po = { ...p.purchaseOrders[0]!, lines: [{ ...p.purchaseOrders[0]!.lines[0]!, description: 'x'.repeat(500) }] };
-    const d = (mapSagePurchaseOrder(po, SUPPLIER, p.itemCodes).lines as Array<{ description: string }>)[0]!.description;
-    expect(d).toHaveLength(500);
-    expect(d.endsWith(' [item FIB-0001]')).toBe(true);
+    expect(() => mapSagePurchaseOrder(po, SUPPLIER, p.itemCodes)).toThrow(/516 characters/);
+    const exact = { ...po, lines: [{ ...po.lines[0]!, description: 'x'.repeat(500 - ' [item FIB-0001]'.length) }] };
+    expect((mapSagePurchaseOrder(exact, SUPPLIER, p.itemCodes).lines as Array<{ description: string }>)[0]!.description).toHaveLength(500);
   });
 
   it('sends the source\'s own line figures and header totals', () => {

@@ -11,7 +11,7 @@
  */
 import type { ParsedExport, RowRefusal } from './sageExportTypes';
 import { mapSageCategory, mapSageItem } from './sageItemMapping';
-import { mapSagePurchaseOrder } from './sagePurchaseOrderMapping';
+import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder } from './sagePurchaseOrderMapping';
 import type { SupplierResolution } from './sageSuppliers';
 import { byStableKey } from './sageBatches';
 import { SAGE_SYSTEM } from './sageItemMapping';
@@ -31,19 +31,23 @@ export interface MigrationPlan {
 
 export type Existing = Pick<Snapshot, 'items' | 'poNumbers'>;
 
-/** Why the item tool would refuse `sageId`/`code` against what the company holds, or null (it mirrors itemUpsertPlan). */
+/**
+ * Why `sageId`/`code` must not be sent, or null. bulk_upsert_items matches by Sage reference and then by CODE, and updates what it
+ * matches: a Sage item whose code equals an item IsaFlow already holds would overwrite it (a tracked item with stock turned into
+ * an untracked service, a live item deactivated). So the migration only ever updates an item it owns (system sage, this id):
+ * a code held by any other item, with or without an external reference, deleted or not, is refused and the item named.
+ */
 function itemConflict(sageId: string, code: string, items: readonly ExistingItem[]): { code: string; reason: string } | null {
   const byRef = items.find((i) => i.system === SAGE_SYSTEM && i.ref === sageId);
   const byCode = items.find((i) => i.code === code);
-  const held = (i: ExistingItem) => `item ${i.code} (${i.system ?? 'no system'} ${i.ref ?? 'no reference'})`;
+  const held = (i: ExistingItem) => `item ${i.code} (id ${i.id}, ${i.ref ? `${i.system ?? 'no system'} ${i.ref}` : 'no external reference'}${i.deleted ? ', deleted' : ''})`;
   if (byRef && byCode && byRef.id !== byCode.id) {
     return { code: 'ref_code_conflict', reason: `Sage id ${sageId} is already ${held(byRef)} and code ${code} belongs to a different item, ${held(byCode)}` };
   }
-  if (!byRef && byCode && byCode.ref !== null) {
-    return { code: 'code_in_use_by_other_ref', reason: `code ${code} already belongs to ${held(byCode)}, an item with another external reference` };
+  if (byCode && byCode.id !== byRef?.id) {
+    return { code: 'code_held_by_existing_item', reason: `code ${code} is held by ${held(byCode)}, which this migration does not own: an item it did not import is never updated` };
   }
-  const match = byRef ?? byCode;
-  if (match?.deleted) return { code: 'item_deleted', reason: `the matching ${held(match)} has been deleted` };
+  if (byRef?.deleted) return { code: 'item_deleted', reason: `the matching ${held(byRef)} has been deleted` };
   return null;
 }
 
@@ -83,6 +87,9 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       refuse('po_number_taken', `${po.documentNumber} already belongs to a purchase order (${holder.ref ? `${holder.system} ${holder.ref}` : 'no external reference'}); the tool would refuse the whole batch`);
       continue;
     }
+    const tooLong = po.lines.map((l, n) => ({ n, len: l.description.length + (l.itemId !== null && sentCodes[l.itemId] ? ` [item ${sentCodes[l.itemId]}]`.length : 0) }))
+      .find((x) => x.len > MAX_LINE_DESCRIPTION);
+    if (tooLong) { refuse('line_description_too_long', `line ${tooLong.n + 1}: the description with its item code is ${tooLong.len} characters, over the ${MAX_LINE_DESCRIPTION} a PO line takes (nothing is cut)`); continue; }
     const element = mapSagePurchaseOrder(po, supplier.id, sentCodes, opts.poGlAccountId);
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }

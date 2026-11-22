@@ -20,7 +20,8 @@ function session(handlers: { ref?: (id: string) => Row; suppliers?: (search: str
   };
   return { s, calls };
 }
-const one = async (s: ToolSession, id = '9', name: string | null = 'Acme') => (await resolveSuppliers(s, [po(id, name)])).get(id)!;
+const one = async (s: ToolSession, id = '9', name: string | null = 'Acme', refs: ReadonlyMap<string, string> = new Map()) =>
+  (await resolveSuppliers(s, [po(id, name)], refs)).get(id)!;
 
 describe('resolveSuppliers', () => {
   it('a supplier carrying the Sage reference wins, whatever its name, and no name search is made', async () => {
@@ -60,8 +61,25 @@ describe('resolveSuppliers', () => {
   });
   it('looks each distinct Sage supplier up once', async () => {
     const { s, calls } = session({ ref: () => ({ found: true, record: { id: 'u' } }) });
-    const r = await resolveSuppliers(s, [po('1', 'A'), po('1', 'A'), po('2', 'B')]);
+    const r = await resolveSuppliers(s, [po('1', 'A'), po('1', 'A'), po('2', 'B')], new Map());
     expect(r.size).toBe(2);
     expect(calls).toHaveLength(2);
+  });
+
+  it('F3: a supplier of that name that already carries ANOTHER Sage reference is not matched by name', async () => {
+    const { s } = session({ suppliers: () => ({ suppliers: [{ id: 'a', name: 'Acme' }, { id: 'b', name: 'ACME' }], next_offset: null }) });
+    // 'a' is Sage supplier 77, not 9: it is a different Sage supplier that happens to share the name. 'b' has no reference.
+    expect(await one(s, '9', 'Acme', new Map([['a', '77']]))).toEqual({ id: 'b' });
+  });
+  it('F3: when every candidate carries another Sage reference, supplier_ref_conflict naming them', async () => {
+    const { s } = session({ suppliers: () => ({ suppliers: [{ id: 'a', name: 'Acme' }], next_offset: null }) });
+    const r = await one(s, '9', 'Acme', new Map([['a', '77']]));
+    expect(r).toMatchObject({ code: 'supplier_ref_conflict' });
+    expect((r as { reason: string }).reason).toMatch(/Sage supplier 77/);
+  });
+  it('F3: a supplier carrying THIS Sage reference found by name is fine; a reference of another system is no conflict', async () => {
+    const { s } = session({ suppliers: () => ({ suppliers: [{ id: 'a', name: 'Acme' }], next_offset: null }) });
+    expect(await one(s, '9', 'Acme', new Map([['a', '9']]))).toEqual({ id: 'a' });
+    expect(await one(s, '9', 'Acme', new Map())).toEqual({ id: 'a' });
   });
 });

@@ -43,7 +43,7 @@ export function buildReconciliation(i: Input): Reconciliation {
       inExport: parsed.rowsIn.purchaseOrders, refused: refusedOf('purchase_order'), sent: poIds.length,
       presentBefore: poIds.filter((id) => before.poTotals.has(id)).length, presentAfter: posAfter,
       addedByRun: after.poTotals.size - before.poTotals.size,
-      exportTotalCents: parsed.exportPoTotalCents, sentTotalCents, notSentTotalCents: parsed.exportPoTotalCents - sentTotalCents,
+      exportTotalCents: parsed.exportPoTotalCents, exportRowsWithoutTotal: parsed.exportRowsWithoutTotal, sentTotalCents, notSentTotalCents: parsed.exportPoTotalCents - sentTotalCents,
       bookedTotalCents, differenceCents,
     },
     expected: {

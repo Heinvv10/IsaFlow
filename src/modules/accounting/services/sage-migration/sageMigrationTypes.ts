@@ -38,6 +38,8 @@ export interface Reconciliation {
   purchaseOrders: EntityReconciliation & {
     /** Cents. exportTotal = every PO row of the export with a readable Total (refused ones too). */
     exportTotalCents: number;
+    /** PO rows of the export the total above leaves out: their Total is not a number. 0 when the total counts every row. */
+    exportRowsWithoutTotal: number;
     sentTotalCents: number;
     notSentTotalCents: number;
     /** Sum of purchase_orders.total of the sent POs now in the books. */

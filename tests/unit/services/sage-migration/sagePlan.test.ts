@@ -74,11 +74,19 @@ describe('rows the company\'s own data would make a tool refuse are refused here
     ({ items: [{ id: 'i1', code: 'X', system: null, ref: null, deleted: false, ...over }], poNumbers: new Map() });
   const refusalFor = (existing: ReturnType<typeof held>, label = 'FIB-0001') => planMigration(parsed(), allResolved(), existing).refusals.find((r) => r.label === label);
 
-  it('a code another item holds under a DIFFERENT external reference: code_in_use_by_other_ref, naming that item', () => {
-    const r = refusalFor(held({ code: 'FIB-0001', system: 'sage', ref: '12345' }));
-    expect(r).toMatchObject({ entity: 'item', code: 'code_in_use_by_other_ref' });
-    expect(r!.reasons[0]).toMatch(/item FIB-0001 \(sage 12345\)/);
-    expect(refusalFor(held({ code: 'FIB-0001', system: 'pastel', ref: '50001' }))).toMatchObject({ code: 'code_in_use_by_other_ref' });
+  it('F1: a code an existing item holds that this migration does not own is refused, naming that item, whatever the item\'s reference', () => {
+    for (const other of [{ system: 'sage', ref: '12345' }, { system: 'pastel', ref: '50001' }, { system: null, ref: null }]) {
+      const r = refusalFor(held({ code: 'FIB-0001', ...other }));
+      expect(r, JSON.stringify(other)).toMatchObject({ entity: 'item', code: 'code_held_by_existing_item' });
+      expect(r!.reasons[0]).toMatch(/item FIB-0001 \(id i1, /);
+      expect(r!.reasons[0]).toMatch(other.ref ? new RegExp(`${other.system} ${other.ref}`) : /no external reference/);
+      expect(r!.reasons[0]).toMatch(/never updated/);
+    }
+  });
+  it('F1: the item is never sent, so no row can touch it; the other 19 items are sent', () => {
+    const plan = planMigration(parsed(), allResolved(), held({ code: 'FIB-0001' }));
+    expect(plan.items.map((i) => i.sageId)).not.toContain('50001');
+    expect(plan.items).toHaveLength(19);
   });
   it('the Sage id on one item and the code on another: ref_code_conflict', () => {
     const existing = { items: [
@@ -86,13 +94,12 @@ describe('rows the company\'s own data would make a tool refuse are refused here
     ], poNumbers: new Map() };
     expect(refusalFor(existing)).toMatchObject({ code: 'ref_code_conflict' });
   });
-  it('a code held by an item with NO reference is adopted (the tool matches by code); the same item again is an update', () => {
-    expect(refusalFor(held({ code: 'FIB-0001' }))).toBeUndefined();
+  it('the SAME item (this Sage id, this code) is the migration\'s own: sent as an update', () => {
     expect(refusalFor(held({ code: 'FIB-0001', system: 'sage', ref: '50001' }))).toBeUndefined();
   });
-  it('a matching item that was deleted: item_deleted', () => {
+  it('an item of the migration that was deleted: item_deleted; a deleted item of someone else holding the code: held', () => {
     expect(refusalFor(held({ code: 'FIB-0001', system: 'sage', ref: '50001', deleted: true }))).toMatchObject({ code: 'item_deleted' });
-    expect(refusalFor(held({ code: 'FIB-0001', deleted: true }))).toMatchObject({ code: 'item_deleted' });
+    expect(refusalFor(held({ code: 'FIB-0001', deleted: true }))).toMatchObject({ code: 'code_held_by_existing_item' });
   });
   it('code uniqueness is case-sensitive (the index is on the plain column), so a code differing in case is no conflict', () => {
     expect(refusalFor(held({ code: 'fib-0001', system: 'sage', ref: '12345' }))).toBeUndefined();
@@ -103,6 +110,19 @@ describe('rows the company\'s own data would make a tool refuse are refused here
     expect(planMigration(parsed(), allResolved(), none('sage', '555')).refusals.find((r) => r.label === 'PO0000197')).toMatchObject({ code: 'po_number_taken' });
     expect(planMigration(parsed(), allResolved(), none('sage', '900197')).refusals).toEqual([]);
     expect(planMigration(parsed(), allResolved(), none('pastel', '900197')).refusals).toHaveLength(1);
+  });
+  it('F7b: a line whose description plus the item suffix passes 500 characters refuses its PO; nothing is cut', () => {
+    const p = parsed();
+    const long = 'x'.repeat(490); // " [item FIB-0001]" makes 506
+    const po0 = { ...p.purchaseOrders[0]!, lines: [{ ...p.purchaseOrders[0]!.lines[0]!, description: long }, ...p.purchaseOrders[0]!.lines.slice(1)] };
+    const plan = planMigration({ ...p, purchaseOrders: [po0, ...p.purchaseOrders.slice(1)] }, allResolved(), NONE);
+    const r = plan.refusals.find((x) => x.label === 'PO0000197')!;
+    expect(r).toMatchObject({ entity: 'purchase_order', code: 'line_description_too_long' });
+    expect(r.reasons[0]).toMatch(/line 1: .*506 characters.*500/);
+    expect(plan.purchaseOrders.map((x) => x.documentNumber)).not.toContain('PO0000197');
+    // Exactly 500 with its suffix is fine, and a line with no item may be 500 long on its own.
+    const fits = { ...po0, lines: [{ ...po0.lines[0]!, description: 'x'.repeat(500 - ' [item FIB-0001]'.length) }, ...po0.lines.slice(1)] };
+    expect(planMigration({ ...p, purchaseOrders: [fits] }, allResolved(), NONE).refusals).toEqual([]);
   });
   it('a refused item takes the POs that name it with it (line_item_refused), and the others are untouched', () => {
     const plan = planMigration(parsed(), allResolved(), held({ code: 'FIB-0001', system: 'sage', ref: '12345' }));
@@ -190,6 +210,19 @@ describe('reconciliation and its lines', () => {
     expect(dry.expected.items).toEqual({ expected: 20, actual: 20, basis: 'sent', ok: true });
     const refusing = { ...b, plan: { ...b.plan, items: b.plan.items.slice(1) } };
     expect(buildReconciliation({ ...refusing, live: false, before: snap([], []), after: snap([], []), expect: { items: 20 } }).expected.items).toMatchObject({ actual: 19, ok: false });
+  });
+  it('F7c: the PO total says how many export rows it leaves out, and the summary warns', () => {
+    const { b, after } = all();
+    const withGap = { ...b, parsed: { ...b.parsed, exportRowsWithoutTotal: 2 } };
+    const reconciliation = buildReconciliation({ ...withGap, before: snap([], []), after });
+    expect(reconciliation.purchaseOrders.exportRowsWithoutTotal).toBe(2);
+    const phase = { batches: [], failed: 0 };
+    const report: MigrationReport = {
+      companyId: 'c', status: 'completed', dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
+      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [],
+    };
+    expect(summaryLines(report).join('\n')).toContain('WARNING: the export PO total leaves out 2 row(s) whose Total is not a number');
+    expect(summaryLines({ ...report, reconciliation: buildReconciliation({ ...b, before: snap([], []), after }) }).join('\n')).not.toContain('WARNING');
   });
   it('summaryLines names a mismatch, a refusal and a failed batch', () => {
     const { b, after } = all();

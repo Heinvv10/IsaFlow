@@ -21,6 +21,8 @@ export interface Snapshot {
   poTotals: Map<string, number>;
   stockMovements: number;
   items: ExistingItem[];
+  /** supplier uuid -> the Sage reference it carries (live suppliers; none carrying one are absent). */
+  supplierSageRefs: Map<string, string>;
   /** po_number -> the external reference the PO carries (null: none). Numbers are unique per company, case-sensitively. */
   poNumbers: Map<string, { system: string | null; ref: string | null }>;
 }
@@ -34,6 +36,10 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     SELECT po_number, lower(external_system) AS external_system, external_ref, round(total * 100)::BIGINT AS cents FROM purchase_orders
     WHERE company_id = ${companyId}::UUID
   `) as Array<{ po_number: string; external_system: string | null; external_ref: string | null; cents: string | number }>;
+  const suppliers = (await sql`
+    SELECT id::TEXT AS id, external_ref FROM suppliers
+    WHERE company_id = ${companyId}::UUID AND lower(external_system) = 'sage' AND external_ref IS NOT NULL AND deleted_at IS NULL
+  `) as Array<{ id: string; external_ref: string }>;
   const stock = (await sql`SELECT count(*)::INT AS n FROM stock_movements WHERE company_id = ${companyId}::UUID`) as Array<{ n: number }>;
   const existing = items.map((r): ExistingItem => ({
     id: String(r.id), code: r.code, system: r.external_system ? r.external_system.toLowerCase() : null,
@@ -44,6 +50,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     poTotals: new Map(pos.filter((r) => r.external_system === 'sage' && r.external_ref !== null).map((r) => [String(r.external_ref), Number(r.cents)])),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
+    supplierSageRefs: new Map(suppliers.map((r) => [String(r.id), String(r.external_ref)])),
     poNumbers: new Map(pos.map((r) => [String(r.po_number), { system: r.external_system, ref: r.external_ref === null ? null : String(r.external_ref) }])),
   };
 }

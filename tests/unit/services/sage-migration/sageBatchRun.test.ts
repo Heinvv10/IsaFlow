@@ -15,7 +15,7 @@ const plan = (items: number, pos: number, categories = 0): MigrationPlan => ({
   purchaseOrders: Array.from({ length: pos }, (_, i) => ({ sageId: String(i + 1), documentNumber: `PO${i}`, totalCents: 1, element: { po_number: `PO${i}` }, pdfFile: null })),
   refusals: [],
 });
-const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], poNumbers: new Map() });
+const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], supplierSageRefs: new Map(), poNumbers: new Map() });
 const sizes = (b: { size: number }[]) => b.map((x) => x.size);
 
 describe('the caps are the tools\' own', () => {

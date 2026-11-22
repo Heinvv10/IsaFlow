@@ -11,6 +11,35 @@ import { VatRateDateError } from '@/lib/vat/standardRate';
 import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
 
 const MAX_LINES = 200;
+const CURRENCY_KEY = /currenc|exchange/i;
+const RATE_KEY = /exchange.*rate|^rate$/i;
+
+/** The text a currency field says: a string, or the Code / Name / Description / ISO of an object. */
+function currencyTexts(v: unknown): string[] {
+  if (typeof v === 'string') return [v];
+  if (isRaw(v)) return ['Code', 'Name', 'Description', 'ISO', 'Symbol'].flatMap((k) => (typeof v[k] === 'string' ? [v[k] as string] : []));
+  return [];
+}
+const isZar = (t: string): boolean => t.trim().toUpperCase() === 'ZAR';
+
+/**
+ * A PO in a foreign currency would be booked at its foreign figures as if they were rand. Every field about currency or exchange
+ * (CurrencyId, Currency, CurrencyCode, ExchangeRate, anything with "currency" or "exchange" in its name) must say ZAR / rate 1 or be
+ * empty. A CurrencyId alone cannot be told from a foreign one (the ids are Sage's), so it passes only beside a field saying ZAR.
+ */
+export function foreignCurrencyReasons(o: Raw): string[] {
+  const keys = Object.keys(o).filter((k) => CURRENCY_KEY.test(k) && o[k] !== null && o[k] !== undefined && o[k] !== '');
+  const saysZar = keys.some((k) => !/id$/i.test(k) && currencyTexts(o[k]).some(isZar));
+  const why: string[] = [];
+  for (const k of keys) {
+    const v = o[k];
+    if (RATE_KEY.test(k)) { if (v !== 1) why.push(`${k} is ${JSON.stringify(v)}: only ZAR at rate 1 is imported`); continue; }
+    if (/id$/i.test(k)) { if (!saysZar) why.push(`${k} ${JSON.stringify(v)} cannot be told from a foreign currency: nothing in the row says ZAR`); continue; }
+    const texts = currencyTexts(v);
+    if (texts.length === 0 || !texts.some(isZar)) why.push(`${k} is ${JSON.stringify(v)}: only ZAR at rate 1 is imported`);
+  }
+  return why;
+}
 
 /** The VAT rate of a line: its TaxPercentage and/or its TaxTypeId, checked against the rate that applied on the PO date. */
 function lineRate(o: Raw, why: string[], date: string): number | undefined {
@@ -89,12 +118,14 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
     && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {
     why.push(`Exclusive ${exclusive} + Tax ${tax} is not Total ${total}`);
   }
+  const foreign = foreignCurrencyReasons(o);
+  why.push(...foreign);
   if (why.length > 0) {
     return {
       ok: false,
       refusal: {
         entity: 'purchase_order', sageId: typeof id === 'string' ? id : null,
-        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: 'invalid_row', reasons: why,
+        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : 'invalid_row', reasons: why,
       },
     };
   }

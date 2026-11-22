@@ -44,6 +44,34 @@ describe('the synthetic fixture', () => {
   });
 });
 
+describe('F4: an empty or partial export is refused as a whole', () => {
+  const shape = (f: unknown) => { try { parseSageExport(f); return 'accepted'; } catch (e) { return e instanceof SageExportShapeError ? e.message : `other: ${String(e)}`; } };
+  it('a file with neither Items nor PurchaseOrders', () => {
+    expect(shape({})).toMatch(/neither Items nor PurchaseOrders/);
+    expect(shape({ Items: null, PurchaseOrders: null })).toMatch(/neither Items nor PurchaseOrders/);
+  });
+  it('an unknown top-level key, naming it (a misspelt container would otherwise read as empty)', () => {
+    expect(shape({ Items: [], Purchase_Orders: [] })).toMatch(/unknown key "Purchase_Orders"/);
+    expect(shape({ items: fixture().Items, PurchaseOrders: [] })).toMatch(/unknown key "items"/);
+  });
+  it('one container alone is fine (an items-only file)', () => {
+    expect(shape({ Items: fixture().Items })).toBe('accepted');
+    expect(shape({ PurchaseOrders: fixture().PurchaseOrders })).toBe('accepted');
+  });
+  it('a Sage page whose $totalResults is more than the rows read', () => {
+    const rows = fixture().Items.$resources;
+    expect(shape({ Items: { $totalResults: 383, $resources: rows } })).toMatch(/Items: \$totalResults is 383 but 20 rows were read/);
+    expect(shape({ Items: [{ $totalResults: 30, $resources: rows.slice(0, 10) }, { $totalResults: 30, $resources: rows.slice(10) }] })).toMatch(/\$totalResults is 30 but 20 rows/);
+    expect(shape({ Items: { $totalResults: 20, $resources: rows } })).toBe('accepted');
+    expect(shape({ Items: [{ $totalResults: 20, $resources: rows.slice(0, 10) }, { $totalResults: 20, $resources: rows.slice(10) }] })).toBe('accepted');
+  });
+  it('a page that has a $next link', () => {
+    const rows = fixture().Items.$resources;
+    expect(shape({ Items: { $totalResults: 20, $next: 'https://api.example/items?$startIndex=20', $resources: rows } })).toMatch(/Items: a page has a \$next link/);
+    expect(shape({ Items: { $next: null, $resources: rows } })).toBe('accepted');
+  });
+});
+
 describe('container shapes', () => {
   it('takes rows as an array, a Sage page, or an array of pages', () => {
     const rows = fixture().Items.$resources;
@@ -181,6 +209,50 @@ describe('purchase order rows', () => {
     const f = fixture();
     f.PurchaseOrders[0] = { ...f.PurchaseOrders[0], Status: 'Draft' };
     expect(parseSageExport(f).exportPoTotalCents).toBe(parseSageExport(fixture()).exportPoTotalCents);
+  });
+});
+
+describe('F6: a PO in a foreign currency is refused, not imported at its foreign figures', () => {
+  const code = (over: Row) => { const r = parseSagePurchaseOrder(po(over), 0); return r.ok ? 'ok' : `${r.refusal.code}: ${r.refusal.reasons.join(' | ')}`; };
+  it('ZAR and rate 1, in any of the forms Sage uses, are fine; so is no currency field at all', () => {
+    expect(code({})).toBe('ok');
+    expect(code({ Currency: 'ZAR', ExchangeRate: 1 })).toBe('ok');
+    expect(code({ CurrencyCode: ' zar ' })).toBe('ok');
+    expect(code({ Currency: { Code: 'ZAR', Description: 'Rand' } })).toBe('ok');
+    expect(code({ CurrencyId: 1, Currency: { Code: 'ZAR' } })).toBe('ok');
+    expect(code({ Currency: null, ExchangeRate: null, CurrencyId: null })).toBe('ok');
+  });
+  it('another currency, by text or by object, is foreign_currency', () => {
+    expect(code({ Currency: 'USD' })).toMatch(/^foreign_currency: .*Currency is "USD"/);
+    expect(code({ CurrencyCode: 'EUR' })).toMatch(/^foreign_currency/);
+    expect(code({ Currency: { Code: 'GBP', Description: 'Pound' } })).toMatch(/^foreign_currency/);
+  });
+  it('an exchange rate that is not 1 is foreign_currency, whatever the currency says', () => {
+    expect(code({ ExchangeRate: 18.5 })).toMatch(/^foreign_currency: .*ExchangeRate is 18.5/);
+    expect(code({ Currency: 'ZAR', ExchangeRate: 1.0001 })).toMatch(/^foreign_currency/);
+    expect(code({ ExchangeRate: 'x' })).toMatch(/^foreign_currency/);
+  });
+  it('a currency id with nothing saying ZAR cannot be told from a foreign one: refused', () => {
+    expect(code({ CurrencyId: 2 })).toMatch(/^foreign_currency: .*CurrencyId 2 .*cannot be told/);
+  });
+  it('any other field about currency or exchange is refused the same way (the like)', () => {
+    expect(code({ ForeignCurrencyTotal: 100 })).toMatch(/^foreign_currency/);
+    expect(code({ ExchangeRateDate: '2026-01-01' })).toMatch(/^foreign_currency/);
+  });
+});
+
+describe('F7c: the export PO total says how many rows it could not count', () => {
+  it('counts rows whose Total is not a number (and rows that are not objects)', () => {
+    const f = fixture();
+    f.PurchaseOrders[1] = { ...f.PurchaseOrders[1], Total: '230.00' };
+    f.PurchaseOrders[2] = { ...f.PurchaseOrders[2], Total: undefined };
+    (f.PurchaseOrders as unknown[])[3] = 'junk';
+    const p = parseSageExport(f);
+    expect(p.exportRowsWithoutTotal).toBe(3);
+    expect(p.exportPoTotalCents).toBe(parseSageExport(fixture()).exportPoTotalCents - [1, 2, 3].reduce((s, i) => s + Math.round((fixture().PurchaseOrders[i]!.Total as number) * 100), 0));
+  });
+  it('is 0 for a file whose every PO has a Total', () => {
+    expect(parseSageExport(fixture()).exportRowsWithoutTotal).toBe(0);
   });
 });
 

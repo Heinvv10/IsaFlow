@@ -17,14 +17,30 @@ import { importStatusFor } from './sagePoStatus';
 
 export class SageExportShapeError extends Error {}
 
-/** The rows of one top-level key: an array of rows, a page, or an array of pages. */
+const TOP_KEYS = ['Items', 'PurchaseOrders'];
+
+/**
+ * The rows of one top-level key: an array of rows, a page, or an array of pages. A page that says there is more than it holds
+ * ($totalResults above the rows read, or a $next link) is a PARTIAL export and refuses the whole file.
+ */
 export function rowsOf(value: unknown, key: string): unknown[] {
   if (value === undefined || value === null) return [];
-  const pages = Array.isArray(value) && value.length > 0 && value.every((p) => isRaw(p) && Array.isArray(p.$resources));
-  if (pages) return (value as Array<{ $resources: unknown[] }>).flatMap((p) => p.$resources);
-  if (Array.isArray(value)) return value;
-  if (isRaw(value) && Array.isArray(value.$resources)) return value.$resources;
-  throw new SageExportShapeError(`${key} must be an array of rows, a Sage page with $resources, or an array of pages`);
+  const isPage = (p: unknown): p is Record<string, unknown> & { $resources: unknown[] } => isRaw(p) && Array.isArray(p.$resources);
+  const pages: Array<Record<string, unknown> & { $resources: unknown[] }> = Array.isArray(value)
+    ? (value.length > 0 && value.every(isPage) ? value as never : [])
+    : isPage(value) ? [value] : [];
+  if (pages.length === 0) {
+    if (Array.isArray(value)) return value;
+    throw new SageExportShapeError(`${key} must be an array of rows, a Sage page with $resources, or an array of pages`);
+  }
+  const rows = pages.flatMap((p) => p.$resources);
+  for (const p of pages) {
+    if (p.$next !== undefined && p.$next !== null && p.$next !== '') throw new SageExportShapeError(`${key}: a page has a $next link, so the export stops before its end`);
+    if (typeof p.$totalResults === 'number' && p.$totalResults > rows.length) {
+      throw new SageExportShapeError(`${key}: $totalResults is ${p.$totalResults} but ${rows.length} rows were read, so the export is partial`);
+    }
+  }
+  return rows;
 }
 
 function refuseAll<T>(rows: T[], idOf: (r: T) => string, entity: RowRefusal['entity'], labelOf: (r: T) => string,
@@ -78,6 +94,12 @@ function itemCategories(items: SageItem[]): { kept: SageItem[]; categories: Sage
 
 export function parseSageExport(file: unknown): ParsedExport {
   if (!isRaw(file)) throw new SageExportShapeError('the export must be a JSON object with Items and/or PurchaseOrders');
+  // A misspelt or re-cased container (Purchase_Orders, items) would otherwise read as an empty one and pass as a clean export.
+  const unknown = Object.keys(file).find((k) => !TOP_KEYS.includes(k));
+  if (unknown !== undefined) throw new SageExportShapeError(`unknown key "${unknown}" at the top of the export (the containers are ${TOP_KEYS.join(' and ')})`);
+  if ((file.Items === undefined || file.Items === null) && (file.PurchaseOrders === undefined || file.PurchaseOrders === null)) {
+    throw new SageExportShapeError('the export has neither Items nor PurchaseOrders: there is nothing to import');
+  }
   const itemRows = rowsOf(file.Items, 'Items');
   const poRows = rowsOf(file.PurchaseOrders, 'PurchaseOrders');
   const refusals: RowRefusal[] = [];
@@ -105,8 +127,10 @@ export function parseSageExport(file: unknown): ParsedExport {
 
   const pos: SagePurchaseOrder[] = [];
   let exportPoTotalCents = 0;
+  let exportRowsWithoutTotal = 0;
   poRows.forEach((raw, i) => {
     if (isRaw(raw) && typeof raw.Total === 'number' && Number.isFinite(raw.Total)) exportPoTotalCents += Math.round(raw.Total * 100);
+    else exportRowsWithoutTotal++;
     const r = parseSagePurchaseOrder(raw, i);
     if (r.ok) pos.push(r.value); else refusals.push(r.refusal);
   });
@@ -134,6 +158,6 @@ export function parseSageExport(file: unknown): ParsedExport {
 
   return {
     categories: cats.categories, items: cats.kept, purchaseOrders, refusals, itemCodes, rowsIn: { items: itemRows.length, purchaseOrders: poRows.length },
-    exportPoTotalCents, itemsWithQuantityOnHand,
+    exportPoTotalCents, exportRowsWithoutTotal, itemsWithQuantityOnHand,
   };
 }

@@ -66,8 +66,8 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   assertLocalDatabase();
   assertLocalPool(pool);
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
-    const resolved = await resolveSuppliers(session, parsed.purchaseOrders);
     const snapshot = await readSnapshot(opts.companyId);
+    const resolved = await resolveSuppliers(session, parsed.purchaseOrders, snapshot.supplierSageRefs);
     return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId }) };
   });
   const all = planBatches(plan, opts);

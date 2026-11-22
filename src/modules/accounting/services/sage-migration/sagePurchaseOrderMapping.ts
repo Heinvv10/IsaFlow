@@ -23,13 +23,15 @@ import type { SagePoLine, SagePurchaseOrder } from './sageExportTypes';
 import { importStatusFor } from './sagePoStatus';
 import { SAGE_SYSTEM } from './sageItemMapping';
 
-const MAX_DESCRIPTION = 500;
+/** The PO tool's description limit. */
+export const MAX_LINE_DESCRIPTION = 500;
 
-function lineDescription(line: SagePoLine, itemCodes: Readonly<Record<string, string>>): string {
+/** The text a line's description becomes. Never cut: a description that would pass the limit is an error (the plan refuses it first). */
+export function lineDescription(line: SagePoLine, itemCodes: Readonly<Record<string, string>>): string {
   const code = line.itemId === null ? null : itemCodes[line.itemId];
-  if (!code) return line.description;
-  const suffix = ` [item ${code}]`;
-  return `${line.description.slice(0, MAX_DESCRIPTION - suffix.length)}${suffix}`;
+  const text = code ? `${line.description} [item ${code}]` : line.description;
+  if (text.length > MAX_LINE_DESCRIPTION) throw new Error(`a line description of ${text.length} characters passes the ${MAX_LINE_DESCRIPTION} the PO tool takes`);
+  return text;
 }
 
 export function mapSagePurchaseOrder(
