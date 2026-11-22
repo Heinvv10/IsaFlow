@@ -10,9 +10,8 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
-import { assertLineAccountIds } from './invoiceLineCodingGuard';
-import { shownPosition } from '@/lib/lineNumbers';
-import { quoteLineAmount, quoteTotals, taxRateProblem, withQuoteTaxRates } from './quoteLineTax';
+import { priceQuoteLines, type PricedQuote } from './quoteLineTax';
+import { LineValidationError, assertValidLines } from './quoteLineChecks';
 import { applyItemDefaultsToAccountIdLines } from '../items/itemLineDefaults';
 import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
 
@@ -26,10 +25,14 @@ export interface QuoteLine {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** The line's NET. */
   lineTotal: number;
   accountId: string | null;
   /** The catalogue item the line is for (migration 1005). */
   itemId: string | null;
+  /** Migration 1024: the line's VAT type and the VAT it charges; both null on a legacy (or no-VAT) line. */
+  vatType: string | null;
+  taxAmount: number | null;
 }
 
 export interface Quote {
@@ -43,6 +46,10 @@ export interface Quote {
   subtotal: number;
   taxAmount: number;
   total: number;
+  /** The highest line rate (a legacy quote: whatever the header holds, the column default 15). */
+  taxRate: number;
+  /** Migration 1024: how the unit prices were entered; null on a legacy quote (reads exclusive). */
+  amountsAre: 'exclusive' | 'inclusive' | null;
   notes: string | null;
   terms: string | null;
   convertedInvoiceId: string | null;
@@ -65,7 +72,16 @@ interface QuoteInput {
   expiryDate?: string;
   notes?: string;
   terms?: string;
-  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number | null; accountId?: string; itemId?: string | null; lineNo?: number }[];
+  /** 'exclusive' (default) | 'inclusive': how each unit price reads (quoteLineTax). */
+  amountsAre?: unknown;
+  lines: {
+    description: string; quantity: number; unitPrice: number;
+    /** LEGACY: the standard rate on the quote date (standard) or 0 (zero_rated); never with a vatType. */
+    taxRate?: number | null;
+    /** standard | zero_rated | exempt; the rate comes from the type and the quote date. */
+    vatType?: unknown;
+    accountId?: string; itemId?: string | null; lineNo?: number;
+  }[];
 }
 
 function mapQuote(r: Row): Quote {
@@ -77,7 +93,8 @@ function mapQuote(r: Row): Quote {
     customerName: String(r.customer_name), quoteDate: fmtDate(r.quote_date),
     expiryDate: r.expiry_date != null ? fmtDate(r.expiry_date) : null, status: String(r.status),
     subtotal: Number(r.subtotal), taxAmount: Number(r.tax_amount),
-    total: Number(r.total), notes: r.notes != null ? String(r.notes) : null, terms: r.terms != null ? String(r.terms) : null,
+    total: Number(r.total), taxRate: Number(r.tax_rate ?? 15),
+    amountsAre: r.amounts_are === 'inclusive' || r.amounts_are === 'exclusive' ? r.amounts_are : null, notes: r.notes != null ? String(r.notes) : null, terms: r.terms != null ? String(r.terms) : null,
     convertedInvoiceId: r.converted_invoice_id != null ? String(r.converted_invoice_id) : null,
     createdAt: String(r.created_at), updatedAt: String(r.updated_at),
   };
@@ -90,6 +107,8 @@ function mapLine(r: Row): QuoteLine {
     unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate),
     lineTotal: Number(r.amount), accountId: r.gl_account_id != null ? String(r.gl_account_id) : null,
     itemId: r.item_id != null ? String(r.item_id) : null,
+    vatType: r.vat_type != null ? String(r.vat_type) : null,
+    taxAmount: r.tax_amount != null ? Number(r.tax_amount) : null,
   };
 }
 
@@ -112,30 +131,7 @@ const QUOTE_NUMBER_CONSTRAINTS = [
   'uq_customer_quotes_company_quote_number',
 ];
 
-/** Thrown for W1 line-validation failures — handlers map it to HTTP 400. */
-export class LineValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'LineValidationError';
-  }
-}
-
-/**
- * W1 (P2.1): negative quantities/prices produced negative documents server-side
- * (the July-4 audit created a -R115 invoice live). Zero-quantity lines are
- * also meaningless on a quote. Throws before any SQL runs. A line is named by position, never by description (error capture).
- */
-export async function assertValidLines(companyId: string, lines: QuoteInput['lines']): Promise<void> {
-  for (const [i, l] of (lines || []).entries()) {
-    const n = shownPosition(l.lineNo, i + 1); // the number on the form, which may have dropped blank lines
-    if (!(Number(l.quantity) > 0) || !Number.isFinite(Number(l.quantity))) throw new LineValidationError(`Line ${n}: quantity must be positive`);
-    if (!Number.isFinite(Number(l.unitPrice))) throw new LineValidationError(`Line ${n}: unit price must be a number`);
-    if (Number(l.unitPrice) < 0) throw new LineValidationError(`Line ${n}: unit price cannot be negative`);
-    const rateProblem = taxRateProblem(l.taxRate);
-    if (rateProblem) throw new LineValidationError(`Line ${n}: ${rateProblem}`);
-  }
-  await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 874)
-}
+export { LineValidationError, assertValidLines };
 
 export async function getQuotes(companyId: string, filters?: QuoteFilters): Promise<{ quotes: Quote[]; total: number }> {
   const limit = filters?.limit || 50;
@@ -186,16 +182,28 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
   return quote;
 }
 
+/** The priced lines, in order (migration 1024: vat_type and tax_amount both, or neither on an untyped line). */
+async function insertQuoteLines(quoteId: string, lines: QuoteInput['lines'], priced: PricedQuote): Promise<void> {
+  for (const [i, l] of lines.entries()) {
+    const p = priced.lines[i]!;
+    await sql`
+      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id, tax_amount, vat_type)
+      VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${p.qty}, ${p.price}, ${p.taxRate}, ${p.amount}, ${l.accountId || null}, ${l.itemId || null}::UUID, ${p.taxAmount}, ${p.vatType})
+    `;
+  }
+}
+
 export async function createQuote(companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
   // R-067: before insertWithReservedNumber, which writes the company's counter.
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
-  // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
-  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`, { deriveTax: true });
-  await assertValidLines(companyId, itemLines);
-  const lines = await withQuoteTaxRates(companyId, itemLines);
-  const { subtotal, taxAmount, total } = quoteTotals(lines);
+  // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the
+  // rest). Its VAT type is the default chain's (quoteLineTax), not derived here.
+  const lines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
+  await assertValidLines(companyId, lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
+  const priced = await priceQuoteLines(companyId, { clientId: input.clientId || null, quoteDate: qd, lines, amountsAre: input.amountsAre });
+  const { subtotal, tax, total, taxRate, amountsAre } = priced.header;
 
   // Header AND lines inside the savepointed attempt: a 23505 on the number must
   // take the lines with the header, or the retry leaves orphaned lines behind.
@@ -204,21 +212,14 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
     async (number) => {
       const rows = (await sql`
         INSERT INTO customer_quotes (company_id, quote_number, client_id, customer_name, quote_date, expiry_date,
-          subtotal, tax_amount, total, notes, terms, created_by)
+          subtotal, tax_amount, total, tax_rate, amounts_are, notes, terms, created_by)
         VALUES (${companyId}, ${number}, ${input.clientId || null}, ${input.customerName}, ${qd},
-          ${input.expiryDate || null}, ${subtotal}, ${taxAmount}, ${total},
+          ${input.expiryDate || null}, ${subtotal}, ${tax}, ${total}, ${taxRate}, ${amountsAre},
           ${input.notes || null}, ${input.terms || null}, ${userId || null})
         RETURNING id
       `) as Row[];
       const quoteId = String(rows[0]!.id);
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        if (!l) continue;
-        await sql`
-          INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id)
-          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null}, ${l.itemId || null}::UUID)
-        `;
-      }
+      await insertQuoteLines(quoteId, lines, priced);
       return { id: quoteId, quoteNumber: number };
     },
   );
@@ -232,30 +233,26 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
   // Migration 1005: a NEW item on a line is checked and defaults the sales account; a line without one keeps an identical stored line's.
-  const itemLines = await resolveEditLineItemsAccountId(companyId, 'sales', input.lines, (existing.lines ?? []).map((l) => ({
-    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`, { deriveTax: true });
-  await assertValidLines(companyId, itemLines);
-  const lines = await withQuoteTaxRates(companyId, itemLines);
-  const { subtotal, taxAmount, total } = quoteTotals(lines);
+  const stored = existing.lines ?? [];
+  const lines = await resolveEditLineItemsAccountId(companyId, 'sales', input.lines, stored.map((l) => ({
+    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`);
+  await assertValidLines(companyId, lines);
+  const qd = input.quoteDate || existing.quoteDate;
+  // Every line is re-priced at the quote's date; a line sent without a type keeps its identical stored line's (quoteLineTax).
+  const priced = await priceQuoteLines(companyId, { clientId: input.clientId || null, quoteDate: qd, lines, amountsAre: input.amountsAre, stored });
+  const { subtotal, tax, total, taxRate, amountsAre } = priced.header;
 
   await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {
   await sql`
     UPDATE customer_quotes SET customer_name = ${input.customerName}, client_id = ${input.clientId || null},
-      quote_date = ${input.quoteDate || existing.quoteDate}, expiry_date = ${input.expiryDate || null},
-      subtotal = ${subtotal}, tax_amount = ${taxAmount}, total = ${total},
+      quote_date = ${qd}, expiry_date = ${input.expiryDate || null},
+      subtotal = ${subtotal}, tax_amount = ${tax}, total = ${total}, tax_rate = ${taxRate}, amounts_are = ${amountsAre},
       notes = ${input.notes || null}, terms = ${input.terms || null}, updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
   `;
   // Parent-verified: getQuote(companyId, id) at the top of this function early-returns null for cross-tenant ids, so this quote_id is tenant-owned.
   await sql`DELETE FROM customer_quote_lines WHERE quote_id = ${id}::UUID`;
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (!l) continue;
-    await sql`
-      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id)
-      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null}, ${l.itemId || null}::UUID)
-    `;
-  }
+  await insertQuoteLines(id, lines, priced);
   });
   log.info('Quote updated', { id });
   return getQuote(companyId, id);

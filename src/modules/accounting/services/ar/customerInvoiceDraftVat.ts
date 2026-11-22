@@ -54,8 +54,8 @@ const storedLines = async (tx: Tx, companyId: string, invoiceId: string): Promis
    ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id
 `) as Row[];
 
-/** Per sent line, the type of the identical stored line (each used once, in order), or null. */
-function keptTypes(sent: readonly EditVatLine[], stored: readonly Row[]): (ReturnType<typeof storedLineVatType>)[] {
+/** Per sent line, the type of the identical stored line (each used once, in order), or null. The quote edit's too (quoteLineTax). */
+export function keptTypes(sent: readonly EditVatLine[], stored: readonly Row[]): (ReturnType<typeof storedLineVatType>)[] {
   const pool = stored.map((r) => ({ key: identicalLineKey(String(r.description), r.quantity, r.unit_price), row: r, used: false }));
   return sent.map((l) => {
     const hit = pool.find((p) => !p.used && p.key === identicalLineKey(l.description, l.quantity, l.unitPrice));

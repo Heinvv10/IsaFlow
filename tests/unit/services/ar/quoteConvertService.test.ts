@@ -9,7 +9,7 @@
  * longer 500s.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 
 // Migration 874: the quote-line account check has its own real-PG suite
 // (invoice-line-revenue-quotes.int.test.ts); here every account is accepted.
@@ -40,7 +40,9 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
-import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
+import { convertToInvoice, convertToSalesOrder } from '@/modules/accounting/services/ar/quoteConvertService';
+import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
+import { InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockGetQuote = getQuote as unknown as MockedFunction<typeof getQuote>;
@@ -138,6 +140,9 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
       'gl_account_id',
       'cc1_id',
       'item_id',
+      'tax_amount',
+      'vat_type',
+      'line_position',
     ]);
 
     const values = insertItemCall.slice(1);
@@ -145,6 +150,8 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
     expect(values[columnList.indexOf('gl_account_id')]).toBe(GL_ACCOUNT_ID);
     // A quote with no customer has no FNO to store (and sends no query for one).
     expect(values[columnList.indexOf('cc1_id')]).toBeNull();
+    // A legacy quote (no line typed) converts untyped, as before migration 1024.
+    expect([values[columnList.indexOf('tax_amount')], values[columnList.indexOf('vat_type')]]).toEqual([null, null]);
   });
 });
 
@@ -171,5 +178,56 @@ describe('convertToInvoice: the invoice header rate (audit 11 Nov 2026 item 5)',
 
   it('a mixed quote writes the standard header rate and keeps each item rate', async () => {
     expect(await convert([line(15, 1), line(0, 2)])).toEqual({ headerRate: 15, itemRates: [15, 0] });
+  });
+});
+
+describe('convertToInvoice: a typed quote (migration 1024)', () => {
+  const typed = (vatPeriod: string) => {
+    const base = acceptedQuote();
+    mockGetQuote.mockResolvedValueOnce({
+      ...base, subtotal: 250, taxAmount: 30, total: 280, amountsAre: 'exclusive', lines: [
+        { ...base.lines[0]!, vatType: 'standard', taxAmount: 30 },
+        { ...base.lines[0]!, id: '45555555-4444-4444-4444-444444444444', description: 'Export', quantity: 1, unitPrice: 50, lineTotal: 50, taxRate: 0, vatType: 'zero_rated', taxAmount: 0 },
+      ],
+    } as never);
+    mockGetQuote.mockResolvedValueOnce({ ...base, status: 'converted' } as never);
+    mockSql.mockImplementation((async (...call: unknown[]) => {
+      const t = sqlTextOf(call);
+      if (t.includes('FROM companies')) return [{ vat_period: vatPeriod, vat_system_type: null, customer_vat: null }];
+      if (t.includes('UPDATE customer_quotes')) return [{ id: QUOTE_ID }];
+      if (t.includes('INSERT INTO customer_invoices')) return [{ id: 'inv-1' }];
+      return [];
+    }) as never);
+  };
+  const row = (call: unknown[], table: string) => {
+    // due_date_source and status are bound as literals ('terms', 'draft'), not values.
+    const cols = sqlTextOf(call).match(new RegExp(`INSERT INTO ${table}\\s*\\(([^)]+)\\)`))![1]!.split(',').map((c) => c.trim())
+      .filter((c) => c !== 'due_date_source' && c !== 'status');
+    return Object.fromEntries(cols.map((c, i) => [c, call[i + 1]]));
+  };
+  afterEach(() => { mockSql.mockReset(); mockGetQuote.mockReset(); });
+
+  it('each invoice line carries the quote line\'s type, net and VAT; the header the quote\'s totals and mode', async () => {
+    typed('bi-monthly');
+    await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID));
+    const head = row(mockSql.mock.calls.find((c) => sqlTextOf(c).includes('INSERT INTO customer_invoices'))!, 'customer_invoices');
+    expect([head.subtotal, head.tax_amount, head.total_amount, head.tax_rate, head.amounts_are]).toEqual([250, 30, 280, 15, 'exclusive']);
+    const items = mockSql.mock.calls.filter((c) => sqlTextOf(c).includes('INSERT INTO customer_invoice_items')).map((c) => row(c, 'customer_invoice_items'));
+    expect(items.map((i) => [i.vat_type, i.amount, i.tax_amount, i.tax_rate, i.line_position])).toEqual([['standard', 200, 30, 15, 0], ['zero_rated', 50, 0, 0, 1]]);
+  });
+
+  it('a VAT refusal is raised before the claim: nothing is written', async () => {
+    typed('none');
+    await expect(inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID))).rejects.toThrow(InvoiceVatNotRegisteredRefusal);
+    expect(mockSql.mock.calls.some((c) => /UPDATE|INSERT/.test(sqlTextOf(c)))).toBe(false);
+  });
+});
+
+describe('convertToSalesOrder: an inclusive quote', () => {
+  it('is refused before the claim: a sales order holds ex-VAT prices only', async () => {
+    mockSql.mockReset();
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), amountsAre: 'inclusive' } as never);
+    await expect(inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID))).rejects.toThrow(LineValidationError);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });

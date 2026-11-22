@@ -1,49 +1,94 @@
 /**
- * The VAT on a quote's lines (audit 11 Nov 2026 item 5).
+ * The VAT on a quote's lines: per-line VAT types, the contract and the pricing of a customer invoice (per-line VAT
+ * programme, migration 1024), so a quote converts to an invoice of the same figures.
  *
- * Each line carries its own rate. A line sent without one takes the company's: 0 for a company that is not a VAT vendor
- * (`companies.vat_period` / `vat_system_type`, vatPeriodHelper), else the standard 15%. It used to be 15% always.
+ *   type     invoiceLineVatTypes, worded for a quote: a line `vatType` (standard, zero_rated, exempt); else the LEGACY
+ *            per-line `taxRate` (what the quote form sends: one rate on every line), read as the invoice's legacy header
+ *            rate, line by line: the standard rate on the quote date -> standard, 0 -> zero_rated, anything else refused;
+ *            on an edit an identical stored line whose type has that rate keeps it. A `vatType` and a `taxRate` on one
+ *            quote are refused, as an invoice refuses a line type with its header rate. Else, on an edit, the IDENTICAL
+ *            stored line's type (customerInvoiceDraftVat.keptTypes); else the default chain (the customer's zero-rated /
+ *            exempt default, the item's vat_on_sales, standard).
+ *   price    invoiceLineVatPricing.priceInvoiceVat: `amount` = NET, `tax_amount` = the line's VAT rounded on the line,
+ *            `tax_rate` = its type's rate on the quote date; header = the sum of the lines, `tax_rate` = the highest
+ *            line rate. `amountsAre` 'inclusive' stores the unit price as entered and backs the VAT out of the gross.
+ *   no VAT   a company not registered for VAT writes UNTYPED lines (vat_type / tax_amount NULL, rate 0) and exclusive;
+ *            a standard line or a rate above 0 is refused.
  *
- * Lines are priced as invoice lines are (invoiceLineAmount), and the tax is invoiceTotals over the lines of each rate,
- * summed, so a single-rate quote totals exactly as the invoice it converts to.
+ * Every refusal is raised before the first write: InvoiceLineVatRefusal / InvoiceVatNotRegisteredRefusal (registered for
+ * MCP, a REST 400 with its code), LineValidationError for the mode and the total. What an invoice of the quote could not
+ * approve (1 x R0.03 standard: the VAT rounds to nothing) is refused here (invoiceVatLegs.typedLinesProblem).
  */
-import { sql, type DbRow } from '@/lib/neon';
-import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
-import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
+import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
+import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
+import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
+import { keptTypes } from './customerInvoiceDraftVat';
+import { typedLinesProblem } from './invoiceVatLegs';
+import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
 
-export const STANDARD_VAT_RATE = 15;
-
-interface QuoteLineIn { quantity: number; unitPrice: number; taxRate?: number | null }
-
-/** Why a supplied rate is refused, or null. An omitted rate (undefined / null) is not refused: it takes the default. */
-export function taxRateProblem(rate: unknown): string | null {
-  if (rate === undefined || rate === null) return null;
-  const n = typeof rate === 'number' || (typeof rate === 'string' && rate.trim() !== '') ? Number(rate) : NaN;
-  return Number.isFinite(n) && n >= 0 && n <= 100 ? null : 'VAT rate must be a number from 0 to 100';
+export interface QuoteVatLineIn {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate?: unknown;
+  vatType?: unknown;
+  itemId?: unknown;
 }
 
-/** The rate for a line sent without one: 0 for a company that is not VAT registered, else 15. */
-export async function defaultQuoteTaxRate(companyId: string): Promise<number> {
-  const [row] = (await sql`SELECT vat_period, vat_system_type FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
-  if (!row) return STANDARD_VAT_RATE;
-  return isVatRegistered(row.vat_period as string | null, row.vat_system_type as string | null) ? STANDARD_VAT_RATE : 0;
+/** A stored line as getQuote maps it, for the edit's identical-line rule. */
+export interface StoredQuoteVatLine { description: string; quantity: number; unitPrice: number; taxRate: number; vatType: string | null }
+
+export interface PricedQuote { lines: VatPricedLine[]; header: VatPricedHeader }
+
+const given = (v: unknown): boolean => v !== undefined && v !== null;
+
+/** Each line's type (or untyped for a non-vendor): the invoice contract, the legacy per-line rate read as a header rate. */
+async function resolveQuoteVat(
+  companyId: string, clientId: string | null, quoteDate: string, lines: readonly QuoteVatLineIn[], stored: readonly StoredQuoteVatLine[] | undefined,
+): Promise<ResolvedLineVat> {
+  if (lines.some((l) => given(l.vatType)) && lines.some((l) => given(l.taxRate))) {
+    throw new InvoiceLineVatRefusal('Send a vatType on each line or a taxRate, not both: the rate comes from the VAT type.');
+  }
+  const kept = stored ? keptTypes(lines, stored.map((s) => ({
+    description: s.description, quantity: s.quantity, unit_price: s.unitPrice, vat_type: s.vatType, tax_rate: s.taxRate,
+  }))) : undefined;
+  const parties = await invoiceVatParties(companyId, clientId);
+  // One resolution per legacy rate (and one for the lines with none): each group's rate is that group's header rate.
+  const groups = new Map<number | null, number[]>();
+  lines.forEach((l, i) => {
+    const rate = given(l.taxRate) ? Number(l.taxRate) : null;
+    groups.set(rate, [...(groups.get(rate) ?? []), i]);
+  });
+  const types: DocumentLineVatType[] = [];
+  let typed = true;
+  for (const [rate, idx] of groups) {
+    const vat = await resolveInvoiceVatFor(companyId, parties, {
+      invoiceDate: quoteDate, headerTaxRate: rate ?? undefined, document: 'quote', label: (j) => `items[${idx[j]}]`,
+      lines: idx.map((i) => ({ vatType: lines[i]!.vatType, itemId: lines[i]!.itemId })),
+      kept: kept ? idx.map((i) => kept[i] ?? null) : undefined,
+    });
+    if (!vat.typed) typed = false;
+    else vat.types.forEach((t, j) => { types[idx[j]!] = t; });
+  }
+  return typed ? { typed: true, types } : { typed: false };
 }
 
-/** The lines with every rate set; the company is read only when a line omits its rate. */
-export async function withQuoteTaxRates<L extends QuoteLineIn>(companyId: string, lines: readonly L[]): Promise<(L & { taxRate: number })[]> {
-  const fallback = lines.some((l) => l.taxRate == null) ? await defaultQuoteTaxRate(companyId) : STANDARD_VAT_RATE;
-  return lines.map((l) => ({ ...l, taxRate: l.taxRate == null ? fallback : Number(l.taxRate) }));
-}
-
-/** The line's ex-VAT amount, as an invoice line of it is priced. */
-export const quoteLineAmount = (l: QuoteLineIn): number => invoiceLineAmount(Number(l.quantity), Number(l.unitPrice));
-
-/** Header totals: per rate as invoiceTotals, the rates' figures summed exactly (invoiceTotals at 0 is an exact cent sum). */
-export function quoteTotals(lines: readonly (QuoteLineIn & { taxRate: number })[]): { subtotal: number; taxAmount: number; total: number } {
-  const byRate = new Map<number, number[]>();
-  for (const l of lines) byRate.set(l.taxRate, [...(byRate.get(l.taxRate) ?? []), quoteLineAmount(l)]);
-  const perRate = [...byRate].map(([rate, amounts]) => invoiceTotals(amounts, rate));
-  const subtotal = invoiceTotals(perRate.map((t) => t.subtotal), 0).subtotal;
-  const taxAmount = invoiceTotals(perRate.map((t) => t.tax), 0).subtotal;
-  return { subtotal, taxAmount, total: invoiceTotals([subtotal, taxAmount], 0).subtotal };
+/**
+ * The quote's lines and header as stored (see the header). `stored` = the quote's current lines on an edit. Throws
+ * before any write; the lines' quantity and price are already W1-checked (quoteLineChecks.assertValidLines).
+ */
+export async function priceQuoteLines(companyId: string, args: {
+  clientId: string | null; quoteDate: string; lines: readonly QuoteVatLineIn[]; amountsAre: unknown; stored?: readonly StoredQuoteVatLine[];
+}): Promise<PricedQuote> {
+  const amountsAre = quoteAmountsAre(args.amountsAre);
+  const vat = await resolveQuoteVat(companyId, args.clientId, args.quoteDate, args.lines, args.stored);
+  const priced = priceInvoiceVat(args.lines.map((l) => ({ quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })), vat, args.quoteDate, amountsAre);
+  // numeric(15,2): priceInvoiceVat leaves a line past the column unpriced and carries it into the total.
+  if (!(Math.abs(priced.header.total) < 1e13)) throw new LineValidationError('The quote total is too large');
+  const problem = typedLinesProblem(
+    priced.lines.map((l) => ({ amount: l.amount, taxAmount: l.taxAmount, vatType: l.vatType, glAccountId: null, projectId: null })),
+    { subtotal: priced.header.subtotal, taxAmount: priced.header.tax, totalAmount: priced.header.total, invoiceDate: args.quoteDate, amountsAre },
+  );
+  if (problem) throw new InvoiceLineVatRefusal(`This quote could not be invoiced as priced: ${problem}`);
+  return priced;
 }
