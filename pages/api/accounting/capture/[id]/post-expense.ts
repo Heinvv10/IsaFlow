@@ -26,7 +26,7 @@ import {
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
-import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
+import { checkReceiptDuplicate, type ReceiptDuplicateCheck } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
@@ -46,17 +46,15 @@ interface PostExpenseBody {
   confirmDuplicate?: boolean;
 }
 
-async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);
-  }
+type Postable = {
+  event: NonNullable<Awaited<ReturnType<typeof lockCaptureEventForPosting>>>; documentId: string; extracted: ExtractedDocument;
+  resolvedGlAccountId: string; vatInputAccountId: string; duplicate: Extract<ReceiptDuplicateCheck, { kind: 'clear' }>;
+};
 
-  const { companyId } = req;
-  const userId = req.user?.id ?? '';
-  const eventId = req.query.id as string;
-
-  if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
-
+/** Steps 1-2, for both branches: the locks, the refusals and the accounts; `answered` is a refusal's response (nothing written). */
+async function loadPostable(
+  req: CompanyAuthedRequest, res: NextApiResponse, companyId: string, userId: string, eventId: string,
+): Promise<{ ok: Postable } | { answered: unknown }> {
   // ------------------------------------------------------------------
   // 1. Lock and load the event + its document
   // ------------------------------------------------------------------
@@ -70,22 +68,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     event = await lockCaptureEventForPosting(companyId, eventId);
   } catch (err) {
-    if (respondIfLockTimeout(res, err)) return;
+    if (respondIfLockTimeout(res, err)) return { answered: undefined };
     throw err;
   }
 
-  if (!event) return apiResponse.notFound(res, 'Capture event', eventId);
+  if (!event) return { answered: apiResponse.notFound(res, 'Capture event', eventId) };
 
   // Postable is an ALLOW-list (`captureEventLock.ts`), not `status === 'posted'`.
   // Naming one value left every OTHER terminal state postable: a user could
   // discard a captured document and then post it anyway, with no race at all.
   if (!isCaptureEventPostable(event.eventStatus)) {
-    return apiResponse.badRequest(
+    return { answered: apiResponse.badRequest(
       res,
       event.eventStatus === 'posted'
         ? 'Event already posted'
         : `Event cannot be posted from status '${event.eventStatus}'`,
-    );
+    ) };
   }
 
   // The document's own posting claim, which this route never read — it refused
@@ -98,28 +96,28 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     posted_at: event.documentPostedAt,
   });
   if (readRefusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
+    return { answered: apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]) };
   }
 
   if (!event.extractedData) {
-    return apiResponse.badRequest(res, 'Document has no extracted data — extraction may still be in progress');
+    return { answered: apiResponse.badRequest(res, 'Document has no extracted data — extraction may still be in progress') };
   }
 
   const documentId = event.documentId;
   const extracted = event.extractedData as ExtractedDocument;
 
-  const { employeeId, costCentreId, glAccountId: bodyGlAccountId, confirmDuplicate } = req.body as PostExpenseBody;
+  const { glAccountId: bodyGlAccountId, confirmDuplicate } = (req.body ?? {}) as PostExpenseBody;
 
   // ------------------------------------------------------------------
   // 2. Resolve GL expense account
   // ------------------------------------------------------------------
   const resolvedGlAccountId = await resolveCaptureExpenseAccount(companyId, bodyGlAccountId, extracted.vendorName);
   if (resolvedGlAccountId === null) {
-    return apiResponse.badRequest(res, 'glAccountId not found for this company');
+    return { answered: apiResponse.badRequest(res, 'glAccountId not found for this company') };
   }
   // Before the first write, so the 400 commits nothing; FOR SHARE also holds a merge off until commit.
   const accountRefusal = await documentLineAccountRefusal(companyId, [resolvedGlAccountId]);
-  if (accountRefusal) return apiResponse.badRequest(res, accountRefusal);
+  if (accountRefusal) return { answered: apiResponse.badRequest(res, accountRefusal) };
 
   // Always resolve VAT Input account — required for correct journal
   let vatInputAccountId: string;
@@ -132,27 +130,46 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!(err instanceof MissingSystemAccountError)) throw err;
     log.warn('Post-expense refused: VAT Input account not configured',
       { companyId, eventId, err: err.message }, 'capture-post-expense');
-    return apiResponse.badRequest(res, 'VAT Input system account not configured — set it up in Default Accounts');
+    return { answered: apiResponse.badRequest(res, 'VAT Input system account not configured — set it up in Default Accounts') };
   }
 
   // R-088: the same slip already posted from ANOTHER upload. Before any write, so the 409 commits nothing.
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
-  if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
+  if (duplicate.kind !== 'clear') return { answered: respondReceiptDuplicate(res, duplicate) };
+  return { ok: { event, documentId, extracted, resolvedGlAccountId, vatInputAccountId, duplicate } };
+}
+
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);
+  }
+
+  const { companyId } = req;
+  const userId = req.user?.id ?? '';
+  const eventId = req.query.id as string;
+
+  if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
+  const { employeeId, costCentreId } = (req.body ?? {}) as PostExpenseBody;
 
   // ------------------------------------------------------------------
-  // 3a. Employee path → create expense claim + auto-submit
+  // 3a. Employee path → create expense claim + auto-submit (it only queues: approving the claim takes its own Approve)
   // ------------------------------------------------------------------
   if (employeeId) {
+    const loaded = await loadPostable(req, res, companyId, userId, eventId);
+    if (!('ok' in loaded)) return loaded.answered;
+    const { documentId, extracted, resolvedGlAccountId, duplicate } = loaded.ok;
     return postExpenseAsClaim(res, { companyId, userId, eventId, documentId, extracted, employeeId, costCentreId, resolvedGlAccountId, duplicate });
   }
 
   // ------------------------------------------------------------------
   // 3b. Anonymous path → direct GL journal (petty cash / company card)
   // ------------------------------------------------------------------
-  // #1656 (Hein: gate everything): this branch POSTS a journal, so it takes Suppliers & AP Approve, here, before its first
-  // write (nothing above writes: locks and reads). The employee branch above only submits a claim to the approval queue,
-  // which a person without Approve may do (#1670 Codex).
+  // #1656 (Hein: gate everything): this branch POSTS a journal, so it takes Suppliers & AP Approve FIRST, before any lock, read or
+  // duplicate check (#1670 breaker L2: a person without it learns nothing, not even DUPLICATE_RECEIPT).
   if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense receipts')) return;
+  const loaded = await loadPostable(req, res, companyId, userId, eventId);
+  if (!('ok' in loaded)) return loaded.answered;
+  const { event, documentId, extracted, resolvedGlAccountId, vatInputAccountId, duplicate } = loaded.ok;
   // A mis-extracted receipt is a 400, not a 500. The service throws before its
   // first write, so answering 4xx here commits nothing — see the error's own
   // doc-comment for why that ordering is what makes this safe.

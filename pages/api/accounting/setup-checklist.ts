@@ -19,7 +19,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as UserAuthedRequest).user?.id;
   if (!companyId || !userId) return apiResponse.forbidden(res, 'Company context or user identity missing.');
   const payrollRead = await mayReadPayroll(companyId, userId);
-  // census-exempt(getSetupProgress): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  // census-exempt(getSetupProgress, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   return apiResponse.success(res, await getSetupProgress(companyId, { payrollRead }));
 }
 

@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const period = requested || defaultPeriod();
 
-  // census-exempt(getPortfolioWorkbench): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  // census-exempt(getPortfolioWorkbench, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const portfolio = await getPortfolioWorkbench(userId, period);
   return apiResponse.success(res, portfolio);
 }

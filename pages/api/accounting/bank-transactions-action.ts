@@ -175,7 +175,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       case 'reverse': {
         if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (round 4): the gate sits in the case that posts
         const { expectedJournalEntryId } = body;
-        // census-exempt(reverseReconciledTransaction): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+        // census-exempt(reverseReconciledTransaction, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversed = await withJournalDateRefusal(res, () => (expectedJournalEntryId
           ? reverseReconciledTransaction(companyId, body.bankTransactionId, userId, { expectedJournalEntryId })
           : reverseReconciledTransaction(companyId, body.bankTransactionId, userId)));

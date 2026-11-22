@@ -23,6 +23,7 @@ import { getProjectProfitability } from '@/modules/accounting/services/reports/p
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+import { untypeLines } from './helpers/lineVatFixture';
 
 // The sealed PDF is evidence storage, not posting; approve already treats its failure as non-blocking.
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
@@ -38,9 +39,13 @@ let f: LineRevenueFixture;
 type Line = { description: string; unitPrice: number; quantity?: number; glAccountId?: string; projectId?: string; cc2Id?: string; buId?: string };
 
 async function draft(items: Line[]): Promise<string> {
-  return (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+  const { id } = await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
     clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 15, items,
-  }))).id;
+  }));
+  // A LEGACY invoice, as the legacy writers store it: this suite's subject is the legacy revenue builder (874); create types
+  // its lines since the per-line VAT writer PR (invoice-line-vat-writers covers that path).
+  await untypeLines(id);
+  return id;
 }
 
 async function approved(items: Line[]): Promise<{ id: string; je: string }> {

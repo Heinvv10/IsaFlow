@@ -20,12 +20,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { projectId, employeeId } = req.query;
     let rows: Row[];
     if (projectId) {
-      // census-exempt(sql): joins payroll_employees for first / last NAME only; rate and billable amount are stripped below without Payroll read
+      // census-exempt(sql, payroll-read): joins payroll_employees for first / last NAME only; rate and billable amount are stripped below without Payroll read
       rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN payroll_employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.project_id = ${String(projectId)} AND t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     } else if (employeeId) {
       rows = await sql`SELECT t.*, p.name as project_name FROM project_time_entries t LEFT JOIN projects p ON t.project_id = p.id WHERE t.employee_id = ${String(employeeId)} AND t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     } else {
-      // census-exempt(sql): joins payroll_employees for first / last NAME only; rate and billable amount are stripped below without Payroll read
+      // census-exempt(sql, payroll-read): joins payroll_employees for first / last NAME only; rate and billable amount are stripped below without Payroll read
       rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN payroll_employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     }
     // The rate an hour is charged at, and hours x rate, are one person's pay: Payroll's, not every project writer's (#1656, round 7).

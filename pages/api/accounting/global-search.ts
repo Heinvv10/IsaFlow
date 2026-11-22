@@ -38,7 +38,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Pages first (at most 3): "sage" or "import" found nothing when only records were searched.
     const pages = searchPages(query, Math.min(3, parsedLimit));
     // An employee's name and number are Payroll's: found only by someone who may read Payroll (#1656, round 7).
-    // census-exempt(globalSearch): employees are searched only with includeEmployees, the Payroll read answer on the next line; nothing else it searches is payroll
+    // census-exempt(globalSearch, payroll-read): employees are searched only with includeEmployees, the Payroll read answer on the next line; nothing else it searches is payroll
     const records = await globalSearch(companyId, query, parsedLimit, { includeEmployees: await mayReadPayroll(companyId, user.id) });
     const results = [...pages, ...records].slice(0, parsedLimit);
 

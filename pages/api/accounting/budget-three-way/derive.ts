@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const body = DeriveBodySchema.safeParse(req.body);
   if (!body.success) return apiResponse.zodValidationError(res, body.error);
   try {
-    // census-exempt(deriveView): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
+    // census-exempt(deriveView, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     return apiResponse.success(res, await deriveView(companyId, body.data.version_id, localISODate()));
   } catch (err) {
     if (respondThreeWayError(res, err)) return;

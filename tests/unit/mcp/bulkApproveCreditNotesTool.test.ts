@@ -50,6 +50,9 @@ vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async () => {
   );
   return { ...actual, listCreditNoteAllocations: vi.fn().mockResolvedValue([]) };
 });
+// The dry run's batch simulation (#1701 round 8) reads real invoice figures; it has its own suites
+// (creditNoteVatDryRunFifo, the r8 integration case 7). Here the approval itself is mocked, so the dry run foresees nothing.
+vi.mock('@/modules/accounting/services/shared/creditNoteBatchSimulation', () => ({ simulateBatchApprovals: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   approveCreditNote: vi.fn(),
 }));

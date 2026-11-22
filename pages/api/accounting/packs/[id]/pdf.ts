@@ -196,7 +196,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       metadata: buildPdfMetadata(furniture),
     });
   } catch (error) {
-    // census-exempt(packRefusalReason): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+    // census-exempt(packRefusalReason, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy }, error);
     if (refusal === null) throw error;
     log.warn(

@@ -31,6 +31,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { dropFixtureMember, inTx, seedFixtureMember } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+import { untypeLines } from './helpers/lineVatFixture';
 
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
@@ -40,9 +41,15 @@ const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
 type Item = { description?: string; unitPrice: number; glAccountId?: string; projectId?: string };
 
-const draft = async (items: Item[]) => (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
-  clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, items: items.map((i) => ({ description: 'Line', ...i })),
-}))).id;
+const draft = async (items: Item[]) => {
+  const { id } = await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+    clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, items: items.map((i) => ({ description: 'Line', ...i })),
+  }));
+  // A LEGACY invoice, as the legacy writers store it: this suite's subject is the legacy revenue builder (874); create types
+  // its lines since the per-line VAT writer PR (invoice-line-vat-writers covers that path).
+  await untypeLines(id);
+  return id;
+};
 const approveInvoice = (id: string) => inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
 const statusOf = async (id: string) => ((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status;
 const journalCount = async () => Number(((await sql`SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = ${f.fx.companyId}::UUID`) as { n: string }[])[0]!.n);

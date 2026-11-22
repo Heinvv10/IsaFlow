@@ -74,6 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       userId,
       // A customer merge re-points bank rules naming the duplicate: one that posts money needs Banking Approve.
       autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking')),
+      companyRole,
     );
 
     log.info('Entity merge complete', {
@@ -89,7 +90,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A held row or a deadlock victim: 503 + Retry-After (the supplier lock helper's own timeout included).
     if (respondIfLockTimeout(res, err)) return;
     // Refused before anything moved — the caller can act on the message.
-    if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
+    if (err instanceof SupplierMergeRefusal) {
+      log.warn('Supplier merge refused', { companyId, primaryId, duplicateId, reason: err.message }, 'duplicates-api');
+      return apiResponse.badRequest(res, err.message);
+    }
     if (err instanceof ArRequestError) {
       return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
     }

@@ -39,7 +39,7 @@ describe('new invoice: the ZAR equivalent', () => {
     expect(await preview('1000', '15', '18.333')).toBe('R\xa021\xa0082.95');
   });
 
-  it('rounds a half cent away from zero, where float showed R\xa01.00', async () => {
-    expect(await preview('1.005', '0', '1')).toBe('R\xa01.01');
+  it('rounds a half cent away from zero (USD 1.15 at 0.5 is R0.575, which float shows as R0.57)', async () => {
+    expect(await preview('1.15', '0', '0.5')).toBe('R\xa00.58');
   });
 });

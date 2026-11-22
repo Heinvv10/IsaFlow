@@ -108,6 +108,10 @@ describe('the draft edit (detail PUT)', () => {
     const c = await gatedCompany();
     // The PUT recomputes functional_total from the lines, so plant the figure it will compute.
     const inv = await plantInvoice(pool, c, u.a, { functionalTotal: 1150 });
+    // Typed as the writers store it (per-line VAT): a LEGACY draft saved through the edit is typed by it, which is a
+    // content change of its own (invoice-line-vat-writers); this case is the identical re-send of a typed one.
+    await pool.query(`UPDATE customer_invoice_items SET vat_type = 'standard', tax_amount = ROUND(amount * 0.15, 2) WHERE invoice_id = $1`, [inv.id]);
+    await pool.query(`UPDATE customer_invoices SET amounts_are = 'exclusive' WHERE id = $1`, [inv.id]);
     await r.approvedBy(pool, u.a, u.b, c, inv.id);
     const base = await digestOf(pool, c, inv.id);
     const items = [{ description: 'Line A', quantity: 2, unitPrice: 300, taxRate: 15 },

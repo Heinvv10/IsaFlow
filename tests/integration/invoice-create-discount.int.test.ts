@@ -139,6 +139,16 @@ describeIfDisposable('creating a customer invoice with a line discount', () => {
     expect(await stored(id)).toEqual(before);
   });
 
+  it('a single TYPED line past NUMERIC(15,2) is refused by the same total check, in its words (#1701 gate nit: it was vat_refused)', async () => {
+    const id = await create([{ description: 'Small', unitPrice: 10, quantity: 1 }]);
+    const before = await stored(id);
+    const r = await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+      id, items: [{ description: 'Huge', unitPrice: 9e12, quantity: 2, vatType: 'standard' }],
+    }));
+    expect(r).toEqual({ kind: 'bad_amount', message: 'The invoice total is too large' });
+    expect(await stored(id)).toEqual(before);
+  });
+
   it('a new exchange rate alone that would overflow functional_total is refused too, and writes nothing', async () => {
     await sql`UPDATE companies SET fx_documents_enabled = true WHERE id = ${f.fx.companyId}::UUID`;
     try {

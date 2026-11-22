@@ -43,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // The payroll card needs Payroll read in THIS company, decided from the database like withPayrollModule does; without it the
   // card is not built and the response says payrollHidden.
   const payrollRead = await mayReadPayroll(companyId, userId);
-  // census-exempt(getMonthEndWorkbench): the payroll card is built only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other card is company-level status or totals, no one person's pay
+  // census-exempt(getMonthEndWorkbench, payroll-read): the payroll card is built only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other card is company-level status or totals, no one person's pay
   const workbench = await getMonthEndWorkbench(companyId, period, { payrollRead });
   return apiResponse.success(res, workbench);
 }

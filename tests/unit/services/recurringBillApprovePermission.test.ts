@@ -31,19 +31,19 @@ vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ raiseUna
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({ approveSupplierInvoice: vi.fn(async () => ({ id: 'bill-1', status: 'approved' })) }));
 vi.mock('@/modules/accounting/services/core/recurringTransactionService', () => ({
   getRecurringTemplates: vi.fn(), createRecurringTemplate: vi.fn(async () => ({ id: T })),
-  updateRecurringTemplate: vi.fn(async () => ({ id: T })), deleteRecurringTemplate: vi.fn(),
+  updateRecurringTemplate: vi.fn(async () => ({ id: T })), deleteRecurringTemplate: vi.fn(async () => undefined),
 }));
 
 import { sql } from '@/lib/neon';
 import { mintRecurringSupplierInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { createRecurringTemplate, updateRecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
+import { createRecurringTemplate, deleteRecurringTemplate, updateRecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
 import templatesRoute from '../../../pages/api/accounting/recurring-transactions';
 
 const template = { id: T, name: 'Rent', autoPost: true, templateData: { supplierId: '22222222-2222-4222-8222-222222222222' } } as never;
 
-function call(method: string, body: unknown) {
-  const req = { method, query: {}, body, companyId: C, companyRole: 'manager', user: { id: U } } as unknown as NextApiRequest;
+function call(method: string, body: unknown, query: Record<string, string> = {}) {
+  const req = { method, query, body, companyId: C, companyRole: 'manager', user: { id: U } } as unknown as NextApiRequest;
   const res = {
     statusCode: 200, sent: undefined as unknown,
     setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; },
@@ -189,6 +189,42 @@ describe('creating or switching on an autoPost supplier-invoice template', () =>
     storedTemplate = { entity_type: 'stock_adjustment', auto_post: true };
     expect((await call('PUT', { id: T, name: 'x' })).statusCode).toBe(403);
     expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  // #1670 breaker L3: pausing stops runs and changes no figure; deleting an auto-posting template is gated as editing it.
+  it('a writer without Approve may pause an auto-posting template (only isActive: false); any other change with it is refused', async () => {
+    manager(false);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: true };
+    expect((await call('PUT', { id: T, isActive: false })).statusCode).toBe(200);
+    expect(vi.mocked(updateRecurringTemplate).mock.calls[0]![2]).toEqual({ isActive: false });
+    vi.mocked(updateRecurringTemplate).mockClear();
+    expect((await call('PUT', { id: T, isActive: false, name: 'Rent 2' })).statusCode).toBe(403);
+    expect((await call('PUT', { id: T, isActive: true })).statusCode).toBe(403);
+    expect((await call('PUT', { id: T, isActive: false, autoPost: true })).statusCode).toBe(403);
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('DELETE of an auto-posting template takes its module Approve (403, nothing deleted); one with autoPost off does not', async () => {
+    manager(false);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: true };
+    expect((await call('DELETE', undefined, { id: T })).statusCode).toBe(403);
+    expect(deleteRecurringTemplate).not.toHaveBeenCalled();
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: false };
+    expect((await call('DELETE', undefined, { id: T })).statusCode).toBe(200);
+    expect(deleteRecurringTemplate).toHaveBeenCalledWith(C, T);
+  });
+
+  it('DELETE locks the row FOR UPDATE first; a manager with Approve deletes; a non-UUID or foreign id is 404 before any write', async () => {
+    manager(true);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: true };
+    expect((await call('DELETE', undefined, { id: T })).statusCode).toBe(200);
+    const texts = vi.mocked(sql).mock.calls.map((c) => (c[0] as unknown as string[]).join('?'));
+    expect(texts.find((t) => t.includes('FROM recurring_transaction_templates'))).toMatch(/FOR UPDATE/);
+    vi.mocked(deleteRecurringTemplate).mockClear();
+    expect((await call('DELETE', undefined, { id: 'not-a-uuid' })).statusCode).toBe(404);
+    storedTemplate = null;
+    expect((await call('DELETE', undefined, { id: T })).statusCode).toBe(404);
+    expect(deleteRecurringTemplate).not.toHaveBeenCalled();
   });
 
   it('PUT locks the template row (FOR UPDATE) before the permission check, and the update follows it', async () => {

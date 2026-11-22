@@ -131,7 +131,7 @@ describe('approve census analyser: round 6', () => {
   });
 
   it('a census-exempt marker exempts ONE call site, not every call of the callee; a second ungated call fails', () => {
-    const marked = "\n    // census-exempt(postJournalEntry): approve asks first elsewhere\n    await postJournalEntry('c', 'i');";
+    const marked = "\n    // census-exempt(postJournalEntry, posting): approve asks first elsewhere\n    await postJournalEntry('c', 'i');";
     expect(run(h(marked))).toEqual([]);
     const bad = run(h(`${marked}\n    if (x) { await postJournalEntry('c', 'j'); }`));
     expect(bad).toHaveLength(1);
@@ -139,14 +139,14 @@ describe('approve census analyser: round 6', () => {
   });
 
   it('a marker on the wrong callee exempts nothing', () => {
-    expect(run(h("\n    // census-exempt(reverseJournalEntry): wrong one\n    await postJournalEntry('c', 'i');"))).toHaveLength(1);
+    expect(run(h("\n    // census-exempt(reverseJournalEntry, posting): wrong one\n    await postJournalEntry('c', 'i');"))).toHaveLength(1);
   });
 
   it('a marker is USED only while its call would otherwise be uncovered: once the call is gated, the marker is stale', () => {
-    const used = runFull(h("\n    // census-exempt(postJournalEntry): why\n    await postJournalEntry('c', 'i');"));
+    const used = runFull(h("\n    // census-exempt(postJournalEntry, posting): why\n    await postJournalEntry('c', 'i');"));
     expect(used.markersUsed).toHaveLength(1);
     expect(used.staleMarkers).toEqual([]);
-    const stale = runFull(h(`\n    // census-exempt(postJournalEntry): why\n    ${GATE} await postJournalEntry('c', 'i');`));
+    const stale = runFull(h(`\n    // census-exempt(postJournalEntry, posting): why\n    ${GATE} await postJournalEntry('c', 'i');`));
     expect(stale.markersUsed).toEqual([]);
     expect(stale.staleMarkers).toHaveLength(1);
   });
@@ -183,9 +183,9 @@ export async function refuseWithoutPayrollRead(res: unknown, c: string, u: strin
     expect(payroll(sqlRoute(''))).toHaveLength(1);
     expect(payroll(sqlRoute(READ))).toEqual([]);
     expect(payroll(sqlRoute('', 'export default withPayrollDetailAccess(handler);'))).toEqual([]);
-    expect(payroll(sqlRoute("\n// census-exempt(sql): a monthly total, no one person's pay\n"))).toEqual([]);
+    expect(payroll(sqlRoute("\n// census-exempt(sql, payroll-read): a monthly total, no one person's pay\n"))).toEqual([]);
     // above the function, not the statement: binds to nothing
-    expect(payroll(`// census-exempt(sql): a monthly total, no one person's pay\n${sqlRoute('')}`)).toHaveLength(1);
+    expect(payroll(`// census-exempt(sql, payroll-read): a monthly total, no one person's pay\n${sqlRoute('')}`)).toHaveLength(1);
   });
 
   // Breaker mutation 1 (round 7 M3b): the old check passed a handler that called a gate ANYWHERE, so a read the gate did not dominate went through.
@@ -199,7 +199,7 @@ export async function refuseWithoutPayrollRead(res: unknown, c: string, u: strin
 
   // Breaker mutation 2 (round 7 M3a): a census-exempt(sql) marker anywhere in the file exempted every primitive SQL statement in it.
   it('census-exempt(sql) exempts the statement directly below it only; a second read in the file is still flagged', () => {
-    const marker = '// census-exempt(sql): a monthly total, no one person\'s pay';
+    const marker = '// census-exempt(sql, payroll-read): a monthly total, no one person\'s pay';
     const route = (body: string) => `${H}async function handler() { ${body} }\nexport default handler;`;
     const one = payrollFull(route(`\n${marker}\nawait sql\`SELECT SUM(gross) FROM payslips\`;\nawait sql\`SELECT gross FROM payslips WHERE id = 1\`;`));
     expect(one.bad).toHaveLength(1);
@@ -213,7 +213,7 @@ export async function refuseWithoutPayrollRead(res: unknown, c: string, u: strin
   });
 
   it('a gated read does not use a marker above it: the marker is stale', () => {
-    const marked = payrollFull(`${H}async function handler() { ${READ}\n// census-exempt(sql): why\nawait sql\`SELECT gross FROM payslips\`; }\nexport default handler;`);
+    const marked = payrollFull(`${H}async function handler() { ${READ}\n// census-exempt(sql, payroll-read): why\nawait sql\`SELECT gross FROM payslips\`; }\nexport default handler;`);
     expect(marked.bad).toEqual([]);
     expect(marked.staleMarkers).toHaveLength(1);
   });
@@ -221,7 +221,7 @@ export async function refuseWithoutPayrollRead(res: unknown, c: string, u: strin
 
 describe('approve census analyser: a marker binds to the outermost call of its statement', () => {
   it('census-exempt(<callee>) exempts the outer call, not a same-named call nested inside it', () => {
-    const marker = "\n    // census-exempt(postJournalEntry): approve asks first elsewhere\n";
+    const marker = "\n    // census-exempt(postJournalEntry, posting): approve asks first elsewhere\n";
     expect(run(h(`${marker}    await postJournalEntry('c', String(await postJournalEntry('c', 'j')));`))).toHaveLength(1);
     expect(run(h(`${marker}    await postJournalEntry('c', 'i');`))).toEqual([]);
   });
@@ -242,7 +242,7 @@ describe('approve census analyser: pg client calls and quoted identifiers (round
   });
 
   it('a census-exempt(sql) marker binds to the one query call, like a tagged template', () => {
-    const marker = "\n// census-exempt(sql): a total\n";
+    const marker = "\n// census-exempt(sql, payroll-read): a total\n";
     expect(run(route(`${marker}await client.query('SELECT sum(gross) FROM payslips');`), true)).toEqual([]);
     expect(run(route(`${marker}await client.query('SELECT sum(gross) FROM payslips');\nawait client.query('SELECT gross FROM payslips');`), true)).toHaveLength(1);
   });

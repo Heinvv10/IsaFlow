@@ -45,6 +45,9 @@
  * done: platform_admin's access to these tables is not what the member writes already rely on, and a request it could
  * not see would read as "no pending request", failing open; migration_admin (BYPASSRLS) is the known reader.
  *
+ * A pay_run raise takes the same lock (lockPayRunApprovers) on its own transaction, after the run header it stamps and
+ * before anything of the request: nothing waits on a member row or the owner lock while holding it, so it stays a leaf.
+ *
  * Limit, by design (the sole-approver fallback is kept and logged): this guards the window while a request is
  * pending. A demotion made BEFORE a request is raised is in the request's roster snapshot, and a requester can
  * withdraw their own request and then demote; neither is stopped here. They are made visible instead (the audit
@@ -158,6 +161,15 @@ export async function refuseLastPayRunApprover(
 ): Promise<void> {
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey(companyId)]);
   await judge(client, companyId, userId, change);
+}
+
+/**
+ * For the raise (or re-request) of a pay_run approval (approvalDocuments.requestApproval): the same approver lock, on the
+ * request's own transaction, before its roster snapshot is taken (#1670 breaker L5). A member write that judges pending
+ * requests and a raise then serialise: the write sees the request, or the raise's snapshot sees the write.
+ */
+export async function lockPayRunApprovers(companyId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(companyId)}, 0))`;
 }
 
 /** Judges on a migration_admin connection of its own, for a caller whose write is on the platform pool. */

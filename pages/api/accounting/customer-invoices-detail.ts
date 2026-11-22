@@ -91,13 +91,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!putParsed.success) {
       return apiResponse.validationError(res, putParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
-    const { id, items, taxRate, currencyCode, exchangeRate } = putParsed.data;
+    const { id, items, taxRate, currencyCode, exchangeRate, amountsAre } = putParsed.data;
 
-    // taxRate / currencyCode / exchangeRate only affect computed totals, which are
-    // only recomputed when `items` is supplied. Reject the misleading combination
-    // rather than silently dropping the value.
-    if (!items && (taxRate !== undefined || currencyCode !== undefined || exchangeRate !== undefined)) {
-      return apiResponse.badRequest(res, 'taxRate, currencyCode and exchangeRate require items[] to recompute totals');
+    // taxRate / amountsAre / currencyCode / exchangeRate only affect the lines' pricing, which is only
+    // redone when `items` is supplied (a date-only edit re-taxes the stored lines itself). Reject the
+    // misleading combination rather than silently dropping the value; the service refuses amountsAre too.
+    if (!items && (taxRate !== undefined || currencyCode !== undefined || exchangeRate !== undefined || amountsAre !== undefined)) {
+      return apiResponse.badRequest(res, 'taxRate, amountsAre, currencyCode and exchangeRate require items[] to recompute totals');
     }
     if (!items && putParsed.data.releaseTimeEntryIds?.length) { // only a PUT that replaces the lines removes one
       return apiResponse.badRequest(res, 'releaseTimeEntryIds requires items[]: it names the entries of removed lines', { code: WIP_LINK_REFUSED });
@@ -122,6 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_amount') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
+    if (result.kind === 'vat_refused') return apiResponse.badRequest(res, result.message, { code: result.code }); // before any write
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     // Read after the write, under its row lock: what the page's next Approve & email (shownDigest) and next PUT
@@ -147,7 +148,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // the route passes only what the person may do.
       const allowReversal = await mayApprove(companyId, userId, 'customers');
       try {
-        // census-exempt(cancelCustomerInvoice): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+        // census-exempt(cancelCustomerInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId, { allowReversal }));
         if (posted === JOURNAL_DATE_REFUSED) return;
         const { reversedJournalEntryId } = posted;

@@ -18,6 +18,8 @@ import type { CompanyUserSummary } from '@/modules/accounting/services/practice/
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 type Tab = 'details' | 'tasks' | 'time';
 const ALLOWED: Record<PracticeJob['status'], PracticeJob['status'][]> = {
   new: ['in_progress', 'cancelled'], in_progress: ['review', 'cancelled'],
@@ -28,7 +30,6 @@ const PDOT: Record<PracticeJob['priority'], string> = { low: 'bg-slate-400', nor
 const PLBL: Record<PracticeJob['priority'], string> = { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' };
 const SLBL: Record<PracticeJob['status'], string> = { new: 'New', in_progress: 'In Progress', review: 'In Review', approved: 'Approved', billed: 'Billed', complete: 'Complete', cancelled: 'Cancelled' };
 const TSTYLE: Record<PracticeTask['status'], string> = { pending: 'bg-slate-100 text-slate-700', in_progress: 'bg-blue-100 text-blue-800', done: 'bg-green-100 text-green-700', cancelled: 'bg-rose-100 text-rose-700' };
-
 const trunc = (s: string | null | undefined) => s ? s.slice(0, 8) : '—';
 const fmt = (s: string | null | undefined) => s ?? '—';
 const inp = 'w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] px-3 py-2 text-sm';
@@ -75,9 +76,7 @@ export default function JobDetailPage() {
     } catch (err) { setUsers([]); setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);
-
   useEffect(() => { void loadJob(); }, [loadJob]);
-
   useEffect(() => {
     if (tab !== 'tasks' || tasksLoaded || tasksError || !jobId) return;
     void apiFetch(`/api/accounting/practice/tasks?jobId=${jobId}`)
@@ -98,8 +97,9 @@ export default function JobDetailPage() {
       .catch(e => setTimeError(apiErrorMessage(e, 'Could not load the time entries - try again')));
   }, [tab, timeLoaded, timeError, jobId]);
 
+  const guard = useAmountGuard();
   async function save() {
-    if (!job) return;
+    if (!job || guard.blocked()) return;
     setSaving(true); setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'PUT', body: JSON.stringify(form) });
@@ -158,7 +158,7 @@ export default function JobDetailPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
             <nav className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] mb-3">
@@ -240,8 +240,8 @@ export default function JobDetailPage() {
                   </select>
                 </label>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Budgeted Hours</span><input type="number" min="0" step="0.5" value={form.budgetedHours ?? ''} onChange={e => setForm(f => ({ ...f, budgetedHours: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
-                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Fixed Fee (R)</span><input type="number" min="0" step="0.01" value={form.fixedFeeAmount ?? ''} onChange={e => setForm(f => ({ ...f, fixedFeeAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
-                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><input type="number" min="0" step="0.01" value={form.budgetAmount ?? ''} placeholder="No budget" onChange={e => setForm(f => ({ ...f, budgetAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
+                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Fixed Fee (R)</span><AmountInput min={0} value={form.fixedFeeAmount == null ? '' : String(form.fixedFeeAmount)} onValueChange={(n, t) => setForm(f => ({ ...f, fixedFeeAmount: t === '' ? null : n }))} className={inp} /></label>
+                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><AmountInput min={0} value={form.budgetAmount == null ? '' : String(form.budgetAmount)} placeholder="No budget" onValueChange={(n, t) => setForm(f => ({ ...f, budgetAmount: t === '' ? null : n }))} className={inp} /></label>
               </div>
               <div className="flex justify-end pt-2">
                 <button onClick={() => void save()} disabled={saving || dateGate.blocked} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">

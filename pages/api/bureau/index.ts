@@ -57,7 +57,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   // read: decided per company, in one query, as the portfolio does; no payroll query for the others.
   const payrollRead = await payrollReadByCompany(getPlatformAdminPool(), userId, companyIds);
   const payrollCompanyIds = companyIds.filter((id) => payrollRead.get(id) === true);
-  // census-exempt(aggregateBureauWork): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
+  // census-exempt(aggregateBureauWork, payroll-read): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
   const { items, monthEnd } = await aggregateBureauWork(companyIds, meta, new Date(), { payrollCompanyIds });
 
   const stats = {

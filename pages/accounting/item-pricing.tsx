@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Save, Loader2, Search } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -50,7 +52,9 @@ export default function ItemPricingPage() {
 
   const changedCount = Object.keys(edits).length;
 
+  const guard = useAmountGuard();
   const save = async () => {
+    if (guard.blocked()) return;
     const updates = Object.entries(edits).map(([itemId, sellingPrice]) => ({ itemId, sellingPrice: Number(sellingPrice) }));
     if (!updates.length) return;
     setSaving(true); setMsg(''); setErr('');
@@ -73,7 +77,7 @@ export default function ItemPricingPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -125,9 +129,9 @@ export default function ItemPricingPage() {
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.category || '—'}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(cp)}</td>
                         <td className="px-4 py-2 text-right">
-                          <input type="number" step="0.01" min="0"
-                            value={edits[item.id] !== undefined ? edits[item.id] : (item.selling_price ?? '')}
-                            onChange={e => setEdits(p => ({ ...p, [item.id]: e.target.value }))}
+                          <AmountInput min={0}
+                            value={edits[item.id] ?? item.selling_price ?? ''}
+                            onValueChange={(_n, t) => setEdits(p => ({ ...p, [item.id]: t }))}
                             className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
                         <td className={`px-4 py-2 text-right ${margin >= 0 ? 'text-teal-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>

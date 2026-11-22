@@ -28,7 +28,8 @@ import {
  * #1656: an autoPost template posts what it holds on every run: a journal (Chart of Accounts Approve), a customer invoice
  * (Customers & AR Approve) or a supplier invoice (Suppliers & AP Approve). A later run checks only the RUNNER's Approve, so
  * the person who writes the figures must hold the module's Approve too (#1670 Codex): only they may create such a template,
- * turn autoPost on, or edit one that has it on. A type with no module is refused (gate everything, fail closed).
+ * turn autoPost on, edit or delete one that has it on. A type with no module is refused (gate everything, fail closed).
+ * Pausing one (a PUT whose only change is isActive: false) stops runs and changes no figure, so anyone who may write may (L3).
  */
 /**
  * The two fields the approve rule reads, typed before anything else (security review of #1670):
@@ -122,10 +123,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!isUuidParam(id)) return apiResponse.notFound(res, 'Recurring template');
     const stored = await lockStoredTemplateFlags(companyId, id);
     if (!stored) return apiResponse.notFound(res, 'Recurring template');
-    // Any edit of a template that will post (stored type; the body's autoPost, else the stored one).
-    const refused = await autoPostRefusal(companyId, req.user.id, stored.type, updates.autoPost ?? stored.autoPost);
-    if (refused) return apiResponse.forbidden(res, refused);
     delete updates.entityType; // never changed by the update (the service ignores it); not trusted either
+    // Any edit of a template that will post (stored type; the body's autoPost, else the stored one), but a pause.
+    const pausing = Object.keys(updates).length === 1 && updates.isActive === false;
+    const refused = pausing ? null : await autoPostRefusal(companyId, req.user.id, stored.type, updates.autoPost ?? stored.autoPost);
+    if (refused) return apiResponse.forbidden(res, refused);
     try {
       const item = await updateRecurringTemplate(
         companyId, id,
@@ -143,6 +145,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'DELETE') {
     const id = req.query.id as string;
     if (!id) return apiResponse.badRequest(res, 'id query param is required');
+    if (!isUuidParam(id)) return apiResponse.notFound(res, 'Recurring template');
+    // Deleting an auto-posting template takes the same Approve as editing it, under the same row lock (#1670 breaker L3).
+    const stored = await lockStoredTemplateFlags(companyId, id);
+    if (!stored) return apiResponse.notFound(res, 'Recurring template');
+    const refused = await autoPostRefusal(companyId, req.user.id, stored.type, stored.autoPost);
+    if (refused) return apiResponse.forbidden(res, refused);
     try {
       await deleteRecurringTemplate(companyId, id);
       return apiResponse.success(res, { deleted: true });

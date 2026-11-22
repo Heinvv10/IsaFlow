@@ -234,7 +234,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       if (action === 'reverse') {
         await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656 (round 3): cancelling reverses the note's journal, as 'post' approves it (403)
-        // census-exempt(cancelCreditNote): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+        // census-exempt(cancelCreditNote, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const reversed = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, id, userId));
         if (reversed === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, reversed);

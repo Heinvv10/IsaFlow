@@ -87,7 +87,7 @@ for (const form of FORMS) {
       await expect(page.getByText('Scroll sideways to see every column.'), 'nothing is clipped, so no hint').toHaveCount(0);
       for (const control of [
         region.getByRole('textbox', { name: 'Line 1 description' }), region.getByRole('combobox', { name: 'Line 1 account' }),
-        region.getByRole('spinbutton', { name: 'Line 1 quantity' }), region.getByRole('spinbutton', { name: 'Line 1 unit price' }),
+        region.getByRole('textbox', { name: 'Line 1 quantity' }), region.getByRole('textbox', { name: 'Line 1 unit price' }),
         region.getByRole('button', { name: 'Remove line 1' }),
       ]) {
         await control.scrollIntoViewIfNeeded();

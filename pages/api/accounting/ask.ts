@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
     return apiResponse.success(res, await provider.answer(companyId, q, { payrollRead }));
   }
-  // census-exempt(answerQuestion): the pay run and EMP201 intents are answered only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other answer is a ledger figure, no one person's pay
+  // census-exempt(answerQuestion, payroll-read): the pay run and EMP201 intents are answered only for a caller with Payroll read (payrollRead, from mayReadPayroll); every other answer is a ledger figure, no one person's pay
   const answer = await answerQuestion(companyId, q, todayInSast(), { payrollRead });
   // A metered intent is charged up front; one that returned no figure (a refused period, a missing run) did no billable work.
   if (answer.figure === null) markFlowNoOp(req);

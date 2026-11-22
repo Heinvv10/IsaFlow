@@ -17,8 +17,9 @@ import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { markReturnFiled } from '@/modules/accounting/services/returns/fileReturn';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
-import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { returnApproveModule, returnFormOf } from '@/modules/accounting/services/returns/returnForm';
 import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { VatGateBlockedError, VatGateOverrideForbiddenError } from '@/modules/accounting/services/reports/vatGateOverrideService';
 
@@ -46,8 +47,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!(await checkReportRateLimit(companyId, `return-file:u:${userId}`, INTERACTIVE_REPORT_LIMIT))) {
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
+  // Filing takes the form's module Approve (Hein's gate-everything ruling, 2026-11-21), before anything is read.
+  const module = returnApproveModule(form);
+  if (!module) return apiResponse.forbidden(res, `No Approve permission governs filing a ${form} return, so it is refused.`);
+  if (await refuseWithoutApprove(res, companyId, userId, module, `${form} returns`)) return;
   try {
-    // census-exempt(markReturnFiled): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
+    // census-exempt(markReturnFiled, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
     const out = await markReturnFiled(companyId, form, parsed.data.versionId, parsed.data.reference,
       { userId, role: companyRole },
       { overrideReason: parsed.data.overrideReason, correctsLegacySubmissionIds: parsed.data.correctsLegacySubmissionIds, reason: parsed.data.reason });

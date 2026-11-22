@@ -555,9 +555,10 @@
    {"line":146,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"every line of every declarable run of the month"},
    {"line":203,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"month sum over every declarable run"},
    {"line":225,"text":"INSERT INTO uif_declarations (","class":"S","owner":"FQb2/EF","why":"declaration upsert per month from the month sum"},
-   {"line":242,"text":"WHEN uif_declarations.status = 'draft' THEN 'draft'","class":"S","owner":"FQb2/EF","why":"same upsert"},
-   {"line":243,"text":"ELSE uif_declarations.status","class":"S","owner":"FQb2/EF","why":"same upsert"},
-   {"line":266,"text":"UPDATE uif_declarations SET","class":"S","owner":"FQb2/EF","why":"write by id"}
+   {"line":246,"text":"WHERE uif_declarations.status = 'draft' -- #1670 r13 L5: a submitted / accepted / paid declaration's totals are what was filed","class":"S","owner":"FQb2/EF","why":"same upsert: a draft only (#1670 r13 L5)"},
+   {"line":250,"text":"const [current] = (await sql`SELECT status FROM uif_declarations WHERE company_id = ${companyId}::uuid","class":"S","owner":"FQb2/EF","why":"the one declaration of the month, by statute: its status for the refusal"},
+   {"line":266,"text":"UPDATE uif_declarations SET","class":"S","owner":"FQb2/EF","why":"write by id"},
+   {"line":293,"text":"SELECT status FROM uif_declarations WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb2/EF","why":"read by id: the status a refused mark-submitted names (#1670 r12 M2)"}
   ],
   "src/modules/accounting/services/payroll/uifPaymentService.ts": [
    {"line":50,"text":"SELECT * FROM uif_declarations","class":"S","owner":"FQb1","why":"declaration by id"},

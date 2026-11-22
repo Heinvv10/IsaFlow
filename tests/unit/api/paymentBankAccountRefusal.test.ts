@@ -35,7 +35,7 @@ vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({
   markUifDeclarationPaid: vi.fn(),
   UifDeclarationNotSubmittedError: class extends Error {},
 }));
-vi.mock('@/modules/accounting/services/payroll/uifDeclarationService', () => ({ getUifDeclaration: vi.fn(), markUifSubmitted: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/uifDeclarationService', () => ({ getUifDeclaration: vi.fn(), markUifSubmitted: vi.fn(), UifDeclarationNotDraftError: class extends Error {} }));
 vi.mock('@/modules/accounting/services/loans/loanPaymentService', () => ({ listLoanPayments: vi.fn(), recordLoanPayment: vi.fn() }));
 
 import { BankAccountRefusedError } from '@/modules/accounting/services/gl/paymentBankAccount';

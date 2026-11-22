@@ -14,7 +14,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
   const { dateFrom, dateTo, practiceClientId } = req.query;
   if (!dateFrom || !dateTo) return apiResponse.badRequest(res, 'dateFrom and dateTo are required');
-  // census-exempt(getClientProfitability): costVisible below is Payroll read; without it the service runs no cost query and returns null cost and margin
+  // census-exempt(getClientProfitability, payroll-read): costVisible below is Payroll read; without it the service runs no cost query and returns null cost and margin
   const rows = await getClientProfitability(companyId, {
     dateFrom: dateFrom as string,
     dateTo: dateTo as string,

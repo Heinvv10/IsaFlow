@@ -90,7 +90,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'cancel': {
         // #1656 (Hein: gate everything): cancelling an approved bill reverses its journal, so it asks Approve too.
         if (!(await mayApproveSupplierInvoices(companyId, userId))) return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
-        // census-exempt(cancelSupplierInvoice): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+        // census-exempt(cancelSupplierInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const invoice = await withJournalDateRefusal(res, () => cancelSupplierInvoice(companyId, invoiceId, userId));
         if (invoice === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, invoice);

@@ -36,6 +36,7 @@ import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approval
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { MirroredNoteVatRefusal, mirroredVatRefusals } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
+import { proportionalVatRefusals } from './creditNoteVatDryRun';
 import { type DocumentState, partitionDocuments, postPartitionedDocuments } from './bulkApproveRunner';
 import { TOOL, buildAdapter } from './bulkApproveCreditNotesAdapter';
 import {
@@ -123,7 +124,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, dated in a CLOSED fiscal period, or one against an invoice with a VAT type per line whose VAT is not its proportional share — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated credit_note_id is REFUSED (not skipped) — each note may appear once. '
-    + 'Reverse a posted note with cancel_credit_note. Use dry_run to see what would post and what would be skipped: it foresees not found, not a draft, a closed period, an approval rule and a mirror_bill VAT refusal, but NOT a note whose VAT is not its proportional share of such an invoice\'s, nor a note another request changes or locks meanwhile; those are only discovered, and skipped, on the live run.',
+    + 'Reverse a posted note with cancel_credit_note. Use dry_run to see what would post and what would be skipped: it foresees not found, not a draft, a closed period, an approval rule, a mirror_bill VAT refusal and a note whose VAT is not its proportional share of such an invoice\'s (judged in the live order), but NOT a note another request changes or locks meanwhile; that is only discovered, and skipped, on the live run.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -199,12 +200,16 @@ export const bulkApproveCreditNotesTool: McpTool = {
     }
 
     if (args.dry_run === true) {
+      // The live run meets the proportional-VAT refusal at approve (a skip); the dry run foresees it, in the live order.
+      const split = await proportionalVatRefusals(ctx.companyId, liveOrder(postable, states).map((p) => p.id), autoApply);
+      const wouldPost = postable.filter((p) => !split.has(p.id));
       const preview = ok({
         dry_run: true,
         posted: 0,
-        would_post: postable.length,
-        would_post_ids: postable.map((p) => p.id),
-        skipped,
+        would_post: wouldPost.length,
+        would_post_ids: wouldPost.map((p) => p.id),
+        skipped: [...skipped, ...postable.filter((p) => split.has(p.id))
+          .map((p) => ({ index: p.index, document_id: p.id, reason: split.get(p.id)! }))].sort((a, b) => a.index - b.index),
       });
       preview.wroteNothing = true;
       preview.billable = false;

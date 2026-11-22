@@ -43,10 +43,18 @@ export interface ExternalRefMatch {
   status: string | null;
   date: string | null;
   totalAmount: number | null;
+  /** A credit note's net (its subtotal): a replay compares it when the total depends on a VAT figure not known yet. */
+  subtotal?: number;
   /** Soft-deleted or cancelled: kept so a caller can see it, never treated as the live copy. */
   live: boolean;
   externalDocumentNumber: string | null;
   creditNoteType?: string;
+  /**
+   * A credit note's identity beyond its reference (#1701 round 9): its party and linked document, by the create tool's
+   * own field names (client_id, supplier_id, customer_invoice_id, supplier_invoice_id; null = none). A replay is the
+   * same note only when these match.
+   */
+  identity?: Record<string, string | null>;
   /** A po_bill_link: the two documents it joins. */
   purchaseOrderId?: string;
   supplierInvoiceId?: string;
@@ -80,8 +88,10 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'credit_note':
       return (await sql`
-        SELECT id, credit_note_number AS number, status, credit_date AS date, total_amount, external_document_number,
-               type AS credit_note_type, (status IS DISTINCT FROM 'cancelled') AS live
+        SELECT id, credit_note_number AS number, status, credit_date AS date, total_amount, subtotal, external_document_number,
+               type AS credit_note_type, (status IS DISTINCT FROM 'cancelled') AS live,
+               client_id::TEXT AS client_id, supplier_id::TEXT AS supplier_id,
+               customer_invoice_id::TEXT AS customer_invoice_id, supplier_invoice_id::TEXT AS supplier_invoice_id
         FROM credit_notes
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'journal':
@@ -164,6 +174,12 @@ export async function findByExternalRef(
       live: r.live === true,
       externalDocumentNumber: r.external_document_number == null ? null : String(r.external_document_number),
       ...(r.credit_note_type != null ? { creditNoteType: String(r.credit_note_type) } : {}),
+      ...(r.subtotal != null ? { subtotal: Number(r.subtotal) } : {}),
+      ...(kind === 'credit_note' ? { identity: {
+        client_id: r.client_id == null ? null : String(r.client_id), supplier_id: r.supplier_id == null ? null : String(r.supplier_id),
+        customer_invoice_id: r.customer_invoice_id == null ? null : String(r.customer_invoice_id),
+        supplier_invoice_id: r.supplier_invoice_id == null ? null : String(r.supplier_invoice_id),
+      } } : {}),
       ...(r.purchase_order_id != null ? { purchaseOrderId: String(r.purchase_order_id), supplierInvoiceId: String(r.supplier_invoice_id) } : {}),
     }))
     .sort((a, b) => Number(b.live) - Number(a.live));

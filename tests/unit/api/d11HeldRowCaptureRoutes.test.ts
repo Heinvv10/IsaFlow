@@ -104,11 +104,17 @@ describe('capture/[id]/post-expense: who needs Suppliers Approve', () => {
     expect(checkPermission).not.toHaveBeenCalledWith('c', 'u', 'suppliers', 'approve');
   });
 
-  it('the direct journal (no employee) is refused 403 before the posting service, its first write', async () => {
+  it('the direct journal (no employee) is refused 403 before any lock, read or duplicate check (#1670 breaker L2)', async () => {
     const r = await call(postExpense, {}, { id: ID });
     expect(r.statusCode, JSON.stringify(r.sent)).toBe(403);
     expect(checkPermission).toHaveBeenCalledWith('c', 'u', 'suppliers', 'approve');
+    expect(lockCaptureEventForPosting).not.toHaveBeenCalled();
+    expect(checkReceiptDuplicate).not.toHaveBeenCalled(); // no DUPLICATE_RECEIPT for a person without Approve
     expect(postReceiptAsPettyCashJournal).not.toHaveBeenCalled();
+    vi.mocked(checkReceiptDuplicate).mockResolvedValueOnce(dup('duplicate') as never);
+    expect((await call(postExpense, {}, { id: ID })).statusCode, 'a duplicate, refused first by the gate').toBe(403);
+    vi.mocked(checkReceiptDuplicate).mockReset();
+    vi.mocked(checkReceiptDuplicate).mockResolvedValue({ kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null } } as never);
     vi.mocked(checkPermission).mockResolvedValue(true);
     vi.mocked(postReceiptAsPettyCashJournal).mockResolvedValueOnce({ journalEntryId: 'je' } as never);
     expect((await call(postExpense, {}, { id: ID })).statusCode).toBe(200);

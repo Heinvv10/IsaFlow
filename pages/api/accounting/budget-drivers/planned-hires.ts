@@ -54,20 +54,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a planned hire id');
       const token = Token.safeParse(expectedUpdatedAt);
       if (!token.success) return apiResponse.badRequest(res, 'expectedUpdatedAt must be the updatedAt the version was read with');
-      // census-exempt(deleteHire): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+      // census-exempt(deleteHire, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
       return apiResponse.success(res, await deleteHire(companyId, userId, { versionId, expectedUpdatedAt: token.data }, id));
     }
     if (method === 'POST') {
       const parsed = HireSchema.safeParse(req.body);
       if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
       const { versionId, expectedUpdatedAt, ...hire } = parsed.data;
-      // census-exempt(createHire): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+      // census-exempt(createHire, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
       return apiResponse.success(res, await createHire(companyId, userId, { versionId, expectedUpdatedAt }, hire));
     }
     const parsed = UpdateSchema.safeParse(req.body);
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { versionId, expectedUpdatedAt, id, ...hire } = parsed.data;
-    // census-exempt(updateHire): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+    // census-exempt(updateHire, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     return apiResponse.success(res, await updateHire(companyId, userId, { versionId, expectedUpdatedAt }, id, hire));
   } catch (err) {
     if (respondBudgetDriverError(res, err)) return;

@@ -19,10 +19,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { UNSCOPED_MARKER } from '../helpers/approveCensusProgram';
 import { analyse } from '../helpers/approveCensusGraph';
-import {
-  GATES, PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, ROUTE_WRAPPERS, SINK_MODULES, SQL_PRIMITIVES,
-} from '../helpers/approveCensusConfig';
+import { PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, POSTING_RULES } from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
 /** MCP tools that require write:post or are named like a posting tool, yet post nothing. */
@@ -42,12 +42,13 @@ const EXEMPT_TOOLS: Readonly<Record<string, string>> = {
   lock_budget_version: 'locks a budget version; no ledger effect',
   submit_budget_for_review: 'submits for review; approving it is approve_budget_version (gated)',
   submit_time_entries: 'submits for review; approving them is the Accountant\'s Area approve (gated on the routes)',
-  lock_vat_period: 'locks a VAT period; posts nothing',
   mark_vat_declared_elsewhere: 'records where a period was declared; posts nothing',
+  restore_budget_version: 'restores budget cells an MCP amount write changed (a grid save); approving a version is approve_budget_version',
+  undo_bank_import: 'deletes only still-imported (never allocated or posted) bank lines; posts and reverses nothing',
 };
 
-/** A tool name that says it approves, posts, finalises or reverses. */
-const POSTING_NAME = /^(approve|bulk_approve|finali[sz]e|bulk_finali[sz]e|post|run|close|year_end|book|reverse|void|cancel|settle|reopen|allocate|bulk_allocate|reallocate|split_allocate|perform|merge|confirm|process|apply|unapply|adjust|link|tag|set_opening|dispose|write_off|auto_apply|submit|mark|lock)_/;
+/** A tool name that says it approves, posts, finalises, reverses, sends, files, pays, undoes, restores or releases (r13 L4). */
+const POSTING_NAME = /^(send|file|pay|undo|restore|release|approve|bulk_approve|finali[sz]e|bulk_finali[sz]e|post|run|close|year_end|book|reverse|void|cancel|settle|reopen|allocate|bulk_allocate|reallocate|split_allocate|perform|merge|confirm|process|apply|unapply|adjust|link|tag|set_opening|dispose|write_off|auto_apply|submit|mark|lock)_/;
 
 const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf8' })
   .split('\n')
@@ -55,13 +56,7 @@ const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf
 
 const programFiles = execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
   .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts'));
-/**
- * The posting census's rules, shared by the real tree and the fixtures below. flagPrimitiveRoots + queryCalls (#1670 Codex): a
- * handler that posts in its OWN SQL (sql`` or client.query) calls no sink, and was not judged.
- */
-const POSTING_RULES = {
-  sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, flagPrimitiveRoots: true, queryCalls: true,
-} as const;
+/** The posting census's rules (approveCensusConfig POSTING_RULES), on the real tree here; on fixtures in approveCensusFixtures.test.ts. */
 let memo: ReturnType<typeof analyse> | undefined;
 const census = () => (memo ??= analyse({ routeFiles: apiFiles, programFiles, ...POSTING_RULES }));
 
@@ -70,8 +65,9 @@ const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payrol
 let payrollMemo: ReturnType<typeof analyse> | undefined;
 const payrollCensus = () => (payrollMemo ??= analyse({
   routeFiles: payrollReadRoutes, programFiles, sinks: {}, gates: PAYROLL_READ_GATES, routeWrappers: PAYROLL_READ_WRAPPERS,
-  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, queryCalls: true,
+  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, queryCalls: true, markerScope: 'payroll-read',
 }));
+
 
 describe('approve / post entry-point census (#1656)', () => {
   it('finds the posting routes (the census is not empty)', () => {
@@ -80,12 +76,12 @@ describe('approve / post entry-point census (#1656)', () => {
 
   it('every route that reaches a posting primitive asks the module Approve before it, on every action', () => {
     expect(census().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
-      'Gate these with refuseWithoutApprove before the call (on every action branch), or mark the one call census-exempt(<callee>): reason').toEqual([]);
+      'Gate these with refuseWithoutApprove before the call (on every action branch), or mark the one call census-exempt(<callee>, posting): reason').toEqual([]);
   }, 180_000);
 
   it('a route outside pages/api/payroll that reads per-employee pay asks Payroll READ (withPayrollDetailAccess / withPayrollModule / refuseWithoutPayrollRead)', () => {
     expect(payrollCensus().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
-      'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>): reason').toEqual([]);
+      'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>, payroll-read): reason').toEqual([]);
     expect(payrollCensus().dangerousRoutes.length).toBeGreaterThan(3);
   }, 180_000);
 
@@ -105,43 +101,32 @@ describe('approve / post entry-point census (#1656)', () => {
     expect(reads('SELECT 1 FROM payroll_company_settings')).toBe(false);
   });
 
-  it('every census-exempt marker is still needed by one of the two censuses: its call would otherwise be uncovered (no stale pin)', () => {
+  it('#1670 r12 M1: every census-exempt marker names its census (posting or payroll-read); an unscoped one fails', () => {
+    const files = execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n').filter((f) => /\.tsx?$/.test(f));
+    const unscoped: string[] = [];
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8');
+      if (!text.includes('census-exempt(')) continue; // the heap: the real program is in this worker too
+      text.split('\n').forEach((line, i) => { if (UNSCOPED_MARKER.test(line)) unscoped.push(`${f}:${i + 1}`); });
+    }
+    expect(unscoped, 'write census-exempt(<callee>, posting|payroll-read): reason').toEqual([]);
+    expect(UNSCOPED_MARKER.test('// census-exempt(x): why')).toBe(true);
+    expect(UNSCOPED_MARKER.test('// census-exempt(x, payroll-read): why')).toBe(false);
+  });
+
+  it('every census-exempt marker is still needed by the census it names: its call would otherwise be uncovered (no stale pin)', () => {
+    // r12 M1: each census judges only its own markers, so a marker is stale unless the census it NAMES needs it (it used to pass when
+    // either census did). A payroll-read marker where that census does not run (pages/api/payroll, the employee portal) is stale too.
     const payrollFiles = new Set(payrollReadRoutes);
-    const stale = census().staleMarkers.filter((m) => !payrollFiles.has(m.split(':')[0]!) || payrollCensus().staleMarkers.includes(m));
-    expect(stale).toEqual([]);
+    const misplaced: string[] = [];
+    for (const f of apiFiles.filter((x) => !payrollFiles.has(x))) {
+      const text = readFileSync(f, 'utf8');
+      if (!text.includes('payroll-read)')) continue;
+      text.split('\n').forEach((line, i) => { if (/census-exempt\([A-Za-z0-9_-]+,\s*payroll-read\)/.test(line)) misplaced.push(`${f}:${i + 1}`); });
+    }
+    expect([...census().staleMarkers, ...payrollCensus().staleMarkers, ...misplaced]).toEqual([]);
     expect(census().markersUsed.length + payrollCensus().markersUsed.length).toBeGreaterThanOrEqual(17);
   }, 180_000);
-
-  it('#1670 Codex: an unguarded route that posts in its own SQL, sql`` or client.query, is a finding; a gate before it passes', () => {
-    const fixture = (route: string) => {
-      const files: Record<string, string> = {
-        '/fx/lib.ts': `export declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
-export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
-export declare function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string): Promise<boolean>;
-export async function flipBill(id: string) { await client.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]); }`,
-        '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill } from './lib';\ndeclare const res: unknown;\n${route}\nexport default handler;`,
-      };
-      return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
-    };
-    const gate = "if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'journals')) return;";
-    const tagged = "await sql`UPDATE gl_journal_entries SET status = 'posted' WHERE id = ${id}`;";
-    const query = "await client.query(`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = $1`, [id]);";
-    expect(fixture(`async function handler(id: string) { ${tagged} }`)).toHaveLength(1);
-    expect(fixture(`async function handler(id: string) { ${query} }`)).toHaveLength(1);
-    expect(fixture("async function handler(id: string) { await flipBill(id); }")).toHaveLength(1); // a helper's client.query
-    expect(fixture(`async function handler(id: string) { ${gate} ${tagged} ${query} await flipBill(id); }`)).toEqual([]);
-  });
-
-  it('#1670 Codex: withPayrollModule (Payroll read / write) is no proof of Payroll Approve in the posting census; it still is for payroll access', () => {
-    const files: Record<string, string> = {
-      '/fx/svc.ts': 'export async function approvePayrollRun(c: string, id: string) { return id; }',
-      '/fx/route.ts': `import { approvePayrollRun } from './svc';\ndeclare function withPayrollModule<T>(h: T): T;
-async function handler(id: string) { await approvePayrollRun('c', id); }\nexport default withPayrollModule(handler);`,
-    };
-    const bad = analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
-    expect(bad.map((b) => b.sites.join())).toEqual([expect.stringContaining('approvePayrollRun[payroll]')]);
-    expect(PAYROLL_READ_WRAPPERS.withPayrollModule).toBe('payroll');
-  });
 
   it('every MCP tool that posts declares its approve module', () => {
     const posting = MCP_TOOLS.filter((t) => t.requiresPost || POSTING_NAME.test(t.name));
@@ -152,8 +137,10 @@ async function handler(id: string) { await approvePayrollRun('c', id); }\nexport
 
   it('every exempt tool exists and still lacks a module (no stale pin)', () => {
     const names = new Set(MCP_TOOLS.map((t) => t.name));
+    // r13 L4: and is a posting tool by the census's own test (a scope or its name), else its exemption pins nothing.
     const stale = Object.keys(EXEMPT_TOOLS).filter((n) => !names.has(n)
-      || MCP_TOOLS.find((t) => t.name === n)!.approveModule !== undefined);
+      || MCP_TOOLS.find((t) => t.name === n)!.approveModule !== undefined
+      || !(MCP_TOOLS.find((t) => t.name === n)!.requiresPost || POSTING_NAME.test(n)));
     expect(stale).toEqual([]);
   });
 

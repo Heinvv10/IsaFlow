@@ -31,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { from: priorFrom, to: priorTo } = priorPeriod(from, to);
 
-  // census-exempt(getEmployeeCount): a headcount only (a COUNT of employees), never one person's pay
+  // census-exempt(getEmployeeCount, payroll-read): a headcount only (a COUNT of employees), never one person's pay
   const [figures, priorFigures, empCount, companyRow] = await Promise.all([
     getFinancialFigures(companyId, from, to),
     getFinancialFigures(companyId, priorFrom, priorTo),

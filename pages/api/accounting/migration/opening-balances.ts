@@ -46,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   let result: Awaited<ReturnType<typeof importOpeningBalances>> | typeof JOURNAL_DATE_REFUSED;
   try {
-    // census-exempt(importOpeningBalances): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
+    // census-exempt(importOpeningBalances, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
     result = await withJournalDateRefusal(res, () => importOpeningBalances(companyId, sessionId, effectiveDate, balances, userId));
   } catch (err) {
     // The re-run reverses the prior take-on journal; a live bank line booking it refuses that (400, pre-write).

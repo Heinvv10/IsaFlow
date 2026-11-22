@@ -41,7 +41,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   // The client's payroll signals (pay runs with /payroll links, IRP5, directives, leave) need this user's Payroll read in THIS company.
   const payrollRead = await payrollReadByCompany(getPlatformAdminPool(), req.user.id, [companyId]);
   const payrollCompanyIds = payrollRead.get(companyId) === true ? [companyId] : [];
-  // census-exempt(aggregateBureauWork): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
+  // census-exempt(aggregateBureauWork, payroll-read): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
   const [metrics, work] = await Promise.all([
     clientMetricsSnapshot(companyId),
     aggregateBureauWork(

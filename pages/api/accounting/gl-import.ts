@@ -40,7 +40,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (postImmediately === true && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal imports')) return;
 
   try {
-    // census-exempt(importJournalEntries): postImmediately asks Chart of Accounts & GL Approve first (above); an import without posting leaves drafts. routeApproveGates (gl-import)
+    // census-exempt(importJournalEntries, posting): postImmediately asks Chart of Accounts & GL Approve first (above); an import without posting leaves drafts. routeApproveGates (gl-import)
     const result = await importJournalEntries(
       companyId,
       rows,
