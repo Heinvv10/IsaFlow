@@ -121,6 +121,9 @@ export async function claimJournalReversal(
     return rows.length > 0;
   } catch (err) {
     if (isLockTimeout(err)) throw new JournalReversalLockTimeoutError(entryId);
+    // Migration 1018: a legacy journal a contra already links but never stamped refuses the stamp. It IS reversed: the
+    // caller's "already reversed" (the error has aborted the claim's savepoint, which that refusal rolls back).
+    if ((err as { constraint?: unknown }).constraint === 'gl_je_reversal_attribution_kept') return false;
     throw err;
   } finally {
     // Restore rather than reset: inside a request the previous value is whatever
