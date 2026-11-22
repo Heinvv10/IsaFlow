@@ -109,11 +109,20 @@ export function reportFinalizeFailure(
 /**
  * Answers a COMMIT that failed. The buffered 2xx must not go out: the write did not land, or its
  * outcome is unknown. 500 COMMIT_FAILED replaces it; a response whose status line is already on
- * the wire is aborted, because a clean close would read as success.
+ * the wire is aborted, because a clean close would read as success. A COMMIT that failed on a lock
+ * (55P03 lock timeout, 40P01 deadlock, 40001 serialization: a deferred check waiting for another
+ * request, migration 1018 round 13) rolled back whole, so a retry can pass: 503 COMMIT_RETRY.
  */
-export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd): void {
+export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd, err?: unknown): void {
+  if (RETRYABLE_COMMIT_CODES.has(String((err as { code?: unknown } | null | undefined)?.code ?? ''))) {
+    if (!res.headersSent) res.setHeader('Retry-After', '1');
+    answerInstead(res, deferred, 503, { success: false, data: null, code: 'COMMIT_RETRY',
+      message: 'Another request was changing the same records, so nothing was saved. Retry in a moment.' });
+    return;
+  }
   answerInstead(res, deferred, 500, { success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
 }
+const RETRYABLE_COMMIT_CODES = new Set(['55P03', '40P01', '40001']);
 
 /** Sends `payload` as `status` in place of the buffered end; a response already on the wire is aborted. */
 export function answerInstead(res: NextApiResponse, deferred: DeferredEnd, status: number, payload: unknown): void {

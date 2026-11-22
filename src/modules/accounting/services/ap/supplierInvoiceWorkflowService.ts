@@ -22,6 +22,7 @@ import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/di
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the legacy pick, in its slot, with its FNO
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
@@ -311,6 +312,7 @@ async function cancelSupplierInvoiceInner(
     // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
+    await lockDocumentJournalAccounts(companyId, 'supplier_invoices', id); // 1018 round 15 L1: accounts before the bill row
     const lockRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID

@@ -72,6 +72,17 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
     return String((r.body as { data: { id: string } }).data.id);
   };
+  /** A posted contra of `je` written as the fixture superuser, which no 1018 rule binds (a chain built before 1018). */
+  const legacyReverse = async (je: string) => {
+    const contra = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by, posted_at)
+      SELECT company_id, entry_date, 'legacy reversal', source, 'posted', created_by, now() FROM gl_journal_entries WHERE id = ${je}::UUID
+      RETURNING id`) as Row[])[0]!.id);
+    await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+      SELECT company_id, ${contra}::UUID, gl_account_id, credit, debit, description FROM gl_journal_lines WHERE journal_entry_id = ${je}::UUID`;
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${je}::UUID WHERE id = ${contra}::UUID`;
+    await sql`UPDATE gl_journal_entries SET reversed_at = now() WHERE id = ${je}::UUID`;
+    return contra;
+  };
 
   // brk-nrfa rounds 16-17: the residual's remedy is "match the statement line to the journal". The match screen keeps
   // the 20 unmatched posted lines nearest the amount; among many lines of that amount the statement line's OWN BANK
@@ -263,7 +274,13 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     await sql`UPDATE bank_transactions SET status = 'provisional', provisional_je_id = ${pj}::UUID
       WHERE id = ${own}::UUID AND company_id = ${c.fx.companyId}::UUID`;
     let head = pj;
-    for (let i = 0; i < 64; i++) head = await glReverse(head); // even: the head moves the provisional's money again
+    // Migration 1018 (L1): the GL now refuses a reversal that would make a chain 64 journals long, so the app builds 63
+    // and the rest is the LEGACY shape (written as the fixture superuser, as a chain built before 1018 would be).
+    for (let i = 0; i < 62; i++) head = await glReverse(head);
+    const refusedRoute = await callRoute(c.fx, token, journalEntriesAction, { id: head, action: 'reverse' });
+    expect(refusedRoute.statusCode).toBe(400);
+    expect(JSON.stringify(refusedRoute.body)).toMatch(/fewer than 64 journals/);
+    for (let i = 62; i < 64; i++) head = await legacyReverse(head); // even: the head moves the provisional's money again
     const second = await bankLine(bankB, '2032-07-03', -864, 'DEEP second');
     const r = await callRoute(c.fx, token, bankMatchConfirm,
       { bankTransactionId: second, candidateType: 'journal_line', candidateId: await lineOf(head, bankB) });
