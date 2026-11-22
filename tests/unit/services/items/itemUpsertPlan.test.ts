@@ -308,4 +308,20 @@ describe('planItemRows — a code held by an item stored with surrounding whites
     // without the clean twin the other legacy holder refuses it
     expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctxOf([l1, l2])).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
   });
+
+  it('a soft-deleted and a live legacy holder on the same trimmed code: the live one still refuses (deleted listed first)', () => {
+    const gone = stored({ id: 'D', code: 'Y ', deleted: true });
+    const live = stored({ id: 'V', code: 'Y\t' });
+    const { refusals } = planItemRows([row(0, { code: 'Y', description: 'New' })], ctxOf([gone, live]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    expect(refusals[0]!.reason).toContain("'Y\t'");
+  });
+
+  it('a rename by id onto a code held only by a soft-deleted legacy row is allowed', () => {
+    const gone = stored({ id: 'D', code: 'Z ', deleted: true });
+    const mine = stored({ id: 'M', code: 'OLD' });
+    const { planned, refusals } = planItemRows([row(0, { code: 'Z' }, 'M')], ctxOf([gone, mine]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'updated', itemId: 'M', values: { code: 'Z' } });
+  });
 });
