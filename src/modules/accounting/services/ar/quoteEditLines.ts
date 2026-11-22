@@ -92,6 +92,7 @@ export function legacyLinesUnchanged(
   if (sent.length !== stored.length || amountsAre === 'inclusive') return false;
   return sent.every((l, i) => {
     const m = matches[i];
-    return !!m && m.identical && !given(l.vatType) && (!given(l.taxRate) || Number(l.taxRate) === Number(m.stored.taxRate));
+    // A match is of a compatible rate already: a legacy line's own (matchQuoteLines.rateOn).
+    return !!m && m.identical && !given(l.vatType);
   });
 }
