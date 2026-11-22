@@ -39,7 +39,7 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 | `DocumentNumber` | required, unique in the file | `po_number`, `external_document_number` |
 | `Date`, `DeliveryDate` | `YYYY-MM-DD` or an ISO date-time; Date required. A date-time with a Z or an offset is converted to the Johannesburg (UTC+2) date: `2026-03-04T22:00:00Z` is 2026-03-05; with no zone it is taken as written | `order_date`, `delivery_date` |
 | `Status` | Pending, Overdue, Invoiced, Cancelled (any case) | open, open, billed (= closed), cancelled; any other is refused. How Pending/Overdue go in is the one constant `OPEN_SAGE_PO_IMPORTED_AS` (`sagePoStatus.ts`; `draft` is the alternative) |
-| `Currency`, `CurrencyId`, `ExchangeRate` and any field with "currency" or "exchange" in its name | none, or ZAR / rate 1. Anything else is refused as `foreign_currency`, `invalid_text` (a NUL byte or a lone surrogate in a text field: item Code / Description / category, PO DocumentNumber / Reference / Comments / supplier name / line description), `item_has_stock_movements` (an owned item with stock movements would change type or tracking), `supplier_inactive` (a `CurrencyId` passes only beside a field saying ZAR: its ids are Sage's) | |
+| `Currency`, `CurrencyId`, `ExchangeRate` and any field with "currency" or "exchange" in its name | none, or ZAR / rate 1. Anything else is refused as `foreign_currency` (a `CurrencyId` passes only beside a field saying ZAR: its ids are Sage's) | |
 | `Reference`, `Comments` | optional | `reference`; `notes` = "Sage status: X" + comments |
 | `SupplierId`, `SupplierName` | `SupplierId` required | `supplier_id`: found by Sage reference on the supplier, else by exact name; unresolved or ambiguous refuses the PO |
 | `Exclusive`, `Tax`, `Total` | required, whole cents, Exclusive + Tax = Total | `expected_totals` (checked by the tool to the cent) |
@@ -56,25 +56,38 @@ item, so the plan sends `item_code` only for an item it knows is active and sent
 code stays readable) and is counted in the report as "line not linked: item inactive" or "item refused"; one such line cannot cost its
 batch. A linked line has no suffix. An item the export does not contain still refuses the PO (`line_item_unknown`). A PO found already
 there is never changed, so re-running a file imported before the links existed (or while the item was inactive) lists each new link as a
-difference (`lines[i].item_id`) rather than adding it.
+difference (`lines[i].item_id`) rather than adding it. The report's line count is therefore MEASURED in the books after a live run, for the
+POs that run created (a dry run reports what the plan would link, labelled planned); POs already there are listed as such and add nothing.
+Lines not linked are informational: they never change the exit code or block `--live`, because the Sage item code stays readable in the
+description and nothing is lost (an inactive item named on an old PO is common in Sage, and making every such run exit 1 would only teach
+people to pass the allow flags without reading).
 
 ## Refusals
 
-A row is refused with a code and every reason: `invalid_row`, `duplicate_id`, `duplicate_code`, `duplicate_number`,
-`category_description_conflict`, `category_name_collision`, `unknown_status`, `line_item_unknown`, `supplier_unresolved`,
-`supplier_ambiguous` (also when a supplier name search hits its 1000-row cap), `line_item_refused` (a line names an item that is
-refused), `category_name_in_use` (an IsaFlow category the migration did not import holds the name, case-insensitively; it is never renamed or adopted) with its items `category_refused`, `code_held_by_existing_item` (an item the migration did not import holds the code, with or without a reference, deleted or not:
-the migration only ever updates an item it owns, never one it matched by code), `ref_code_conflict`, `item_deleted`,
-`line_description_too_long` (an UNLINKED line's description with its " [item CODE]" passes 500: nothing is cut), `supplier_ref_conflict` (the
-supplier of that name already carries another Sage reference), `foreign_currency`, `po_number_taken` (another PO carries the number), `tool_refuses` (the item or PO tool's own
-validator). A refused row is reported and not sent; the rest of the file goes on. A batch a tool refuses as a whole (a budget
+A row is refused with a code and every reason:
+- Row and file shape: `invalid_row`, `duplicate_id`, `duplicate_code`, `duplicate_number`, `category_description_conflict`,
+  `category_name_collision`, `unknown_status`, `foreign_currency`, `invalid_text` (a NUL byte or a lone surrogate in a text field: item
+  Code / Description / category, PO DocumentNumber / Reference / Comments / supplier name / line description).
+- PO lines and items: `line_item_unknown` (a line names an item the export does not contain), `line_item_refused` (a line names an item
+  that is refused AND has no readable Code to name it by; a refused item WITH a readable code does not refuse the PO, its line goes
+  unlinked), `line_description_too_long` (an UNLINKED line's description with its " [item CODE]" passes 500: nothing is cut).
+- Suppliers: `supplier_unresolved`, `supplier_ambiguous` (also when a name search hits its 1000-row cap), `supplier_ref_conflict` (the
+  supplier of that name already carries another Sage reference), `supplier_collapsed` (two Sage suppliers resolve to one IsaFlow
+  supplier), `supplier_inactive`.
+- What the company already holds: `code_held_by_existing_item` (an item the migration did not import, or another Sage item, holds the
+  code: the migration only ever updates an item it owns), `ref_code_conflict`, `item_deleted`, `item_has_stock_movements` (an owned item
+  with stock movements would change type or tracking), `category_name_in_use` (an IsaFlow category the migration did not import holds the
+  name, case-insensitively; it is never renamed or adopted) with its items `category_refused`, `po_number_taken` (another PO carries the
+  number), `accountless_under_block_policy`.
+- The tools' own validators: `tool_refuses` (the item or PO tool's own validator).
+A refused row is reported and not sent; the rest of the file goes on. A batch a tool refuses as a whole (a budget
 block, a race) fails the dry run, so nothing is written; its whole message is in the report file, the console shows its start.
 
 ## Running it (local databases only)
 
 ```
 DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
-  --company <uuid> --user <uuid> --file export.json [--live] [--report report.json] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] [--run-tag <text>] \
+  --company <uuid> --user <uuid> --file export.json [--live] [--report report.json] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] [--allow-differences] [--run-tag <text>] \
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
 
