@@ -134,13 +134,20 @@ describeIfDisposable('per-line VAT on quotes', () => {
     expect(await invHead(inv)).toMatchObject({ subtotal: 205, tax: 0, total: 205, rate: 0 });
   });
 
-  it('updateQuote keeps a stored line\'s type, identical or edited in place; a new line takes the default chain', async () => {
+  it('updateQuote keeps a stored line\'s type, identical or edited in place; a line added must name its type', async () => {
     const q = await quoteOf(f.fx.companyId, f.fx.customerId, [
       { description: 'Rent', quantity: 1, unitPrice: 30, vatType: 'exempt' }, { description: 'Fee', quantity: 1, unitPrice: 10, vatType: 'zero_rated' },
     ]);
-    await inTx(f.fx, () => updateQuote(f.fx.companyId, q.id, { customerName: 'Quote client', clientId: f.fx.customerId, lines: [
-      { description: 'Rent', quantity: 1, unitPrice: 30 }, { description: 'Fee', quantity: 2, unitPrice: 10 }, { description: 'New', quantity: 1, unitPrice: 10 },
-    ] }, f.fx.userId));
+    const edit = (lines: Record<string, unknown>[]) => inTx(f.fx, () => updateQuote(f.fx.companyId, q.id,
+      { customerName: 'Quote client', clientId: f.fx.customerId, lines } as never, f.fx.userId));
+    await edit([{ description: 'Rent', quantity: 1, unitPrice: 30 }, { description: 'Fee', quantity: 2, unitPrice: 10 }]);
+    expect(pick(await quoteLines(q.id))).toEqual([['exempt', 30, 30, 0, 0], ['zero_rated', 10, 20, 0, 0]]);
+    // A line added: the quote holds zero-rated / exempt lines, so a typeless line is asked for its type.
+    await expect(edit([{ description: 'Rent', quantity: 1, unitPrice: 30 }, { description: 'Fee', quantity: 2, unitPrice: 10 }, { description: 'New', quantity: 1, unitPrice: 10 }]))
+      .rejects.toThrow(/does not resend them in their places/);
+    const lineIds = (await sql`SELECT id FROM customer_quote_lines WHERE quote_id = ${q.id}::UUID ORDER BY sort_order`) as { id: string }[];
+    await edit([{ id: lineIds[0]!.id, description: 'Rent', quantity: 1, unitPrice: 30 }, { id: lineIds[1]!.id, description: 'Fee', quantity: 2, unitPrice: 10 },
+      { description: 'New', quantity: 1, unitPrice: 10, vatType: 'standard' }]);
     expect(pick(await quoteLines(q.id))).toEqual([['exempt', 30, 30, 0, 0], ['zero_rated', 10, 20, 0, 0], ['standard', 10, 10, 1.5, 15]]);
     expect(await quoteHead(q.id)).toEqual({ subtotal: 60, tax: 1.5, total: 61.5, rate: 15, amounts_are: 'exclusive' });
   });

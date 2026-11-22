@@ -88,16 +88,17 @@ describeIfDisposable('per-line VAT on quotes, review round 1', () => {
     expect((await lines(id)).map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 120]]);
   });
 
-  it('twins "Widget 1 x 100" standard and exempt, the standard one deleted: the remaining line stays exempt', async () => {
+  it('twins "Widget 1 x 100" standard and exempt, the standard one deleted, resent at rate 0: a 400 (exempt or zero-rated cannot be told), nothing written', async () => {
     const id = await create([{ description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'exempt' }]);
-    expect((await put(id, [{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }])).state.statusCode).toBe(200);
-    expect((await lines(id)).map((l) => [l.vat_type, l.tax])).toEqual([['exempt', 0]]);
-    expect(await head(id)).toMatchObject({ subtotal: 100, tax: 0, total: 100 });
+    const before = await lines(id);
+    expect((await put(id, [{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }])).state.statusCode).toBe(400);
+    expect(await lines(id)).toEqual(before);
   });
 
-  it('round 2: Hosting (standard) deleted and Fee (exempt) re-priced stays exempt; a typeless line that cannot be told is a 400, nothing written', async () => {
+  it('round 2/4: Hosting (standard) deleted and Fee (exempt) re-priced is a 400 unless Fee names its type; twins that cannot be told are a 400, nothing written', async () => {
     const id = await create([{ description: 'Hosting', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'Fee', quantity: 1, unitPrice: 50, vatType: 'exempt' }]);
-    expect((await put(id, [{ description: 'Fee', quantity: 1, unitPrice: 60 }])).state.statusCode).toBe(200);
+    expect((await put(id, [{ description: 'Fee', quantity: 1, unitPrice: 60 }])).state.statusCode).toBe(400);
+    expect((await put(id, [{ description: 'Fee', quantity: 1, unitPrice: 60, vatType: 'exempt' }])).state.statusCode).toBe(200);
     expect((await lines(id)).map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 60]]);
     const twins = await create([{ description: 'X', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'X', quantity: 1, unitPrice: 100, vatType: 'exempt' }]);
     const before = await lines(twins);

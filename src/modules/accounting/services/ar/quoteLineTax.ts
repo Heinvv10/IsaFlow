@@ -7,8 +7,8 @@
  *            rate, line by line: the standard rate on the quote date -> standard, 0 -> zero_rated, anything else refused;
  *            on an edit the line's stored match whose type has that rate keeps it (an exempt line resent at 0 stays
  *            exempt). A `vatType` and a `taxRate` on one quote are refused, as an invoice refuses a line type with its
- *            header rate. Else, on an edit, its stored match's type (quoteEditLines: by id, then position and content;
- *            refused, never guessed, when it cannot be told); else the default chain (the customer's zero-rated /
+ *            header rate. Else, on an edit, its stored match's type (quoteEditLines: by id, else by place and content,
+ *            refused, never guessed, when it cannot be read); else the default chain (the customer's zero-rated /
  *            exempt default, the item's vat_on_sales, standard).
  *   legacy   an edit of a LEGACY quote (no line typed) that leaves every line as stored (quoteEditLines
  *            .legacyLinesUnchanged: notes, customer, expiry) keeps its lines and figures as stored, whatever rate they
@@ -80,14 +80,18 @@ async function resolveQuoteVat(
  */
 export async function priceQuoteLines(companyId: string, args: {
   clientId: string | null; quoteDate: string; lines: readonly QuoteVatLineIn[]; amountsAre: unknown; stored?: StoredQuote;
+  /** An edit's lines as SENT, before itemEditLines gave a line an identical stored line's item: what is matched. */
+  sent?: readonly QuoteVatLineIn[];
 }): Promise<PricedQuote> {
   const amountsAre = quoteAmountsAre(args.amountsAre);
   if (args.lines.some((l) => given(l.vatType)) && args.lines.some((l) => given(l.taxRate))) {
     throw new InvoiceLineVatRefusal('Send a vatType on each line or a taxRate, not both: the rate comes from the VAT type.');
   }
-  const matched = args.stored ? matchQuoteLines(args.lines, args.stored.lines, args.quoteDate) : undefined;
+  // Matched on the lines as sent: an item inherited from "the first identical stored line" is itself a guess.
+  const sent = args.sent ?? args.lines;
+  const matched = args.stored ? matchQuoteLines(sent, args.stored.lines, args.quoteDate) : undefined;
   const matches = matched?.matches;
-  if (args.stored && matches && legacyLinesUnchanged(args.lines, args.stored.lines, matches, args.amountsAre)) {
+  if (args.stored && matches && legacyLinesUnchanged(sent, args.stored.lines, matches, args.amountsAre)) {
     const { subtotal, tax, total, taxRate } = args.stored;
     return {
       lines: matches.map((m) => ({ qty: m!.stored.quantity, price: m!.stored.unitPrice, amount: m!.stored.amount, taxAmount: null, vatType: null, taxRate: m!.stored.taxRate })),
@@ -95,9 +99,9 @@ export async function priceQuoteLines(companyId: string, args: {
     };
   }
   const parties = await invoiceVatParties(companyId, args.clientId);
-  // A line whose saved type cannot be told (twins of different types, or a saved exempt line it may be): asked, not
-  // guessed. Not for a company not registered for VAT: its lines carry no type at all.
-  const unread = parties.registered && args.stored && matched ? unmatchedVatProblem(args.lines, args.stored.lines, matched, args.quoteDate) : null;
+  // A line whose saved type cannot be read (quoteEditLines: a zero-rated / exempt quote edited other than in place):
+  // asked, not guessed. Not for a company not registered for VAT: its lines carry no type at all.
+  const unread = parties.registered && matched ? unmatchedVatProblem(sent, matched) : null;
   if (unread) throw new InvoiceLineVatRefusal(unread);
   const vat = await resolveQuoteVat(companyId, parties, args.quoteDate, args.lines, matches && keptQuoteTypes(matches));
   const priced = priceInvoiceVat(args.lines.map((l) => ({ quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })), vat, args.quoteDate, amountsAre);
