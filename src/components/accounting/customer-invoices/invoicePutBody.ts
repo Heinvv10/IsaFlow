@@ -65,7 +65,7 @@ export function invoicePutBody(id: string, { form, lines, taxMode, customerVat }
     amountsAre: amountsAreFor(taxMode),
     notes: form.notes, // '' clears them; left out, the server would keep the old notes and Saved would be untrue
     currencyCode: form.currencyCode,
-    exchangeRate: form.exchangeRate,
+    exchangeRate: form.currencyCode === 'ZAR' ? 1 : form.exchangeRate, // ZAR's is 1 (a stored 0 the server would refuse)
     projectId: form.projectId || null,
     items: sent.map((l, i) => ({
       description: l.description, quantity: l.quantity, unitPrice: l.unitPrice,
@@ -124,8 +124,9 @@ export function saveProblem({ form, lines, taxMode, customerVat }: Draft, refuse
   if (!lines.some((l) => l.description)) return 'Add at least one line item';
   const dateOrCleared = invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
   if (dateOrCleared) return dateOrCleared;
-  // The server refuses a rate of 0 (a foreign currency just picked starts there: InvoiceSettingsRow).
-  if (!finite(form.exchangeRate) || form.exchangeRate <= 0) return 'Exchange rate must be greater than 0';
+  // The server refuses a rate of 0 (a foreign currency just picked starts there: InvoiceSettingsRow). ZAR has no rate
+  // field and always sends 1, so a ZAR draft stored at 0 is never held.
+  if (form.currencyCode !== 'ZAR' && (!finite(form.exchangeRate) || form.exchangeRate <= 0)) return 'Exchange rate must be greater than 0';
   // A line with no VAT type yet: the server refuses it (the rate comes from the type), so Save holds and says why.
   if (taxMode === 'none') return null;
   const sent = savedLines(lines);

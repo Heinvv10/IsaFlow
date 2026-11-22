@@ -96,4 +96,18 @@ describe('a currency picked: the rate is the user\'s to give', () => {
     await waitFor(() => expect(sent('PUT').length).toBeGreaterThan(0));
     expect(JSON.parse(String((sent('PUT')[0]![1] as RequestInit).body))).toMatchObject({ currencyCode: 'USD', exchangeRate: 18.5 });
   }, 15_000);
+
+  it('edit page: a ZAR draft stored at rate 0 (no rate field to fix it) saves, and sends ZAR\'s 1', async () => {
+    h.query = { invoiceId: 'inv-1' };
+    serve({ ...INV, exchange_rate: 0 });
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    expect(rate()).toBeNull();
+    const save = screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() => expect(sent('PUT')).toHaveLength(1));
+    expect(alertText()).not.toContain('Exchange rate');
+    expect(JSON.parse(String((sent('PUT')[0]![1] as RequestInit).body))).toMatchObject({ currencyCode: 'ZAR', exchangeRate: 1 });
+  });
 });
