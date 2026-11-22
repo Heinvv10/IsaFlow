@@ -22,8 +22,6 @@ interface Props {
   onDateValidity: (key: InvoiceDateKey, v: FieldValidity) => void;
   /** The page's refused dates (useInvoiceDateValidity), so a field's own refusal reason is not hidden by another message. */
   refused: Refused;
-  /** The invoice date is refused in a closed period. Off on the draft edit page, which saves a draft the server accepts. Default on. */
-  postingDate?: boolean;
   /** Names the client when the page already holds it (a scan match), so the picker need not look it up. */
   clientLabel?: string;
   /** Bumped by the page when it resets the form, to clear refused date text. */
@@ -46,7 +44,7 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, hints, onDueDateEdited, postingDate = true }: Props) {
+export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, hints, onDueDateEdited }: Props) {
   // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
   // drop it and show the last accepted due date again (the page's value) instead of leaving it red and blocking save.
   const [dueRevalidate, setDueRevalidate] = useState(0);
@@ -76,7 +74,7 @@ export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, 
       </InvoiceCard>
       <InvoiceCard n={2} title="Dates & Period">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          {date('invoiceDate', 'Invoice date', { required: true, postingDate })}
+          {date('invoiceDate', 'Invoice date', { required: true, postingDate: true })}
           {/* Typing counts as touched before it commits: a default landing now would wipe the text under the cursor. */}
           <div onInput={onDueDateEdited}>{date('dueDate', 'Due date', {
             anchorDate: form.invoiceDate,
