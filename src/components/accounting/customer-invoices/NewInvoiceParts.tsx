@@ -23,36 +23,39 @@ export function KeptDraftOffer({ savedAt, disabled, onRestore, onDiscard }: { sa
 const CLEARANCE_GAP_PX = 16;
 
 /**
- * The nearest ancestor that scrolls (the shell's <main>): overflow auto or scroll with content past its height; else
- * the nearest that may scroll (a short invoice has nothing past it yet); else the page's own scrolling element.
+ * Every ancestor that may scroll (overflow auto or scroll: the shell's <main>, and any wrapper between), else the page's
+ * own scrolling element. All of them, not the one scrolling at mount: a short invoice's <main> starts scrolling only
+ * once lines are added, and padding one that never scrolls changes nothing.
  */
-function scrollerOf(el: HTMLElement): HTMLElement | null {
-  let mayScroll: HTMLElement | null = null;
+function scrollersOf(el: HTMLElement): HTMLElement[] {
+  const found: HTMLElement[] = [];
   for (let p = el.parentElement; p; p = p.parentElement) {
     const y = getComputedStyle(p).overflowY;
-    if (y !== 'auto' && y !== 'scroll') continue;
-    if (p.scrollHeight > p.clientHeight) return p;
-    mayScroll ??= p;
+    if (y === 'auto' || y === 'scroll') found.push(p);
   }
-  return mayScroll ?? (document.scrollingElement as HTMLElement | null);
+  const page = document.scrollingElement as HTMLElement | null;
+  return found.length > 0 ? found : page ? [page] : [];
 }
 
 /**
- * While the bar is in the page its scroller keeps the bar's height, plus a gap, as its bottom scroll padding, so a field
- * focused near the bottom scrolls clear of the bar instead of under it (focus scrolling honours the scroller's
+ * While the bar is in the page its scrollers keep the bar's height, plus a gap, as their bottom scroll padding, so a
+ * field focused near the bottom scrolls clear of the bar instead of under it (focus scrolling honours the scroller's
  * scroll-padding; Chromium ignores a scroll-margin on the field). Measured: the bar wraps taller on a phone.
  */
 function useClearOfBar(bar: RefObject<HTMLDivElement>) {
   useEffect(() => {
     const el = bar.current;
-    const scroller = el ? scrollerOf(el) : null;
-    if (!el || !scroller) return undefined;
-    const before = scroller.style.scrollPaddingBottom;
-    const fit = () => { scroller.style.scrollPaddingBottom = `${Math.ceil(el.getBoundingClientRect().height) + CLEARANCE_GAP_PX}px`; };
+    const scrollers = el ? scrollersOf(el) : [];
+    if (!el || scrollers.length === 0) return undefined;
+    const before = scrollers.map((s) => s.style.scrollPaddingBottom);
+    const fit = () => {
+      const pad = `${Math.ceil(el.getBoundingClientRect().height) + CLEARANCE_GAP_PX}px`;
+      for (const s of scrollers) s.style.scrollPaddingBottom = pad;
+    };
     fit();
     const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
     watch?.observe(el);
-    return () => { watch?.disconnect(); scroller.style.scrollPaddingBottom = before; };
+    return () => { watch?.disconnect(); scrollers.forEach((s, i) => { s.style.scrollPaddingBottom = before[i]!; }); };
   }, [bar]);
 }
 

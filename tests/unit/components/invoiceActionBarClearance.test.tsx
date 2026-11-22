@@ -30,7 +30,7 @@ describe('the sticky invoice action bar never covers a focused field', () => {
     scroller.remove();
   });
 
-  it('an overflow-auto wrapper that does not scroll is passed over for the ancestor that does', () => {
+  it('every ancestor that may scroll is padded: a wrapper that never scrolls, and <main> that starts scrolling later', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 63 } as DOMRect);
     const sized = (el: HTMLElement, scroll: number, client: number) => {
       Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scroll });
@@ -38,16 +38,20 @@ describe('the sticky invoice action bar never covers a focused field', () => {
     };
     const main = document.createElement('main');
     main.style.overflowY = 'auto';
-    sized(main, 2000, 800); // the shell's scroller: it scrolls
+    main.style.scrollPaddingBottom = '2px';
+    sized(main, 800, 800); // a short invoice: <main> does not scroll yet
     const wrapper = document.createElement('div');
     wrapper.style.overflowY = 'auto';
     sized(wrapper, 500, 500); // overflow-auto, but as tall as its content: it never scrolls
     main.appendChild(wrapper);
     document.body.appendChild(main);
     const { unmount } = render(<InvoiceActionBar status={null}><button>Save</button></InvoiceActionBar>, { container: wrapper });
+    sized(main, 2000, 800); // lines added: now <main> scrolls, and a field focused at its foot must clear the bar
     expect(main.style.scrollPaddingBottom).toBe('79px');
-    expect(wrapper.style.scrollPaddingBottom).toBe('');
+    expect(wrapper.style.scrollPaddingBottom).toBe('79px'); // harmless while it does not scroll; right if it ever does
     unmount();
+    expect(main.style.scrollPaddingBottom).toBe('2px');
+    expect(wrapper.style.scrollPaddingBottom).toBe('');
     main.remove();
   });
 
