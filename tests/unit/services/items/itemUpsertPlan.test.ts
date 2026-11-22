@@ -273,4 +273,39 @@ describe('planItemRows — a code held by an item stored with surrounding whites
     expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
     expect(planItemRows([row(0, { code: 'X' }, 'L2')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
   });
+
+  it('a soft-deleted legacy holder does not hold the exact key, so it does not refuse a create', () => {
+    const gone = stored({ id: 'D', code: 'FIB-0009 ', deleted: true });
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0009', description: 'New' })], ctxOf([gone]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'created' });
+  });
+
+  it('a row that renames a legacy holder away does not free its code for a later row in the same batch', () => {
+    const ctx = ctxOf([legacy]);
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001-NEW' }, 'L'), row(1, { code: 'FIB-0001', description: 'New' })], ctx);
+    expect(planned.map((p) => p.index)).toEqual([0]);
+    expect(refusals).toEqual([{ index: 1, code: 'code_held_with_whitespace', reason: expect.any(String) }]);
+  });
+
+  it('a rename by external_ref onto a code another legacy item holds is refused; onto its own is allowed', () => {
+    const own = stored({ id: 'O', code: 'OWN ', externalSystem: 'sage', externalRef: 'R1' });
+    const other = stored({ id: 'P', code: 'TAKEN ' });
+    const ctx = ctxOf([own, other]);
+    const bad = planItemRows([row(0, { code: 'TAKEN', external_system: 'sage', external_ref: 'R1' })], ctx);
+    expect(bad.refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    const ok = planItemRows([row(0, { code: 'OWN', external_system: 'sage', external_ref: 'R1' })], ctx);
+    expect(ok.refusals).toEqual([]);
+    expect(ok.planned[0]).toMatchObject({ outcome: 'updated', itemId: 'O', values: { code: 'OWN' } });
+  });
+
+  it('a rename by id with two legacy holders plus a clean twin is refused (the exact twin answers first: code_in_use)', () => {
+    const l1 = stored({ id: 'L1', code: 'X ' });
+    const l2 = stored({ id: 'L2', code: 'X\t' });
+    const clean = stored({ id: 'C', code: 'X' });
+    const { refusals } = planItemRows([row(0, { code: 'X' }, 'L1')], ctxOf([l1, l2, clean]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_in_use']);
+    // without the clean twin the other legacy holder refuses it
+    expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctxOf([l1, l2])).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+  });
 });
