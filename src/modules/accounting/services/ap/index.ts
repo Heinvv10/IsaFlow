@@ -10,7 +10,6 @@ export * from './migrationApService';
 export * from './netcashService';
 export * from './procurementService';
 export * from './purchaseOrderPdfBuilder';
-export * from './purchaseOrderService';
 export * from './supplierInvoicePdfBuilder';
 export * from './supplierInvoiceService';
 export * from './supplierPaymentService';

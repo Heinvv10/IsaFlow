@@ -79,8 +79,6 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
           WHERE cp.cost_center_id = ${id}::UUID AND cp.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM supplier_payments sp
           WHERE sp.cost_center_id = ${id}::UUID AND sp.company_id = ${companyId}::UUID)
-      + (SELECT COUNT(*) FROM supplier_purchase_orders po
-          WHERE po.cost_center_id = ${id}::UUID AND po.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM expense_claim_lines ecl
           WHERE ecl.cost_centre_id = ${id}::UUID AND ecl.company_id = ${companyId}::UUID)
       -- The CC1 / CC2 columns migration 870 put on the documents.
@@ -92,6 +90,10 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
           WHERE (cii.cc1_id = ${id}::UUID OR cii.cc2_id = ${id}::UUID) AND cip.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM credit_notes cn
           WHERE (cn.cc1_id = ${id}::UUID OR cn.cc2_id = ${id}::UUID) AND cn.company_id = ${companyId}::UUID)
+      -- Purchase order lines (954's cc1 / cc2; migration 1022 moved the retired supplier purchase orders' centre here).
+      + (SELECT COUNT(*) FROM po_items poi
+          JOIN purchase_orders pop ON pop.id = poi.purchase_order_id
+          WHERE (poi.cc1_id = ${id}::UUID OR poi.cc2_id = ${id}::UUID) AND pop.company_id = ${companyId}::UUID)
       ) AS documents,
       (SELECT COUNT(*) FROM bank_transactions bt
         WHERE (bt.cc1_id = ${id}::UUID OR bt.cc2_id = ${id}::UUID)

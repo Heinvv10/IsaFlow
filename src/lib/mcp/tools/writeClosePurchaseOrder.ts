@@ -22,7 +22,7 @@ export const closePurchaseOrderTool: McpTool = {
   description:
     'Short-close a purchase order (po_id or po_number): an approved, partially_received or received PO becomes closed, so what was ordered and never received (or never will be) stops counting as committed spend. '
     + 'Owner or admin only (closing releases a commitment). A reason is required and audited with the status it was closed from and the received and billed amounts at that moment. Posts nothing: bills and links to the PO stay. '
-    + 'The reply gives, per line that was short-closed, the ordered, received and remaining quantity and the remaining ex-VAT amount. The status it came from is recorded on the PO (get_purchase_order shows closed_from_status); no tool restores from it yet. Closing from partially_received / received also drops goods received and not yet billed from committed spend. '
+    + 'The reply gives, per line that was short-closed, the ordered, received and remaining quantity and the remaining ex-VAT amount. The status it came from is recorded on the PO (get_purchase_order shows closed_from_status); no tool restores from it yet. Closing from partially_received / received also drops goods received and not yet billed from committed spend. A PO closed here commits nothing and no unlink or bill cancel reopens it (unlike one link_bills_to_purchase_order closed as fully billed). '
     + 'Refused for a draft, submitted, already closed or cancelled PO (cancel_purchase_order cancels). dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,

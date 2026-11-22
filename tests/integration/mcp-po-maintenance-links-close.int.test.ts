@@ -27,7 +27,9 @@ let f: BillFixture;
 beforeAll(async () => { f = await seedBillFixture(pool, 'po-maint-links-close'); await setPolicy(pool, f, 'warn'); }, 60_000);
 afterAll(async () => { try { await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await pool.end(); } }, 60_000);
 
-const claims = async (po: string) => (await linkRows(pool, f, `l.purchase_order_id = '${po}'`)).map((l) => l.closed_po_from_status);
+// PR #1703 R4-1: "closed because fully billed" is on the PO (closed_by_billing), never on a link.
+const claims = async (po: string) => [(await pool.query('SELECT closed_by_billing FROM purchase_orders WHERE id = $1', [po])).rows[0].closed_by_billing,
+  ...(await linkRows(pool, f, `l.purchase_order_id = '${po}'`)).map((l) => l.closed_po_from_status)];
 
 /** A fully billed, imported PO that a link call has closed. */
 async function linkClosed() {
@@ -40,11 +42,11 @@ async function linkClosed() {
 }
 
 describe('M3: a PO someone reopened and closed again is not reopened by a later unlink', () => {
-  it('link close -> set approved -> set closed -> unlink: still closed; the link\'s record went when the PO left closed', async () => {
+  it('link close -> set approved -> set closed -> unlink: still closed; the PO\'s record went when it left closed', async () => {
     const { po, bill } = await linkClosed();
-    expect(await claims(po.po)).toEqual(['approved']);
+    expect(await claims(po.po)).toEqual([true, null]);
     expect((await callTool(pool, f, setStatus, { po_id: po.po, status: 'approved', reason: 'reopened by hand' })).isError).toBe(false);
-    expect(await claims(po.po)).toEqual([null]);
+    expect(await claims(po.po)).toEqual([false, null]);
     expect((await callTool(pool, f, setStatus, { po_id: po.po, status: 'closed', reason: 'closed by hand' })).isError).toBe(false);
     expect(await poRow(pool, po.po)).toMatchObject({ status: 'closed', closed_from_status: 'approved' });
     const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'wrong bill' });
@@ -70,13 +72,13 @@ describe('L1: closed_from_status is truthful', () => {
     expect(await poRow(pool, po.po)).toMatchObject({ status: 'approved', closed_from_status: null });
   });
 
-  it('get_purchase_order shows it for a PO closed by hand, and null for one a link closed', async () => {
+  it('get_purchase_order shows it for a PO closed by hand, and for one a link closed (PR #1703 R4-1: recorded on the PO)', async () => {
     const hand = await seedQtyPo(pool, f, { status: 'partially_received', lines: [{ qty: 10, price: 10, received: 4 }] });
     expect((await callTool(pool, f, close, { po_id: hand.po, reason: 'short' })).isError).toBe(false);
     const shown = await callTool(pool, f, getPo, { po_id: hand.po });
     expect(shown.body.purchase_order).toMatchObject({ status: 'closed', closed_from_status: 'partially_received' });
     const { po } = await linkClosed();
-    expect((await callTool(pool, f, getPo, { po_id: po.po })).body.purchase_order).toMatchObject({ status: 'closed', closed_from_status: null });
+    expect((await callTool(pool, f, getPo, { po_id: po.po })).body.purchase_order).toMatchObject({ status: 'closed', closed_from_status: 'approved' });
   });
 });
 
