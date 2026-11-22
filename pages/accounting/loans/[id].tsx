@@ -205,7 +205,7 @@ export default function LoanDetailPage() {
             </button>
           </div>
 
-          <div className="flex gap-1 mt-4 max-lg:overflow-x-auto max-lg:flex-nowrap">
+          <div className="flex gap-1 mt-4 max-lg:overflow-x-auto max-lg:flex-nowrap max-lg:p-1">
             {TABS.map(t => (
               <button
                 key={t.id}
