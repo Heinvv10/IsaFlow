@@ -86,6 +86,18 @@ describe('scripts/sage-migration/run.ts', () => {
     expect(cli([...args, '--live', '--allow-refusals', '--expect-items', '19', '--expect-pos', '10']).code).toBe(0);
   }, 180_000);
 
+  it('M2: a re-run whose Sage data changed is exit 1 with the difference listed, and 0 with --allow-differences', async () => {
+    const file = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'));
+    file.PurchaseOrders[0].Status = 'Invoiced';
+    const changed = join(dir, 'changed.json');
+    writeFileSync(changed, JSON.stringify(file));
+    const args = ['--company', s.companyId, '--user', s.userId, '--file', changed, '--live', '--expect-items', '20', '--expect-pos', '10'];
+    const r = cli(args);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/DIFFERS: PO0000197 .*status approved -> closed/);
+    expect(cli([...args, '--allow-differences']).code).toBe(0);
+  }, 180_000);
+
   it('F4: --live needs --expect-items and --expect-pos, so a file that lost a container cannot pass unnoticed', () => {
     const live = [...base(), '--live'];
     expect(cli(live).code).toBe(2);

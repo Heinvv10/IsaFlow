@@ -3,14 +3,14 @@
  * the environment) is a local throwaway database (src/modules/accounting/services/sage-migration/localGuard.ts).
  *
  *   DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
- *     --company <uuid> --user <uuid> --file <export.json> [--live] [--report <file>] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] [--run-tag <text>] \
+ *     --company <uuid> --user <uuid> --file <export.json> [--live] [--report <file>] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] [--allow-differences] [--run-tag <text>] \
  *     [--expect-items N] [--expect-pos N] [--expect-po-total 80950000.00]
  *
  * Without --live: the dry run only, nothing written. --live needs --expect-items and --expect-pos. --run-tag salts the batch keys, for a
  * deliberate fresh import after the rows of an earlier run were deleted (the registry would otherwise replay that run's answers). With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
  * run or a live run that booked every row it sent, whose --expect-* figures match what was sent (dry run) or booked (live) and
- * which refused no row (unless --allow-refusals); 1 for anything else; 2 for a refused start.
+ * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start.
  * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       company: { type: 'string' }, user: { type: 'string' }, file: { type: 'string' }, report: { type: 'string' },
-      live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false }, 'run-tag': { type: 'string' },
+      live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false }, 'run-tag': { type: 'string' }, 'allow-differences': { type: 'boolean', default: false },
       'expect-items': { type: 'string' }, 'expect-pos': { type: 'string' }, 'expect-po-total': { type: 'string' },
     },
     strict: true,
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     });
     if (values.report) writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
     for (const line of summaryLines(report)) out(line);
-    process.exitCode = exitCodeFor(report, values['allow-refusals'] === true);
+    process.exitCode = exitCodeFor(report, values['allow-refusals'] === true, values['allow-differences'] === true);
   } finally {
     await pool.end();
   }

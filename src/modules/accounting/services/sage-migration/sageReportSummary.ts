@@ -28,6 +28,13 @@ export function summaryLines(r: MigrationReport): string[] {
     lines.push(`BUDGET: ${r.budgetWouldHaveFailed.length} purchase order(s) would have failed the budget check (skipped by --skip-budget-check):`);
     for (const x of r.budgetWouldHaveFailed) lines.push(`  ${x.poNumber}: ${x.reasons.join('; ') || 'no reason given'}`);
   }
+  for (const p of r.differences.purchaseOrders) {
+    lines.push(`DIFFERS: ${p.poNumber} is already in IsaFlow with other figures than Sage (the stored PO is not changed): ${p.differences.map((d) => `${d.field} ${String(d.existing)} -> ${String(d.requested)}`).join('; ') || 'no detail given'}`);
+  }
+  for (const i of r.differences.items) lines.push(`DIFFERS: item ${i.code} would be updated to Sage's values: ${i.changed.join(', ') || 'no detail given'}`);
+  if (rec.items.presentBefore > 0) {
+    lines.push('NOTE: a re-run sets the items and categories this migration owns back to Sage\'s values; edits made to them in IsaFlow since the import are overwritten.');
+  }
   for (const [name, e] of Object.entries(rec.expected)) if (e && !e.ok) lines.push(`MISMATCH ${name}: expected ${e.expected}, ${e.basis} ${e.actual}`);
   for (const x of r.refused.slice(0, 20)) lines.push(`refused ${x.entity} ${x.label} [${x.code}]: ${x.reasons.join('; ')}`);
   if (r.refused.length > 20) lines.push(`... and ${r.refused.length - 20} more refused rows (see the report file)`);
@@ -42,11 +49,12 @@ export function summaryLines(r: MigrationReport): string[] {
 
 /**
  * 0: a clean dry run, or a live run that booked every row it sent, and every --expect-* figure matched what was sent / booked, and
- * no row was refused (unless `allowRefusals`). 1: anything else.
+ * no row was refused (unless `allowRefusals`), and no PO or owned item differs from what the books hold (unless `allowDifferences`). 1: anything else.
  */
-export function exitCodeFor(r: MigrationReport, allowRefusals: boolean): 0 | 1 {
+export function exitCodeFor(r: MigrationReport, allowRefusals: boolean, allowDifferences = false): 0 | 1 {
   const rec = r.reconciliation;
   const finished = r.status === 'dry_run_ok' || (r.status === 'completed' && rec.allSentBooked);
   const expectationsMet = Object.values(rec.expected).every((e) => e === null || e.ok);
-  return finished && expectationsMet && (rec.nothingRefused || allowRefusals) ? 0 : 1;
+  const differs = r.differences.purchaseOrders.length + r.differences.items.length > 0;
+  return finished && expectationsMet && (rec.nothingRefused || allowRefusals) && (!differs || allowDifferences) ? 0 : 1;
 }

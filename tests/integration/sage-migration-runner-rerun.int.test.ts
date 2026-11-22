@@ -40,6 +40,8 @@ describe('a re-run', () => {
     const batches = [...again.live!.items.batches, ...again.live!.purchaseOrders.batches];
     expect(batches.every((b) => b.allRowsAlreadyPresent && b.status === 'ok')).toBe(true);
     expect(batches.map((b) => b.key)).toEqual([...first.live!.items.batches, ...first.live!.purchaseOrders.batches].map((b) => b.key));
+    expect(again.differences).toEqual({ purchaseOrders: [], items: [] });
+    expect(exitCodeFor(again, false)).toBe(0);
     // A replay records nothing: not one new audit row, not one row touched.
     expect(await booked(pool, s.companyId)).toEqual(afterFirst.counts);
     expect(await stamps(pool, s.companyId)).toEqual(afterFirst.stamps);
@@ -64,6 +66,44 @@ describe('a re-run', () => {
     const r = await run({ skipBudgetCheck: true });
     expect(r.status).toBe('completed');
     expect(r.live!.purchaseOrders.batches[0]!.toolReported).toMatchObject({ skip_budget_check_for_import: true, created: 10 });
+  });
+});
+
+describe('M2: a re-run that finds the books different from Sage', () => {
+  it('a PO Sage has since invoiced: not changed, listed with its difference, exit 1 unless --allow-differences', async () => {
+    await run();
+    const file = exportFile();
+    posOf(file)[0] = { ...posOf(file)[0], Status: 'Invoiced' }; // was Pending: open (approved) in IsaFlow, billed (closed) now
+    const r = await run({}, file);
+    expect(r.status).toBe('completed');
+    expect(r.differences.purchaseOrders).toEqual([{ poNumber: 'PO0000197', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }]);
+    expect((await pool.query(`SELECT status FROM purchase_orders WHERE company_id = $1 AND po_number = 'PO0000197'`, [s.companyId])).rows[0].status).toBe('approved');
+    expect(summaryLines(r).join('\n')).toMatch(/DIFFERS: PO0000197 .*status approved -> closed/);
+    expect(exitCodeFor(r, false)).toBe(1);
+    expect(exitCodeFor(r, true)).toBe(1);
+    expect(exitCodeFor(r, false, true)).toBe(0);
+  });
+
+  it('an item whose Sage price moved: listed with the changed field (it is overwritten), exit 1 unless allowed', async () => {
+    await run();
+    const file = exportFile();
+    rowsOf(file)[0] = { ...rowsOf(file)[0], PriceExclusive: 555.5, Active: false };
+    const r = await run({}, file);
+    expect(r.differences.items).toEqual([{ code: 'FIB-0001', changed: expect.arrayContaining(['sales_price', 'is_active']) }]);
+    expect(r.differences.purchaseOrders).toEqual([]);
+    expect(exitCodeFor(r, false)).toBe(1);
+    expect(exitCodeFor(r, false, true)).toBe(0);
+    expect(summaryLines(r).join('\n')).toMatch(/NOTE: a re-run sets the items and categories this migration owns back to Sage's values/);
+  });
+
+  it('a dry-run-only re-run lists the same differences', async () => {
+    await run();
+    const file = exportFile();
+    posOf(file)[1] = { ...posOf(file)[1], Status: 'Cancelled' };
+    const r = await run({ live: false }, file);
+    expect(r.status).toBe('dry_run_ok');
+    expect(r.differences.purchaseOrders.map((x) => x.poNumber)).toEqual(['PO0000198']);
+    expect(exitCodeFor(r, false)).toBe(1);
   });
 });
 

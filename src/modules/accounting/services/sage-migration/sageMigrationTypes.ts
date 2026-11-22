@@ -74,6 +74,11 @@ export interface MigrationReport {
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
   /** With skip_budget_check_for_import: the POs the budget check would have blocked, with its reasons (live run, else dry run). */
   budgetWouldHaveFailed: Array<{ poNumber: string; reasons: string[] }>;
+  /** A re-run's findings (live run, else dry run): POs already there with other figures (not changed), owned items that Sage's values would change. */
+  differences: {
+    purchaseOrders: Array<{ poNumber: string; differences: Array<{ field: string; existing: unknown; requested: unknown }> }>;
+    items: Array<{ code: string; changed: string[] }>;
+  };
   reconciliation: Reconciliation;
 }
 

@@ -19,6 +19,7 @@ import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from
 import { batchKey, RUN_TAG } from './sageBatches';
 import { checkRowsPresent, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
+import { differencesFrom } from './sageDifferences';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
 import { buildReconciliation } from './sageReconciliation';
@@ -76,7 +77,8 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   const noLive = (status: MigrationReport['status']): MigrationReport => ({
-    ...base, status, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders), reconciliation: buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false }),
+    ...base, status, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders),
+    differences: differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches]), reconciliation: buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false }),
   });
   if (!dry.clean) return noLive('dry_run_failed');
   if (!opts.live) return noLive('dry_run_ok');
@@ -97,6 +99,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   return {
     ...base, status: failed > 0 ? 'failed' : 'completed', live: { categories, items, purchaseOrders },
     budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
+    differences: differencesFrom([...items.batches, ...purchaseOrders.batches]),
     reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),
   };
 }

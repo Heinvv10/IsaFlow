@@ -1,0 +1,71 @@
+/** M2: a re-run that finds a PO already there with other figures, or an owned item that would change, says so; exit 1 unless allowed. */
+import { describe, expect, it } from 'vitest';
+import { differencesFrom } from '@/modules/accounting/services/sage-migration/sageDifferences';
+import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import type { BatchReport, MigrationReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+
+const batch = (entity: BatchReport['entity'], toolReported: Record<string, unknown> | null): BatchReport =>
+  ({ entity, n: 1, size: 1, key: 'k', status: 'ok', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported, error: null });
+
+describe('differencesFrom', () => {
+  it('lists the POs a batch answered already_existed with payload_differs, with the tool\'s differences', () => {
+    const d = differencesFrom([batch('purchase_order', { purchase_orders: [
+      { po_number: 'PO1', already_existed: true, payload_differs: false },
+      { po_number: 'PO2', already_existed: true, payload_differs: true, differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] },
+      { po_number: 'PO3', already_existed: false },
+    ] })]);
+    expect(d.purchaseOrders).toEqual([{ poNumber: 'PO2', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }]);
+    expect(d.items).toEqual([]);
+  });
+  it('lists the items a batch answered updated, with the fields that change; created and unchanged are not differences', () => {
+    const d = differencesFrom([batch('item', { rows: [
+      { index: 0, outcome: 'created', code: 'A' }, { index: 1, outcome: 'unchanged', code: 'B' }, { index: 2, outcome: 'updated', code: 'C', changed: ['sales_price', 'is_active'] },
+    ] })]);
+    expect(d.items).toEqual([{ code: 'C', changed: ['sales_price', 'is_active'] }]);
+  });
+  it('reads categories as no difference, a failed batch (null answer) as none, and joins every batch', () => {
+    const po = (n: string) => ({ purchase_orders: [{ po_number: n, payload_differs: true, differences: [{ field: 'total', existing: 1, requested: 2 }] }] });
+    const d = differencesFrom([batch('category', { outcome: 'updated' }), batch('purchase_order', null), batch('purchase_order', po('PO7')), batch('purchase_order', po('PO8'))]);
+    expect(d.purchaseOrders.map((x) => x.poNumber)).toEqual(['PO7', 'PO8']);
+  });
+});
+
+describe('exit code and summary with differences', () => {
+  const phase = { batches: [], failed: 0 };
+  const base = (): MigrationReport => ({
+    companyId: 'c', status: 'completed', refused: [], budgetWouldHaveFailed: [], live: null,
+    dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
+    differences: { purchaseOrders: [], items: [] },
+    reconciliation: {
+      items: { presentBefore: 3 }, purchaseOrders: { exportTotalCents: 0, sentTotalCents: 0, notSentTotalCents: 0, bookedTotalCents: 0, differenceCents: 0, exportRowsWithoutTotal: 0 },
+      expected: { items: null, purchaseOrders: null, purchaseOrderTotalCents: null }, stock: { written: 0, itemsWithQuantityOnHandIgnored: 0 },
+      attachments: { posWithPdf: 0, files: [] }, allSentBooked: true, nothingRefused: true,
+    } as never,
+  });
+  const withPoDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [{ poNumber: 'PO9', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }], items: [] } });
+  const withItemDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [], items: [{ code: 'FIB-1', changed: ['sales_price'] }] } });
+
+  it('exit 0 with none; 1 with a PO difference or an item update, unless differences are allowed', () => {
+    expect(exitCodeFor(base(), false, false)).toBe(0);
+    for (const r of [withPoDiff(), withItemDiff()]) {
+      expect(exitCodeFor(r, false, false)).toBe(1);
+      expect(exitCodeFor(r, true, false)).toBe(1); // allowing refusals does not allow differences
+      expect(exitCodeFor(r, false, true)).toBe(0);
+    }
+    expect(exitCodeFor(base(), false)).toBe(0);
+  });
+  it('the summary lists each difference and says the stored PO is not changed', () => {
+    const t = summaryLines(withPoDiff()).join('\n');
+    expect(t).toContain('PO9 is already in IsaFlow with other figures than Sage');
+    expect(t).toContain('status approved -> closed');
+    expect(t).toContain('not changed');
+    const i = summaryLines(withItemDiff()).join('\n');
+    expect(i).toContain('FIB-1 would be updated to Sage\'s values: sales_price');
+  });
+  it('L2: when items are already there, the summary says a re-run sets them back to Sage\'s values (IsaFlow edits are overwritten)', () => {
+    expect(summaryLines(base()).join('\n')).toMatch(/re-run sets .*items and categories .* back to Sage's values.*overwritten/s);
+    const none = base();
+    (none.reconciliation.items as { presentBefore: number }).presentBefore = 0;
+    expect(summaryLines(none).join('\n')).not.toMatch(/overwritten/);
+  });
+});
