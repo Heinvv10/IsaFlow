@@ -54,7 +54,7 @@ export default function CustomerPaymentsPage() {
           actions={
             <>
               <ExportCSVButton endpoint="/api/accounting/customer-payments-export" filenamePrefix="customer-payments" params={{ status: tab !== 'all' ? tab : '' }} label="Export" />
-              <button onClick={() => router.push('/accounting/customer-payments/new')} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={() => router.push('/accounting/customer-payments/new')} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors max-lg:min-h-11">
                 <Plus className="w-4 h-4" /> Record Payment
               </button>
             </>
@@ -67,14 +67,14 @@ export default function CustomerPaymentsPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 max-lg:min-h-11 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
                 </button>
               ))}
             </div>
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search payments…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search payments…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56 max-lg:w-full max-lg:min-h-11" />
             </div>
           </div>
 
@@ -86,10 +86,10 @@ export default function CustomerPaymentsPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><CreditCard className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No payments found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first customer payment</p>
-                <button onClick={() => router.push('/accounting/customer-payments/new')} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">Record Payment</button>
+                <button onClick={() => router.push('/accounting/customer-payments/new')} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors max-lg:min-h-11">Record Payment</button>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['Payment #', 'Client', 'Date', 'Amount', 'Method', 'Status'].map((h, i) => (
@@ -100,12 +100,12 @@ export default function CustomerPaymentsPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {payments.map(p => (
                       <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => router.push(`/accounting/customer-payments/${p.id}`)}>
-                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{p.paymentNumber}</td>
-                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.clientName || '—'}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate)}</td>
-                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(p.totalAmount))}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
-                        <td className="px-5 py-3.5">
+                        <td data-label="Payment #" className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{p.paymentNumber}</td>
+                        <td data-label="Client" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.clientName || '—'}</td>
+                        <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate)}</td>
+                        <td data-label="Amount" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(p.totalAmount))}</td>
+                        <td data-label="Method" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
+                        <td data-label="Status" className="px-5 py-3.5">
                           <StatusPill status={p.status} />
                         </td>
                       </tr>
