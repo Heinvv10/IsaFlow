@@ -24,12 +24,25 @@
  * a worker must never pass its own or a system id. It is checked against the
  * Approve permission (Customers & AR for a receivable, Suppliers & AP for a
  * payable) and recorded as `approved_by` on an AP payment.
+ *
+ * UNTIL A STORED HUMAN DECISION RECORD EXISTS, the person who creates the
+ * payment IS the approver: `actor.userId` must equal `actor.approverUserId`, and
+ * that one id must hold the Approve permission. A caller cannot name someone
+ * else as approver on that person's behalf. `actor.postingAgent` must carry a
+ * machine prefix (mcp:, ai:, system:, rule:): it labels the journal's author
+ * and may not impersonate a person.
+ *
+ * ATOMIC. The writes run in one savepoint, so a throw after the payment was
+ * created (or approved) leaves no draft or approved contra payment behind for a
+ * caller that catches the error and commits.
  */
 
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { agentNewSupplierPaymentRefusal } from '../gl/approvalUnattended';
 import { ApprovePermissionError, mayApprove } from './approvePermission';
 import { hasWholeCents } from '@/lib/money/wholeCents';
+import { withSavepoint } from '@/lib/neon';
+import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
 import {
   assertContraAccountUsable,
   loadContraDocument,
@@ -80,7 +93,7 @@ export interface ContraSettlementResult {
 }
 
 /**
- * A refusal raised before the first write: a bad amount, the R-035 gate, or a
+ * A refusal raised before the first write: a bad input, the R-035 gate, or a
  * guard that rejected. `underlying` is the original error for a guard failure,
  * so a caller can sanitise it as it would have on its own read.
  */
@@ -90,6 +103,28 @@ export class ContraSettlementRefusal extends Error {
     this.name = 'ContraSettlementRefusal';
   }
 }
+
+/** Every refusal THIS service raised itself, before its first write. Identity, not type: an `ApprovePermissionError` from deeper in a payment service is not in here. */
+const preWriteRefusals = new WeakSet<object>();
+
+function refuse(err: ContraSettlementRefusal | ApprovePermissionError): never {
+  preWriteRefusals.add(err);
+  throw err;
+}
+
+/** True only for an error `settleDocumentByContra` threw itself before any write. */
+export function isContraPreWriteRefusal(err: unknown): err is ContraSettlementRefusal | ApprovePermissionError {
+  return typeof err === 'object' && err !== null && preWriteRefusals.has(err);
+}
+
+/** A guard's own refusal: no `code`, or one of this codebase's refusal codes. Anything else (40P01, 57014, a lost connection) is not a refusal. */
+function isGuardRefusal(err: unknown): err is Error {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === undefined || (typeof code === 'string' && REFUSAL_CODES.has(code));
+}
+
+const MACHINE_AGENT = /^(mcp|ai|system|rule):\S/;
 
 /**
  * Read and validate everything a settlement depends on. READ-ONLY. Throws the
@@ -133,24 +168,36 @@ export interface SettleDocumentByContraParams {
 }
 
 /**
- * Check, then post. Throws `ApprovePermissionError` (approver may not approve),
- * `ContraSettlementRefusal` (amount, a guard, or the R-035 gate) or the payment
- * services' own errors; the first two are always before any write.
+ * Check, then post. Throws `ApprovePermissionError` (approver may not approve)
+ * or `ContraSettlementRefusal` (input, a guard, or the R-035 gate), both always
+ * before any write and both recognisable by `isContraPreWriteRefusal`; anything
+ * else is a database or payment-service failure, thrown unchanged.
  */
 export async function settleDocumentByContra(
   p: SettleDocumentByContraParams,
 ): Promise<ContraSettlementResult> {
   const { companyId, subledger, amount, actor } = p;
+  if (subledger !== 'ar' && subledger !== 'ap') {
+    return refuse(new ContraSettlementRefusal('subledger must be "ar" or "ap"'));
+  }
   if (!Number.isFinite(amount) || amount <= 0 || !hasWholeCents(amount)) {
-    throw new ContraSettlementRefusal(`amount must be a positive number of whole cents (${amount})`);
+    return refuse(new ContraSettlementRefusal(`amount must be a positive number of whole cents (${amount})`));
+  }
+  if (typeof actor.postingAgent !== 'string' || !MACHINE_AGENT.test(actor.postingAgent)) {
+    return refuse(new ContraSettlementRefusal('postingAgent must carry a machine prefix (mcp:, ai:, system:, rule:)'));
+  }
+  if (!actor.userId || actor.userId !== actor.approverUserId) {
+    return refuse(new ContraSettlementRefusal(
+      'the person who creates a contra settlement must be the one who approves it: no stored approval decision exists yet to act on someone else\'s behalf',
+    ));
   }
   // Round 4 / #1656: the approver is asked here, so no caller can record one who may not approve.
   if (subledger === 'ar') {
     if (!(await mayApprove(companyId, actor.approverUserId, 'customers'))) {
-      throw new ApprovePermissionError('customers', 'customer receipts');
+      return refuse(new ApprovePermissionError('customers', 'customer receipts'));
     }
   } else if (!(await mayApprove(companyId, actor.approverUserId, 'suppliers'))) {
-    throw new ApprovePermissionError('suppliers', 'supplier payments');
+    return refuse(new ApprovePermissionError('suppliers', 'supplier payments'));
   }
 
   // Re-read every guard now, whatever the caller read earlier.
@@ -158,15 +205,25 @@ export async function settleDocumentByContra(
   try {
     context = await loadContraSettlementContext(companyId, subledger, p.documentId, p.contraAccountId, amount);
   } catch (err) {
-    throw new ContraSettlementRefusal(err instanceof Error ? err.message : 'Could not settle this document by contra.', err);
+    if (isGuardRefusal(err)) return refuse(new ContraSettlementRefusal(err.message, err));
+    throw err;
   }
   // R-035 PR5 (Q6): a payable settles through a supplier payment created, approved and processed in this one call,
   // so an enforced rule that would govern it refuses here, from a read, before the first write.
   if (subledger === 'ap') {
     const refusal = await agentNewSupplierPaymentRefusal(companyId, amount);
-    if (refusal) throw new ContraSettlementRefusal(refusal);
+    if (refusal) return refuse(new ContraSettlementRefusal(refusal));
   }
 
+  // One savepoint over the writes: a throw after create/approve rolls the draft back for a caller that commits.
+  const posted = await withSavepoint('settle_document_by_contra', () => postSettlement(p, context));
+  return { ...posted, context };
+}
+
+type Posted = Omit<ContraSettlementResult, 'context'>;
+
+async function postSettlement(p: SettleDocumentByContraParams, context: ContraSettlementContext): Promise<Posted> {
+  const { companyId, amount, actor } = p;
   const base = {
     paymentDate: p.date,
     totalAmount: amount,
@@ -178,7 +235,7 @@ export async function settleDocumentByContra(
     allocations: [{ invoiceId: context.document.documentId, amount }],
   };
 
-  if (subledger === 'ar') {
+  if (p.subledger === 'ar') {
     const payment = await createCustomerPayment(
       companyId, { ...base, clientId: context.document.counterpartyId }, actor.userId,
     );
@@ -189,7 +246,6 @@ export async function settleDocumentByContra(
       paymentId: confirmed.id,
       paymentNumber: confirmed.paymentNumber,
       journalEntryId: confirmed.glJournalEntryId ?? null,
-      context,
     };
   }
 
@@ -204,6 +260,5 @@ export async function settleDocumentByContra(
     paymentId: processed.id,
     paymentNumber: processed.paymentNumber,
     journalEntryId: processed.glJournalEntryId ?? null,
-    context,
   };
 }

@@ -13,6 +13,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
+const spLog: string[] = [];
+vi.mock('@/lib/neon', () => ({
+  // Records what a real savepoint does: SAVEPOINT, run, then RELEASE on success or ROLLBACK TO on a throw.
+  withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => {
+    spLog.push(`SAVEPOINT ${name}`);
+    try { const r = await fn(); spLog.push(`RELEASE ${name}`); return r; }
+    catch (e) { spLog.push(`ROLLBACK TO ${name}`); throw e; }
+  }),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -52,6 +61,7 @@ import {
   loadContraSettlementContext,
   settleDocumentByContra,
   ContraSettlementRefusal,
+  isContraPreWriteRefusal,
   type ContraSettlementActor,
 } from '@/modules/accounting/services/core/contraSettlementPosting';
 
@@ -66,7 +76,7 @@ const DOCUMENT = {
   documentId: DOC, documentNumber: 'INV0001', counterpartyId: COUNTERPARTY,
   totalAmount: 1000, amountPaid: 0, outstanding: 1000, status: 'approved',
 };
-const ACTOR: ContraSettlementActor = { userId: 'user-1', approverUserId: 'approver-1', postingAgent: 'agent:x:v1' };
+const ACTOR: ContraSettlementActor = { userId: 'user-1', approverUserId: 'user-1', postingAgent: 'system:test:v1' };
 
 const run = (subledger: 'ar' | 'ap', over: Partial<Parameters<typeof settleDocumentByContra>[0]> = {}) =>
   settleDocumentByContra({
@@ -82,6 +92,7 @@ const noWrites = () => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  spLog.length = 0;
   vi.mocked(mayApprove).mockResolvedValue(true);
   vi.mocked(agentNewSupplierPaymentRefusal).mockResolvedValue(null);
   vi.mocked(assertContraAccountUsable).mockResolvedValue(CONTRA_OK);
@@ -140,13 +151,13 @@ describe('settleDocumentByContra', () => {
       bankAccountId: CONTRA, description: 'Contra settlement — Netted',
       allocations: [{ invoiceId: DOC, amount: 400 }],
     }, 'user-1');
-    expect(confirmCustomerPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'agent:x:v1' });
+    expect(confirmCustomerPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'system:test:v1' });
     expect(createSupplierPayment).not.toHaveBeenCalled();
     expect(r).toMatchObject({ paymentId: PAYMENT, paymentNumber: 'RCP1', journalEntryId: 'je-1' });
     expect(r.context.debit).toEqual({ id: CONTRA, code: '2400', name: 'Loan' });
   });
 
-  it('AP: creates, approves (as the approver) and processes (as the actor, stamped) in that order', async () => {
+  it('AP: creates, approves (as the user) and processes (stamped) in that order', async () => {
     const order: string[] = [];
     vi.mocked(createSupplierPayment).mockImplementation(async () => { order.push('create'); return { id: PAYMENT } as never; });
     vi.mocked(approveSupplierPayment).mockImplementation(async () => { order.push('approve'); return { id: PAYMENT } as never; });
@@ -160,8 +171,8 @@ describe('settleDocumentByContra', () => {
       bankAccountId: CONTRA, description: 'Contra settlement — Netted',
       allocations: [{ invoiceId: DOC, amount: 400 }],
     }, 'user-1');
-    expect(approveSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'approver-1');
-    expect(processSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'agent:x:v1' });
+    expect(approveSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1');
+    expect(processSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'system:test:v1' });
     expect(createCustomerPayment).not.toHaveBeenCalled();
     expect(r).toMatchObject({ paymentId: PAYMENT, paymentNumber: 'PAY1', journalEntryId: 'je-2' });
   });
@@ -218,7 +229,7 @@ describe('every refusal comes before the first write, from inside the service', 
   it('an approver without Customers & AR Approve is refused on a receivable, before any read or write', async () => {
     vi.mocked(mayApprove).mockResolvedValue(false);
     await expect(run('ar')).rejects.toBeInstanceOf(ApprovePermissionError);
-    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'customers');
+    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'user-1', 'customers');
     expect(assertContraAccountUsable).not.toHaveBeenCalled();
     noWrites();
   });
@@ -226,15 +237,9 @@ describe('every refusal comes before the first write, from inside the service', 
   it('an approver without Suppliers & AP Approve is refused on a payable, before any read or write', async () => {
     vi.mocked(mayApprove).mockResolvedValue(false);
     await expect(run('ap')).rejects.toBeInstanceOf(ApprovePermissionError);
-    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'suppliers');
+    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'user-1', 'suppliers');
     expect(assertContraAccountUsable).not.toHaveBeenCalled();
     noWrites();
-  });
-
-  it('the permission is asked of the APPROVER, not of the creator', async () => {
-    await run('ap');
-    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'suppliers');
-    expect(mayApprove).not.toHaveBeenCalledWith(COMPANY, 'user-1', expect.anything());
   });
 
   it('R-035: an enforced rule on a new supplier payment refuses before createSupplierPayment', async () => {
@@ -252,13 +257,94 @@ describe('every refusal comes before the first write, from inside the service', 
   });
 });
 
+describe('input and actor refusals, before anything is read', () => {
+  const untouched = () => { expect(mayApprove).not.toHaveBeenCalled(); expect(assertContraAccountUsable).not.toHaveBeenCalled(); noWrites(); };
+
+  it.each(['gl', '', 'AR', undefined])('subledger %s is refused', async (sub) => {
+    const err = await run(sub as never).catch((e) => e);
+    expect(err).toBeInstanceOf(ContraSettlementRefusal);
+    expect(err.message).toMatch(/subledger/);
+    untouched();
+  });
+
+  it.each(['', 'human:hein', 'user:hein', 'mcp:', 'agent:x:v1', 'MCP:x'])('postingAgent "%s" is refused', async (postingAgent) => {
+    await expect(run('ar', { actor: { ...ACTOR, postingAgent } })).rejects.toBeInstanceOf(ContraSettlementRefusal);
+    untouched();
+  });
+
+  it.each(['mcp:settle_by_contra:v1', 'ai:x:v1', 'system:ic-worker:v1', 'rule:r1'])('postingAgent "%s" is accepted', async (postingAgent) => {
+    await expect(run('ar', { actor: { ...ACTOR, postingAgent } })).resolves.toBeDefined();
+  });
+
+  it('until a human decision record exists, the creator must be the approver', async () => {
+    for (const sub of ['ar', 'ap'] as const) {
+      const err = await run(sub, { actor: { ...ACTOR, approverUserId: 'someone-else' } }).catch((e) => e);
+      expect(err).toBeInstanceOf(ContraSettlementRefusal);
+      expect(err.message).toMatch(/creates a contra settlement must be the one who approves/);
+    }
+    untouched();
+  });
+});
+
+describe('errors that are not refusals', () => {
+  it.each(['40P01', '57014', 'ECONNRESET'])('a %s from a guard read is rethrown unchanged, not wrapped', async (code) => {
+    const dbErr = Object.assign(new Error('deadlock detected'), { code });
+    vi.mocked(loadContraDocument).mockRejectedValue(dbErr);
+    const err = await run('ar').catch((e) => e);
+    expect(err).toBe(dbErr);
+    expect(err).not.toBeInstanceOf(ContraSettlementRefusal);
+    expect(isContraPreWriteRefusal(err)).toBe(false);
+    noWrites();
+  });
+
+  it('a guard error carrying one of our refusal codes is still a refusal', async () => {
+    vi.mocked(loadContraDocument).mockRejectedValue(Object.assign(new Error('FX refused'), { code: 'APPROVE_PERMISSION_REFUSED' }));
+    expect(await run('ar').catch((e) => e)).toBeInstanceOf(ContraSettlementRefusal);
+  });
+
+  it('an ApprovePermissionError thrown by a payment service AFTER a write is not a pre-write refusal', async () => {
+    const late = new ApprovePermissionError('suppliers', 'supplier payments');
+    vi.mocked(approveSupplierPayment).mockRejectedValue(late);
+    const err = await run('ap').catch((e) => e);
+    expect(err).toBe(late);
+    expect(isContraPreWriteRefusal(err)).toBe(false);
+  });
+
+  it('the service\'s own refusals are recognised', async () => {
+    vi.mocked(mayApprove).mockResolvedValue(false);
+    expect(isContraPreWriteRefusal(await run('ar').catch((e) => e))).toBe(true);
+  });
+});
+
+describe('atomic: the writes run in one savepoint', () => {
+  it('success: SAVEPOINT then RELEASE, named settle_document_by_contra', async () => {
+    await run('ap');
+    expect(spLog).toEqual(['SAVEPOINT settle_document_by_contra', 'RELEASE settle_document_by_contra']);
+  });
+
+  it('a throw after create/approve rolls the savepoint back and propagates', async () => {
+    vi.mocked(processSupplierPayment).mockRejectedValue(new Error('period closed'));
+    await expect(run('ap')).rejects.toThrow(/period closed/);
+    expect(createSupplierPayment).toHaveBeenCalled();
+    expect(spLog).toEqual(['SAVEPOINT settle_document_by_contra', 'ROLLBACK TO settle_document_by_contra']);
+  });
+
+  it('a refusal before the writes opens no savepoint', async () => {
+    vi.mocked(assertContraAccountUsable).mockRejectedValue(new Error('is a BANK account'));
+    await run('ar').catch(() => undefined);
+    expect(spLog).toEqual([]);
+  });
+});
+
 describe('who calls settleDocumentByContra', () => {
   // It records an approval on a supplier payment, and its caller owns the authority question (mayApprove).
   // A new caller must be added here deliberately.
   it('only the MCP tool, until the intercompany worker is added on purpose', () => {
     const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages'], { encoding: 'utf8' }).split('\n')
       .filter((f) => /\.tsx?$/.test(f));
-    const callers = files.filter((f) => /\bsettleDocumentByContra\(/.test(readFileSync(f, 'utf8')));
+    // The name anywhere (an aliased import, a re-export, a call) OR the module specifier (a namespace or dynamic import).
+    const reaches = /\bsettleDocumentByContra\b|contraSettlementPosting['"`]/;
+    const callers = files.filter((f) => reaches.test(readFileSync(f, 'utf8')));
     expect(callers.sort()).toEqual([
       'src/lib/mcp/tools/writeSettleByContra.ts',
       'src/modules/accounting/services/core/contraSettlementPosting.ts', // the definition

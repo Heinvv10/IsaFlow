@@ -20,13 +20,14 @@ import {
   loadContraSettlementContext,
   settleDocumentByContra,
   ContraSettlementRefusal,
+  isContraPreWriteRefusal,
   type ContraSettlementContext,
 } from '@/modules/accounting/services/core/contraSettlementPosting';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
-import { ApprovePermissionError, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const TOOL = 'settle_by_contra';
 const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
@@ -187,11 +188,12 @@ export const settleByContraTool: McpTool = {
         actor: { userId: ctx.userId, approverUserId: ctx.userId, postingAgent: mcpPostingAgent(TOOL) },
       });
     } catch (err) {
-      if (err instanceof ApprovePermissionError) return toolError(err.message);
-      if (err instanceof ContraSettlementRefusal) {
-        return toolError(err.underlying === undefined
-          ? err.message
-          : safeErrorText(err.underlying, 'Could not settle this document by contra.'));
+      // ONLY the service's own pre-write refusals are answered; a database or payment-service failure (and any
+      // other ApprovePermissionError, raised after a write) propagates so the request rolls back.
+      if (isContraPreWriteRefusal(err)) {
+        return toolError(err instanceof ContraSettlementRefusal && err.underlying !== undefined
+          ? safeErrorText(err.underlying, 'Could not settle this document by contra.')
+          : err.message);
       }
       throw err;
     }

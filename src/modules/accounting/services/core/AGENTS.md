@@ -21,6 +21,7 @@ Cross-cutting infrastructure catch-all: company/user/audit, currency, OCR/VLM, A
 - **Sage**: `sageImportService.ts`, `sageAutoImportService.ts`, `sageCustomerImportService.ts`, `sageMigrationService.ts`, `sageMigrationCompareService.ts`.
 - **Payroll PDFs (shared)**: `payrollPdfService.ts`, `payrollPdfBuilders1.ts`, `payrollPdfBuilders2.ts`, `pdfShared.ts`.
 - **Misc**: `descriptionTemplateService.ts`, `leaveService.ts`, `timeTrackingService.ts`, `udfService.ts`, `softDeleteService.ts`.
+- **Contra settlement**: `contraSettlementService.ts` (read-only guards) and `contraSettlementPosting.ts` (`loadContraSettlementContext` reads; `settleDocumentByContra` is the only writer: raw ids in, it re-runs the approver, guard and R-035 checks before one savepoint of writes; creator must equal approver until a stored decision record exists, `postingAgent` needs a machine prefix, pre-write refusals are `isContraPreWriteRefusal`, every other error propagates). Callers are pinned by `tests/unit/services/core/contraSettlementPosting.test.ts`; today only MCP `settle_by_contra`.
 
 ## Caller contract
 Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most functions take `companyId` first; exceptions: `companyService.listCompanies` (admin, returns all), `jobQueueService` (job rows carry their own `company_id`), `userInvitationService` (invitations are orgless at create time).

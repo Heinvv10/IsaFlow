@@ -128,4 +128,17 @@ describe('settle_by_contra payloads', () => {
     expect(text(r)).toMatch(/Supplier payments are enforced/);
     expect(createSupplierPayment).not.toHaveBeenCalled();
   });
+
+  it('a failure AFTER the first write (confirm / process) propagates: the request must roll back, not report a toolError', async () => {
+    vi.mocked(confirmCustomerPayment).mockRejectedValue(new Error('period closed'));
+    await expect(settleByContraTool.handler(BASE, ctx())).rejects.toThrow('period closed');
+    vi.mocked(processSupplierPayment).mockRejectedValue(new Error('period closed'));
+    await expect(settleByContraTool.handler({ ...BASE, subledger: 'ap' }, ctx())).rejects.toThrow('period closed');
+  });
+
+  it('an ApprovePermissionError raised after a write is not answered as a refusal either', async () => {
+    const { ApprovePermissionError } = await import('@/modules/accounting/services/core/approvePermission');
+    vi.mocked(approveSupplierPayment).mockRejectedValue(new ApprovePermissionError('suppliers', 'supplier payments'));
+    await expect(settleByContraTool.handler({ ...BASE, subledger: 'ap' }, ctx())).rejects.toThrow(/permission to approve/);
+  });
 });
