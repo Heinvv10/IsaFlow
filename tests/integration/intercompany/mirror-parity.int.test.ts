@@ -93,7 +93,7 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     await approveBill(m.bill);
     expect(await derived()).toHaveLength(1);
     const je = (await jeOf(m.inv.id))!;
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
     const r1 = (await reversalOf(pool, je))!;
     const forged = await forgedEmpty(co.A, U.a, 'receivable', r1);
     expect(await chain(je, co.A)).toBe(2);                          // the forged link is not a link
@@ -107,7 +107,7 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     const m = await accepted();
     await approveBill(m.bill);
     const je = (await jeOf(m.inv.id))!;
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
     const r1 = (await reversalOf(pool, je))!;
     const ar = await acctOf(co.A, 'receivable');
     let old = '';
@@ -127,7 +127,7 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     const m = await accepted();
     await approveBill(m.bill);
     const je = (await jeOf(m.inv.id))!;
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
     expect(await derived()).toHaveLength(0);
     const r1 = (await reversalOf(pool, je))!;
     // by value a real reversal: the chain is odd again. #1691 round 3 refuses re-instating a chain whose head a cancelled document held: then
@@ -145,7 +145,7 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
       await L.reset();
       const sent = await sentInvoice(pool);
       const je = (await jeOf(sent.inv.id))!;
-      await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, sent.inv.id, U.a));
+      await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, sent.inv.id, U.a, { allowReversal: true }));
       expect(await msg(sent.id)).toMatchObject({ status: 'withdrawn' });
       const r1 = (await reversalOf(pool, je))!;
       if (how === 'forged') await forgedEmpty(co.A, U.a, 'receivable', r1); else await tryRawReverse(r1, 'valid re-reversal');
@@ -196,7 +196,7 @@ describe('receiver: forged links, true revivals, and an insider\'s forged "rever
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance' });
     const je = m.message.source_journal_entry_id as string;
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', variance_reason: null });
     await pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [m.inv.id, je]);
     await asService(pool, U.a, co.A, async () => reverseJournalEntry(co.A, (await reversalOf(pool, je))!, U.a));

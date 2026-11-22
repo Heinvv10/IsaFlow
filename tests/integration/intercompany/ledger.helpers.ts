@@ -38,7 +38,8 @@ export function makeLedger(pool: Pool) {
   const derived = (from = '2026-01-01', to = '2026-12-31', user: string = U.ab, company: string = co.A) =>
     asService(pool, user, company, () => getMirroredEliminations(co.G, from, to));
   const approveBill = (bill: string, user = U.b) => asService(pool, user, co.B, () => approveSupplierInvoice(co.B, bill, user));
-  const cancelSender = (inv: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, inv, U.a));
+  // (U.a cancels as the sender's approver: a journalled invoice's cancel reverses it, which #1656 allows only with Customers & AR Approve)
+  const cancelSender = (inv: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, inv, U.a, { allowReversal: true }));
   /** The sender's cancel in the LEDGER only (no hook, no service): the approval journal reversed by a direct reversal, the link cleared, the status cancelled. */
   const senderReverse = (inv: string) => asService(pool, U.a, co.A, async (q) => {
     const je = (await q.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;

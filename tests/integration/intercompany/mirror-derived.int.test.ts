@@ -48,7 +48,7 @@ describe('F1: no hook, no stored figure: a hook that fails leaves nothing wrong'
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('intercompany-eliminations:' || $1, 0))", [co.G]);
     try {
       const t0 = Date.now();
-      await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+      await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
       expect(Date.now() - t0, 'the cancel never waits for a group lock').toBeLessThan(4000);
     } finally { await c.query('COMMIT'); c.release(); }
     expect(await derived()).toHaveLength(0);
@@ -85,7 +85,7 @@ describe('F1: no hook, no stored figure: a hook that fails leaves nothing wrong'
     try {
       const t0 = Date.now();
       if (who === 'receiver') await asService(pool, U.b, co.B, () => cancelSupplierInvoice(co.B, m.bill, U.b));
-      else await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));
+      else await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
       expect(Date.now() - t0).toBeLessThan(20000);
     } finally { await c.query('COMMIT'); c.release(); }
     const table = who === 'receiver' ? 'supplier_invoices' : 'customer_invoices';
@@ -124,7 +124,7 @@ describe('F2: the ledgers as at the period end', () => {
     const m = await accepted();
     await approveBill(m.bill);
     const before = await lines('2026-01-01', '2026-12-31');
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a));   // (today's date: after 2026-12-31 or not, the as-at rule holds either way)
+    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));   // (today's date: after 2026-12-31 or not, the as-at rule holds either way)
     const rev = String((await pool.query('SELECT entry_date FROM gl_journal_entries WHERE reversal_of_id = $1', [m.message.source_journal_entry_id])).rows[0].entry_date);
     const after = await lines('2026-01-01', '2026-12-31');
     const reversedWithinYear = rev.slice(0, 10) <= '2026-12-31';

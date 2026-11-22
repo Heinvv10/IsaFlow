@@ -24,7 +24,7 @@ afterAll(() => mirrorCleanup(pool), 60000);
 beforeEach(async () => { await clearMirrorRows(pool); await connect(pool); });
 
 const row = async (id: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [id])).rows[0];
-const cancelInvoice = (id: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, id, U.a));
+const cancelInvoice = (id: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, id, U.a, { allowReversal: true }));
 /**
  * A posted reversal of the invoice's journal written straight into the ledger (a statement, no service: the reversal service itself re-evaluates the
  * mirror, see mirror-crosstenant), then the status cancelled and the link cleared as a cancel does. The mirror has not been told.
