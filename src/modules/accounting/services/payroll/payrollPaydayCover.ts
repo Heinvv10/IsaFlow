@@ -11,22 +11,29 @@
  * South Africa keeps no daylight saving: payday runs from 22:00 UTC the day before to 22:00 UTC on the pay date.
  */
 const SAST_OFFSET = '+02:00';
-const DAY_MS = 86_400_000;
+const DAY_US = 86_400_000_000;
 
-/** Payday's [start, end) as epoch ms, for `payDate` 'YYYY-MM-DD'. */
+/** Payday's [start, end) as epoch MICROseconds (pg's precision; review L1 of 61c35e98c5), for `payDate` 'YYYY-MM-DD'. */
 const payday = (payDate: string): { start: number; end: number } => {
-  const start = new Date(`${payDate}T00:00:00${SAST_OFFSET}`).getTime();
-  return { start, end: start + DAY_MS };
+  const start = new Date(`${payDate}T00:00:00${SAST_OFFSET}`).getTime() * 1000;
+  return { start, end: start + DAY_US };
 };
 
-/** A bound of a range's text form: '' unbounded (null), infinity / -infinity as such (review L1), else epoch ms. */
+/**
+ * A bound of a range's text form: '' unbounded (null), infinity / -infinity as such (review L1 of e9f437f366), else
+ * epoch microseconds: the fraction is read to the microsecond, as pg stores it (epoch µs stay below 2^53), so this and
+ * approvalCoveredPaydaySql agree at a sub-millisecond boundary.
+ */
 const bound = (text: string): number | null => {
   const t = text.trim().replace(/^"|"$/g, '');
   if (t === '') return null;
   if (t === 'infinity') return Infinity;
   if (t === '-infinity') return -Infinity;
-  const ms = new Date(t.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')).getTime();
-  return Number.isNaN(ms) ? NaN : ms;
+  const m = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?([+-]\d\d)(?::?(\d\d))?$/.exec(t);
+  if (!m) return NaN;
+  const [, day, time, frac = '', hh, mm = '00'] = m;
+  const ms = new Date(`${day}T${time}${hh}:${mm}`).getTime();
+  return Number.isNaN(ms) ? NaN : ms * 1000 + Number(frac.padEnd(6, '0'));
 };
 
 /** The approval_history (its pg text form, '{["a","b"), ...}') has an interval overlapping `payDate`'s payday. */

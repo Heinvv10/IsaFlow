@@ -32,6 +32,16 @@ describe('approvalCoveredPayday: an approval interval overlaps payday', () => {
     expect(approvalCoveredPayday('{["2026-11-20 22:00:00+00","2026-11-25 08:00:00+00")}', D)).toBe(false);
     expect(approvalCoveredPayday('{["2026-11-20 21:59:59+00","2026-11-25 08:00:00+00")}', D)).toBe(true);
   });
+  it('sub-millisecond bounds compare to the microsecond, as SQL does (review L1 of 61c35e98c5)', () => {
+    // Ends half a millisecond after payday starts: overlaps (Date's millisecond parse would read it as ending at the start).
+    expect(approvalCoveredPayday('{["2026-11-10 08:00:00+00","2026-11-19 22:00:00.0005+00")}', D)).toBe(true);
+    expect(approvalCoveredPayday('{["2026-11-10 08:00:00+00","2026-11-19 22:00:00.000001+00")}', D)).toBe(true);
+    // Starts a microsecond before payday ends: overlaps; at its end: does not.
+    expect(approvalCoveredPayday('{["2026-11-20 21:59:59.999999+00","2026-11-25 08:00:00+00")}', D)).toBe(true);
+    expect(approvalCoveredPayday('{["2026-11-20 23:59:59.999999+02","2026-11-25 08:00:00+00")}', D)).toBe(true);
+    // Ends a microsecond before payday starts.
+    expect(approvalCoveredPayday('{["2026-11-10 08:00:00+00","2026-11-19 21:59:59.999999+00"]}', D)).toBe(false);
+  });
   it('several intervals, unbounded and infinite bounds, pg text forms', () => {
     expect(approvalCoveredPayday('{["2026-11-01 08:00:00+00","2026-11-02 08:00:00+00"),["2026-11-18 08:00:00+00","2026-11-22 08:00:00+00")}', D)).toBe(true);
     expect(approvalCoveredPayday('{(,"2026-11-22 08:00:00+00")}', D)).toBe(true);
