@@ -95,7 +95,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         </p>
         <button
           onClick={() => setShowAdd(s => !s)}
-          className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5 text-sm"
+          className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5 text-sm max-lg:min-h-11"
         >
           <Plus className="h-3.5 w-3.5" />
           Add Currency
@@ -115,7 +115,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                 placeholder="USD"
                 value={form.code}
                 onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 uppercase"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 uppercase max-lg:min-h-11"
               />
             </div>
             <div className="col-span-2 sm:col-span-1">
@@ -125,7 +125,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                 placeholder="US Dollar"
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               />
             </div>
             <div>
@@ -136,7 +136,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                 placeholder="$"
                 value={form.symbol}
                 onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               />
             </div>
             <div>
@@ -147,21 +147,21 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                 max={6}
                 value={form.decimalPlaces}
                 onChange={e => setForm(f => ({ ...f, decimalPlaces: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <button
               onClick={() => { setShowAdd(false); setForm(EMPTY_FORM); }}
-              className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
+              className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11"
             >
               Cancel
             </button>
             <button
               onClick={handleAdd}
               disabled={saving}
-              className="px-4 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-1.5"
+              className="px-4 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-1.5 max-lg:min-h-11"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Save Currency
@@ -177,7 +177,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         </div>
       ) : (
         <div className="rounded-xl border border-[var(--ff-border-light)] overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="table-cards w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Code</th>
@@ -201,10 +201,10 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-primary)]">{currency.name}</td>
-                  <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{currency.symbol}</td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{currency.decimalPlaces}</td>
-                  <td className="px-4 py-3">
+                  <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-primary)]">{currency.name}</td>
+                  <td data-label="Symbol" className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{currency.symbol}</td>
+                  <td data-label="Decimals" className="px-4 py-3 text-[var(--ff-text-secondary)]">{currency.decimalPlaces}</td>
+                  <td data-label="Status" className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       currency.isActive
                         ? 'bg-teal-500/10 text-teal-400'
@@ -218,7 +218,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                       <button
                         onClick={() => handleToggle(currency)}
                         disabled={toggling === currency.code}
-                        className={`text-xs px-3 py-1 rounded-lg border transition-colors disabled:opacity-50 ${
+                        className={`text-xs px-3 py-1 rounded-lg border transition-colors disabled:opacity-50 max-lg:min-h-11 max-lg:w-full ${
                           currency.isActive
                             ? 'border-red-500/30 text-red-400 hover:bg-red-500/10'
                             : 'border-teal-500/30 text-teal-400 hover:bg-teal-500/10'
