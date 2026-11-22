@@ -124,6 +124,7 @@ function parseSplitLines(raw: unknown): { lines: ParsedSplitLine[]; dims: (Dimen
 
 export const splitAllocateBankTransactionTool: McpTool = {
   name: TOOL,
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Split ONE bank transaction across several lines — e.g. a paycard slip that is part fuel, part tolls, or one '
     + 'payment that settles two suppliers. Each line names exactly one of contra_account_id (a GL account, with its '

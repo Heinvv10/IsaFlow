@@ -1,7 +1,7 @@
 /**
  * POST /api/accounting/sars/returns/[form]/amend  (form = vat201 | emp201)
  *   { versionId, reason }
- * Amends a finalised or filed return version (wave 5 L1b): owner/admin only, a reason is mandatory, Login-as is
+ * Amends a finalised or filed return version (wave 5 L1b): the form's module Approve, owner/admin only, a reason is mandatory, Login-as is
  * refused. The version becomes superseded and a VAT201's own lock is released; finalise then creates the next version.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -17,7 +17,8 @@ import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit'
 import { UUID } from '@/lib/schemas/common';
 import { amendReturn } from '@/modules/accounting/services/returns/amendReturn';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
-import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { returnApproveModule, returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { VatPeriodLockRefusal } from '@/modules/accounting/services/reports/vatPeriodLockService';
 
@@ -41,6 +42,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!(await checkReportRateLimit(companyId, `return-amend:u:${userId}`, INTERACTIVE_REPORT_LIMIT))) {
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
+  // An amend supersedes a finalised or filed return: the form's module Approve (#1670 r13 M1), before anything is read or written.
+  const module = returnApproveModule(form);
+  if (!module) return apiResponse.forbidden(res, `No Approve permission governs amending a ${form} return, so it is refused.`);
+  if (await refuseWithoutApprove(res, companyId, userId, module, `${form} returns`)) return;
   try {
     const version = await amendReturn(companyId, form, parsed.data.versionId, parsed.data.reason, { userId, role: companyRole });
     log.info('Return amended', { companyId, form, versionId: version.id }, 'sars-returns');

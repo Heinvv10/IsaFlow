@@ -15,6 +15,7 @@ import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { EndOrderBody, GARNISHEE_LOG_MASK, garnisheeWriter, respondIfGarnisheeRefused, UUID } from '@/lib/payrollGarnisheeApi';
 import { endGarnisheeOrder } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -35,4 +36,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: GARNISHEE_LOG_MASK })));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: GARNISHEE_LOG_MASK })));

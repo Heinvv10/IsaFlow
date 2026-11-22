@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
   handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
 }));

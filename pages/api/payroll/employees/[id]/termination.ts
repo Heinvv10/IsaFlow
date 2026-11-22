@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollTerminationService';
 import { terminationMonthlySalary } from '@/modules/accounting/services/payroll/payrollRunTermination';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function hasApprovedSeveranceDirective(companyId: string, employeeId: string, endDateIso: string | null): Promise<boolean> {
   if (!endDateIso) return false;
@@ -127,4 +128,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

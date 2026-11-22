@@ -120,7 +120,7 @@ describe('restore and the exits (M1, L3)', () => {
     expect((await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' })).isError).toBe(false);
     const undo = async (id: string) => {
       const req = await openRequest(pool, f, f.owner);
-      try { const r = await req.run(() => undoDelete(f.co, 'supplier_invoice', id, f.owner)); await req.commit(); return String(r); } catch (e) { await req.rollback(); return (e as Error).message; }
+      try { const r = await req.run(() => undoDelete(f.co, 'supplier_invoice', id, f.owner, { allowReversal: true })); await req.commit(); return String(r); } catch (e) { await req.rollback(); return (e as Error).message; }
     };
     expect(await undo(bill.id)).toContain('has since been cancelled');
     expect((await pool.query('SELECT deleted_at IS NOT NULL AS d FROM supplier_invoices WHERE id = $1', [bill.id])).rows[0].d).toBe(true);

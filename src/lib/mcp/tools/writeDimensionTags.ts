@@ -70,6 +70,7 @@ function parseTagLines(raw: unknown): TagLineInput[] | string {
 
 export const tagJournalLinesTool: McpTool = {
   name: 'tag_journal_lines',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Back-tag up to 500 POSTED journal lines with CC1 (FNO), CC2 (project) and/or BU — DIMENSIONS ONLY. '
     + 'Amounts, accounts, dates and VAT codes never change; any other field is refused. A CC2 derives its FNO; a '
@@ -159,6 +160,7 @@ export const tagJournalLinesTool: McpTool = {
 
 export const reverseDimensionTagBatchTool: McpTool = {
   name: 'reverse_dimension_tag_batch',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Undo a tag_journal_lines or sync_bank_dimensions batch: restore every line\'s and bank transaction\'s '
     + 'previous CC1 / CC2 / BU. Refused when a line or bank row was re-tagged by a later batch — reverse that '

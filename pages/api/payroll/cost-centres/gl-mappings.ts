@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { listCostCentreGlMappings } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -22,4 +23,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, rows);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(handler))));

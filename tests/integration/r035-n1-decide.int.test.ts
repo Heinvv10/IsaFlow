@@ -156,7 +156,8 @@ describe('approval_request_decide decides', () => {
   it('Q2 is refused once the roster moved since the request', async () => {
     const f = await pendingBill(pool, tokens, u, companies,
       { members: [[u.a, 'owner'], [u.m, 'manager']], creator: u.a, requester: u.a });
-    await pool.query("UPDATE company_users SET role = 'accountant' WHERE company_id = $1 AND user_id = $2", [f.c, u.m]);
+    // 'accountant' is a manager since #1656 (1010), so the roster moves by demoting the approver to a viewer.
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.c, u.m]);
     expect(await outcome(decide(f.c, f.requestId, u.a))).toBe('RA001');
   });
 });

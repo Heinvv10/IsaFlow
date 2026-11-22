@@ -13,8 +13,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ArrowLeft, Briefcase, Loader2, AlertCircle } from 'lucide-react';
 import { BureauSharingConsent } from '@/components/bureau/BureauSharingConsent';
+import type { BureauRole } from '@/lib/auth/companyRoles';
 
-interface BureauRef { id: string; name: string; role: 'owner' | 'accountant' | 'viewer' }
+interface BureauRef { id: string; name: string; role: BureauRole }
 interface SettingChange {
   id: string; changedAt: string; actorUserId: string; actorName: string | null; oldValue: boolean | null; newValue: boolean;
 }

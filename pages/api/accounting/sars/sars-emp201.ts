@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { apiResponse } from '@/lib/apiResponse';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -36,10 +37,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
+      // census-exempt(generateEMP201, payroll-read): the filing's totals for everyone; the per-payment rows (one person's pay) are dropped below without Payroll read. payrollReadRoutes.test
       const emp201 = await generateEMP201(companyId, from, to);
       // One directive payment is one person's pay: the breakdown only for the payroll-detail roles
       // (withPayrollDetailAccess's test); everyone sees the totals, which include it.
-      if (!canWrite((req as CompanyAuthedRequest).companyRole)) emp201.directivePayments = [];
+      if (!canWrite((req as CompanyAuthedRequest).companyRole) || !(await mayReadPayroll(companyId, userId))) emp201.directivePayments = [];
       return apiResponse.success(res, emp201);
     } catch (err) {
       if (respondIfRunKindUnsupported(res, err)) return;
@@ -59,6 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
+      // census-exempt(generateEMP201, payroll-read): the saved draft keeps the totals only; the per-payment rows are dropped below. payrollReadRoutes.test
       const emp201 = await generateEMP201(companyId, periodStart, periodEnd);
       // The saved draft keeps the totals (which include them), not the per-payment breakdown:
       // submissions are readable by roles that may not see one person's pay.

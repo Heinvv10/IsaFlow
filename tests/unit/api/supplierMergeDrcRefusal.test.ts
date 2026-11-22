@@ -77,6 +77,6 @@ describe('supplier merge routes — DRC flag refusal', () => {
     mocks.mergeEntities.mockResolvedValueOnce({ reassignedTransactions: 0 });
     const res = response();
     await duplicatesMerge({ ...post({ entityType: 'supplier', primaryId: A, duplicateId: B }), companyRole: 'manager' } as unknown as NextApiRequest, res);
-    expect(mocks.mergeEntities).toHaveBeenCalledWith(COMPANY, 'supplier', A, B, 'u', 'manager');
+    expect(mocks.mergeEntities).toHaveBeenCalledWith(COMPANY, 'supplier', A, B, 'u', expect.any(Function), 'manager'); // #1656: the bank-rule guard, then the role
   });
 });

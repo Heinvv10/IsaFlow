@@ -31,9 +31,10 @@ const TABLES = ['company_users', 'company_invitations'];
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
   'company_member_role_is_owner(text)': '78a4144a1b43a1698868ca0dc16e76e0',
-  // 908b (S-04/S-08 follow-ups A, B), then 916 (S-07b): the exemption line patched to bind app_service.
-  'company_users_role_guard()': '57b4a251179b9f8794d553f0183e7593',
-  'company_invitations_role_guard()': 'fc3401d65bef8c2c375cf4ce16022161',
+  // 908b (S-04/S-08 follow-ups A, B), then 916 (S-07b): the exemption line patched to bind app_service; then 1010
+  // (#1656): the portal's role list (admin, manager, viewer) and the invitation list (owner, admin, manager, viewer).
+  'company_users_role_guard()': 'b603608e54ae167a50e774c749903571',
+  'company_invitations_role_guard()': '5c22c584347b5c91f87a9dae053dfa8c',
 };
 
 const OTHERS = `
@@ -49,9 +50,14 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
       WHERE t.tgrelid = $1::regclass AND NOT t.tgisinternal`, [`public.${table}`]);
     // ...and, since 888, the change-history capture: AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW (29), ENABLE
     // ALWAYS, writing only entity_changes and returning NULL — it cannot change a row the guard judged.
+    // #1656 (1010c): company_users also carries the legacy-role normaliser, BEFORE INSERT OR UPDATE OF role FOR EACH ROW (23), which
+    // rewrites a legacy value (accountant / bookkeeper -> manager with approve_withheld; storeman / technician / user -> viewer) ahead of the guard.
+    const normaliser = table === 'company_users'
+      ? [{ tgname: 'company_users_legacy_role_normalise', fn: 'company_users_legacy_role_normalise()', tgenabled: 'O', tgtype: 23 }] : [];
     expect(rows.sort((x, y) => x.tgname.localeCompare(y.tgname)), NOT_APPLIED).toEqual([
       { tgname: `${table}_role_guard`, fn: `${table}_role_guard()`, tgenabled: 'O', tgtype: 31 },
       { tgname: 'entity_change_capture', fn: 'entity_change_capture()', tgenabled: 'A', tgtype: 29 },
+      ...normaliser,
     ].sort((x, y) => x.tgname.localeCompare(y.tgname)));
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });

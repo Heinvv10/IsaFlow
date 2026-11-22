@@ -1,0 +1,170 @@
+/**
+ * Soft-delete PURGE: the rows deleted more than five minutes ago are removed for good (split out of softDeleteService.ts for the 300-line cap).
+ */
+import { sql, withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
+import type { DbRow } from '@/types/db';
+
+/**
+ * The invoice arm of the purge, as ONE statement.
+ *
+ * The `soft_delete_journal_reversals` row (migration 653) is keyed on
+ * (company_id, entity_type, entity_id) and has no FK to the invoice, so it has
+ * to be deleted alongside the document or it is stranded. Doing that as a
+ * second round-trip after the document DELETE has already committed its work
+ * leaves exactly that stranding when the second statement fails, and — if a
+ * caller is ever added inside a request transaction — the caught error poisons
+ * the connection (25P02) and every later table's DELETE fails silently.
+ *
+ * A data-modifying CTE runs to completion whether or not anything selects from
+ * it, and both arms see the same snapshot, so the pair is atomic without a
+ * savepoint: either the document and its reversal row both go, or neither does.
+ * The pairing is on (company_id, entity_id), never entity_id alone — two
+ * tenants can hold the same id, and the caller scopes the sweep to one of them.
+ */
+function purgeInvoices(
+  table: 'customer_invoices' | 'supplier_invoices',
+  entityType: 'customer_invoice' | 'supplier_invoice',
+  companyId: string,
+): Promise<DbRow[]> {
+  const doomed = sql.unsafe(
+    `DELETE FROM ${table}
+     WHERE company_id = $1::uuid
+       AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+       AND gl_journal_entry_id IS NULL
+     RETURNING id, company_id`,
+    [companyId],
+  );
+  return sql`
+    WITH purged AS (
+      ${doomed}
+    ), cascaded AS (
+      DELETE FROM soft_delete_journal_reversals r
+      WHERE r.company_id = ${companyId}::uuid
+        AND r.entity_type = ${entityType}
+        AND (r.company_id, r.entity_id) IN (SELECT p.company_id, p.id FROM purged p)
+    )
+    SELECT id, company_id FROM purged
+  ` as Promise<DbRow[]>;
+}
+
+/**
+ * Hard-purge ONE company's records soft-deleted over 5 minutes ago, for a
+ * scheduled per-tenant job: an unscoped sweep of these DELETEs is a
+ * platform-wide hard delete from a job no request bounds. Returns the count.
+ *
+ * NOT WIRED UP TODAY — `git grep purgeExpiredDeletes -- src pages` finds no
+ * caller — and K-053 is why that matters before one is added. A soft-deleted
+ * invoice keeps its row precisely so the sub-ledger can still answer the DATED
+ * question `documentInLedgerAsAtFragment` asks: the delete's GL reversal is
+ * dated to the delete, so for every as-at date between the document and the
+ * delete the control account still carries it and the document must still be
+ * countable. Hard-DELETEing the row removes the only thing that predicate can
+ * evaluate, so those historical dates lose the document from the sub-ledger
+ * side while the GL keeps it — permanently, and with no repair. Whoever wires
+ * a caller up has to decide that trade first; a purge window measured in
+ * minutes almost certainly cannot.
+ *
+ * The `soft_delete_journal_reversals` row (migration 653) is deleted with the
+ * document it describes: it is keyed on (company_id, entity_type, entity_id)
+ * with no FK to the invoice, so the purge would otherwise strand it.
+ */
+/**
+ * Suppliers: a bank rule that posts money through one is disabled first, in
+ * the same savepoint (bankRuleChangeControl.disableRulesLosingTarget) — the
+ * FK clears the rule's supplier, which under `bank_rule` would be a change
+ * needing approval, and the delete would fail.
+ */
+async function purgeSuppliers(companyId: string): Promise<DbRow[]> {
+  const ids = ((await sql`
+    SELECT id FROM suppliers
+    WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+    FOR UPDATE
+  `) as DbRow[]).map((r) => String(r.id));
+  if (ids.length === 0) return [];
+  await disableRulesLosingTarget(companyId, 'supplier_id', ids);
+  return sql`DELETE FROM suppliers WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[]) RETURNING id, company_id` as Promise<DbRow[]>;
+}
+
+export async function purgeExpiredDeletes(companyId: string): Promise<number> {
+  let total = 0;
+
+  // One entry per soft-deletable table.
+  // BL-80: RETURNING id, company_id so we can log per-tenant attribution
+  // and make a mis-fired purge visible in structured logs.
+  //
+  // An invoice that carries a posted journal is NEVER purged. Soft-deleting one
+  // does not reverse its journal — the guard in this file only fires on
+  // `status = 'posted'`, which is not even a value `supplier_invoices.status`
+  // can hold — so the money stays in the payable/receivable control account
+  // while the document leaves the sub-ledger. Hard-deleting the row afterwards
+  // removes the last trace of what that balance belongs to, and re-lets the
+  // migration wizard import the bill a second time (its duplicate lookup
+  // deliberately ignores `deleted_at` for this reason). Keeping the row is what
+  // makes both of those recoverable.
+  const tables: Array<{ entityType: string; fn: () => Promise<DbRow[]> }> = [
+    { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'supplier',         fn: () => purgeSuppliers(companyId) },
+    { entityType: 'item',             fn: () => purgeItems(companyId) },
+    { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice', companyId) },
+    { entityType: 'supplier_invoice', fn: () => purgeInvoices('supplier_invoices', 'supplier_invoice', companyId) },
+  ];
+
+  for (const { entityType, fn } of tables) {
+    try {
+      // Its own savepoint: a refused DELETE rolls back this table only, never
+      // leaving the rest of the purge on an aborted transaction.
+      const rows = await withSavepoint(`purge_${entityType}`, fn);
+      if (rows.length > 0) {
+        // BL-80: log per-tenant attribution so a mis-fired purge is observable
+        const companyIds = [...new Set(rows.map((r) => String(r.company_id)))];
+        log.info('Purged expired soft-deletes', {
+          table: entityType,
+          companyIds,
+          rowCount: rows.length,
+        }, 'accounting');
+        total += rows.length;
+      }
+    } catch (err) {
+      log.error('Failed to purge expired deletes', { entityType, error: err }, 'accounting');
+    }
+  }
+
+  return total;
+}
+
+/**
+ * Soft-deleted items past the grace period, EXCEPT those a document line or a stock movement still names (migration 1005's
+ * FKs have no ON DELETE): one referenced item must not fail the purge of every other.
+ * The NOT EXISTS probe reads under the caller's row level security, which hides a legacy NULL-company stock movement; the
+ * FK still sees it. So each DELETE has its own savepoint, and a 23503 skips that one item (logged), never the rest.
+ * Each DELETE repeats the eligibility test: an item restored (or deleted again) after the candidate read is not purged.
+ */
+async function purgeItems(companyId: string): Promise<DbRow[]> {
+  const candidates = (await sql`
+    SELECT i.id FROM items i
+    WHERE i.company_id = ${companyId}::uuid AND i.deleted_at IS NOT NULL AND i.deleted_at < NOW() - INTERVAL '5 minutes'
+      AND NOT EXISTS (SELECT 1 FROM po_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM customer_quote_lines x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM stock_movements x WHERE x.item_id = i.id)
+  `) as DbRow[];
+  const purged: DbRow[] = [];
+  for (const [n, c] of candidates.entries()) {
+    try {
+      const rows = await withSavepoint(`purge_item_${n}`, async () =>
+        (await sql`
+          DELETE FROM items WHERE id = ${String(c.id)}::uuid AND company_id = ${companyId}::uuid
+            AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+          RETURNING id, company_id`) as DbRow[]);
+      purged.push(...rows);
+    } catch (err) {
+      if ((err as { code?: string }).code !== '23503') throw err;
+      log.warn('Soft-deleted item kept: a row the purge cannot see still names it', { itemId: String(c.id), companyId }, 'accounting');
+    }
+  }
+  return purged;
+}

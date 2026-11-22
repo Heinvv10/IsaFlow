@@ -1,9 +1,10 @@
 // Tests for practiceMonthlyReportService
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, listRecipientsMock, getUtilisationMock, getProfitabilityMock, getWipMock, listUsersMock, sendEmailMock } = vi.hoisted(() => {
+const { payrollReadMock, sqlMock, listRecipientsMock, getUtilisationMock, getProfitabilityMock, getWipMock, listUsersMock, sendEmailMock } = vi.hoisted(() => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
+    payrollReadMock: vi.fn(),
     sqlMock,
     listRecipientsMock: vi.fn(),
     getUtilisationMock: vi.fn(),
@@ -15,6 +16,7 @@ const { sqlMock, listRecipientsMock, getUtilisationMock, getProfitabilityMock, g
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/auth/payrollReadGate', () => ({ mayReadPayroll: payrollReadMock }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -77,6 +79,7 @@ function setupReportData() {
 beforeEach(() => {
   vi.resetAllMocks();
   sendEmailMock.mockResolvedValue({ success: true, messageId: 'msg-1' });
+  payrollReadMock.mockResolvedValue(true);
 });
 
 describe('runMonthlyReports', () => {
@@ -157,5 +160,42 @@ describe('runMonthlyReports', () => {
       COMPANY_ID,
       expect.objectContaining({ asOfDate: '2026-02-28' }),
     );
+  });
+});
+
+// #1656 round 9 (security hook MEDIUM): the e-mail carries each client's margin (from per-person cost rates), so it goes WITH margins only
+// when every opted-in address is a company member holding Payroll read; otherwise everyone gets the version without them.
+describe('runMonthlyReports: who may see the margins', () => {
+  const costVisible = () => getProfitabilityMock.mock.calls[0]![2];
+  const arrange = (recipients: Array<Record<string, unknown>>) => {
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID, name: 'My Firm' }]);
+    listRecipientsMock.mockResolvedValueOnce(recipients);
+    setupReportData();
+  };
+
+  it('every recipient is a member with Payroll read: margins stay in', async () => {
+    arrange([makeRecipient(), makeRecipient({ id: 'r2', email: 'director@firm.co.za', name: 'Bob' })]);
+    const result = await runMonthlyReports('2026-03');
+    expect(costVisible()).toBe(true);
+    expect(result.recipientsEmailed).toBe(2);
+    expect(payrollReadMock).toHaveBeenCalledWith(COMPANY_ID, 'u2');
+    expect(payrollReadMock).toHaveBeenCalledWith(COMPANY_ID, 'u3');
+  });
+
+  it('a mixed list (one member without Payroll read): margins out for EVERYONE, both still e-mailed', async () => {
+    payrollReadMock.mockImplementation(async (_c: string, userId: string) => userId !== 'u3');
+    arrange([makeRecipient(), makeRecipient({ id: 'r2', email: 'director@firm.co.za', name: 'Bob' })]);
+    const result = await runMonthlyReports('2026-03');
+    expect(costVisible()).toBe(false);
+    expect(result.recipientsEmailed).toBe(2);
+  });
+
+  it('an external address (no member): it is skipped and not e-mailed, and the report goes out without margins', async () => {
+    arrange([makeRecipient(), makeRecipient({ id: 'r9', email: 'outsider@elsewhere.example', name: 'Out' })]);
+    const result = await runMonthlyReports('2026-03');
+    expect(costVisible()).toBe(false);
+    expect(result.recipientsSkipped).toBe(1);
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendEmailMock.mock.calls[0]![0].to).toBe(EMAIL);
   });
 });

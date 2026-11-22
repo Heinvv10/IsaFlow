@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({
   withAuth: (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => h,
 }));

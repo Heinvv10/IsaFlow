@@ -24,6 +24,8 @@ export async function globalSearch(
   companyId: string,
   query: string,
   limit: number = 8,
+  /** Employees are searched only for a caller with Payroll read (the route asks); the default is none. */
+  options: { includeEmployees?: boolean } = {},
 ): Promise<SearchResult[]> {
   // ILIKE's own wildcards in what the user typed match literally (backslash is ILIKE's default escape).
   const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -46,7 +48,7 @@ export async function globalSearch(
       searchJournalEntries(companyId, pattern),
       searchBankTransactions(companyId, pattern),
       searchItems(companyId, pattern),
-      searchEmployees(companyId, pattern),
+      options.includeEmployees ? searchEmployees(companyId, pattern) : Promise.resolve([]),
     ]);
 
     // Round-robin across entity types, so a low limit still shows every kind that matched.

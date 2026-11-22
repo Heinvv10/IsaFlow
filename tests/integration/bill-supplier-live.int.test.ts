@@ -129,13 +129,13 @@ describe('the undo of a bill whose supplier was deleted since (review of b474139
         invoiceNumber: number(), supplierId: later, invoiceDate: '2026-06-15',
         items: [{ description: 'Goods', quantity: 1, unitPrice: 40, taxRate: 15, glAccountId: f.acc.opex }],
       }, f.owner))).id;
-      await req.run(() => softDelete(f.co, 'supplier_invoice', bill, f.owner));
+      await req.run(() => softDelete(f.co, 'supplier_invoice', bill, f.owner, { allowReversal: true }));
       await req.commit();
     } catch (err) { await req.rollback(); throw err; }
     await pool.query('UPDATE suppliers SET deleted_at = now() WHERE id = $1', [later]);
     const u = await openRequest(pool, f, f.owner);
     let out: unknown;
-    try { out = await u.run(() => undoDelete(f.co, 'supplier_invoice', bill!, f.owner)); await u.commit(); } catch (err) { await u.rollback(); out = err; }
+    try { out = await u.run(() => undoDelete(f.co, 'supplier_invoice', bill!, f.owner, { allowReversal: true })); await u.commit(); } catch (err) { await u.rollback(); out = err; }
     expect(out).toBeInstanceOf(SoftDeleteRefusalError);
     expect((out as Error).message).toContain('supplier has been deleted, so the bill cannot be restored');
     // The exit (review of 95ef48f8, L1): merges move deleted bills, so only a plain supplier soft-delete leaves one here.

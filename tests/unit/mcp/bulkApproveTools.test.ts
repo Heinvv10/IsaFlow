@@ -10,6 +10,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// #1656: the approver's module Approve is the subject of tests/unit/api/*ApprovePermission*; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -65,7 +67,8 @@ import {
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
 
-const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
+// An owner: #1656's approve permission (Suppliers & AP) holds without a permission read.
+const ctx = { companyId: 'company-1', userId: 'user-1', companyRole: 'owner' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 interface Result { content: { text: string }[]; isError?: boolean;

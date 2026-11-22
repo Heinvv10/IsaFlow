@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withRole } from '@/lib/auth/withAuth';
 import { WITH_ROLE_ADMITS } from '@/lib/auth/withRole';
 import { ROLE_HIERARCHY, type AuthRole } from '@/lib/auth/types';
+import { COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
 function fakeRes() {
   const status = vi.fn().mockReturnThis();
@@ -34,9 +35,8 @@ describe('ROLE_HIERARCHY', () => {
 
   it('every key in ROLE_HIERARCHY is a valid AuthRole literal', () => {
     const keys = Object.keys(ROLE_HIERARCHY) as AuthRole[];
-    const expected: AuthRole[] = [
-      'super_admin', 'owner', 'system', 'admin', 'manager', 'storeman', 'technician', 'viewer',
-    ];
+    // #1656: storeman and technician are retired (companyRoles.ts LEGACY_ROLE_MAP reads them as viewer).
+    const expected: AuthRole[] = ['super_admin', 'system', ...COMPANY_ROLES];
     expect(keys.sort()).toEqual(expected.sort());
   });
 });

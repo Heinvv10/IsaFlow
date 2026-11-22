@@ -18,6 +18,9 @@ import {
 } from '@/modules/accounting/services/core/nlQueryService';
 import { enforceTenantScope } from '@/modules/accounting/services/core/nlQueryScopeGuard';
 import { SCHEMA_TABLES } from '@/modules/accounting/services/core/nlQuerySchemaTables';
+import { sqlTouchesPayrollTables, withoutPayrollTables } from '@/modules/accounting/services/core/nlQueryPayrollTables';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
+import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 
 type Row = Record<string, unknown>;
 
@@ -38,7 +41,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
   }
   const intent = classifyQueryIntent(question);
-  const schemaDesc = buildSchemaDescription(SCHEMA_TABLES);
+  // #1656 (round 6): per-employee pay needs Payroll read, not just a write role. Without it the model is not shown those tables and a
+  // query that names one is refused below.
+  const payrollRead = await mayReadPayroll(companyId, (req as CompanyAuthedRequest).user.id);
+  const schemaDesc = buildSchemaDescription(payrollRead ? SCHEMA_TABLES : withoutPayrollTables(SCHEMA_TABLES));
   const prompt = buildTextToSQLPrompt(question, schemaDesc, companyId);
 
   // Call Claude
@@ -95,6 +101,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const validation = validateGeneratedSQL(parsed.sql);
     if (!validation.valid) {
       return apiResponse.success(res, { intent, message: `Generated SQL was rejected: ${validation.error}`, rows: [], columns: [], summary: 'Query rejected' });
+    }
+
+    if (!payrollRead && sqlTouchesPayrollTables(validation.sanitizedSQL)) {
+      log.warn('NL query refused: payroll tables without Payroll read', { question, companyId }, 'ai');
+      return apiResponse.forbidden(res, NO_PAYROLL_DETAIL_ACCESS);
     }
 
     // Enforce tenant isolation at the AST level. A substring regex for

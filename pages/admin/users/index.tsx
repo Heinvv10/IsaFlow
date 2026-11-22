@@ -15,6 +15,7 @@ import { Search, Building2, AlertCircle, Loader2, Download } from 'lucide-react'
 import { AdminPager } from '@/components/admin/AdminPager';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
 import { adminFetch } from '@/lib/admin/adminFetch';
+import { PLATFORM_USER_ROLES } from '@/lib/auth/companyRoles';
 
 interface AdminUser {
   id: string;
@@ -43,7 +44,7 @@ const STATUS_BADGE: Record<string, string> = {
   inactive:  'bg-gray-500/10 text-gray-500',
 };
 
-const ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
+const ROLES = PLATFORM_USER_ROLES;
 
 const LIMIT = 25;
 

@@ -22,6 +22,7 @@ import {
   DuplicateCostCentreError,
 } from '@/modules/accounting/services/payroll/payrollCostAllocationService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const PutBody = z
   .object({
@@ -63,4 +64,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

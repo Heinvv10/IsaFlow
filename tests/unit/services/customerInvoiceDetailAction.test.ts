@@ -16,6 +16,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 // R-032 L5: the Login-as guard runs its own query first; it is covered by
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// #1656: the module Approve is the subject of tests/unit/api/approveGateEverything; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({

@@ -53,6 +53,7 @@ import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpe
 
 export const performBankReconciliationTool: McpTool = {
   name: 'perform_bank_reconciliation',
+  approveModule: 'banking', // #1656: moduleFence asks this Approve before the handler
   description:
     'Start a bank reconciliation for one account at a statement date and balance. It claims every '
     + 'unreconciled transaction of that account dated on or before the statement date: an ALLOCATED '

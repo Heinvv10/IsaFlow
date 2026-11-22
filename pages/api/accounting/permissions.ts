@@ -15,14 +15,29 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
 import {
+  isMemberWriteBusy, MemberRoleForbiddenError, resetMemberPermissions, setMemberApproveWithheld, setMemberModulePermission,
+} from '@/modules/accounting/services/core/memberWrites';
+import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
+import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
+import {
   getPermissionModules,
-  getUserPermissions,
-  setUserModulePermission,
-  resetUserPermissions,
+  getEffectivePermissions,
+  getMemberAccess,
 } from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
 
 const ADMIN_ROLES = ['owner', 'admin'];
+
+/**
+ * A permission write the owner / admin check (memberWrites) refused, that would strand a pending pay run (409), or that waited past
+ * the lock bound: 403 / 409; false for anything else.
+ */
+function respondIfPermissionWriteRefused(res: NextApiResponse, err: unknown): boolean {
+  if (err instanceof MemberRoleForbiddenError || err instanceof OwnerProtectedError) { apiResponse.forbidden(res, err.message); return true; }
+  if (err instanceof PayRunApproverProtectedError) { apiResponse.conflict(res, err.message); return true; }
+  if (isMemberWriteBusy(err)) { apiResponse.conflict(res, 'Another change to this member is in progress. Nothing was changed; retry in a moment.'); return true; }
+  return false;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
@@ -42,29 +57,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
+    // company_users.user_id is TEXT and need not be a UUID (#1670 Codex): looked up by company as text, never cast.
 
-    const [modules, customMap] = await Promise.all([
+    // #1656: a module the user has no row for shows the role default, the permission
+    // checkPermission enforces (it showed all-off, so one toggle saved a row that also
+    // took away the default read/write/export).
+    const member = await getMemberAccess(companyId, userId);
+    if (member === null) return apiResponse.notFound(res, 'User');
+    const [modules, permissions] = await Promise.all([
       getPermissionModules(),
-      getUserPermissions(companyId, userId),
+      getEffectivePermissions(companyId, userId, member.role, member.approveWithheld),
     ]);
 
-    const permissions = modules.map((mod) => {
-      const custom = customMap.get(mod.moduleKey);
-      return custom ?? {
-        moduleKey: mod.moduleKey,
-        moduleName: mod.moduleName,
-        canRead: false,
-        canWrite: false,
-        canDelete: false,
-        canExport: false,
-        canApprove: false,
-        accountRangeFrom: null,
-        accountRangeTo: null,
-        restrictions: {},
-      };
-    });
-
-    return apiResponse.success(res, { modules, permissions });
+    return apiResponse.success(res, { modules, permissions, approveWithheld: member.approveWithheld });
   }
 
   // ── POST ──────────────────────────────────────────────────────────────────
@@ -100,18 +105,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.notFound(res, 'User');
     }
 
-    await setUserModulePermission(companyId, userId, moduleKey, {
-      canRead: Boolean(body.canRead),
-      canWrite: Boolean(body.canWrite),
-      canDelete: Boolean(body.canDelete),
-      canExport: Boolean(body.canExport),
-      canApprove: Boolean(body.canApprove),
-      accountRangeFrom: body.accountRangeFrom ?? null,
-      accountRangeTo: body.accountRangeTo ?? null,
-    });
+    try {
+      await setMemberModulePermission(companyId, userId, moduleKey, {
+        canRead: Boolean(body.canRead),
+        canWrite: Boolean(body.canWrite),
+        canDelete: Boolean(body.canDelete),
+        canExport: Boolean(body.canExport),
+        canApprove: Boolean(body.canApprove),
+        accountRangeFrom: body.accountRangeFrom ?? null,
+        accountRangeTo: body.accountRangeTo ?? null,
+      }, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (respondIfPermissionWriteRefused(res, err)) return;
+      throw err;
+    }
 
     log.info('Permission set via API', { companyId, userId, moduleKey }, 'PermissionsAPI');
     return apiResponse.success(res, { ok: true });
+  }
+
+  // ── PUT: withhold (or restore) the manager default of Approve and Payroll for one member (#1656 round 3) ──
+  if (req.method === 'PUT') {
+    const { userId, approveWithheld } = (req.body ?? {}) as { userId?: unknown; approveWithheld?: unknown };
+    if (typeof userId !== 'string' || typeof approveWithheld !== 'boolean') {
+      return apiResponse.badRequest(res, 'userId and approveWithheld (true or false) are required.');
+    }
+    if (!(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
+    try {
+      await setMemberApproveWithheld(companyId, userId, approveWithheld, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (respondIfPermissionWriteRefused(res, err)) return;
+      throw err;
+    }
+    return apiResponse.success(res, { ok: true, approveWithheld });
   }
 
   // ── DELETE ────────────────────────────────────────────────────────────────
@@ -120,12 +146,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
+    if (!(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
 
-    await resetUserPermissions(companyId, userId);
+    try {
+      await resetMemberPermissions(companyId, userId, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (respondIfPermissionWriteRefused(res, err)) return;
+      throw err;
+    }
     return apiResponse.success(res, { ok: true });
   }
 
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT', 'DELETE']);
 }
 
  

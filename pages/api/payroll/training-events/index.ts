@@ -19,6 +19,7 @@ import {
   type TrainingCategory,
 } from '@/modules/accounting/services/payroll/trainingEventService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const CATEGORIES = [
   'aet', 'learnership', 'skills_programme', 'internship',
@@ -82,4 +83,4 @@ function getHandler(): (req: AuthenticatedNextApiRequest, res: NextApiResponse) 
   };
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(getHandler()))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(getHandler())))));

@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const masks = vi.hoisted(() => [] as Array<readonly string[] | undefined>);
 type H = (req: NextApiRequest, res: NextApiResponse) => unknown;
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({ withAuth: (h: H) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: H) => h }));
 vi.mock('@/lib/auth/withWriteAccess', () => ({ withWriteAccess: (h: H) => h }));

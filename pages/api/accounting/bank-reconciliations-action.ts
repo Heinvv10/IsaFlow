@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -62,10 +63,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     }
     if (body.action === 'reopen') {
+      // #1656 (round 3): reopening a signed-off reconciliation asks Banking Approve, before any write.
+      if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank reconciliations')) return;
       const result = await reopenReconciliation(companyId, body.reconciliationId, userId, { reason: body.reason });
       return apiResponse.success(res, result);
     }
-    // adjustment
+    // adjustment: posts a journal (#1656, round 3: Banking Approve, before any write)
+    if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'reconciliation adjustments')) return;
     const jeId = await withJournalDateRefusal(res, () => createAdjustmentEntry(
       companyId, body.reconciliationId, body.bankAccountId, body.contraAccountId,
       body.amount, body.description, userId,

@@ -12,6 +12,7 @@ import { runAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolManifest, McpToolResult } from './types';
 import { roleFenceRefusal } from './roleFence';
+import { moduleFenceRefusal } from './moduleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { insufficientFlowsText } from './flowRefusal';
@@ -108,7 +109,7 @@ export class McpRegistry {
       return reject(insufficientScopeMessage(tool.requiresScope), null);
     }
 
-    const roleRefusal = roleFenceRefusal(tool, ctx);
+    const roleRefusal = roleFenceRefusal(tool, ctx) ?? await moduleFenceRefusal(tool, args, ctx); // #1656: module fence
     if (roleRefusal) return reject(roleRefusal, null);
 
     // A NUL byte reaches Postgres as 22021 and aborts the transaction; refuse it before any

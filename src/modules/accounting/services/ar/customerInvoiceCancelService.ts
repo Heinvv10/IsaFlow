@@ -35,8 +35,12 @@ import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { ApprovePermissionError } from '../core/approvePermission';
 
 type Row = DbRow;
+
+/** A customer invoice that was never approved: nothing on the books to take back. */
+const UNAPPROVED_STATUSES = ['draft', 'pending_approval'];
 
 /** Amounts below this (in currency units) are treated as zero to absorb rounding. */
 const ZERO_TOLERANCE = 0.005;
@@ -57,6 +61,14 @@ export class InvoiceHasPaymentsError extends Error {
   }
 }
 
+/**
+ * allowReversal: the caller's Customers & AR Approve (#1656). Cancelling an invoice that carries a journal reverses it, which
+ * is an approval act; the service decides that UNDER THE ROW LOCK from the locked row (gl_journal_entry_id IS NOT NULL),
+ * so a status read the route took before the lock cannot be outrun by the invoice being approved in between. Required, so
+ * every caller states it: a caller that never reverses (the MCP draft cancel) passes false.
+ */
+export interface CancelCustomerInvoiceOptions { allowReversal: boolean }
+
 export interface CancelCustomerInvoiceResult {
   id: string;
   /** Id of the reversal journal entry, or null when nothing was reversed. */
@@ -73,15 +85,17 @@ export async function cancelCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
+  options: CancelCustomerInvoiceOptions,
 ): Promise<CancelCustomerInvoiceResult> {
   return withSavepoint('cancel_customer_invoice', () => underFlowLockBudget(`Invoice ${invoiceId}`, () =>
-    cancelCustomerInvoiceInner(companyId, invoiceId, userId))); // one lock budget (D8 round 10)
+    cancelCustomerInvoiceInner(companyId, invoiceId, userId, options))); // one lock budget (D8 round 10)
 }
 
 async function cancelCustomerInvoiceInner(
   companyId: string,
   invoiceId: string,
   userId: string,
+  { allowReversal }: CancelCustomerInvoiceOptions,
 ): Promise<CancelCustomerInvoiceResult> {
   try {
     // FOR UPDATE locks the invoice row for this request tx so two concurrent
@@ -108,6 +122,13 @@ async function cancelCustomerInvoiceInner(
     // reversed (or never had one). Do not reverse again or re-zero.
     if (String(inv.status) === 'cancelled') {
       return { id: invoiceId, reversedJournalEntryId: null };
+    }
+
+    // #1656: cancelling an invoice that is APPROVED OR LATER, or carries a journal, is an approval act (a Sage-imported approved
+    // invoice has no journal but is on the books: round 4, B-M1). Decided here, on the locked row, before any other read or
+    // write. Only a draft / pending-approval invoice with no journal cancels without Approve.
+    if (!allowReversal && (inv.gl_journal_entry_id || !UNAPPROVED_STATUSES.includes(String(inv.status)))) {
+      throw new ApprovePermissionError('customers', 'customer invoices');
     }
 
     // Block cancel when the invoice carries settled payments (mirrors the

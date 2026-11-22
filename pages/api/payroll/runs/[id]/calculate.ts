@@ -23,6 +23,7 @@ import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/t
 import { PayrollRunDirectiveUseError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,4 +77,4 @@ async function handler(
 }
 
 // A viewer must not recalculate a run (W3-01 review): the same roles as approve.
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

@@ -64,7 +64,7 @@ async function state(bill: string): Promise<Row> {
 }
 
 const del = (bill: string) =>
-  inTx(fx, () => softDelete(fx.companyId, 'supplier_invoice', bill, fx.userId));
+  inTx(fx, () => softDelete(fx.companyId, 'supplier_invoice', bill, fx.userId, { allowReversal: true }));
 
 async function refusedLeavingItAlone(bill: string, message: RegExp): Promise<void> {
   const before = await state(bill);
