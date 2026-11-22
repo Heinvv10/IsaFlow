@@ -162,7 +162,7 @@ export default function NewBankTransactionPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <DateField label="Date" required name="date" value={form.date || null}
+                          <DateField label="Date" required postingDate name="date" value={form.date || null}
                             onChange={(iso, v) => patch({ date: v.valid ? iso ?? '' : '' })} />
                         </div>
                         <div>

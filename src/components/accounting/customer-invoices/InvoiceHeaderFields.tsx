@@ -55,7 +55,7 @@ export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, 
     onDateValidity('dueDate', { valid: true, code: null, reason: null });
     setDueRevalidate((k) => k + 1);
   }, [form.invoiceDate, onDateValidity]);
-  const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string; error?: string; anchorDate?: string; helperText?: string } = {}) => (
+  const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string; error?: string; anchorDate?: string; helperText?: string; postingDate?: boolean } = {}) => (
     <DateField label={label} value={form[key] || null} resetKey={key === 'dueDate' ? `${resetKey ?? 0}:${dueRevalidate}` : resetKey} {...extra}
       onChange={(iso, v) => { if (key === 'dueDate') onDueDateEdited?.(); onDateValidity(key, v); if (v.valid) onChange({ [key]: iso ?? '' }); }} />
   );
@@ -74,7 +74,7 @@ export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, 
       </InvoiceCard>
       <InvoiceCard n={2} title="Dates & Period">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          {date('invoiceDate', 'Invoice date', { required: true })}
+          {date('invoiceDate', 'Invoice date', { required: true, postingDate: true })}
           {/* Typing counts as touched before it commits: a default landing now would wipe the text under the cursor. */}
           <div onInput={onDueDateEdited}>{date('dueDate', 'Due date', {
             anchorDate: form.invoiceDate,
