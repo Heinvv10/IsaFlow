@@ -12,11 +12,11 @@ const before = (refs: string[]) => ({ poTotals: new Map(refs.map((r) => [r, 1] a
 
 describe('buildLineLinks', () => {
   it('a live run counts the linked lines found in the books for the POs it wrote, not what the plan hoped', () => {
-    const r = buildLineLinks(plan(po('1', 1, 2, 0), po('2', 2, 3, 0)), before([]), { poLinkedLines: new Map([['1', 2], ['2', 0]]) });
+    const r = buildLineLinks(plan(po('1', 1, 2, 0), po('2', 2, 3, 0)), before([]), { poLinkedLines: new Map([['1', 2], ['2', 0]]), poTotals: new Map([['1', 1], ['2', 1]]) });
     expect(r).toMatchObject({ linked: 2, basis: 'booked', alreadyThere: [] });
   });
   it('POs already in the books are listed as already there and add nothing to linked or not linked', () => {
-    const r = buildLineLinks(plan(po('1', 1, 2, 1), po('2', 2, 3, 2)), before(['2']), { poLinkedLines: new Map([['1', 2], ['2', 3]]) });
+    const r = buildLineLinks(plan(po('1', 1, 2, 1), po('2', 2, 3, 2)), before(['2']), { poLinkedLines: new Map([['1', 2], ['2', 3]]), poTotals: new Map([['1', 1], ['2', 1]]) });
     expect(r.alreadyThere).toEqual(['PO2']);
     expect(r.linked).toBe(2);
     expect(r.notLinked.map((x) => x.poNumber)).toEqual(['PO1']);
@@ -26,6 +26,13 @@ describe('buildLineLinks', () => {
     expect(r).toMatchObject({ linked: 2, basis: 'planned', alreadyThere: ['PO2'] });
   });
   it('a PO the run was to write but is not in the books after counts 0', () => {
-    expect(buildLineLinks(plan(po('1', 1, 4, 0)), before([]), { poLinkedLines: new Map() }).linked).toBe(0);
+    expect(buildLineLinks(plan(po('1', 1, 4, 0)), before([]), { poLinkedLines: new Map(), poTotals: new Map([['1', 1]]) }).linked).toBe(0);
+  });
+
+  it('L4 (round 5): after a live run, notLinked lists only POs that are in the books; a PO of a failed batch is not listed', () => {
+    const p = plan(po('1', 1, 0, 2), po('2', 2, 0, 3));
+    const r = buildLineLinks(p, before([]), { poLinkedLines: new Map(), poTotals: new Map([['1', 1]]) });
+    expect(r.notLinked.map((x) => x.poNumber)).toEqual(['PO1', 'PO1']);
+    expect(buildLineLinks(p, before([]), null).notLinked).toHaveLength(5); // a dry run: nothing is written, all that would be
   });
 });

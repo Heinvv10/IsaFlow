@@ -16,6 +16,8 @@ interface Input {
   failedBatches: number;
   expect: MigrationOptions['expect'];
   live: boolean;
+  /** PO numbers listed as differences (found already there with another figure): allowed, so not a booking that went missing. */
+  differingPos?: ReadonlySet<string>;
 }
 
 const check = (expected: number | undefined, actual: number, basis: 'sent' | 'booked'): Expectation | null =>
@@ -28,6 +30,13 @@ export function buildReconciliation(i: Input): Reconciliation {
   const poIds = plan.purchaseOrders.map((x) => x.sageId);
   const sentTotalCents = plan.purchaseOrders.reduce((s, p) => s + p.totalCents, 0);
   const bookedTotalCents = poIds.reduce((s, id) => s + (after.poTotals.get(id) ?? 0), 0);
+  // After a live run the PDF list names only POs that are in the books (a PO of a failed batch has nothing to attach to); a dry run lists what would be.
+  const pdfPos = plan.purchaseOrders.filter((p) => p.pdfFile && (!i.live || after.poTotals.has(p.sageId)));
+  // A PO already booked with another total is a listed difference (allowed with --allow-differences), not a booking that went missing.
+  const offTotalAllowed = poIds.reduce((s, id, n) => {
+    const p = plan.purchaseOrders[n]!;
+    return s + (i.differingPos?.has(p.documentNumber) && after.poTotals.has(id) ? p.totalCents - (after.poTotals.get(id) ?? 0) : 0);
+  }, 0);
   const itemsAfter = itemIds.filter((id) => after.itemRefs.has(id)).length;
   const posAfter = poIds.filter((id) => after.poTotals.has(id)).length;
   const differenceCents = sentTotalCents - bookedTotalCents;
@@ -56,11 +65,11 @@ export function buildReconciliation(i: Input): Reconciliation {
       itemsWithQuantityOnHandIgnored: parsed.itemsWithQuantityOnHand,
     },
     attachments: {
-      posWithPdf: plan.purchaseOrders.filter((p) => p.pdfFile).length, uploadedByRunner: 0,
-      files: plan.purchaseOrders.flatMap((p) => (p.pdfFile ? [{ poNumber: p.documentNumber, pdfFile: p.pdfFile }] : [])),
+      posWithPdf: pdfPos.length, uploadedByRunner: 0,
+      files: pdfPos.map((p) => ({ poNumber: p.documentNumber, pdfFile: p.pdfFile as string })),
     },
     allSentBooked: i.live && i.failedBatches === 0 && itemsAfter === itemIds.length && posAfter === poIds.length
-      && differenceCents === 0 && stockWritten === 0,
+      && differenceCents === offTotalAllowed && stockWritten === 0,
     nothingRefused: plan.refusals.length === 0,
   };
 }

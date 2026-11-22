@@ -98,7 +98,7 @@ describe('batching and keys', () => {
 
 describe('reconciliation and its lines', () => {
   const snap = (items: string[], pos: Array<[string, number]>, stock = 0) => ({
-    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), inactiveSuppliers: new Set<string>(),
+    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), poStates: new Map<string, string>(), poLinkedLines: new Map<string, number>(), inactiveSuppliers: new Set<string>(),
   });
   const base = () => {
     const p = parsed();
@@ -113,6 +113,25 @@ describe('reconciliation and its lines', () => {
     const { b, after } = all();
     const r = buildReconciliation({ ...b, before: snap([], []), after });
     expect([r.allSentBooked, r.nothingRefused]).toEqual([true, true]);
+  });
+  it('L3 (round 5): a PO already booked with another total (a listed difference) is not a missing booking; any other total off still is', () => {
+    const { b, after } = all();
+    const [firstRef, firstTotal] = [...after.poTotals][0]!;
+    const off = snap([...after.itemRefs], [...after.poTotals].map(([k, v]) => [k, k === firstRef ? firstTotal + 500 : v] as [string, number]));
+    const po1 = b.plan.purchaseOrders.find((x) => x.sageId === firstRef)!.documentNumber;
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off }).allSentBooked).toBe(false);
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set([po1]) }).allSentBooked).toBe(true);
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set(['PO-other']) }).allSentBooked).toBe(false);
+    // The figures themselves stay honest: the difference is still reported.
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set([po1]) }).purchaseOrders.differenceCents).toBe(-500);
+  });
+  it('L4 (round 5): after a live run attachments list only the POs that are in the books', () => {
+    const { b, after } = all();
+    const partial = snap([...after.itemRefs], [...after.poTotals].slice(0, 4));
+    const r = buildReconciliation({ ...b, before: snap([], []), after: partial });
+    expect(r.attachments.posWithPdf).toBe(4);
+    expect(r.attachments.files).toHaveLength(4);
+    expect(buildReconciliation({ ...b, live: false, before: snap([], []), after: snap([], []) }).attachments.posWithPdf).toBe(10); // a dry run: what would be
   });
   it('nothingRefused follows the plan\'s refusals, whatever happened to the rows that were sent', () => {
     const { b, after } = all();
