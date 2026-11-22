@@ -50,8 +50,8 @@ export async function offCyclePaidReopenRefusal(
 export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown; approval_history?: unknown }, today: string = todayInSast()): string | null {
   if (run.run_kind !== 'off_cycle') return null;
   const payDate = dateColumnOf(run.run_date);
-  // A run approved over the start of its payday and reopened to correct it (final breaker M; gate item 1 on 06c106a94d:
-  // that approval, not any earlier one): its money is out, so the cash-forecast reason for this refusal (D1) does not
+  // A run whose approval overlapped its payday and was reopened to correct it (final breaker M; gate item 1 on 06c106a94d,
+  // review M1 of e9f437f366: that approval, not any earlier one): its money is out, so the cash-forecast reason for this refusal (D1) does not
   // apply; re-approving it after its pay date is allowed.
   if (approvalCoveredPayday(run.approval_history, payDate)) return null;
   if (payDate === null) return 'This off-cycle run has no pay date. Create it again with one.';

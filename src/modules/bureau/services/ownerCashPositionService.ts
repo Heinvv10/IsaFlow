@@ -44,7 +44,7 @@ export interface PayrollRunRow {
   /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
   final?: boolean;
   /**
-   * Gate rulings on 7630d9379f: an approval of the run covered the start of its payday (approval_history,
+   * Review M1 of e9f437f366: an approval of the run overlapped its payday, the SAST day of its pay date (approval_history,
    * approvalCoveredPaydaySql), so its salaries were disbursed even if it has since been reopened; its gross, and an off-cycle run's paid gross (999x snapshot).
    */
   disbursed?: boolean;
@@ -142,7 +142,7 @@ const emp201Due = (r: PayrollRunRow): string =>
 /**
  * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Before its pay date, or overdue and
  * neither final nor disbursed (review #1679 M3): all of it. Once its pay date has passed and it was paid (final, or an
- * approval that covered the start of its payday, since reopened): payday settled the net pay, so it needs its PAYE (less ETI, never
+ * approval that overlapped its payday, since reopened): payday settled the net pay, so it needs its PAYE (less ETI, never
  * below nil), UIF and SDL until the
  * month's EMP201 is due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
