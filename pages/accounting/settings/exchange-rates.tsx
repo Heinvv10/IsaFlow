@@ -90,7 +90,7 @@ export default function ExchangeRatesSettingsPage() {
             </div>
             <button
               onClick={loadData}
-              className="p-2 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] transition-colors"
+              className="p-2 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
               title="Refresh"
             >
               <RefreshCw className="h-4 w-4" />
@@ -123,7 +123,7 @@ export default function ExchangeRatesSettingsPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)] py-4">No exchange rates recorded yet.</p>
               ) : (
                 <div className="rounded-xl border border-[var(--ff-border-light)] overflow-hidden">
-                  <table className="w-full text-sm">
+                  <table className="table-cards w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                         <th className="text-left px-4 py-2.5 text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">From</th>
@@ -136,15 +136,15 @@ export default function ExchangeRatesSettingsPage() {
                     <tbody className="divide-y divide-[var(--ff-border-light)]">
                       {sortedRates.map(r => (
                         <tr key={r.id} className="bg-[var(--ff-bg-secondary)] hover:bg-[var(--ff-bg-primary)] transition-colors">
-                          <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.fromCurrency}</td>
-                          <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.toCurrency}</td>
-                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.rate.toFixed(6)}</td>
-                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.effectiveDate)}</td>
+                          <td data-label="From" className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.fromCurrency}</td>
+                          <td data-label="To" className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.toCurrency}</td>
+                          <td data-label="Rate" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.rate.toFixed(6)}</td>
+                          <td data-label="Effective Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.effectiveDate)}</td>
                           <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => handleDelete(r.id)}
                               disabled={deleting === r.id}
-                              className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                              className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
                               title="Delete rate"
                             >
                               {deleting === r.id
