@@ -189,11 +189,12 @@ describe('expected refusals answer 400 / 409, not 500', () => {
   });
 
   it('posting a possible duplicate of a mirrored document → 409 naming the mirror; with confirmDuplicate the service is told so', async () => {
-    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationPossibleDuplicateError(ADJ, 'Invoice X (mirrored)', true));
+    const facts = { label: 'Invoice X (mirrored)', sum: false, periodEnd: '2026-03-31', mirrors: [{ ref: 'Invoice X (mirrored)', amount: 1000, stands: true, link: 'none' as const }] };
+    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationPossibleDuplicateError(ADJ, facts));
     const res = await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ });
     expect(res.status).toHaveBeenCalledWith(409);
     expect(message(res)).toContain('Possibly the same sale as mirrored document Invoice X (mirrored)');
-    expect(res.json.mock.calls[0]![0].error.details).toEqual({ reason: 'possible_duplicate', mirroredRef: 'Invoice X (mirrored)', mirrorStands: true, pairCutover: null, mirrorLinked: false });
+    expect(res.json.mock.calls[0]![0].error.details).toEqual({ reason: 'possible_duplicate', mirroredRef: 'Invoice X (mirrored)', mirrorFacts: facts, pairCutover: null });
     svc.postEliminationAdjustment.mockResolvedValueOnce(undefined);
     await call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ, confirmDuplicate: true });
     expect(svc.postEliminationAdjustment).toHaveBeenLastCalledWith(ADJ, GROUP, true);

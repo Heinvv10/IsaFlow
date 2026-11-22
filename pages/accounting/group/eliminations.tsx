@@ -15,20 +15,20 @@ import {
 } from '@/components/accounting/group/EliminationsFlaggedNotice';
 import { MirroredDroppedNotice, parseDroppedMirrored, type DroppedMirrored } from '@/components/accounting/group/MirroredDroppedNotice';
 import { useEliminationCreateForm } from '@/components/accounting/group/useEliminationCreateForm';
-import { possibleDuplicateMessage } from '@/modules/accounting/services/reports/eliminationErrors';
+import { allStand, parseMirrorFacts, possibleDuplicateMessage, type MirrorFacts } from '@/modules/accounting/services/reports/mirrorFacts';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui/DateField';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 interface EntityGroup { id: string; name: string; }
-interface PossibleDuplicate { id: string; ref: string; stands: boolean; cutover: string | null; linked: boolean }
+interface PossibleDuplicate { id: string; facts: MirrorFacts; cutover: string | null }
 const NO_NOTES = { flagged: [] as FlaggedRow[], skipped: [] as SkippedRow[] };
 
 /** The possible duplicate a 409 body names (a post refused because the list was stale: the mirror was accepted after it loaded), or null. */
 function possibleDuplicateIn(body: unknown, id: string): PossibleDuplicate | null {
-  const d = (body as { error?: { details?: { reason?: unknown; mirroredRef?: unknown; mirrorStands?: unknown; pairCutover?: unknown; mirrorLinked?: unknown } } } | null)?.error?.details;
-  return d?.reason === 'possible_duplicate' && typeof d.mirroredRef === 'string'
-    ? { id, ref: d.mirroredRef, stands: d.mirrorStands === true, cutover: typeof d.pairCutover === 'string' ? d.pairCutover : null, linked: d.mirrorLinked === true } : null;
+  const d = (body as { error?: { details?: { reason?: unknown; mirrorFacts?: unknown; pairCutover?: unknown } } } | null)?.error?.details;
+  const facts = d?.reason === 'possible_duplicate' ? parseMirrorFacts(d.mirrorFacts) : null;
+  return facts ? { id, facts, cutover: typeof d?.pairCutover === 'string' ? d.pairCutover : null } : null;
 }
 
 export default function EliminationsPage() {
@@ -119,8 +119,8 @@ export default function EliminationsPage() {
     postAction(id, { action: 'post-elimination', adjustmentId: id, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }, 'Could not post the elimination - try again');
   const handlePost = (id: string) => {
     const item = items.find((i) => i.id === id);
-    if (item?.mirroredDuplicateOf) {
-      setConfirmPost({ id, ref: item.mirroredDuplicateOf, stands: item.mirrorStands === true, cutover: item.pairCutover ?? null, linked: item.mirrorLinked === true }); return;
+    if (item?.mirrorFacts) {
+      setConfirmPost({ id, facts: item.mirrorFacts, cutover: item.pairCutover ?? null }); return;
     }
     return post(id, false);
   };
@@ -187,8 +187,8 @@ export default function EliminationsPage() {
         <ConfirmDialog
           open={confirmPost !== null}
           title="Post a possible duplicate?"
-          message={confirmPost ? possibleDuplicateMessage(confirmPost.ref, confirmPost.stands, confirmPost.cutover, confirmPost.linked) : ''}
-          confirmLabel={confirmPost?.stands && !confirmPost.cutover ? 'Post anyway' : 'Post'} confirmTone={confirmPost?.stands && !confirmPost.cutover ? 'danger' : 'primary'}
+          message={confirmPost ? possibleDuplicateMessage(confirmPost.facts, confirmPost.cutover) : ''}
+          confirmLabel={confirmPost && allStand(confirmPost.facts) && !confirmPost.cutover ? 'Post anyway' : 'Post'} confirmTone={confirmPost && allStand(confirmPost.facts) && !confirmPost.cutover ? 'danger' : 'primary'}
           onConfirm={() => { const id = confirmPost?.id; setConfirmPost(null); if (id) void post(id, true); }}
           onCancel={() => setConfirmPost(null)}
         />

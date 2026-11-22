@@ -10,7 +10,7 @@ import {
   ELIMINATION_TYPE_LABELS,
   type EliminationAdjustment,
 } from './EliminationsShared';
-import { matchedElsewhereText } from '@/modules/accounting/services/reports/eliminationErrors';
+import { duplicateBadgeText } from '@/modules/accounting/services/reports/mirrorFacts';
 
 interface Props {
   items: EliminationAdjustment[];
@@ -20,20 +20,9 @@ interface Props {
   onReverse: (id: string) => void;
 }
 
-/** What the list says about a possible duplicate of a mirrored document: what is true, and "reverse" only for a posted row whose mirror is eliminated. */
+/** What the list says about a possible duplicate of a mirrored document: the facts' one wording (mirrorFacts.ts), never more than they show. */
 export function duplicateText(adj: EliminationAdjustment): string {
-  const m = adj.mirroredDuplicateOf;
-  const shared = (adj.mirrorShared ?? 1) > 1 ? ` ${adj.mirrorShared} listed eliminations point at this mirror: at most one of them can be its duplicate.` : '';
-  if (!adj.mirrorStands) {
-    return `Possibly the same sale as mirrored document ${m}, which is NOT eliminated automatically at the moment (booked in another financial year, not approved yet, or reversed): this may be its only elimination.${shared}`;
-  }
-  if (adj.status === 'draft' && adj.pairCutover) {
-    return `${matchedElsewhereText(m ?? '', adj.pairCutover, adj.mirrorLinked === true)} Check before posting.${shared}`;
-  }
-  if (adj.status === 'draft') return `Possibly the same sale as mirrored document ${m}, which is eliminated automatically: check before posting.${shared}`;
-  return shared
-    ? `Posted, and possibly the same sale as mirrored document ${m}, which is eliminated automatically.${shared} Check which, and reverse that one only.`
-    : `Posted, and possibly the same sale as mirrored document ${m}, which is eliminated automatically: check, and reverse this one if so.`;
+  return adj.mirrorFacts ? duplicateBadgeText(adj.mirrorFacts, adj.status, adj.pairCutover ?? null, adj.mirrorShared ?? 1) : '';
 }
 
 export function EliminationsTable({ items, loading, actionLoading, onPost, onReverse }: Props) {
@@ -84,7 +73,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs">
                 <div className="truncate" title={adj.description}>{adj.description}</div>
                 {adj.manualReason && <div className="mt-0.5 text-xs text-[var(--ff-text-secondary)]">Reason: {adj.manualReason}</div>}
-                {adj.mirroredDuplicateOf && (
+                {adj.mirrorFacts && (
                   <div role="note" className="mt-1 text-xs text-[var(--ff-text-primary)] border-l-2 border-amber-500/60 pl-2">
                     <span className="mr-1 inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold">
                       Possible duplicate

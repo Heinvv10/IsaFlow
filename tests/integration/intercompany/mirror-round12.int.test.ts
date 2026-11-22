@@ -53,7 +53,7 @@ describe('drafted and flagged, never skipped', () => {
     const first = await generate();
     const own = first.made.find((a) => a.sourceIntercompanyId === r1.id)!;
     expect(own.status).toBe('draft');
-    expect(own.description).toMatch(/CHECK BEFORE POSTING: possibly the same sale as mirrored document .*Invoice/);
+    expect(own.description).toMatch(/CHECK BEFORE POSTING: Possibly the same sale as mirrored document .*Invoice/);
     expect(first.flagged.map((f) => [f.transactionId, f.adjustmentId])).toEqual([[r1.id, own.id]]);   // (B -> A runs the other way: no flag)
     const again = await generate('2026-01-01', '2026-12-31');
     expect(again.flagged).toEqual([]);   // nothing drafted this run, nothing reported

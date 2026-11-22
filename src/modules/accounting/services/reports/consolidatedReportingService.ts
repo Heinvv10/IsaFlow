@@ -16,6 +16,7 @@ import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { EliminationAlreadyStandsError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
 import { storedEliminationRows } from './eliminationDuplicates';
+import { allStand, anyLinkedElsewhere, factsFromRows, type MirrorFacts } from './mirrorFacts';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -46,16 +47,18 @@ export interface ConsolidationAdjustment {
   postedBy: string | null; postedAt: string | null; createdAt: string;
   /** A derived line (mirrored intercompany documents): computed from the ledgers at read time, never stored; it cannot be posted or reversed. */
   automatic?: boolean;
-  /** A draft or posted stored adjustment whose source row now matches a live mirrored sale (intercompany_mirrored_duplicate): the mirror named. */
+  /** A draft or posted stored adjustment whose source row now matches a live mirrored sale (intercompany_mirrored_duplicate): the mirror(s) named (facts.label). */
   mirroredDuplicateOf?: string | null;
-  /** Whether that mirror (all of them, for a sum) is eliminated automatically: its pair stands at its later document date and today. */
+  /** What is true of that mirror(s) for the adjustment's period (intercompany_mirror_facts): every sentence about it is worded from these (mirrorFacts.ts). */
+  mirrorFacts?: MirrorFacts | null;
+  /** Derived from mirrorFacts (never worded on its own): every named mirror is eliminated automatically for the period. */
   mirrorStands?: boolean | null;
-  /** How many listed adjustments point at the same mirror(s): more than one means at most one of them can be the duplicate. */
+  /** Derived from mirrorFacts: some named mirror is held by another row's active link. */
+  mirrorLinked?: boolean | null;
+  /** How many listed adjustments name the same mirror(s): more than one means at most one of them can be the duplicate. */
   mirrorShared?: number | null;
   /** The row is on or after its mirroring pair's cutover (so no standing mirror was left to it): the cutover date. */
   pairCutover?: string | null;
-  /** Another row's active link holds that mirror (only then was it "matched to a different row"). */
-  mirrorLinked?: boolean | null;
   /** Why a person made this elimination by hand for a group whose pairs mirror (required on or after a pair's cutover). */
   manualReason?: string | null;
 }
@@ -231,9 +234,12 @@ export async function getEliminationAdjustments(
     // A draft or posted manual adjustment whose row now matches a live mirrored sale may be eliminating that sale a second time
     // (eliminationDuplicates.ts): the list says so, with whether the mirror is eliminated automatically and how many share it.
     const rows = await storedEliminationRows(groupId, pStart, pEnd);
-    const stored = rows.map((r) => ({ ...mapAdjustmentRow(r), mirroredDuplicateOf: r.mirrored_duplicate_of ? String(r.mirrored_duplicate_of) : null,
-      mirrorStands: typeof r.mirror_stands === 'boolean' ? r.mirror_stands : null, mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared),
-      pairCutover: r.pair_cutover ? String(r.pair_cutover) : null, mirrorLinked: typeof r.mirror_linked === 'boolean' ? r.mirror_linked : null }));
+    const stored = rows.map((r) => {
+      const facts = factsFromRows(r.mirror_facts as DbRow[] | null, String(r.facts_period_end));
+      return { ...mapAdjustmentRow(r), mirroredDuplicateOf: facts?.label ?? null, mirrorFacts: facts,
+        mirrorStands: facts ? allStand(facts) : null, mirrorLinked: facts ? anyLinkedElsewhere(facts) : null,
+        mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared), pairCutover: r.pair_cutover ? String(r.pair_cutover) : null };
+    });
     // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
     // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
     const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd, dropped) : [];

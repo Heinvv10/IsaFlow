@@ -66,7 +66,7 @@ describe('H1: one mirror, one sale, across runs and periods (the link is stored)
     expect((await gen('2026-03-01', '2026-03-31')).skipped).toEqual([a.id]);
     const apr = await gen('2026-04-01', '2026-04-30');
     expect([apr.skipped, apr.drafted.includes(b.id)]).toEqual([[], true]);
-    expect(apr.flagged.find((f) => f.transactionId === b.id)?.reason).toMatch(/already eliminates another row/);
+    expect(apr.flagged.find((f) => f.transactionId === b.id)?.reason).toMatch(/which is eliminated automatically, but is matched to a different row\. If it is the same sale, posting this would eliminate it twice\.$/);
     expect(await activeLinks()).toEqual([a.id]);
   });
 
@@ -141,7 +141,7 @@ describe('H2: judged as at the period being generated', () => {
     const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', '2026-03-31'))).find((a) => a.sourceIntercompanyId === s.id)!;
     expect(row.mirrorStands).toBe(true);
     const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G)).then(() => '', (e: Error) => e.message);
-    expect(refused).toMatch(/which is eliminated automatically: posting this would eliminate the sale twice/);
+    expect(refused).toMatch(/which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice/);
   });
 });
 

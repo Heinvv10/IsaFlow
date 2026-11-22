@@ -84,12 +84,12 @@ describe('B-M1: a rejected mirror or a loan never touches a manual elimination; 
     const ref = (await pool.query('SELECT description FROM intercompany_transactions WHERE id = $1', [m.message.group_transaction_id])).rows[0].description as string;
     expect(made.length).toBe(1);   // (the matched pair is one elimination)
     expect(flagged.map((f) => [f.adjustmentId, f.mirroredRef])).toEqual([[made[0]!.id, ref]]);
-    expect(flagged[0]!.reason).toBe(`possibly the same sale as mirrored document ${ref} (the same companies and direction, and its amount and date), which is NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination`);
+    expect(flagged[0]!.reason).toBe(`Possibly the same sale as mirrored document ${ref}, which is NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination.`);
     const sale = made.find((a) => flagged[0]!.adjustmentId === a.id)!;
     const listed = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-01-01', '2026-01-31'))).find((a) => a.id === sale.id)!;
     expect([listed.mirroredDuplicateOf, listed.mirrorStands]).toEqual([ref, false]);
     const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(sale.id, co.G)).then(() => 'posted', (e: Error) => e.message);
-    expect(refused).toMatch(/which is NOT eliminated automatically at the moment .*: this may be the sale's only elimination/);
+    expect(refused).toBe(`${flagged[0]!.reason} Confirm to post it.`);   // (the note and the 409 are one wording)
   });
 
 });

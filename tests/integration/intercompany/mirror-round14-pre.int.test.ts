@@ -53,7 +53,7 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     await gen();
     const d = await draftOf(r1);
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
-    expect(await post(d)).toMatch(/which is eliminated automatically: posting this would eliminate the sale twice/);
+    expect(await post(d)).toMatch(/which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice/);
     expect(await post(d, true)).toBe('posted');
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
   });
@@ -96,7 +96,8 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     const d = await draftOf(r1);
     expect((await list('2026-12-01', '2026-12-31')).find((a) => a.id === d)!.mirrorStands).toBe(false);
     const msg = await post(d);
-    expect(msg).toMatch(/NOT eliminated automatically at the moment.*this may be the sale's only elimination/);
+    expect(msg).toMatch(/NOT eliminated automatically for the period to 2026-12-31: this may be the sale's only elimination/);
+    expect(msg).not.toMatch(/twice/);
     expect(msg).not.toMatch(/eliminate the sale twice\. Confirm to post it anyway/);
   });
 });
@@ -106,7 +107,7 @@ describe('R13-M3: a row of the SUM of the month\'s mirrors', () => {
     await bookedOn('2026-01-05'); await bookedOn('2026-01-12'); await bookedOn('2026-01-20');
     const [r1] = await pair(3000, '2026-01-31');
     expect((await gen()).flagged).toContain(r1);
-    expect(await post(await draftOf(r1))).toMatch(/Possibly the same sale as mirrored document 3 mirrored documents of January 2026/);
+    expect(await post(await draftOf(r1))).toMatch(/Possibly the same sale as 3 mirrored documents of January 2026: /);
   });
 
   it('B3b: an invoice of 1 000 and its credit note of -200, one manual row of 800: flagged', async () => {

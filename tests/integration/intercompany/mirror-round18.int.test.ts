@@ -119,10 +119,10 @@ describe('M1: a cancel and re-issue inside the period', () => {
     const want = (await mirrorOf(m3)).description;
     expect(want).not.toBe((await mirrorOf(m1)).description);
     expect(g.flagged.map((f) => [f.transactionId, f.mirroredRef])).toEqual([[pre.id, want]]);
-    expect(g.flagged[0]!.reason).toMatch(/: posting it would eliminate the sale twice$/);
+    expect(g.flagged[0]!.reason).toMatch(/, which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice\.$/);
     const row = await listed(pre.id, '2026-02-01', '2026-02-28');
     expect([row.mirroredDuplicateOf, row.mirrorStands, row.pairCutover]).toEqual([want, true, null]);
-    expect(await post(row.id)).toMatch(new RegExp(`REFUSED: Possibly the same sale as mirrored document ${want.replace(/[()]/g, '\\$&')}, which is eliminated automatically: posting this would eliminate the sale twice`));
+    expect(await post(row.id)).toMatch(new RegExp(`REFUSED: Possibly the same sale as mirrored document ${want.replace(/[()]/g, '\\$&')}, which is eliminated automatically and is not matched to any row yet\\. If it is the same sale, posting this would eliminate it twice`));
   });
 });
 
@@ -157,14 +157,14 @@ describe('M2: a closer row counts only if the mirror can eliminate it', () => {
     expect((await gen('2026-04-01', '2026-04-30')).skipped).toEqual([x.id]);
     const after = await listed(r.id, '2026-03-01', '2026-03-31');
     expect(after.mirrorLinked).toBe(true);
-    expect(await post(after.id)).toMatch(/which is eliminated automatically, but that mirror was matched to a different row \(the pair mirrors from 2026-03-01\)/);
+    expect(await post(after.id)).toMatch(/which is eliminated automatically, but is matched to a different row \(the pair mirrors from 2026-03-01\)/);
   });
 });
 
 describe('L2 (quality): the month sum counts live documents only', () => {
   it('a live R600 and a CANCELLED R400 mirror in January never flag a manual R1 000 sale as "2 mirrored documents"; the live pair still does', async () => {
     // (subtotals 600 and 400: the invoice lines; the manual rows' amounts are subtotals)
-    const live = await booked('2026-01-10', { lines: [['Fee', 1, 600]] });
+    await booked('2026-01-10', { lines: [['Fee', 1, 600]] });
     const gone = await booked('2026-01-12', { lines: [['Fee', 1, 400]] });
     await L.cancelSender(gone.inv.id);
     const s = await manual(co.A, co.B, 'sale', '2026-01-20', 1000); await matchRows([s.id]);
@@ -173,7 +173,6 @@ describe('L2 (quality): the month sum counts live documents only', () => {
     expect(g.flagged.filter((f) => f.transactionId === s.id)).toEqual([]);
     // the control: a second LIVE R400 makes the sum, and the flag names the month's two live documents
     await booked('2026-01-14', { lines: [['Fee', 1, 400]] });
-    expect(live.inv.id).toBeTruthy();
     const row = await listed(s.id, '2026-01-01', '2026-01-31');
     expect(row.mirroredDuplicateOf).toBe('2 mirrored documents of January 2026');
   });
@@ -205,14 +204,12 @@ describe('L5 (quality): the link holds its as-at date to [the row\'s date, today
   });
 
   it('"today" is the Johannesburg day, not the session\'s: in a zone whose date differs, an as-at past today is held to Johannesburg\'s today', async () => {
-    const today = await jhbToday();
-    // one of these two zones is on another calendar day than Johannesburg at every moment (UTC+14 from 12:00 SAST, UTC-12 before 14:00 SAST)
-    const zones = ['Pacific/Kiritimati', 'Etc/GMT+12'];
-    let zone = '';
-    for (const z of zones) {
-      const d = (await pool.query(`SELECT (now() AT TIME ZONE '${z}')::date::text AS d`)).rows[0].d as string;
-      if (d !== today) { zone = z; break; }
-    }
+    // one of these two zones is on another calendar day than Johannesburg at every moment (UTC+14 from 12:00 SAST, UTC-12 before 14:00 SAST);
+    // Johannesburg's day and both zones' days are read in ONE statement (one now()), so a run crossing midnight cannot split them
+    const days = (await pool.query(`SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::text AS jhb, (now() AT TIME ZONE 'Pacific/Kiritimati')::date::text AS kiri,
+                                           (now() AT TIME ZONE 'Etc/GMT+12')::date::text AS m12`)).rows[0] as { jhb: string; kiri: string; m12: string };
+    const today = days.jhb;
+    const zone = days.kiri !== today ? 'Pacific/Kiritimati' : days.m12 !== today ? 'Etc/GMT+12' : '';
     expect(zone).not.toBe('');
     expect(await releasedFor('2026-03-15', null, zone)).toEqual({ state: 'released', releasedFor: today });
   });

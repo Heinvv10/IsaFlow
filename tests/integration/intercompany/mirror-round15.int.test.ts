@@ -71,7 +71,7 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
     const g = await gen();
     expect(g.skipped).toEqual([]);
     expect(g.drafted).toContain(s);
-    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/the pair mirrors from 2026-03-01, but (no mirrored document eliminates this row|mirrored document .* is not eliminated automatically for the period to 2026-03-31)/);
+    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/^The pair mirrors from 2026-03-01\. (No mirrored document matches this row\.|Possibly the same sale as mirrored document .*, which is NOT eliminated automatically for the period to 2026-03-31: this may be the sale's only elimination\.)$/);
   });
 
   it('no mirrored document at all (approved before the pair was on, or never sent): drafted and flagged', async () => {
@@ -79,7 +79,7 @@ describe('R14-H1: after the cutover a row is skipped only when a standing mirror
     const [s] = await matchedPair();
     const g = await gen();
     expect([g.drafted.includes(s), g.skipped]).toEqual([true, []]);
-    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toMatch(/the pair mirrors from 2026-03-01, but no mirrored document eliminates this row/);
+    expect(g.flagged.find((f) => f.transactionId === s)?.reason).toBe('The pair mirrors from 2026-03-01. No mirrored document matches this row.');
   });
 
   it('re-judged at every run: skipped while the mirror stands; after the receiver reverses its bill (20 March) the next run drafts the row', async () => {
@@ -128,7 +128,7 @@ describe('the mirror goes to the row it belongs to', () => {
     const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', '2026-03-31'))).find((a) => a.sourceIntercompanyId === early.id)!;
     expect([row.mirrorStands, row.pairCutover]).toEqual([true, '2026-03-01']);
     const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G)).then(() => '', (e: Error) => e.message);
-    expect(refused).toMatch(/which is eliminated automatically, but that mirror was matched to a different row \(the pair mirrors from 2026-03-01\)\. If it is the same sale, posting this would eliminate it twice/);
+    expect(refused).toMatch(/which is eliminated automatically, but is matched to a different row \(the pair mirrors from 2026-03-01\)\. If it is the same sale, posting this would eliminate it twice/);
   });
 });
 

@@ -5,7 +5,7 @@
  * adjustment whose row now matches a live mirror carries a warning in the list.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, waitFor, act, configure } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -13,6 +13,11 @@ useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import EliminationsPage from '@/../pages/accounting/group/eliminations';
 import { parseFlagged } from '@/components/accounting/group/EliminationsFlaggedNotice';
+import type { MirrorLinkState } from '@/modules/accounting/services/reports/mirrorFacts';
+import { observedResponse } from '../helpers/observedResponse';
+
+// the full page renders under a loaded gate: the siblings' 4 s async budget, never a longer testTimeout
+configure({ asyncUtilTimeout: 4000 });
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -71,9 +76,11 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
     fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
     await waitFor(() => expect(release).toBeTypeOf('function'));
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
-    release(ok(FLAGGED)());
+    const late = observedResponse(JSON.stringify({ success: true, data: { items: [], count: 0, flagged: FLAGGED } }), { status: 200 });
+    release(late.res);
+    await late.read;                        // (the page read the late answer: now nothing it does with it may show)
+    await act(async () => {});
     await screen.findByRole('button', { name: /auto-generate/i });
-    await new Promise((r) => setTimeout(r, 50));
     expect(notes()).toBeNull();
   });
 
@@ -91,13 +98,15 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
   const adj = (o: Record<string, unknown>) => ({ id: '7', groupId: G1, adjustmentNumber: 'ELIM-0007', adjustmentType: 'interco_revenue', description: 'manual sale',
     periodStart: '2026-01-01', periodEnd: '2026-01-31', status: 'posted', lines: [{ groupAccountId: 'x', debit: 1000, credit: 0 }, { groupAccountId: 'y', debit: 0, credit: 1000 }],
     sourceIntercompanyId: 's', mirroredDuplicateOf: 'Invoice ICAR-1 (mirrored)', ...o });
+  const facts = (stands: boolean, link: MirrorLinkState = 'none') => ({ mirrorFacts: { label: 'Invoice ICAR-1 (mirrored)', sum: false, periodEnd: '2026-01-31',
+    mirrors: [{ ref: 'Invoice ICAR-1 (mirrored)', amount: 1000, stands, link }] } });
 
   it.each([
-    ['posted, the mirror eliminated automatically', { status: 'posted', mirrorStands: true }, /Posted, and possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\).*reverse this one if so/],
-    ['posted, the mirror NOT eliminated', { status: 'posted', mirrorStands: false }, /NOT eliminated automatically at the moment.*this may be its only elimination/],
-    ['a draft, the mirror eliminated', { status: 'draft', mirrorStands: true }, /Possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\), which is eliminated automatically: check before posting/],
-    ['a draft, the mirror NOT eliminated (a cut-off sale)', { status: 'draft', mirrorStands: false }, /NOT eliminated automatically at the moment.*this may be its only elimination/],
-    ['two posted rows share the mirror', { status: 'posted', mirrorStands: true, mirrorShared: 2 }, /2 listed eliminations point at this mirror: at most one of them can be its duplicate\. Check which, and reverse that one only/],
+    ['posted, the mirror eliminated automatically', { status: 'posted', ...facts(true) }, /^Possible duplicatePosted\. Possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\), which is eliminated automatically.*it is eliminated twice\. Check, and reverse this one if so\.$/],
+    ['posted, the mirror NOT eliminated', { status: 'posted', ...facts(false) }, /NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination\.$/],
+    ['a draft, the mirror eliminated', { status: 'draft', ...facts(true) }, /Possibly the same sale as mirrored document Invoice ICAR-1 \(mirrored\), which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice\. Check before posting\./],
+    ['a draft, the mirror NOT eliminated (a cut-off sale)', { status: 'draft', ...facts(false) }, /NOT eliminated automatically for the period to 2026-01-31: this may be the sale's only elimination\. Check before posting\./],
+    ['two posted rows share the mirror', { status: 'posted', ...facts(true), mirrorShared: 2 }, /2 listed eliminations point at this mirror: at most one of them can be its duplicate\. Check which, and reverse that one only/],
   ])('%s: a "Possible duplicate" badge and the right advice', async (_n, o, text) => {
     serve(ok([]), [adj(o)]);
     render(<EliminationsPage />);
@@ -108,7 +117,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
 
   it('Post on a possible-duplicate draft asks first; Post anyway sends confirmDuplicate', async () => {
     const posts: unknown[] = [];
-    serve(() => new Response(JSON.stringify({ success: true, data: { posted: true } }), { status: 200 }), [adj({ status: 'draft', mirrorStands: true, id: '70000000-0000-4000-8000-000000000007' })]);
+    serve(() => new Response(JSON.stringify({ success: true, data: { posted: true } }), { status: 200 }), [adj({ status: 'draft', ...facts(true), id: '70000000-0000-4000-8000-000000000007' })]);
     const inner = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation(async (url, init) => { if (init?.method === 'POST') posts.push(JSON.parse(String(init.body))); return inner(url, init); });
     render(<EliminationsPage />);
@@ -129,9 +138,11 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
     render(<EliminationsPage />);
     await waitFor(() => expect(release).toBeTypeOf('function'));
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
-    await new Promise((r) => setTimeout(r, 20));
-    release(new Response(JSON.stringify({ success: true, data: { items: [adj({ adjustmentNumber: 'ELIM-STALE' })] } }), { status: 200 }));
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes(G2))).toBe(true));   // (the G2 list was asked for)
+    const stale = observedResponse(JSON.stringify({ success: true, data: { items: [adj({ adjustmentNumber: 'ELIM-STALE' })] } }), { status: 200 });
+    release(stale.res);
+    await stale.read;
+    await act(async () => {});
     expect(screen.queryByText('ELIM-STALE')).toBeNull();
   });
 

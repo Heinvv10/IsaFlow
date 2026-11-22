@@ -8,14 +8,18 @@
  *  - a stale FAILED list load does not overwrite the current scope's list or error.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within, waitFor, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, waitFor, act, configure } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import EliminationsPage from '@/../pages/accounting/group/eliminations';
-import { matchedElsewhereText } from '@/modules/accounting/services/reports/eliminationErrors';
+import { mirrorFactsSentence, type MirrorFacts, type MirrorLinkState } from '@/modules/accounting/services/reports/mirrorFacts';
+import { observedResponse } from '../helpers/observedResponse';
+
+// the full page renders under a loaded gate: the siblings' 4 s async budget, never a longer testTimeout
+configure({ asyncUtilTimeout: 4000 });
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -23,6 +27,8 @@ const G1 = '80000000-0000-4000-8000-000000000001';
 const G2 = '80000000-0000-4000-8000-000000000002';
 const ID = '70000000-0000-4000-8000-000000000007';
 const groups = () => new Response(JSON.stringify({ success: true, data: [{ id: G1, name: 'Group 1' }, { id: G2, name: 'Group 2' }] }), { status: 200 });
+/** The verified facts of one mirror (what the server sends as mirrorFacts). */
+const one = (ref: string, stands: boolean, link: MirrorLinkState = 'none'): MirrorFacts => ({ label: ref, sum: false, periodEnd: '2026-01-31', mirrors: [{ ref, amount: 1000, stands, link }] });
 const draft = (o: Record<string, unknown> = {}) => ({ id: ID, groupId: G1, adjustmentNumber: 'ELIM-0007', adjustmentType: 'interco_revenue', description: 'manual sale',
   periodStart: '2026-01-01', periodEnd: '2026-01-31', status: 'draft', lines: [], sourceIntercompanyId: 's', ...o });
 
@@ -43,25 +49,25 @@ describe('round 14: the Eliminations page', () => {
   it('a stale list: Post gets the 409 possible duplicate and opens the confirm with what the server found; confirming sends confirmDuplicate', async () => {
     const posts = serve({ items: [draft()], post: (b) => b.confirmDuplicate ? new Response(JSON.stringify({ success: true, data: { posted: true } }), { status: 200 })
       : new Response(JSON.stringify({ success: false, error: { code: 'CONFLICT', message: 'Possibly the same sale…',
-          details: { reason: 'possible_duplicate', mirroredRef: 'Invoice ICAR-9 (mirrored)', mirrorStands: true } } }), { status: 409 }) });
+          details: { reason: 'possible_duplicate', mirroredRef: 'Invoice ICAR-9 (mirrored)', mirrorFacts: one('Invoice ICAR-9 (mirrored)', true) } } }), { status: 409 }) });
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^post$/i }));
     const dialog = await screen.findByText(/Post a possible duplicate\?/);
     expect(dialog).toBeTruthy();
-    expect(screen.getByText(/Invoice ICAR-9 \(mirrored\), which is eliminated automatically: posting this would eliminate the sale twice/)).toBeTruthy();
+    expect(screen.getByText(/Invoice ICAR-9 \(mirrored\), which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice/)).toBeTruthy();
     expect(screen.queryByText('Possibly the same sale…')).toBeNull();   // (not shown as an error)
     fireEvent.click(screen.getByRole('button', { name: 'Post anyway' }));
     await waitFor(() => expect(posts.at(-1)).toEqual({ action: 'post-elimination', adjustmentId: ID, confirmDuplicate: true }));
   });
 
   it('a mirror that is NOT eliminated automatically: the dialog says so and never "eliminate the sale twice"', async () => {
-    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-2 (mirrored)', mirrorStands: false })] });
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-2 (mirrored)', mirrorFacts: one('Invoice ICAR-2 (mirrored)', false) })] });
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^post$/i }));
     const msg = await screen.findByRole('dialog');
-    expect(msg.textContent).toMatch(/Invoice ICAR-2 \(mirrored\), which is NOT eliminated automatically at the moment/);
+    expect(msg.textContent).toMatch(/Invoice ICAR-2 \(mirrored\), which is NOT eliminated automatically for the period to 2026-01-31/);
     expect(msg.textContent).toMatch(/this may be the sale's only elimination/);
-    expect(msg.textContent).not.toMatch(/eliminate the sale twice\. Confirm to post it anyway/);
+    expect(msg.textContent).not.toMatch(/twice/);
     expect(within(msg).getByRole('button', { name: 'Post' })).toBeTruthy();
   });
 
@@ -116,9 +122,10 @@ describe('round 14: the Eliminations page', () => {
 
   it('a stale FAILED load (a group no longer selected) neither clears the current list nor shows its error', async () => {
     let fail!: () => void;
+    const failed = observedResponse(JSON.stringify({ success: false, error: { message: 'G1 load failed' } }), { status: 500 });
     vi.mocked(apiFetch).mockImplementation(async (url) => {
       if (String(url).includes('company-groups')) return groups();
-      if (String(url).includes(G1)) return new Promise<Response>((r) => { fail = () => r(new Response(JSON.stringify({ success: false, error: { message: 'G1 load failed' } }), { status: 500 })); });
+      if (String(url).includes(G1)) return new Promise<Response>((r) => { fail = () => r(failed.res); });
       return new Response(JSON.stringify({ success: true, data: { items: [draft({ groupId: G2, adjustmentNumber: 'ELIM-G2' })] } }), { status: 200 });
     });
     render(<EliminationsPage />);
@@ -126,7 +133,8 @@ describe('round 14: the Eliminations page', () => {
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
     await screen.findByText('ELIM-G2');
     fail();
-    await new Promise((r) => setTimeout(r, 50));
+    await failed.read;                      // (the page read the stale answer: now nothing it does with it may show)
+    await act(async () => {});
     expect(screen.queryByText('G1 load failed')).toBeNull();
     expect(screen.getByText('ELIM-G2')).toBeTruthy();
   });
@@ -144,7 +152,7 @@ describe('round 14: the Eliminations page', () => {
     const form = desc.closest('form')!;
     act(() => { fireEvent.submit(form); fireEvent.submit(form); });
     await waitFor(() => expect(posts.length).toBeGreaterThan(0));
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => expect(screen.queryByPlaceholderText(/Describe the elimination/)).toBeNull());   // (the create's answer handled)
     expect(posts.filter((p) => p.action === 'create-elimination')).toHaveLength(1);
   });
 
@@ -194,28 +202,30 @@ describe('round 14: the Eliminations page', () => {
   });
 
   it('a post-cutover draft whose mirror stands and is linked to another row: the badge and the dialog say (in one shared wording) the mirror was matched to a different row, and the button is a plain Post', async () => {
-    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01', mirrorLinked: true })] });
+    const f = one('Invoice ICAR-5 (mirrored)', true, 'elsewhere');
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorFacts: f, pairCutover: '2026-03-01' })] });
     render(<EliminationsPage />);
-    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01', true);
-    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically, but that mirror was matched to a different row (the pair mirrors from 2026-03-01).');
+    const shared = mirrorFactsSentence(f, '2026-03-01');
+    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically, but is matched to a different row (the pair mirrors from 2026-03-01). If it is the same sale, posting this would eliminate it twice.');
     expect((await screen.findByRole('note')).textContent).toContain(`${shared} Check before posting.`);
     fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain(`${shared} If it is the same sale, posting this would eliminate it twice.`);
+    expect(dialog.textContent).toContain(`${shared} Confirm to post it.`);
     expect(within(dialog).getByRole('button', { name: 'Post' })).toBeTruthy();
   });
 
   it('round 18: a post-cutover draft whose standing mirror NO row holds: "not matched to any row yet", never "matched to a different row"', async () => {
-    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorStands: true, pairCutover: '2026-03-01', mirrorLinked: false })] });
+    const f = one('Invoice ICAR-5 (mirrored)', true, 'none');
+    serve({ items: [draft({ mirroredDuplicateOf: 'Invoice ICAR-5 (mirrored)', mirrorFacts: f, pairCutover: '2026-03-01' })] });
     render(<EliminationsPage />);
-    const shared = matchedElsewhereText('Invoice ICAR-5 (mirrored)', '2026-03-01', false);
-    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically and is not matched to any row yet (the pair mirrors from 2026-03-01).');
+    const shared = mirrorFactsSentence(f, '2026-03-01');
+    expect(shared).toBe('Possibly the same sale as mirrored document Invoice ICAR-5 (mirrored), which is eliminated automatically and is not matched to any row yet (the pair mirrors from 2026-03-01). If it is the same sale, posting this would eliminate it twice.');
     const note = await screen.findByRole('note');
     expect(note.textContent).toContain(`${shared} Check before posting.`);
     expect(note.textContent).not.toMatch(/matched to a different row/);
     fireEvent.click(screen.getByRole('button', { name: /^post$/i }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain(`${shared} If it is the same sale, posting this would eliminate it twice.`);
+    expect(dialog.textContent).toContain(`${shared} Confirm to post it.`);
     expect(dialog.textContent).not.toMatch(/matched to a different row/);
   });
 });

@@ -44,7 +44,7 @@
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
 --     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
 --     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid, date), public.intercompany_mirror_stands(uuid, date),
---     public.intercompany_mirror_link(uuid, date), public.intercompany_mirror_link_holds(uuid, uuid, date), public.intercompany_mirror_candidates(uuid), public.intercompany_mirror_pick(uuid, date), public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[], integer[]), public.intercompany_next_sa_midnight();
+--     public.intercompany_mirror_link(uuid, date), public.intercompany_mirror_link_holds(uuid, uuid, date), public.intercompany_mirror_candidates(uuid), public.intercompany_mirror_facts(uuid, date), public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[], integer[]), public.intercompany_next_sa_midnight();
 
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable / recorded_fresh return by re-applying them)
@@ -62,7 +62,7 @@
 --     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
 --     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
 --     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid,date)',
---     'intercompany_mirror_stands(uuid,date)', 'intercompany_mirror_link(uuid,date)', 'intercompany_pair_cutovers(uuid)', 'intercompany_auto_accept_release(uuid[],integer[])');
+--     'intercompany_mirror_facts(uuid,date)', 'intercompany_mirror_stands(uuid,date)', 'intercompany_mirror_link(uuid,date)', 'intercompany_pair_cutovers(uuid)', 'intercompany_auto_accept_release(uuid[],integer[])');
 --   DROP TABLE IF EXISTS intercompany_mirror_links;
 
 SET LOCAL lock_timeout = '5s';
@@ -1563,54 +1563,26 @@ $$;
 REVOKE ALL ON FUNCTION public.intercompany_mirror_candidates(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_candidates(uuid) TO migration_admin;
 
--- The one candidate the duplicate flag names (intercompany_mirror_candidates, closest first): a single candidate as it is (no ledger walk);
--- of several, the closest that is eliminated automatically for the period ending p_asat (NULL: today), tried in order and stopping at the
--- first, else the closest. SECURITY INVOKER, migration_admin only (the duplicate flag's helper, after its membership check).
-CREATE OR REPLACE FUNCTION public.intercompany_mirror_pick(p_row uuid, p_asat date)
-RETURNS TABLE (mirror_row uuid, mirror_ref text)
-LANGUAGE plpgsql
-STABLE
-SECURITY INVOKER
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-DECLARE
-  c record;
-  v_first record;
-  v_n integer := 0;
-BEGIN
-  FOR c IN SELECT k.mirror_row AS id, k.mirror_ref AS ref, count(*) OVER () AS n FROM public.intercompany_mirror_candidates(p_row) k ORDER BY k.rank LOOP
-    v_n := v_n + 1;
-    IF v_n = 1 THEN
-      v_first := c;
-      IF c.n = 1 THEN EXIT; END IF;
-    END IF;
-    IF COALESCE(public.intercompany_mirror_stands(c.id, p_asat), false) THEN
-      RETURN QUERY SELECT c.id, c.ref; RETURN;
-    END IF;
-  END LOOP;
-  IF v_n > 0 THEN RETURN QUERY SELECT v_first.id, v_first.ref; END IF;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.intercompany_mirror_pick(uuid, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_mirror_pick(uuid, date) TO migration_admin;
+DROP FUNCTION IF EXISTS public.intercompany_mirror_pick(uuid, date);   -- (round 18's pick: the facts below replace it)
 
 -- The mirrored sales a MANUAL (non-mirrored) group row of a sale type may duplicate (rows dated before its pair's cutover can still overlap a
 -- mirror: a document dated after the connection's cut-over date but approved before both sides were on is not mirrored, one approved after is).
 -- A FLAG only, never a skip, so it is WIDE (a missing flag lets a person post a double elimination; a spurious one costs a look). A mirrored row
 -- of the same group whose sale runs the way the manual row's elimination does: the same source and target for a sale or mgmt_fee, the REVERSE
--- for a purchase (a purchase B -> A is A's sale to B: the P1 generator eliminates the same group accounts). Matched by amount: (1) ONE mirror
--- (intercompany_mirror_candidates: a cancelled sender kept, judged as at the period); when several match, the closest that is eliminated
--- automatically for the period ending p_asat (NULL: today) is named, else the closest (so a cancelled mirror is never named over a re-issue that
--- stands); one candidate is named without a ledger walk; else (2) the mirrors of that direction whose sender's date is in the row's calendar
--- month, accepted with a target document and NOT cancelled, when their subtotals (or totals) SUM to the row's amount (a monthly total, an
--- invoice net of its credit note). mirror_rows: the mirror(s); mirror_ref: the one mirror's description (else '(no description)') or "N
--- mirrored documents of <month>". Whether the named mirrors are eliminated is intercompany_mirror_stands. A definer (the caller may not read the
--- messages); it answers only for a row of a group the caller is a current member of.
+-- for a purchase (a purchase B -> A is A's sale to B: the P1 generator eliminates the same group accounts). Matched by amount: (1) the SINGLE
+-- mirrors that match (intercompany_mirror_candidates: a cancelled sender kept, judged as at the period by the facts), closest first; else (2) the
+-- mirrors of that direction whose sender's date is in the row's calendar month, accepted with a target document and NOT cancelled, when their
+-- subtotals (or totals) SUM to the row's amount (a monthly total, an invoice net of its credit note). mirror_rows: the mirror(s) in that order;
+-- mirror_ref: the closest one's description (else '(no description)') or "N mirrored documents of <month>"; is_sum: (2). A plain match: it walks
+-- no ledger (the post refusal's EXISTS and the list's join use it as is). WHAT IS TRUE of the match (which mirror the wording names, whether it
+-- is eliminated automatically for the period, whose link holds it) is intercompany_mirror_facts, the one source of every sentence about it. A
+-- definer (the caller may not read the messages); it answers only for a row of a group the caller is a current member of. (p_asat is not read:
+-- the match is the same for every period; the signature is kept so every caller passes the period it judges the facts for.)
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid);
 CREATE OR REPLACE FUNCTION public.intercompany_mirrored_duplicate(p_row uuid, p_asat date DEFAULT NULL)
-RETURNS TABLE (mirror_rows uuid[], mirror_ref text)
+RETURNS TABLE (mirror_rows uuid[], mirror_ref text, is_sum boolean)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
@@ -1631,19 +1603,99 @@ AS $$
       JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
      WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL   -- (the month sum names live documents only)
   ), one AS (
-    SELECT ARRAY[c.mirror_row] AS rows, c.mirror_ref AS ref FROM r CROSS JOIN LATERAL public.intercompany_mirror_pick(r.id, p_asat) c
+    SELECT array_agg(c.mirror_row ORDER BY c.rank) AS rows, (array_agg(c.mirror_ref ORDER BY c.rank))[1] AS ref
+      FROM r CROSS JOIN LATERAL public.intercompany_mirror_candidates(r.id) c HAVING count(*) > 0
   ), summed AS (
     SELECT array_agg(m.id ORDER BY m.od, m.id) AS rows, count(*) AS n, sum(m.sub) AS sub, sum(m.tot) AS tot
       FROM r, m WHERE date_trunc('month', m.od) = date_trunc('month', r.td)
   )
-  SELECT one.rows, one.ref FROM one
+  SELECT one.rows, one.ref, false FROM one
   UNION ALL
-  SELECT s.rows, s.n || ' mirrored documents of ' || to_char(r.td, 'FMMonth YYYY')
+  SELECT s.rows, s.n || ' mirrored documents of ' || to_char(r.td, 'FMMonth YYYY'), true
     FROM summed s, r WHERE s.n > 1 AND (s.sub = r.amount OR s.tot = r.amount) AND NOT EXISTS (SELECT 1 FROM one)
 $$;
 ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid, date) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO app_user, app_service, migration_admin;
+
+-- WHAT IS TRUE of a manual row's possible mirrored duplicate (intercompany_mirrored_duplicate) for the period ending p_asat (NULL: today): one row
+-- per mirror the wording names, each with its description (else '(no description)'), the amount it accounts for (the row's amount for one mirror;
+-- its subtotal, or signed total, for a member of a month sum), whether it is eliminated automatically for that period
+-- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
+-- different row"), 'none'. Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
+-- closest that stands and no other row's link holds (stopping there); else the closest no other row's link holds (none of those stands: it is
+-- named NOT eliminated, never a mirror that is another row's sale); else the closest. A month sum names every member. The ONE source of the
+-- generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded from anything else. label: the
+-- mirror's description or "N mirrored documents of <month>"; ord: the order to name them in. A definer: only for a row of a group the caller is a
+-- current member of (through intercompany_mirrored_duplicate); nothing otherwise.
+DROP FUNCTION IF EXISTS public.intercompany_mirror_facts(uuid, date);
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_facts(p_row uuid, p_asat date DEFAULT NULL)
+RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET jit = off
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  d record;
+  v_role text;
+  v_amount numeric;
+  v_by_sub boolean;
+  v_id uuid;
+  v_s boolean;
+  v_free uuid;
+  v_pick uuid;
+  v_pick_s boolean;
+  v_ids uuid[] := '{}';
+  v_st boolean[] := '{}';
+BEGIN
+  SELECT x.mirror_rows, x.mirror_ref, x.is_sum INTO d FROM public.intercompany_mirrored_duplicate(p_row, p_asat) x LIMIT 1;
+  IF NOT FOUND OR d.mirror_rows IS NULL THEN RETURN; END IF;
+  SELECT CASE WHEN t.transaction_type = 'purchase' THEN 'purchase' ELSE 'sale' END, t.amount INTO v_role, v_amount
+    FROM public.intercompany_transactions t WHERE t.id = p_row;
+  IF d.is_sum THEN
+    FOREACH v_id IN ARRAY d.mirror_rows LOOP
+      v_ids := v_ids || v_id; v_st := v_st || COALESCE(public.intercompany_mirror_stands(v_id, p_asat), false);
+    END LOOP;
+  ELSE
+    -- the candidate this row's own active link holds
+    SELECT l.mirror_row INTO v_pick FROM public.intercompany_mirror_links l
+     WHERE l.row_id = p_row AND l.released_at IS NULL AND l.mirror_row = ANY (d.mirror_rows);
+    IF v_pick IS NOT NULL THEN
+      v_pick_s := COALESCE(public.intercompany_mirror_stands(v_pick, p_asat), false);
+    ELSE
+      FOREACH v_id IN ARRAY d.mirror_rows LOOP
+        CONTINUE WHEN EXISTS (SELECT 1 FROM public.intercompany_mirror_links l
+                               WHERE l.mirror_row = v_id AND l.role = v_role AND l.released_at IS NULL AND l.row_id <> p_row);
+        v_s := COALESCE(public.intercompany_mirror_stands(v_id, p_asat), false);
+        IF v_free IS NULL THEN v_free := v_id; END IF;
+        IF v_s THEN v_pick := v_id; v_pick_s := true; EXIT; END IF;
+      END LOOP;
+      IF v_pick IS NULL AND v_free IS NOT NULL THEN v_pick := v_free; v_pick_s := false; END IF;
+      IF v_pick IS NULL THEN v_pick := d.mirror_rows[1]; v_pick_s := COALESCE(public.intercompany_mirror_stands(v_pick, p_asat), false); END IF;
+    END IF;
+    v_ids := ARRAY[v_pick]; v_st := ARRAY[v_pick_s];
+  END IF;
+  -- a sum's members account for their subtotals when the subtotals make the row's amount, else for their (signed) totals
+  v_by_sub := NOT d.is_sum OR (SELECT sum(o.amount) FROM public.intercompany_transactions o WHERE o.id = ANY (v_ids)) = v_amount;
+  RETURN QUERY
+    SELECT CASE WHEN d.is_sum THEN d.mirror_ref ELSE COALESCE(NULLIF(btrim(o.description), ''), '(no description)') END, d.is_sum, u.n::integer,
+           o.id, COALESCE(NULLIF(btrim(o.description), ''), '(no description)'),
+           CASE WHEN NOT d.is_sum THEN v_amount WHEN v_by_sub THEN o.amount ELSE sign(o.amount) * (x.payload->>'total')::numeric END,
+           v_st[u.n],
+           CASE WHEN EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.row_id = p_row AND l.mirror_row = o.id AND l.released_at IS NULL) THEN 'here'
+                WHEN EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role = v_role AND l.released_at IS NULL AND l.row_id <> p_row) THEN 'elsewhere'
+                ELSE 'none' END
+      FROM unnest(v_ids) WITH ORDINALITY AS u(id, n)
+      JOIN public.intercompany_transactions o ON o.id = u.id
+      LEFT JOIN LATERAL (SELECT m.payload FROM public.intercompany_messages m WHERE m.group_transaction_id = o.id AND m.kind IN ('invoice', 'credit_note') LIMIT 1) x ON true
+     ORDER BY u.n;
+END;
+$$;
+ALTER FUNCTION public.intercompany_mirror_facts(uuid, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_facts(uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_facts(uuid, date) TO app_user, app_service, migration_admin;
 
 -- Whether a mirrored row is ELIMINATED AUTOMATICALLY for a period ending p_asat (NULL: today): its pair stands as at the later of its two
 -- document dates (the sender's, the receiver's: the +E falls on the later journal date, so an earlier date would miss a bill booked in a later
@@ -1837,7 +1889,8 @@ BEGIN
          -- ... and the mirror can hold it: it eliminates x for x's own month (else x could never take it, and this row would be starved)
          AND public.intercompany_mirror_link_holds(x.id, c.mirror_row, LEAST((date_trunc('month', x.transaction_date) + interval '1 month - 1 day')::date, v_today)))
     THEN
-      v_state := 'closer'; v_mid := c.mirror_row; v_ref := c.mirror_ref;
+      IF v_state <> 'closer' THEN v_mid := c.mirror_row; v_ref := c.mirror_ref; END IF;   -- (names the closest such mirror)
+      v_state := 'closer';
       CONTINUE;
     END IF;
     INSERT INTO public.intercompany_mirror_links (group_id, row_id, mirror_row, role, linked_by)
@@ -2192,7 +2245,9 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
     ('intercompany_mirrored_duplicate(uuid,date)', 'public.intercompany_mirrored_duplicate(uuid, date)',
-     'nothing: for a manual sale-class group row of a group the caller is a current member of, the mirrored sale(s) it may duplicate (the same group, the sale running the way the row''s elimination does, one mirror''s subtotal or total near its date, preferring among several the closest eliminated automatically for the period to the given date, or the sum of that month''s live mirrors): a flag for the elimination generator, the eliminations list and posting, never a skip'),
+     'nothing: for a manual sale-class group row of a group the caller is a current member of, the mirrored sale(s) it may duplicate (the same group, the sale running the way the row''s elimination does, the single mirrors whose subtotal or total is the row''s amount near its date, closest first, or the sum of that month''s live mirrors): a plain match, no ledger walk; a flag for the elimination generator, the eliminations list and posting, never a skip'),
+    ('intercompany_mirror_facts(uuid,date)', 'public.intercompany_mirror_facts(uuid, date)',
+     'nothing: for a manual sale-class group row of a group the caller is a current member of (through intercompany_mirrored_duplicate), the facts of the mirror(s) the duplicate wording names for a period: each one''s description, the amount it accounts for, whether it is eliminated automatically for that period (intercompany_mirror_stands) and whether an active link of this row or of another row of the same role holds it (a read of intercompany_mirror_links); the one source of the generator note, the list badge, the 409 and the confirm'),
     ('intercompany_mirror_stands(uuid,date)', 'public.intercompany_mirror_stands(uuid, date)',
      'nothing: for a mirrored row of a group the caller is a current member of, whether it is eliminated automatically for a period: its pair stands as at the later of its two document dates and as at the later of that and the period end (or today), and its revenue and expense lines are mapped to group accounts'),
     ('intercompany_mirror_link(uuid,date)', 'public.intercompany_mirror_link(uuid, date)',
@@ -2234,6 +2289,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_mirrored_row(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_claimed(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid, date)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_facts(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_stands(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_link(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_pair_cutovers(uuid)', 'EXECUTE')
