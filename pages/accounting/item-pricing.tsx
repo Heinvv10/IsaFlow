@@ -79,7 +79,7 @@ export default function ItemPricingPage() {
     <AppLayout>
       <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:gap-3 max-lg:flex-wrap">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-violet-500/10"><Tag className="h-6 w-6 text-violet-500" /></div>
               <div>
@@ -88,14 +88,14 @@ export default function ItemPricingPage() {
               </div>
             </div>
             <button onClick={save} disabled={saving || !changedCount}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save {changedCount > 0 ? `(${changedCount})` : ''}
             </button>
           </div>
           <div className="relative mt-4 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9 max-lg:min-h-11" />
           </div>
         </div>
 
@@ -107,7 +107,7 @@ export default function ItemPricingPage() {
             {loading ? (
               <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
@@ -124,17 +124,17 @@ export default function ItemPricingPage() {
                     const changed = edits[item.id] !== undefined;
                     return (
                       <tr key={item.id} className={`hover:bg-teal-500/[0.04] ${changed ? 'bg-blue-500/5' : ''}`}>
-                        <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.category || '—'}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(cp)}</td>
-                        <td className="px-4 py-2 text-right">
+                        <td data-label="Code" className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
+                        <td data-label="Item" className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
+                        <td data-label="Category" className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.category || '—'}</td>
+                        <td data-label="Cost Price" className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(cp)}</td>
+                        <td data-label="Selling Price" className="px-4 py-2 text-right max-lg:items-center">
                           <AmountInput min={0}
                             value={edits[item.id] ?? item.selling_price ?? ''}
                             onValueChange={(_n, t) => setEdits(p => ({ ...p, [item.id]: t }))}
-                            className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
+                            className={`w-32 px-2 py-1 max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
-                        <td className={`px-4 py-2 text-right ${margin >= 0 ? 'text-teal-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>
+                        <td data-label="Margin" className={`px-4 py-2 text-right ${margin >= 0 ? 'text-teal-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>
                       </tr>
                     );
                   })}
