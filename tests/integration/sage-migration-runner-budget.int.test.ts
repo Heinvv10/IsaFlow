@@ -161,3 +161,16 @@ describe('a budget that two PO batches overrun together', () => {
     expect(summaryLines(r).join('\n')).not.toContain('would have failed the budget check');
   });
 });
+
+describe('R1b (round 4): a re-run that adds nothing does not report POs it "let past" the budget check', () => {
+  it('the second identical skip-budget run creates nothing and lists nothing as would-have-failed', async () => {
+    await setPolicy(pool, f, 'block');
+    const once = () => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poBatchSize: 2, poGlAccountId: f.acc.travel, live: true, skipBudgetCheck: true });
+    const r1 = await once();
+    expect(r1.budgetWouldHaveFailed.length).toBeGreaterThan(0); // the first run did let POs past a block
+    const r2 = await once();
+    expect(r2.reconciliation.purchaseOrders.addedByRun).toBe(0);
+    expect(r2.budgetWouldHaveFailed).toEqual([]);
+    expect(summaryLines(r2).join('\n')).not.toContain('would have failed the budget check');
+  });
+});

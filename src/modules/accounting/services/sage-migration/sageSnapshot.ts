@@ -41,6 +41,8 @@ export interface Snapshot {
   itemRefs: Set<string>;
   /** external_ref -> total in cents of every Sage purchase order. */
   poTotals: Map<string, number>;
+  /** external_ref -> a hash of the state of that Sage PO: every field the PO tool compares on a replay, its line items, and updated_at (epoch seconds). */
+  poStates: Map<string, string>;
   /** external_ref -> how many lines of that Sage PO carry an item_id. */
   poLinkedLines: Map<string, number>;
   stockMovements: number;
@@ -85,6 +87,13 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
       FROM purchase_orders o LEFT JOIN po_items p ON p.purchase_order_id = o.id
      WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL GROUP BY o.external_ref
   `) as Array<{ external_ref: string; n: number }>;
+  const states = (await sql`
+    SELECT o.external_ref,
+           md5(row(o.po_number, o.order_date, o.status, o.subtotal, o.tax_amount, o.total, o.supplier_id, extract(epoch FROM o.updated_at),
+                   (SELECT string_agg(coalesce(p.item_id::TEXT, '-'), ',' ORDER BY p.sort_order, p.id) FROM po_items p WHERE p.purchase_order_id = o.id))::TEXT) AS state_hash
+      FROM purchase_orders o
+     WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL
+  `) as Array<{ external_ref: string; state_hash: string }>;
   const stock = (await sql`SELECT count(*)::INT AS n FROM stock_movements WHERE company_id = ${companyId}::UUID`) as Array<{ n: number }>;
   const existing = items.map((r): ExistingItem => ({
     // The item and category tools compare external_system EXACTLY (case-sensitive 'sage'): a row stored as 'Sage' is not theirs, nor ours.
@@ -95,6 +104,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
   return {
     itemRefs: new Set(existing.filter((i) => i.system === 'sage' && i.ref !== null && !i.deleted).map((i) => i.ref!)),
     poTotals: new Map(pos.filter((r) => r.external_system === 'sage' && r.external_ref !== null).map((r) => [String(r.external_ref), Number(r.cents)])),
+    poStates: new Map(states.map((r) => [String(r.external_ref), String(r.state_hash)])),
     poLinkedLines: new Map(linked.map((r) => [String(r.external_ref), Number(r.n)])),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,

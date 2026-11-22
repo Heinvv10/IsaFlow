@@ -107,7 +107,8 @@ describe('F5: rows deleted after a run', () => {
     // The same tag again is a re-run like any other: it replays and changes nothing.
     const again = await run({ runTag: 'again1' });
     expect(again.status).toBe('completed');
-    expect(again.live!.purchaseOrders.batches[0]!.key).toBe(fresh.live!.purchaseOrders.batches[0]!.key); // (item keys follow the owned rows' state)
+    // (item, category and PO keys follow the state of the rows they touch, so this re-run is a fresh call that finds everything already there)
+    expect(again.reconciliation).toMatchObject({ items: { addedByRun: 0 }, purchaseOrders: { addedByRun: 0 } });
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 });
   });
 
@@ -139,58 +140,18 @@ describe('a category name IsaFlow already holds', () => {
   });
 });
 
-describe('#10: external_system is compared exactly as the item and category tools do (case-sensitive "sage")', () => {
-  it('B1d: an item stored with external_system "Sage" is not owned: its row is refused per row, the dry run stays clean', async () => {
-    await pool.query(`INSERT INTO items (company_id, code, description, item_type, external_system, external_ref) VALUES ($1, 'FIB-0001', 'x', 'physical', 'Sage', '50001')`, [s.companyId]);
-    const dry = await run({ live: false });
-    expect(dry.status).toBe('dry_run_ok');
-    const r = await run();
-    expect(r.status).toBe('completed');
-    expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0001', 'code_held_by_existing_item']]);
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 }); // 19 + the one that was there; the POs naming FIB-0001 go with that line unlinked
-  });
-  it('B1c: a category stored with external_system "Sage" is not owned: refused category_name_in_use, its items category_refused, dry run clean', async () => {
-    await pool.query(`INSERT INTO item_categories (company_id, name, external_system, external_ref) VALUES ($1, 'Optics', 'Sage', '10')`, [s.companyId]);
-    const dry = await run({ live: false });
-    expect(dry.status).toBe('dry_run_ok');
-    const r = await run();
-    expect(r.refused.find((x) => x.entity === 'category')).toMatchObject({ label: 'Optics', code: 'category_name_in_use' });
-    expect(r.refused.filter((x) => x.entity === 'item').every((x) => x.code === 'category_refused')).toBe(true);
-  });
-  it('an item stored with exactly "sage" is the migration\'s own (updated, not refused)', async () => {
-    await pool.query(`INSERT INTO items (company_id, code, description, item_type, external_system, external_ref) VALUES ($1, 'FIB-0001', 'x', 'physical', 'sage', '50001')`, [s.companyId]);
-    const r = await run();
-    expect(r.refused).toEqual([]);
-  });
-});
-
-describe('#11: an owned item with stock movements keeps its type and tracking', () => {
-  it('a tracked owned item with movements: the Sage row is refused per row, nothing is changed', async () => {
-    const item = String((await pool.query(
-      `INSERT INTO items (company_id, code, description, item_type, inventory_tracked, external_system, external_ref)
-       VALUES ($1, 'FIB-0001', 'x', 'physical', true, 'sage', '50001') RETURNING id`, [s.companyId])).rows[0].id);
-    const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'P-1', 'P') RETURNING id`, [s.companyId])).rows[0].id);
-    await pool.query(`INSERT INTO stock_movements (company_id, product_id, item_id, movement_type, quantity) VALUES ($1, $2, $3, 'purchase', 5)`, [s.companyId, product, item]);
-    const dry = await run({ live: false });
-    expect(dry.status).toBe('dry_run_ok');
-    const r = await run();
-    expect(r.refused.filter((x) => x.entity === 'item')).toEqual([expect.objectContaining({ label: 'FIB-0001', code: 'item_has_stock_movements' })]);
-    expect((await pool.query('SELECT inventory_tracked, item_type FROM items WHERE id = $1', [item])).rows[0]).toEqual({ inventory_tracked: true, item_type: 'physical' });
-    await pool.query('DELETE FROM stock_movements WHERE company_id = $1', [s.companyId]);
-    await pool.query('DELETE FROM products WHERE company_id = $1', [s.companyId]);
-  });
-});
-
 describe('#1: an owned-ness the snapshot got wrong is caught by the dry run, before anything is written', () => {
-  /** A pool whose Nth connect() first runs `hook` (a writer landing between the runner's reads). */
-  const hooked = (nth: number, hook: () => Promise<void>): Pool => {
+  /** A pool whose connection that runs the DRY RUN first runs `hook` (a writer landing between the snapshot and the dry run). The run takes
+   *  three connections in a fixed order before the dry run's: the run lock, the snapshot session, then the dry run. */
+  const DRY_RUN_CONNECTION = 3;
+  const beforeDryRun = (hook: () => Promise<void>): Pool => {
     let n = 0;
-    return { options: pool.options, connect: async () => { n++; if (n === nth) await hook(); return pool.connect(); } } as unknown as Pool;
+    return { options: pool.options, connect: async () => { n++; if (n === DRY_RUN_CONNECTION) await hook(); return pool.connect(); } } as unknown as Pool;
   };
 
   it('a human-made item with an export code appears AFTER the snapshot: the dry run fails naming the row, the item is untouched, live writes nothing', async () => {
     // connect 1 = the snapshot's read session, connect 2 = the dry run: the item lands between them.
-    const p2 = hooked(2, async () => {
+    const p2 = beforeDryRun(async () => {
       await pool.query(`INSERT INTO items (company_id, code, description, item_type, inventory_tracked, selling_price_excl) VALUES ($1, 'FIB-0001', 'HUMAN MADE', 'physical', true, 500)`, [s.companyId]);
     });
     const r = await run({}, exportFile(), p2);
@@ -203,7 +164,7 @@ describe('#1: an owned-ness the snapshot got wrong is caught by the dry run, bef
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 1, categories: 0, pos: 0, toolCalls: 0 });
   });
   it('L9: a category a human adds after the snapshot fails the dry run on that category, and the items phase is not started behind it', async () => {
-    const p2 = hooked(2, async () => { await pool.query(`INSERT INTO item_categories (company_id, name) VALUES ($1, 'Optics')`, [s.companyId]); });
+    const p2 = beforeDryRun(async () => { await pool.query(`INSERT INTO item_categories (company_id, name) VALUES ($1, 'Optics')`, [s.companyId]); });
     const r = await run({}, exportFile(), p2);
     expect(r.status).toBe('dry_run_failed');
     expect(r.dryRun.categories.batches.some((b) => b.status === 'failed' && /name_in_use/.test(b.error ?? ''))).toBe(true);

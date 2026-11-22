@@ -30,7 +30,7 @@ const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: R
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
 
 describe('a re-run', () => {
-  it('a re-run replays the PO batches under their keys; the item batches (keyed by the state of the owned rows) run and find everything unchanged; no row is touched', async () => {
+  it('a re-run is a fresh call for every batch (keys follow the state of the rows each touches) that finds everything unchanged, and touches no row', async () => {
     const first = await run();
     expect(first.status).toBe('completed');
     const afterFirst = { counts: await booked(pool, s.companyId), stamps: await stamps(pool, s.companyId) };
@@ -39,7 +39,9 @@ describe('a re-run', () => {
     expect(again.reconciliation).toMatchObject({ items: { presentBefore: 20, addedByRun: 0 }, purchaseOrders: { presentBefore: 10, addedByRun: 0 }, allSentBooked: true, nothingRefused: true });
     const batches = [...again.live!.items.batches, ...again.live!.purchaseOrders.batches];
     expect(batches.every((b) => b.allRowsAlreadyPresent && b.status === 'ok')).toBe(true);
-    expect(again.live!.purchaseOrders.batches.map((b) => b.key)).toEqual(first.live!.purchaseOrders.batches.map((b) => b.key)); // POs are never changed: replayed
+    // R1 (round 4): PO batches are keyed by the state of the POs they touch too, so none is answered from run 1's stored answer.
+    expect(again.live!.purchaseOrders.batches[0]!.key).not.toBe(first.live!.purchaseOrders.batches[0]!.key);
+    expect(again.live!.purchaseOrders.batches[0]!.toolReported).toMatchObject({ created: 0, already_existed: 10 });
     // B3 (round 3): an item batch's key follows the state of the owned rows, so it is NOT replayed from the first run's answer: it runs and finds every row unchanged.
     expect(again.live!.items.batches[0]!.key).not.toBe(first.live!.items.batches[0]!.key);
     expect(again.live!.items.batches[0]!.toolReported).toMatchObject({ written: false, counts: { created: 0, updated: 0, unchanged: 20 } });
@@ -126,7 +128,11 @@ describe('a failed batch', () => {
     const resumed = await run({ poBatchSize: 3 });
     expect(resumed.status).toBe('completed');
     expect(resumed.live!.purchaseOrders.batches.map((b) => b.allRowsAlreadyPresent)).toEqual([true, false, true, true]);
-    expect(resumed.live!.purchaseOrders.batches.map((b) => b.key)).toEqual(first.live!.purchaseOrders.batches.map((b) => b.key));
+    // The batch that FAILED retries under its own key (its POs were absent: no salt); the ones already there are keyed by their state.
+    const [k1, k2, k3, k4] = resumed.live!.purchaseOrders.batches.map((b) => b.key);
+    const f = first.live!.purchaseOrders.batches.map((b) => b.key);
+    expect(k2).toBe(f[1]);
+    expect([k1 === f[0], k3 === f[2], k4 === f[3]]).toEqual([false, false, false]);
     expect(resumed.reconciliation).toMatchObject({ allSentBooked: true, purchaseOrders: { presentBefore: 7, presentAfter: 10, addedByRun: 3, differenceCents: 0 } });
     expect((await booked(pool, s.companyId)).pos).toBe(10);
   });

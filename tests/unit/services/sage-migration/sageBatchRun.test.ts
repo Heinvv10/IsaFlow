@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_UPSERT_ROWS } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { MAX_PURCHASE_ORDERS } from '@/lib/mcp/tools/purchaseOrderImportArgs';
-import { categoryBatchSalt, keyFor, itemBatchSalt } from '@/modules/accounting/services/sage-migration/sageBatchRun';
+import { categoryBatchSalt, keyFor, itemBatchSalt, poBatchSalt, stateSalt } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { batchKey, MAX_ITEM_BATCH, MAX_PO_BATCH, RUN_TAG } from '@/modules/accounting/services/sage-migration/sageBatches';
 import { checkRowsPresent, planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { budgetWouldHaveFailed } from '@/modules/accounting/services/sage-migration/sageBudgetReport';
@@ -16,7 +16,7 @@ const plan = (items: number, pos: number, categories = 0): MigrationPlan => ({
   purchaseOrders: Array.from({ length: pos }, (_, i) => ({ sageId: String(i + 1), documentNumber: `PO${i}`, totalCents: 1, element: { po_number: `PO${i}` }, pdfFile: null })),
   refusals: [],
 });
-const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], categories: [], supplierSageRefs: new Map(), poNumbers: new Map() });
+const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], categories: [], supplierSageRefs: new Map(), poStates: new Map(), poNumbers: new Map() });
 const sizes = (b: { size: number }[]) => b.map((x) => x.size);
 
 describe('the caps are the tools\' own', () => {
@@ -189,6 +189,26 @@ describe('B3 (round 3): an item batch key follows the state of the owned rows it
   });
 });
 
+describe('R1 (round 4): ONE salt for every entity', () => {
+  it('no existing row gives no salt; the salt follows (reference, state) pairs in any order, and a row\'s state, and the reference', () => {
+    expect(stateSalt([['1', undefined], ['2', undefined]])).toBeUndefined();
+    expect(stateSalt([])).toBeUndefined();
+    const a = stateSalt([['1', 'x'], ['2', 'y']]);
+    expect(a).toBeDefined();
+    expect(stateSalt([['2', 'y'], ['1', 'x']])).toBe(a);
+    expect(stateSalt([['1', 'x'], ['2', 'z']])).not.toBe(a);
+    expect(stateSalt([['1', 'x'], ['3', 'y']])).not.toBe(a);
+    expect(stateSalt([['1', 'x']])).not.toBe(a);
+  });
+  it('a PO batch\'s salt is that of the POs of the batch already in the books', () => {
+    const states = new Map([['1', 'p1'], ['2', 'p2'], ['9', 'zz']]);
+    expect(poBatchSalt(['3', '4'], states)).toBeUndefined();
+    expect(poBatchSalt(['1', '2'], states)).toBe(stateSalt([['1', 'p1'], ['2', 'p2']]));
+    expect(poBatchSalt(['1', '2'], new Map([['1', 'p1'], ['2', 'CHANGED']]))).not.toBe(poBatchSalt(['1', '2'], states));
+    expect(poBatchSalt(['1', '3'], states)).toBe(stateSalt([['1', 'p1']])); // only the POs that exist count
+  });
+});
+
 describe('M1 (round 4): a category batch key follows the state of the owned category it touches', () => {
   const cat = (ref: string, stateHash: string, system = 'sage') => ({ id: `c${ref}`, name: `N${ref}`, system, ref, isActive: true, stateHash });
   it('no owned category (first run, or deleted): no salt; another system\'s category is not owned', () => {
@@ -206,6 +226,9 @@ describe('M1 (round 4): a category batch key follows the state of the owned cate
     const snap = (h: string) => ({ ...empty(), categories: [cat('10', h)] });
     expect(keyFor(b.categories[0]!, snap('h1'), false)).not.toBe(keyFor(b.categories[0]!, snap('h2'), false));
     expect(keyFor(b.categories[0]!, empty(), false)).toMatch(/^sage-mig-category-0001-[0-9a-f]{16}$/);
-    expect(keyFor(b.purchaseOrders[0]!, snap('h1'), false)).toBe(keyFor(b.purchaseOrders[0]!, snap('h2'), false));
+    const poSnap = (h: string) => ({ ...empty(), poStates: new Map([['1', h]]) });
+    expect(keyFor(b.purchaseOrders[0]!, poSnap('p1'), false)).not.toBe(keyFor(b.purchaseOrders[0]!, poSnap('p2'), false));
+    expect(keyFor(b.purchaseOrders[0]!, snap('h1'), false)).toBe(keyFor(b.purchaseOrders[0]!, snap('h2'), false)); // category state is no concern of a PO batch
+    expect(keyFor(b.purchaseOrders[0]!, empty(), false)).toMatch(/^sage-mig-purchase_order-0001-[0-9a-f]{16}$/);
   });
 });

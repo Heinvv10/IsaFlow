@@ -27,32 +27,41 @@ export interface Send {
   itemSent?: SentItem[];
   /** The Sage id of the category of a category send: its key follows the owned category's state, and the books are checked against `categorySent`. */
   categoryRef?: string;
+  /** The Sage ids of the POs of a PO batch: its key follows the state of those already in the books. */
+  poRefs?: string[];
   categorySent?: SentCategory;
 }
 
 /**
- * The salt of an item batch's key: a hash of the state (every column the item tool compares) of the OWNED rows the batch touches. With
- * none (a first run, rows deleted) there is no salt and the key is the plain one, so a failed batch resumes under its key. Once a
- * person has changed an owned item in IsaFlow the key changes, so the batch is not replayed from the stored answer of the run that
- * wrote it (which would write nothing and leave the item as the person left it, while the dry run said it would be put back).
+ * THE salt of a batch key, for every entity: a hash of the state of the existing rows the batch touches, given as (reference, state hash)
+ * pairs where a reference with no row has no hash. With no existing row there is no salt and the key is the plain one, so a batch whose
+ * rows are absent (a first run, a failed batch, rows deleted) is retried under its own key. Once a row of the batch has changed in IsaFlow
+ * (or been written by the run that stored an answer) the key differs, so a stored answer is replayed only under exactly the state it
+ * was given for: never an answer that was true of an earlier state.
  */
-export function itemBatchSalt(rows: ReadonlyArray<{ sageId: string }>, existing: readonly ExistingItem[]): string | undefined {
-  const mine = rows.flatMap((r) => {
-    const item = existing.find((i) => i.system === 'sage' && i.ref === r.sageId && !i.deleted);
-    return item ? [`${r.sageId}:${item.stateHash}`] : [];
-  }).sort();
+export function stateSalt(states: ReadonlyArray<readonly [string, string | undefined]>): string | undefined {
+  const mine = states.flatMap(([ref, hash]) => (hash === undefined ? [] : [`${ref}:${hash}`])).sort();
   return mine.length === 0 ? undefined : createHash('sha256').update(mine.join('|')).digest('hex').slice(0, 16);
+}
+
+/** An item batch: the OWNED (system sage, live) rows it touches. */
+export function itemBatchSalt(rows: ReadonlyArray<{ sageId: string }>, existing: readonly ExistingItem[]): string | undefined {
+  return stateSalt(rows.map((r) => [r.sageId, existing.find((i) => i.system === 'sage' && i.ref === r.sageId && !i.deleted)?.stateHash] as const));
 }
 
 /** The salt of a category send's key: the state hash of the owned category (system sage, this Sage id), as for an item batch. */
 export function categoryBatchSalt(sageId: string, existing: readonly ExistingCategory[]): string | undefined {
-  const c = existing.find((x) => x.system === 'sage' && x.ref === sageId);
-  return c ? createHash('sha256').update(`${sageId}:${c.stateHash}`).digest('hex').slice(0, 16) : undefined;
+  return stateSalt([[sageId, existing.find((x) => x.system === 'sage' && x.ref === sageId)?.stateHash]]);
+}
+
+/** A PO batch: the Sage POs it touches that are already in the books. */
+export function poBatchSalt(sageIds: readonly string[], poStates: ReadonlyMap<string, string>): string | undefined {
+  return stateSalt(sageIds.map((id) => [id, poStates.get(id)] as const));
 }
 
 /** The idempotency key a batch is sent under (a dry run's carries "-dry"). */
 export function keyFor(s: Send, before: Snapshot, dry: boolean): string {
-  const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : s.categoryRef ? categoryBatchSalt(s.categoryRef, before.categories) : undefined;
+  const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : s.categoryRef ? categoryBatchSalt(s.categoryRef, before.categories) : s.poRefs ? poBatchSalt(s.poRefs, before.poStates) : undefined;
   return batchKey(s.entity, s.n, s.args, s.runTag, salt) + (dry ? '-dry' : '');
 }
 
@@ -78,6 +87,7 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
     args: { purchase_orders: rows.map((r) => r.element), ...(opts.skipBudgetCheck ? { skip_budget_check_for_import: true } : {}) },
     present: (before) => rows.every((r) => before.poTotals.has(r.sageId)),
     absent: (after) => rows.map((r) => r.sageId).filter((id) => !after.poTotals.has(id)), runTag: opts.runTag,
+    poRefs: rows.map((r) => r.sageId),
   }));
   return { categories, items, purchaseOrders };
 }
