@@ -64,6 +64,10 @@ const COLUMN_DEFS: ReadonlyArray<{ id: string; label: string }> = [
 interface ApiEnvelope<T> { success: boolean; data: T; error?: { message?: string } }
 
 function StatusCell({ row, columnId }: { row: PortfolioRow; columnId: string }) {
+  // The server leaves the payroll card out of a client where the user has no Payroll read (portfolioPayrollAccess).
+  if (columnId === 'payroll' && row.payrollHidden) {
+    return <td className="px-2 py-2 text-center text-xs text-ink-faint" title="You do not have Payroll access in this client">No access</td>;
+  }
   const card = row.cards.find(c => c.id === columnId);
   if (!card) {
     return <td className="px-2 py-2 text-center text-zinc-700">—</td>;
@@ -268,8 +272,8 @@ export default function PortfolioWorkbenchPage() {
                       <StatusCell key={col.id} row={row} columnId={col.id} />
                     ))}
                     <td className="px-2 py-2.5 text-center text-zinc-300 tabular-nums">
-                      <span className={row.readyCount === 8 ? 'text-emerald-300' : ''}>
-                        {row.readyCount}/8
+                      <span className={row.readyCount === (row.payrollHidden ? 7 : 8) ? 'text-emerald-300' : ''}>
+                        {row.readyCount}/{row.payrollHidden ? 7 : 8}
                       </span>
                     </td>
                   </tr>

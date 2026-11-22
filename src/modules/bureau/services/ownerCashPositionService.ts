@@ -262,6 +262,8 @@ export async function getOwnerCashPosition(
   companyId: string,
   cash: number,
   today: Date,
+  /** Required: the payroll section (pay runs, what they need) is read only for `payroll: true`, a caller with Payroll read. */
+  sections: { payroll: boolean },
 ): Promise<OwnerCashPosition> {
   const soft = async <T>(section: string, fallback: T, fn: () => Promise<T>): Promise<T> => {
     try {
@@ -283,7 +285,7 @@ export async function getOwnerCashPosition(
 
   const asAt = todayInSast(today);
   const [payroll, vat] = await Promise.all([
-    soft<CashPositionPayroll | null>('payroll', null, () => nextPayrollSection(companyId, cash, asAt)),
+    sections.payroll ? soft<CashPositionPayroll | null>('payroll', null, () => nextPayrollSection(companyId, cash, asAt)) : Promise.resolve(null),
     soft<CashPositionVat | null>('vat', null, () => vatSection(companyId, today)),
   ]);
 

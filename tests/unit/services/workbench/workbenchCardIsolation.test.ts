@@ -55,7 +55,7 @@ describe('getMonthEndWorkbench card isolation', () => {
   });
 
   it('a failing VAT card blocks only itself', async () => {
-    const wb = await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11');
+    const wb = await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11', { payrollRead: true });
     const byId = Object.fromEntries(wb.cards.map((c) => [c.id, c]));
     expect(byId.vat!.status).toBe('blocked');
     for (const id of ['banking', 'sales', 'purchases', 'payroll', 'afs', 'exceptions', 'review']) {
@@ -64,7 +64,22 @@ describe('getMonthEndWorkbench card isolation', () => {
   });
 
   it('runs every card and the trial balance in its own savepoint', async () => {
-    await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11');
+    await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11', { payrollRead: true });
     expect(new Set(db.savepoints).size).toBe(9);
   });
+
+  it('without Payroll read the payroll card is not built at all: no card, no savepoint, payrollHidden', async () => {
+    const wb = await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11', { payrollRead: false });
+    expect(wb.cards.map((c) => c.id)).toEqual(['banking', 'sales', 'purchases', 'vat', 'afs', 'exceptions', 'review']);
+    expect(wb.payrollHidden).toBe(true);
+    expect(db.savepoints).not.toContain('wb_card_payroll');
+    expect(new Set(db.savepoints).size).toBe(8);
+  });
+
+  it('with Payroll read the card is there and payrollHidden is absent', async () => {
+    const wb = await getMonthEndWorkbench('00000000-0000-0000-0000-000000000001', '2026-11', { payrollRead: true });
+    expect(wb.cards.map((c) => c.id)).toContain('payroll');
+    expect(wb.payrollHidden).toBeUndefined();
+  });
 });
+

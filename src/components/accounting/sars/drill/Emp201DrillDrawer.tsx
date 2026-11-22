@@ -12,6 +12,7 @@ import { DrillFailureNote } from './DrillFailureNote';
 import { DrillPager } from './DrillPager';
 import { fetchEmp201Drill } from './returnDrillClient';
 import { useDrillPages } from './useDrillPages';
+import { useHrefVisible } from '@/hooks/useHrefVisible';
 
 export const EMP201_DRILL_LABELS: Record<string, string> = {
   paye: 'PAYE', eti: 'ETI for the period', uif: 'Total UIF', sdl: 'SDL', remuneration: 'Total taxable remuneration',
@@ -21,7 +22,16 @@ interface Props { field: string | null; from: string; to: string; onClose: () =>
 
 const month = (y: number, m: number): string => `${y}-${String(m).padStart(2, '0')}`;
 
+/** A pay-run month: a link to the run, or plain text where the user has no Payroll read (`mayOffer`, asked once per table). */
+function RunLink({ runId, mayOffer, children }: { runId: string; mayOffer: (href: string) => boolean; children: React.ReactNode }) {
+  const href = `/payroll/runs/${runId}`;
+  return mayOffer(href)
+    ? <Link href={href} className="inline-flex min-h-[24px] items-center text-teal-700 underline dark:text-teal-400">{children}</Link>
+    : <span className="inline-flex min-h-[24px] items-center">{children}</span>;
+}
+
 function Runs({ r }: { r: Emp201DrillResult }) {
+  const mayOffer = useHrefVisible();
   return (
     <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Pay runs behind this total">
       <table className="w-full min-w-[330px] text-xs" data-testid="emp201-drill-runs">
@@ -35,9 +45,7 @@ function Runs({ r }: { r: Emp201DrillResult }) {
           {r.runs.map((run) => (
             <tr key={run.runId} className="border-t border-[var(--ff-border-light)] text-[var(--ff-text-primary)]">
               <td className="whitespace-nowrap py-1 pr-2">
-                <Link href={`/payroll/runs/${run.runId}`} className="inline-flex min-h-[24px] items-center text-teal-700 underline dark:text-teal-400">
-                  {month(run.periodYear, run.periodMonth)}
-                </Link> <span className="text-[var(--ff-text-secondary)]">{run.status}</span>
+                <RunLink runId={run.runId} mayOffer={mayOffer}>{month(run.periodYear, run.periodMonth)}</RunLink> <span className="text-[var(--ff-text-secondary)]">{run.status}</span>
               </td>
               <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums">{formatMoney(run.headerTotal)}</td>
               <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums">{formatMoney(run.linesTotal)}</td>
@@ -51,6 +59,7 @@ function Runs({ r }: { r: Emp201DrillResult }) {
 }
 
 function Lines({ r }: { r: Emp201DrillResult }) {
+  const mayOffer = useHrefVisible();
   return (
     <div>
       {r.rows.length > 0 && <p className="mb-1 text-xs text-[var(--ff-text-secondary)] sm:hidden">Scroll sideways for every column.</p>}
@@ -66,9 +75,7 @@ function Lines({ r }: { r: Emp201DrillResult }) {
               <tr key={`${row.runId}|${row.employeeId}`} className="border-t border-[var(--ff-border-light)] text-[var(--ff-text-primary)]">
                 <td className="py-1 pr-2">{row.employeeNumber} {row.employeeName}</td>
                 <td className="whitespace-nowrap py-1 pr-2">
-                  <Link href={`/payroll/runs/${row.runId}`} className="inline-flex min-h-[24px] items-center text-teal-700 underline dark:text-teal-400">
-                    {month(row.periodYear, row.periodMonth)}
-                  </Link>
+                  <RunLink runId={row.runId} mayOffer={mayOffer}>{month(row.periodYear, row.periodMonth)}</RunLink>
                 </td>
                 <td className="whitespace-nowrap py-1 text-right tabular-nums">{formatMoney(row.amount)}</td>
               </tr>

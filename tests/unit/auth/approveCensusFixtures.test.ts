@@ -5,21 +5,28 @@
  */
 import { describe, expect, it } from 'vitest';
 import { analyse } from '../helpers/approveCensusGraph';
+import { collapse } from '../helpers/approveCensusProgram';
 import { PAYROLL_READ_WRAPPERS, POSTING_RULES } from '../helpers/approveCensusConfig';
 
 /** A one-route virtual project under the posting census's own rules (the #1670 fixtures). */
-function fixture(route: string) {
+function fixture(route: string, rules: Partial<typeof POSTING_RULES> = {}) {
   const files: Record<string, string> = {
     '/fx/lib.ts': `export declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
 export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
 export declare function refuseWithoutApprove(res: unknown, c: string, u: string, m: string, w: string): Promise<boolean>;
 export declare function returnApproveModule(form: string): 'vat' | 'payroll' | null;
+export declare function refuseApprovalRequestWithoutApprove(res: unknown, c: string, u: string, t: string, id: string): Promise<boolean>;
+export async function finaliseReturn(c: string, form: string, id: string) { return id; }
+export async function markReturnFiled(c: string, form: string, id: string) { return id; }
+export async function amendReturn(c: string, form: string, id: string) { return id; }
+export async function finaliseVatReturn(c: string, id: string) { return id; }
 export async function fileIt(id: string) { await client.query("UPDATE tax_return_versions SET status = 'filed' WHERE id = $1", [id]); }
 export async function flipBill(id: string) { await client.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]); }`,
-    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, flipBill, returnApproveModule, fileIt } from './lib';\ndeclare const res: unknown;
+    '/fx/route.ts': `import { sql, client, refuseWithoutApprove, refuseApprovalRequestWithoutApprove, flipBill, returnApproveModule, fileIt, finaliseReturn, markReturnFiled,
+  amendReturn, finaliseVatReturn } from './lib';\ndeclare const res: unknown;
 const MODULE_Q = "UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1";\n${route}\nexport default handler;`,
   };
-  return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
+  return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES, ...rules }).bad;
 }
 const gate = (module: string) => `if (await refuseWithoutApprove(res, 'c', 'u', '${module}', 'x')) return;`;
 const handler = (body: string) => `async function handler(id: string) { ${body} }`;
@@ -87,11 +94,12 @@ describe('posting census fixtures (#1670)', () => {
     const form = (f: string) => `if (await refuseWithoutApprove(res, 'c', 'u', returnApproveModule('${f}')!, 'x')) return;`;
     const viaConst = "const m = returnApproveModule(id); if (!m) return; if (await refuseWithoutApprove(res, 'c', 'u', m, 'x')) return;";
     const unreadable = "const any = id as 'vat'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return;";
-    for (const body of [filed, 'await fileIt(id);']) { // in the handler's own SQL, and through a helper
+    for (const body of [filed, 'await fileIt(id);']) { // in the handler's own SQL, and through a helper: the filing's form is unknown
       expect(fixture(handler(`${gate('vat')} ${body}`)), `vat: ${body}`).toHaveLength(1);
       expect(fixture(handler(`${gate('budgets')} ${body}`)), `budgets: ${body}`).toHaveLength(1);
-      expect(fixture(handler(`${form('VAT201')} ${body}`)), `VAT201: ${body}`).toEqual([]);
-      expect(fixture(handler(`${form('EMP501')} ${body}`)), `EMP501: ${body}`).toEqual([]);
+      // follow-up L-a/L-b: a gate for ONE form does not cover a filing whose form the census cannot read
+      expect(fixture(handler(`${form('VAT201')} ${body}`)), `VAT201: ${body}`).toHaveLength(1);
+      expect(fixture(handler(`${form('EMP501')} ${body}`)), `EMP501: ${body}`).toHaveLength(1);
       expect(fixture(handler(`${viaConst} ${body}`)), `const: ${body}`).toEqual([]);
       expect(fixture(handler(`${unreadable} ${body}`)), `any: ${body}`).toHaveLength(1);
       expect(fixture(handler(`${form('ITR14')} ${body}`)), `unmapped form: ${body}`).toHaveLength(1);
@@ -101,6 +109,66 @@ describe('posting census fixtures (#1670)', () => {
     expect(fixture(handler(`${form('VAT201')} ${lock}`))).toEqual([]);
     expect(fixture(handler(`${gate('vat')} ${lock}`))).toEqual([]);
     expect(fixture(handler(`${viaConst} ${lock}`))).toHaveLength(1); // some return's module is not provably VAT
+  });
+
+  it('#1670 follow-up L-a/L-b: a finalise / filing / amend of one form needs THAT form\'s gate; another form\'s is a finding', () => {
+    const form = (f: string) => `if (await refuseWithoutApprove(res, 'c', 'u', returnApproveModule('${f}')!, 'x')) return;`;
+    const viaConst = "const m = returnApproveModule(id); if (!m) return; if (await refuseWithoutApprove(res, 'c', 'u', m, 'x')) return;";
+    for (const sink of ['finaliseReturn', 'markReturnFiled', 'amendReturn']) {
+      const vat = `await ${sink}('c', 'VAT201', id);`;
+      expect(fixture(handler(`${form('EMP501')} ${vat}`)), `EMP501 gate, VAT201 ${sink}`).toHaveLength(1);
+      expect(fixture(handler(`${gate('vat')} ${vat}`)), `literal vat gate, VAT201 ${sink}`).toHaveLength(1);
+      expect(fixture(handler(`${form('VAT201')} ${vat}`)), `VAT201 gate, VAT201 ${sink}`).toEqual([]);
+      expect(fixture(handler(`${form('EMP201')} await ${sink}('c', 'EMP501', id);`)), `EMP201 gate (Payroll), EMP501 ${sink}`).toEqual([]);
+      // an unknown form's filing: only a gate whose form is also unknown (the same variable) covers it
+      expect(fixture(handler(`${form('EMP501')} await ${sink}('c', id, id);`)), `EMP501 gate, unknown ${sink}`).toHaveLength(1);
+      expect(fixture(handler(`${viaConst} await ${sink}('c', id, id);`)), `unknown gate, unknown ${sink}`).toEqual([]);
+      expect(fixture(handler(`${viaConst} ${vat}`)), `unknown gate, VAT201 ${sink}`).toEqual([]);
+    }
+    // #1720 review M1: a gate deciding per document ('*') never covers a filing, of a known form or not
+    const perDocument = "if (await refuseApprovalRequestWithoutApprove(res, 'c', 'u', 'x', id)) return;";
+    for (const call of ["await finaliseReturn('c', 'VAT201', id);", "await markReturnFiled('c', 'EMP501', id);", 'await amendReturn(\'c\', id, id);']) {
+      expect(fixture(handler(`${perDocument} ${call}`)), `'*' gate, ${call}`).toHaveLength(1);
+    }
+    // #1720 review L2: an unmapped form (ITR14) is refused by every gate, its own resolver included
+    for (const g of [form('VAT201'), form('ITR14'), viaConst, perDocument, gate('vat'), gate('payroll')]) {
+      expect(fixture(handler(`${g} await finaliseReturn('c', 'ITR14', id);`)), `${g} ITR14`).toHaveLength(1);
+    }
+    // L-b: the VAT201 finalise (and its period lock) is VAT's wherever a route calls it
+    expect(fixture(handler(`${form('EMP501')} await finaliseVatReturn('c', id);`))).toHaveLength(1);
+    expect(fixture(handler(`${form('VAT201')} await finaliseVatReturn('c', id);`))).toEqual([]);
+  });
+
+  it('#1720 fix-verify: every CASE setting an invoice to approved is a finding, but a statement pinned as an un-payment writer', () => {
+    const recompute = "UPDATE TBL SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END WHERE id = ${id}";
+    for (const table of ['customer_invoices', 'supplier_invoices']) {
+      const flip = (sqlText: string) => fixture(handler(`await sql\`${sqlText.replace('TBL', table)}\`;`));
+      for (const when of [
+        "status = 'draft'",
+        "status = 'draft' AND amount_paid <= 0", // the fooling shapes of the shape regex
+        "status IN ('draft', 'paid')",
+        "status = 'paid' OR status = 'draft'",
+        "total_amount - discount <= 0 AND status = 'draft'",
+        "amount_paid = 0 AND status = 'draft'",
+        "status IN ('partially_paid', 'paid')", // the un-payment's own shape, outside its pinned writer
+      ]) expect(flip(`UPDATE TBL SET status = CASE WHEN ${when} THEN 'approved' ELSE status END WHERE id = \${id}`), `${table}: ${when}`).toHaveLength(1);
+      // The real recompute's text is a finding anywhere but where it is pinned ...
+      expect(flip(recompute), `${table} recompute, unpinned`).toHaveLength(1);
+      // ... and exempt where it is: a pin names the file and the statement's text.
+      const pin = { file: '/fx/route.ts', line: 1, why: 'fixture', statement: collapse(recompute.replace('TBL', table)).replace('${id}', '?') };
+      const pinned = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [...(p.exemptIn ?? []), pin] }));
+      expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: pinned }), `${table} recompute, pinned`).toEqual([]);
+      // A pin is the WHOLE statement (#1720 last Low): the pinned text with a second approving arm, or a second approving write, flags.
+      for (const grown of [
+        recompute.replace('ELSE status END', "WHEN status = 'draft' THEN 'approved' ELSE status END"),
+        recompute.replace(' WHERE id', ", approved_at = NOW(), status = CASE WHEN status = 'draft' THEN 'approved' ELSE status END WHERE id"),
+        // the whole pinned text, unchanged, inside a statement that also approves: equality, not containment
+        `WITH bump AS (UPDATE TBL SET status = CASE WHEN status = 'draft' THEN 'approved' ELSE status END WHERE id = \${id}) ${recompute}`,
+      ]) expect(fixture(handler(`await sql\`${grown.replaceAll('TBL', table)}\`;`), { sqlPrimitives: pinned }), `${table} pinned + ${grown.slice(-80)}`).toHaveLength(1);
+      // A pin is by FILE: the same statement in another file is not exempt.
+      const elsewhere = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [{ ...pin, file: '/fx/lib.ts' }] }));
+      expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: elsewhere }), `${table} recompute, pinned elsewhere`).toHaveLength(1);
+    }
   });
 
   it('#1670 r13 L1: a gate whose module the census cannot read covers nothing, not even a journal (any module)', () => {
@@ -115,8 +183,8 @@ describe('posting census fixtures (#1670)', () => {
 
   it('#1670 r13 M1 / L3: a finalise INSERT, an amend, a CASE, a tuple SET and an upsert flip are primitives', () => {
     for (const [sqlText, need] of [
-      ["INSERT INTO tax_return_versions (company_id, form_type) VALUES (${id}, 'VAT201')", "returnApproveModule('VAT201')!"],
-      ["UPDATE tax_return_versions SET status = 'superseded', amended_at = now() WHERE id = ${id}", "returnApproveModule('VAT201')!"],
+      ["INSERT INTO tax_return_versions (company_id, form_type) VALUES (${id}, 'VAT201')", 'returnApproveModule(id)!'],
+      ["UPDATE tax_return_versions SET status = 'superseded', amended_at = now() WHERE id = ${id}", 'returnApproveModule(id)!'],
       ["UPDATE supplier_payments SET status = CASE WHEN ${id} = '' THEN 'approved' ELSE status END WHERE id = ${id}", "'suppliers'"],
       ["UPDATE purchase_orders SET (status, approved_by) = ('approved', ${id}) WHERE id = ${id}", "'suppliers'"],
       ["INSERT INTO budget_versions (id, status) VALUES (${id}, 'draft') ON CONFLICT (id) DO UPDATE SET status = 'approved'", "'budgets'"],

@@ -84,7 +84,7 @@ describe('owner cash position: the next pay run', () => {
   const position = (flip: boolean, cash: number, when: Date = today) => {
     let ids: string[] = [];
     return twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
-      async () => ({ got: await getOwnerCashPosition(A.company, cash, when), ids: ordered(ids, flip) }));
+      async () => ({ got: await getOwnerCashPosition(A.company, cash, when, { payroll: true }), ids: ordered(ids, flip) }));
   };
 
   it.each(BOTH_ORDERS)('cash covers both: the latest run of the month is the bonus, against both (seeded reversed: %s)', async (flip) => {
@@ -114,7 +114,7 @@ describe('owner cash position: the next pay run', () => {
     let ids: string[] = [];
     const got = await twoRunsInMonth(pool, A, async (c) => {
       ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { ...REGULAR, runDate: '2026-05-31' }]);
-    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z')));
+    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z'), { payroll: true }));
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
   });
 
