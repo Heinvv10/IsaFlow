@@ -198,7 +198,7 @@ export function analyse(cfg: CensusConfig): Census {
     }
     const visit = (n: ts.Node) => {
       const text = cfg.sqlPrimitives ? sqlTextOf(n, cfg.queryCalls === true, constInit) : null;
-      const module = text === null ? null : primitiveModule(cfg.sqlPrimitives!, text);
+      const module = text === null ? null : primitiveModule(cfg.sqlPrimitives!, text, rel(sf.fileName));
       if (module !== null) {
         const u = enclosing(n) ?? unitOfFile(sf);
         u.primSites.push({ node: n, module });

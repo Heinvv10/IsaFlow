@@ -19,10 +19,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
-import { UNSCOPED_MARKER } from '../helpers/approveCensusProgram';
+import { existsSync, readFileSync } from 'fs';
+import { collapse, UNSCOPED_MARKER } from '../helpers/approveCensusProgram';
 import { analyse } from '../helpers/approveCensusGraph';
-import { PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, POSTING_RULES } from '../helpers/approveCensusConfig';
+import { INVOICE_UNPAYMENT_WRITERS, PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, POSTING_RULES } from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
 /** MCP tools that require write:post or are named like a posting tool, yet post nothing. */
@@ -127,6 +127,16 @@ describe('approve / post entry-point census (#1656)', () => {
     expect([...census().staleMarkers, ...payrollCensus().staleMarkers, ...misplaced]).toEqual([]);
     expect(census().markersUsed.length + payrollCensus().markersUsed.length).toBeGreaterThanOrEqual(17);
   }, 180_000);
+
+  it('#1720: every pinned invoice un-payment writer is still in its file (a pin whose statement is gone fails as stale)', () => {
+    const stale = INVOICE_UNPAYMENT_WRITERS.filter((pin) => {
+      // the file's static SQL text as the census reads it: binds as ?, whitespace collapsed
+      const text = existsSync(pin.file) ? collapse(readFileSync(pin.file, 'utf8').replace(/\$\{[^}]*\}/g, '?')) : '';
+      return !text.includes(pin.snippet);
+    }).map((pin) => `${pin.file}:${pin.line} ${pin.why}`);
+    expect(stale).toEqual([]);
+    expect(INVOICE_UNPAYMENT_WRITERS.length).toBe(4);
+  });
 
   it('every MCP tool that posts declares its approve module', () => {
     const posting = MCP_TOOLS.filter((t) => t.requiresPost || POSTING_NAME.test(t.name));

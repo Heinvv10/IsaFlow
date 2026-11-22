@@ -208,11 +208,24 @@ export function gatesCover(gates: ReadonlySet<string>, needs: Iterable<string>, 
 }
 
 /** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */
-export type SqlPrimitive = RegExp | { re: RegExp; module: string };
+export type SqlPrimitive = RegExp | { re: RegExp; module: string; exemptIn?: readonly PinnedStatement[] };
 
-/** The module the first matching primitive needs, or null when none matches. */
-export function primitiveModule(prims: readonly SqlPrimitive[], text: string): string | null {
-  for (const p of prims) if ((p instanceof RegExp ? p : p.re).test(text)) return p instanceof RegExp ? '*' : p.module;
+/**
+ * A NAMED statement a primitive pattern exempts: the statement in `file` whose static text (whitespace collapsed) contains
+ * `snippet` (#1720 fix-verify: the invoice un-payment writers are pinned by file and text, not recognised by a shape regex).
+ */
+export interface PinnedStatement { file: string; line: number; snippet: string; why: string }
+
+/** Whitespace collapsed to one space: how a pin's snippet is compared with a statement's static text. */
+export const collapse = (t: string): string => t.replace(/\s+/g, ' ').trim();
+
+/** The module the first matching primitive needs, or null when none matches; a statement pinned for that primitive in `file` skips it. */
+export function primitiveModule(prims: readonly SqlPrimitive[], text: string, file?: string): string | null {
+  for (const p of prims) {
+    if (!(p instanceof RegExp ? p : p.re).test(text)) continue;
+    if (!(p instanceof RegExp) && p.exemptIn?.some((pin) => pin.file === file && collapse(text).includes(pin.snippet))) continue;
+    return p instanceof RegExp ? '*' : p.module;
+  }
   return null;
 }
 

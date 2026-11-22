@@ -8,7 +8,7 @@
  * is caught without being named here (round 4, F-M2).
  */
 import type { GateSpec } from './approveCensusGraph';
-import type { ModuleResolver, SinkModuleArg, SqlPrimitive } from './approveCensusProgram';
+import type { ModuleResolver, PinnedStatement, SinkModuleArg, SqlPrimitive } from './approveCensusProgram';
 import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 export const SINK_MODULES: Readonly<Record<string, string>> = {
@@ -74,19 +74,14 @@ export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, ModuleResolver>> =
  * Budgets gate does not cover a bill flipped to approved. '*' where the document decides the module (a journal, posted by every module;
  * a credit note; a tax return). The documents and modules follow APPROVE_MODULE_BY_DOCUMENT and SINK_MODULES above.
  */
-const flips = (tables: string, statuses: string, module: string, caseForm: 'any' | 'notPaid' = 'any') => {
+const flips = (tables: string, statuses: string, module: string, exemptIn?: readonly PinnedStatement[]) => {
   const T = `(?:public\\.)?(?:${tables})\\b`;
   const noWhere = (n: number) => `(?:(?!\\bWHERE\\b)[^;]){0,${n}}?`;
   // `status = '<s>'`, or `status = CASE ... THEN '<s>'` (r13 L3)
-  // 'notPaid': a CASE arm counts unless its WHEN is an un-payment back to 'approved': a status test naming a paid state
-  // (`status IN ('partially_paid', 'paid')`, `status = 'paid'`) or the allocation reversal's `amount_paid ... <= 0`. Any other
-  // WHEN, `amount_paid = 0 AND status = 'draft'` included, counts (#1720 review L1).
-  const unpay = `(?:\\bstatus\\s*(?:IN\\s*\\([^)]*'(?:partially_)?paid'|=\\s*'(?:partially_)?paid')|\\bamount_paid\\b(?:(?!\\bTHEN\\b)[^;]){0,120}?<=\\s*0\\b)`;
-  const arm = caseForm === 'any' ? '\\bTHEN'
-    : `\\bWHEN\\b(?!(?:(?!\\bTHEN\\b)[^;]){0,300}?${unpay})(?:(?!\\bTHEN\\b)[^;]){0,300}\\bTHEN`;
-  const set = `\\bstatus\\s*=\\s*(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?${arm}\\s*)?'(?:${statuses})'`;
+  const set = `\\bstatus\\s*=\\s*(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?\\bTHEN\\s*)?'(?:${statuses})'`;
   return {
     module,
+    exemptIn,
     // `SET ... status = '<s>'` before any WHERE (a cancel `WHERE status = 'approved'` is no approval); `SET (status, ...) = ('<s>', ...)`;
     // an upsert's `ON CONFLICT ... DO UPDATE SET status = '<s>'` (r13 L3)
     re: new RegExp([
@@ -96,16 +91,33 @@ const flips = (tables: string, statuses: string, module: string, caseForm: 'any'
     ].join('|'), 'i'),
   };
 };
+
+/**
+ * The invoice payment recompute's un-payment writers: a CASE that puts an invoice back to 'approved' when what was paid is taken
+ * off (WHEN status IN ('partially_paid', 'paid') / amount_paid falls to 0). No approval, so these NAMED statements are exempt from
+ * the invoice flips, pinned by file and a line-identifying snippet of their static text (binds read as ?, whitespace collapsed).
+ * Any other CASE setting an invoice to 'approved' is a finding; a pin whose snippet is gone fails as stale (#1720 fix-verify).
+ */
+const AR = 'src/modules/accounting/services/ar/';
+export const INVOICE_UNPAYMENT_WRITERS: readonly PinnedStatement[] = [
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 108, why: 'recomputeInvoiceStatus, customer: the recompute after a payment moves',
+    snippet: "UPDATE customer_invoices SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 127, why: 'recomputeInvoiceStatus, supplier: the same, one-cent tolerance',
+    snippet: "UPDATE supplier_invoices SET status = CASE WHEN amount_paid >= total_amount - 0.01 THEN 'paid' WHEN amount_paid > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 167, why: 'moveSupplierBillPaid: the bill paid figure and its status in one write',
+    snippet: "WHEN COALESCE(amount_paid, 0) + ? > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status" },
+  { file: `${AR}customerPaymentAllocationService.ts`, line: 208, why: 'cancelCustomerPayment: an allocation reversed off the invoice',
+    snippet: "SET amount_paid = GREATEST(0, amount_paid - ?), status = CASE WHEN GREATEST(0, amount_paid - ?) <= 0 THEN 'approved' WHEN GREATEST(0, amount_paid - ?) < total_amount THEN 'partially_paid'" },
+];
+
 export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   { module: '*', re: /UPDATE\s+(?:public\.)?gl_journal_entries[^;]{0,400}?status\s*=\s*'posted'/i },
   { module: '*', re: /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i },
   { module: 'customers', re: /UPDATE\s+(?:public\.)?customer_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
   { module: 'suppliers', re: /UPDATE\s+(?:public\.)?supplier_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
-  // Invoices: a CASE arm whose WHEN names a paid state is the payment recompute's un-payment back to 'approved' (`WHEN status IN
-  // ('partially_paid', 'paid') THEN 'approved'`, `WHEN GREATEST(0, amount_paid - x) <= 0 THEN 'approved'`), no approval; any
-  // other CASE arm to 'approved' (`WHEN status = 'draft' THEN 'approved'`) is one (#1670 follow-up L-c).
-  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', 'notPaid'),
-  flips('supplier_invoices', 'approved', 'suppliers', 'notPaid'),
+  // Invoices: every CASE to 'approved' counts, but the pinned un-payment writers (INVOICE_UNPAYMENT_WRITERS, #1720 fix-verify)
+  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', INVOICE_UNPAYMENT_WRITERS),
+  flips('supplier_invoices', 'approved', 'suppliers', INVOICE_UNPAYMENT_WRITERS),
   flips('credit_notes', 'approved', '*'),
   flips('supplier_payments', 'approved|processed', 'suppliers'),
   flips('supplier_payment_batches', 'approved|processed|reversed', 'suppliers'),

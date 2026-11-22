@@ -5,10 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { analyse } from '../helpers/approveCensusGraph';
+import { collapse } from '../helpers/approveCensusProgram';
 import { PAYROLL_READ_WRAPPERS, POSTING_RULES } from '../helpers/approveCensusConfig';
 
 /** A one-route virtual project under the posting census's own rules (the #1670 fixtures). */
-function fixture(route: string) {
+function fixture(route: string, rules: Partial<typeof POSTING_RULES> = {}) {
   const files: Record<string, string> = {
     '/fx/lib.ts': `export declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
 export declare const client: { query: (text: string, values?: unknown[]) => Promise<unknown> };
@@ -25,7 +26,7 @@ export async function flipBill(id: string) { await client.query("UPDATE supplier
   amendReturn, finaliseVatReturn } from './lib';\ndeclare const res: unknown;
 const MODULE_Q = "UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1";\n${route}\nexport default handler;`,
   };
-  return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES }).bad;
+  return analyse({ virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/fx/route.ts'], ...POSTING_RULES, ...rules }).bad;
 }
 const gate = (module: string) => `if (await refuseWithoutApprove(res, 'c', 'u', '${module}', 'x')) return;`;
 const handler = (body: string) => `async function handler(id: string) { ${body} }`;
@@ -138,19 +139,28 @@ describe('posting census fixtures (#1670)', () => {
     expect(fixture(handler(`${form('VAT201')} await finaliseVatReturn('c', id);`))).toEqual([]);
   });
 
-  it('#1670 follow-up L-c: an invoice CASE arm to approved counts unless its WHEN names a paid state (the un-payment)', () => {
+  it('#1720 fix-verify: every CASE setting an invoice to approved is a finding, but a statement pinned as an un-payment writer', () => {
+    const recompute = "UPDATE TBL SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END WHERE id = ${id}";
     for (const table of ['customer_invoices', 'supplier_invoices']) {
-      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN status = 'draft' THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
-        `${table} draft -> approved`).toHaveLength(1);
-      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
-        `${table} recompute`).toEqual([]);
-      expect(fixture(handler(`await sql\`UPDATE ${table} SET amount_paid = GREATEST(0, amount_paid - \${id}), status = CASE WHEN GREATEST(0, amount_paid - \${id}) <= 0 THEN 'approved' ELSE 'partially_paid' END WHERE id = \${id}\`;`)),
-        `${table} allocation reversal`).toEqual([]);
-      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN status = 'paid' THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
-        `${table} paid -> approved`).toEqual([]);
-      // #1720 review L1: naming amount_paid is not an un-payment; a draft with nothing paid flipped to approved is an approval
-      expect(fixture(handler(`await sql\`UPDATE ${table} SET status = CASE WHEN amount_paid = 0 AND status = 'draft' THEN 'approved' ELSE status END WHERE id = \${id}\`;`)),
-        `${table} draft with nothing paid -> approved`).toHaveLength(1);
+      const flip = (sqlText: string) => fixture(handler(`await sql\`${sqlText.replace('TBL', table)}\`;`));
+      for (const when of [
+        "status = 'draft'",
+        "status = 'draft' AND amount_paid <= 0", // the fooling shapes of the shape regex
+        "status IN ('draft', 'paid')",
+        "status = 'paid' OR status = 'draft'",
+        "total_amount - discount <= 0 AND status = 'draft'",
+        "amount_paid = 0 AND status = 'draft'",
+        "status IN ('partially_paid', 'paid')", // the un-payment's own shape, outside its pinned writer
+      ]) expect(flip(`UPDATE TBL SET status = CASE WHEN ${when} THEN 'approved' ELSE status END WHERE id = \${id}`), `${table}: ${when}`).toHaveLength(1);
+      // The real recompute's text is a finding anywhere but where it is pinned ...
+      expect(flip(recompute), `${table} recompute, unpinned`).toHaveLength(1);
+      // ... and exempt where it is: a pin names the file and the statement's text.
+      const pin = { file: '/fx/route.ts', line: 1, why: 'fixture', snippet: collapse(recompute.replace('TBL', table)).replace('${id}', '?') };
+      const pinned = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [...(p.exemptIn ?? []), pin] }));
+      expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: pinned }), `${table} recompute, pinned`).toEqual([]);
+      // A pin is by FILE: the same statement in another file is not exempt.
+      const elsewhere = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [{ ...pin, file: '/fx/lib.ts' }] }));
+      expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: elsewhere }), `${table} recompute, pinned elsewhere`).toHaveLength(1);
     }
   });
 
