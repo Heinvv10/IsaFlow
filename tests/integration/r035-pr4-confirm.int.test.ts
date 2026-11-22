@@ -6,13 +6,16 @@
  * the whole confirm back and the route answers 409 with a plain message —
  * not 400 with the raw trigger text — and nothing is committed: the receipt
  * stays a draft, no journal, the invoice untouched.
+ *
+ * #1728 review M1: confirm now refuses ANY draft invoice under its lock, before the journal (assertInvoiceTakesReceipts,
+ * the create path's rule), so the route answers that 400 first, rule or no rule, and the backstop is a line behind it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import customerPaymentsAction from '../../pages/api/accounting/customer-payments-action';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { messageOf } from './r035-pr2.helpers';
 import { cleanupPr4, enforceInvoices, invoiceCompany, invoiceState, plantInvoice } from './r035-pr4.helpers';
 
@@ -47,13 +50,12 @@ const confirm = (c: string, paymentId: string) => callRoute(customerPaymentsActi
   { action: 'confirm', paymentId }, '/api/accounting/customer-payments-action');
 
 describe('customer-payments-action confirm on a gated draft invoice', () => {
-  it('answers 409 with a plain message and commits nothing', async () => {
+  it('answers 400 with a plain message and commits nothing', async () => {
     const { c, inv, paymentId } = await fixture(true);
     const res = await confirm(c, paymentId);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
-    expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
     expect(messageOf(res)).not.toMatch(/R035_|customer_invoice_approval_gate|AR population/);
-    expect(messageOf(res)).toMatch(/approv/i);
+    expect(messageOf(res)).toMatch(/is draft and cannot take this receipt/);
     const { rows: [p] } = await pool.query('SELECT status, gl_journal_entry_id FROM customer_payments WHERE id = $1', [paymentId]);
     expect(p).toEqual({ status: 'draft', gl_journal_entry_id: null });
     expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
@@ -63,9 +65,10 @@ describe('customer-payments-action confirm on a gated draft invoice', () => {
     expect(n).toEqual({ journals: 0, paid: 0 });
   });
 
-  it('enforcement off: confirms as before', async () => {
+  it('enforcement off: refused the same (a draft invoice has no receivable to settle)', async () => {
     const { c, inv, paymentId } = await fixture(false);
-    expect((await confirm(c, paymentId)).state.statusCode).toBe(200);
-    expect((await invoiceState(pool, inv.id)).status).toBe('paid');
+    expect((await confirm(c, paymentId)).state.statusCode).toBe(400);
+    expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft' });
+    expect((await pool.query('SELECT amount_paid::FLOAT8 AS paid FROM customer_invoices WHERE id = $1', [inv.id])).rows[0].paid).toBe(0);
   });
 });
