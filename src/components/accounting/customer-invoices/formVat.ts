@@ -96,17 +96,19 @@ export function formTotals(lines: readonly FormVatLine[], types: readonly LineVa
 export const formLineNet = (line: FormVatLine, type: LineVatTypeOrNone, mode: TaxMode, date: string): number =>
   formTotals([line], [type], mode, date).subtotal;
 
-export interface VatByType { type: LineVatType; net: number; vat: number }
+/** `type` null: the lines with no VAT type yet (priced with none, as formTotals does; the totals say a type is needed). */
+export interface VatByType { type: LineVatTypeOrNone; net: number; vat: number }
 
 /**
- * The net and VAT of each type the priced lines carry, in list order (the totals' breakdown; the sums are formTotals').
- * A line with no price yet (a fresh blank line) adds no row of its own, unless no line has a price.
+ * The net and VAT of each type the priced lines carry, in list order, then the lines with no type yet (the totals'
+ * breakdown; the sums are formTotals'). A line with no price yet (a fresh blank line) adds no row of its own, unless no
+ * line has a price.
  */
 export function formVatByType(lines: readonly FormVatLine[], types: readonly LineVatTypeOrNone[], mode: TaxMode, date: string): VatByType[] {
   if (mode === 'none') return [];
   const priced = lines.some((l) => l.unitPrice);
-  return DOCUMENT_LINE_VAT_TYPES.flatMap((type) => {
-    const mine = lines.filter((l, i) => (types[i] ?? 'zero_rated') === type && (!priced || l.unitPrice));
+  return [...DOCUMENT_LINE_VAT_TYPES, null].flatMap((type) => {
+    const mine = lines.filter((l, i) => (types[i] ?? null) === type && (!priced || l.unitPrice));
     if (mine.length === 0) return [];
     const t = formTotals(mine, mine.map(() => type), mode, date);
     return [{ type, net: t.subtotal, vat: t.tax }];

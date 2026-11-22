@@ -68,6 +68,15 @@ describe('formTotals', () => {
     expect(formVatByType([l(1, 500), l(1, 0)], ['standard', 'exempt'], 'exclusive', D)).toEqual([{ type: 'standard', net: 500, vat: 75 }]);
     expect(formVatByType([l(1, 0)], ['exempt'], 'exclusive', D)).toEqual([{ type: 'exempt', net: 0, vat: 0 }]);
   });
+  it('a priced line with no type yet is its own "type needed" row (null), never counted as zero-rated', () => {
+    expect(formVatByType([l(1, 100), l(1, 50)], ['standard', null], 'exclusive', D)).toEqual([
+      { type: 'standard', net: 100, vat: 15 }, { type: null, net: 50, vat: 0 },
+    ]);
+    expect(formVatByType([l(1, 50), l(1, 30)], [null, 'zero_rated'], 'exclusive', D)).toEqual([
+      { type: 'zero_rated', net: 30, vat: 0 }, { type: null, net: 50, vat: 0 },
+    ]);
+    expect(formVatByType([l(1, 50)], [null], 'exclusive', D)).toEqual([{ type: null, net: 50, vat: 0 }]);
+  });
   it('the breakdown sums to the totals, inclusive too', () => {
     const lines = [l(3, 33.33, 5), l(1, 115), l(2, 49.99)];
     const types = ['standard', 'exempt', 'standard'] as const;

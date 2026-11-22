@@ -1,7 +1,8 @@
 /**
  * InvoiceTotals — the compact totals under the line grid on the new and edit invoice pages (it replaced the right-hand
  * Invoice Summary card): subtotal, the VAT (one row per VAT type when the lines mix types, each on its own net), the
- * total, and for a foreign-currency invoice the ZAR preview. The figures are the page's (formVat: the shared per-line
+ * total, and for a foreign-currency invoice the ZAR preview. Lines with no VAT type yet are a row of their own ("VAT type
+ * needed"), never counted as zero-rated. The figures are the page's (formVat: the shared per-line
  * pricing, what create and the draft edit store). A company not registered for VAT shows no VAT row.
  */
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
@@ -27,8 +28,11 @@ interface Props {
 const row = 'flex justify-between gap-6 text-sm';
 const figure = 'tabular-nums text-slate-900 dark:text-slate-100';
 
+const TYPE_NEEDED = 'VAT type needed';
+
 /** "VAT (15%)" for an all-standard invoice; "VAT (zero-rated)" / "VAT (exempt)" for one of a single other type. */
 function singleLabel(t: VatByType, date: string): string {
+  if (t.type === null) return TYPE_NEEDED;
   if (t.type === 'standard') return isRatedDate(date) ? `VAT (${standardVatRatePctOn(date)}%)` : 'VAT';
   return t.type === 'exempt' ? 'VAT (exempt)' : 'VAT (zero-rated)';
 }
@@ -39,11 +43,12 @@ export function InvoiceTotals({ subtotal, tax, total, currencyCode, byType, date
     <section aria-label="Invoice totals" className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
       <div className="w-full sm:w-96 space-y-2">
         <div className={row}><span className="text-ink-muted">Subtotal</span><span className={figure}>{money(subtotal)}</span></div>
-        {byType.length === 1 && <div className={row}><span className="text-ink-muted">{singleLabel(byType[0]!, date)}</span><span className={figure}>{money(tax)}</span></div>}
+        {/* Lines with no VAT type yet carry no VAT figure: none is known until a type is picked. */}
+        {byType.length === 1 && <div className={row}><span className="text-ink-muted">{singleLabel(byType[0]!, date)}</span><span className={figure}>{byType[0]!.type === null ? '—' : money(tax)}</span></div>}
         {byType.length > 1 && byType.map((t) => (
-          <div key={t.type} className={row}>
-            <span className="text-ink-muted">VAT {lineVatTypeLabel(t.type, date)} <span className="text-xs">on {money(t.net)}</span></span>
-            <span className={figure}>{money(t.vat)}</span>
+          <div key={t.type ?? 'none'} className={row}>
+            <span className="text-ink-muted">{t.type === null ? TYPE_NEEDED : `VAT ${lineVatTypeLabel(t.type, date)}`} <span className="text-xs">on {money(t.net)}</span></span>
+            <span className={figure}>{t.type === null ? '—' : money(t.vat)}</span>
           </div>
         ))}
         <div className="h-px bg-slate-100 dark:bg-slate-800" />

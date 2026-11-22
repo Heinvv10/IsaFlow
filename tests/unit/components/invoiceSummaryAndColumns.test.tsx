@@ -58,6 +58,17 @@ describe('the totals rows', () => {
     expect(t).toMatch(/VAT Standard \(15%\) on R\s?100\.00R\s?15\.00/);
     expect(t).toMatch(/VAT Zero-rated \(0%\) on R\s?200\.00R\s?0\.00/);
   });
+  it('a line with no VAT type yet says so, never "zero-rated" and never a VAT figure', () => {
+    const { rerender } = render(<InvoiceTotals subtotal={50} tax={0} total={50} currencyCode="ZAR" date="2026-10-01" byType={[{ type: null, net: 50, vat: 0 }]} />);
+    const text = () => screen.getByRole('region', { name: 'Invoice totals' }).textContent ?? '';
+    expect(text()).toMatch(/VAT type needed—/);
+    expect(text()).not.toMatch(/zero-rated/i);
+    rerender(<InvoiceTotals subtotal={150} tax={15} total={165} currencyCode="ZAR" date="2026-10-01"
+      byType={[{ type: 'standard', net: 100, vat: 15 }, { type: null, net: 50, vat: 0 }]} />);
+    expect(text()).toMatch(/VAT Standard \(15%\) on R\s?100\.00R\s?15\.00/);
+    expect(text()).toMatch(/VAT type needed on R\s?50\.00—/);
+    expect(text()).not.toMatch(/zero-rated/i);
+  });
   it('a company not registered for VAT: no VAT row at all', () => {
     render(<InvoiceTotals subtotal={100} tax={0} total={100} currencyCode="ZAR" date="2026-10-01" byType={[]} />);
     expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).not.toMatch(/VAT/);
