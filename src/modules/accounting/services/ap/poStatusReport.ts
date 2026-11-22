@@ -126,8 +126,7 @@ async function candidates(companyId: string, q: PoStatusQuery, today: string, al
     SELECT p.id::TEXT AS id, p.po_number, p.supplier_id::TEXT AS supplier_id, p.supplier_name, p.status, p.closed_from_status,
            (p.status = 'closed' AND p.closed_by_billing) AS closed_by_billing, to_char(p.order_date, 'YYYY-MM-DD') AS order_date,
            (${today}::DATE - p.order_date)::INT AS age_days,
-           (SELECT COALESCE(SUM(round(CASE WHEN x.quantity = 0 THEN 0
-                                           ELSE x.line_total * LEAST(COALESCE(x.quantity_received, 0), x.quantity) / x.quantity * 100 END)), 0)::BIGINT
+           (SELECT COALESCE(SUM(round(x.line_total * LEAST(COALESCE(x.quantity_received, 0), x.quantity) / x.quantity * 100)), 0)::BIGINT  -- quantity > 0: po_items_quantity_check
               FROM po_items x WHERE x.purchase_order_id = p.id) AS received_cents,
            n.n AS count
       FROM n

@@ -189,34 +189,60 @@ describe('token_info lists the tools each granted scope opens', () => {
     const none = await info(['read:nothing-uses-this']);
     expect(none.tools).toEqual({ 'read:nothing-uses-this': [] });
     expect(none.tools_without_scope).toEqual(expect.arrayContaining(['token_info']));
-    expect(none.tools_without_scope).toEqual(MCP_TOOLS.filter((t) => t.scope === null).map((t) => t.name).sort());
+    expect(none.tools_without_scope).toEqual(MCP_TOOLS.filter((t) => t.scope === null && !t.anyOfScopes).map((t) => t.name).sort());
+    expect(none.tools_without_scope).not.toContain('list_items');
   });
 
-  it('census: an owner with every scope granted sees every registered tool exactly once, under its own scope', async () => {
-    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
+  it('census: an owner with every scope granted sees every registered tool, under its own scope (an any-of tool under each scope it accepts)', async () => {
+    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, ...(t.anyOfScopes ?? []), t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
     const out = await info(all);
-    const seen = new Map<string, string>();
+    const seen = new Map<string, string[]>();
     for (const [scope, names] of Object.entries(out.tools)) {
       expect(names).toEqual([...names].sort());
-      for (const n of names) {
-        expect(seen.has(n), `${n} listed twice`).toBe(false);
-        seen.set(n, scope);
-      }
+      for (const n of names) seen.set(n, [...(seen.get(n) ?? []), scope]);
     }
-    for (const n of out.tools_without_scope) seen.set(n, '(none)');
-    for (const t of MCP_TOOLS) expect(seen.get(t.name), t.name).toBe(t.scope ?? '(none)');
+    for (const n of out.tools_without_scope) seen.set(n, [...(seen.get(n) ?? []), '(none)']);
+    for (const t of MCP_TOOLS) {
+      const home = t.anyOfScopes ? [...t.anyOfScopes] : [t.scope ?? '(none)'];
+      expect([...(seen.get(t.name) ?? [])].sort(), t.name).toEqual(home.sort());
+    }
     expect(seen.size).toBe(MCP_TOOLS.length);
   });
 
+  it('list_items: omitted for a token with neither read:items nor read:reports; listed under whichever it holds', async () => {
+    const listed = async (scopes: string[]) => {
+      const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(scopes));
+      const out = JSON.parse(r.content[0]!.text) as { tools: Record<string, string[]>; tools_without_scope: string[] };
+      return [Object.entries(out.tools).filter(([, n]) => n.includes('list_items')).map(([sc]) => sc), out.tools_without_scope.includes('list_items')];
+    };
+    expect(await listed(['read:contacts', 'read:invoices'])).toEqual([[], false]);
+    expect(await listed(['read:items'])).toEqual([['read:items'], false]);
+    expect(await listed(['read:reports'])).toEqual([['read:reports'], false]);
+    expect(await listed(['read:items', 'read:reports'])).toEqual([['read:items', 'read:reports'], false]);
+  });
+
+  it('list_items through the registry: refused before the handler without either scope (same text as before), admitted with either', async () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'list_items')!;
+    const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '{}' }] }));
+    const registry = new McpRegistry();
+    registry.register({ ...tool, handler });
+    const refused = await registry.call('list_items', {}, ctx(['read:contacts']));
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toBe((await import('@/lib/mcp/scopeRemediation')).insufficientScopeMessage('read:items'));
+    expect(handler).not.toHaveBeenCalled();
+    for (const scope of ['read:items', 'read:reports']) expect((await registry.call('list_items', {}, ctx([scope]))).isError).toBeUndefined();
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
   it('the full listing is a small read: well under MAX_READ_RESULT_BYTES', async () => {
-    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
+    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, ...(t.anyOfScopes ?? []), t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
     const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(all));
     expect(bytes(r)).toBeLessThan(MAX_READ_RESULT_BYTES / 3);
   });
 });
 
 describe('token_info lists only what this token AND role can call', () => {
-  const ALL_SCOPES = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))];
+  const ALL_SCOPES = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, ...(t.anyOfScopes ?? []), t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))];
   const info = async (scopes: string[], role: string | null) => {
     const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(scopes, role as string));
     const out = JSON.parse(r.content[0]!.text) as { tools: Record<string, string[]>; tools_without_scope: string[] };
@@ -255,7 +281,7 @@ describe('token_info lists only what this token AND role can call', () => {
 
   it('agrees with the registry: for every tool and role, listed exactly when a call gets past the scope and role fences and the tool\'s own `admits`', async () => {
     for (const role of ['viewer', 'manager', 'admin', 'owner']) {
-      for (const scopes of [ALL_SCOPES, ['read:reports'], ['read:reports', 'write:budgets'], ALL_SCOPES.filter((s) => s !== 'write:post')]) {
+      for (const scopes of [ALL_SCOPES, ['read:reports'], ['read:items'], ['read:contacts'], ['read:reports', 'write:budgets'], ALL_SCOPES.filter((s) => s !== 'write:post')]) {
         const listed = await info(scopes, role);
         for (const tool of MCP_TOOLS) {
           const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '{}' }] }));

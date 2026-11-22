@@ -50,14 +50,14 @@ async function tokenHolder(ctx: McpToolContext): Promise<CompanyUserSummary | nu
  * The tool names each GRANTED scope opens, from the registry's own metadata (nothing is listed by hand: a tool registered tomorrow
  * appears under its scope today). A tool is listed under the scope it names, and only when this token AND role can call it
  * (`toolAccess.callableBy`: the registry's own scope / write:post / requiresScope / role fences, and the tool's `admits`): a write tool
- * is not offered to a viewer, nor one that needs a second scope the token lacks. Tools that need no scope are returned apart.
+ * is not offered to a viewer, nor one that needs a second scope the token lacks. A tool that accepts any of several scopes (`anyOfScopes`) is listed under each it holds. Tools that need no scope are returned apart.
  */
 export function toolsOpenedBy(tools: readonly McpTool[], ctx: McpToolContext): { tools: Record<string, string[]>; tools_without_scope: string[] } {
   const granted = ctx.scopes;
   const names = (pick: (t: McpTool) => boolean) => tools.filter((t) => pick(t) && callableBy(t, ctx)).map((t) => t.name).sort();
   return {
-    tools: Object.fromEntries([...new Set(granted)].sort().map((scope) => [scope, names((t) => t.scope === scope)])),
-    tools_without_scope: names((t) => t.scope === null),
+    tools: Object.fromEntries([...new Set(granted)].sort().map((scope) => [scope, names((t) => t.scope === scope || (t.anyOfScopes?.includes(scope) ?? false))])),
+    tools_without_scope: names((t) => t.scope === null && !t.anyOfScopes),
   };
 }
 

@@ -16,6 +16,7 @@ export const POST_REFUSAL = 'This operation posts irreversible entries and requi
 /** The registry's refusal text for a call to `tool` by `ctx`, or null when the fences let it reach the handler. */
 export function accessRefusal(tool: McpTool, ctx: McpToolContext): string | null {
   if (tool.scope && !ctx.scopes.includes(tool.scope)) return insufficientScopeMessage(tool.scope);
+  if (tool.anyOfScopes && !tool.anyOfScopes.some((s) => ctx.scopes.includes(s))) return insufficientScopeMessage(tool.anyOfScopes[0]!);
   if (tool.requiresPost && !ctx.scopes.includes('write:post')) return POST_REFUSAL;
   if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) return insufficientScopeMessage(tool.requiresScope);
   return roleFenceRefusal(tool, ctx);

@@ -111,6 +111,12 @@ export interface McpTool {
    */
   requiresScope?: string;
   /**
+   * A tool that accepts ANY of these scopes (list_items: read:items, or the old read:reports for one release), declared with
+   * `scope: null`. The registry refuses a token holding none of them, before the handler, with the first scope's remediation text;
+   * token_info lists the tool under each of them the token holds. The handler may keep its own check.
+   */
+  anyOfScopes?: readonly string[];
+  /**
    * Per-employee payroll data or a payroll write: only owner/admin/manager (the HTTP routes'
    * `withWriteAccess` set) may call it, whatever scope the token holds. Enforced once, in the
    * registry, before the handler — a viewer's token with `read:payroll` is refused.
