@@ -127,16 +127,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     if (body.code !== undefined) {
       const newCode = String(body.code).trim();
-      if (newCode) {
-        const isDupe = await checkCodeDuplicate(companyId, newCode, id);
-        if (isDupe) {
-          return apiResponse.validationError(res, { code: `Item code '${newCode}' already exists` });
-        }
+      if (!newCode) {
+        return apiResponse.validationError(res, { code: 'Item code cannot be blank' });
+      }
+      const isDupe = await checkCodeDuplicate(companyId, newCode, id);
+      if (isDupe) {
+        return apiResponse.validationError(res, { code: `Item code '${newCode}' already exists` });
       }
     }
 
     const input: UpdateItemInput = { id };
-    if (body.code !== undefined) input.code = String(body.code);
+    if (body.code !== undefined) input.code = String(body.code).trim();
     if (body.description !== undefined) input.description = String(body.description);
     if (body.item_type !== undefined) input.item_type = String(body.item_type);
     if (body.category_id !== undefined) input.category_id = String(body.category_id);
