@@ -214,7 +214,7 @@ describe('MonthField review fixes', () => {
     render(<Harness initial="2026-03" maxMonth="2026-06" />);
     fireEvent.click(openBtn());
     const aug = cell('2026-08');
-    fireEvent.focus(aug); fireEvent.click(aug);
+    aug.focus(); fireEvent.click(aug); // a mouse press focuses the cell (tabIndex -1) before the click
     expect(cell('2026-03').tabIndex).toBe(0); // the roving stop did not move onto the disabled month
     expect(aug.tabIndex).toBe(-1);
     // the browser focus on the disabled month was handed straight back to the roving stop
