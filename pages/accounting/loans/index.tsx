@@ -86,7 +86,7 @@ export default function LoansIndexPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <Landmark className="h-6 w-6 text-teal-500" />
@@ -100,7 +100,7 @@ export default function LoansIndexPage() {
             </div>
             <Link
               href="/accounting/loans/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium max-lg:min-h-11"
             >
               <Plus className="h-4 w-4" /> New Loan
             </Link>
@@ -127,23 +127,23 @@ export default function LoansIndexPage() {
           )}
 
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
                 placeholder="Search reference or product…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="ff-input pl-9 text-sm w-64"
+                className="ff-input pl-9 text-sm w-64 max-lg:w-full max-lg:min-h-11"
               />
             </div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm max-lg:min-h-11">
               <option value="">All Status</option>
               <option value="active">Active</option>
               <option value="closed">Closed</option>
               <option value="written_off">Written Off</option>
             </select>
-            <select value={productFilter} onChange={e => setProductFilter(e.target.value)} className="ff-select text-sm">
+            <select value={productFilter} onChange={e => setProductFilter(e.target.value)} className="ff-select text-sm max-lg:min-h-11">
               <option value="">All Products</option>
               {PRODUCTS.map(p => <option key={p} value={p}>{PRODUCT_LABELS[p]}</option>)}
             </select>
@@ -151,7 +151,7 @@ export default function LoansIndexPage() {
           </div>
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="table-cards w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                   <th className="px-4 py-3">Reference</th>
@@ -166,16 +166,16 @@ export default function LoansIndexPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading…
                     </td>
                   </tr>
                 )}
                 {!loading && !error && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       No loans found.{' '}
-                      <Link href="/accounting/loans/new" className="text-teal-400 hover:underline">
+                      <Link href="/accounting/loans/new" className="text-teal-400 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                         Create your first loan
                       </Link>
                     </td>
@@ -187,22 +187,22 @@ export default function LoansIndexPage() {
                     : `Prime ${loan.rateMode === 'PRIME_PLUS' ? '+' : '−'} ${loan.margin}%`;
                   return (
                     <tr key={loan.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                      <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/loans/${loan.id}`} className="hover:text-teal-400">
+                      <td data-label="Reference" className="px-4 py-3 font-medium text-[var(--ff-text-primary)] max-lg:items-center">
+                        <Link href={`/accounting/loans/${loan.id}`} className="hover:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                           {loan.reference || loan.id.slice(0, 8)}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+                      <td data-label="Product" className="px-4 py-3 text-[var(--ff-text-secondary)]">
                         {PRODUCT_LABELS[loan.product ?? ''] || loan.product || '—'}
                       </td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(loan.principal)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{rateDisplay}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(loan.startDate)}</td>
-                      <td className="px-4 py-3"><LoanStatusBadge status={loan.status} /></td>
+                      <td data-label="Principal" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(loan.principal)}</td>
+                      <td data-label="Rate" className="px-4 py-3 text-[var(--ff-text-secondary)]">{rateDisplay}</td>
+                      <td data-label="Start" className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(loan.startDate)}</td>
+                      <td data-label="Status" className="px-4 py-3"><LoanStatusBadge status={loan.status} /></td>
                       <td className="px-4 py-3 text-right">
                         <Link
                           href={`/accounting/loans/${loan.id}`}
-                          className="text-xs text-teal-400 hover:text-teal-300"
+                          className="text-xs text-teal-400 hover:text-teal-300 max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                         >
                           View →
                         </Link>
