@@ -16,6 +16,14 @@
   "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
    "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
   ],
+  "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
+   "AND ${runOrderKeySql('me')} < ${runOrderKeySql('o')}",
+   "AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}",
+   "ORDER BY ${runOrderKeySql('o')}"
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
+   "AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}"
+  ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
    "ORDER BY ${runOrderKeySql('h')} DESC",
    "ORDER BY ${runOrderKeySql('h')} DESC"
@@ -28,7 +36,7 @@
    "ORDER BY ${runOrderKeySql('p')} DESC"
   ],
   "src/modules/accounting/services/payroll/payrollYearToDate.ts": [
-   "h.period_year, h.period_month, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,"
+   "h.period_year, h.period_month, h.run_kind, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,"
   ],
   "src/modules/accounting/services/payroll/payrollYearToDateGate.ts": [
    "${runOrderKeySql('h')} AS run_key,"
@@ -47,7 +55,7 @@
   {"file":"src/lib/mcp/tools/writePayroll.ts","line":68,"text":"const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');","class":"S","owner":"FQb1","why":"FQb1 converted (R): the clash is the month's regular monthly run (the 999a key); an off-cycle run is none"},
   {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":150,"text":"const notFinal = runs.filter(r => r.final !== true);","class":"S","owner":"FQb2","why":"FQb2 converted (R; review #1549 L3): every run of the month judged by payRunFinalSql; the runs not final are named"},
   {"file":"src/modules/accounting/services/gl/integrityChecks/payrollChecks.ts","line":59,"text":"const monthRuns = headers.filter((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);","class":"S","owner":"FQb2","why":"FQb2 converted (R): the month is pre-ET when ANY of its runs is"},
-  {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"S","owner":"FQc","why":"FQc converted (F2): `period` carries the run's own dates (runPeriodOf), so the pro-rata band is the run's"},
+  {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = offCycle ? [] : await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"S","owner":"FQc","why":"FQc converted (F2): `period` carries the run's own dates (runPeriodOf), so the pro-rata band is the run's; an off-cycle run pays no recurring row, so it reads none (OC)"},
   {"file":"src/modules/accounting/services/payroll/payrollYearToDate.ts","line":119,"text":"AND ${runIsBeforeSql('h', companyId, runId, period)}","class":"S","owner":"FQc","why":"FQc converted (F2): the year-to-date bound is the run, in pay order"},
   {"file":"src/modules/accounting/services/payroll/payslipYearToDate.ts","line":67,"text":"AND (prh.id = ${run.id}::uuid OR ${runIsBeforeSql('prh', companyId, run.id)})","class":"S","owner":"FQc","why":"FQc converted (F2): the payslip year to date is up to this run, in pay order"},
   {"file":"src/modules/accounting/services/payroll/etiCarryRead.ts","line":66,"text":"export async function etiMonthForRun(","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B1): the run's ETI month line counts the month's other in-force run journals, and etiForRun books only what they left"},
@@ -77,8 +85,8 @@
    {"line":12,"text":"SELECT COUNT(*) AS n, COALESCE(SUM(h.total_gross), 0) AS gross FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"count and gross sum of the month's other final runs (review #1549 L4)"}
   ],
   "src/modules/accounting/services/cashForecast13/readPayroll.ts": [
-   {"line":55,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast: a gap assigned to OC by the coordinator (a bonus run's net pay and statutory payments are not forecast), not a month lookup"},
-   {"line":57,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AND run_kind = 'regular'","class":"S","owner":"FQb2","why":"the final-run filter of the query above (the alias argument names the table); regular monthly runs only, as that row says"}
+   {"line":68,"text":"FROM payroll_run_headers","class":"S","owner":"OC","why":"OC closed FQb2's gap: every final run is read, sorted into regular monthly runs (one per period by the 999a regular-period key, so the month-keyed map is one run each) and off-cycle monthly runs, each forecast on its own pay date (run_date), never as the month's run; weekly/fortnightly regular runs only raise unsupportedFrequency"},
+   {"line":70,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"OC","why":"the final-run filter of the query above (the alias argument names the table); the kinds are split in code, as that row says"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
    {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"S","owner":"FQc","why":"FQc converted (R, F2): by run id; the run's own last day (h.period_end), not its month's"}
@@ -172,6 +180,7 @@
    {"line":290,"text":"SELECT approval_revision FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollApprovalService.ts": [
+   {"line":51,"text":"const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"OC","why":"the run being previewed, by id (the off-cycle refusals, review #1620 L1)"},
    {"line":131,"text":"UPDATE payroll_run_headers","class":"S","owner":"FQb1","why":"write by run id"},
    {"line":148,"text":"UPDATE payroll_run_headers","class":"S","owner":"FQb1","why":"write by run id"}
   ],
@@ -393,7 +402,7 @@
    {"line":76,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): latestPayrollRun, the latest in pay order (period context, was ORDER BY month LIMIT 1 in the route)"},
    {"line":111,"text":"SELECT id FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQd (UI r2 L2): the monthly regular run that already holds the period, so the 409 links to it"},
    {"line":125,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQb1 converted (R): ON CONFLICT on the 999a regular-period key, not the per-month unique FQx drops"},
-   {"line":144,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":147,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"by run id (getPayrollRun; OC adds the canceller's name)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunHoursGate.ts": [
    {"line":24,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"FQc converted (R): leaver test against the run's first day (h.period_start)"},
@@ -529,8 +538,8 @@
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
   ],
   "src/modules/accounting/services/payroll/pspComponentGuard.ts": [
-   {"line":39,"text":"JOIN payroll_employee_components ec ON ec.employee_id = e.id","class":"R","owner":"FQc","why":"PSP refused components live in the run's period, whose dates the caller takes from its month (F2)"},
-   {"line":82,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"a reopened run's own lines, by run id (M2 treatment check)"}
+   {"line":50,"text":"JOIN payroll_employee_components ec ON ec.employee_id = e.id","class":"R","owner":"FQc","why":"PSP refused components live in the run's period, whose dates the caller takes from its month (F2)"},
+   {"line":100,"text":"SELECT id, company_id FROM payroll_run_headers","class":"S","owner":"FQb1","why":"a reopened run by id, for its own lines (M2 treatment check; a bonus amount edit's kept treatment, review #1679)"}
   ],
   "src/modules/accounting/services/payroll/pspFiling.ts": [
    {"line":42,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"tax-year sum of PSP lines on final runs"},
@@ -603,8 +612,51 @@
    {"line":47,"text":"FROM payroll_run_headers pr","class":"S","owner":"FQb2","why":"list of open runs"}
   ],
   "src/modules/bureau/services/ownerCashPositionService.ts": [
-   {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
-   {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+   {"line":226,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,","class":"S","owner":"OC","why":"each open run's own finality (payRunFinalSql, review #1679 M3): only a final run past its pay date counts as paid"},
+   {"line":227,"text":"total_gross, ${sql.unsafe(approvalCoveredPaydaySql('payroll_run_headers'))} AS disbursed,","class":"S","owner":"OC","why":"each run's own approval history (approvalCoveredPaydaySql, gate item 1 on 06c106a94d): approved through its payday, so its net pay left"},
+   {"line":229,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
+   {"line":231,"text":"AND (status IN ('draft','calculated','approved') OR ${sql.unsafe(payRunFinalSql('payroll_run_headers'))})","class":"S","owner":"OC","why":"the window's open runs and its final ones (payRunFinalSql): a run marked paid still owes its statutory amounts until the EMP201 is due (owedOf)"},
+   {"line":233,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCyclePopulation.ts": [
+   {"line":73,"text":"SELECT 1 FROM payroll_run_headers me","class":"S","owner":"OC","why":"gate item 2 on 06c106a94d: the bonus run being calculated, by id"},
+   {"line":74,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"its month's FINAL REGULAR run (payRunFinalSql, run_kind regular): each bonus employee must have a line on it"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
+   {"line":33,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the run being reopened, by id"},
+   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a list of every final off-cycle run of the reopened run's month and frequency AFTER it in pay order (runOrderKeySql; review #1620 M1): correct with several runs a month"},
+   {"line":66,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being approved, by id (review #1620 M1)"},
+   {"line":67,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a list of every non-draft run of the month and frequency BEFORE it in pay order (runOrderKeySql): each must be final and approved before it was calculated"},
+   {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS-style: any calculated-or-later regular MONTHLY run of the month paid on or before the off-cycle pay date (review #1575 carry 1); the 999a regular-period key allows one, and ORDER BY + LIMIT 1 only names the earliest pay date in the refusal"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
+   {"line":67,"text":"FROM payroll_employee_components ec","class":"S","owner":"OC","why":"gate ruling 1 on e0eec1dea1: a historical earlier line's basic pay item's assignment (that employee, component and amount, active over the month), read for its is_recurring only"},
+   {"line":76,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},
+   {"line":77,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a sum over the month's final runs of the same frequency BEFORE this run in pay order (runOrderKeySql): every earlier run counts, whatever their number"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleRun.ts": [
+   {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR UPDATE"},
+   {"line":114,"text":"FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id","class":"S","owner":"OC","why":"the employee's open (draft or calculated) off-cycle run of the month, the first by creation, named in the refusal: a lookup by employee, correct with several runs"},
+   {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run (FQx dropped the per-month unique); the month's creations are serialised on the regular run's row lock"},
+   {"line":202,"text":"const run = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"OC","why":"the run being submitted, by id (review #1620 L4 and delta L1: the full approval refusal)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleAmount.ts": [
+   {"line":33,"text":"JOIN payroll_run_headers h ON h.id = x.run_id AND h.company_id = x.company_id","class":"S","owner":"OC","why":"the inputs' own run, by id (a bonus run's amounts for the run page)"},
+   {"line":53,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run whose bonus amount changes, by id, FOR UPDATE"},
+   {"line":76,"text":"UPDATE payroll_run_headers","class":"S","owner":"OC","why":"writes the run whose amount changed back to draft, by id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleCorrection.ts": [
+   {"line":87,"text":"FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"OC","why":"this run's own lines, by id (each employee's gross against what was last approved)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleCancel.ts": [
+   {"line":34,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a directive use"},
+   {"line":36,"text":"OR EXISTS (SELECT 1 FROM payroll_loan_payments p WHERE p.run_id = h.id)) AS ever_approved","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a loan payment"},
+   {"line":37,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run being cancelled, by id, FOR UPDATE"},
+   {"line":51,"text":"UPDATE payroll_run_headers","class":"S","owner":"OC","why":"writes the run being cancelled, by id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleOrder.ts": [
+   {"line":33,"text":"FROM payroll_run_headers o","class":"S","owner":"OC","why":"the month's latest non-cancelled off-cycle run paid on or after a pay date (breaker H2): ORDER BY pay date DESC LIMIT 1 names the latest of several"},
+   {"line":52,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the earliest FINAL run of a later month of the tax year: ORDER BY period_start LIMIT 1 names one of several, any is a refusal"}
   ],
   "src/modules/accounting/services/payroll/payrollGarnisheeOrders.ts": [
    {"line":99,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the approved/paid runs (rev #1574 L3)"},

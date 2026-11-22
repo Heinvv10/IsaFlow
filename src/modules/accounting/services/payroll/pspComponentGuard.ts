@@ -83,34 +83,58 @@ export async function assertPspRunComponents(
   throw new PspComponentRefused([...byEmployee].map(([who, items]) => pspRefusalMessage(`Employee ${who}`, items)).join(' '));
 }
 
+/** The audit metadata key a bonus amount edit keeps an employee's approved PSP treatment under (payrollOffCycleAmount). */
+export const PSP_TREATMENT_KEPT = 'pspTreatmentAtApproval:';
+
 /**
- * M2: a REOPENED run (reopened_at set) is not recalculated under a different PSP treatment than its approved lines carry:
- * flat_psp or not, and (round 3) the PSP's entity, each read from the stored line's own flag. 409
- * PSP_STATUS_CHANGED_SINCE_APPROVAL, naming each employee with the treatment at approval and now, before any write. A run
- * never approved recalculates freely (its month is costed whole under the status of the day).
+ * Each employee's PSP treatment as approved on a REOPENED run (none for a run never approved), and now: from the stored
+ * line's own flag, flat_psp or not and the PSP's entity (round 3); for an employee with no line, from the latest bonus
+ * amount edit's audit row, which removed the lines and kept the treatment (review #1679 Codex M). `employeeIds` null:
+ * every employee with either.
  */
-export async function assertReopenedRunKeepsPspTreatment(
-  companyId: string, runId: string, employeeIds: readonly string[], db: TxSql = sql,
-): Promise<void> {
-  const rows = (await db`
-    SELECT x.employee_number, x.was, x.now FROM (
-      SELECT e.employee_number,
-             CASE WHEN COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
+export async function pspTreatmentsAtApproval(
+  companyId: string, runId: string, employeeIds: readonly string[] | null, db: TxSql = sql,
+): Promise<DbRow[]> {
+  return (await db`
+    WITH h AS (
+      SELECT id, company_id FROM payroll_run_headers
+       WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND reopened_at IS NOT NULL
+    ), kept AS (
+      SELECT a.changes->'metadata' AS m FROM audit_log a JOIN h ON a.company_id = h.company_id AND a.entity_id = h.id
+       WHERE a.entity_type = 'payroll_run' AND a.action = 'update'
+         AND a.changes->'fields' @> '[{"field": "off_cycle_bonus_amount"}]'::jsonb
+       ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    )
+    SELECT x.employee_id, x.employee_number, x.was, x.now FROM (
+      SELECT e.id::text AS employee_id, e.employee_number,
+             CASE WHEN l.id IS NULL THEN (SELECT kept.m->>(${PSP_TREATMENT_KEPT} || e.id::text) FROM kept)
+                  WHEN COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
                   THEN 'personal service provider (' || COALESCE((
                     SELECT v->'psp'->>'entity' FROM jsonb_array_elements(l.validation_results) v
                      WHERE v->>'code' = 'PAYE_OUTSIDE_TABLES' AND v->>'treatment' = 'flat_psp' LIMIT 1), 'entity not recorded') || ')'
                   ELSE 'not a personal service provider' END AS was,
              CASE WHEN e.tax_status = ${PSP} THEN 'personal service provider (' || COALESCE(e.psp_entity_type, 'no entity') || ')'
                   ELSE 'not a personal service provider' END AS now
-        FROM payroll_run_lines l
-        JOIN payroll_run_headers h ON h.id = l.run_id
-        JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
-       WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND h.reopened_at IS NOT NULL
-         AND l.employee_id::text = ANY(${[...employeeIds]}::text[])
+        FROM h
+        JOIN payroll_employees e ON e.company_id = h.company_id
+        LEFT JOIN payroll_run_lines l ON l.run_id = h.id AND l.employee_id = e.id
+       WHERE ${employeeIds === null}::boolean OR e.id::text = ANY(${[...(employeeIds ?? [])]}::text[])
     ) x
-     WHERE x.was <> x.now
+     WHERE x.was IS NOT NULL
      ORDER BY x.employee_number
   `) as DbRow[];
+}
+
+/**
+ * M2: a REOPENED run (reopened_at set) is not recalculated under a different PSP treatment than it was approved under
+ * (pspTreatmentsAtApproval). 409 PSP_STATUS_CHANGED_SINCE_APPROVAL, naming each employee with the treatment at
+ * approval and now, before any write. A run never approved recalculates freely (its month is costed whole under the
+ * status of the day).
+ */
+export async function assertReopenedRunKeepsPspTreatment(
+  companyId: string, runId: string, employeeIds: readonly string[], db: TxSql = sql,
+): Promise<void> {
+  const rows = (await pspTreatmentsAtApproval(companyId, runId, employeeIds, db)).filter((r) => r.was !== r.now);
   if (rows.length === 0) return;
   throw new PspStatusChangedSinceApproval(rows.map((r) => ({ employee: String(r.employee_number), was: String(r.was), now: String(r.now) })));
 }

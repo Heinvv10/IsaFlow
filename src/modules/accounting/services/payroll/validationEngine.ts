@@ -162,7 +162,7 @@ export function validateEmploymentTerms(
     results.push({ code: 'DAY_PAY_FROM_EARNINGS', severity: 'warning', message: `${name}: ${classification.dayPayNote}`, ...link });
   }
   if (classification.kind === 'undetermined') {
-    results.push({ code: 'EMPLOYMENT_UNDETERMINED', severity: 'error', message: `${name}: ${classification.reason} Record the terms of work, then recalculate.`, ...link });
+    results.push({ code: 'EMPLOYMENT_UNDETERMINED', severity: 'error', message: `${name}: ${classification.reason} ${classification.remedy ?? 'Record the terms of work, then recalculate.'}`, ...link });
   }
   if (employee.employmentType === 'director' && employee.taxStatus === 'employee') {
     results.push({

@@ -15,6 +15,9 @@ import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { laterOffCycleRefusal, offCyclePaidReopenRefusal } from './payrollOffCycleGates';
+import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { laterMonthFinalRefusal } from './payrollOffCycleOrder';
 import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
 import { restoreRunGarnishees } from './payrollGarnisheeRun';
@@ -60,7 +63,18 @@ export async function reopenPayrollRun(opts: {
     }
     throw new PayrollRunReopenRefusedError(`Cannot reopen run in status '${previousStatus}' — only 'approved' is reopenable.`);
   }
+  // Wave 6 OC: an off-cycle run is reopened only while its month's EMP201 is not filed, before or after payday (409, #1679 M4).
+  const paid = await offCyclePaidReopenRefusal(opts.companyId, run);
+  if (paid) throw new OffCycleRunRefusedError(paid, 409);
+  // Nor while a later month of its tax year is final (gate ruling 3 on 7630d9379f): the later-month guard would refuse
+  // its recalculation and approval, stranding it outside the month's totals. Judged before any change.
+  if (run.run_kind === 'off_cycle') {
+    const later = await laterMonthFinalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) });
+    if (later) throw new OffCycleRunRefusedError(later, 409);
+  }
   // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.
+  const offCycleLater = await laterOffCycleRefusal(opts.companyId, opts.runId); // wave 6 OC
+  if (offCycleLater) throw new PayrollRunReopenRefusedError(offCycleLater);
   const etiLater = await laterEtiJournalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) });
   if (etiLater) throw new PayrollRunReopenRefusedError(etiLater);
 

@@ -31,6 +31,7 @@ import {
 // payrollRunKindGuard) only lock, read and post ETI journals; a run journal, if reversed, is reversed from Journal Entries,
 // whose route maps the refusal. reversePayrollRunJournal, the only payroll caller of reverseJournalEntry, has no caller.
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { log } from '@/lib/logger';
 import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
@@ -77,6 +78,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // withAuth COMMITs a 4xx, so anything else is rethrown: a 500 rolls back.
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunReopenRefusedError) return apiResponse.badRequestFromError(res, err, 'Reopen failed');
+    // Wave 6 OC: a paid off-cycle run is not reopened (409, the reason shown: it names what to do instead).
+    if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code });
     throw err;
   }
 }

@@ -6,7 +6,7 @@ import { paidOutsidePayrollRefusal } from './retirementFund';
 
 type Row = DbRow;
 
-function mapComponent(r: Row): PayrollComponent {
+export function mapComponent(r: Row): PayrollComponent {
   return {
     id: String(r.id),
     name: String(r.name),
