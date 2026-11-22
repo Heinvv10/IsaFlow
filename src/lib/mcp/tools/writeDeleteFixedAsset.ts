@@ -14,6 +14,7 @@ import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpe
 
 export const deleteFixedAssetTool: McpTool = {
   name: 'delete_fixed_asset',
+  admits: canDeleteFixedAsset,
   description:
     'Delete a fixed asset that has no footprint: the undo for create_fixed_asset when the asset was registered in error. Owner or admin only. '
     + 'It posts nothing. It refuses, naming every reason, when the asset has been depreciated (any subledger or '
