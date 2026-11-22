@@ -199,13 +199,21 @@ describe('DateField calendar: keyboard (W3C date picker dialog)', () => {
     fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(close);
   });
+  it('Escape after Alt+ArrowDown returns focus to the text box, not the button', () => {
+    render(<Harness initial="2026-10-15" />);
+    input().focus();
+    fireEvent.keyDown(input(), { key: 'ArrowDown', altKey: true });
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(popup()).toBeNull();
+    expect(document.activeElement).toBe(input());
+  });
   it('Close returns focus to the calendar button', () => {
     open();
     fireEvent.click(within(popup()!).getByRole('button', { name: /^close$/i }));
     expect(popup()).toBeNull();
     expect(document.activeElement).toBe(openBtn());
   });
-  it('a press on the text box (not just outside the field) closes the dialog, but a press on the calendar button does not', () => {
+  it('a press on the text box closes the dialog (only the calendar button is exempt, and it has its own toggle test)', () => {
     open();
     fireEvent.mouseDown(input());
     expect(popup()).toBeNull();
@@ -293,6 +301,39 @@ describe('DateField calendar: phone bottom sheet', () => {
     fireEvent.click(openBtn());
     expect(cell('2026-10-15').className).toMatch(/min-h-11/);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('DateField calendar: placement and scroll lock', () => {
+  const stubSheet = (matches: boolean) => vi.stubGlobal('matchMedia', (q: string) => ({ matches, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() }));
+  afterEach(() => { vi.unstubAllGlobals(); document.body.style.overflow = ''; });
+  it('the popover follows a scroll: it repositions on the next frame, and stops listening on close', async () => {
+    stubSheet(false);
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    render(<Harness />);
+    fireEvent.click(openBtn());
+    expect(add.mock.calls.some(([t, , c]) => t === 'scroll' && c === true)).toBe(true);
+    fireEvent.click(within(popup()!).getByRole('button', { name: /^close$/i }));
+    expect(remove.mock.calls.some(([t, , c]) => t === 'scroll' && c === true)).toBe(true);
+    add.mockRestore(); remove.mockRestore();
+  });
+  it('the sheet locks body scroll while open and restores it on close', () => {
+    stubSheet(true);
+    render(<Harness />);
+    fireEvent.click(openBtn());
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.click(within(popup()!).getByRole('button', { name: /^close$/i }));
+    expect(document.body.style.overflow).toBe('');
+  });
+  it('a body a parent already locked is left alone, so an unmount cannot put back a stale lock', () => {
+    stubSheet(true);
+    document.body.style.overflow = 'hidden';
+    const { unmount } = render(<Harness />);
+    fireEvent.click(openBtn());
+    document.body.style.overflow = ''; // the parent Modal restores first
+    unmount();
+    expect(document.body.style.overflow).toBe('');
   });
 });
 

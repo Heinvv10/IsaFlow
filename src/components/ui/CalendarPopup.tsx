@@ -82,21 +82,31 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
 
   useLayoutEffect(() => {
     if (sheet || !anchor) { setStyle(undefined); return undefined; }
+    let frame = 0;
     const place = (): void => {
       const r = anchor.getBoundingClientRect();
       const p = placePanel(r, window.innerHeight, chooseSide(r, window.innerHeight, PANEL_HEIGHT));
       setStyle({ position: 'fixed', left: Math.max(8, Math.min(r.left, window.innerWidth - PANEL_WIDTH - 8)), top: p.top, bottom: p.bottom, maxHeight: p.maxHeight, width: PANEL_WIDTH });
     };
     place();
-    // Follow the field when the page or a scrolling dialog body moves, or the window resizes.
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+    // Follow the field when the page or a scrolling dialog body moves, or the window resizes (once per frame, not per scroll event).
+    const follow = (): void => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => { frame = 0; place(); });
+    };
+    window.addEventListener('resize', follow);
+    window.addEventListener('scroll', follow, true);
+    return () => {
+      window.removeEventListener('resize', follow);
+      window.removeEventListener('scroll', follow, true);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [sheet, anchor]);
 
-  // The sheet covers the page: it must not scroll underneath.
+  // The sheet covers the page: it must not scroll underneath. Only lock a body that is not already locked (a Modal or Drawer
+  // holds it), so this cleanup can never put back a stale 'hidden' after that parent has restored the page.
   useEffect(() => {
-    if (!sheet) return undefined;
+    if (!sheet || document.body.style.overflow === 'hidden') return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };

@@ -111,12 +111,14 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const innerRef = React.useRef<HTMLInputElement | null>(null);
   const [buttonEl, setButtonEl] = React.useState<HTMLButtonElement | null>(null);
   const refocus = React.useRef<'input' | 'button' | null>(null);
+  // Where Escape / Close returns: the button when it opened the calendar, the box when Alt+ArrowDown did (the typist keeps their place).
+  const openedFrom = React.useRef<'input' | 'button'>('button');
   const setRefs = (el: HTMLInputElement | null): void => {
     innerRef.current = el;
     if (typeof ref === 'function') ref(el);
     else if (ref) ref.current = el;
   };
-  // After a pick the typist wants the box; after Escape / Close the calendar button (W3C: focus returns to the trigger, which Safari and Firefox on macOS do not focus on click).
+  // After a pick the typist wants the box; after Escape / Close the calendar button (W3C: focus returns to the opener; Safari and Firefox on macOS do not focus a button on click, so it is set explicitly).
   React.useEffect(() => {
     if (!calendarOpen && refocus.current) {
       (refocus.current === 'input' ? innerRef.current : buttonEl)?.focus();
@@ -159,7 +161,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' && e.altKey) {
             e.preventDefault();
-            if (!disabled) setCalendarOpen(true);
+            if (!disabled) { openedFrom.current = 'input'; setCalendarOpen(true); }
           } else if (e.key === 'Enter') field.commit();
           else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && step(e.key === 'ArrowUp' ? 1 : -1)) {
             e.preventDefault();
@@ -175,7 +177,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
         aria-haspopup="dialog"
         aria-expanded={calendarOpen}
         disabled={disabled}
-        onClick={() => setCalendarOpen((o) => !o)}
+        onClick={() => { openedFrom.current = 'button'; setCalendarOpen((o) => !o); }}
         className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-md text-gray-600 ff-focus-ring hover:text-teal-700 disabled:opacity-40 max-lg:w-11 dark:text-gray-400 dark:hover:text-teal-300"
       >
         <CalendarDays size={16} aria-hidden="true" />
@@ -191,7 +193,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
           minDate={minDate}
           maxDate={maxDate}
           onPick={(iso) => { refocus.current = 'input'; field.commit(show(iso)); setCalendarOpen(false); }}
-          onClose={(restoreFocus) => { if (restoreFocus) refocus.current = 'button'; setCalendarOpen(false); }}
+          onClose={(restoreFocus) => { if (restoreFocus) refocus.current = openedFrom.current; setCalendarOpen(false); }}
         />
       )}
       {name && <input type="hidden" name={name} value={value ?? ''} />}
