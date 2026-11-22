@@ -19,13 +19,14 @@ import type { Subledger } from '@/modules/accounting/services/core/contraSettlem
 import {
   loadContraSettlementContext,
   settleDocumentByContra,
+  ContraSettlementRefusal,
   type ContraSettlementContext,
 } from '@/modules/accounting/services/core/contraSettlementPosting';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
-import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { ApprovePermissionError, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const TOOL = 'settle_by_contra';
 const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
@@ -132,7 +133,7 @@ export const settleByContraTool: McpTool = {
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not settle this document by contra.'));
     }
-    const { contra, document, debit, credit } = context;
+    const { document, debit, credit } = context;
     // R-035 PR5 (Q6): a payable settles through a supplier payment created,
     // approved and processed in this one call. Refused here, before the first
     // write, when an enforced rule would govern that payment.
@@ -171,26 +172,42 @@ export const settleByContraTool: McpTool = {
       return { ...ok(result), wroteNothing: true };
     }
 
-    const settled = await settleDocumentByContra({
-      companyId: ctx.companyId,
-      actor: { userId: ctx.userId, approverUserId: ctx.userId, postingAgent: mcpPostingAgent(TOOL) },
-      context,
-      amount,
-      date: settlementDate,
-      reason,
-    });
+    // The service re-checks the approver, every guard and the R-035 gate itself, before its first write; the
+    // early calls above only keep this tool's refusal order and the dry run. A refusal here is a race lost.
+    let settled;
+    try {
+      settled = await settleDocumentByContra({
+        companyId: ctx.companyId,
+        subledger,
+        documentId,
+        contraAccountId,
+        amount,
+        date: settlementDate,
+        reason,
+        actor: { userId: ctx.userId, approverUserId: ctx.userId, postingAgent: mcpPostingAgent(TOOL) },
+      });
+    } catch (err) {
+      if (err instanceof ApprovePermissionError) return toolError(err.message);
+      if (err instanceof ContraSettlementRefusal) {
+        return toolError(err.underlying === undefined
+          ? err.message
+          : safeErrorText(err.underlying, 'Could not settle this document by contra.'));
+      }
+      throw err;
+    }
+    const { document: posted, contra: postedContra, debit: postedDebit, credit: postedCredit } = settled.context;
 
     return ok({
       subledger,
-      document_id: document.documentId,
-      document_number: document.documentNumber,
+      document_id: posted.documentId,
+      document_number: posted.documentNumber,
       settled_amount: amount,
-      outstanding_before: document.outstanding,
-      outstanding_after: Math.round((document.outstanding - amount) * 100) / 100,
-      contra_account_id: contra.accountId,
-      contra_account_code: contra.accountCode,
-      contra_account_name: contra.accountName,
-      journal: `DR ${debit.code} ${debit.name} / CR ${credit.code} ${credit.name}`,
+      outstanding_before: posted.outstanding,
+      outstanding_after: Math.round((posted.outstanding - amount) * 100) / 100,
+      contra_account_id: postedContra.accountId,
+      contra_account_code: postedContra.accountCode,
+      contra_account_name: postedContra.accountName,
+      journal: `DR ${postedDebit.code} ${postedDebit.name} / CR ${postedCredit.code} ${postedCredit.name}`,
       payment_id: settled.paymentId,
       payment_number: settled.paymentNumber,
       payment_method: 'contra',

@@ -3,32 +3,33 @@
  *
  * Lifted out of the MCP tool `settle_by_contra` so a second caller (the
  * intercompany receiver-side worker) can settle a document the same way without
- * going through MCP. Behaviour is unchanged: it composes the existing payment
- * services (payment_method 'contra', migration 540), so the posted journal is
- * exactly what the tool always posted.
+ * going through MCP. The posted journal is unchanged: it composes the existing
+ * payment services (payment_method 'contra', migration 540).
  *
  *   AR:  createCustomerPayment -> confirmCustomerPayment
  *        DR contra account / CR Accounts Receivable.
  *   AP:  createSupplierPayment -> approveSupplierPayment -> processSupplierPayment
  *        DR Accounts Payable / CR contra account.
  *
- * Two steps, so a caller can answer every refusal from READS before the first
- * write (a refusal returned after a write frees the idempotency key for a retry
- * that settles the document twice):
+ * `settleDocumentByContra` is the ONLY way in, and it takes raw ids, not a
+ * pre-built context: immediately before the first write it checks that the
+ * approver may approve, re-runs every guard in `contraSettlementService`, and
+ * (AP) asks the R-035 PR5 gate. A caller therefore cannot skip a check, hand in
+ * a stale or forged context, or record an approver who may not approve. Every
+ * refusal is thrown BEFORE the first write, so a caller can answer it from
+ * reads. `loadContraSettlementContext` stays exported for a caller that wants
+ * the journal legs earlier (a dry run); its result is never an input here.
  *
- *   1. `loadContraSettlementContext`  READ-ONLY. Runs every guard in
- *      `contraSettlementService` and resolves the control account.
- *   2. `settleDocumentByContra`       WRITES. Takes that context, so a settlement
- *      cannot be posted without the guards having run.
- *
- * AUTHORITY IS THE CALLER'S. This module does not decide who may approve: the
- * MCP tool asks `mayApprove` (Customers / Suppliers & AP) and the R-035 PR5
- * unattended-payment refusal before it calls here. The `actor` says who is
- * recorded as creator, approver and poster, and which posting agent stamps the
- * journal.
+ * AUTOMATION IS NOT APPROVAL. `actor.approverUserId` is the person who decided;
+ * a worker must never pass its own or a system id. It is checked against the
+ * Approve permission (Customers & AR for a receivable, Suppliers & AP for a
+ * payable) and recorded as `approved_by` on an AP payment.
  */
 
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { agentNewSupplierPaymentRefusal } from '../gl/approvalUnattended';
+import { ApprovePermissionError, mayApprove } from './approvePermission';
+import { hasWholeCents } from '@/lib/money/wholeCents';
 import {
   assertContraAccountUsable,
   loadContraDocument,
@@ -50,6 +51,7 @@ export interface ContraLeg {
   name: string;
 }
 
+/** What `loadContraSettlementContext` returns. Output only: `settleDocumentByContra` never accepts one. */
 export interface ContraSettlementContext {
   subledger: Subledger;
   contra: ContraAccountCheck;
@@ -63,7 +65,7 @@ export interface ContraSettlementContext {
 export interface ContraSettlementActor {
   /** Creates the payment and (AR) confirms / (AP) processes it. */
   userId: string;
-  /** Recorded as `approved_by` on an AP payment. The caller must have checked this user may approve. */
+  /** The person who approved. Checked here against Approve permission; recorded as `approved_by` on an AP payment. Never a worker or system id. */
   approverUserId: string;
   /** Stamped on the posted journal (`mcp:settle_by_contra:v1` for the tool). */
   postingAgent: string;
@@ -73,6 +75,20 @@ export interface ContraSettlementResult {
   paymentId: string;
   paymentNumber: string;
   journalEntryId: string | null;
+  /** The context the posting ran against (the re-read one), for the caller's response. */
+  context: ContraSettlementContext;
+}
+
+/**
+ * A refusal raised before the first write: a bad amount, the R-035 gate, or a
+ * guard that rejected. `underlying` is the original error for a guard failure,
+ * so a caller can sanitise it as it would have on its own read.
+ */
+export class ContraSettlementRefusal extends Error {
+  constructor(message: string, readonly underlying?: unknown) {
+    super(message);
+    this.name = 'ContraSettlementRefusal';
+  }
 }
 
 /**
@@ -104,20 +120,53 @@ export async function loadContraSettlementContext(
 
 export interface SettleDocumentByContraParams {
   companyId: string;
-  actor: ContraSettlementActor;
-  context: ContraSettlementContext;
+  subledger: Subledger;
+  documentId: string;
+  contraAccountId: string;
+  /** Positive, whole cents. */
   amount: number;
   /** YYYY-MM-DD; must fall in an OPEN fiscal period (the payment services enforce it). */
   date: string;
   /** Why it was netted rather than paid; recorded on the payment document. */
   reason: string;
+  actor: ContraSettlementActor;
 }
 
-/** WRITES. Posts the settlement through the payment services and returns the payment and journal ids. */
+/**
+ * Check, then post. Throws `ApprovePermissionError` (approver may not approve),
+ * `ContraSettlementRefusal` (amount, a guard, or the R-035 gate) or the payment
+ * services' own errors; the first two are always before any write.
+ */
 export async function settleDocumentByContra(
   p: SettleDocumentByContraParams,
 ): Promise<ContraSettlementResult> {
-  const { companyId, actor, context, amount } = p;
+  const { companyId, subledger, amount, actor } = p;
+  if (!Number.isFinite(amount) || amount <= 0 || !hasWholeCents(amount)) {
+    throw new ContraSettlementRefusal(`amount must be a positive number of whole cents (${amount})`);
+  }
+  // Round 4 / #1656: the approver is asked here, so no caller can record one who may not approve.
+  if (subledger === 'ar') {
+    if (!(await mayApprove(companyId, actor.approverUserId, 'customers'))) {
+      throw new ApprovePermissionError('customers', 'customer receipts');
+    }
+  } else if (!(await mayApprove(companyId, actor.approverUserId, 'suppliers'))) {
+    throw new ApprovePermissionError('suppliers', 'supplier payments');
+  }
+
+  // Re-read every guard now, whatever the caller read earlier.
+  let context: ContraSettlementContext;
+  try {
+    context = await loadContraSettlementContext(companyId, subledger, p.documentId, p.contraAccountId, amount);
+  } catch (err) {
+    throw new ContraSettlementRefusal(err instanceof Error ? err.message : 'Could not settle this document by contra.', err);
+  }
+  // R-035 PR5 (Q6): a payable settles through a supplier payment created, approved and processed in this one call,
+  // so an enforced rule that would govern it refuses here, from a read, before the first write.
+  if (subledger === 'ap') {
+    const refusal = await agentNewSupplierPaymentRefusal(companyId, amount);
+    if (refusal) throw new ContraSettlementRefusal(refusal);
+  }
+
   const base = {
     paymentDate: p.date,
     totalAmount: amount,
@@ -129,7 +178,7 @@ export async function settleDocumentByContra(
     allocations: [{ invoiceId: context.document.documentId, amount }],
   };
 
-  if (context.subledger === 'ar') {
+  if (subledger === 'ar') {
     const payment = await createCustomerPayment(
       companyId, { ...base, clientId: context.document.counterpartyId }, actor.userId,
     );
@@ -140,6 +189,7 @@ export async function settleDocumentByContra(
       paymentId: confirmed.id,
       paymentNumber: confirmed.paymentNumber,
       journalEntryId: confirmed.glJournalEntryId ?? null,
+      context,
     };
   }
 
@@ -154,5 +204,6 @@ export async function settleDocumentByContra(
     paymentId: processed.id,
     paymentNumber: processed.paymentNumber,
     journalEntryId: processed.glJournalEntryId ?? null,
+    context,
   };
 }

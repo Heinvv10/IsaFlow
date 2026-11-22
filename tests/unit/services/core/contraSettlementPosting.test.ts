@@ -4,7 +4,9 @@
  *
  * The posted journal must not change, so what is pinned is the composition: the
  * same services, in the same order, with the same arguments, and the actor's
- * ids landing on the right step (creator / approver / poster).
+ * ids landing on the right step (creator / approver / poster). And that every
+ * refusal (approver permission, the guards, the R-035 gate) is thrown from inside
+ * the service before the first write, whatever the caller did earlier.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -19,6 +21,10 @@ vi.mock('@/modules/accounting/services/core/contraSettlementService', () => ({
   loadContraDocument: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({
+  ...(await orig<object>()), mayApprove: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentNewSupplierPaymentRefusal: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   createCustomerPayment: vi.fn(),
   confirmCustomerPayment: vi.fn(),
@@ -40,11 +46,13 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { mayApprove, ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
+import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import {
   loadContraSettlementContext,
   settleDocumentByContra,
+  ContraSettlementRefusal,
   type ContraSettlementActor,
-  type ContraSettlementContext,
 } from '@/modules/accounting/services/core/contraSettlementPosting';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -60,22 +68,25 @@ const DOCUMENT = {
 };
 const ACTOR: ContraSettlementActor = { userId: 'user-1', approverUserId: 'approver-1', postingAgent: 'agent:x:v1' };
 
-function ctxFor(subledger: 'ar' | 'ap'): ContraSettlementContext {
-  const contra = { id: CONTRA, code: '2400', name: 'Loan' };
-  const control = { id: 'ctl', code: subledger === 'ar' ? '1120' : '2000', name: 'Control' };
-  return {
-    subledger, contra: CONTRA_OK, document: DOCUMENT,
-    debit: subledger === 'ar' ? contra : control,
-    credit: subledger === 'ar' ? control : contra,
-  };
-}
+const run = (subledger: 'ar' | 'ap', over: Partial<Parameters<typeof settleDocumentByContra>[0]> = {}) =>
+  settleDocumentByContra({
+    companyId: COMPANY, subledger, documentId: DOC, contraAccountId: CONTRA, amount: 400,
+    date: '2026-11-20', reason: 'Netted', actor: ACTOR, ...over,
+  });
 
-const run = (subledger: 'ar' | 'ap') => settleDocumentByContra({
-  companyId: COMPANY, actor: ACTOR, context: ctxFor(subledger), amount: 400, date: '2026-11-20', reason: 'Netted',
-});
+const noWrites = () => {
+  for (const f of [createCustomerPayment, confirmCustomerPayment, createSupplierPayment, approveSupplierPayment, processSupplierPayment]) {
+    expect(f).not.toHaveBeenCalled();
+  }
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(mayApprove).mockResolvedValue(true);
+  vi.mocked(agentNewSupplierPaymentRefusal).mockResolvedValue(null);
+  vi.mocked(assertContraAccountUsable).mockResolvedValue(CONTRA_OK);
+  vi.mocked(loadContraDocument).mockResolvedValue(DOCUMENT);
+  vi.mocked(getSystemAccount).mockResolvedValue({ id: 'ctl', accountCode: '1120', accountName: 'Control' } as never);
   vi.mocked(createCustomerPayment).mockResolvedValue({ id: PAYMENT } as never);
   vi.mocked(confirmCustomerPayment).mockResolvedValue({ id: PAYMENT, paymentNumber: 'RCP1', glJournalEntryId: 'je-1' } as never);
   vi.mocked(createSupplierPayment).mockResolvedValue({ id: PAYMENT } as never);
@@ -131,7 +142,8 @@ describe('settleDocumentByContra', () => {
     }, 'user-1');
     expect(confirmCustomerPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'agent:x:v1' });
     expect(createSupplierPayment).not.toHaveBeenCalled();
-    expect(r).toEqual({ paymentId: PAYMENT, paymentNumber: 'RCP1', journalEntryId: 'je-1' });
+    expect(r).toMatchObject({ paymentId: PAYMENT, paymentNumber: 'RCP1', journalEntryId: 'je-1' });
+    expect(r.context.debit).toEqual({ id: CONTRA, code: '2400', name: 'Loan' });
   });
 
   it('AP: creates, approves (as the approver) and processes (as the actor, stamped) in that order', async () => {
@@ -151,7 +163,7 @@ describe('settleDocumentByContra', () => {
     expect(approveSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'approver-1');
     expect(processSupplierPayment).toHaveBeenCalledWith(COMPANY, PAYMENT, 'user-1', { postingAgent: 'agent:x:v1' });
     expect(createCustomerPayment).not.toHaveBeenCalled();
-    expect(r).toEqual({ paymentId: PAYMENT, paymentNumber: 'PAY1', journalEntryId: 'je-2' });
+    expect(r).toMatchObject({ paymentId: PAYMENT, paymentNumber: 'PAY1', journalEntryId: 'je-2' });
   });
 
   it('AP: a failed approval stops before process — no journal is posted', async () => {
@@ -168,6 +180,75 @@ describe('settleDocumentByContra', () => {
   it('a payment with no journal id reports null, not undefined', async () => {
     vi.mocked(confirmCustomerPayment).mockResolvedValue({ id: PAYMENT, paymentNumber: 'RCP1' } as never);
     expect((await run('ar')).journalEntryId).toBeNull();
+  });
+});
+
+describe('every refusal comes before the first write, from inside the service', () => {
+  it('a hand-forged input naming a BANK contra account cannot post: the guard re-runs and throws', async () => {
+    vi.mocked(assertContraAccountUsable).mockRejectedValue(new Error('1000 FNB is a BANK account.'));
+    for (const sub of ['ar', 'ap'] as const) {
+      const err = await run(sub, { contraAccountId: 'bank-account-id' }).catch((e) => e);
+      expect(err).toBeInstanceOf(ContraSettlementRefusal);
+      expect(err.message).toMatch(/BANK account/);
+      expect(err.underlying).toBeInstanceOf(Error);
+    }
+    expect(assertContraAccountUsable).toHaveBeenCalledWith(COMPANY, 'ar', 'bank-account-id');
+    noWrites();
+  });
+
+  it('the subledger control account as contra cannot post', async () => {
+    vi.mocked(assertContraAccountUsable).mockRejectedValue(new Error('1120 is the Accounts Receivable control account itself.'));
+    await expect(run('ar')).rejects.toThrow(/control account itself/);
+    noWrites();
+  });
+
+  it('an amount above the outstanding balance on the document, read now, cannot post', async () => {
+    vi.mocked(loadContraDocument).mockRejectedValue(new Error('R400.00 exceeds the R100.00 outstanding'));
+    await expect(run('ap')).rejects.toThrow(/exceeds/);
+    expect(loadContraDocument).toHaveBeenCalledWith(COMPANY, 'ap', DOC, 400);
+    noWrites();
+  });
+
+  it.each([0, -5, 10.005, Number.NaN])('amount %s is refused before anything is read', async (amount) => {
+    await expect(run('ar', { amount })).rejects.toBeInstanceOf(ContraSettlementRefusal);
+    expect(assertContraAccountUsable).not.toHaveBeenCalled();
+    noWrites();
+  });
+
+  it('an approver without Customers & AR Approve is refused on a receivable, before any read or write', async () => {
+    vi.mocked(mayApprove).mockResolvedValue(false);
+    await expect(run('ar')).rejects.toBeInstanceOf(ApprovePermissionError);
+    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'customers');
+    expect(assertContraAccountUsable).not.toHaveBeenCalled();
+    noWrites();
+  });
+
+  it('an approver without Suppliers & AP Approve is refused on a payable, before any read or write', async () => {
+    vi.mocked(mayApprove).mockResolvedValue(false);
+    await expect(run('ap')).rejects.toBeInstanceOf(ApprovePermissionError);
+    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'suppliers');
+    expect(assertContraAccountUsable).not.toHaveBeenCalled();
+    noWrites();
+  });
+
+  it('the permission is asked of the APPROVER, not of the creator', async () => {
+    await run('ap');
+    expect(mayApprove).toHaveBeenCalledWith(COMPANY, 'approver-1', 'suppliers');
+    expect(mayApprove).not.toHaveBeenCalledWith(COMPANY, 'user-1', expect.anything());
+  });
+
+  it('R-035: an enforced rule on a new supplier payment refuses before createSupplierPayment', async () => {
+    vi.mocked(agentNewSupplierPaymentRefusal).mockResolvedValue('Supplier payments are enforced: needs approval');
+    const err = await run('ap').catch((e) => e);
+    expect(err).toBeInstanceOf(ContraSettlementRefusal);
+    expect(err.message).toMatch(/enforced/);
+    expect(agentNewSupplierPaymentRefusal).toHaveBeenCalledWith(COMPANY, 400);
+    noWrites();
+  });
+
+  it('R-035 is not asked for a receivable', async () => {
+    await run('ar');
+    expect(agentNewSupplierPaymentRefusal).not.toHaveBeenCalled();
   });
 });
 
