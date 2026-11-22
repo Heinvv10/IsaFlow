@@ -6,7 +6,8 @@
  * here the checks that need the whole file:
  *   - an ID or a Code (item), an ID or a DocumentNumber (PO) used by more than one row refuses EVERY row that uses it;
  *   - a category ID described two ways, or two category IDs with one name (case-insensitive), refuses the later items;
- *   - a PO status outside the table, and a PO line naming an item ID the export does not contain, refuse the PO.
+ *   - a PO status outside the table refuses the PO, and so does a line naming an item the export does not contain (`line_item_unknown`)
+ *     or one that is refused and so never imported (`line_item_refused`).
  */
 import type { ParsedExport, RowRefusal, SageCategory, SageItem, SagePurchaseOrder } from './sageExportTypes';
 import { isRaw } from './sageValues';
@@ -80,16 +81,16 @@ export function parseSageExport(file: unknown): ParsedExport {
   const itemRows = rowsOf(file.Items, 'Items');
   const poRows = rowsOf(file.PurchaseOrders, 'PurchaseOrders');
   const refusals: RowRefusal[] = [];
-  const codeById = new Map<string, string>();
+  const knownIds = new Set<string>();
   let itemsWithQuantityOnHand = 0;
 
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
     const r = parseSageItem(raw, i);
-    if (r.ok) { items.push(r.value); codeById.set(r.value.id, r.value.code); if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
+    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
     else {
       refusals.push(r.refusal);
-      if (r.refusal.sageId && isRaw(raw) && typeof raw.Code === 'string') codeById.set(r.refusal.sageId, raw.Code.trim());
+      if (r.refusal.sageId) knownIds.add(r.refusal.sageId);
     }
   });
   const uniqueItems = dedupe(items, (i) => i.id, (i) => i.code, 'item', [
@@ -99,6 +100,8 @@ export function parseSageExport(file: unknown): ParsedExport {
   refusals.push(...uniqueItems.refusals);
   const cats = itemCategories(uniqueItems.kept);
   refusals.push(...cats.refusals);
+  // The codes a PO line may name: the items that SURVIVE every check, nothing else (a refused or duplicated item is never imported).
+  const itemCodes = Object.fromEntries(cats.kept.map((i) => [i.id, i.code]));
 
   const pos: SagePurchaseOrder[] = [];
   let exportPoTotalCents = 0;
@@ -117,14 +120,20 @@ export function parseSageExport(file: unknown): ParsedExport {
     const reasons: string[] = [];
     if (!importStatusFor(po.status)) reasons.push(`Status "${po.status}" is not one of Pending, Overdue, Invoiced, Cancelled`);
     for (const [n, l] of po.lines.entries()) {
-      if (l.itemId !== null && !codeById.has(l.itemId)) reasons.push(`Lines[${n}] names item ${l.itemId}, which the export does not contain`);
+      if (l.itemId === null || Object.hasOwn(itemCodes, l.itemId)) continue;
+      reasons.push(knownIds.has(l.itemId)
+        ? `Lines[${n}] names item ${l.itemId}, which is refused and so is not imported`
+        : `Lines[${n}] names item ${l.itemId}, which the export does not contain`);
     }
     if (reasons.length === 0) purchaseOrders.push(po);
-    else refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code: reasons[0]!.startsWith('Status') ? 'unknown_status' : 'line_item_unknown', reasons });
+    else {
+      const code = reasons[0]!.startsWith('Status') ? 'unknown_status' : reasons[0]!.includes('which is refused') ? 'line_item_refused' : 'line_item_unknown';
+      refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code, reasons });
+    }
   }
 
   return {
-    categories: cats.categories, items: cats.kept, purchaseOrders, refusals, itemCodes: Object.fromEntries(codeById), rowsIn: { items: itemRows.length, purchaseOrders: poRows.length },
+    categories: cats.categories, items: cats.kept, purchaseOrders, refusals, itemCodes, rowsIn: { items: itemRows.length, purchaseOrders: poRows.length },
     exportPoTotalCents, itemsWithQuantityOnHand,
   };
 }

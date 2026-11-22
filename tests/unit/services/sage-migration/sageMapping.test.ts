@@ -51,14 +51,18 @@ describe('item mapping', () => {
     expect(mapSageItem({ ...base, lastCost: null, averageCost: null })).not.toHaveProperty('purchase_price');
   });
 
-  it('HARD RULE: no mapped item row names a quantity, stock or opening field, and the value of QuantityOnHand appears nowhere', () => {
+  it('HARD RULE: no mapped item row names a quantity, stock or opening field, and no QuantityOnHand VALUE appears anywhere', () => {
     for (const i of parsed().items) {
-      const row = mapSageItem(i);
-      expect(Object.keys(row).filter((k) => /quant|stock|opening|qty|on_hand/i.test(k))).toEqual([]);
+      expect(Object.keys(mapSageItem(i)).filter((k) => /quant|stock|opening|qty|on_hand/i.test(k))).toEqual([]);
     }
-    // The fixture's quantities are 26..45 and 125..140; none of them is in any mapped price either.
-    const text = JSON.stringify(parsed().items.map(mapSageItem));
-    expect(text).not.toMatch(/on_?hand/i);
+    // Give every item a quantity no price, cost or code can equal, then look for it in everything the migration produces.
+    const file = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'));
+    const sentinels = file.Items.$resources.map((r: Record<string, unknown>, n: number) => { r.QuantityOnHand = 7770000 + n + 0.123; return String(7770000 + n); });
+    const p = parseSageExport(file);
+    expect(p.items).toHaveLength(20);
+    const everything = JSON.stringify([p.items, p.categories, p.items.map(mapSageItem), p.purchaseOrders]);
+    for (const s of sentinels) expect(everything, s).not.toContain(s);
+    expect(p.itemsWithQuantityOnHand).toBe(20);
   });
 
   it('a category maps to its name, the Sage id as reference, active', () => {

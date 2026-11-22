@@ -7,24 +7,30 @@
  */
 import type { RowResult, SagePoLine, SagePurchaseOrder } from './sageExportTypes';
 import { isRaw, readDate, readId, readNumber, readText, type Raw } from './sageValues';
-import { taxTypeFor } from './sageTaxTypes';
+import { rateOf, standardRateOn, taxTypeFor, VAT_RATE_CHANGE_DATE } from './sageTaxTypes';
 
 const MAX_LINES = 200;
 
-function lineRate(o: Raw, why: string[], at: string): number | undefined {
+/** The VAT rate of a line: its TaxPercentage and/or its TaxTypeId, checked against the rate that applied on the PO date. */
+function lineRate(o: Raw, why: string[], date: string): number | undefined {
   const pct = readNumber(o, 'TaxPercentage', why, { cents: 'any' });
   const typeId = readId(o, 'TaxTypeId', why, false);
   if (pct === undefined || typeId === undefined) return undefined;
   const t = typeId === null ? null : taxTypeFor(typeId);
-  if (typeId !== null && !t) { why.push(`${at}TaxTypeId ${typeId} is not a tax type this migration knows (1 standard, 2 zero, 3 exempt)`); return undefined; }
-  if (pct !== null && pct > 100) { why.push(`${at}TaxPercentage must be at most 100`); return undefined; }
-  if (pct !== null && t && Math.abs(pct - t.rate) > 1e-9) { why.push(`${at}TaxPercentage ${pct} disagrees with TaxTypeId ${typeId} (${t.rate}%)`); return undefined; }
-  const rate = pct ?? t?.rate;
-  if (rate === undefined) { why.push(`${at}needs TaxPercentage or TaxTypeId`); return undefined; }
+  if (typeId !== null && !t) { why.push(`TaxTypeId ${typeId} is not a tax type this migration knows (1 standard, 2 zero, 3 exempt)`); return undefined; }
+  const std = standardRateOn(date);
+  if (pct !== null && pct !== 0 && pct !== std) {
+    why.push(`TaxPercentage ${pct} is not the VAT rate on ${date} (${std}%; 14% before ${VAT_RATE_CHANGE_DATE}, 15% from then) or 0`);
+    return undefined;
+  }
+  const typeRate = t ? rateOf(t.vat, date) : null;
+  if (pct !== null && typeRate !== null && pct !== typeRate) { why.push(`TaxPercentage ${pct} disagrees with TaxTypeId ${typeId} (${typeRate}% on ${date})`); return undefined; }
+  const rate = pct ?? typeRate;
+  if (rate === null) { why.push('needs TaxPercentage or TaxTypeId'); return undefined; }
   return rate;
 }
 
-function parseLine(raw: unknown, i: number, why: string[]): SagePoLine | undefined {
+function parseLine(raw: unknown, i: number, why: string[], date: string): SagePoLine | undefined {
   const at = `Lines[${i}].`;
   if (!isRaw(raw)) { why.push(`Lines[${i}] must be an object`); return undefined; }
   const before = why.length;
@@ -35,7 +41,7 @@ function parseLine(raw: unknown, i: number, why: string[]): SagePoLine | undefin
   const unit = readNumber(raw, 'UnitPriceExclusive', sub, { required: true, cents: 'any' });
   const exclusive = readNumber(raw, 'Exclusive', sub, { cents: 'whole' });
   const tax = readNumber(raw, 'Tax', sub, { cents: 'whole' });
-  const rate = lineRate(raw, sub, '');
+  const rate = lineRate(raw, sub, date);
   const itemId = readId(raw, 'ItemId', sub, false);
   const selection = readId(raw, 'SelectionId', sub, false);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
@@ -68,7 +74,8 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
   if (!Array.isArray(o.Lines) || o.Lines.length === 0) why.push('Lines must be a non-empty array');
   else if (o.Lines.length > MAX_LINES) why.push(`Lines has ${o.Lines.length} lines; the maximum is ${MAX_LINES}`);
   else {
-    o.Lines.forEach((l, i) => { const line = parseLine(l, i, why); if (line) lines.push(line); });
+    // A PO whose Date cannot be read is refused anyway; its lines are read at the current rate to report their other faults.
+    o.Lines.forEach((l, i) => { const line = parseLine(l, i, why, typeof date === 'string' ? date : '9999-01-01'); if (line) lines.push(line); });
   }
   if (typeof exclusive === 'number' && typeof tax === 'number' && typeof total === 'number'
     && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {

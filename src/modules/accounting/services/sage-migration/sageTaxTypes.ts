@@ -1,16 +1,24 @@
 /**
- * Sage tax type ids -> IsaFlow VAT types and rates. ASSUMED table (Sage SA, Business Cloud Accounting): 1 standard 15%,
- * 2 zero-rated 0%, 3 exempt 0%. An id not in it is REFUSED (`unknown_tax_type`), never guessed: a wrong VAT type on an item or
- * a wrong rate on a PO line is a real defect, a refused row is a fixed file.
+ * Sage tax type ids -> IsaFlow VAT types and rates. ASSUMED table (Sage SA, Business Cloud Accounting): 1 standard, 2 zero-rated
+ * 0%, 3 exempt 0%. An id not in it is REFUSED (`unknown_tax_type`), never guessed: a wrong VAT type on an item or a wrong rate
+ * on a PO line is a real defect, a refused row is a fixed file.
+ *
+ * The standard rate is the one that applied on the document's date: 14% before 2018-04-01, 15% from then on. A line's
+ * percentage must be that rate or 0 (sagePurchaseOrderParser).
  */
 import type { SageTaxType } from './sageExportTypes';
 
-export const SAGE_TAX_TYPES: Readonly<Record<string, { vat: SageTaxType; rate: number }>> = {
-  '1': { vat: 'standard', rate: 15 },
-  '2': { vat: 'zero', rate: 0 },
-  '3': { vat: 'exempt', rate: 0 },
-};
+export const VAT_RATE_CHANGE_DATE = '2018-04-01';
 
-export function taxTypeFor(id: string): { vat: SageTaxType; rate: number } | null {
-  return Object.hasOwn(SAGE_TAX_TYPES, id) ? SAGE_TAX_TYPES[id]! : null;
+/** The standard VAT rate on `date` (YYYY-MM-DD). */
+export const standardRateOn = (date: string): number => (date < VAT_RATE_CHANGE_DATE ? 14 : 15);
+
+const TYPES: Readonly<Record<string, SageTaxType>> = { '1': 'standard', '2': 'zero', '3': 'exempt' };
+
+/** The VAT type of a Sage tax type id, or null when it is not one this migration knows. */
+export function taxTypeFor(id: string): { vat: SageTaxType } | null {
+  return Object.hasOwn(TYPES, id) ? { vat: TYPES[id]! } : null;
 }
+
+/** The rate a tax type carries on `date`. */
+export const rateOf = (vat: SageTaxType, date: string): number => (vat === 'standard' ? standardRateOn(date) : 0);

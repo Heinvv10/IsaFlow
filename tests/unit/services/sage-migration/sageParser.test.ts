@@ -14,6 +14,9 @@ const fixture = (): { Items: { $resources: Row[] }; PurchaseOrders: Row[] } =>
 const item = (over: Row = {}): Row => ({ ...fixture().Items.$resources[0], ...over });
 const po = (over: Row = {}): Row => ({ ...fixture().PurchaseOrders[0], ...over });
 const reasons = (r: ReturnType<typeof parseSageItem>) => (r.ok ? [] : r.refusal.reasons);
+/** The row is refused AND one of its reasons matches: a bare `!ok` would pass for any fault. */
+const refusedFor = (r: ReturnType<typeof parseSageItem> | ReturnType<typeof parseSagePurchaseOrder>): string =>
+  (r.ok ? 'NOT REFUSED' : r.refusal.reasons.join(' | '));
 
 describe('the synthetic fixture', () => {
   it('reads clean: 20 items in 4 categories, 10 purchase orders, no refusal', () => {
@@ -81,6 +84,11 @@ describe('item rows', () => {
     expect(reasons(parseSageItem(item({ PriceExclusive: -1 }), 0))).toContain('PriceExclusive must be not negative');
     expect(reasons(parseSageItem(item({ LastCost: '5' }), 0))).toContain('LastCost must be a number');
   });
+  it('refuses a third decimal on PriceExclusive (it is a price the books keep), as PO amounts do', () => {
+    expect(refusedFor(parseSageItem(item({ PriceExclusive: 10.005 }), 0))).toMatch(/PriceExclusive must be whole cents/);
+    const ok = parseSageItem(item({ PriceExclusive: 10.5 }), 0);
+    expect(ok.ok && ok.value.priceExclusive).toBe(10.5);
+  });
   it('rounds a cost to whole cents', () => {
     const r = parseSageItem(item({ AverageCost: 59.123456, LastCost: 12.345 }), 0);
     expect(r.ok && [r.value.averageCost, r.value.lastCost]).toEqual([59.12, 12.35]);
@@ -103,7 +111,7 @@ describe('item rows', () => {
     f.Items.$resources[3] = { ...f.Items.$resources[3], Code: f.Items.$resources[2]!.Code };
     const p = parseSageExport(f);
     expect(p.items).toHaveLength(16);
-    expect(p.refusals.map((r) => r.code).sort()).toEqual(['duplicate_code', 'duplicate_code', 'duplicate_id', 'duplicate_id']);
+    expect(p.refusals.filter((r) => r.entity === 'item').map((r) => r.code).sort()).toEqual(['duplicate_code', 'duplicate_code', 'duplicate_id', 'duplicate_id']);
   });
   it('refuses a later item that describes a category ID differently, or reuses a category name under another ID', () => {
     const f = fixture();
@@ -122,36 +130,36 @@ describe('purchase order rows', () => {
     expect(!r.ok && r.refusal.reasons).toEqual(expect.arrayContaining(['ID is required', 'DocumentNumber is required', 'Date is required', 'Status is required', 'SupplierId is required', 'Exclusive is required', 'Lines must be a non-empty array']));
   });
   it('refuses a date that is not real, and takes a date-time as its calendar date', () => {
-    expect(!parseSagePurchaseOrder(po({ Date: '2026-02-30' }), 0).ok).toBe(true);
-    const ok = parseSagePurchaseOrder(po({ Date: '2026-03-04T23:59:59Z' }), 0);
-    expect(ok.ok && ok.value.date).toBe('2026-03-04');
+    expect(refusedFor(parseSagePurchaseOrder(po({ Date: '2026-02-30' }), 0))).toMatch(/Date must be a real date/);
+    const plain = parseSagePurchaseOrder(po({ Date: '2026-03-04T23:59:59' }), 0);
+    expect(plain.ok && plain.value.date).toBe('2026-03-04'); // no zone: the calendar date as written
   });
   it('refuses a header whose Exclusive + Tax is not Total', () => {
     const r = parseSagePurchaseOrder(po({ Total: 1 }), 0);
     expect(!r.ok && r.refusal.reasons[0]).toMatch(/is not Total 1/);
   });
   it('refuses a third decimal on a header amount', () => {
-    expect(!parseSagePurchaseOrder(po({ Exclusive: 10.005, Tax: 0, Total: 10.005 }), 0).ok).toBe(true);
+    expect(refusedFor(parseSagePurchaseOrder(po({ Exclusive: 10.005, Tax: 0, Total: 10.005 }), 0))).toMatch(/Exclusive must be whole cents/);
   });
   it('line VAT: a rate by TaxPercentage or by TaxTypeId; both must agree; neither is refused', () => {
     const line = (over: Row) => ({ ...(po().Lines as Row[])[0], ...over });
     const run = (l: Row) => parseSagePurchaseOrder(po({ Lines: [l] }), 0);
-    expect(!run(line({ TaxPercentage: 0, TaxTypeId: 1 })).ok).toBe(true);
-    expect(!run(line({ TaxPercentage: undefined, TaxTypeId: undefined })).ok).toBe(true);
-    expect(!run(line({ TaxTypeId: 9 })).ok).toBe(true);
+    expect(refusedFor(run(line({ TaxPercentage: 0, TaxTypeId: 1 })))).toMatch(/TaxPercentage 0 disagrees with TaxTypeId 1/);
+    expect(refusedFor(run(line({ TaxPercentage: undefined, TaxTypeId: undefined })))).toMatch(/needs TaxPercentage or TaxTypeId/);
+    expect(refusedFor(run(line({ TaxTypeId: 9 })))).toMatch(/TaxTypeId 9 is not a tax type/);
     const viaType = parseSagePurchaseOrder(po({ Exclusive: 100, Tax: 15, Total: 115, Lines: [line({ TaxPercentage: undefined, TaxTypeId: 1, Quantity: 1, UnitPriceExclusive: 100, Exclusive: 100, Tax: 15 })] }), 0);
     expect(viaType.ok && viaType.value.lines[0]!.taxRate).toBe(15);
   });
   it('line quantity: positive, at most two decimals', () => {
     const run = (q: unknown) => parseSagePurchaseOrder(po({ Lines: [{ ...(po().Lines as Row[])[0], Quantity: q }] }), 0);
-    expect(!run(0).ok).toBe(true);
-    expect(!run(1.005).ok).toBe(true);
+    expect(refusedFor(run(0))).toMatch(/Quantity must be more than 0/);
+    expect(refusedFor(run(1.005))).toMatch(/Quantity has at most two decimals/);
   });
   it('a line names its item by ItemId or SelectionId; two different ones are refused', () => {
     const l = (over: Row) => ({ ...(po().Lines as Row[])[0], ...over });
     const run = (over: Row) => parseSagePurchaseOrder(po({ Lines: [l(over)] }), 0);
     expect(run({ ItemId: undefined, SelectionId: 50002 })).toMatchObject({ ok: true, value: { lines: [{ itemId: '50002' }] } });
-    expect(!run({ ItemId: 50001, SelectionId: 50002 }).ok).toBe(true);
+    expect(refusedFor(run({ ItemId: 50001, SelectionId: 50002 }))).toMatch(/ItemId and SelectionId name different items/);
   });
   it('refuses EVERY row that shares an ID or a DocumentNumber', () => {
     const f = fixture();
@@ -173,5 +181,80 @@ describe('purchase order rows', () => {
     const f = fixture();
     f.PurchaseOrders[0] = { ...f.PurchaseOrders[0], Status: 'Draft' };
     expect(parseSageExport(f).exportPoTotalCents).toBe(parseSageExport(fixture()).exportPoTotalCents);
+  });
+});
+
+describe('dates with a zone convert to the South African calendar date (UTC+2, no daylight saving)', () => {
+  const dateOf = (Date_: string) => { const r = parseSagePurchaseOrder(po({ Date: Date_ }), 0); return r.ok ? r.value.date : refusedFor(r); };
+  it('22:00 UTC is already the next day in Johannesburg', () => {
+    expect(dateOf('2026-03-04T22:00:00Z')).toBe('2026-03-05');
+    expect(dateOf('2026-03-04T21:59:59Z')).toBe('2026-03-04');
+    expect(dateOf('2026-03-04T22:00:00.000Z')).toBe('2026-03-05');
+  });
+  it('an offset is applied before the date is taken', () => {
+    expect(dateOf('2026-03-04T23:30:00-05:00')).toBe('2026-03-05'); // 04:30 UTC on the 5th
+    expect(dateOf('2026-03-05T00:30:00+02:00')).toBe('2026-03-05'); // already Johannesburg time
+    expect(dateOf('2026-03-05T00:30:00+05:30')).toBe('2026-03-04'); // 19:00 UTC on the 4th is 21:00 in Johannesburg
+  });
+  it('crosses a month and a year end', () => {
+    expect(dateOf('2026-12-31T23:00:00Z')).toBe('2027-01-01');
+    expect(dateOf('2026-02-28T22:00:00Z')).toBe('2026-03-01');
+  });
+  it('a date-time with no zone keeps its own calendar date, a date-only value is itself', () => {
+    expect(dateOf('2026-03-04T22:00:00')).toBe('2026-03-04');
+    expect(dateOf('2026-03-04')).toBe('2026-03-04');
+  });
+  it('refuses a time part it cannot read, and DeliveryDate converts the same way', () => {
+    expect(dateOf('2026-03-04Tbanana')).toMatch(/Date must be a real date/);
+    const r = parseSagePurchaseOrder(po({ DeliveryDate: '2026-03-04T22:00:00Z' }), 0);
+    expect(r.ok && r.value.deliveryDate).toBe('2026-03-05');
+  });
+});
+
+describe('line VAT is the rate that applied on the PO date (14% before 2018-04-01, 15% from then)', () => {
+  const lineOn = (date: string, over: Row) => {
+    const l = { ...(po().Lines as Row[])[0], TaxPercentage: undefined, TaxTypeId: undefined, ...over };
+    return parseSagePurchaseOrder(po({ Date: date, Lines: [l] }), 0);
+  };
+  const rate = (r: ReturnType<typeof parseSagePurchaseOrder>) => (r.ok ? r.value.lines[0]!.taxRate : refusedFor(r));
+  it('tax type 1 (standard) takes the rate of the date', () => {
+    expect(rate(lineOn('2018-03-31', { TaxTypeId: 1 }))).toBe(14);
+    expect(rate(lineOn('2018-04-01', { TaxTypeId: 1 }))).toBe(15);
+    expect(rate(lineOn('2026-06-01', { TaxTypeId: 1 }))).toBe(15);
+  });
+  it('a percentage must be that rate, or 0', () => {
+    expect(rate(lineOn('2018-03-31', { TaxPercentage: 14 }))).toBe(14);
+    expect(rate(lineOn('2018-03-31', { TaxPercentage: 15 }))).toMatch(/TaxPercentage 15 is not the VAT rate on 2018-03-31 \(14%/);
+    expect(rate(lineOn('2018-04-01', { TaxPercentage: 14 }))).toMatch(/TaxPercentage 14 is not the VAT rate on 2018-04-01 \(15%/);
+    expect(rate(lineOn('2026-06-01', { TaxPercentage: 10 }))).toMatch(/TaxPercentage 10 is not the VAT rate/);
+    expect(rate(lineOn('2026-06-01', { TaxPercentage: 0 }))).toBe(0);
+  });
+  it('a percentage that disagrees with a tax type of the date is refused; zero-rated and exempt are 0', () => {
+    expect(rate(lineOn('2018-03-31', { TaxPercentage: 15, TaxTypeId: 1 }))).toMatch(/is not the VAT rate|disagrees/);
+    expect(rate(lineOn('2026-06-01', { TaxPercentage: 14, TaxTypeId: 1 }))).toMatch(/is not the VAT rate|disagrees/);
+    expect(rate(lineOn('2026-06-01', { TaxTypeId: 2 }))).toBe(0);
+    expect(rate(lineOn('2026-06-01', { TaxTypeId: 3 }))).toBe(0);
+  });
+});
+
+describe('an item a PO line names must be one that is imported', () => {
+  it('itemCodes holds only the rows that survive: a refused or duplicated item is not in it', () => {
+    const f = fixture();
+    f.Items.$resources[2] = { ...f.Items.$resources[2], TaxTypeIdSales: 9 }; // 50003 refused
+    f.Items.$resources[4] = { ...f.Items.$resources[4], Code: f.Items.$resources[3]!.Code }; // 50004 and 50005 duplicated
+    const p = parseSageExport(f);
+    expect(Object.keys(p.itemCodes)).not.toEqual(expect.arrayContaining(['50003']));
+    expect(p.itemCodes['50004']).toBeUndefined();
+    expect(p.itemCodes['50005']).toBeUndefined();
+    expect(p.itemCodes['50001']).toBe('FIB-0001');
+  });
+  it('a PO whose line names a refused item is refused with line_item_refused (not line_item_unknown)', () => {
+    const f = fixture();
+    f.Items.$resources[4] = { ...f.Items.$resources[4], Code: f.Items.$resources[3]!.Code }; // 50005 (named by POs 197, 201, 205) duplicated
+    const p = parseSageExport(f);
+    const refused = p.refusals.filter((r) => r.entity === 'purchase_order');
+    expect(refused.length).toBeGreaterThan(0);
+    expect(refused.every((r) => r.code === 'line_item_refused')).toBe(true);
+    expect(refused[0]!.reasons[0]).toMatch(/names item 50005, which is refused/);
   });
 });

@@ -37,7 +37,7 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
   const description = readText(o, 'Description', 255, why);
   const active = readBool(o, 'Active', why);
   const physical = readBool(o, 'Physical', why);
-  const priceExclusive = readNumber(o, 'PriceExclusive', why, { cents: 'round' });
+  const priceExclusive = readNumber(o, 'PriceExclusive', why, { cents: 'whole' });
   const lastCost = readNumber(o, 'LastCost', why, { cents: 'round' });
   const averageCost = readNumber(o, 'AverageCost', why, { cents: 'round' });
   const taxSales = taxField(o, 'TaxTypeIdSales', why);

@@ -58,17 +58,29 @@ export function readNumber(
   return v;
 }
 
-/** A Sage date or date-time ("2025-03-14", "2025-03-14T00:00:00Z"): the calendar date, which must be real. */
+const SAST_OFFSET_MS = 2 * 3600 * 1000; // South Africa is UTC+2 all year (no daylight saving since 1944)
+const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * A Sage date or date-time as the South African calendar date. "2025-03-14" and a date-time with NO zone are taken as written;
+ * one with a Z or an offset ("2026-03-04T22:00:00Z" is 2026-03-05 in Johannesburg) is converted to UTC+2 first. The date must be real.
+ */
 export function readDate(o: Raw, key: string, why: string[], required: boolean): string | null | undefined {
   const v = o[key];
   if (v === undefined || v === null || v === '') {
     if (required) why.push(`${key} is required`);
     return required ? undefined : null;
   }
-  const m = typeof v === 'string' ? /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(v.trim()) : null;
+  const m = typeof v === 'string' ? DATE_TIME.exec(v.trim()) : null;
   if (m) {
-    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-    if (d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3])) return `${m[1]}-${m[2]}-${m[3]}`;
+    const [, y, mo, d, time, zone] = m;
+    const real = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+    if (real.getUTCFullYear() === Number(y) && real.getUTCMonth() === Number(mo) - 1 && real.getUTCDate() === Number(d)) {
+      if (!zone) return `${y}-${mo}-${d}`;
+      const offset = zone === 'Z' ? 'Z' : zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone;
+      const at = Date.parse(`${y}-${mo}-${d}T${time}${offset}`);
+      if (Number.isFinite(at)) return new Date(at + SAST_OFFSET_MS).toISOString().slice(0, 10);
+    }
   }
   why.push(`${key} must be a real date (YYYY-MM-DD or an ISO date-time)`);
   return undefined;
