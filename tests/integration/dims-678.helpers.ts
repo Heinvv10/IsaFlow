@@ -102,7 +102,8 @@ export async function dropBase(pool: Pool, companies: string[], users: string[])
   await q('DELETE FROM customer_invoices WHERE company_id = ANY($1)');
   await q('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ANY($1))');
   await q('DELETE FROM supplier_invoices WHERE company_id = ANY($1)');
-  await q('DELETE FROM supplier_purchase_orders WHERE company_id = ANY($1)');
+  await q('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = ANY($1))');
+  await q('DELETE FROM purchase_orders WHERE company_id = ANY($1)');
   await q('DELETE FROM supplier_payments WHERE company_id = ANY($1)');
   await q('DELETE FROM customer_payments WHERE company_id = ANY($1)');
   await q('DELETE FROM credit_notes WHERE company_id = ANY($1)');

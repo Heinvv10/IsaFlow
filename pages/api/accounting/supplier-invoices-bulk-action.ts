@@ -50,6 +50,7 @@ import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approval
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
 import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { lockPosClosedByBilling } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -58,7 +59,8 @@ const Schema = z.object({
   budgetReason: z.string().trim().max(BUDGET_REASON_MAX).optional(),
 });
 
-const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[]; budgetWarnings?: string[] } = {};
+type PoRef = { poId: string; poNumber: string; reopenedTo?: string };
+const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[]; budgetWarnings?: string[]; reopened?: PoRef[]; unchecked?: PoRef[] } = {};
 
 interface ItemResult {
   invoiceId: string;
@@ -71,8 +73,11 @@ interface ItemResult {
   /** Set when the bill's input VAT was claimed late (s16(3)) — gl/vatLateClaimPlan. */
   lateClaim?: LateClaimInfo;
   warnings?: string[];
-  /** Budgets P5-2 (warn policy): the over-budget lines this bill was approved against. */
+  /** Budgets P5-2 (warn policy): the over-budget lines this bill was approved against; a cancel: the POs it reopened. */
   budgetWarnings?: string[];
+  /** A cancel (PR #1703): the POs it reopened, and those closed by billing meanwhile that it could not re-check. */
+  reopenedPurchaseOrders?: PoRef[];
+  uncheckedPurchaseOrders?: PoRef[];
 }
 
 /**
@@ -137,7 +142,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // total order over the locked rows makes that impossible: the batch that gets
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
-  const ordered = [...invoiceIds].sort();
+  // Lower-cased first (Codex gate review L13): the lock order is the database's id order, whatever case the client sent.
+  const ordered = [...new Set(invoiceIds.map((id) => id.toLowerCase()))].sort();
 
   const numberOf = await billNumbers(companyId, ordered);
 
@@ -150,20 +156,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (action !== 'cancel') await assertNotImpersonating();
   const budgetGate: BudgetGate | null = action === 'cancel' ? null : await openBudgetGate(companyId, 'take');
   const budget = budgetGate ? { channel: 'bulk' as const, lock: 'held' as const, gate: budgetGate, reason: budgetReason ?? null } : undefined;
+  // PR #1703 breaker B5-6: each cancel locks its bill's POs closed by billing before the bill; across a batch that is bill 1, then
+  // bill 2's POs, a cycle with a link call (PO -> bills). So every bill's POs (the PO rows only) are taken first, sorted, outside the
+  // item savepoints; each bill is locked by its own cancel inside its item's savepoint (a held bill fails that item alone), which then
+  // re-reads its POs closed by billing meanwhile with NOWAIT (purchaseOrderBillingClose.recheckClosedByBilling). Named limit B6-DL1:
+  // POs closed by billing after the batch's start are not in the up-front set (docs/design/mcp-po-bill-links.md).
+  const heldPos = action === 'cancel' ? await lockPosClosedByBilling(companyId, ordered) : undefined;
 
   for (const invoiceId of ordered) {
     try {
       // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
       // not: its bill was already approved, so already in the filed figures.
       // `warnings`: a cost-centre pick the posting dropped (gl/dimensions/costCentrePick).
-      const { lateClaim, warnings, budgetWarnings } = await withSavepoint('bulk_supplier_invoice_item', async () => {
+      const { lateClaim, warnings, budgetWarnings, reopened, unchecked } = await withSavepoint('bulk_supplier_invoice_item', async (): Promise<typeof NOTHING> => {
         switch (action) {
           case 'approve':
             return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
-          case 'cancel':
+          case 'cancel': {
             // census-exempt(cancelSupplierInvoice, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
-            await cancelSupplierInvoice(companyId, invoiceId, userId);
-            return NOTHING;
+            const r = await cancelSupplierInvoice(companyId, invoiceId, userId, { heldPos });
+            return { ...NOTHING, budgetWarnings: r.budgetWarnings.length > 0 ? r.budgetWarnings : undefined,
+              reopened: r.reopenedPurchaseOrders, unchecked: r.uncheckedPurchaseOrders };
+          }
           case 'post_gl': {
             const r = await postSupplierInvoiceToGL(companyId, invoiceId, userId, { budget });
             return { ...NOTHING, warnings: r.warnings, budgetWarnings: r.budgetWarnings };
@@ -172,7 +186,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return NOTHING;
       });
       results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}),
-        ...(budgetWarnings ? { budgetWarnings } : {}) });
+        ...(budgetWarnings ? { budgetWarnings } : {}), ...(reopened?.length ? { reopenedPurchaseOrders: reopened } : {}),
+        ...(unchecked?.length ? { uncheckedPurchaseOrders: unchecked } : {}) });
     } catch (err) {
       // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
       if (err instanceof ImpersonationForbiddenError) throw err;

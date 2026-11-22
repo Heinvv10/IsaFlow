@@ -13,6 +13,7 @@ import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { underFlowLockBudget } from './rowLockBudget';
 import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
+import { guardBillGone, noReopen, type BillGoneReopen } from '../ap/purchaseOrderBillingClose';
 
 // Allowlist of entity types that support soft-delete
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -75,7 +76,7 @@ export async function softDelete(
   entityId: string,
   userId: string,
   options: SoftDeleteOptions,
-): Promise<{ undoToken: string }> {
+): Promise<{ undoToken: string } & BillGoneReopen> {
   if (!ALLOWED_ENTITY_TYPES.has(entityType)) {
     throw new Error(`Unknown entity type: ${entityType}`);
   }
@@ -94,13 +95,16 @@ async function softDeleteInner(
   entityId: string,
   userId: string,
   options: SoftDeleteOptions,
-): Promise<{ undoToken: string }> {
+): Promise<{ undoToken: string } & BillGoneReopen> {
   try {
+    // A bill's POs closed BY BILLING, locked BEFORE the bill (PO -> bill, as link / unlink): one the delete leaves under-billed reopens.
+    const billing = entityType === 'supplier_invoice' ? await guardBillGone(companyId, entityId) : null;
     // An invoice that is out of the subledger must be out of the ledger too:
     // approve posted a journal, so the delete reverses it, exactly as cancel
     // does. Guards and reversal both live in softDeleteJournalService.
     if (INVOICE_ENTITY_TYPES.has(entityType)) {
       await prepareInvoiceDelete(entityType, entityId, companyId, userId, options);
+      await billing?.recheck(); // the bill is locked now: a PO a link closed by billing meanwhile (Codex gate)
     }
 
     // W2 (P2.1): open-document guard (extracted to masterDeleteGuards for
@@ -113,9 +117,9 @@ async function softDeleteInner(
     if (!deleted) {
       throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
-
+    const reopen = billing ? await billing.reopen({ userId, via: 'soft_delete', why: 'bill deleted' }) : noReopen();
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
-    return { undoToken: entityId };
+    return { undoToken: entityId, ...reopen };
   } catch (err) {
     logFailure('Soft delete failed', { entityType, entityId }, err);
     throw err;

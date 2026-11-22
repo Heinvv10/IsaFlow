@@ -103,6 +103,9 @@ const nextConfig = {
       { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },
+      // Supplier purchase orders retired into purchase orders (migration 1022): each copy keeps its id.
+      { source: '/accounting/supplier-purchase-orders', destination: '/accounting/purchase-orders', permanent: false },
+      { source: '/accounting/supplier-purchase-orders/:poId', destination: '/accounting/purchase-orders/:poId', permanent: false },
       { source: '/accounting/sars/vat-adjustments', destination: '/accounting/vat-adjustments', permanent: true },
       // The budget workspace's preview URL (budgets P2 PR-C) became the budgets page itself (PR-D).
       { source: '/accounting/budgets/workspace', destination: '/accounting/budgets', permanent: true },

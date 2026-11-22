@@ -113,6 +113,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Nothing purges soft-deleted rows, so the undo never expires. See the
         // module header; do not restate a window that is not enforced.
         expiresIn: null,
+        // A bill's delete reopens a PO it no longer leaves fully billed (PR #1703 R4-1, review r5 M1).
+        reopenedPurchaseOrders: result.reopenedPurchaseOrders,
+        uncheckedPurchaseOrders: result.uncheckedPurchaseOrders,
+        budgetWarnings: result.budgetWarnings,
       });
     } catch (err) {
       if (respondIfApprovePermissionRefused(res, err)) return; // approved or journalled, and no Approve: 403 under the row lock, nothing written
