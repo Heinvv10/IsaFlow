@@ -204,3 +204,15 @@ describe('(round 11) a LEGACY mixed-rate draft on the edit page', () => {
     expect(sentBody('PUT').items.map((i) => [i.unitPrice, i.vatType])).toEqual([[100, 'standard'], [100, 'zero_rated']]);
   });
 });
+
+describe('(follow-up, gate nit) a legacy line at a rate that is neither 0 nor the standard rate (14% under a 15% header)', () => {
+  it('loads untyped and prices at the form rate, so the stale-priced hold shows both figures and autosave holds it (no silent reprice)', async () => {
+    serve(undefined, { ...INV, tax_rate: 15, total_amount: 114, items: [{ description: 'Old', quantity: 1, unit_price: 100, amount: 100, tax_rate: 14 }] });
+    render(<EditPage />);
+    await screen.findByDisplayValue('Old');
+    expect(await screen.findByText(/Stored total R\s?114\.00; these lines price to R\s?115\.00/)).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText(/Notes or payment instructions/), { target: { value: 'edited' } });
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
+  });
+});

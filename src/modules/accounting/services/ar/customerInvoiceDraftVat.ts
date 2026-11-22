@@ -109,7 +109,9 @@ export async function draftEditVat(tx: Tx, companyId: string, invoiceId: string,
         invoiceDate: date, headerTaxRate: args.headerTaxRate, lines: args.items, kept: keptTypes(args.items, stored),
       });
       const priced = priceInvoiceVat(args.items, vat, date, amountsAre);
-      assertPricedPostable(priced, date);
+      // A total past numeric(15,2) is the edit's own total check's to refuse ('The invoice total is too large', as create
+      // and the preview word it): priceInvoiceVat leaves such a line unpriced, which the poster's check would misread.
+      if (Math.abs(priced.header.total) < 1e13) assertPricedPostable(priced, date);
       return { kind: 'priced', ...priced };
     }
     if (args.amountsAre !== undefined) {

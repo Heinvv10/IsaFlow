@@ -10,7 +10,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 /** What the fake Sage holds per endpoint, the most rows it serves a page, and what TotalResults it claims. */
-const sage = { suppliers: [] as Array<Record<string, unknown>>, cap: 100, claimTotal: null as number | null };
+const sage = { suppliers: [] as Array<Record<string, unknown>>, cap: 100, claimTotal: null as number | null, ignoreSkip: false };
 const supplier = (id: number) => ({ ID: id, Name: `Supplier ${id}`, Active: true, Balance: 0 });
 
 vi.mock('@/lib/safeFetch', () => ({
@@ -19,7 +19,8 @@ vi.mock('@/lib/safeFetch', () => ({
     if (url.endsWith('/Company/Current')) return new Response(JSON.stringify({ Name: 'Sage Co' }), { status: 200 });
     if (!url.endsWith('/Supplier/GetWithFilter')) return new Response(JSON.stringify({ Results: [], TotalResults: 0 }), { status: 200 });
     const { Skip, Take } = JSON.parse(init?.body ?? '{}') as { Skip: number; Take: number };
-    const page = sage.suppliers.slice(Skip, Skip + Math.min(Take, sage.cap));
+    const from = sage.ignoreSkip ? 0 : Skip;
+    const page = sage.suppliers.slice(from, from + Math.min(Take, sage.cap));
     return new Response(JSON.stringify({ Results: page, TotalResults: sage.claimTotal ?? sage.suppliers.length }), { status: 200 });
   }),
 }));
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.stubEnv('JWT_SECRET', 'unit-test-signing-material-not-a-real-one-0123456789');
   sage.cap = 100;
   sage.claimTotal = null;
+  sage.ignoreSkip = false;
 });
 
 describe('sage-pull-server pages every supplier (#1655)', () => {
@@ -66,5 +68,13 @@ describe('sage-pull-server pages every supplier (#1655)', () => {
     const r = await pull();
     expect(r.status).toBe(400);
     expect(r.body.error?.message).toMatch(/Sage reported 5 records but returned 3/);
+  });
+
+  it('a Sage that ignores Skip (page two repeats page one) is refused, not counted as 200 suppliers', async () => {
+    sage.suppliers = Array.from({ length: 150 }, (_, i) => supplier(i + 1));
+    sage.ignoreSkip = true;
+    const r = await pull();
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(/same page twice/);
   });
 });

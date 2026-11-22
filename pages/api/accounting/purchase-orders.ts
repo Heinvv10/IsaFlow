@@ -15,6 +15,8 @@ import { validatePurchaseOrder, calculatePOTotals } from '@/modules/accounting/s
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '@/modules/accounting/services/core/supplierLiveLock';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { isDimensionRefusal, type DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { resolvePoLineDimensions } from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
 import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
@@ -44,10 +46,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     // R-068: before the number reservation, the first write.
+    // The supplier row is then locked FOR KEY SHARE and live until the request commits (supplierLiveLock): a form opened before a
+    // merge of this supplier waits for it and is refused, and no merge moves the source's POs before this PO is written.
     try {
       await assertSupplierInCompany(companyId, body.supplierId);
+      if (!(await lockSupplierIfLive(companyId, String(body.supplierId)))) return apiResponse.badRequest(res, SUPPLIER_NOT_LIVE_REFUSAL);
     } catch (err) {
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
 
