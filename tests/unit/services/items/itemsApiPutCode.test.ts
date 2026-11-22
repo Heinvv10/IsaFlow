@@ -61,7 +61,7 @@ describe('items PUT code', () => {
   it('refuses a code that is not text (null would be stored as "null")', async () => {
     const res = await put({ id: ID, code: null });
     expect(res.statusCode).toBe(422);
-    expect(JSON.stringify(res.body)).toContain('null is not allowed on update; omit code to keep it');
+    expect(JSON.stringify(res.body)).toContain('"null is not allowed on update; omit code to keep it"');
     expect(updateItem).not.toHaveBeenCalled();
   });
 
