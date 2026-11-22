@@ -9,6 +9,8 @@ import { FieldHelp, type FieldHelpContent } from './FieldHelp';
 export interface FieldFrameProps {
   id: string;
   label: string;
+  /** Visually hidden label (still the control's accessible name). */
+  labelHidden?: boolean;
   required?: boolean;
   error?: string | null;
   helperText?: string;
@@ -36,12 +38,12 @@ export function describedBy(
   return parts.filter(Boolean).join(' ') || undefined;
 }
 
-export function FieldFrame({ id, label, required, error, helperText, echo, help, children }: FieldFrameProps) {
+export function FieldFrame({ id, label, labelHidden, required, error, helperText, echo, help, children }: FieldFrameProps) {
   const ids = fieldIds(id);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1.5">
-        <label htmlFor={id} className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={id} className={labelHidden ? 'sr-only' : 'text-sm font-medium text-gray-700 dark:text-gray-300'}>
           {label}
           {required && (
             <span aria-hidden="true" className="ml-0.5 text-red-600 dark:text-red-400">

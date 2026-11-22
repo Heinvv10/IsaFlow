@@ -6,6 +6,7 @@
  * CC1 / CC2 / BU filter (explicit levels).
  * The query string they make is `trackingControls.trackingSearch`'s.
  */
+import { MonthField } from '@/components/ui/MonthField';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { TRACKING_PERIODS, type TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
@@ -75,9 +76,8 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       </div>
       {c.period === 'month' && (
         <div>
-          <label htmlFor="bva-month" className={LABEL}>Month</label>
-          <input id="bva-month" data-testid="bva-month" type="month" value={c.month || p.today}
-            onChange={(e) => { if (e.target.value) update({ month: e.target.value }); }} className={INPUT} />
+          <MonthField id="bva-month" data-testid="bva-month" label="Month" value={c.month || p.today}
+            onChange={(ym) => { if (ym) update({ month: ym }); }} className="w-40" />
         </div>
       )}
       {usesYear && yearValue !== null && (
@@ -106,15 +106,13 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       {c.period === 'custom' && (
         <>
           <div>
-            <label htmlFor="bva-from" className={LABEL}>From month</label>
-            <input id="bva-from" data-testid="bva-from" type="month" value={c.from}
-              onChange={(e) => { if (e.target.value) update({ from: e.target.value }); }} className={INPUT} />
+            <MonthField id="bva-from" data-testid="bva-from" label="From month" value={c.from}
+              onChange={(ym) => { if (ym) update({ from: ym }); }} className="w-40" />
           </div>
           <div>
-            <label htmlFor="bva-to" className={LABEL}>To month</label>
-            <input id="bva-to" data-testid="bva-to" type="month" value={c.to}
-              onChange={(e) => { if (e.target.value) update({ to: e.target.value }); }} className={INPUT}
-              aria-invalid={p.problem !== null} aria-describedby={p.problem ? 'bva-range-error' : undefined} />
+            <MonthField id="bva-to" data-testid="bva-to" label="To month" value={c.to}
+              invalid={p.problem !== null} describedById={p.problem ? 'bva-range-error' : undefined}
+              onChange={(ym) => { if (ym) update({ to: ym }); }} className="w-40" />
           </div>
         </>
       )}

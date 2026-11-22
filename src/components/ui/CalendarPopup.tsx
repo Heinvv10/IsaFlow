@@ -5,14 +5,13 @@
  * Space to pick, Escape to close. Below lg it is a bottom sheet with 44px day targets; at lg and up a popover under the field.
  * Days outside minDate / maxDate are disabled (aria-disabled) and keyboard movement stops at them.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { localDateFromISO } from '@/lib/dateUtils';
 import { formatDisplayDateWeekday } from '@/utils/dateFormat';
-import { useFocusTrap } from './useFocusTrap';
-import { chooseSide, placePanel } from './panelPlacement';
+import { usePopupPanel } from './usePopupPanel';
 import {
   addMonthsISO, clampToBounds, monthGrid, monthLabel, monthName, moveByKey, shiftMonth, WEEKDAYS, type YearMonth,
 } from './calendarMath';
@@ -34,24 +33,11 @@ export interface CalendarPopupProps {
   onClose: (restoreFocus: boolean) => void;
 }
 
-const SHEET_QUERY = '(max-width: 1023.98px)';
 const PANEL_HEIGHT = 360;
 const PANEL_WIDTH = 288;
 const HINT = 'Type 15 or 15/3 or 15/03/2026 · t today · +30 days · eom month end';
 const selectClass = 'h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 ff-focus-ring dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100';
 const navClass = 'inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
-
-function useIsSheet(): boolean {
-  const [sheet, setSheet] = useState<boolean>(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(SHEET_QUERY).matches);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
-    const mq = window.matchMedia(SHEET_QUERY);
-    const on = (): void => setSheet(mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return sheet;
-}
 
 const ymOf = (iso: string): YearMonth => {
   const [y, m] = iso.split('-').map(Number) as [number, number];
@@ -59,64 +45,16 @@ const ymOf = (iso: string): YearMonth => {
 };
 
 export function CalendarPopup({ anchor, trigger, selected, start, today, minDate, maxDate, onPick, onClose }: CalendarPopupProps) {
-  const sheet = useIsSheet();
-  const ref = useRef<HTMLDivElement>(null);
+  const { sheet, ref, style } = usePopupPanel({ anchor, trigger, onClose, panelHeight: PANEL_HEIGHT, panelWidth: PANEL_WIDTH });
   const [focusIso, setFocusIso] = useState(() => clampToBounds(start, minDate, maxDate));
   const [view, setView] = useState<YearMonth>(() => ymOf(clampToBounds(start, minDate, maxDate)));
   const grabFocus = useRef(true);
-  const [style, setStyle] = useState<CSSProperties | undefined>(undefined);
-
-  useFocusTrap(ref, true, () => onClose(true));
-
-  // Close on a press outside; a press on the calendar button is the button's own toggle, so it is not "outside".
-  useEffect(() => {
-    const down = (e: MouseEvent | TouchEvent): void => {
-      const t = e.target as Node | null;
-      if (!t || ref.current?.contains(t) || trigger?.contains(t)) return;
-      onClose(false);
-    };
-    document.addEventListener('mousedown', down);
-    document.addEventListener('touchstart', down);
-    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('touchstart', down); };
-  }, [trigger, onClose]);
-
-  useLayoutEffect(() => {
-    if (sheet || !anchor) { setStyle(undefined); return undefined; }
-    let frame = 0;
-    const place = (): void => {
-      const r = anchor.getBoundingClientRect();
-      const p = placePanel(r, window.innerHeight, chooseSide(r, window.innerHeight, PANEL_HEIGHT));
-      setStyle({ position: 'fixed', left: Math.max(8, Math.min(r.left, window.innerWidth - PANEL_WIDTH - 8)), top: p.top, bottom: p.bottom, maxHeight: p.maxHeight, width: PANEL_WIDTH });
-    };
-    place();
-    // Follow the field when the page or a scrolling dialog body moves, or the window resizes (once per frame, not per scroll event).
-    const follow = (): void => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(() => { frame = 0; place(); });
-    };
-    window.addEventListener('resize', follow);
-    window.addEventListener('scroll', follow, true);
-    return () => {
-      window.removeEventListener('resize', follow);
-      window.removeEventListener('scroll', follow, true);
-      if (frame) window.cancelAnimationFrame(frame);
-    };
-  }, [sheet, anchor]);
-
-  // The sheet covers the page: it must not scroll underneath. Only lock a body that is not already locked (a Modal or Drawer
-  // holds it), so this cleanup can never put back a stale 'hidden' after that parent has restored the page.
-  useEffect(() => {
-    if (!sheet || document.body.style.overflow === 'hidden') return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [sheet]);
 
   // Focus follows the roving stop only when the user is navigating the grid (not while they use the month / year controls).
   useEffect(() => {
     if (!grabFocus.current) return;
     ref.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus();
-  }, [focusIso, view]);
+  }, [focusIso, view, ref]);
 
   const off = (iso: string): boolean => Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate));
   const goTo = (iso: string): void => {

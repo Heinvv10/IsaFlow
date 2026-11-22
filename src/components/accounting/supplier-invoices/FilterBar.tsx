@@ -4,6 +4,7 @@
  * active filters as removable chips with "Clear all".
  */
 
+import { MonthField } from '@/components/ui/MonthField';
 import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { SupplierTypeahead } from './SupplierTypeahead';
@@ -91,13 +92,9 @@ export function FilterBar({
         </select>
 
         {filters.datePreset === 'month' && (
-          <input
-            type="month"
-            name="month"
-            aria-label="Invoice month"
-            value={wholeMonthOf(filters.fromDate, filters.toDate) ?? ''}
-            onChange={(e) => setMonth(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
+          <MonthField
+            label="Invoice month" labelHidden name="month" value={wholeMonthOf(filters.fromDate, filters.toDate)}
+            onChange={(ym) => { if (ym) setMonth(ym); }} className="w-40"
           />
         )}
 

@@ -78,12 +78,8 @@ test.describe('PRD-02 Phase 2 — payroll golden path', () => {
     await page.goto('/payroll/runs/new');
     await page.waitForLoadState('networkidle');
 
-    // Month select — option values are 1-12, option text is full month name
-    await page.locator('label:has-text("Month") + select').selectOption(String(currentMonth));
-
-    // Year input — already set to current year; overwrite to be safe
-    const yearInput = page.locator('label:has-text("Year") + input');
-    await yearInput.fill(String(currentYear));
+    // One month box (typed: YYYY-MM is always accepted)
+    await page.getByRole('textbox', { name: /Month/ }).fill(`${currentYear}-${String(currentMonth).padStart(2, '0')}`);
 
     await page.getByRole('button', { name: 'Create Run' }).click();
 
