@@ -57,6 +57,14 @@ describe('Cost centres on touch', () => {
     expect(container.querySelector('tbody tr td:last-child > div')!.className).toContain('max-lg:gap-2');
   });
 
+  it('keeps the empty-state message centred and roomy on a card (the card CSS would left-align and squeeze it)', async () => {
+    render(<Page />);
+    await screen.findByText('Acme Farms');
+    fireEvent.change(screen.getByPlaceholderText(/Search code/), { target: { value: 'no such centre' } });
+    const cell = (await screen.findByText('No matching cost centres')).closest('td')!;
+    expect(cell.className.split(' ')).toEqual(expect.arrayContaining(['max-lg:!text-center', 'max-lg:!py-8']));
+  });
+
   it('makes every field and button of the form 44px', async () => {
     const { container } = render(<Page />);
     await screen.findByText('Acme Farms');

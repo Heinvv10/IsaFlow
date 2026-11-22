@@ -227,9 +227,9 @@ export default function CostCentresPage() {
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">Loading...</td></tr>}
                 {!loading && filteredItems.length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                     {search ? 'No matching cost centres' : `No ${TAB_META[activeTab].description}. Create one above.`}
                   </td></tr>
                 )}
