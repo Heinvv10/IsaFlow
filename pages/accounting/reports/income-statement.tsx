@@ -6,6 +6,7 @@
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { FiscalPresetBar } from '@/components/ui/FiscalPresetBar';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -51,6 +52,7 @@ export default function IncomeStatementPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
+  const [presetCustom, setPresetCustom] = useState(false);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
   // A refused From/To keeps the last good date in state; no report is run or exported over it. Nor is one for
   // an empty date, or a From that is after To (typed into From, where DateField has no bound to refuse it).
@@ -59,8 +61,8 @@ export default function IncomeStatementPage() {
   const toGate = useDateGate();
   const { reset: resetFrom } = fromGate;
   const { reset: resetTo } = toGate;
-  const onFromChange = fromGate.bind('from', setPeriodStart, periodStart);
-  const onToChange = toGate.bind('to', setPeriodEnd, periodEnd);
+  const onFromChange = fromGate.bind('from', (v: string) => { setPresetCustom(true); setPeriodStart(v); }, periodStart);
+  const onToChange = toGate.bind('to', (v: string) => { setPresetCustom(true); setPeriodEnd(v); }, periodEnd);
   const rangeInverted = Boolean(periodStart && periodEnd && periodStart > periodEnd);
   const datesOk = !fromGate.blocked && !toGate.blocked && Boolean(periodStart && periodEnd) && !rangeInverted;
   // A refused text keeps DateField's own reason (an external error would hide it).
@@ -173,6 +175,9 @@ export default function IncomeStatementPage() {
             grid scrolls inside its own frame with the header row and the label column pinned. */}
         <div className="p-6 space-y-6">
           {/* Date Range + Filters */}
+          <FiscalPresetBar label="Period" value={{ from: periodStart || null, to: periodEnd || null }} custom={presetCustom}
+            onCustom={() => setPresetCustom(true)}
+            onPick={r => { setPresetCustom(false); setPeriodStart(r.from); setPeriodEnd(r.to); resetFrom('from'); resetTo('to'); }} />
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} resetKey={fromGate.resetKey('from')} onChange={onFromChange} />

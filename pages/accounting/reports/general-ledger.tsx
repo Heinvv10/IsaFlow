@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { FiscalPresetBar } from '@/components/ui/FiscalPresetBar';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -58,6 +59,7 @@ function getDefaultDates() {
 
 export default function GeneralLedgerPage() {
   const defaults = getDefaultDates();
+  const [presetCustom, setPresetCustom] = useState(false);
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
   const dates = useDateGate();
@@ -143,8 +145,8 @@ export default function GeneralLedgerPage() {
                 placeholder="Filter accounts..."
                 className="ff-input text-sm"
               />
-              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
-              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={v => { setPresetCustom(true); setPeriodStart(v); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={v => { setPresetCustom(true); setPeriodEnd(v); }} />
               <button
                 onClick={() => {
                   const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
@@ -160,6 +162,9 @@ export default function GeneralLedgerPage() {
         />
 
         <div className="p-6">
+          <FiscalPresetBar label="Period" value={{ from: periodStart || null, to: periodEnd || null }} custom={presetCustom}
+            className="mb-4" onCustom={() => setPresetCustom(true)}
+            onPick={r => { setPresetCustom(false); setPeriodStart(r.from); setPeriodEnd(r.to); dates.reset('from'); dates.reset('to'); }} />
           <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
