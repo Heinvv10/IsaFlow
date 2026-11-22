@@ -57,7 +57,7 @@ describeIfDisposable('ledger column immutability, round 3: the real services as 
       clientId: fx.customerId, invoiceDate: '2026-06-10', taxRate: 15, items: [{ description: 'Work', unitPrice: 200 }] }))).id;
     await world.run(who, () => approveCustomerInvoice(fx.companyId, id, fx.userId));
     const o = String((await one(sql`SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`)).je);
-    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId));
+    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId, { allowReversal: true }));
     await reReverseIsRefused(o);
     expect(await one(sql`SELECT status, gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`)).toMatchObject({ status: 'cancelled', je: null });
   });
@@ -95,9 +95,9 @@ describeIfDisposable('ledger column immutability, round 3: the real services as 
       clientId: fx.customerId, invoiceDate: '2026-06-11', taxRate: 15, items: [{ description: 'Work', unitPrice: 120 }] }))).id;
     await world.run(who, () => approveCustomerInvoice(fx.companyId, id, fx.userId));
     const o = String((await one(sql`SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`)).je);
-    await world.run(who, () => softDelete(fx.companyId, 'customer_invoice', id, fx.userId));
+    await world.run(who, () => softDelete(fx.companyId, 'customer_invoice', id, fx.userId, { allowReversal: true }));
     expect(await inForce(o)).toBe(false);
-    expect(await world.run(who, () => undoDelete(fx.companyId, 'customer_invoice', id, fx.userId))).toBe(true);
+    expect(await world.run(who, () => undoDelete(fx.companyId, 'customer_invoice', id, fx.userId, { allowReversal: true }))).toBe(true);
     expect(await inForce(o)).toBe(true);
   });
 });

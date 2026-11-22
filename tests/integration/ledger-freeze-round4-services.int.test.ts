@@ -82,12 +82,12 @@ describeIfDisposable('ledger column immutability, round 4: the real services as 
     };
     for (let i = 0; i < 6; i++) {
       const a = await invoice(100 + i);
-      outcomes.push(...await Promise.all([settle(world.run(who, () => cancelCustomerInvoice(fx.companyId, a.id, fx.userId))),
+      outcomes.push(...await Promise.all([settle(world.run(who, () => cancelCustomerInvoice(fx.companyId, a.id, fx.userId, { allowReversal: true }))),
         settle(world.run(who, () => reverseJournalEntry(fx.companyId, a.o, fx.userId)))]));
       await judge('customer_invoices', a.id, a.o);
       const b = await invoice(300 + i);
       const r = await world.run(who, () => reverseJournalEntry(fx.companyId, b.o, fx.userId));
-      outcomes.push(...await Promise.all([settle(world.run(who, () => cancelCustomerInvoice(fx.companyId, b.id, fx.userId))),
+      outcomes.push(...await Promise.all([settle(world.run(who, () => cancelCustomerInvoice(fx.companyId, b.id, fx.userId, { allowReversal: true }))),
         settle(world.run(who, () => reverseJournalEntry(fx.companyId, String(r.id), fx.userId)))]));
       await judge('customer_invoices', b.id, b.o);
       const cn = await world.run(who, () => createCreditNote(fx.companyId, { type: 'customer', clientId: fx.customerId, creditDate: '2026-06-20', subtotal: 50 + i, taxRate: 0 }, fx.userId));

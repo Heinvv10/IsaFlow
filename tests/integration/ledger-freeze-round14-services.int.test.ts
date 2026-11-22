@@ -108,7 +108,7 @@ describeIfDisposable('ledger column immutability, round 14: a reversal and an ac
     const j = await journal(z, [[z.ar, 100, 0], [src, 0, 100]]);
     const inv = await document(z, 'customer_invoices', { link: j });
     const { cancelCustomerInvoice } = await world.load(() => import('@/modules/accounting/services/ar/customerInvoiceCancelService'));
-    expectWaitedThenBoth(await raceMerge(z.f.fx.companyId, z.f.fx.userId, src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId)));
+    expectWaitedThenBoth(await raceMerge(z.f.fx.companyId, z.f.fx.userId, src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId, { allowReversal: true })));
     expect(await one(sql`SELECT status, gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${inv}::UUID`)).toEqual({ status: 'cancelled', je: null });
     expect((await one(sql`SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id = ${j}::UUID`)).n).toBe(1);
   }, 60000);

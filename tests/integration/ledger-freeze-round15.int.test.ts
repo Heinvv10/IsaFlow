@@ -106,7 +106,7 @@ describeIfDisposable('ledger column immutability, round 15: the merge first, the
     const inv = await document(z, 'customer_invoices', { link: j });
     await invoiceItem(inv, src);
     const { cancelCustomerInvoice } = await world.load(() => import('@/modules/accounting/services/ar/customerInvoiceCancelService'));
-    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId), { table: 'customer_invoices', id: inv }, 'revenue');
+    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId, { allowReversal: true }), { table: 'customer_invoices', id: inv }, 'revenue');
     expectBoth(r);
     expect(r.docFreeWhileWaiting, 'the cancel held the invoice row while it waited on the account').toBe(true);
     expect(await one(sql`SELECT status, gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${inv}::UUID`)).toEqual({ status: 'cancelled', je: null });
@@ -166,14 +166,14 @@ describeIfDisposable('ledger column immutability, round 15: the merge first, the
     const inv = await document(z, 'customer_invoices', { link: j });
     await invoiceItem(inv, src);
     const { softDelete, undoDelete } = await world.load(() => import('@/modules/accounting/services/core/softDeleteService'));
-    const del = await mergeFirst(src, () => softDelete(z.f.fx.companyId, 'customer_invoice', inv, z.f.fx.userId), { table: 'customer_invoices', id: inv }, 'revenue');
+    const del = await mergeFirst(src, () => softDelete(z.f.fx.companyId, 'customer_invoice', inv, z.f.fx.userId, { allowReversal: true }), { table: 'customer_invoices', id: inv }, 'revenue');
     expectBoth(del);
     expect(del.docFreeWhileWaiting, 'the delete held the invoice row while it waited on the account').toBe(true);
     expect((await one(sql`SELECT deleted_at IS NOT NULL AS d FROM customer_invoices WHERE id = ${inv}::UUID`)).d).toBe(true);
     const reversal = String((await one(sql`SELECT reversal_journal_entry_id AS r FROM soft_delete_journal_reversals
       WHERE company_id = ${z.f.fx.companyId}::UUID AND entity_id = ${inv}::UUID`)).r);
     // The undo: the delete's reversal now sits on the first merge's target; merge that account in turn.
-    const undo = await mergeFirst(del.target, () => undoDelete(z.f.fx.companyId, 'customer_invoice', inv, z.f.fx.userId),
+    const undo = await mergeFirst(del.target, () => undoDelete(z.f.fx.companyId, 'customer_invoice', inv, z.f.fx.userId, { allowReversal: true }),
       { table: 'customer_invoices', id: inv }, 'revenue');
     expectBoth(undo);
     expect(undo.docFreeWhileWaiting, 'the undo held the invoice row while it waited on the account').toBe(true);
@@ -196,7 +196,7 @@ describeIfDisposable('ledger column immutability, round 15: the merge first, the
     const j = await journal(z, [[z.ar, 100, 0], [src, 0, 100]]);
     const inv = await document(z, 'customer_invoices', { link: j });
     const { cancelCustomerInvoice } = await world.load(() => import('@/modules/accounting/services/ar/customerInvoiceCancelService'));
-    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId));
+    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId, { allowReversal: true }));
     expectBoth(r);
     expect(String((await one(sql`SELECT status FROM customer_invoices WHERE id = ${inv}::UUID`)).status)).toBe('cancelled');
     expect((await contraAccounts(j)).sort()).toEqual([r.target, z.ar].sort());
@@ -207,7 +207,7 @@ describeIfDisposable('ledger column immutability, round 15: the merge first, the
     const j = await journal(z, [[z.ar, 100, 0], [z.revenue, 0, 100]]);
     const inv = await document(z, 'customer_invoices', { link: j });
     const { cancelCustomerInvoice } = await world.load(() => import('@/modules/accounting/services/ar/customerInvoiceCancelService'));
-    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId), undefined, 'revenue');
+    const r = await mergeFirst(src, () => cancelCustomerInvoice(z.f.fx.companyId, inv, z.f.fx.userId, { allowReversal: true }), undefined, 'revenue');
     expect(r.settledWhilePaused, 'the cancel waited for a merge of accounts its journal does not use').toBe(true);
     expect(r.request).toBe('ACCEPTED');
     expect(r.merge).toBe('ACCEPTED');

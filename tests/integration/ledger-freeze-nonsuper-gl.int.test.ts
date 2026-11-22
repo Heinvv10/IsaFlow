@@ -44,7 +44,7 @@ describeIfDisposable('ledger column immutability: the real services as the produ
     const approved = await one(sql`SELECT status, gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`);
     expect(approved.status).toBe('approved');
     expect(approved.je).not.toBeNull();
-    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId));
+    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId, { allowReversal: true }));
     expect(await one(sql`SELECT status, gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`)).toMatchObject({ status: 'cancelled', je: null });
     expect((await contraOf(String(approved.je))).status).toBe('posted');
   });

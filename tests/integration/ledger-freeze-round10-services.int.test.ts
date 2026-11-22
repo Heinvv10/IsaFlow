@@ -48,7 +48,7 @@ describeIfDisposable("ledger column immutability, round 10: a '' VAT type revers
     await world.run(who, () => approveCustomerInvoice(fx.companyId, id, fx.userId));
     const o = String((await one(sql`SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = ${id}::UUID`)).je);
     await sql`UPDATE gl_journal_lines SET vat_type = '' WHERE journal_entry_id = ${o}::UUID`; // the legacy shape, as the superuser
-    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId));
+    await world.run(who, () => cancelCustomerInvoice(fx.companyId, id, fx.userId, { allowReversal: true }));
     expect((await one(sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`)).status).toBe('cancelled');
     expect((await one(sql`SELECT public.gl_journal_in_force(${o}::UUID) AS f`)).f).toBe(false);
   });

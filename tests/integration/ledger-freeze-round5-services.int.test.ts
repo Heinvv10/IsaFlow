@@ -33,13 +33,13 @@ describeIfDisposable('ledger column immutability, round 5: soft delete and undo 
     const { softDelete, undoDelete } = await world.load(() => import('@/modules/accounting/services/core/softDeleteService'));
     const { reverseJournalEntry } = await world.load(() => import('@/modules/accounting/services/gl/journalEntryService'));
     const { fx } = z.f;
-    await world.run(who, () => softDelete(fx.companyId, entityType, id, fx.userId));
+    await world.run(who, () => softDelete(fx.companyId, entityType, id, fx.userId, { allowReversal: true }));
     expect(await inForce(o)).toBe(false);
     const head = await headOf(o);
     const err = await world.run(who, () => reverseJournalEntry(fx.companyId, head, fx.userId))
       .then(() => null, (e: unknown) => e as Error & { code?: string });
     expect(err?.code).toBe('JOURNAL_REINSTATES_CANCELLED_DOCUMENT'); // deleted, not restored: the chain stays out
-    expect(await world.run(who, () => undoDelete(fx.companyId, entityType, id, fx.userId))).toBe(true);
+    expect(await world.run(who, () => undoDelete(fx.companyId, entityType, id, fx.userId, { allowReversal: true }))).toBe(true);
     expect(await inForce(o)).toBe(true);
   }
 
