@@ -8,12 +8,16 @@
  *     each stored line once: identical (description trimmed and case-insensitive, item, quantity, unit price) at its
  *     place, identical anywhere, the same description at its place / anywhere, the same item at its place / anywhere.
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
- *     POSITIONAL resend, the same number of lines, each identical to the saved line in its own place, except at most
- *     one changed in place (its price, quantity or description). Any other shape (a line added, removed or moved, two
- *     changed, twins shifted) matches nothing by content, and every line with neither `id` nor `vatType` (nor a legacy
- *     rate above 0, which types it standard by itself) is refused (unmatchedVatProblem: a 400 asking for its `vatType`
- *     or the saved line's `id`). Nothing is guessed across types, identical twins of different types included.
- * A legacy `taxRate` is compatible with a stored line only at that line's rate on the quote date. The caller skips the
+ *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
+ *     compatible rate, except at most one changed in place (its price, quantity, or its description or its item, not
+ *     both: a line whose description AND item changed is another line). A line sent with its `id` takes its own place
+ *     and does not count as the change. Any other shape (a line added, removed or moved, two changed, twins shifted,
+ *     a legacy rate sent that is not the saved line's) matches nothing by content, and every line with neither `id`
+ *     nor `vatType` (nor a legacy rate above 0, which types it standard by itself) is refused (unmatchedVatProblem: a
+ *     400 asking for its `vatType` or the saved line's `id`). Nothing is guessed across types, identical twins of
+ *     different types included.
+ * A legacy `taxRate` is compatible with a stored line only at that line's rate on the quote date (a legacy line: its
+ * own rate), so a rate the caller changed is never "unchanged". Ids compare case-insensitively. The caller skips the
  * refusal for a company not registered for VAT, whose lines carry no type at all.
  *
  * Pure.
@@ -71,7 +75,9 @@ export interface LineMatches {
 
 const typeOf = (s: StoredQuoteVatLine) => storedLineVatType(s.vatType, s.taxRate);
 const nonStandard = (s: StoredQuoteVatLine) => typeOf(s) === 'zero_rated' || typeOf(s) === 'exempt';
-const descOf = (d: string) => d.trim().toLowerCase();
+/** A description as compared: trimmed and lower-cased; a missing or non-string one (a bare API body) reads as empty. */
+const descOf = (d: unknown) => (typeof d === 'string' ? d.trim().toLowerCase() : '');
+const idOf = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
 const itemOf = (l: SentQuoteLine): string | null => (typeof l.itemId === 'string' && l.itemId !== '' ? l.itemId.toLowerCase() : null);
 const sameItem = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && itemOf(l) === s.itemId.toLowerCase();
 const itemsDiffer = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && !sameItem(l, s);
@@ -79,11 +85,16 @@ const key = (l: { description: string; quantity: unknown; unitPrice: unknown }) 
 const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !itemsDiffer(l, s);
 const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description) && !itemsDiffer(l, s);
 
-/** The same number of lines, each identical to its own place's, but at most one changed in place; an id names its own place. */
-function positionalResend(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[]): boolean {
+/** See the header: the same count, every line of a compatible rate, identical in its place but at most one changed in place. */
+function positionalResend(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], compatible: Fits): boolean {
   if (sent.length !== stored.length) return false;
-  if (sent.some((l, i) => typeof l.id === 'string' && l.id !== stored[i]!.id)) return false;
-  return sent.filter((l, i) => !identical(l, stored[i]!)).length <= 1;
+  if (sent.some((l, i) => idOf(l.id) !== null && idOf(l.id) !== idOf(stored[i]!.id))) return false;
+  if (sent.some((l, i) => !compatible(l, stored[i]!))) return false;
+  const changed = sent.flatMap((l, i) => (idOf(l.id) === null && !identical(l, stored[i]!) ? [i] : []));
+  // The one change keeps its description or its item; both changed is another line, never this place's type.
+  if (changed.length === 0) return true;
+  const [c] = changed;
+  return changed.length === 1 && (descOf(sent[c!]!.description) === descOf(stored[c!]!.description) || sameItem(sent[c!]!, stored[c!]!));
 }
 
 type Fits = (l: SentQuoteLine, s: StoredQuoteVatLine) => boolean;
@@ -95,12 +106,12 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   const free = (j: number) => j >= 0 && j < stored.length && !used.has(j);
   const take = (i: number, j: number) => { used.add(j); out[i] = { stored: stored[j]!, identical: identical(sent[i]!, stored[j]!) }; };
   sent.forEach((l, i) => {
-    const j = typeof l.id === 'string' ? stored.findIndex((s, k) => free(k) && s.id === l.id) : -1;
+    const j = idOf(l.id) !== null ? stored.findIndex((s, k) => free(k) && idOf(s.id) === idOf(l.id)) : -1;
     if (j >= 0) take(i, j);
   });
   const sensitive = stored.some(nonStandard);
   if (sensitive) {
-    const positional = positionalResend(sent, stored);
+    const positional = positionalResend(sent, stored, compatible);
     if (positional) sent.forEach((_, i) => { if (!out[i]) take(i, i); });
     return { matches: out, sensitive, positional };
   }
@@ -130,7 +141,8 @@ export function unmatchedVatProblem(sent: readonly SentQuoteLine[], m: LineMatch
   const i = sent.findIndex((l, k) => !given(l.vatType) && !m.matches[k] && !(given(l.taxRate) && Number(l.taxRate) !== 0));
   if (i < 0) return null;
   return `items[${i}]: this quote has zero-rated or exempt lines, and the edit does not resend them in their places (a line `
-    + 'was added, removed or moved, or more than one changed; identical lines of different types are not told apart either), '
+    + 'was added, removed or moved, more than one changed, one changed both its description and its item, or a rate changed; '
+    + 'identical lines of different types are not told apart either), '
     + 'so the line\'s VAT type cannot be read from the saved quote: send its vatType (standard, zero_rated or exempt) or the saved line\'s id.';
 }
 
