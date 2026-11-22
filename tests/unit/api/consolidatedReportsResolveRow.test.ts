@@ -8,7 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const svc = vi.hoisted(() => ({
   getConsolidatedTrialBalance: vi.fn(), getConsolidatedIncomeStatement: vi.fn(), getConsolidatedBalanceSheet: vi.fn(),
   getGroupDashboardStats: vi.fn(), getEliminationAdjustments: vi.fn(), createEliminationAdjustment: vi.fn(),
-  postEliminationAdjustment: vi.fn(), reverseEliminationAdjustment: vi.fn(), autoGenerateEliminations: vi.fn(),
+  postEliminationAdjustment: vi.fn(), reverseEliminationAdjustment: vi.fn(), autoGenerateEliminations: vi.fn(), discardEliminationAdjustment: vi.fn(),
 }));
 const access = vi.hoisted(() => ({ userBelongsToGroup: vi.fn(), userCanWriteGroup: vi.fn() }));
 vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>()));
@@ -28,7 +28,7 @@ const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
-import { EliminationAlreadyStandsError, EliminationSourceError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationNotUnresolvedError, EliminationSourceError, EliminationStateError } from '@/modules/accounting/services/reports/eliminationErrors';
 
 const GROUP = '80000000-0000-4000-8000-000000000001';
 const ACCT = '81000000-0000-4000-8000-000000000001';
@@ -94,5 +94,50 @@ describe('create-elimination with sourceIntercompanyId', () => {
     svc.createEliminationAdjustment.mockRejectedValueOnce(new EliminationAlreadyStandsError(ROW));
     const raced = await call({ ...BODY, sourceIntercompanyId: ROW, manualReason: 'because of this' });
     expect(raced.status).toHaveBeenCalledWith(409);
+  });
+
+  it.each([['no dates', { periodStart: undefined, periodEnd: undefined }], ['no end', { periodEnd: undefined }]])(
+    'a row needs BOTH dates (%s) → 400 before any check, nothing written', async (_name, over) => {
+      const res = await call({ ...BODY, ...over, sourceIntercompanyId: ROW, manualReason: 'because of this' });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(message(res)).toContain('periodStart and periodEnd are required with sourceIntercompanyId');
+      expect(resolve.assertMirroredRowResolvable).not.toHaveBeenCalled();
+      expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+    });
+
+  it('a row the mirror now eliminates (or that waits in the receiver\'s inbox) → 409 not_unresolved, nothing written', async () => {
+    resolve.assertMirroredRowResolvable.mockRejectedValueOnce(new EliminationNotUnresolvedError(ROW, '2026-12-30 to 2026-12-30'));
+    const res = await call({ ...BODY, sourceIntercompanyId: ROW, manualReason: 'because of this' });
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(message(res)).toContain('not_unresolved');
+    expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+  });
+});
+
+describe('post-elimination / discard-elimination', () => {
+  const ADJ = '70000000-0000-4000-8000-000000000001';
+  it('a post refused because the row is eliminated by the mirror now → 409 not_unresolved', async () => {
+    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationNotUnresolvedError(ROW, '2026-12-30 to 2026-12-30'));
+    const res = await call({ action: 'post-elimination', adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(message(res)).toContain('not_unresolved');
+  });
+
+  it('discard-elimination discards the draft of THIS group and answers discarded', async () => {
+    const res = await call({ action: 'discard-elimination', adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(svc.discardEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP);
+    expect(message(res)).toContain('discarded');
+  });
+
+  it('a malformed id → 400; a posted, missing or other group\'s adjustment → 409; a viewer is refused before any write', async () => {
+    const bad = await call({ action: 'discard-elimination', adjustmentId: 'x' });
+    expect(bad.status).toHaveBeenCalledWith(400);
+    svc.discardEliminationAdjustment.mockRejectedValueOnce(new EliminationStateError(ADJ, 'draft'));
+    expect((await call({ action: 'discard-elimination', adjustmentId: ADJ })).status).toHaveBeenCalledWith(409);
+    access.userCanWriteGroup.mockResolvedValueOnce(false);
+    svc.discardEliminationAdjustment.mockClear();
+    expect((await call({ action: 'discard-elimination', adjustmentId: ADJ })).status).toHaveBeenCalledWith(403);
+    expect(svc.discardEliminationAdjustment).not.toHaveBeenCalled();
   });
 });

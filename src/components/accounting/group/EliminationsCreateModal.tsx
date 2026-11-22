@@ -6,6 +6,7 @@
 import React from 'react';
 import { Loader2, Plus, X, Trash2, AlertCircle } from 'lucide-react';
 import {
+  docWord,
   fmt,
   selectClass,
   inputClass,
@@ -102,7 +103,7 @@ export function EliminationsCreateModal({
 
           {resolvedRow && (
             <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-[var(--ff-text-secondary)]">
-              Eliminating the mirrored sale of {resolvedRow.keyDate}: {resolvedRow.description} ({fmt(resolvedRow.amount)}). Once posted it is no longer listed as having no elimination.
+              Eliminating the mirrored {docWord(resolvedRow.amount)} of {resolvedRow.keyDate}: {resolvedRow.description} ({fmt(resolvedRow.amount)}). Once posted it is no longer listed as having no elimination.
             </p>
           )}
 

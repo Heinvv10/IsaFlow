@@ -13,7 +13,8 @@ import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/serv
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
 import {
-  EliminationAlreadyStandsError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError, EliminationUnbalancedError,
+  EliminationAlreadyStandsError, EliminationNotUnresolvedError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError,
+  EliminationUnbalancedError,
 } from '@/modules/accounting/services/reports/eliminationErrors';
 import { assertMirroredRowResolvable } from '@/modules/accounting/services/reports/eliminationResolve';
 import {
@@ -24,6 +25,7 @@ import {
   getEliminationAdjustments,
   createEliminationAdjustment,
   postEliminationAdjustment,
+  discardEliminationAdjustment,
   reverseEliminationAdjustment,
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
@@ -76,6 +78,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
     if (err instanceof EliminationSourceError) return apiResponse.badRequest(res, err.message, { reason: 'bad_source_row' });
     if (err instanceof EliminationAlreadyStandsError) return apiResponse.conflict(res, err.message, { reason: 'already_stands' });
+    if (err instanceof EliminationNotUnresolvedError) return apiResponse.conflict(res, err.message, { reason: 'not_unresolved' });
     if (err instanceof EliminationPossibleDuplicateError) {
       return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorFacts: err.facts, pairCutover: err.pairCutover });
     }
@@ -156,7 +159,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!(await userCanWriteGroup(userId, gId))) {
       return apiResponse.forbidden(res, 'Your role in this group does not allow changing eliminations.');
     }
-    if ((action === 'post-elimination' || action === 'reverse-elimination') && !isUuidParam(body.adjustmentId)) {
+    if ((action === 'post-elimination' || action === 'reverse-elimination' || action === 'discard-elimination') && !isUuidParam(body.adjustmentId)) {
       return apiResponse.badRequest(res, 'adjustmentId must be a valid UUID');
     }
 
@@ -183,6 +186,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // An elimination that RESOLVES a mirrored row no path eliminates carries the row (so it unlists once posted and a second is refused).
       const sourceRow = body.sourceIntercompanyId;
       if (sourceRow !== undefined && !isUuidParam(sourceRow)) return apiResponse.badRequest(res, 'sourceIntercompanyId must be a valid UUID');
+      if (sourceRow !== undefined && (typeof periodStart !== 'string' || typeof periodEnd !== 'string')) {
+        return apiResponse.badRequest(res, 'periodStart and periodEnd are required with sourceIntercompanyId (the row\'s month)');
+      }
       const noReason = sourceRow ? resolveReasonMissing(reason) : null;
       if (noReason) return apiResponse.badRequest(res, noReason, { reason: 'manual_reason_required', cutover: null });
       return answerRefusals(res, async () => {
@@ -199,6 +205,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return answerRefusals(res, async () => {
         await postEliminationAdjustment(body.adjustmentId as string, gId, body.confirmDuplicate === true);   // (a possible duplicate needs the person's confirm)
         return apiResponse.success(res, { posted: true });
+      });
+    }
+
+    if (action === 'discard-elimination') {   // (the undo of a create: a draft only, never posted; no approval is asked, as none is for creating it)
+      return answerRefusals(res, async () => {
+        await discardEliminationAdjustment(body.adjustmentId as string, gId);
+        return apiResponse.success(res, { discarded: true });
       });
     }
 

@@ -39,6 +39,14 @@ describe('MirroredDroppedNotice: advice by reason, and the button', () => {
     expect(onEliminate).toHaveBeenCalledWith(expect.objectContaining({ transactionId: 't-variance', code: 'variance' }));
   });
 
+  it('a CREDIT NOTE (carried negative) is worded as one, never as a sale', () => {
+    render(<MirroredDroppedNotice rows={[{ ...row('rejected'), amount: -400 }, row('failed')]} onEliminate={() => undefined} />);
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text).toMatch(/The receiver booked no expense for this credit note: .* the sender can cancel the credit note\./);
+    expect(text).toMatch(/The receiver booked no expense for this sale: .* the sender can cancel the sale\./);
+    expect(text).toMatch(/2 mirrored documents have no elimination/);
+  });
+
   it('no button without a handler; the code survives parsing', () => {
     render(<MirroredDroppedNotice rows={[row('variance')]} />);
     expect(screen.queryByRole('button', { name: 'Eliminate this row' })).toBeNull();
@@ -47,14 +55,14 @@ describe('MirroredDroppedNotice: advice by reason, and the button', () => {
 });
 
 describe('the Eliminations page: Eliminate this row', () => {
-  function serve() {
+  function serve(amount = 1000, items: unknown[] = []) {
     const posts: Array<Record<string, unknown>> = [];
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
       const u = String(url);
       if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }); }
       const data = u.includes('action=accounts') ? { items: [{ id: 'a4000-id', accountCode: 'G4000' }, { id: 'a5000-id', accountCode: 'G5000' }] }
         : u.includes('company-groups') ? [{ id: GROUP, name: 'Group' }]
-        : { items: [], droppedMirrored: [{ ...row('variance', 'cut-off: different financial years'), transactionId: ROW }] };
+        : { items, droppedMirrored: [{ ...row('variance', 'cut-off: different financial years'), transactionId: ROW, amount }] };
       return new Response(JSON.stringify({ success: true, data }), { status: 200 });
     });
     return posts;
@@ -80,6 +88,14 @@ describe('the Eliminations page: Eliminate this row', () => {
       manualReason: 'The receiver booked it in January' });
   });
 
+  it('a credit note row opens a form that says credit note, not sale', async () => {
+    serve(-1000);
+    render(<EliminationsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminate this row' }));
+    expect(screen.getByText(/Eliminating the mirrored credit note of 2026-12-30/)).toBeTruthy();
+    expect((screen.getByPlaceholderText('Describe the elimination adjustment...') as HTMLInputElement).value).toMatch(/^Manual elimination of mirrored credit note: /);
+  });
+
   it('the plain "Manual Elimination" button after it carries no row', async () => {
     const posts = serve();
     render(<EliminationsPage />);
@@ -88,5 +104,23 @@ describe('the Eliminations page: Eliminate this row', () => {
     fireEvent.click(screen.getByRole('button', { name: /Manual Elimination/ }));
     expect(screen.queryByText(/Eliminating the mirrored sale/)).toBeNull();
     expect(posts).toHaveLength(0);
+  });
+});
+
+describe('the Eliminations page: a draft can be discarded', () => {
+  it('a draft has a Discard button that posts discard-elimination for it; a posted one has none', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const adj = (id: string, status: string) => ({ id, adjustmentNumber: id, adjustmentType: 'interco_revenue', description: id, periodStart: '2026-12-30', periodEnd: '2026-12-30', status,
+      lines: [{ debit: 5, credit: 0 }] });
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return new Response(JSON.stringify({ data: { discarded: true } }), { status: 200 }); }
+      const data = String(url).includes('company-groups') ? [{ id: GROUP, name: 'Group' }] : { items: [adj('draft-1', 'draft'), adj('posted-1', 'posted')], droppedMirrored: [] };
+      return new Response(JSON.stringify({ success: true, data }), { status: 200 });
+    });
+    render(<EliminationsPage />);
+    const discard = await screen.findAllByRole('button', { name: /Discard/ });
+    expect(discard).toHaveLength(1);
+    fireEvent.click(discard[0]!);
+    await waitFor(() => expect(posts).toEqual([{ action: 'discard-elimination', adjustmentId: 'draft-1' }]));
   });
 });

@@ -127,6 +127,8 @@ export default function EliminationsPage() {
 
   const handleReverse = (id: string) =>
     postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
+  const handleDiscard = (id: string) =>
+    postAction(id, { action: 'discard-elimination', adjustmentId: id }, 'Could not discard the draft - try again');
 
   return (
     <AppLayout>
@@ -181,7 +183,7 @@ export default function EliminationsPage() {
           <MirroredDroppedNotice rows={dropped} onEliminate={(r) => form.startFor({ id: r.transactionId, keyDate: r.keyDate, description: r.description, amount: r.amount })} />
           <EliminationsFlaggedNotice rows={generateNotes.flagged} skipped={generateNotes.skipped} onDismiss={() => setGenerateNotes(NO_NOTES)} />
           {/* a failed load must not also say "none found" */}
-          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
+          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} onDiscard={handleDiscard} />}
         </div>
 
         <ConfirmDialog

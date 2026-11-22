@@ -51,6 +51,8 @@ const eliminate = (row: string, date = '2026-12-30', reason: string | null = 'Th
   ...(reason ? { manualReason: reason } : {}),
   lines: [{ ...lines[0]!, groupAccountId: groupAccounts.rev }, { ...lines[1]!, groupAccountId: groupAccounts.exp }],
 }));
+/** The route's row check: inside the request's transaction (its lock is transaction-scoped). */
+const check = (row: string, start: string, end: string) => asService(pool, U.ab, co.A, () => assertMirroredRowResolvable(co.G, row, start, end));
 const post = (id: string) => asService(pool, U.ab, co.A, () => postEliminationAdjustment(id, co.G));
 
 describe('M-1: a manual elimination carries the unresolved row, so a second person is not told to make another', () => {
@@ -67,24 +69,24 @@ describe('M-1: a manual elimination carries the unresolved row, so a second pers
 
     await post(adj.id);
     expect(await dropped('2026-12-01', '2026-12-31')).toEqual([]);                       // eliminated: nothing to make by hand
-    await expect(assertMirroredRowResolvable(co.G, row.id, '2026-12-30', '2026-12-30')).rejects.toBeInstanceOf(EliminationAlreadyStandsError);
+    await expect(check(row.id, '2026-12-30', '2026-12-30')).rejects.toBeInstanceOf(EliminationAlreadyStandsError);
     await expect(eliminate(row.id)).rejects.toBeInstanceOf(EliminationAlreadyStandsError);   // (the unique index, not only the check)
 
     await asService(pool, U.ab, co.A, () => reverseEliminationAdjustment(adj.id, co.G));
     expect((await dropped('2026-12-01', '2026-12-31')).map((d) => d.code)).toEqual(['variance']);
-    await expect(assertMirroredRowResolvable(co.G, row.id, '2026-12-30', '2026-12-30')).resolves.toBeUndefined();
+    await expect(check(row.id, '2026-12-30', '2026-12-30')).resolves.toBeUndefined();
   });
 
   it('only a row of THIS group that a message records, dated inside the elimination\'s period, can be resolved', async () => {
     await variance();
     const row = await L.groupRow();
-    await expect(assertMirroredRowResolvable(co.G, crypto.randomUUID(), '2026-12-01', '2026-12-31')).rejects.toBeInstanceOf(EliminationSourceError);
-    await expect(assertMirroredRowResolvable(co.G, row.id, '2026-11-01', '2026-11-30')).rejects.toBeInstanceOf(EliminationSourceError);
+    await expect(check(crypto.randomUUID(), '2026-12-01', '2026-12-31')).rejects.toBeInstanceOf(EliminationSourceError);
+    await expect(check(row.id, '2026-11-01', '2026-11-30')).rejects.toBeInstanceOf(EliminationSourceError);
     const manualRow = (await pool.query(
       `INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, transaction_type, amount, transaction_date, description)
        VALUES ($1, $2, $3, 'sale', 50, '2026-12-05', 'plain manual row') RETURNING id`, [co.G, co.A, co.B])).rows[0].id as string;
-    await expect(assertMirroredRowResolvable(co.G, manualRow, '2026-12-01', '2026-12-31')).rejects.toBeInstanceOf(EliminationSourceError);
-    await expect(assertMirroredRowResolvable(co.G, row.id, '2026-12-01', '2026-12-31')).resolves.toBeUndefined();
+    await expect(check(manualRow, '2026-12-01', '2026-12-31')).rejects.toBeInstanceOf(EliminationSourceError);
+    await expect(check(row.id, '2026-12-01', '2026-12-31')).resolves.toBeUndefined();
   });
 
   it('the reports count the elimination of a mirrored row a person made (with a reason) and ignore an older generator\'s (no reason)', async () => {

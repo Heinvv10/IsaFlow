@@ -21,7 +21,7 @@ export class EliminationUnbalancedError extends Error {
 export class EliminationStateError extends Error {
   constructor(readonly adjustmentId: string, readonly requiredStatus: 'draft' | 'posted') {
     super(`This elimination is not a ${requiredStatus} adjustment of this group `
-      + `(missing, another group's, or already ${requiredStatus === 'draft' ? 'posted' : 'reversed'}).`);
+      + `(missing, another group's, or already ${requiredStatus === 'draft' ? 'posted or discarded' : 'reversed'}).`);
     this.name = 'EliminationStateError';
   }
 }
@@ -32,7 +32,7 @@ export class EliminationStateError extends Error {
  */
 export class EliminationAlreadyStandsError extends Error {
   constructor(readonly sourceIntercompanyId: string) {
-    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands (draft or posted): reverse it before making another.`);
+    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands: discard it (a draft) or reverse it (a posted one) before making another.`);
     this.name = 'EliminationAlreadyStandsError';
   }
 }
@@ -42,6 +42,17 @@ export class EliminationSourceError extends Error {
   constructor(readonly sourceIntercompanyId: string, why: string) {
     super(`Intercompany row ${sourceIntercompanyId} cannot be eliminated by hand here: ${why}.`);
     this.name = 'EliminationSourceError';
+  }
+}
+
+/**
+ * A manual elimination of a mirrored row needs the row to be one the mirror leaves un-eliminated for the elimination's period (409): the mirror
+ * eliminates it now (the receiver accepted and approved it), it waits in the receiver's inbox, or a person's elimination already counts for it.
+ */
+export class EliminationNotUnresolvedError extends Error {
+  constructor(readonly sourceIntercompanyId: string, readonly period: string) {
+    super(`Intercompany row ${sourceIntercompanyId} has nothing to eliminate by hand for ${period}: the mirror now eliminates it, it waits in the receiver's inbox, or another elimination already counts for it.`);
+    this.name = 'EliminationNotUnresolvedError';
   }
 }
 

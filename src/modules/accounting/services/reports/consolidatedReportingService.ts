@@ -225,6 +225,21 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
   }
 }
 
+/** A draft is never deleted (the app has no DELETE on it): it is marked discarded, and counts, lists and blocks nothing. */
+export async function discardEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
+  try {
+    const result = (await sql`
+      UPDATE consolidation_adjustments SET status='discarded', updated_at=NOW()
+      WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
+    `) as DbRow[];
+    if (result.length === 0) throw new EliminationStateError(adjustmentId, 'draft');
+    log.info('Discarded elimination adjustment', { adjustmentId, groupId }, 'accounting');
+  } catch (err) {
+    log.error('Failed to discard elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
+    throw err;
+  }
+}
+
 /** `dropped`, when given, receives the period's mirrored eliminations that could not be applied (an account with no group account). */
 export async function getEliminationAdjustments(
   groupId: string, periodStart?: string, periodEnd?: string, dropped?: DroppedMirroredElimination[],

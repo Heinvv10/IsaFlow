@@ -7,6 +7,9 @@ import { parseMirrorFacts, type MirrorFacts } from '@/modules/accounting/service
 
 export const fmt = (n: number) => formatMoney(n);
 
+/** What a mirrored row is, by its document: a credit note is carried negative (the sender's figures as it wrote them), an invoice positive. */
+export const docWord = (amount: number): 'sale' | 'credit note' => (amount < 0 ? 'credit note' : 'sale');
+
 export const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
 export const inputClass = selectClass;
@@ -19,7 +22,7 @@ export type EliminationType =
   | 'currency_translation'
   | 'goodwill';
 
-export type EliminationStatus = 'draft' | 'posted' | 'reversed';
+export type EliminationStatus = 'draft' | 'posted' | 'reversed' | 'discarded';
 
 export interface EliminationLine {
   id?: string;
@@ -66,6 +69,7 @@ export const STATUS_STYLES: Record<EliminationStatus, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
   posted: 'bg-teal-500/10 text-teal-400',
   reversed: 'bg-amber-500/10 text-amber-400',
+  discarded: 'bg-gray-500/10 text-gray-400',
 };
 
 /**

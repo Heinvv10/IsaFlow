@@ -7,7 +7,7 @@ import { useRef, useState } from 'react';
 import type React from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
-import { fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
+import { docWord, fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
 import { manualReasonMissing, manualReasonTooLong, resolveReasonMissing } from '@/modules/accounting/services/reports/manualReason';
 
 const BLANK_LINES: EliminationLine[] = [{ groupAccountCode: '', debit: 0, credit: 0 }, { groupAccountCode: '', debit: 0, credit: 0 }];
@@ -55,7 +55,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
   };
   /** Opens the form for one unresolved mirrored row: dated on the row's date, described from it, and the elimination carries the row. */
   const startFor = (r: ResolvedRow) => {
-    start(); setRow(r); setPeriod(r.keyDate); setDescription(`Manual elimination of mirrored sale: ${r.description}`.slice(0, 200));
+    start(); setRow(r); setPeriod(r.keyDate); setDescription(`Manual elimination of mirrored ${docWord(r.amount)}: ${r.description}`.slice(0, 200));
   };
 
   async function submit(e: React.FormEvent<Element>) {
