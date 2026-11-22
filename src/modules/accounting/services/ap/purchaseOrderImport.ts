@@ -28,6 +28,7 @@ import type { DbRow } from '@/lib/neon';
 import { withRowLockBudget, RowLockTimeoutError } from '../core/rowLockBudget';
 import { ensureDocumentNumbers } from '../core/companySettingsService';
 import { findByExternalRef, lockExternalRef } from '../core/externalRefService';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import type { BudgetGate } from '../budgets/budgetCheckTypes';
@@ -196,6 +197,15 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
   if (opts.skipBudgetCheck !== true) {
     const first = fresh.find(accountless);
     if (first) throw new PurchaseOrderImportRefusal(`purchase_orders[${first.index}]: ${ACCOUNTLESS_REFUSAL}; nothing was created. Give each line a gl_account_id, import the PO as draft, or ask an owner or admin to import with skip_budget_check_for_import`);
+  }
+
+  // Each supplier live and locked FOR KEY SHARE until the import commits (supplierLiveLock): one merged away since the caller's
+  // check is refused, and no merge moves the source's POs before these are written. Id order, as two merges lock suppliers.
+  for (const supplierId of [...new Set(fresh.map((p) => p.supplierId))].sort()) {
+    if (!(await lockSupplierIfLive(companyId, supplierId))) {
+      const first = fresh.find((p) => p.supplierId === supplierId)!;
+      throw new PurchaseOrderImportRefusal(`purchase_orders[${first.index}]: supplier ${supplierId} was merged into another supplier or deleted; nothing was created`);
+    }
   }
 
   const out: ImportedPo[] = [...replayed.values()];

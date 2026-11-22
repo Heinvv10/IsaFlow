@@ -34,6 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     FROM suppliers s
     WHERE s.platform_template_id IS NOT NULL
       AND s.is_active = true
+      AND s.deleted_at IS NULL
   `) as Array<{ company_id: string }>;
 
   let totalCreated = 0;

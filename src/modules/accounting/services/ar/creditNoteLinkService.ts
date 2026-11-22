@@ -17,6 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import type { CreditNoteCreateInput } from '../../types/ar.types';
 import { assertPostableCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 
@@ -114,12 +115,9 @@ async function validateSupplierLinks(
 ): Promise<string | null> {
   if (!supplierId) return 'supplier_id is required for a supplier credit note';
 
-  const supplier = (await sql`
-    SELECT 1 FROM suppliers
-    WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-    LIMIT 1
-  `) as Row[];
-  if (supplier.length === 0) return 'Not found';
+  // Live and locked FOR KEY SHARE until the caller's transaction ends (supplierLiveLock, #1699 review): a supplier merge waits for
+  // this note's validation AND its insert, so it cannot move the linked bill between them and leave the note on the source.
+  if (!(await lockSupplierIfLive(companyId, supplierId))) return 'Not found';
 
   if (!supplierInvoiceId) return null;
 

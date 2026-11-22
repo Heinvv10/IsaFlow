@@ -45,7 +45,8 @@ it('a re-sync after a merge re-creates the name but cannot book the moved Sage i
   const recreated = await drive(h.companyA, () => upsertCustomer(h.companyA, {
     name: 'Sage Dup Traders', email: null, phone: null, vatNumber: null, contactPerson: null, creditLimit: 0,
   } as never));
-  expect(recreated).not.toBe(source);
+  expect(recreated.id).not.toBe(source);
+  expect(recreated.created).toBe(true);
   const src = await pool.query('SELECT deleted_at IS NOT NULL AS gone FROM customers WHERE id=$1', [source]);
   expect(src.rows[0].gone).toBe(true);
 
