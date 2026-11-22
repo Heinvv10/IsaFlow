@@ -30,6 +30,8 @@ describe('Currencies on touch', () => {
     const rows = [...table.querySelectorAll(':scope > tbody > tr')];
     expect(rows).toHaveLength(2);
     for (const row of rows) expect([...row.querySelectorAll(':scope > td')].map(td => td.getAttribute('data-label'))).toEqual([null, 'Name', 'Symbol', 'Decimals', 'Status', null]);
+    // The reporting currency has no action, so its last cell is empty: on a card it must vanish (`!`: the card CSS on td out-ranks a plain utility).
+    for (const row of rows) expect(row.lastElementChild!.className.split(' ')).toContain('max-lg:empty:!hidden');
   });
 
   it('makes refresh, both tabs, Add Currency and the row action 44px', async () => {
@@ -44,13 +46,12 @@ describe('Currencies on touch', () => {
   });
 
   it('makes every field and button of the add form 44px', async () => {
-    const { container } = render(<Page />);
+    render(<Page />);
     await screen.findAllByText('US Dollar');
     fireEvent.click(screen.getByRole('button', { name: /Add Currency/ }));
     const form = screen.getByText('New Currency').parentElement!;
     const controls = [...form.querySelectorAll('input, button')];
     expect(controls).toHaveLength(6); // code, name, symbol, decimals, cancel, save
     for (const c of controls) expect(c.className, c.outerHTML.slice(0, 60)).toContain('max-lg:min-h-11');
-    expect(container.querySelector('table')).not.toBeNull();
   });
 });

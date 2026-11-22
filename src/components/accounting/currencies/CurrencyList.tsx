@@ -213,7 +213,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                       {currency.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right max-lg:empty:!hidden">
                     {currency.code !== reportingCurrency && (
                       <button
                         onClick={() => handleToggle(currency)}
