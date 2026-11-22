@@ -4,6 +4,7 @@
  * and after a live run; the difference is what the run did.
  */
 import { sql } from '@/lib/neon';
+import { readCheckPolicy } from '@/modules/accounting/services/budgets/budgetCheck';
 
 /** An item of the company, deleted ones included (the item tool matches them and refuses them). Codes are unique case-sensitively. */
 export interface ExistingItem {
@@ -30,6 +31,8 @@ export interface Snapshot {
   stockMovements: number;
   items: ExistingItem[];
   categories: ExistingCategory[];
+  /** The company's budget check policy (off | warn | block; warn when none is set), as the PO import reads it. */
+  budgetPolicy: string;
   /** supplier uuid -> the Sage reference it carries (live suppliers; none carrying one are absent). */
   supplierSageRefs: Map<string, string>;
   /** po_number -> the external reference the PO carries (null: none). Numbers are unique per company, case-sensitively. */
@@ -62,6 +65,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     poTotals: new Map(pos.filter((r) => r.external_system === 'sage' && r.external_ref !== null).map((r) => [String(r.external_ref), Number(r.cents)])),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
+    budgetPolicy: await readCheckPolicy(companyId),
     categories: categories.map((c) => ({ id: String(c.id), name: c.name, system: c.external_system, ref: c.external_ref === null ? null : String(c.external_ref) })),
     supplierSageRefs: new Map(suppliers.map((r) => [String(r.id), String(r.external_ref)])),
     poNumbers: new Map(pos.map((r) => [String(r.po_number), { system: r.external_system, ref: r.external_ref === null ? null : String(r.external_ref) }])),

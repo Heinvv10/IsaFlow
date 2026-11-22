@@ -69,7 +69,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     const snapshot = await readSnapshot(opts.companyId);
     const resolved = await resolveSuppliers(session, parsed.purchaseOrders, snapshot.supplierSageRefs);
-    return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId }) };
+    return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId, skipBudgetCheck: opts.skipBudgetCheck }) };
   });
   const all = planBatches(plan, opts);
   const dry = await dryRun(pool, opts, all, before);

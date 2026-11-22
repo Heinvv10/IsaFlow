@@ -10,7 +10,7 @@ import type { SupplierResolution } from '@/modules/accounting/services/sage-migr
 
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 const parsed = () => parseSageExport(JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8')));
-const NONE = { items: [], categories: [], poNumbers: new Map() };
+const NONE = { items: [], categories: [], poNumbers: new Map(), budgetPolicy: 'warn' };
 const allResolved = (): Map<string, SupplierResolution> => new Map([['301', { id: SUPPLIER }], ['302', { id: SUPPLIER }], ['303', { id: SUPPLIER }]]);
 
 describe('rows the company\'s own data would make a tool refuse are refused here, one reason per row', () => {
@@ -122,5 +122,31 @@ describe('a category name an IsaFlow category the migration does not own holds',
   it('names compare case-insensitively (the tool does), and an unrelated name is no conflict', () => {
     expect(plan(cats({ id: 'c1', name: 'OPTICS', system: null, ref: null })).refusals.some((x) => x.entity === 'category')).toBe(true);
     expect(plan(cats({ id: 'c1', name: 'Optics and more', system: null, ref: null })).refusals).toEqual([]);
+  });
+});
+
+describe('M1: an approved PO with no GL account under the block policy is refused per row', () => {
+  const under = (policy: string) => ({ items: [], categories: [], poNumbers: new Map(), budgetPolicy: policy });
+  const open = () => parsed().purchaseOrders.filter((p) => p.status === 'Pending' || p.status === 'Overdue').map((p) => p.documentNumber);
+  const refused = (policy: string, opts = {}) => planMigration(parsed(), allResolved(), under(policy), opts).refusals.filter((r) => r.code === 'accountless_under_block_policy');
+
+  it('block: every open (approved) PO is refused, naming the three remedies; closed and cancelled POs are not', () => {
+    const r = refused('block');
+    expect(r.map((x) => x.label).sort()).toEqual(open().sort());
+    expect(r[0]).toMatchObject({ entity: 'purchase_order' });
+    expect(r[0]!.reasons[0]).toMatch(/--skip-budget-check/);
+    expect(r[0]!.reasons[0]).toMatch(/--po-gl-account/);
+    expect(r[0]!.reasons[0]).toMatch(/OPEN_SAGE_PO_IMPORTED_AS|draft/);
+    const plan = planMigration(parsed(), allResolved(), under('block'));
+    expect(plan.purchaseOrders.map((p) => p.element.status).sort()).toEqual(['billed', 'billed', 'billed', 'cancelled', 'cancelled']);
+  });
+  it('warn and off (and no policy read): nothing is refused', () => {
+    expect(refused('warn')).toEqual([]);
+    expect(refused('off')).toEqual([]);
+    expect(planMigration(parsed(), allResolved(), NONE).refusals).toEqual([]);
+  });
+  it('block with an account for every line, or with the budget check skipped: nothing is refused', () => {
+    expect(refused('block', { poGlAccountId: '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f7' })).toEqual([]);
+    expect(refused('block', { skipBudgetCheck: true })).toEqual([]);
   });
 });

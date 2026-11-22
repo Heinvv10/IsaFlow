@@ -15,7 +15,7 @@ import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from '.
 import { n } from './helpers/sageMigrationWorld';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
-import { summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -27,7 +27,7 @@ beforeAll(async () => {
   base = await left(); // the fixture's own rows (its budget version's approval is an audit row)
 }, 120_000);
 afterAll(async () => { try { await dropBillFixture(pool, f); } finally { await pool.end(); } }, 120_000);
-afterEach(async () => {
+const afterEachClean = async () => {
   for (const t of ['po_items', 'purchase_orders']) {
     await pool.query(t === 'po_items'
       ? 'DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)'
@@ -35,7 +35,8 @@ afterEach(async () => {
   }
   for (const t of ['mcp_tool_calls', 'company_document_numbers', 'budget_check_events']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [f.co]);
   await pool.query("DELETE FROM audit_log WHERE company_id = $1 AND entity_type <> 'budget'", [f.co]);
-});
+};
+afterEach(afterEachClean);
 
 const po = (i: number) => ({
   ID: 800000 + i, DocumentNumber: `PO${String(9000 + i).padStart(7, '0')}`, Date: '2026-06-10', Status: 'Pending', SupplierId: 301,
@@ -51,6 +52,31 @@ const left = async () => ({
   calls: await n(pool, 'SELECT count(*) AS n FROM mcp_tool_calls WHERE company_id = $1', [f.co]),
   audit: await n(pool, 'SELECT count(*) AS n FROM audit_log WHERE company_id = $1', [f.co]),
   counters: await n(pool, `SELECT count(*) AS n FROM company_document_numbers WHERE company_id = $1 AND document_type = 'purchase_order'`, [f.co]),
+});
+
+describe('M1: the block policy and POs with no GL account', () => {
+  const bare = () => ({ companyId: f.co, userId: f.owner, poBatchSize: 2 }); // no poGlAccountId: the lines have no account
+
+  it('each open PO is refused per row BEFORE any batch: the dry run is clean, nothing is written, the reason names the remedies', async () => {
+    await setPolicy(pool, f, 'block');
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true });
+    expect(r.status).toBe('completed');
+    expect(r.refused.map((x) => [x.label, x.code])).toEqual([1, 2, 3, 4].map((i) => [`PO000900${i}`, 'accountless_under_block_policy']));
+    expect(r.refused[0]!.reasons[0]).toMatch(/--skip-budget-check.*--po-gl-account/);
+    expect(r.dryRun.purchaseOrders.batches).toEqual([]);
+    expect(await left()).toEqual(base);
+    expect(exitCodeFor(r, false)).toBe(1);
+  });
+  it('under warn the same POs go in without an account; with the check skipped they go in under block', async () => {
+    await setPolicy(pool, f, 'warn');
+    expect((await runSageMigration(pool, exportFile(), { ...bare(), live: true })).refused).toEqual([]);
+    expect((await left()).pos).toBe(4);
+    await afterEachClean();
+    await setPolicy(pool, f, 'block');
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, skipBudgetCheck: true });
+    expect(r.refused).toEqual([]);
+    expect((await left()).pos).toBe(4);
+  });
 });
 
 describe('a budget that two PO batches overrun together', () => {

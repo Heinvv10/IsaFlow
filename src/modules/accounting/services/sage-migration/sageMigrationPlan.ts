@@ -29,7 +29,7 @@ export interface MigrationPlan {
   refusals: RowRefusal[];
 }
 
-export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers'>;
+export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy'>;
 
 /**
  * Why `sageId`/`code` must not be sent, or null. bulk_upsert_items matches by Sage reference and then by CODE, and updates what it
@@ -51,7 +51,7 @@ function itemConflict(sageId: string, code: string, items: readonly ExistingItem
   return null;
 }
 
-export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string } = {}): MigrationPlan {
+export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string; skipBudgetCheck?: boolean } = {}): MigrationPlan {
   const refusals: RowRefusal[] = [...parsed.refusals];
 
   // A category whose name another IsaFlow category (not this Sage category) holds: the category tool would refuse it (name_in_use) and
@@ -106,6 +106,12 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       .find((x) => x.len > MAX_LINE_DESCRIPTION);
     if (tooLong) { refuse('line_description_too_long', `line ${tooLong.n + 1}: the description with its item code is ${tooLong.len} characters, over the ${MAX_LINE_DESCRIPTION} a PO line takes (nothing is cut)`); continue; }
     const element = mapSagePurchaseOrder(po, supplier.id, sentCodes, opts.poGlAccountId);
+    // Under the block policy the PO tool refuses the WHOLE batch for any approved PO with an account-less line (unless the budget check
+    // is skipped): refused here, per row, so the dry run does not fail on it.
+    if (existing.budgetPolicy === 'block' && !opts.skipBudgetCheck && !opts.poGlAccountId && element.status === 'open') {
+      refuse('accountless_under_block_policy', 'the company\'s budget policy is block, and an approved (open) PO whose lines have no GL account is refused by the PO tool for the whole batch. Run with --skip-budget-check (owner or admin), or --po-gl-account <uuid> (every line posts to that one account), or import open POs as drafts (OPEN_SAGE_PO_IMPORTED_AS in sagePoStatus.ts)');
+      continue;
+    }
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile });
