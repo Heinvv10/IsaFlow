@@ -35,12 +35,12 @@ describe('Cashbook on touch', () => {
     const foot = [...table.querySelectorAll(':scope > tfoot > tr > td')];
     expect(foot.map(td => td.getAttribute('data-label'))).toEqual([null, 'Deposits', 'Withdrawals', 'Balance']);
     expect(foot[0].getAttribute('colspan')).toBe('3'); // desktop layout depends on it
-    // An empty deposit/withdrawal cell is hidden on phones (no label with nothing after it); a filled one is not.
+    // An empty deposit/withdrawal cell is hidden on phones (`!`: the card CSS on td out-ranks a plain utility) (no label with nothing after it); a filled one is not.
     const cell = (row: Element, label: string) => row.querySelector(`td[data-label="${label}"]`)!.className;
-    expect(cell(rows[0], 'Withdrawals')).toContain('max-lg:hidden');
-    expect(cell(rows[0], 'Deposits')).not.toContain('max-lg:hidden');
-    expect(cell(rows[1], 'Deposits')).toContain('max-lg:hidden');
-    expect(cell(rows[1], 'Withdrawals')).not.toContain('max-lg:hidden');
+    expect(cell(rows[0], 'Withdrawals')).toContain('max-lg:!hidden');
+    expect(cell(rows[0], 'Deposits')).not.toContain('max-lg:!hidden');
+    expect(cell(rows[1], 'Deposits')).toContain('max-lg:!hidden');
+    expect(cell(rows[1], 'Withdrawals')).not.toContain('max-lg:!hidden');
   });
 
   it('makes the bank select, header wrap and Export CSV 44px on phones', async () => {
