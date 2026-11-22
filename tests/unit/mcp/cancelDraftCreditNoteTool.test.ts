@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { COMPANY, NOTE, KEY, ctx, draftNote } from './creditNoteTools.harness';
 
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) })); // #1656: granted; the refusal is creditNoteToolsApprove.test.ts
 vi.mock('@/modules/accounting/services/ar/creditNoteDeleteService', async () => {
   class CreditNoteDeleteRefusal extends Error {
     constructor(readonly code: string, message: string) { super(message); }

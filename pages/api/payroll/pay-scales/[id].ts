@@ -18,6 +18,7 @@ import {
   PayScaleNotFoundError,
   InvalidSalaryBandError,
 } from '@/modules/accounting/services/payroll/payScaleService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const PatchBody = z
   .object({
@@ -52,4 +53,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

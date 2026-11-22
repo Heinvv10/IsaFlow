@@ -150,7 +150,7 @@ export default function SupplierStatementDetailPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-5">
-          <button onClick={() => router.push('/accounting/ap/supplier-statements')} className="flex items-center gap-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-3 transition-colors">
+          <button onClick={() => router.push('/accounting/ap/supplier-statements')} className="flex items-center gap-1.5 max-lg:min-h-11 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-3 transition-colors">
             <ArrowLeft className="h-4 w-4" /> Back to statements
           </button>
           <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{recon?.supplierName ?? 'Supplier Statement'}</h1>
@@ -191,13 +191,13 @@ export default function SupplierStatementDetailPage() {
                       variance it was reconciled at, and the route refuses it (409). */}
                   <button onClick={handleRematch} disabled={rematching || recon.status === 'reconciled'}
                     title={recon.status === 'reconciled' ? 'Already reconciled' : undefined}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 disabled:opacity-50 transition-colors">
+                    className="flex items-center gap-1.5 px-4 py-2 max-lg:min-h-11 rounded-lg text-sm font-medium bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 disabled:opacity-50 transition-colors">
                     <RefreshCw className={`h-4 w-4 ${rematching ? 'animate-spin' : ''}`} />
                     {rematching ? 'Rematching…' : 'Rematch'}
                   </button>
                   <div className="relative group/tip">
                     <button onClick={handleMarkReconciled} disabled={!canReconcile || marking || recon.status === 'reconciled'}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-teal-600/20 hover:bg-teal-600/30 text-teal-400 border border-teal-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                      className="flex items-center gap-1.5 px-4 py-2 max-lg:min-h-11 rounded-lg text-sm font-medium bg-teal-600/20 hover:bg-teal-600/30 text-teal-400 border border-teal-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                       <CheckCircle2 className="h-4 w-4" />
                       {marking ? 'Saving…' : 'Mark reconciled'}
                     </button>
@@ -214,7 +214,7 @@ export default function SupplierStatementDetailPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-2">Statement lines</h2>
                 <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm min-w-[820px]">
+                  <table className="table-cards w-full text-sm lg:min-w-[820px]">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
                         <th className={TH}>Date</th><th className={TH}>Reference</th>
@@ -225,16 +225,16 @@ export default function SupplierStatementDetailPage() {
                     <tbody>
                       {recon.lines.map(line => (
                         <tr key={line.id} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5">
-                          <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(line.lineDate)}</td>
-                          <td className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{line.reference ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[200px] truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
-                          <td className="px-4 py-2.5 text-xs tabular-nums text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
-                          <td className="px-4 py-2.5"><MatchStatusCell line={line} opening={recon.openingBalance} /></td>
-                          <td className="px-4 py-2.5 text-xs text-[var(--ff-text-secondary)]">
+                          <td data-label="Date" className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(line.lineDate)}</td>
+                          <td data-label="Reference" className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{line.reference ?? '—'}</td>
+                          <td data-label="Description" className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] lg:max-w-[200px] lg:truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
+                          <td data-label="Debit" className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
+                          <td data-label="Credit" className="px-4 py-2.5 text-xs tabular-nums text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
+                          <td data-label="Match" className="px-4 py-2.5"><MatchStatusCell line={line} opening={recon.openingBalance} /></td>
+                          <td data-label="Invoice #" className="px-4 py-2.5 text-xs text-[var(--ff-text-secondary)]">
                             {line.matchedInvoiceNumber && line.matchedSupplierInvoiceId ? (
                               <button onClick={() => router.push(`/accounting/supplier-invoices/${line.matchedSupplierInvoiceId}`)}
-                                className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors">
+                                className="flex items-center gap-1 max-lg:min-h-11 text-indigo-400 hover:text-indigo-300 transition-colors">
                                 {line.matchedInvoiceNumber}<ExternalLink className="h-3 w-3" />
                               </button>
                             ) : '—'}
@@ -250,13 +250,13 @@ export default function SupplierStatementDetailPage() {
               {recon.missingInvoices.length > 0 && (
                 <div>
                   <button onClick={() => setMissingOpen(v => !v)}
-                    className="flex items-center gap-2 text-sm font-semibold text-[var(--ff-text-primary)] mb-2 hover:text-[var(--ff-text-secondary)] transition-colors">
+                    className="flex items-center gap-2 max-lg:min-h-11 text-sm font-semibold text-[var(--ff-text-primary)] mb-2 hover:text-[var(--ff-text-secondary)] transition-colors">
                     {missingOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     Invoices not on statement ({recon.missingInvoices.length})
                   </button>
                   {missingOpen && (
                     <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-                      <table className="w-full text-sm min-w-[500px]">
+                      <table className="table-cards w-full text-sm lg:min-w-[500px]">
                         <thead>
                           <tr className="border-b border-[var(--ff-border-light)]">
                             <th className={TH}>Invoice #</th><th className={TH}>Date</th>
@@ -268,10 +268,10 @@ export default function SupplierStatementDetailPage() {
                             <tr key={inv.invoiceId}
                               onClick={() => router.push(`/accounting/supplier-invoices/${inv.invoiceId}`)}
                               className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
-                              <td className="px-4 py-2.5 text-xs font-medium text-indigo-400">{inv.invoiceNumber}</td>
-                              <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
-                              <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(inv.totalAmount)}</td>
-                              <td className="px-4 py-2.5"><span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-slate-600/30 text-slate-400 border-slate-500/30">missing in statement</span></td>
+                              <td data-label="Invoice #" className="px-4 py-2.5 text-xs font-medium text-indigo-400">{inv.invoiceNumber}</td>
+                              <td data-label="Date" className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
+                              <td data-label="Amount" className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(inv.totalAmount)}</td>
+                              <td data-label="Tag" className="px-4 py-2.5"><span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-slate-600/30 text-slate-400 border-slate-500/30">missing in statement</span></td>
                             </tr>
                           ))}
                         </tbody>
@@ -289,7 +289,7 @@ export default function SupplierStatementDetailPage() {
         <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg border text-sm shadow-xl ${toast.kind === 'ok' ? 'bg-teal-900/80 text-teal-200 border-teal-700' : 'bg-red-900/80 text-red-200 border-red-700'}`}>
           {toast.kind === 'ok' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
           <span>{toast.msg}</span>
-          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setToast(null)} aria-label="Dismiss" className="ml-2 opacity-60 hover:opacity-100 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
     </AppLayout>

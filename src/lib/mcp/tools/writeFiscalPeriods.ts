@@ -26,6 +26,7 @@ const DRY = { wroteNothing: true, billable: false } as const;
 
 export const closeFiscalPeriodTool: McpTool = {
   name: 'close_fiscal_period',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Close a fiscal period so nothing further can post into it. '
     + 'REFUSES on any failing readiness check and names every one of them with its reason — '
@@ -96,6 +97,7 @@ export const closeFiscalPeriodTool: McpTool = {
 
 export const reopenFiscalPeriodTool: McpTool = {
   name: 'reopen_fiscal_period',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Reopen a closed fiscal period so journals can post into it again. '
     + 'A LOCKED period cannot be reopened — locking is what year_end_close does, and undoing it '
@@ -162,6 +164,7 @@ export const reopenFiscalPeriodTool: McpTool = {
 
 export const yearEndCloseTool: McpTool = {
   name: 'year_end_close',
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Close a fiscal year: post a journal that zeroes every revenue and expense account into '
     + 'retained earnings, then LOCK every period in that year. '

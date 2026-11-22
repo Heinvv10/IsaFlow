@@ -102,6 +102,7 @@ export async function listGroupCandidates(userId: string, companyId: string): Pr
       ON ic.company_low_id = (CASE WHEN me.company_id::TEXT < other.company_id::TEXT THEN me.company_id ELSE other.company_id END)
      AND ic.company_high_id = (CASE WHEN me.company_id::TEXT < other.company_id::TEXT THEN other.company_id ELSE me.company_id END)
     WHERE me.company_id = ${companyId}::UUID AND me.left_date IS NULL
+      AND co.status IS DISTINCT FROM 'suspended' AND co.status IS DISTINCT FROM 'deleted' AND co.suspended_at IS NULL
       AND EXISTS (
         SELECT 1 FROM company_users cu
         WHERE cu.company_id = other.company_id AND cu.user_id = ${userId}

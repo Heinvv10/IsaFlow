@@ -13,6 +13,7 @@ import { withAuth } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { payslipEmailHandler } from '@/lib/payslipEmailApi';
 import { admitPayslipEmails } from '../../pages/api/payroll/runs/[id]/payslips/email';
 import settings from '../../pages/api/payroll/settings/payslip-email';
@@ -46,7 +47,7 @@ export const capture: Mailer = async (o) => {
   return { success: true, messageId: `<pe-${captured.length}@example.invalid>` };
 };
 // The page's exact middleware (pinned by tests/unit/api/payslipEmailRoute.test.ts), around a capture mailer.
-const sendRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(capture, admitPayslipEmails)))))) as unknown as Route;
+const sendRoute = withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(payslipEmailHandler(capture, admitPayslipEmails))))))) as unknown as Route;
 
 export const send = (r: R, runId: string, o: Opts & { body?: unknown } = {}) =>
   r.call(sendRoute, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
@@ -64,7 +65,7 @@ export function sendVariant(r: R, runId: string, v: { limits?: SendLimits; failA
     const store = als.getStore();
     if (v.failAfter && store) store.rollbackOnly = 'test: the request fails after its sends';
   };
-  const route = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))) as unknown as Route;
+  const route = withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))))) as unknown as Route;
   return r.call(route, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
 }
 export const putSetting = (r: R, enabled: unknown, o: Opts = {}) =>

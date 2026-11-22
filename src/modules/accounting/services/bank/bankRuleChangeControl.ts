@@ -27,7 +27,12 @@ import { BankRequestRefusal } from './bankRequestRefusal';
 export type RuleProjection = Record<string, unknown>;
 export interface HeldRuleChange { status: 'pending_approval'; changeId: string }
 export type RuleWrite = { status: 'applied'; row: Record<string, unknown> } | HeldRuleChange;
-export type RuleWriteGuard = (after: RuleProjection, postsMoney: boolean) => void | Promise<void>;
+/** Runs under the rule lock before any write; `before` is the locked rule (null for a creation). */
+export type RuleWriteGuard = (
+  after: RuleProjection, postsMoney: boolean, before?: RuleProjection | null, beforePostsMoney?: boolean,
+) => void | Promise<void>;
+/** Runs under the rows' lock before a delete: each rule as it stands, and whether it posts money (bank_rule_posts_money). */
+export type RuleDeleteGuard = (rows: Array<{ before: RuleProjection; postsMoney: boolean }>) => void | Promise<void>;
 
 /** The columns a new rule's caller sets; the rest take the table's defaults (RULE_DEFAULTS). */
 export interface NewRuleColumns {
@@ -91,11 +96,11 @@ async function hold(companyId: string, ruleId: string | null, kind: 'create' | '
 
 /** Creates a rule, or holds the creation when it would auto-post under the switch. */
 export async function writeNewRule(
-  companyId: string, cols: NewRuleColumns, userId: string, guard?: RuleWriteGuard,
+  companyId: string, cols: NewRuleColumns, userId: string, guard: RuleWriteGuard,
 ): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const { after, postsMoney, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
-  await guard?.(after, postsMoney);
+  await guard(after, postsMoney, null, false);
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -118,14 +123,15 @@ export async function writeNewRule(
  * `Rule <id> not found` (as updateRule always has) for a rule not in the company.
  */
 export async function writeRuleChange(
-  companyId: string, ruleId: string, patch: RulePatch, userId: string, guard?: RuleWriteGuard,
+  companyId: string, ruleId: string, patch: RulePatch, userId: string, guard: RuleWriteGuard,
 ): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const before = await lockRuleProjection(companyId, ruleId);
   if (!before) throw new BankRequestRefusal(`Rule ${ruleId} not found`, 404);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   const { after, postsMoney, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
-  await guard?.(after, postsMoney);
+  const beforePostsMoney = await rulePostsMoney(companyId, before);
+  await guard(after, postsMoney, before, beforePostsMoney);
   if (held) return hold(companyId, ruleId, toggleOnly ? 'toggle' : 'update', after, userId);
   // `after` is the locked row with the patch over it, so setting the editable
   // columns from it moves exactly the named ones.
@@ -147,7 +153,7 @@ export async function writeRuleChange(
  * order; a missing or foreign id refuses the WHOLE batch (404) before any
  * delete. Repeated ids count once.
  */
-export async function removeRules(companyId: string, ids: readonly string[]): Promise<number> {
+export async function removeRules(companyId: string, ids: readonly string[], guard: RuleDeleteGuard): Promise<number> {
   const unique = [...new Set(ids.map((id) => id.toLowerCase()))].sort();
   if (unique.length === 0) return 0;
   const locked = (await sql`
@@ -159,6 +165,11 @@ export async function removeRules(companyId: string, ids: readonly string[]): Pr
     throw new BankControlError('NOT_FOUND', unique.length === 1 ? 'Rule not found.'
       : 'One or more of these rules do not exist in this company. Nothing was deleted.');
   }
+  const before = (await sql`
+    SELECT id, public.bank_rule_current(${companyId}::UUID, id) AS before FROM bank_categorisation_rules
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${unique}::UUID[])
+  `) as { id: string; before: RuleProjection }[];
+  await guard(await Promise.all(before.map(async (r) => ({ before: r.before, postsMoney: await rulePostsMoney(companyId, r.before) }))));
   const rows = (await sql`
     DELETE FROM bank_categorisation_rules WHERE company_id = ${companyId}::UUID AND id = ANY(${unique}::UUID[]) RETURNING id
   `) as { id: string }[];
@@ -221,15 +232,21 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
  * — re-pointing where it posts needs approval, and the table would otherwise
  * refuse it mid-merge. Called before the merge's first write.
  */
-export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId: string, targetId: string): Promise<void> {
+export async function moveRulesToCustomer(
+  tx: TxSql, companyId: string, sourceId: string, targetId: string, guard: RuleWriteGuard,
+): Promise<void> {
   await lockForRuleWrite(companyId);
   const rules = (await tx`
-    SELECT r.rule_name, public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
+    SELECT r.rule_name, public.bank_rule_projection(to_jsonb(r)) AS before,
+           public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
     FROM bank_categorisation_rules r
     WHERE r.company_id = ${companyId}::UUID AND r.client_id = ${sourceId}::UUID
     ORDER BY r.id FOR UPDATE
-  `) as { rule_name: string; auto_posts: boolean }[];
+  `) as { rule_name: string; before: RuleProjection; auto_posts: boolean }[];
   if (rules.length === 0) return;
+  // Re-pointing a posting rule changes where its journals go: the caller's guard (Banking Approve) decides, for each rule as it would
+  // stand, before any write (#1656 round 7). Approval is asked before the enforcement hold below, so a non-approver learns nothing of it.
+  for (const r of rules) await guard({ ...r.before, client_id: targetId }, r.auto_posts, r.before, r.auto_posts);
   const posting = rules.filter((r) => r.auto_posts).map((r) => `"${r.rule_name}"`);
   if (posting.length > 0 && await isEnforced(companyId, BANK_RULE)) {
     throw new BankControlError('RULE_MERGE_HELD', `Bank rule ${posting.join(', ')} posts money for this customer unattended, and `

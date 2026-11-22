@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { checkCapitalizationThreshold } from '@/modules/accounting/services/items/farDepreciationService';
 import { postCapitalizationExpenseToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 type Row = Record<string, unknown>;
 
@@ -51,6 +52,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'asset write-offs')) return; // #1656 (Hein: gate everything), before any write
     // Expense a specific below-threshold asset to GL
     const { assetId } = req.body as { assetId?: string };
     if (!assetId) return apiResponse.badRequest(res, 'assetId is required');

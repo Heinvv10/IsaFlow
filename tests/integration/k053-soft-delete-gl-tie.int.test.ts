@@ -186,7 +186,7 @@ describeIfDb('K-053 soft-delete keeps aging, the subledger and the GL tied', () 
   });
 
   it('AR: soft-delete reverses the journal, so aging, subledger and control all drop together', async () => {
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
 
     const aged = (await getARAging(COMPANY, AS_AT)).find((b) => b.entityId === customer);
     const sub = await getARSubledger(COMPANY, AS_AT);
@@ -207,7 +207,7 @@ describeIfDb('K-053 soft-delete keeps aging, the subledger and the GL tied', () 
   });
 
   it('AR: undo re-instates the journal, so the three tie again', async () => {
-    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }))).toBe(true);
 
     const aged = (await getARAging(COMPANY, AS_AT)).find((b) => b.entityId === customer);
     const sub = await getARSubledger(COMPANY, AS_AT);
@@ -220,13 +220,13 @@ describeIfDb('K-053 soft-delete keeps aging, the subledger and the GL tied', () 
   it('AP: soft-delete and undo move the payable control account with the report', async () => {
     expect(await controlBalance(payable)).toBeCloseTo(-GROSS, 2);
 
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
     expect((await getAPAging(COMPANY, AS_AT)).find((b) => b.entityId === supplier)).toBeUndefined();
     expect((await getAPSubledger(COMPANY, AS_AT)).subledgerTotal).toBeCloseTo(0, 2);
     expect(await controlBalance(payable)).toBeCloseTo(0, 2);
     expect(await unbalancedJournals()).toBe(0);
 
-    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }))).toBe(true);
     const aged = (await getAPAging(COMPANY, AS_AT)).find((b) => b.entityId === supplier);
     expect(aged!.total).toBeCloseTo(GROSS, 2);
     expect((await getAPSubledger(COMPANY, AS_AT)).subledgerTotal).toBeCloseTo(aged!.total, 2);
@@ -235,7 +235,7 @@ describeIfDb('K-053 soft-delete keeps aging, the subledger and the GL tied', () 
   });
 
   it('refuses to delete an invoice carrying payments, and writes nothing', async () => {
-    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', paidInvoice, USER)))
+    await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', paidInvoice, USER, { allowReversal: true })))
       .rejects.toThrow(/with payments/i);
     const rows = (await sql`SELECT deleted_at FROM customer_invoices WHERE id = ${paidInvoice}::UUID`) as { deleted_at: unknown }[];
     expect(rows[0]!.deleted_at).toBeNull();
@@ -244,7 +244,7 @@ describeIfDb('K-053 soft-delete keeps aging, the subledger and the GL tied', () 
   it('refuses to delete when the reversal has no open period, and leaves the journal posted', async () => {
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${COMPANY}::UUID`;
     try {
-      await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER)))
+      await expect(inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true })))
         .rejects.toThrow(/period/i);
       const rows = (await sql`SELECT deleted_at FROM customer_invoices WHERE id = ${arInvoice}::UUID`) as { deleted_at: unknown }[];
       expect(rows[0]!.deleted_at).toBeNull();

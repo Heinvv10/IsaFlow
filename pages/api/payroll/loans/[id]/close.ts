@@ -22,6 +22,7 @@ import {
   LoanNotFoundError,
   LoanClosedError,
 } from '@/modules/accounting/services/payroll/payrollLoanService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({ status: z.enum(['settled', 'written_off', 'cancelled']) }).strict();
 
@@ -47,4 +48,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

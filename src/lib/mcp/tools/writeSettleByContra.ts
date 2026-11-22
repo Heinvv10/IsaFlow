@@ -34,12 +34,14 @@ import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const TOOL = 'settle_by_contra';
 const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
 
 export const settleByContraTool: McpTool = {
   name: TOOL,
+  approveModule: 'by_subledger', // #1656: moduleFence asks this Approve before the handler
   description:
     'Settle a customer invoice or a supplier bill against another GL account — a loan, '
     + 'intercompany or director\'s account — WITHOUT any cash moving. Use it when the debt was '
@@ -120,6 +122,14 @@ export const settleByContraTool: McpTool = {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());
+    // #1656: a payable settles through a supplier payment this tool approves: the token owner's Suppliers & AP Approve.
+    if (subledger === 'ap' && !(await mayApprove(ctx.companyId, ctx.userId, 'suppliers'))) {
+      return toolError(approveRefusedMessage('suppliers', 'supplier payments'));
+    }
+    // Round 4, defence in depth beside the module fence: a receivable settles through a customer receipt this tool confirms.
+    if (subledger === 'ar' && !(await mayApprove(ctx.companyId, ctx.userId, 'customers'))) {
+      return toolError(approveRefusedMessage('customers', 'customer receipts'));
+    }
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has

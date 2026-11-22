@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+// #1656 r12 H1: the lock records the filed return, so it takes VAT & Tax Approve; granted here, refused in r12ApproveGateRoutes.
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>()));
 vi.mock('@/lib/auth', async () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,

@@ -21,6 +21,7 @@ import {
   BatchNotFoundError,
   BatchNotEditableError,
 } from '@/modules/accounting/services/payroll/payrollBatchService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const LineSchema = z
   .object({
@@ -73,4 +74,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 // Each line names an employee, so these logged figures are what that person is paid.
 const PAY_KEYS = ['value', 'km', 'ratePerKm', 'taxablePortion', 'nonTaxablePortion'];
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: PAY_KEYS }));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler))), { maskBodyKeys: PAY_KEYS }));

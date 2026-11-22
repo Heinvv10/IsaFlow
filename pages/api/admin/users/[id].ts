@@ -21,6 +21,7 @@ import {
 } from '@/modules/admin/services/superAdminRosterService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
 const PatchBody = z.object({
   first_name: z.string().min(1).max(100).optional(),
@@ -29,7 +30,7 @@ const PatchBody = z.object({
   // service-layer allowlist in adminUserService.ts:238. super_admin is accepted
   // ONLY as the target's unchanged role (the edit form sends the role with every
   // save); the handler refuses it as a promotion — no path to self-promote.
-  role:       z.enum(['admin', 'manager', 'storeman', 'technician', 'viewer', 'super_admin']).optional(),
+  role:       z.enum([...NON_OWNER_COMPANY_ROLES, 'super_admin']).optional(),
   phone:      z.string().max(30).optional(),
 }).strict();
 

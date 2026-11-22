@@ -31,6 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Cron triggered: management pack scheduler', {}, 'cron-management-packs');
 
+  // census-exempt(runDailyScheduler, payroll-read): reads a payroll run's kind or status for a refusal or a company total; no one person's pay
   const result = await runDailyScheduler();
   return apiResponse.success(res, { processed: result.companiesFound, result });
 }

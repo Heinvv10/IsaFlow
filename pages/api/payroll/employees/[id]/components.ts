@@ -28,6 +28,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { DbFactorConflict, setDbFundMemberContribution } from '@/modules/accounting/services/payroll/definedBenefitAssignment';
 import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -159,4 +160,4 @@ async function handler(
 }
 
 // The URL names the employee, so a logged amount is what that person earns.
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] }));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['amount'] }));

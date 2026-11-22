@@ -22,6 +22,7 @@ const isLoan = (c: { sarsSourceCode: string; componentType: string }) => c.compo
 
 export const listPayrollComponentsTool: McpTool = {
   name: 'list_payroll_components',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'The pay components this company can assign to an employee — basic salary, allowances, '
     + 'deductions, employer contributions. Resolve component_id here before calling '
@@ -56,6 +57,7 @@ export const listPayrollComponentsTool: McpTool = {
 
 export const listEmployeeComponentsTool: McpTool = {
   name: 'list_employee_components',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     "One employee's pay components, with the assignment_id that end_employee_component takes. "
     + 'An employee with nothing here is paid NOTHING — the run costs earnings from these, so '
@@ -103,6 +105,7 @@ export const listEmployeeComponentsTool: McpTool = {
 
 export const getEmployeeTool: McpTool = {
   name: 'get_employee',
+  permissionModule: 'payroll', // #1656: moduleFence asks Payroll read (a read) / write (a write tool)
   description:
     'One payroll employee by id. Use after create_employee or update_employee to read the '
     + 'record back, and before assign_employee_component to confirm you have the right person.',

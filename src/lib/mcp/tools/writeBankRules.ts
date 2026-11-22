@@ -49,6 +49,9 @@ import {
   lockedAutoPostScopeGuard,
   previewScopeRefusal,
 } from './bankRulePostingScope';
+import { bankRuleApprovalFor, bankRuleApproveRefusal, dryRunNeedsApprove } from './bankRuleApproval';
+import { allGuards } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
 
 /**
  * Under the `bank_rule` switch a change that makes a rule auto-post, or moves
@@ -130,17 +133,20 @@ export const createBankRuleTool: McpTool = {
       vatCode: vatCode as RuleVatCode | undefined, ...(autoApply === undefined ? {} : { autoApply }),
     };
 
+    const approval = await bankRuleApprovalFor(ctx); // #1656 (round 5): the token owner's Banking Approve for an auto-posting rule
     try {
       if (args.dry_run === true) {
         const previewRefusal = await previewScopeRefusal(ctx, true, autoCreateEntry);
         if (previewRefusal) return previewRefusal;
+        if (!approval.allow && dryRunNeedsApprove(null, input)) return bankRuleApproveRefusal();
         await validateCreateRuleTargets(ctx.companyId, input);
         return dryRun({ action: 'create_bank_rule', auto_create_entry: autoCreateEntry });
       }
       const written = await createRule(ctx.companyId, input, ctx.userId,
-        lockedAutoPostScopeGuard(ctx, (after) => after.auto_create_entry === true));
+        allGuards(lockedAutoPostScopeGuard(ctx, (after) => after.auto_create_entry === true), approval.guard));
       return reply(written);
     } catch (err) {
+      if (err instanceof ApprovePermissionError) return bankRuleApproveRefusal();
       if (err instanceof AutoPostScopeError) return autoPostScopeError();
       return toolError(safeErrorText(err, 'Failed to create bank rule.'));
     }
@@ -220,18 +226,21 @@ export const updateBankRuleTool: McpTool = {
       vatCode: vatCode as RuleVatCode | undefined, ...(autoApply === undefined ? {} : { autoApply }),
     };
 
+    const approval = await bankRuleApprovalFor(ctx); // #1656 (round 5): decided from the rule as it stands, not from this call's flag
     try {
       if (args.dry_run === true) {
         const previewRefusal = await previewScopeRefusal(ctx, resultingIsActive, resultingAutoCreateEntry);
         if (previewRefusal) return previewRefusal;
+        if (!approval.allow && dryRunNeedsApprove(rule, input)) return bankRuleApproveRefusal();
         await validateUpdateRuleTargets(ctx.companyId, ruleId, input);
         return dryRun({ action: 'update_bank_rule', rule_id: ruleId, auto_create_entry: resultingAutoCreateEntry });
       }
       const written = await updateRule(ctx.companyId, ruleId, input, ctx.userId,
-        lockedAutoPostScopeGuard(ctx,
-          (after) => after.is_active === true && after.auto_create_entry === true));
+        allGuards(lockedAutoPostScopeGuard(ctx,
+          (after) => after.is_active === true && after.auto_create_entry === true), approval.guard));
       return reply(written);
     } catch (err) {
+      if (err instanceof ApprovePermissionError) return bankRuleApproveRefusal();
       if (err instanceof AutoPostScopeError) return autoPostScopeError();
       return toolError(safeErrorText(err, 'Failed to update bank rule.'));
     }
@@ -272,12 +281,14 @@ export const disableBankRuleTool: McpTool = {
     const scopeRefusal = autoPostScopeRefusal(ctx, isActive && rule.autoCreateEntry);
     if (scopeRefusal) return scopeRefusal;
 
+    const approval = await bankRuleApprovalFor(ctx); // #1656 (round 5): re-activating an auto-posting rule needs Banking Approve
     try {
       const written = await toggleRule(ctx.companyId, ruleId, isActive, ctx.userId,
-        lockedAutoPostScopeGuard(ctx, (after) => after.is_active === true && after.auto_create_entry === true));
+        allGuards(lockedAutoPostScopeGuard(ctx, (after) => after.is_active === true && after.auto_create_entry === true), approval.guard));
       if (written.status === 'pending_approval') return reply(written);
       return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: false });
     } catch (err) {
+      if (err instanceof ApprovePermissionError) return bankRuleApproveRefusal();
       if (err instanceof AutoPostScopeError) return autoPostScopeError();
       throw err;
     }

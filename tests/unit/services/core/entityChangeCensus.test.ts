@@ -41,7 +41,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/supplier-merge.ts', 'scripts/import-sage-britech.ts', 'scripts/qa-seed/parties.ts',
     'scripts/qa-seed/reset.ts', 'scripts/seed-prd05-qa-data.ts', `${S}ap/supplierPaymentAuthors.ts`,
     `${S}capture/supplierGraphService.ts`, `${S}core/duplicateMergeService.ts`, `${S}core/migrationContactService.ts`,
-    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
+    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeletePurge.ts`,
     `${S}core/supplierMergeOpenWork.ts`, `${S}core/supplierWriteService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
     'src/modules/admin/services/sagePartyMatch.ts',
   ],
@@ -49,7 +49,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/customers-bulk.ts', 'scripts/import-sage-britech.ts', 'scripts/qa-seed/parties.ts',
     'scripts/qa-seed/reset.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/simulate-fy2026-workflows.ts',
     `${S}ar/customerMergeService.ts`, `${S}core/customerWriteService.ts`, `${S}core/migrationContactService.ts`,
-    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
+    `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeletePurge.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
     'src/modules/admin/services/sagePartyMatch.ts',
   ],
@@ -91,7 +91,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invitations/index.ts', 'pages/api/invitations/revoke/[id].ts',
     'pages/api/invite/[token].ts', `${S}core/userInvitationService.ts`,
   ],
-  company_user_permissions: ['src/lib/auth/permissionService.ts'],
+  company_user_permissions: [`${S}core/memberWrites.ts`, 'src/modules/admin/services/companyMembershipService.ts'],
   companies: [
     'pages/api/accounting/afs/pis-score.ts', 'pages/api/accounting/chase-settings.ts', 'pages/api/accounting/cipc-annual-return.ts',
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
@@ -158,6 +158,7 @@ describe('entity change history (census)', () => {
       .flatMap(({ file, text }) => [...code(file, text).matchAll(/\bentity_change\w*/g)].map((m) => `${file}: ${m[0]}`));
     expect([...new Set(naming)].sort()).toEqual([
       'scripts/lib/demoReseed/wipePlan.ts: entity_changes', // kept by the Demo reseed, never written
+      'src/modules/accounting/services/core/auditTrailService.ts: entity_change', // the audit-log filter that hides a payroll reveal row (round 9)
       'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: entity_changes',
       'src/modules/accounting/services/core/entityChanges/entityChangeReveal.ts: entity_change',
     ]);

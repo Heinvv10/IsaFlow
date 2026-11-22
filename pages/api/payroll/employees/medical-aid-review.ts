@@ -16,6 +16,7 @@ import {
 } from '@/lib/auth';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { listMainMembersWithoutMedicalDeduction } from '@/modules/accounting/services/payroll/payrollMedicalAidReviewService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -34,4 +35,4 @@ async function handler(
   return apiResponse.success(res, { count: employees.length, employees });
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withPayrollModule(handler)));

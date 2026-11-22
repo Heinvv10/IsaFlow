@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -83,6 +84,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       switch (action || 'categorize') {
         case 'categorize': {
+          // #1656 (round 3): the sweep auto-posts the journals of the lines it categorises: Banking Approve, before any write.
+          if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank categorisation')) return;
           // If bankAccountId provided, categorize all uncategorized for that account
           if (bankAccountId) {
             const { firstAttemptTxIds, ...result } = await smartCategorizeForAccount(companyId, bankAccountId);

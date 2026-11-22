@@ -28,6 +28,7 @@ import {
 import { setRunHours } from '@/modules/accounting/services/payroll/payrollRunHoursInput';
 import { setRunUnits, type UnitEntry } from '@/modules/accounting/services/payroll/payrollRunUnitsInput';
 import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -108,4 +109,4 @@ function parseUnits(v: unknown): UnitEntry | string {
   return { kind: u.kind, multiplier: u.multiplier, quantity: u.quantity, ratePerKm: (u.ratePerKm ?? null) as number | null, expectedQuantity: u.expectedQuantity };
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

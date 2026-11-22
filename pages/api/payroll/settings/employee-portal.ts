@@ -15,6 +15,7 @@ import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { payslipEmailActor } from '@/lib/payslipEmailApi';
 import { readEmployeePortalState, setEmployeePortalEnabled } from '@/modules/accounting/services/payroll/employeePortalSettings';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const Body = z.object({ enabled: z.boolean() }).strict();
 
@@ -32,4 +33,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, await setEmployeePortalEnabled(companyId, parsed.data.enabled, actor));
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))))));

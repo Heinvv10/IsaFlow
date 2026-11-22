@@ -70,6 +70,11 @@ export async function importParsedTransactions(
      * The UI path leaves this unset and keeps all three behaviours.
      */
     skipPostImportEffects?: boolean;
+    /**
+     * Keep the import's outflow auto-post sweep (it posts journals) from running, leaving every line 'imported' (#1656,
+     * round 3): set for a person without Banking Approve. The transfer links still run. Unset = the sweep runs as ever.
+     */
+    skipAutoPost?: boolean;
   } = {},
 ): Promise<{
   batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }>;
@@ -177,7 +182,7 @@ export async function importParsedTransactions(
             AND amount < 0
             AND status = 'imported'
         `) as { id: string }[];
-        if (outflowIds.length > 0) {
+        if (outflowIds.length > 0 && !options.skipAutoPost) {
           // Posted as the system user, as ever; run FOR the importer, whose own lines it skips under enforcement (step 2).
           const systemUser = '00000000-0000-0000-0000-000000000000';
           const swept = await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser);
