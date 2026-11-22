@@ -130,7 +130,8 @@ export class IntercompanyMatchRefusedError extends Error {
 export class IntercompanyMirroredRowError extends Error {
   constructor(readonly ids: string[]) {
     super('A transaction recorded by the intercompany mirror is matched by the system, from the receiving company\'s ledger; it cannot be matched by hand. '
-      + 'If the receiving company\'s books do not support it, the Eliminations page lists it as having no elimination: make a manual elimination with a reason there.');
+      + 'If the receiving company rejected it or its books do not support it, the Eliminations page lists it as having no elimination: make a manual elimination with a reason there. '
+      + '(A document the receiving company has not yet accepted is not listed: it waits in the receiver\'s inbox and is eliminated once accepted.)');
     this.name = 'IntercompanyMirroredRowError';
   }
 }

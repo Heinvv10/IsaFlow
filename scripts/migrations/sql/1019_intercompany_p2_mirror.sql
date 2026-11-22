@@ -11,19 +11,16 @@
 --      the session company's approved document and records on the message the journal it was sent with and the group row. The messages guard
 --      refuses a session's own INSERT of a message that carries or names a document (it allow-lists migration_admin). The journal must be the
 --      document's OWN posting (intercompany_own_posting_problem) and carry its figures by value (intercompany_sender_journal_value_problem).
-
 --   2. THE ELIMINATIONS OF MIRRORED DOCUMENTS ARE DERIVED AT READ TIME, never stored: intercompany_mirror_eliminations(group, start, end) returns
 --      the dated EVENTS of the mirrored rows of the group's current members: +E when the two ledgers start supporting a pair, -E when they stop
 --      (each judged with the reversal links dated on or before it; the receiver's financial-year cut-off; both journals' figures by value), the
 --      period being the sum of the events dated in it, so at any moment a range is the sum of its months. A later booking or reversal does not change
 --      an earlier period; the reference data the judgement reads is not dated, so editing it can (see the limit at intercompany_mirror_eliminations).
 --      No hook, lock or repair stands between a ledger and a figure.
-
 --   3. Hooks maintain INBOX and DISPLAY state only: intercompany_withdraw_for_source / intercompany_journal_chain_changed withdraw or revive a
 --      message by the ledger's parity, and intercompany_sync_group_row (best effort) binds a group row to the receiver's journal the first time it
 --      matches (identity, supplier, period, figures) and shows its status and variance reason. A mirrored row's match columns are written by
 --      migration_admin only (intercompany_transaction_parties_immutable).
-
 --   4. The auto-accept worker's definer path (queue and exhausted list), the receiver's source-changed check, and the 6b backfill of what
 --      older messages did not record.
 
@@ -87,19 +84,16 @@ ALTER TABLE intercompany_transactions ADD COLUMN IF NOT EXISTS first_target_jour
 CREATE INDEX IF NOT EXISTS idx_ic_messages_group_transaction ON intercompany_messages (group_transaction_id) WHERE group_transaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ic_messages_source_journal ON intercompany_messages (source_journal_entry_id) WHERE source_journal_entry_id IS NOT NULL;
 -- One row per receiver journal, structurally: two rows matched to one journal would both be eliminated (two concurrent syncs see neither the
--- other's uncommitted match; the loser's UPDATE waits on this index and is mapped to a variance, intercompany_sync_core). The column is new
--- in this migration, so no existing row can collide.
+-- other's uncommitted match; the loser's UPDATE waits on this index and is mapped to a variance, intercompany_sync_core). The column is new here.
 DROP INDEX IF EXISTS public.idx_ic_transactions_first_journal;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ic_transactions_first_journal ON intercompany_transactions (first_target_journal_entry_id) WHERE first_target_journal_entry_id IS NOT NULL;
 -- The exclusivity checks look rows up by their target journal too (every pair, every chain date): without this they scan every tenant's rows.
 CREATE INDEX IF NOT EXISTS idx_ic_transactions_target_journal ON intercompany_transactions (target_journal_entry_id) WHERE target_journal_entry_id IS NOT NULL;
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_since TIMESTAMPTZ;
--- mirroring_since: from when this side mirrors: the start of the day (Johannesburg) AFTER its customer AND supplier links were both set, NULL
--- while either is missing.
--- Set by the database only (no app role has a column grant on it), so it is the history the per-pair cutover reads (RULING 2026-11-21).
+-- mirroring_since: from when this side mirrors: the start of the day (Johannesburg) AFTER its customer AND supplier links were both set, NULL while
+-- either is missing. Set by the database only (no app role has a column grant on it): the history the per-pair cutover reads (RULING 2026-11-21).
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS mirroring_since TIMESTAMPTZ;
--- Why a person made a manual elimination for a pair whose documents are already eliminated by mirroring (required by the API on or after the
--- pair's cutover: consolidated-reports create-elimination).
+-- Why a person made a manual elimination for a pair whose documents are mirrored (the API requires it on or after the pair's cutover).
 ALTER TABLE consolidation_adjustments ADD COLUMN IF NOT EXISTS manual_reason TEXT;
 
 -- One standing (draft or posted) elimination per intercompany row, enforced by a partial unique index. THIS MIGRATION DOES NOT CHANGE EXISTING
@@ -601,8 +595,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_journal_bound_elsewhere(uuid, uuid
 -- (the figures are intercompany_receiver_journal_value_problem's). The journal is a posted journal of this company, the one posting THIS document
 -- wrote (source and text), standing at p_asat (NULL = now: an odd reversal chain counting links dated on or before it), no other document's
 -- posting and no other row's, for the connection's supplier, and in the same financial year of the company's calendar as the sender's date. The
--- document's link to its journal is a column a writer can point anywhere, and the journal's text is a writer's too: hence each check.
--- SECURITY INVOKER, migration_admin only.
+-- document's link to its journal is a column a writer can point anywhere, and the journal's text is a writer's too: hence each check. SECURITY INVOKER, migration_admin only.
 DROP FUNCTION IF EXISTS public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date);
 DROP FUNCTION IF EXISTS public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]);
 CREATE OR REPLACE FUNCTION public.intercompany_receiver_journal_problem(p_row uuid, p_co uuid, p_doc_type text, p_doc_id uuid, p_je uuid, p_asat date,
@@ -859,20 +852,17 @@ ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER T
 REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
 
--- THE MIRRORED ROWS NO PATH ELIMINATES, for the reports and the Eliminations page (the mirror is automatic, so nobody would notice otherwise).
--- A mirrored row is skipped by the manual generator, refused by the manual match, and eliminated by the derivation only while the receiver's
--- journal carries the sender's figures in the same financial year; a row where that fails (a variance: the receiver edited the amount, booked
--- it in another financial year, a journal that is not the document's posting; or the receiver cancelled its approved document) has NO
--- elimination at all, and only a manual one with a reason can eliminate it. Listed: a row of the group (both companies current members, the
--- caller a member) dated in the period, whose message the receiver ACCEPTED and then acted on (its document is approved-class or cancelled:
--- a draft is a pending person, not a stuck row), whose sender journal still stands as at the period end by value, and whose pair stands
--- neither as at the period end NOR as at today (a bill booked after the period eliminates then: not stuck). A row whose group-row match
--- columns still say 'matched' (a hook that failed, best effort) is not looked at: the listing starts from the display status
--- ('variance' / 'unmatched'), so it stays a bounded read. Unmapped accounts are the derivation's own report (intercompany_mirror_eliminations).
--- A definer: only for a group the caller is a member of. reason: the variance reason the sync recorded, or why the pair does not stand.
+-- THE MIRRORED ROWS NO PATH ELIMINATES, for the reports and the Eliminations page (the mirror is automatic: nobody would notice otherwise).
+-- The generator skips a mirrored row, the manual match refuses it, and the derivation eliminates it only while the receiver's journal carries
+-- the sender's figures in the same financial year; only a manual elimination with a reason (carrying the row: source_intercompany_id) can
+-- eliminate it otherwise. Listed: a row of the group (both companies current members, the caller a member) dated in the period whose sender
+-- journal stands as at the period end by value and whose message is (a) ACCEPTED and its document acted on (approved-class or cancelled)
+-- while the pair stands neither at the period end NOR as of all links (a bill dated later, even after today, eliminates on its own date), or
+-- (b) REJECTED, DISMISSED or FAILED (nothing will ever eliminate it). PENDING is not listed: it waits in the receiver's inbox. A POSTED manual
+-- elimination of the row unlists it; a DRAFT lists it as 'drafted'. A row still 'matched' by its display columns (a failed hook) is not looked at.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_unresolved(uuid, date, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_unresolved(p_group uuid, p_start date, p_end date)
-RETURNS TABLE (transaction_id uuid, transaction_date date, description text, amount numeric, reason text)
+RETURNS TABLE (transaction_id uuid, transaction_date date, description text, amount numeric, reason text, reason_code text)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
@@ -880,9 +870,15 @@ SET jit = off
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT it.id, it.transaction_date, it.description, it.amount,
-         COALESCE(NULLIF(btrim(it.variance_reason), ''),
-                  CASE WHEN bill.cancelled THEN 'the receiver cancelled its document'
-                       ELSE 'the receiver''s journal does not carry the sender''s figures as a standing posting' END)
+         CASE k.code
+           WHEN 'drafted' THEN 'a manual elimination for this row is drafted but not posted: post it'
+           WHEN 'rejected' THEN 'the receiver rejected it' || COALESCE(': ' || NULLIF(btrim(m.reason), ''), '')
+           WHEN 'dismissed' THEN 'the receiver dismissed it without accepting it'
+           WHEN 'failed' THEN 'the automatic acceptance failed and the receiver has not accepted it'
+           ELSE COALESCE(NULLIF(btrim(it.variance_reason), ''),
+                         CASE k.code WHEN 'cancelled' THEN 'the receiver cancelled its document'
+                              ELSE 'the receiver''s journal does not carry the sender''s figures as a standing posting' END) END,
+         k.code
     FROM public.intercompany_transactions it
     JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
     CROSS JOIN LATERAL (
@@ -897,20 +893,25 @@ AS $$
                  WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id AND si.company_id = m.to_company_id),
                (SELECT cn.status = 'cancelled' FROM public.credit_notes cn
                  WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id AND cn.company_id = m.to_company_id AND cn.type = 'supplier'),
-               false) AS cancelled) bill
+               false) AS cancelled,
+             COALESCE(ca.d, false) AS drafted, COALESCE(ca.p, false) AS posted
+        FROM (SELECT bool_or(x.status = 'draft') AS d, bool_or(x.status = 'posted') AS p FROM public.consolidation_adjustments x
+               WHERE x.group_id = p_group AND x.source_intercompany_id = it.id) ca) bill
+    CROSS JOIN LATERAL (SELECT CASE WHEN bill.drafted THEN 'drafted' WHEN m.status <> 'accepted' THEN m.status
+                                    WHEN bill.cancelled THEN 'cancelled' ELSE 'variance' END AS code) k
    WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
      AND it.transaction_date BETWEEN p_start AND p_end
      AND it.match_status IN ('variance', 'unmatched')
-     AND m.status = 'accepted' AND m.target_doc_id IS NOT NULL AND m.source_journal_entry_id IS NOT NULL
-     AND bill.acted
+     AND m.status IN ('accepted', 'rejected', 'dismissed', 'failed') AND m.source_journal_entry_id IS NOT NULL
+     AND NOT bill.posted
+     AND (m.status <> 'accepted' OR (m.target_doc_id IS NOT NULL AND bill.acted
+          AND public.intercompany_mirror_pair_at(it.id, p_end) IS NULL AND public.intercompany_mirror_pair_at(it.id, NULL) IS NULL))
      AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = it.source_company_id AND a.left_date IS NULL)
      AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = p_group AND b.company_id = it.target_company_id AND b.left_date IS NULL)
      AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
      AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
      AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
            (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
-     AND public.intercompany_mirror_pair_at(it.id, p_end) IS NULL
-     AND public.intercompany_mirror_pair_at(it.id, (now() AT TIME ZONE 'Africa/Johannesburg')::date) IS NULL
    ORDER BY it.transaction_date, it.id
 $$;
 ALTER FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) OWNER TO migration_admin;
@@ -1525,7 +1526,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 
 -- Whether journal p_je is already held: the target or first match of any intercompany row, or the journal of a bill / supplier credit note
 -- that an accepted invoice / credit-note message created (a mirrored document, bound or not yet). A definer: the INSERT trigger below asks it
@@ -2209,9 +2209,9 @@ BEGIN
      ORDER BY COALESCE(e.nxt, e.cat), e.cat, e.mid
      LIMIT LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200)
   ), locked AS (
-    -- a claim takes a message only if no other claim holds it (SKIP LOCKED: two overlapping runs never take, and so never attempt, the same
-    -- message twice), and still at the attempt this run's pick read (a run that committed between the pick and the lock has moved it on: the
-    -- row's quals are re-checked after the wait, so the second run skips it too)
+    -- a claim takes a message only if no other claim holds its lock (SKIP LOCKED never waits: it skips a locked row, so two overlapping runs never
+    -- attempt the same message twice) and it is still at the attempt this run's pick read (a run that committed between the pick and the lock has
+    -- moved it on: once locked, the quals are re-checked against the committed row, so the second run skips it too)
     SELECT m.id AS lid FROM public.intercompany_messages m JOIN picked p ON p.mid = m.id
      WHERE p_claim AND m.status = 'pending' AND m.auto_attempts = p.att
        FOR UPDATE OF m SKIP LOCKED
@@ -2362,7 +2362,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_mirror_eliminations(uuid,date,date)', 'public.intercompany_mirror_eliminations(uuid, date, date)',
      'nothing: a read of the mirrored group rows of a group the caller is a member of (both companies current members), their journals'' dated reversal chains and the receiver''s documents, giving the elimination and counter-elimination lines dated in a period (derived from the ledgers as they stood on each event date, never stored)'),
     ('intercompany_mirror_unresolved(uuid,date,date)', 'public.intercompany_mirror_unresolved(uuid, date, date)',
-     'nothing: for a group the caller is a member of, the mirrored group rows dated in a period (both companies current members) whose message the receiver accepted and acted on (approved or cancelled its document), whose sender journal still stands as at the period end, and whose pair stands neither at the period end nor today, with the reason (a read of intercompany_transactions, intercompany_messages, the receiver''s document status and the journals'' reversal chains); the reports and the Eliminations page say these need a manual elimination'),
+     'nothing: for a group the caller is a member of, the mirrored group rows dated in a period (both companies current members) whose sender journal still stands as at the period end and whose message the receiver accepted and acted on (approved or cancelled its document) while the pair stands neither at the period end nor as of all links, or the receiver rejected, dismissed or failed to accept, and which has no posted manual elimination, with the reason and a reason code (a read of intercompany_transactions, intercompany_messages, the receiver''s document status and the journals'' reversal chains); the reports and the Eliminations page say these need a manual elimination'),
     ('intercompany_message_source_out(uuid)', 'public.intercompany_message_source_out(uuid)',
      'nothing: a read of the sender''s approved document through the payload builder and of the sent-with journal''s reversal chain, for the receiver of that message only'),
     ('intercompany_journal_chain_changed(uuid)', 'public.intercompany_journal_chain_changed(uuid)',

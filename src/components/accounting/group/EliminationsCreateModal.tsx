@@ -35,12 +35,14 @@ interface Props {
   formReason: string;
   onReasonChange: (v: string) => void;
   reasonRequiredFrom: string | null;
+  /** The unresolved mirrored row this elimination eliminates (it carries the row; a reason is then always required). */
+  resolvedRow?: { description: string; amount: number; keyDate: string } | null;
 }
 
 export function EliminationsCreateModal({
   formType, formDescription, formPeriod, formLines, formError, formSaving,
   onClose, onSubmit, onTypeChange, onDescriptionChange, onPeriodChange,
-  onAddLine, onRemoveLine, onUpdateLine, formReason, onReasonChange, reasonRequiredFrom,
+  onAddLine, onRemoveLine, onUpdateLine, formReason, onReasonChange, reasonRequiredFrom, resolvedRow,
 }: Props) {
   const dateGate = useDateGate();
   const totalDebit = formLines.reduce((s, l) => s + Number(l.debit || 0), 0);
@@ -98,7 +100,13 @@ export function EliminationsCreateModal({
             />
           </div>
 
-          {reasonRequiredFrom && (
+          {resolvedRow && (
+            <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-[var(--ff-text-secondary)]">
+              Eliminating the mirrored sale of {resolvedRow.keyDate}: {resolvedRow.description} ({fmt(resolvedRow.amount)}). Once posted it is no longer listed as having no elimination.
+            </p>
+          )}
+
+          {(reasonRequiredFrom || resolvedRow) && (
             <div>
               <label htmlFor="elimination-manual-reason" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">
                 Reason for a manual elimination (required)
@@ -106,7 +114,7 @@ export function EliminationsCreateModal({
               <input id="elimination-manual-reason" type="text" value={formReason} onChange={(e) => onReasonChange(e.target.value)} required minLength={MANUAL_REASON_MIN} maxLength={MANUAL_REASON_MAX}
                 aria-describedby="elimination-manual-reason-help" className={inputClass + ' w-full'} />
               <p id="elimination-manual-reason-help" className="mt-1 text-xs text-[var(--ff-text-secondary)]">
-                {mirrorCoverage(reasonRequiredFrom)} Say why this one is made by hand.
+                {reasonRequiredFrom ? `${mirrorCoverage(reasonRequiredFrom)} ` : ''}Say why this one is made by hand.{resolvedRow ? ' The receiver\'s books do not eliminate it.' : ''}
               </p>
             </div>
           )}

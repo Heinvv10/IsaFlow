@@ -33,11 +33,11 @@ describe('getMirroredEliminations: unmapped accounts', () => {
   });
 
   it('R21 M1: the rows no path eliminates are appended as kind "unresolved" (date, trimmed description, cents, the reason), also when nothing is derived; none without a `dropped` list', async () => {
-    const unresolved = [{ transaction_id: 'u1', transaction_date: new Date('2026-12-30T00:00:00Z'), description: ' Sale Dec ', amount: '1000.004', reason: 'cut-off: different financial years' }];
+    const unresolved = [{ transaction_id: 'u1', transaction_date: new Date('2026-12-30T00:00:00Z'), description: ' Sale Dec ', amount: '1000.004', reason: 'cut-off: different financial years', reason_code: 'variance' }];
     sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce(unresolved);
     const dropped: DroppedMirroredElimination[] = [];
     expect(await getMirroredEliminations('g', '2026-12-01', '2026-12-31', dropped)).toEqual([]);
-    expect(dropped).toEqual([{ transactionId: 'u1', keyDate: '2026-12-30', description: 'Sale Dec', amount: 1000, kind: 'unresolved', detail: 'cut-off: different financial years' }]);
+    expect(dropped).toEqual([{ transactionId: 'u1', keyDate: '2026-12-30', description: 'Sale Dec', amount: 1000, kind: 'unresolved', detail: 'cut-off: different financial years', code: 'variance' }]);
     sqlMock.mockReset();
     sqlMock.mockResolvedValueOnce([]);
     await getMirroredEliminations('g', '2026-12-01', '2026-12-31');

@@ -44,11 +44,13 @@ interface GroupAccount { id: string; code: string; name: string; type: string; s
 /**
  * A mirrored row the group figures keep un-eliminated, reported with the derivation (the mirror is automatic: nobody would see it otherwise):
  *  - 'unmapped': its elimination event could NOT be applied, one of its accounts has no group account mapped (map the accounts);
- *  - 'unresolved': it has NO elimination from any path (a variance: the receiver's journal does not carry the sender's figures, or the receiver
- *    cancelled its document; the manual generator and match refuse a mirrored row), so only a manual elimination with a reason can eliminate
- *    the sale. `detail` says why (intercompany_mirror_unresolved); `keyDate` is the row's date.
+ *  - 'unresolved': it has NO elimination from any path (a variance: the receiver's journal does not carry the sender's figures; the receiver
+ *    cancelled its document, rejected, dismissed or failed to accept the message; the manual generator and match refuse a mirrored row), so
+ *    only a manual elimination with a reason (carrying the row) can eliminate the sale. `detail` says why, `code` which (intercompany_mirror_unresolved);
+ *    `keyDate` is the row's date.
  */
-export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number; kind: 'unmapped' | 'unresolved'; detail: string }
+export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number; kind: 'unmapped' | 'unresolved'; detail: string;
+  /** unresolved only: why (drafted / rejected / dismissed / failed / cancelled / variance), so the notice gives the right advice. */ code?: string }
 
 /** Money to cents, as the consolidated reports round (the derived lines are summed by the reports, so each is rounded here once). */
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -81,11 +83,11 @@ export async function getMirroredEliminations(
 /** The mirrored rows dated in the period that NO path eliminates (intercompany_mirror_unresolved), as the page and the reports list them. */
 async function unresolvedMirrored(groupId: string, periodStart: string, periodEnd: string): Promise<DroppedMirroredElimination[]> {
   const rows = ((await sql`
-    SELECT transaction_id, transaction_date, description, amount, reason
+    SELECT transaction_id, transaction_date, description, amount, reason, reason_code
       FROM public.intercompany_mirror_unresolved(${groupId}::UUID, ${periodStart}::DATE, ${periodEnd}::DATE)
   `) ?? []) as Row[];
   return rows.map((r) => ({ transactionId: String(r.transaction_id), keyDate: dateText(r.transaction_date), description: String(r.description ?? '').trim(),
-    amount: cents(Number(r.amount)), kind: 'unresolved', detail: String(r.reason ?? '') }));
+    amount: cents(Number(r.amount)), kind: 'unresolved', detail: String(r.reason ?? ''), code: String(r.reason_code) }));
 }
 
 async function deriveEliminations(

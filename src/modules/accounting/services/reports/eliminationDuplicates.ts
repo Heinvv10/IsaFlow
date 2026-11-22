@@ -53,8 +53,8 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
                WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
         FROM consolidation_adjustments ca
        WHERE ca.group_id = ${groupId}::UUID
-         -- a stored adjustment of a MIRRORED row (written by an older generator, e.g. after a code rollback) is never shown: its figure is derived
-         AND (ca.source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
+         -- an older generator's adjustment of a MIRRORED row (e.g. after a code rollback) is never shown: its figure is derived. A person's (it carries a reason) is
+         AND (ca.source_intercompany_id IS NULL OR ca.manual_reason IS NOT NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
          AND (${pStart}::DATE IS NULL OR ca.period_start >= ${pStart}::DATE)
          AND (${pEnd}::DATE IS NULL OR ca.period_end <= ${pEnd}::DATE)
     ), f AS MATERIALIZED (

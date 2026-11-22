@@ -178,7 +178,7 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
-          <MirroredDroppedNotice rows={dropped} />
+          <MirroredDroppedNotice rows={dropped} onEliminate={(r) => form.startFor({ id: r.transactionId, keyDate: r.keyDate, description: r.description, amount: r.amount })} />
           <EliminationsFlaggedNotice rows={generateNotes.flagged} skipped={generateNotes.skipped} onDismiss={() => setGenerateNotes(NO_NOTES)} />
           {/* a failed load must not also say "none found" */}
           {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
@@ -196,7 +196,7 @@ export default function EliminationsPage() {
           <EliminationsCreateModal
             formType={form.type} formDescription={form.description} formPeriod={form.period}
             formLines={form.lines} formError={form.error} formSaving={form.saving}
-            formReason={form.reason} onReasonChange={form.setReason} reasonRequiredFrom={form.needsReason ? reasonRequiredFrom : null}
+            formReason={form.reason} onReasonChange={form.setReason} reasonRequiredFrom={form.needsReason ? reasonRequiredFrom : null} resolvedRow={form.row}
             onClose={() => form.setOpen(false)}
             onSubmit={form.submit}
             onTypeChange={form.setType} onDescriptionChange={form.setDescription} onPeriodChange={form.setPeriod}

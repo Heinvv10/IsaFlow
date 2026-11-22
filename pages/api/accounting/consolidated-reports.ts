@@ -12,7 +12,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
-import { EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import {
+  EliminationAlreadyStandsError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError, EliminationUnbalancedError,
+} from '@/modules/accounting/services/reports/eliminationErrors';
+import { assertMirroredRowResolvable } from '@/modules/accounting/services/reports/eliminationResolve';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -27,7 +30,7 @@ import {
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import type { FlaggedEliminationRow, SkippedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
 import { cutoverRequiringReason } from '@/modules/accounting/services/reports/eliminationDuplicates';
-import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
+import { manualReasonMissing, manualReasonTooLong, resolveReasonMissing } from '@/modules/accounting/services/reports/manualReason';
 import type { DroppedMirroredElimination } from '@/modules/accounting/services/reports/mirrorEliminations';
 import { refuseWithoutGroupApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
@@ -71,6 +74,8 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
   } catch (err) {
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
+    if (err instanceof EliminationSourceError) return apiResponse.badRequest(res, err.message, { reason: 'bad_source_row' });
+    if (err instanceof EliminationAlreadyStandsError) return apiResponse.conflict(res, err.message, { reason: 'already_stands' });
     if (err instanceof EliminationPossibleDuplicateError) {
       return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorFacts: err.facts, pairCutover: err.pairCutover });
     }
@@ -175,9 +180,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (tooLong) return apiResponse.badRequest(res, tooLong, { reason: 'manual_reason_too_long' });
       const missing = cutover ? manualReasonMissing(reason, cutover) : null;
       if (missing) return apiResponse.badRequest(res, missing, { reason: 'manual_reason_required', cutover });
-      return answerRefusals(res, async () => apiResponse.success(res, await createEliminationAdjustment(gId, {
-        adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
-      })));
+      // An elimination that RESOLVES a mirrored row no path eliminates carries the row (so it unlists once posted and a second is refused).
+      const sourceRow = body.sourceIntercompanyId;
+      if (sourceRow !== undefined && !isUuidParam(sourceRow)) return apiResponse.badRequest(res, 'sourceIntercompanyId must be a valid UUID');
+      const noReason = sourceRow ? resolveReasonMissing(reason) : null;
+      if (noReason) return apiResponse.badRequest(res, noReason, { reason: 'manual_reason_required', cutover: null });
+      return answerRefusals(res, async () => {
+        if (typeof sourceRow === 'string') await assertMirroredRowResolvable(gId, sourceRow, periodStart, periodEnd);
+        return apiResponse.success(res, await createEliminationAdjustment(gId, {
+          adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
+          ...(typeof sourceRow === 'string' ? { sourceIntercompanyId: sourceRow } : {}),
+        }));
+      });
     }
 
     if (action === 'post-elimination') {

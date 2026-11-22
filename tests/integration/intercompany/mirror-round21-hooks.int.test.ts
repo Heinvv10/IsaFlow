@@ -140,7 +140,7 @@ describe('L3: two overlapping claims of the auto-accept queue', () => {
     expect((await attempts(ids)).map(([, n]) => n)).toEqual([1, 1, 1]);
   }, 30000);
 
-  it('a claim that COMMITTED between another run\'s pick and its lock is seen after the wait: the second run skips the message (still at the attempt it read)', async () => {
+  it('a claim that COMMITTED between another run\'s pick and its lock is seen once the row is locked (SKIP LOCKED never waits): the second run skips the message (still at the attempt it read)', async () => {
     await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = true WHERE company_id = $1', [co.B]), true);
     const { id } = await sentInvoice(pool);
     const def = (await pool.query("SELECT pg_get_functiondef('public.intercompany_shared_group(uuid,uuid)'::regprocedure) AS d")).rows[0].d as string;

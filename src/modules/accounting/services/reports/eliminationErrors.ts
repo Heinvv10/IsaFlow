@@ -32,8 +32,16 @@ export class EliminationStateError extends Error {
  */
 export class EliminationAlreadyStandsError extends Error {
   constructor(readonly sourceIntercompanyId: string) {
-    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands.`);
+    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands (draft or posted): reverse it before making another.`);
     this.name = 'EliminationAlreadyStandsError';
+  }
+}
+
+/** The row a manual elimination names is not one a message records in this group, or is dated outside the elimination's period (400). */
+export class EliminationSourceError extends Error {
+  constructor(readonly sourceIntercompanyId: string, why: string) {
+    super(`Intercompany row ${sourceIntercompanyId} cannot be eliminated by hand here: ${why}.`);
+    this.name = 'EliminationSourceError';
   }
 }
 
