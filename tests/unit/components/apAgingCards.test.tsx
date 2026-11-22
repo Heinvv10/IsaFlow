@@ -32,7 +32,7 @@ describe('AP aging on touch', () => {
     // The footer totals row carries the same labels, and its empty chevron cell is hidden on phones.
     const foot = [...table.querySelectorAll(':scope > tfoot > tr > td')];
     expect(foot.map(td => td.getAttribute('data-label'))).toEqual([null, null, 'Current', '30 Days', '60 Days', '90 Days', '120+ Days', 'Total']);
-    expect(foot[0].className).toContain('max-lg:hidden');
+    expect(foot[0].className).toContain('max-lg:!hidden'); // `!`: the card CSS on td out-ranks a plain utility
   });
 
   it('keeps the expand chevron reachable at 44px and the supplier link at 44px', async () => {
