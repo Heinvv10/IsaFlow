@@ -28,7 +28,7 @@ beforeAll(async () => {
   company = w.a.u.homeCompanyId;
   await legacy('space', 'FIB-0001 ');
   await legacy('tab', 'FIB-0002\t');
-  await legacy('nbsp', 'FIB-0003 ');
+  await legacy('nbsp', 'FIB-0003\u00a0');
   await legacy('crlf', '\r\nFIB-0004');
   await legacy('clean', 'FIB-0005');
   await legacy('ideographic', 'FIB-0006\u3000');
