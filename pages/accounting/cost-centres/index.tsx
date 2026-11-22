@@ -137,7 +137,7 @@ export default function CostCentresPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-500/10"><Tag className="h-6 w-6 text-purple-500" /></div>
               <div>
@@ -145,11 +145,11 @@ export default function CostCentresPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Reporting dimensions for GL entries</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-lg:flex-wrap">
               <ExportCSVButton endpoint="/api/accounting/cost-centres-export" filenamePrefix="cost-centres" label="Export CSV" />
               <button
                 onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(!showForm); }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium max-lg:min-h-11">
                 <Plus className="h-4 w-4" /> New {TAB_META[activeTab].label.split(' — ')[0]}
               </button>
             </div>
@@ -161,7 +161,7 @@ export default function CostCentresPage() {
               <button
                 key={tab}
                 onClick={() => switchTab(tab)}
-                className={`px-5 py-2 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-5 py-2 text-sm font-medium border-b-2 transition-colors max-lg:min-h-11 ${
                   activeTab === tab
                     ? 'border-purple-500 text-purple-400'
                     : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
@@ -175,13 +175,13 @@ export default function CostCentresPage() {
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 max-lg:flex-wrap">
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search code, name, alias..."
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-72"
+              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-72 max-lg:w-full max-lg:min-h-11"
             />
             <span className="text-sm text-[var(--ff-text-secondary)]">{filteredItems.length} {TAB_META[activeTab].description}</span>
           </div>
@@ -192,12 +192,12 @@ export default function CostCentresPage() {
                 {editId ? 'Edit' : 'New'} {TAB_META[activeTab].label}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="ff-input" placeholder="Code (e.g. CC-001) *" required />
-                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input" placeholder="Name *" required />
-                <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className="ff-input" placeholder="Department (optional)" />
-                <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description (optional)" />
+                <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Code (e.g. CC-001) *" required />
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Name *" required />
+                <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Department (optional)" />
+                <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Description (optional)" />
                 {activeTab === 'cc2' && (
-                  <select value={form.parent} onChange={e => setForm(f => ({ ...f, parent: e.target.value }))} className="ff-input" aria-label="Parent">
+                  <select value={form.parent} onChange={e => setForm(f => ({ ...f, parent: e.target.value }))} className="ff-input max-lg:min-h-11" aria-label="Parent">
                     <option value="">No parent (no FNO)</option>
                     {parentOptions.map(p => (
                       <option key={p.id} value={p.id}>
@@ -206,11 +206,11 @@ export default function CostCentresPage() {
                     ))}
                   </select>
                 )}
-                <input value={form.aliases} onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))} className="ff-input" placeholder="Aliases, comma-separated (optional)" />
+                <input value={form.aliases} onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Aliases, comma-separated (optional)" />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
-                <button type="submit" disabled={busy === 'save'} className="px-6 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] max-lg:min-h-11">Cancel</button>
+                <button type="submit" disabled={busy === 'save'} className="px-6 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                   {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : editId ? 'Update' : 'Create'}
                 </button>
               </div>
@@ -218,7 +218,7 @@ export default function CostCentresPage() {
           )}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="table-cards w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Code</th><th className="px-4 py-3">Name</th>
                 {activeTab === 'cc2' && <><th className="px-4 py-3">Parent</th><th className="px-4 py-3">FNO</th></>}
@@ -235,28 +235,28 @@ export default function CostCentresPage() {
                 )}
                 {filteredItems.map(cc => (
                   <tr key={cc.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 font-mono text-purple-400 font-medium">{cc.code}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-primary)]">{cc.name}</td>
+                    <td data-label="Code" className="px-4 py-3 font-mono text-purple-400 font-medium">{cc.code}</td>
+                    <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-primary)]">{cc.name}</td>
                     {activeTab === 'cc2' && <>
-                      <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.parentCode || '—'}</td>
-                      <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.fnoCode || '—'}</td>
+                      <td data-label="Parent" className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.parentCode || '—'}</td>
+                      <td data-label="FNO" className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.fnoCode || '—'}</td>
                     </>}
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{(cc.aliases || []).join(', ') || '—'}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{cc.department || '—'}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="Aliases" className="px-4 py-3 text-[var(--ff-text-secondary)]">{(cc.aliases || []).join(', ') || '—'}</td>
+                    <td data-label="Department" className="px-4 py-3 text-[var(--ff-text-secondary)]">{cc.department || '—'}</td>
+                    <td data-label="Status" className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${cc.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
                         {cc.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => startEdit(cc)} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title="Edit">
+                      <div className="flex items-center gap-1 max-lg:gap-2">
+                        <button onClick={() => startEdit(cc)} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Edit">
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => doAction('toggle', cc.id, { isActive: !cc.isActive })} disabled={busy === cc.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={cc.isActive ? 'Disable' : 'Enable'}>
+                        <button onClick={() => doAction('toggle', cc.id, { isActive: !cc.isActive })} disabled={busy === cc.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title={cc.isActive ? 'Disable' : 'Enable'}>
                           {cc.isActive ? <ToggleRight className="h-4 w-4 text-teal-400" /> : <ToggleLeft className="h-4 w-4" />}
                         </button>
-                        <button onClick={() => setConfirmDelete(cc)} disabled={busy === cc.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                        <button onClick={() => setConfirmDelete(cc)} disabled={busy === cc.id} className="p-1 text-red-400 hover:text-red-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Delete">
                           {busy === cc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </button>
                       </div>
