@@ -7,7 +7,8 @@
  */
 import type { RowResult, SagePoLine, SagePurchaseOrder } from './sageExportTypes';
 import { isRaw, readDate, readId, readNumber, readText, type Raw } from './sageValues';
-import { rateOf, standardRateOn, taxTypeFor, VAT_RATE_CHANGE_DATE } from './sageTaxTypes';
+import { VatRateDateError } from '@/lib/vat/standardRate';
+import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
 
 const MAX_LINES = 200;
 
@@ -18,9 +19,16 @@ function lineRate(o: Raw, why: string[], date: string): number | undefined {
   if (pct === undefined || typeId === undefined) return undefined;
   const t = typeId === null ? null : taxTypeFor(typeId);
   if (typeId !== null && !t) { why.push(`TaxTypeId ${typeId} is not a tax type this migration knows (1 standard, 2 zero, 3 exempt)`); return undefined; }
-  const std = standardRateOn(date);
+  let std: number;
+  try {
+    std = standardRateOn(date);
+  } catch (err) {
+    if (!(err instanceof VatRateDateError)) throw err;
+    why.push(`no VAT rate can be read for the PO date ${date}: ${err.message}`);
+    return undefined;
+  }
   if (pct !== null && pct !== 0 && pct !== std) {
-    why.push(`TaxPercentage ${pct} is not the VAT rate on ${date} (${std}%; 14% before ${VAT_RATE_CHANGE_DATE}, 15% from then) or 0`);
+    why.push(`TaxPercentage ${pct} is not the VAT rate on ${date} (${std}%) or 0`);
     return undefined;
   }
   const typeRate = t ? rateOf(t.vat, date) : null;

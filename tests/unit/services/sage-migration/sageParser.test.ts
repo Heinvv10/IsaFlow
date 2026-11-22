@@ -229,6 +229,9 @@ describe('line VAT is the rate that applied on the PO date (14% before 2018-04-0
     expect(rate(lineOn('2026-06-01', { TaxPercentage: 10 }))).toMatch(/TaxPercentage 10 is not the VAT rate/);
     expect(rate(lineOn('2026-06-01', { TaxPercentage: 0 }))).toBe(0);
   });
+  it('a PO dated before VAT began has no rate to check against: the line is refused with that reason', () => {
+    expect(rate(lineOn('1990-01-01', { TaxPercentage: 14 }))).toMatch(/no VAT rate can be read for the PO date 1990-01-01/);
+  });
   it('a percentage that disagrees with a tax type of the date is refused; zero-rated and exempt are 0', () => {
     expect(rate(lineOn('2018-03-31', { TaxPercentage: 15, TaxTypeId: 1 }))).toMatch(/is not the VAT rate|disagrees/);
     expect(rate(lineOn('2026-06-01', { TaxPercentage: 14, TaxTypeId: 1 }))).toMatch(/is not the VAT rate|disagrees/);
