@@ -90,8 +90,16 @@ describe('an owned item that is present but not sent this run', () => {
     expect(lines(p, 'PO0000197')[0]).toMatchObject({ description: 'Fibre cable drum (PO 197) [item FIB-0001-IS]' });
     expect(p.lineLinks.notLinked[0]).toMatchObject({ itemCode: 'FIB-0001-IS', reason: 'inactive' });
   });
-  it('a deleted or not-Sage item is not owned: unlinked as refused', () => {
+  it('a deleted item is not owned: unlinked as refused', () => {
     expect(plan(file(), owned({ deleted: true })).lineLinks.notLinked[0]).toMatchObject({ reason: 'refused' });
+  });
+  it('an item of ANOTHER system with the same reference is not the migration\'s: its code is held (the Sage item is refused) and the line is unlinked as refused, never linked to it', () => {
+    for (const other of [{ system: 'pastel', ref: '50001' }, { system: null, ref: null }, { system: 'Sage', ref: '50001' }]) {
+      const p = plan(file(), owned({ ...other, code: 'FIB-0001', hasMovements: false }));
+      expect(p.refusals.some((r) => r.label === 'FIB-0001' && r.code === 'code_held_by_existing_item'), JSON.stringify(other)).toBe(true);
+      expect(lines(p, 'PO0000197')[0], JSON.stringify(other)).not.toHaveProperty('item_code');
+      expect(p.lineLinks.notLinked.find((x) => x.poNumber === 'PO0000197' && x.line === 1), JSON.stringify(other)).toMatchObject({ reason: 'refused' });
+    }
   });
 });
 

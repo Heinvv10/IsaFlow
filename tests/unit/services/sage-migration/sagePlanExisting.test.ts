@@ -24,8 +24,16 @@ describe('rows the company\'s own data would make a tool refuse are refused here
       expect(r, JSON.stringify(other)).toMatchObject({ entity: 'item', code: 'code_held_by_existing_item' });
       expect(r!.reasons[0]).toMatch(/item FIB-0001 \(id i1, /);
       expect(r!.reasons[0]).toMatch(other.ref ? new RegExp(`${other.system} ${other.ref}`) : /no external reference/);
-      expect(r!.reasons[0]).toMatch(/never updated/);
+      expect(r!.reasons[0]).toMatch(other.system === 'sage' ? /under a different Sage id/ : /never updated/);
     }
+  });
+  it('L8: a code held by another SAGE item (a different Sage id) says so; one never imported says the migration does not own it', () => {
+    const sageOther = refusalFor(held({ code: 'FIB-0001', system: 'sage', ref: '12345' }))!;
+    expect(sageOther.reasons[0]).toMatch(/held by item FIB-0001 \(id i1, sage 12345\), under a different Sage id/);
+    expect(sageOther.reasons[0]).not.toMatch(/does not own/);
+    const foreign = refusalFor(held({ code: 'FIB-0001', system: 'pastel', ref: '9' }))!;
+    expect(foreign.reasons[0]).toMatch(/which this migration does not own/);
+    expect(refusalFor(held({ code: 'FIB-0001' }))!.reasons[0]).toMatch(/which this migration does not own/);
   });
   it('F1: the item is never sent, so no row can touch it; the other 19 items are sent', () => {
     const plan = planMigration(parsed(), allResolved(), held({ code: 'FIB-0001' }));

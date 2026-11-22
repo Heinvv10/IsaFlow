@@ -10,17 +10,20 @@
  * Code and number uniqueness are case-SENSITIVE (the unique indexes are on the plain columns), so the match is exact.
  */
 import type { ParsedExport, RowRefusal } from './sageExportTypes';
-import { mapSageCategory, mapSageItem } from './sageItemMapping';
+import { mapSageCategory, mapSageItem, SAGE_SYSTEM } from './sageItemMapping';
 import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder, type ItemLink } from './sagePurchaseOrderMapping';
 import type { SupplierResolution } from './sageSuppliers';
 import { byStableKey } from './sageBatches';
-import { SAGE_SYSTEM } from './sageItemMapping';
 import type { ExistingItem, Snapshot } from './sageSnapshot';
 import { validateItemFields } from '@/modules/accounting/services/items/itemFieldValidation';
 import { parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 
 export interface PlannedItem { sageId: string; row: Record<string, unknown> }
-export interface PlannedPo { sageId: string; documentNumber: string; totalCents: number; element: Record<string, unknown>; pdfFile: string | null }
+export interface PlannedPo {
+  sageId: string; documentNumber: string; totalCents: number; element: Record<string, unknown>; pdfFile: string | null;
+  /** What the plan sends for this PO's lines: how many are linked by item_code, which are not (and why). What the books end with is measured (sageLineLinks). */
+  lineLinks: { linked: number; notLinked: NotLinkedLine[] };
+}
 
 export type NotLinkedReason = 'inactive' | 'refused';
 /** A line that names an item but is sent WITHOUT item_code (the item is inactive or refused): it keeps the item's code as a suffix. */
@@ -37,21 +40,38 @@ export interface MigrationPlan {
 
 export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'>;
 
+/** The company's items indexed ONCE by (system sage) reference and by code: the plan looks items up per item and per PO line. First one wins. */
+interface ItemIndex { byRef: ReadonlyMap<string, ExistingItem>; byCode: ReadonlyMap<string, ExistingItem> }
+
+function indexItems(items: readonly ExistingItem[]): ItemIndex {
+  const byRef = new Map<string, ExistingItem>();
+  const byCode = new Map<string, ExistingItem>();
+  for (const i of items) {
+    if (i.system === SAGE_SYSTEM && i.ref !== null && !byRef.has(i.ref)) byRef.set(i.ref, i);
+    if (!byCode.has(i.code)) byCode.set(i.code, i);
+  }
+  return { byRef, byCode };
+}
+
 /**
  * Why `sageId`/`code` must not be sent, or null. bulk_upsert_items matches by Sage reference and then by CODE, and updates what it
  * matches: a Sage item whose code equals an item IsaFlow already holds would overwrite it (a tracked item with stock turned into
  * an untracked service, a live item deactivated). So the migration only ever updates an item it owns (system sage, this id):
  * a code held by any other item, with or without an external reference, deleted or not, is refused and the item named.
  */
-function itemConflict(sageId: string, code: string, items: readonly ExistingItem[]): { code: string; reason: string } | null {
-  const byRef = items.find((i) => i.system === SAGE_SYSTEM && i.ref === sageId);
-  const byCode = items.find((i) => i.code === code);
+function itemConflict(sageId: string, code: string, index: ItemIndex): { code: string; reason: string } | null {
+  const byRef = index.byRef.get(sageId);
+  const byCode = index.byCode.get(code);
   const held = (i: ExistingItem) => `item ${i.code} (id ${i.id}, ${i.ref ? `${i.system ?? 'no system'} ${i.ref}` : 'no external reference'}${i.deleted ? ', deleted' : ''})`;
   if (byRef && byCode && byRef.id !== byCode.id) {
     return { code: 'ref_code_conflict', reason: `Sage id ${sageId} is already ${held(byRef)} and code ${code} belongs to a different item, ${held(byCode)}` };
   }
   if (byCode && byCode.id !== byRef?.id) {
-    return { code: 'code_held_by_existing_item', reason: `code ${code} is held by ${held(byCode)}, which this migration does not own: an item it did not import is never updated` };
+    // Another Sage item (a different Sage id) is the migration's own, only under another id; anything else is not the migration's.
+    const why = byCode.system === SAGE_SYSTEM && byCode.ref !== null
+      ? `under a different Sage id (this row is Sage id ${sageId}): the migration does not overwrite one Sage item with another`
+      : 'which this migration does not own: an item it did not import is never updated';
+    return { code: 'code_held_by_existing_item', reason: `code ${code} is held by ${held(byCode)}, ${why}` };
   }
   if (byRef?.deleted) return { code: 'item_deleted', reason: `the matching ${held(byRef)} has been deleted` };
   return null;
@@ -59,18 +79,19 @@ function itemConflict(sageId: string, code: string, items: readonly ExistingItem
 
 /** Whether a PO line naming Sage item `id` is linked by item_code, and the code to name it by. */
 function linkFor(
-  id: string, sent: ReadonlyMap<string, { code: string; active: boolean }>, existing: readonly ExistingItem[], displayCodes: Readonly<Record<string, string>>,
+  id: string, sent: ReadonlyMap<string, { code: string; active: boolean }>, index: ItemIndex, displayCodes: Readonly<Record<string, string>>,
 ): { code: string; link: true } | { code: string; link: false; reason: NotLinkedReason } {
   const s = sent.get(id);
   if (s) return s.active ? { code: s.code, link: true } : { code: s.code, link: false, reason: 'inactive' };
   // Not sent this run: only an item already in the books, owned by the migration, can be linked (by the code IsaFlow holds it under).
-  const owned = existing.find((i) => i.system === SAGE_SYSTEM && i.ref === id && !i.deleted);
-  if (owned) return owned.isActive ? { code: owned.code, link: true } : { code: owned.code, link: false, reason: 'inactive' };
+  const owned = index.byRef.get(id);
+  if (owned && !owned.deleted) return owned.isActive ? { code: owned.code, link: true } : { code: owned.code, link: false, reason: 'inactive' };
   return { code: displayCodes[id]!, link: false, reason: 'refused' };
 }
 
 export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string; skipBudgetCheck?: boolean } = {}): MigrationPlan {
   const refusals: RowRefusal[] = [...parsed.refusals];
+  const index = indexItems(existing.items);
 
   // A category whose name another IsaFlow category (not this Sage category) holds: the category tool would refuse it (name_in_use) and
   // with it the whole batch of items, so the category and the items in it are refused here, one reason each.
@@ -92,10 +113,11 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       refusals.push({ entity: 'item', sageId: item.id, label: item.code, code: 'category_refused', reasons: [`its category ${item.category.description} is refused (category_name_in_use), so the item is not imported`] });
       continue;
     }
-    const conflict = itemConflict(item.id, item.code, existing.items);
+    const conflict = itemConflict(item.id, item.code, index);
     if (conflict) { refusals.push({ entity: 'item', sageId: item.id, label: item.code, code: conflict.code, reasons: [conflict.reason] }); continue; }
     // An owned item with stock movements keeps its type and tracking: the migration always sends untracked, and a Sage service is a service.
-    const owned = existing.items.find((i) => i.system === SAGE_SYSTEM && i.ref === item.id && !i.deleted);
+    const found = index.byRef.get(item.id);
+    const owned = found && !found.deleted ? found : undefined;
     if (owned?.hasMovements && (owned.itemType !== (item.physical ? 'physical' : 'service') || owned.inventoryTracked)) {
       refusals.push({
         entity: 'item', sageId: item.id, label: item.code, code: 'item_has_stock_movements',
@@ -137,7 +159,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     let linked = 0;
     for (const [n, l] of po.lines.entries()) {
       if (l.itemId === null) continue;
-      const decision = linkFor(l.itemId, sent, existing.items, parsed.itemCodes);
+      const decision = linkFor(l.itemId, sent, index, parsed.itemCodes);
       links[l.itemId] = { code: decision.code, link: decision.link };
       if (decision.link) linked++;
       else notLinked.push({ poNumber: po.documentNumber, line: n + 1, itemCode: decision.code, reason: decision.reason });
@@ -154,7 +176,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     }
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
-    purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile });
+    purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked } });
     lineLinks.linked += linked;
     lineLinks.notLinked.push(...notLinked);
   }

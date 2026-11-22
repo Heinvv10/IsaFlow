@@ -150,7 +150,7 @@ describe('reconciliation and its lines', () => {
     const phase = { batches: [], failed: 0 };
     const report: MigrationReport = {
       companyId: 'c', status: 'completed', dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, notLinked: [] },
+      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] },
     };
     expect(summaryLines(report).join('\n')).toContain('WARNING: the export PO total leaves out 2 row(s) whose Total is not a number');
     expect(summaryLines({ ...report, reconciliation: buildReconciliation({ ...b, before: snap([], []), after }) }).join('\n')).not.toContain('WARNING');
@@ -162,7 +162,7 @@ describe('reconciliation and its lines', () => {
     const failedBatch = { entity: 'purchase_order' as const, n: 2, size: 3, key: 'k', status: 'failed' as const, allRowsAlreadyPresent: false, toolReported: null, error: 'boom' };
     const report: MigrationReport = {
       companyId: 'c1', status: 'failed', dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-      live: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 } }, reconciliation, budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, notLinked: [] },
+      live: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 } }, reconciliation, budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] },
       refused: [{ entity: 'item', sageId: '5', label: 'FIB-9', code: 'invalid_row', reasons: ['a', 'b'] }],
     };
     const text = summaryLines(report).join('\n');
@@ -180,7 +180,7 @@ describe('reconciliation and its lines', () => {
     const failedBatch = { entity: 'purchase_order' as const, n: 1, size: 3, key: 'k', status: 'failed' as const, allRowsAlreadyPresent: false, toolReported: null, error: long };
     const report: MigrationReport = {
       companyId: 'c1', status: 'failed', dryRun: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 }, clean: false },
-      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, notLinked: [] },
+      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] },
     };
     const line = summaryLines(report).find((l) => l.startsWith('FAILED'))!;
     expect(line.length).toBeLessThan(CONSOLE_ERROR_CHARS + 200);
@@ -201,7 +201,7 @@ describe('exitCodeFor', () => {
   })();
   const phase = { batches: [], failed: 0 };
   const report = (status: MigrationReport['status'], rec: Partial<typeof base> = {}): MigrationReport => ({
-    companyId: 'c', status, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, notLinked: [] }, live: null,
+    companyId: 'c', status, refused: [], budgetWouldHaveFailed: [], differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] }, live: null,
     dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: status !== 'dry_run_failed' }, reconciliation: { ...base, ...rec },
   });
   const miss = { expected: 5, actual: 4, basis: 'booked' as const, ok: false };
