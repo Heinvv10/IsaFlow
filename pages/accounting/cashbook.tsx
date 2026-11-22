@@ -183,10 +183,10 @@ export default function CashbookPage() {
                       <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDisplayDate(r.transactionDate)}</td>
                       <td data-label="Reference" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.reference || '—'}</td>
                       <td data-label="Description" className="px-4 py-3 text-[var(--ff-text-primary)]">{r.description || r.matchedEntity || '—'}</td>
-                      <td data-label="Deposits" className="px-4 py-3 text-right tabular-nums text-green-400">
+                      <td data-label="Deposits" className={`px-4 py-3 text-right tabular-nums text-green-400${r.deposit > 0 ? '' : ' max-lg:hidden'}`}>
                         {r.deposit > 0 ? fmt(r.deposit) : ''}
                       </td>
-                      <td data-label="Withdrawals" className="px-4 py-3 text-right tabular-nums text-red-400">
+                      <td data-label="Withdrawals" className={`px-4 py-3 text-right tabular-nums text-red-400${r.withdrawal > 0 ? '' : ' max-lg:hidden'}`}>
                         {r.withdrawal > 0 ? fmt(r.withdrawal) : ''}
                       </td>
                       <td data-label="Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">

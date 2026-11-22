@@ -34,6 +34,13 @@ describe('Cashbook on touch', () => {
     // Totals row: the TOTALS cell spans the card (no label); the sums keep theirs.
     const foot = [...table.querySelectorAll(':scope > tfoot > tr > td')];
     expect(foot.map(td => td.getAttribute('data-label'))).toEqual([null, 'Deposits', 'Withdrawals', 'Balance']);
+    expect(foot[0].getAttribute('colspan')).toBe('3'); // desktop layout depends on it
+    // An empty deposit/withdrawal cell is hidden on phones (no label with nothing after it); a filled one is not.
+    const cell = (row: Element, label: string) => row.querySelector(`td[data-label="${label}"]`)!.className;
+    expect(cell(rows[0], 'Withdrawals')).toContain('max-lg:hidden');
+    expect(cell(rows[0], 'Deposits')).not.toContain('max-lg:hidden');
+    expect(cell(rows[1], 'Deposits')).toContain('max-lg:hidden');
+    expect(cell(rows[1], 'Withdrawals')).not.toContain('max-lg:hidden');
   });
 
   it('makes the bank select, header wrap and Export CSV 44px on phones', async () => {
@@ -41,6 +48,6 @@ describe('Cashbook on touch', () => {
     await screen.findByText('Customer deposit');
     expect(container.querySelector('select')!.className).toContain('max-lg:min-h-11');
     expect(screen.getByRole('button', { name: /export csv/i }).className).toContain('max-lg:min-h-11');
-    expect(container.querySelector('h1')!.closest('.flex.items-center.justify-between')!.className).toContain('max-lg:flex-wrap');
+    expect(container.querySelector('h1')!.parentElement!.parentElement!.parentElement!.className).toContain('max-lg:flex-wrap');
   });
 });
