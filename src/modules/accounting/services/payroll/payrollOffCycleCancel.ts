@@ -25,12 +25,13 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { decideRequest } from '../gl/approvalService';
+import { lockApprovalRequestForUpdate } from '../gl/approvalRequestLock';
 import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 const refused = (m: string) => new OffCycleRunRefusedError(m, 409);
 const WITHDRAWN = 'Withdrawn: the off-cycle run was cancelled.';
 
-export async function cancelOffCycleRun(companyId: string, runId: string, userId: string | null): Promise<PayrollRunSummary | null> {
+export async function cancelOffCycleRun(companyId: string, runId: string, userId: string): Promise<PayrollRunSummary | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   return withTransaction(async (tx) => {
     const run = ((await tx`
@@ -53,12 +54,20 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
     }
     // A pending R-035 request leaves the approvers' list (review #1620): withdrawn through the one decide path
     // (approval_request_decide, a rejection by the canceller), with the pay run's audit row, in this transaction.
-    const pending = ((await tx`
+    // Locked (review L3 of 819c2861c0) in the route's order, the run header then its request (approval-requests
+    // writes the header in preparePayRunApprovalRequest before decideRequest locks the request), through the 872
+    // definer lock (the app role holds no UPDATE, so no FOR UPDATE of its own), then read again: a decision in flight is
+    // waited for, and a request it settled is not withdrawn, so decideRequest never meets a decided one.
+    const found = ((await tx`
       SELECT id FROM approval_requests
        WHERE company_id = ${companyId}::uuid AND document_type = 'pay_run' AND document_id = ${runId}::uuid AND status = 'pending'
     `) as DbRow[])[0];
+    const requestId = found ? String(found.id) : null;
+    if (requestId) await lockApprovalRequestForUpdate(companyId, requestId);
+    const pending = requestId && ((await tx`
+      SELECT id FROM approval_requests WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
+    `) as DbRow[])[0];
     if (pending) {
-      if (!userId) throw refused('This run has a pending approval request, which only a signed-in user can withdraw.');
       const withdrawn = await decideRequest(companyId, String(pending.id), 'rejected', userId, WITHDRAWN);
       await recordPayRunApprovalAudit({
         companyId, runId, actorId: userId, event: 'declined',

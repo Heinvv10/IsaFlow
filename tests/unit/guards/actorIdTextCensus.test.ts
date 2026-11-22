@@ -52,6 +52,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 OC: the month's regular run, the bonus components, the new off-cycle run and its employees
   'regularId', 'componentIds', 'String(run.id)', 'e.employeeId', 'e.componentId ?? null',
+  // wave 6 OC (review L3 of 819c2861c0): the pending approval request cancel locks and re-reads
+  'requestId',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
   // entity-change log cursors
@@ -87,7 +89,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     158: 'ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name',
   },
   // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
-  [`${S}payroll/payrollOffCycleCancel.ts`]: { 74: 'cancelled_by = ${userId}, cancelled_at = now()' },
+  [`${S}payroll/payrollOffCycleCancel.ts`]: { 83: 'cancelled_by = ${userId}, cancelled_at = now()' },
   // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
   [`${S}payroll/payrollOffCycleRun.ts`]: {
     198: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',

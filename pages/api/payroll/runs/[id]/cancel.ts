@@ -6,7 +6,8 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
+import { ApprovalDecisionError, ApprovalRequestNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
+import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
@@ -37,6 +38,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code });
     // Withdrawing the run's pending approval request was refused (approval_request_decide): nothing was written.
     if (err instanceof ApprovalDecisionError) return apiResponse.error(res, ErrorCode.FORBIDDEN, err.message, { reason: err.code });
+    // The run's request was held past the lock budget, or decided by someone else first (review L3 of 819c2861c0; the
+    // lock makes the second unexpected): a 409 to retry, never a 500.
+    if (err instanceof ApprovalRequestLockTimeoutError) return apiResponse.conflict(res, err.message);
+    if (err instanceof ApprovalRequestNotFoundError) return apiResponse.conflict(res, 'This run\'s approval request was just decided by someone else: reload the run and try again.');
     throw err;
   }
 }

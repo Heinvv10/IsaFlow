@@ -131,6 +131,35 @@ describe('Cancel run', () => {
       AND action = 'reject' AND changes->'metadata'->>'requestId' = $3`, [a.company, id, requestId])).toBe(1);
   });
 
+  it('a pending request decided while cancel runs: cancel waits for it and cancels (200), never a 500 (review L3 of 819c2861c0)', async () => {
+    const made = await create({ reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: p.mid }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    const raised = await a.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+      body: { action: 'request', documentType: 'pay_run', documentId: id },
+    });
+    expect(raised.statusCode, JSON.stringify(raised.body)).toBe(200);
+    const requestId = String((raised.body.data as { id: string }).id);
+    // Another session holds the request (as a decision does) and rejects it while cancel is under way.
+    const other = await a.pool.connect();
+    try {
+      await other.query('BEGIN');
+      await other.query('SELECT id FROM approval_requests WHERE id = $1 FOR UPDATE', [requestId]);
+      const cancelling = cancelRun(a, id);
+      await new Promise((r) => setTimeout(r, 1_000));
+      await other.query(`UPDATE approval_requests SET status = 'rejected', decided_by = $2, decided_at = now(), decision_notes = 'decided elsewhere'
+        WHERE id = $1`, [requestId, a.approver]);
+      await other.query('COMMIT');
+      const done = await cancelling;
+      expect(done.statusCode, JSON.stringify(done.body)).toBe(200);
+    } finally {
+      other.release();
+    }
+    expect((await a.pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [id])).rows[0].status).toBe('cancelled');
+    expect((await a.pool.query('SELECT decision_notes FROM approval_requests WHERE id = $1', [requestId])).rows[0].decision_notes).toBe('decided elsewhere');
+  });
+
   it('a run whose approval was already cleared (request approved, run not final): cancelled, the cleared request stays history and can approve nothing', async () => {
     await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-21', termination_reason = 'resignation',
       termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.young]);
