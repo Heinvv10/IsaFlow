@@ -122,16 +122,13 @@ export interface EliminationLineWithAccount {
   debit: number; credit: number;
 }
 
-/**
- * The stored adjustments, but never an older generator's one of a MIRRORED row (those eliminations are derived from the ledgers,
- * mirrorEliminations.ts, so it would count twice). A person's elimination of a mirrored row (it carries a manual_reason) counts: it eliminates a row nothing else does.
- */
+/** The stored adjustments, but never one of a MIRRORED row: those eliminations are derived from the ledgers (mirrorEliminations.ts), so a stored one (an older release's generator) would count twice. */
 async function storedEliminations(groupId: string, periodStart: string, periodEnd: string): Promise<EliminationLineWithAccount[]> {
   const adjRows = (await sql`
     SELECT ca.lines FROM consolidation_adjustments ca
     WHERE ca.group_id = ${groupId}::UUID AND ca.status = 'posted'
       AND ca.period_start >= ${periodStart} AND ca.period_end <= ${periodEnd}
-      AND (ca.source_intercompany_id IS NULL OR ca.manual_reason IS NOT NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
+      AND (ca.source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
   `) as Row[];
   if (adjRows.length === 0) return [];
   const accounts = new Map((await sql`

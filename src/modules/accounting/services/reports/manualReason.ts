@@ -20,13 +20,6 @@ export function manualReasonMissing(reason: string, cutover: string): string | n
     : null;
 }
 
-/** Why a reason (already trimmed) is missing for a manual elimination that resolves a mirrored row (always required: the row has no elimination otherwise), or null. */
-export function resolveReasonMissing(reason: string): string | null {
-  return reason.length < MANUAL_REASON_MIN
-    ? `A manual elimination of a mirrored row needs a reason (at least ${MANUAL_REASON_MIN} characters) saying why the receiver's books do not eliminate it`
-    : null;
-}
-
 /** Why a reason (already trimmed) is too long, whether or not one is required, or null. */
 export function manualReasonTooLong(reason: string): string | null {
   return reason.length > MANUAL_REASON_MAX ? `The reason is too long: at most ${MANUAL_REASON_MAX} characters` : null;

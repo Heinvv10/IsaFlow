@@ -22,7 +22,7 @@ export type EliminationType =
   | 'currency_translation'
   | 'goodwill';
 
-export type EliminationStatus = 'draft' | 'posted' | 'reversed' | 'discarded';
+export type EliminationStatus = 'draft' | 'posted' | 'reversed';
 
 export interface EliminationLine {
   id?: string;
@@ -69,7 +69,6 @@ export const STATUS_STYLES: Record<EliminationStatus, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
   posted: 'bg-teal-500/10 text-teal-400',
   reversed: 'bg-amber-500/10 text-amber-400',
-  discarded: 'bg-gray-500/10 text-ink-muted',
 };
 
 /**

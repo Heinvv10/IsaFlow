@@ -3,7 +3,7 @@
  * Renders the list of elimination adjustments with post/reverse actions.
  */
 
-import { Loader2, Building2, Send, RotateCcw, Trash2 } from 'lucide-react';
+import { Loader2, Building2, Send, RotateCcw } from 'lucide-react';
 import {
   fmt,
   STATUS_STYLES,
@@ -18,8 +18,6 @@ interface Props {
   actionLoading: string | null;
   onPost: (id: string) => void;
   onReverse: (id: string) => void;
-  /** Discards a draft (it is never posted; the row it names can be eliminated afresh). */
-  onDiscard?: (id: string) => void;
 }
 
 /** What the list says about a possible duplicate of a mirrored document: the facts' one wording (mirrorFacts.ts), never more than they show. */
@@ -27,7 +25,7 @@ export function duplicateText(adj: EliminationAdjustment): string {
   return adj.mirrorFacts ? duplicateBadgeText(adj.mirrorFacts, adj.status, adj.pairCutover ?? null, adj.mirrorShared ?? 1) : '';
 }
 
-export function EliminationsTable({ items, loading, actionLoading, onPost, onReverse, onDiscard }: Props) {
+export function EliminationsTable({ items, loading, actionLoading, onPost, onReverse }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -108,17 +106,6 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                         ? <Loader2 className="h-3 w-3 animate-spin" />
                         : <Send className="h-3 w-3" />}
                       Post
-                    </button>
-                  )}
-                  {!adj.automatic && adj.status === 'draft' && onDiscard && (
-                    <button
-                      onClick={() => onDiscard(adj.id)}
-                      disabled={actionLoading === adj.id}
-                      title="Discard this draft"
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-md hover:bg-[var(--ff-bg-tertiary)] text-xs font-medium disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Discard
                     </button>
                   )}
                   {!adj.automatic && adj.status === 'posted' && (

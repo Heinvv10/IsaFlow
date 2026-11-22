@@ -29,8 +29,6 @@ export interface MirrorFact {
   elimDate?: string;
   /** Another row's active link of the OTHER role holds it (the other side of a sale). */
   otherRole?: MirrorRole | null;
-  /** A person's posted elimination of it counts (`stands` holds too): the sale is eliminated, by that, not automatically. */
-  byPerson?: boolean;
 }
 
 /** The verified facts of a row's possible mirrored duplicate: one mirror, or the month's mirrors whose amounts sum to the row's. */
@@ -55,7 +53,7 @@ export function factsFromRows(rows: Row[] | null | undefined, periodEnd: string)
   return {
     label: String(sorted[0]!.label), sum: sorted[0]!.is_sum === true, periodEnd,
     mirrors: sorted.map((r) => ({ ref: String(r.mirror_ref), amount: Number(r.amount), stands: r.stands === true, link: link(r.link),
-      byTotal: r.by_total === true, elimDate: day(r.elim_date), otherRole: role(r.other_role), byPerson: r.by_person === true })),
+      byTotal: r.by_total === true, elimDate: day(r.elim_date), otherRole: role(r.other_role) })),
   };
 }
 
@@ -65,7 +63,7 @@ export function parseMirrorFacts(raw: unknown): MirrorFacts | null {
   if (!f || typeof f.label !== 'string' || !f.label || typeof f.periodEnd !== 'string' || !Array.isArray(f.mirrors) || f.mirrors.length === 0) return null;
   const mirrors = f.mirrors.flatMap((m: Partial<MirrorFact>) => (typeof m?.ref === 'string' && typeof m.amount === 'number' && Number.isFinite(m.amount)
     ? [{ ref: m.ref, amount: m.amount, stands: m.stands === true, link: m.link === 'here' || m.link === 'elsewhere' ? m.link : 'none',
-        byTotal: m.byTotal === true, elimDate: day(m.elimDate), otherRole: role(m.otherRole), byPerson: m.byPerson === true } as MirrorFact] : []));
+        byTotal: m.byTotal === true, elimDate: day(m.elimDate), otherRole: role(m.otherRole) } as MirrorFact] : []));
   return mirrors.length === f.mirrors.length ? { label: f.label, sum: f.sum === true, mirrors, periodEnd: f.periodEnd } : null;
 }
 
@@ -77,7 +75,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** What is true of one mirror. `short`: the form inside a month sum's list ("eliminated automatically, not matched to any row yet"). */
 function state(m: MirrorFact, periodEnd: string, short = false): string {
-  if (m.byPerson) return "eliminated by a person's adjustment";
   if (!m.stands) return `NOT eliminated automatically for the period to ${periodEnd}`;
   const when = m.elimDate && m.elimDate > periodEnd ? ` on ${m.elimDate}, after the period to ${periodEnd}` : '';
   const and = short ? ',' : when ? ', and' : ' and';
@@ -120,18 +117,17 @@ export function mirrorFactsSentence(f: MirrorFacts, pairCutover: string | null =
   const list = joinAnd(f.mirrors.map((m) => `${m.ref} (${formatMoney(m.amount)}${withVat}: ${state(m, f.periodEnd, true)})`));
   const head = `Possibly the same sale as ${f.label}: ${list}${cut}.`;
   const standingN = f.mirrors.filter((m) => m.stands).length;
-  const how = f.mirrors.some((m) => m.byPerson) ? "by mirroring or a person's adjustment" : 'automatically by mirroring';   // (a member a person eliminated is not "automatic")
   const netOfVat = byTotal ? ', net of their VAT' : '';
   if (standingN === 0) return `${head} None of them is eliminated automatically for the period to ${f.periodEnd}: this may be the sale's only elimination.`;
-  if (standingN === f.mirrors.length) return `${head} All of them are eliminated ${how}${netOfVat}: if it is the same sale, ${twice('it')}.`;
+  if (standingN === f.mirrors.length) return `${head} All of them are eliminated automatically by mirroring${netOfVat}: if it is the same sale, ${twice('it')}.`;
   const part = ctx === 'draft' ? 'posting this in full would eliminate that part twice' : 'that part is eliminated twice';
   // "R P of R T" only where it is a part of the row: every member the same sign as the row, and amounts net of VAT
   const T = round2(f.mirrors.reduce((s, m) => s + m.amount, 0));
   const P = round2(f.mirrors.filter((m) => m.stands).reduce((s, m) => s + m.amount, 0));
   const sameSign = T !== 0 && f.mirrors.every((m) => Math.sign(m.amount) === Math.sign(T));
   return sameSign && !byTotal
-    ? `${head} ${formatMoney(P)} of ${formatMoney(T)} is eliminated ${how}: if it is the same sale, ${part}.`
-    : `${head} Only some of them are eliminated ${how}${netOfVat}: if it is the same sale, ${part}.`;
+    ? `${head} ${formatMoney(P)} of ${formatMoney(T)} is eliminated automatically by mirroring: if it is the same sale, ${part}.`
+    : `${head} Only some of them are eliminated automatically by mirroring${netOfVat}: if it is the same sale, ${part}.`;
 }
 
 /** The 409 and the page's confirm (the same words). */

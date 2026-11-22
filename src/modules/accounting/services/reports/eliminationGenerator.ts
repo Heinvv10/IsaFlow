@@ -11,7 +11,6 @@ import { createEliminationAdjustment } from './consolidatedReportingService';
 import type { ConsolidationAdjustment, CreateEliminationInput, EliminationLine } from './consolidatedReportingService';
 import { EliminationAlreadyStandsError } from './eliminationErrors';
 import { getPairCutovers, pairCutover } from './eliminationDuplicates';
-import { lockGroupEliminations } from './eliminationLock';
 import { factsFromRows, generatorReason, linkedMirrorState, type LinkAnswer, type MirrorFacts } from './mirrorFacts';
 
 async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
@@ -118,8 +117,14 @@ export async function autoGenerateEliminations(
 ): Promise<ConsolidationAdjustment[]> {
   try {
     // Two runs for one group are serialised (the request transaction holds this to commit), so the per-row skip below sees the other run's rows
-    // even where the partial unique index could not be built (1019 skips it while legacy duplicates exist).
-    await lockGroupEliminations(groupId, 'autoGenerateEliminations');
+    // even where the partial unique index could not be built (1019 skips it while legacy duplicates exist). Outside a transaction the lock
+    // would be released at the end of its own statement and serialise nothing, so that is refused: the lock must still be held afterwards.
+    await sql`SELECT pg_advisory_xact_lock(hashtext('consolidation-eliminations:' || ${groupId}::TEXT))`;
+    const held = (await sql`
+      SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+         AND objsubid = 1 AND objid = (hashtext('consolidation-eliminations:' || ${groupId}::TEXT)::bigint & 4294967295)::oid
+    `) as DbRow[];
+    if (held.length === 0) throw new Error('autoGenerateEliminations must run inside a transaction (its per-group advisory lock is transaction-scoped)');
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
              ict.transaction_type, ict.amount, ict.description, ict.transaction_date::TEXT AS td

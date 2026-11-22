@@ -14,12 +14,11 @@ const unmapped = { transactionId: 't1', keyDate: '2026-01-15', description: 'Aut
 const unresolved = { transactionId: 't2', keyDate: '2026-12-30', description: 'Manual sale Dec', amount: 2500, kind: 'unresolved' as const, detail: 'cut-off: different financial years' };
 
 describe('MirroredDroppedNotice', () => {
-  it('M1: a row no path eliminates says so, why, and that a manual elimination with a reason is needed (apart from the unmapped kind)', () => {
+  it('M1: a row no path eliminates says so and why (apart from the unmapped kind)', () => {
     render(<MirroredDroppedNotice rows={[unresolved]} />);
     const a = screen.getByRole('alert');
     expect(a.textContent).toMatch(/1 mirrored document has no elimination/);
     expect(a.textContent).toMatch(/2026-12-30: Manual sale Dec \(R\s?2[\s ]?500\.00\): cut-off: different financial years/);
-    expect(a.textContent).toMatch(/manual elimination with a reason/);
     expect(a.textContent).not.toMatch(/no group account mapped/);
   });
 
@@ -31,23 +30,33 @@ describe('MirroredDroppedNotice', () => {
     expect(alerts[1]).toMatch(/1 mirrored document has no elimination/);
   });
 
-  it('stale: a person\'s elimination of a sale the sender cancelled is its own alert, says to reverse it, and offers no "Eliminate this row"', () => {
-    const stale = { transactionId: 't3', keyDate: '2026-03-05', description: 'March sale', amount: 1000, kind: 'unresolved' as const, code: 'stale',
-      detail: "a person's posted elimination of this sale still counts, but the sender has cancelled the sale: reverse that elimination" };
-    render(<MirroredDroppedNotice rows={[stale, { ...unresolved, code: 'rejected', detail: 'the receiver rejected it' }]} onEliminate={() => undefined} />);
-    const alerts = screen.getAllByRole('alert').map((x) => x.textContent ?? '');
-    expect(alerts).toHaveLength(2);
-    expect(alerts[0]).toMatch(/1 manual elimination covers a sale the sender cancelled/);
-    expect(alerts[0]).toMatch(/reverse that elimination/);
-    expect(alerts[0]).not.toMatch(/Eliminate this row/);
-    expect(alerts[1]).toMatch(/1 mirrored document has no elimination/);
-    expect(alerts[1]).not.toMatch(/March sale/);
-    expect(alerts[1]).toMatch(/Eliminate this row/);
+  it('the listing is informational: it says nothing eliminates these, that eliminating by hand is not available yet, and offers no action', () => {
+    render(<MirroredDroppedNotice rows={[unresolved]} />);
+    const a = screen.getByRole('alert');
+    expect(a.textContent).toMatch(/No path eliminates these/);
+    expect(a.textContent).toMatch(/Eliminating a mirrored row by hand is not available yet/);
+    expect(a.textContent).not.toMatch(/Eliminate this row|manual elimination with a reason/);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('the advice to have the sender cancel says an elimination made by hand must then be reversed', () => {
-    render(<MirroredDroppedNotice rows={[{ ...unresolved, code: 'rejected', detail: 'the receiver rejected it' }]} />);
-    expect(screen.getByRole('alert').textContent).toMatch(/or the sender can cancel the sale \(an elimination you made of it by hand must then be reversed/);
+  it.each([
+    ['variance', /Fix: the receiver corrects or re-books its document so that it carries the sender's figures in the same financial year, or the sender cancels or credits the sale\./],
+    ['cancelled', /Fix: the receiver books its document again, or the sender cancels or credits the sale\./],
+    ['rejected', /Fix: the receiver booked no expense for this sale\. A rejection is final: the sale returns to the sender's outbox, where it is corrected and sent again, or the sender cancels the sale\./],
+    ['dismissed', /Fix: the receiver booked no expense for this sale\. It can restore the message and accept it, or the sender cancels the sale\./],
+    ['failed', /Fix: the receiver booked no expense for this sale\. It can accept the message itself, or the sender cancels the sale\./],
+  ])('says what fixes a %s row, and none of it is a manual elimination', (code, fix) => {
+    render(<MirroredDroppedNotice rows={[{ ...unresolved, code }]} />);
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text).toMatch(fix);
+    expect(text).not.toMatch(/by hand must then be reversed|Make a manual elimination/);
+  });
+
+  it('a credit note is worded as one, not as a sale', () => {
+    render(<MirroredDroppedNotice rows={[{ ...unresolved, amount: -400, code: 'rejected', detail: 'the receiver rejected it' }]} />);
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text).toMatch(/the credit note returns to the sender's outbox/);
+    expect(text).not.toMatch(/the sale returns/);
   });
 
   it('nothing is shown for no rows; a body without a kind parses as the unmapped kind (older payloads)', () => {

@@ -13,10 +13,8 @@ import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/serv
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
 import {
-  EliminationAlreadyStandsError, EliminationCoveredError, EliminationNotUnresolvedError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError,
-  EliminationUnbalancedError,
+  EliminationMirroredRowUnsupportedError, EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError, MIRRORED_ROW_MANUAL_ELIMINATION_DOC,
 } from '@/modules/accounting/services/reports/eliminationErrors';
-import { assertMirroredRowResolvable } from '@/modules/accounting/services/reports/eliminationResolve';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -25,14 +23,13 @@ import {
   getEliminationAdjustments,
   createEliminationAdjustment,
   postEliminationAdjustment,
-  discardEliminationAdjustment,
   reverseEliminationAdjustment,
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import type { FlaggedEliminationRow, SkippedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
 import { cutoverRequiringReason } from '@/modules/accounting/services/reports/eliminationDuplicates';
-import { manualReasonMissing, manualReasonTooLong, resolveReasonMissing } from '@/modules/accounting/services/reports/manualReason';
+import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
 import type { DroppedMirroredElimination } from '@/modules/accounting/services/reports/mirrorEliminations';
 import { refuseWithoutGroupApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
@@ -69,6 +66,11 @@ function eliminationBodyError(body: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Manual elimination of a mirrored row is not supported yet (400): the body names a row, or the service found the row mirrored. */
+function mirroredRowRefusal(res: NextApiResponse, err: EliminationMirroredRowUnsupportedError): unknown {
+  return apiResponse.badRequest(res, err.message, { reason: 'mirrored_row_manual_elimination_unsupported', doc: MIRRORED_ROW_MANUAL_ELIMINATION_DOC });
+}
+
 /** The elimination journal's expected refusals → 400 / 409 with their message; anything else rethrows (500). */
 async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown>): Promise<unknown> {
   try {
@@ -76,10 +78,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
   } catch (err) {
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
-    if (err instanceof EliminationSourceError) return apiResponse.badRequest(res, err.message, { reason: 'bad_source_row' });
-    if (err instanceof EliminationAlreadyStandsError) return apiResponse.conflict(res, err.message, { reason: 'already_stands' });
-    if (err instanceof EliminationNotUnresolvedError) return apiResponse.conflict(res, err.message, { reason: 'not_unresolved' });
-    if (err instanceof EliminationCoveredError) return apiResponse.conflict(res, err.message, { reason: 'covered_by_manual' });
+    if (err instanceof EliminationMirroredRowUnsupportedError) return mirroredRowRefusal(res, err);
     if (err instanceof EliminationPossibleDuplicateError) {
       return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorFacts: err.facts, pairCutover: err.pairCutover });
     }
@@ -160,11 +159,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!(await userCanWriteGroup(userId, gId))) {
       return apiResponse.forbidden(res, 'Your role in this group does not allow changing eliminations.');
     }
-    if ((action === 'post-elimination' || action === 'reverse-elimination' || action === 'discard-elimination') && !isUuidParam(body.adjustmentId)) {
+    if ((action === 'post-elimination' || action === 'reverse-elimination') && !isUuidParam(body.adjustmentId)) {
       return apiResponse.badRequest(res, 'adjustmentId must be a valid UUID');
     }
 
     if (action === 'create-elimination') {
+      // A manual elimination never carries an intercompany row: the rows a person could name are the mirrored ones, which are not supported yet.
+      if (body.sourceIntercompanyId !== undefined && body.sourceIntercompanyId !== null) return mirroredRowRefusal(res, new EliminationMirroredRowUnsupportedError());
       const shape = eliminationBodyError(body);
       if (shape) return apiResponse.badRequest(res, shape);
       // lines is JSONB (no FK): an id from another group, or none at all, would be stored and
@@ -184,21 +185,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (tooLong) return apiResponse.badRequest(res, tooLong, { reason: 'manual_reason_too_long' });
       const missing = cutover ? manualReasonMissing(reason, cutover) : null;
       if (missing) return apiResponse.badRequest(res, missing, { reason: 'manual_reason_required', cutover });
-      // An elimination that RESOLVES a mirrored row no path eliminates carries the row (so it unlists once posted and a second is refused).
-      const sourceRow = body.sourceIntercompanyId;
-      if (sourceRow !== undefined && !isUuidParam(sourceRow)) return apiResponse.badRequest(res, 'sourceIntercompanyId must be a valid UUID');
-      if (sourceRow !== undefined && (typeof periodStart !== 'string' || typeof periodEnd !== 'string')) {
-        return apiResponse.badRequest(res, 'periodStart and periodEnd are required with sourceIntercompanyId (the row\'s month)');
-      }
-      const noReason = sourceRow ? resolveReasonMissing(reason) : null;
-      if (noReason) return apiResponse.badRequest(res, noReason, { reason: 'manual_reason_required', cutover: null });
-      return answerRefusals(res, async () => {
-        if (typeof sourceRow === 'string') await assertMirroredRowResolvable(gId, sourceRow, periodStart, periodEnd);
-        return apiResponse.success(res, await createEliminationAdjustment(gId, {
-          adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
-          ...(typeof sourceRow === 'string' ? { sourceIntercompanyId: sourceRow } : {}),
-        }));
-      });
+      return answerRefusals(res, async () => apiResponse.success(res, await createEliminationAdjustment(gId, {
+        adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
+      })));
     }
 
     if (action === 'post-elimination') {
@@ -206,13 +195,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return answerRefusals(res, async () => {
         await postEliminationAdjustment(body.adjustmentId as string, gId, body.confirmDuplicate === true);   // (a possible duplicate needs the person's confirm)
         return apiResponse.success(res, { posted: true });
-      });
-    }
-
-    if (action === 'discard-elimination') {   // (the undo of a create: a draft only, never posted; no approval is asked, as none is for creating it; the row records who)
-      return answerRefusals(res, async () => {
-        await discardEliminationAdjustment(body.adjustmentId as string, gId, userId);
-        return apiResponse.success(res, { discarded: true });
       });
     }
 

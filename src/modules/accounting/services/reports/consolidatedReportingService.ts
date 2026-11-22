@@ -14,7 +14,7 @@ import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { EliminationAlreadyStandsError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationMirroredRowUnsupportedError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
 import { storedEliminationRows } from './eliminationDuplicates';
 import { allStand, anyLinkedElsewhere, factsFromRows, type MirrorFacts } from './mirrorFacts';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -184,6 +184,11 @@ export async function createEliminationAdjustment(
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       throw new EliminationUnbalancedError(totalDebit, totalCredit);
     }
+    // A mirrored row is eliminated by the mirror (derived from the ledgers); a person's elimination of it is not supported yet. The generator skips those rows.
+    if (input.sourceIntercompanyId) {
+      const mirrored = (await sql`SELECT public.intercompany_is_mirrored_row(${input.sourceIntercompanyId}::UUID) AS m`) as DbRow[];
+      if (mirrored[0]?.m === true) throw new EliminationMirroredRowUnsupportedError(input.sourceIntercompanyId);
+    }
     // No ON CONFLICT: 1019 builds the partial unique index only where no legacy duplicates exist, and an ON CONFLICT naming an index that is
     // absent fails every insert. Where the index exists a second standing elimination of a row is a unique violation, mapped to the skip.
     let rows: DbRow[];
@@ -205,7 +210,8 @@ export async function createEliminationAdjustment(
     log.info('Created elimination adjustment', { groupId, id: rows[0]!.id }, 'accounting');
     return mapAdjustmentRow(rows[0]!);
   } catch (err) {
-    if (err instanceof EliminationAlreadyStandsError) log.info('Elimination already stands for this row', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
+    if (err instanceof EliminationMirroredRowUnsupportedError) log.info('Manual elimination of a mirrored row refused', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
+    else if (err instanceof EliminationAlreadyStandsError) log.info('Elimination already stands for this row', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
     else log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
     throw err;
   }
@@ -221,24 +227,6 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
     log.info('Reversed elimination adjustment', { adjustmentId, groupId }, 'accounting');
   } catch (err) {
     log.error('Failed to reverse elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-/**
- * A draft is never deleted (the app has no DELETE on it): it is marked discarded (by whom, and when, on the row), and counts, lists and blocks nothing.
- * Any draft may be discarded, the generator's too: it has no ledger effect, and it is the only way to withdraw a wrong one (post and reverse need approval).
- */
-export async function discardEliminationAdjustment(adjustmentId: string, groupId: string, actorId: string): Promise<void> {
-  try {
-    const result = (await sql`
-      UPDATE consolidation_adjustments SET status='discarded', updated_at=NOW(), discarded_by=${actorId}::UUID, discarded_at=NOW()
-      WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
-    `) as DbRow[];
-    if (result.length === 0) throw new EliminationStateError(adjustmentId, 'draft');
-    log.info('Discarded elimination adjustment', { adjustmentId, groupId, actorId }, 'accounting');
-  } catch (err) {
-    log.error('Failed to discard elimination adjustment', { adjustmentId, groupId, actorId, error: err }, 'accounting');
     throw err;
   }
 }

@@ -21,7 +21,7 @@ export class EliminationUnbalancedError extends Error {
 export class EliminationStateError extends Error {
   constructor(readonly adjustmentId: string, readonly requiredStatus: 'draft' | 'posted') {
     super(`This elimination is not a ${requiredStatus} adjustment of this group `
-      + `(missing, another group's, or already ${requiredStatus === 'draft' ? 'posted or discarded' : 'reversed'}).`);
+      + `(missing, another group's, or already ${requiredStatus === 'draft' ? 'posted' : 'reversed'}).`);
     this.name = 'EliminationStateError';
   }
 }
@@ -31,40 +31,25 @@ export class EliminationStateError extends Error {
  * consolidation_adjustments(source_intercompany_id) refused a second. The generator treats it as a skip.
  */
 export class EliminationAlreadyStandsError extends Error {
-  /** `by`: what stands, e.g. "a posted elimination by a person for 2026-03-01 to 2026-03-31" (said in the message when known). */
-  constructor(readonly sourceIntercompanyId: string, by = '') {
-    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands${by ? ` (${by})` : ''}: discard it (a draft) or reverse it (a posted one) before making another.`);
+  constructor(readonly sourceIntercompanyId: string) {
+    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands.`);
     this.name = 'EliminationAlreadyStandsError';
   }
 }
 
-/** The row a manual elimination names is not one a message records in this group, or is dated outside the elimination's period (400). */
-export class EliminationSourceError extends Error {
-  constructor(readonly sourceIntercompanyId: string, why: string) {
-    super(`Intercompany row ${sourceIntercompanyId} cannot be eliminated by hand here: ${why}.`);
-    this.name = 'EliminationSourceError';
-  }
-}
+/** The follow-up that would allow a person to eliminate a mirrored row by hand (design only: nothing implements it yet). */
+export const MIRRORED_ROW_MANUAL_ELIMINATION_DOC = 'docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md';
 
 /**
- * A manual elimination of a mirrored row needs the row to be one the mirror leaves un-eliminated for the elimination's period (409): the mirror
- * eliminates it now (the receiver accepted and approved it), it waits in the receiver's inbox, or a person's elimination already counts for it.
+ * A manual elimination may not carry an intercompany row that a mirrored document records (400). Manual elimination of a mirrored row is NOT
+ * SUPPORTED YET: its interactions with the derived elimination and with manual (P1) rows are not designed (MIRRORED_ROW_MANUAL_ELIMINATION_DOC).
+ * Fix the receiver's side instead, so that mirroring eliminates the row.
  */
-export class EliminationNotUnresolvedError extends Error {
-  constructor(readonly sourceIntercompanyId: string, readonly period: string) {
-    super(`Intercompany row ${sourceIntercompanyId} has nothing to eliminate by hand for ${period}: the mirror now eliminates it, it waits in the receiver's inbox, or another elimination already counts for it.`);
-    this.name = 'EliminationNotUnresolvedError';
-  }
-}
-
-/**
- * A mirrored row's elimination is refused because a POSTED elimination of a manual row may be the same sale (409): eliminating both counts it twice.
- * Reverse that one first if it is the same sale. There is no confirm: the match is the wide duplicate flag, and this refusal names what to reverse.
- */
-export class EliminationCoveredError extends Error {
-  constructor(readonly sourceIntercompanyId: string, readonly manualRowDescription: string, readonly period: string) {
-    super(`Intercompany row ${sourceIntercompanyId} may be the same sale as the manual row "${manualRowDescription}", whose posted elimination for ${period} already counts: eliminating this row too would eliminate the sale twice. Reverse that elimination first if it is the same sale.`);
-    this.name = 'EliminationCoveredError';
+export class EliminationMirroredRowUnsupportedError extends Error {
+  constructor(readonly sourceIntercompanyId: string | null = null) {
+    super('Manual elimination of a mirrored intercompany row is not supported yet. Correct or re-accept the receiving company\'s document (or cancel the sale) '
+      + `so that mirroring eliminates it. The planned follow-up is described in ${MIRRORED_ROW_MANUAL_ELIMINATION_DOC}.`);
+    this.name = 'EliminationMirroredRowUnsupportedError';
   }
 }
 

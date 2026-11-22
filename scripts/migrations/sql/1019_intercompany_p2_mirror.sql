@@ -12,13 +12,17 @@
 --      refuses a session's own INSERT of a message that carries or names a document (it allow-lists migration_admin). The journal must be the
 --      document's OWN posting (intercompany_own_posting_problem) and carry its figures by value (intercompany_sender_journal_value_problem).
 --   2. THE ELIMINATIONS OF MIRRORED DOCUMENTS ARE DERIVED AT READ TIME, never stored: intercompany_mirror_eliminations(group, start, end) returns
---      the dated EVENTS (+E when the two ledgers start supporting a pair, -E when they stop; the receiver's financial-year cut-off; both journals'
---      figures by value), a period being the sum of the events dated in it; see the limit there. No hook, lock or repair stands between a ledger and a figure.
+--      the dated EVENTS of the mirrored rows of the group's current members: +E when the two ledgers start supporting a pair, -E when they stop
+--      (each judged with the reversal links dated on or before it; the receiver's financial-year cut-off; both journals' figures by value), the
+--      period being the sum of the events dated in it, so at any moment a range is the sum of its months. A later booking or reversal does not change
+--      an earlier period; the reference data the judgement reads is not dated, so editing it can (see the limit at intercompany_mirror_eliminations).
+--      No hook, lock or repair stands between a ledger and a figure.
 --   3. Hooks maintain INBOX and DISPLAY state only: intercompany_withdraw_for_source / intercompany_journal_chain_changed withdraw or revive a
 --      message by the ledger's parity, and intercompany_sync_group_row (best effort) binds a group row to the receiver's journal the first time it
 --      matches (identity, supplier, period, figures) and shows its status and variance reason. A mirrored row's match columns are written by
 --      migration_admin only (intercompany_transaction_parties_immutable).
---   4. The auto-accept worker's definer path (queue and exhausted list), the receiver's source-changed check, the 6b backfill of older messages.
+--   4. The auto-accept worker's definer path (queue and exhausted list), the receiver's source-changed check, and the 6b backfill of what
+--      older messages did not record.
 
 -- DEFINER REGISTRY (930): the SECURITY DEFINER functions below are registered in app_definer_reviews (owner migration_admin, search_path
 -- pinned, pg_temp last). The builder, the value / posting / chain checks and the withdraw / revive / release / sync-core helpers are SECURITY
@@ -36,7 +40,7 @@
 --     public.intercompany_group_row_ok(uuid, uuid, uuid, uuid), public.intercompany_own_posting_problem(text, uuid, uuid, uuid),
 --     public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric), public.intercompany_fiscal_year(uuid, date), public.intercompany_receiver_je(uuid, date, date[], date[]), public.intercompany_receiver_journal_problem(uuid, uuid, text, uuid, uuid, date, date[]),
 --     public.intercompany_message_source_out(uuid), public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric),
---     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_row_manually_eliminated(uuid, date, date), public.intercompany_manual_cover(uuid), public.intercompany_journal_bound_elsewhere(uuid, uuid),
+--     public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]), public.intercompany_journal_bound_elsewhere(uuid, uuid),
 --     public.intercompany_journal_claimed(uuid), public.intercompany_mirrored_duplicate(uuid, date), public.intercompany_mirror_stands(uuid, date),
 --     public.intercompany_mirror_link(uuid, date), public.intercompany_mirror_link_holds(uuid, uuid, date), public.intercompany_mirror_candidates(uuid), public.intercompany_mirror_facts(uuid, date), public.intercompany_pair_cutovers(uuid), public.intercompany_auto_accept_release(uuid[], integer[]), public.intercompany_next_sa_midnight();
 
@@ -47,9 +51,8 @@
 --     DROP COLUMN IF EXISTS auto_next_attempt_at, DROP COLUMN IF EXISTS source_journal_entry_id, DROP COLUMN IF EXISTS group_transaction_id;
 --   ALTER TABLE intercompany_transactions DROP COLUMN IF EXISTS variance_reason, DROP COLUMN IF EXISTS first_target_journal_entry_id;
 --   ALTER TABLE intercompany_connection_sides DROP COLUMN IF EXISTS auto_accept_since, DROP COLUMN IF EXISTS mirroring_since;
---   ALTER TABLE consolidation_adjustments DROP COLUMN IF EXISTS manual_reason, DROP COLUMN IF EXISTS discarded_by, DROP COLUMN IF EXISTS discarded_at;
---   (rows a person DISCARDED keep status 'discarded' and stay: the previous release lists any status, so it would show them)
---   DROP INDEX IF EXISTS uq_consolidation_adjustments_standing_source, idx_consolidation_adjustments_source;
+--   ALTER TABLE consolidation_adjustments DROP COLUMN IF EXISTS manual_reason;
+--   DROP INDEX IF EXISTS uq_consolidation_adjustments_standing_source;
 --   DROP INDEX IF EXISTS idx_ic_transactions_target_journal;
 --   (the indexes idx_ic_messages_group_transaction, idx_ic_messages_source_journal, uq_ic_transactions_first_journal drop with their columns)
 
@@ -92,29 +95,22 @@ ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_s
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS mirroring_since TIMESTAMPTZ;
 -- Why a person made a manual elimination for a pair whose documents are mirrored (the API requires it on or after the pair's cutover).
 ALTER TABLE consolidation_adjustments ADD COLUMN IF NOT EXISTS manual_reason TEXT;
--- discarded_by / discarded_at: who discarded a draft (never deleted), and when. The index: the per-row lookup the derivation and listing make, even where the unique one is skipped.
-ALTER TABLE consolidation_adjustments ADD COLUMN IF NOT EXISTS discarded_by UUID, ADD COLUMN IF NOT EXISTS discarded_at TIMESTAMPTZ;
-CREATE INDEX IF NOT EXISTS idx_consolidation_adjustments_source ON consolidation_adjustments (source_intercompany_id) WHERE source_intercompany_id IS NOT NULL;
 
--- One standing (draft or posted) elimination per intercompany row and KIND (a person's has a reason; an older generator's, which the reports ignore for
--- a mirrored row, has none), by a partial unique index. THIS MIGRATION DOES NOT CHANGE EXISTING CONSOLIDATION DATA: if duplicates already exist the index
--- is skipped (a NOTICE with their number), and the generator's per-row skip still stops new ones (two runs for one group are serialised by an advisory
--- lock, eliminationGenerator.ts). Clean the duplicates by hand and re-run the CREATE INDEX below to enforce it. An older 1019's single-column index of this name is replaced (IF NOT EXISTS would keep it).
+-- One standing (draft or posted) elimination per intercompany row, enforced by a partial unique index. THIS MIGRATION DOES NOT CHANGE EXISTING
+-- CONSOLIDATION DATA: if duplicates already exist the index is skipped (a NOTICE with their number), and the generator's per-row skip still
+-- stops new ones (two runs for one group are serialised by an advisory lock, eliminationGenerator.ts). Clean the duplicates by hand and
+-- re-run the CREATE INDEX below to enforce it.
 DO $$
 DECLARE
   v_dups integer;
 BEGIN
   SELECT count(*) INTO v_dups FROM (SELECT source_intercompany_id FROM consolidation_adjustments
                                       WHERE source_intercompany_id IS NOT NULL AND status IN ('draft', 'posted')
-                                      GROUP BY source_intercompany_id, manual_reason IS NOT NULL HAVING count(*) > 1) d;
+                                      GROUP BY source_intercompany_id HAVING count(*) > 1) d;
   IF v_dups > 0 THEN
     RAISE NOTICE '1019: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created', v_dups;
   ELSE
-    IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uq_consolidation_adjustments_standing_source'
-                 AND indexdef NOT LIKE '%manual_reason IS NOT NULL%') THEN
-      DROP INDEX public.uq_consolidation_adjustments_standing_source;
-    END IF;
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id, (manual_reason IS NOT NULL))
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
       WHERE status IN ('draft', 'posted');   -- (NULLs never collide: a manual adjustment has no source row)
   END IF;
 END $$;
@@ -738,33 +734,25 @@ $$;
 REVOKE ALL ON FUNCTION public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_pair_at(uuid, date, date[], date[], date[]) TO migration_admin;
 
--- Whether a mirrored row has a COUNTING manual elimination: a posted adjustment of the row that a person made (it carries a reason; an older
--- generator's does not, and the reports never count that for a mirrored row). With a window, one whose period lies inside it (how the reports
--- count a stored adjustment); without, any. THE ONE PREDICATE making a person's elimination and the derived one mutually exclusive.
-CREATE OR REPLACE FUNCTION public.intercompany_row_manually_eliminated(p_row uuid, p_start date DEFAULT NULL, p_end date DEFAULT NULL)
-RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp
-AS $$ SELECT EXISTS (SELECT 1 FROM public.consolidation_adjustments ca JOIN public.intercompany_transactions it ON it.id = ca.source_intercompany_id AND it.group_id = ca.group_id
-        WHERE ca.source_intercompany_id = p_row AND ca.status = 'posted' AND ca.manual_reason IS NOT NULL AND ca.period_start IS NOT NULL AND ca.period_end IS NOT NULL
-          AND (p_start IS NULL OR (ca.period_start >= p_start AND ca.period_end <= p_end))) $$;
-REVOKE ALL ON FUNCTION public.intercompany_row_manually_eliminated(uuid, date, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_row_manually_eliminated(uuid, date, date) TO migration_admin;
-
--- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored, as dated EVENTS. For a group the caller is a member of, and a mirrored
--- row whose two companies are both CURRENT members of it (the reports' member set): the pair STANDS on a date d when, with the ledgers as they stood at d
--- (reversal chains counting only value-negating links dated on or before d), the sender's journal stands and carries the document's figures and the receiver
--- has a standing journal for it (intercompany_receiver_je: the same financial year in the receiver's calendar as the sender's date, the figures by value, no
--- other row's or document's). The elimination is +E on the date the pair starts standing on a receiver journal, and the counter-elimination -E on the date it
--- stops (a value-negating link on either side, or the receiver's journal replaced by another); standing again is a new +E. Those dates are the chains' own
--- journal dates. A period p_start..p_end is the sum of the events dated in it (each judged with only the links dated on or before it), so AT ANY MOMENT any
--- range is the sum of its months line by line: a later booking or reversal never changes an earlier period. A row with a COUNTING MANUAL ELIMINATION
--- (intercompany_row_manually_eliminated, any period) derives NO event in ANY window: its person's elimination stands for all of them (a window-dependent rule
--- would double count across months). THE LIMIT: the REFERENCE DATA the judgement reads is as it is TODAY and is not dated: the receiver's fiscal periods (the
--- financial-year cut-off), the connection side's supplier and the document's supplier (an UNBOUND row's receiver journal is the document's current one),
--- which other rows hold a journal, the group's members and its account mappings. Editing one can change a PAST period's figure; re-pointing a receiver
--- document's journal link does too (1018 refuses that swap to non-superusers). A row is judged on its chain dates inside the period and once just before
--- p_start; a row with no chain date in the period is not judged at all. Within the period a +E and a -E on one receiver journal cancel; what is left is one
--- row per (row, receiver journal): kind 'eliminate' (+E) or 'reverse' (-E), key_date its latest event in the period. One row per elimination LINE, from the
--- journals' OWN lines (each of its own company): the sender's revenue lines (credit - debit) and the receiver's expense lines (debit - credit), signed as the
+-- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored, as dated EVENTS. For a group the caller is a member of,
+-- and a mirrored row whose two companies are both CURRENT members of it (the reports' member set): the pair STANDS on a date d when, with the
+-- ledgers as they stood at d (reversal chains counting only value-negating links dated on or before d), the sender's journal stands and carries
+-- the document's figures and the receiver has a standing journal for it (intercompany_receiver_je: the same financial year in the receiver's
+-- calendar as the sender's date, the figures by value, no other row's or document's). The elimination is +E on the date the pair starts
+-- standing on a receiver journal, and the counter-elimination -E on the date it stops (a value-negating link on either side, or the receiver's
+-- journal replaced by another); standing again is a new +E. Those dates are the chains' own journal dates, so the first +E is dated the later
+-- of the sender's and the receiver's journal dates. A period p_start..p_end is the sum of the events dated in it (each judged with only the
+-- links dated on or before it), so AT ANY MOMENT any range is the sum of its months line by line. A booking, a reversal or a re-reversal in a
+-- later period does not change an earlier one. THE LIMIT: the REVERSAL CHAINS are dated (a later reversal never changes an earlier period);
+-- the REFERENCE DATA the judgement reads is as it is TODAY and is not dated: the receiver's fiscal periods (the financial-year cut-off), the
+-- connection side's supplier and the document's supplier (an UNBOUND row: one never matched by the sync, whose receiver journal is the
+-- document's current one), which other rows hold a journal, the group's members and its account mappings. Editing one of them can change a
+-- PAST period's figure (and so a report already given); re-pointing a receiver document's journal link does too (1018 refuses that swap to
+-- non-superusers). The state only changes on a chain date, so a row is judged on its chain dates inside the period and once just before
+-- p_start; a row with no chain date in the period is not judged at all.
+-- Within the period a +E and a -E on one receiver journal cancel; what is left is one row per (row, receiver journal): kind 'eliminate' (+E)
+-- or 'reverse' (-E), key_date its latest event in the period. One row per elimination LINE, from the journals' OWN lines
+-- (each of its own company): the sender's revenue lines (credit - debit) and the receiver's expense lines (debit - credit), signed as the
 -- sender wrote the document (a credit note is negative) and negated for a counter-elimination.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_eliminations(uuid, date, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_eliminations(p_group uuid, p_start date, p_end date)
@@ -789,7 +777,6 @@ AS $$
       JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
      WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
        AND m.source_journal_entry_id IS NOT NULL AND m.target_doc_id IS NOT NULL
-       AND NOT public.intercompany_row_manually_eliminated(it.id)   -- (a person's elimination stands in for ALL its events, in any window)
        AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = it.source_company_id AND a.left_date IS NULL)
        AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = p_group AND b.company_id = it.target_company_id AND b.left_date IS NULL)
   ), up (id, parent) AS (
@@ -865,15 +852,15 @@ ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER T
 REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
 
--- THE MIRRORED ROWS NO PATH ELIMINATES, for the reports and the Eliminations page (the mirror is automatic: nobody would notice otherwise). The generator
--- skips a mirrored row, the manual match refuses it, and the derivation eliminates it only while the receiver's journal carries the sender's figures in the
--- same financial year; only a manual elimination with a reason (carrying the row: source_intercompany_id) can eliminate it otherwise. Listed: a row of the
--- group (both companies current members, the caller a member) dated in the period whose sender journal stands as at the period end by value and whose message
--- is (a) ACCEPTED and its document acted on (approved-class or cancelled) while the pair stands neither at the period end NOR as of all links (a bill dated
--- later, even after today, eliminates on its own date), or (b) REJECTED, DISMISSED or FAILED (nothing will ever eliminate it). PENDING is not listed: it
--- waits in the receiver's inbox. A person's POSTED elimination counted in the window (intercompany_row_manually_eliminated) unlists it (one for a period the window does not hold is
--- named in the reason); a person's DRAFT lists it as 'drafted'; an older generator's (no reason) is ignored. A row still 'matched' by its display columns (a failed hook) is not looked at.
--- Also listed, as 'stale': a row whose counting person's elimination has no sale behind it, the sender's journal no longer standing at the window end (reverse the elimination).
+-- THE MIRRORED ROWS NO PATH ELIMINATES, for the reports and the Eliminations page (the mirror is automatic: nobody would notice otherwise).
+-- The generator skips a mirrored row, the manual match refuses it, a manual elimination of it is refused (not supported yet:
+-- docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md), and the derivation eliminates it only while the receiver's journal carries
+-- the sender's figures in the same financial year: a listed row has NO elimination from any path, and the listing is INFORMATIONAL (the receiver's side
+-- must be corrected so that mirroring eliminates it). Listed: a row of the group (both companies current members, the caller a member) dated in the
+-- period whose sender journal stands as at the period end by value and whose message is (a) ACCEPTED and its document acted on (approved-class or
+-- cancelled) while the pair stands neither at the period end NOR as of all links (a bill dated later, even after today, eliminates on its own date), or
+-- (b) REJECTED, DISMISSED or FAILED (nothing will ever eliminate it). PENDING is not listed: it waits in the receiver's inbox. A row still 'matched'
+-- by its display columns (a failed hook) is not looked at. reason_code: variance / cancelled / rejected / dismissed / failed.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_unresolved(uuid, date, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_unresolved(p_group uuid, p_start date, p_end date)
 RETURNS TABLE (transaction_id uuid, transaction_date date, description text, amount numeric, reason text, reason_code text)
@@ -883,19 +870,14 @@ SECURITY DEFINER
 SET jit = off
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  (SELECT it.id, it.transaction_date, it.description, it.amount,
+  SELECT it.id, it.transaction_date, it.description, it.amount,
          CASE k.code
-           WHEN 'drafted' THEN 'a manual elimination for this row is drafted but not posted: post it'
            WHEN 'rejected' THEN 'the receiver rejected it' || COALESCE(': ' || NULLIF(btrim(m.reason), ''), '')
            WHEN 'dismissed' THEN 'the receiver dismissed it without accepting it'
            WHEN 'failed' THEN 'the automatic acceptance failed and the receiver has not accepted it'
            ELSE COALESCE(NULLIF(btrim(it.variance_reason), ''),
                          CASE k.code WHEN 'cancelled' THEN 'the receiver cancelled its document'
-                              ELSE 'the receiver''s journal does not carry the sender''s figures as a standing posting' END) END
-         || COALESCE((SELECT ' (eliminated by a person for ' || min(x.period_start)::text || ' to ' || max(x.period_end)::text || ', a period this window does not hold)'
-                        FROM public.consolidation_adjustments x
-                       WHERE x.group_id = p_group AND x.source_intercompany_id = it.id AND x.status = 'posted' AND x.manual_reason IS NOT NULL
-                         AND x.period_start IS NOT NULL AND x.period_end IS NOT NULL), ''),
+                              ELSE 'the receiver''s journal does not carry the sender''s figures as a standing posting' END) END,
          k.code
     FROM public.intercompany_transactions it
     JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
@@ -911,16 +893,13 @@ AS $$
                  WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id AND si.company_id = m.to_company_id),
                (SELECT cn.status = 'cancelled' FROM public.credit_notes cn
                  WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id AND cn.company_id = m.to_company_id AND cn.type = 'supplier'),
-               false) AS cancelled,
-             EXISTS (SELECT 1 FROM public.consolidation_adjustments x WHERE x.group_id = p_group AND x.source_intercompany_id = it.id
-                        AND x.status = 'draft' AND x.manual_reason IS NOT NULL) AS drafted) bill
-    CROSS JOIN LATERAL (SELECT CASE WHEN bill.drafted THEN 'drafted' WHEN m.status <> 'accepted' THEN m.status
+               false) AS cancelled) bill
+    CROSS JOIN LATERAL (SELECT CASE WHEN m.status <> 'accepted' THEN m.status
                                     WHEN bill.cancelled THEN 'cancelled' ELSE 'variance' END AS code) k
    WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
      AND it.transaction_date BETWEEN p_start AND p_end
      AND it.match_status IN ('variance', 'unmatched')
      AND m.status IN ('accepted', 'rejected', 'dismissed', 'failed') AND m.source_journal_entry_id IS NOT NULL
-     AND NOT public.intercompany_row_manually_eliminated(it.id, p_start, p_end)
      AND (m.status <> 'accepted' OR (m.target_doc_id IS NOT NULL AND bill.acted
           AND public.intercompany_mirror_pair_at(it.id, p_end) IS NULL AND public.intercompany_mirror_pair_at(it.id, NULL) IS NULL))
      AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = it.source_company_id AND a.left_date IS NULL)
@@ -928,18 +907,8 @@ AS $$
      AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
      AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
      AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
-           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL)
-  UNION ALL
-  (SELECT it.id, it.transaction_date, it.description, it.amount,
-          'a person''s posted elimination of this sale still counts, but the sender has cancelled the sale: reverse that elimination', 'stale'::text
-     FROM public.intercompany_transactions it
-     JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
-    WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
-      AND it.transaction_date BETWEEN p_start AND p_end AND m.source_journal_entry_id IS NOT NULL
-      AND public.intercompany_row_manually_eliminated(it.id, p_start, p_end)
-      AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
-      AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 0)
-  ORDER BY 2, 1
+           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
+   ORDER BY it.transaction_date, it.id
 $$;
 ALTER FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) FROM PUBLIC;
@@ -1659,19 +1628,20 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirror_candidates(uuid) TO migrati
 
 DROP FUNCTION IF EXISTS public.intercompany_mirror_pick(uuid, date);   -- (round 18's pick: the facts below replace it)
 
--- The mirrored sales a MANUAL (non-mirrored) group row of a sale type may duplicate (rows dated before its pair's cutover can still overlap a mirror: a
--- document dated after the connection's cut-over date but approved before both sides were on is not mirrored, one approved after is). A FLAG only, never a
--- skip, so it is WIDE (a missing flag lets a person post a double elimination; a spurious one costs a look). A mirrored row of the same group whose sale runs
--- the way the manual row's elimination does: the same source and target for a sale or mgmt_fee, the REVERSE for a purchase (a purchase B -> A is A's sale to
--- B: the P1 generator eliminates the same group accounts). Matched by amount: (1) the SINGLE mirrors that match (intercompany_mirror_candidates: a cancelled
--- sender kept, judged as at the period by the facts), closest first; else (2) the mirrors of that direction whose sender's date is in the row's calendar
--- month, accepted with a target document and carried by the period (a cancelled one counts while its sent-with journal's reversal chain is odd as at p_asat),
--- when their subtotals (or totals) SUM to the row's amount (a monthly total, an invoice net of its credit note). mirror_rows: the mirror(s) in that order;
--- mirror_ref: the closest one's description (else '(no description)') or "N mirrored documents of <month>"; is_sum: (2). A plain match: it walks no ledger
--- (the post refusal's EXISTS and the list's join use it as is). WHAT IS TRUE of the match (which mirror the wording names, whether it is eliminated
--- automatically for the period, whose link holds it) is intercompany_mirror_facts, the one source of every sentence about it. A definer (the caller may not
--- read the messages); it answers only for a row of a group the caller is a current member of. p_asat (NULL: today) is read only for a month-sum member whose
--- sender cancelled it: it counts while the period still carries it (round 20, M1).
+-- The mirrored sales a MANUAL (non-mirrored) group row of a sale type may duplicate (rows dated before its pair's cutover can still overlap a
+-- mirror: a document dated after the connection's cut-over date but approved before both sides were on is not mirrored, one approved after is).
+-- A FLAG only, never a skip, so it is WIDE (a missing flag lets a person post a double elimination; a spurious one costs a look). A mirrored row
+-- of the same group whose sale runs the way the manual row's elimination does: the same source and target for a sale or mgmt_fee, the REVERSE
+-- for a purchase (a purchase B -> A is A's sale to B: the P1 generator eliminates the same group accounts). Matched by amount: (1) the SINGLE
+-- mirrors that match (intercompany_mirror_candidates: a cancelled sender kept, judged as at the period by the facts), closest first; else (2) the
+-- mirrors of that direction whose sender's date is in the row's calendar month, accepted with a target document and carried by the period (a
+-- cancelled one counts while its sent-with journal's reversal chain is odd as at p_asat), when their
+-- subtotals (or totals) SUM to the row's amount (a monthly total, an invoice net of its credit note). mirror_rows: the mirror(s) in that order;
+-- mirror_ref: the closest one's description (else '(no description)') or "N mirrored documents of <month>"; is_sum: (2). A plain match: it walks
+-- no ledger (the post refusal's EXISTS and the list's join use it as is). WHAT IS TRUE of the match (which mirror the wording names, whether it
+-- is eliminated automatically for the period, whose link holds it) is intercompany_mirror_facts, the one source of every sentence about it. A
+-- definer (the caller may not read the messages); it answers only for a row of a group the caller is a current member of. p_asat (NULL:
+-- today) is read only for a month-sum member whose sender cancelled it: it counts while the period still carries it (round 20, M1).
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid);
@@ -1717,21 +1687,22 @@ ALTER FUNCTION public.intercompany_mirrored_duplicate(uuid, date) OWNER TO migra
 REVOKE ALL ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO app_user, app_service, migration_admin;
 
--- WHAT IS TRUE of a manual row's possible mirrored duplicate (intercompany_mirrored_duplicate) for the period ending p_asat (NULL: today): one row per mirror
--- the wording names, each with its description (else '(no description)'), the amount it accounts for (the row's amount for one mirror; its subtotal, or
--- signed total, for a member of a month sum), whether it is eliminated automatically for that period (intercompany_mirror_stands), and whose ACTIVE link of
--- the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a different row"), 'none'; other_role: the role of another row's active
--- link of the OTHER role (the sale's other side); by_total: matched by its total with VAT (mirroring eliminates net of VAT); elim_date: the date its
--- elimination falls on (the later document date, which can be after the period: "stands" judges the pair, not that date). Of several single candidates
--- (closest first) it names, in this order: the one this row's active link holds; else the closest that stands and no other row's link holds (stopping there);
--- else the closest no other row's link holds (none of those stands: it is named NOT eliminated, never a mirror that is another row's sale); else the closest.
--- A month sum names every member. The ONE source of the generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded
--- from anything else. by_person: a person's posted elimination of it counts (stands holds too). label: the mirror's description or "N mirrored documents of <month>"; ord: the order to name them in. A definer: only for a row of a
--- group the caller is a current member of (through intercompany_mirrored_duplicate); nothing otherwise.
+-- WHAT IS TRUE of a manual row's possible mirrored duplicate (intercompany_mirrored_duplicate) for the period ending p_asat (NULL: today): one row
+-- per mirror the wording names, each with its description (else '(no description)'), the amount it accounts for (the row's amount for one mirror;
+-- its subtotal, or signed total, for a member of a month sum), whether it is eliminated automatically for that period
+-- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
+-- different row"), 'none'; other_role: the role of another row's active link of the OTHER role (the sale's other side); by_total: matched by
+-- its total with VAT (mirroring eliminates net of VAT); elim_date: the date its elimination falls on (the later document date, which can be
+-- after the period: "stands" judges the pair, not that date). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
+-- closest that stands and no other row's link holds (stopping there); else the closest no other row's link holds (none of those stands: it is
+-- named NOT eliminated, never a mirror that is another row's sale); else the closest. A month sum names every member. The ONE source of the
+-- generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded from anything else. label: the
+-- mirror's description or "N mirrored documents of <month>"; ord: the order to name them in. A definer: only for a row of a group the caller is a
+-- current member of (through intercompany_mirrored_duplicate); nothing otherwise.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_facts(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_facts(p_row uuid, p_asat date DEFAULT NULL)
 RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text,
-               by_total boolean, elim_date date, other_role text, by_person boolean)
+               by_total boolean, elim_date date, other_role text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -1793,8 +1764,7 @@ BEGIN
            -- the date its elimination falls on: the later of the sender's and the receiver's document dates (may be after the period)
            GREATEST(o.transaction_date, COALESCE(x.bd, o.transaction_date)),
            -- the role of an active link of the OTHER role (the purchase side of the sale for a sale row, and the reverse)
-           (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1),
-           public.intercompany_row_manually_eliminated(o.id)
+           (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1)
       FROM unnest(v_ids) WITH ORDINALITY AS u(id, n)
       JOIN public.intercompany_transactions o ON o.id = u.id
       LEFT JOIN LATERAL (SELECT m.payload,
@@ -1808,13 +1778,14 @@ ALTER FUNCTION public.intercompany_mirror_facts(uuid, date) OWNER TO migration_a
 REVOKE ALL ON FUNCTION public.intercompany_mirror_facts(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_facts(uuid, date) TO app_user, app_service, migration_admin;
 
--- Whether a mirrored row is ELIMINATED AUTOMATICALLY for a period ending p_asat (NULL: today): its pair stands as at the later of its two document dates (the
--- sender's, the receiver's: the +E falls on the later journal date, so an earlier date would miss a bill booked in a later month) AND still stands as at the
--- later of that date and LEAST(p_asat, today) (a stop dated after the period is the mirror's own -E in a later period, so it does not unmake this period's
--- elimination; one inside it does), AND every revenue line of the sender's journal and every expense line of the receiver's is mapped to a group account of
--- the row's group (an unmapped line drops the whole derived event, mirrorEliminations.ts). A sale booked by the receiver in another financial year (the
--- cut-off), a bill accepted but never approved, a pair reversed in the period, or an unmapped account: false, UNLESS a person's posted elimination of the row counts
--- (intercompany_row_manually_eliminated, any period): then it is eliminated, by that. The three chains are walked ONCE (intercompany_journal_chain_eff) and passed to both judgements. A definer: only for a row of a group the caller is a current member of (else NULL).
+-- Whether a mirrored row is ELIMINATED AUTOMATICALLY for a period ending p_asat (NULL: today): its pair stands as at the later of its two
+-- document dates (the sender's, the receiver's: the +E falls on the later journal date, so an earlier date would miss a bill booked in a later
+-- month) AND still stands as at the later of that date and LEAST(p_asat, today) (a stop dated after the period is the mirror's own -E in a later
+-- period, so it does not unmake this period's elimination; one inside it does), AND every revenue line of the sender's journal and every
+-- expense line of the receiver's is mapped to a group account of the row's group (an unmapped line drops the whole derived event,
+-- mirrorEliminations.ts). A sale booked by the receiver in another financial year (the cut-off), a bill accepted but never approved, a pair
+-- reversed in the period, or an unmapped account: false. The three chains are walked ONCE (intercompany_journal_chain_eff) and passed to both
+-- judgements. A definer: only for a row of a group the caller is a current member of (else NULL).
 DROP FUNCTION IF EXISTS public.intercompany_mirror_stands(uuid);
 DROP FUNCTION IF EXISTS public.intercompany_mirror_stands(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_stands(p_row uuid, p_asat date DEFAULT NULL)
@@ -1825,16 +1796,16 @@ SECURITY DEFINER
 SET jit = off
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT h.man OR (public.intercompany_mirror_pair_at(h.id, h.later, h.se, h.fe, h.de) IS NOT NULL
+  SELECT public.intercompany_mirror_pair_at(h.id, h.later, h.se, h.fe, h.de) IS NOT NULL
          AND public.intercompany_mirror_pair_at(h.id, GREATEST(h.later, LEAST(COALESCE(p_asat, (now() AT TIME ZONE 'Africa/Johannesburg')::date), (now() AT TIME ZONE 'Africa/Johannesburg')::date)), h.se, h.fe, h.de) IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM public.gl_journal_lines jl JOIN public.gl_accounts a ON a.id = jl.gl_account_id AND a.account_type = 'revenue'
                           WHERE jl.journal_entry_id = h.sje AND jl.company_id = h.sc
                             AND NOT EXISTS (SELECT 1 FROM public.group_coa_mappings g WHERE g.group_id = h.gid AND g.company_id = h.sc AND g.company_account_id = jl.gl_account_id))
          AND NOT EXISTS (SELECT 1 FROM public.gl_journal_lines jl JOIN public.gl_accounts a ON a.id = jl.gl_account_id AND a.account_type = 'expense'
                           WHERE jl.journal_entry_id = h.je AND jl.company_id = h.tc
-                            AND NOT EXISTS (SELECT 1 FROM public.group_coa_mappings g WHERE g.group_id = h.gid AND g.company_id = h.tc AND g.company_account_id = jl.gl_account_id)))
+                            AND NOT EXISTS (SELECT 1 FROM public.group_coa_mappings g WHERE g.group_id = h.gid AND g.company_id = h.tc AND g.company_account_id = jl.gl_account_id))
     FROM (
-      SELECT it.id, public.intercompany_row_manually_eliminated(it.id) AS man, it.group_id AS gid, it.source_company_id AS sc, it.target_company_id AS tc, m.source_journal_entry_id AS sje, bill.je,
+      SELECT it.id, it.group_id AS gid, it.source_company_id AS sc, it.target_company_id AS tc, m.source_journal_entry_id AS sje, bill.je,
              GREATEST(it.transaction_date, COALESCE(bill.d, it.transaction_date)) AS later,
              public.intercompany_journal_chain_eff(m.source_journal_entry_id, it.source_company_id) AS se,
              public.intercompany_journal_chain_eff(it.first_target_journal_entry_id, it.target_company_id) AS fe,
@@ -1855,25 +1826,6 @@ $$;
 ALTER FUNCTION public.intercompany_mirror_stands(uuid, date) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_mirror_stands(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_stands(uuid, date) TO app_user, app_service, migration_admin;
-
--- The posted elimination of a MANUAL (P1) row that may be the same sale as the mirrored row p_row (intercompany_mirrored_duplicate's wide match, reversed): a person
--- eliminating the mirrored row too would count the sale twice. One row at most. SECURITY INVOKER: the caller's own groups only (row security).
-CREATE OR REPLACE FUNCTION public.intercompany_manual_cover(p_row uuid)
-RETURNS TABLE (adjustment_id uuid, manual_row uuid, description text, period_start date, period_end date)
-LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp
-AS $$
-  SELECT ca.id, x.id, x.description, ca.period_start, ca.period_end
-    FROM public.intercompany_transactions r
-    JOIN public.intercompany_transactions x ON x.group_id = r.group_id AND x.id <> r.id AND x.transaction_type IN ('sale', 'purchase', 'mgmt_fee')
-     AND LEAST(x.source_company_id, x.target_company_id) = LEAST(r.source_company_id, r.target_company_id)
-     AND GREATEST(x.source_company_id, x.target_company_id) = GREATEST(r.source_company_id, r.target_company_id)
-    JOIN public.consolidation_adjustments ca ON ca.source_intercompany_id = x.id AND ca.group_id = x.group_id AND ca.status = 'posted'
-   WHERE r.id = p_row AND public.intercompany_is_mirrored_row(r.id) AND NOT public.intercompany_is_mirrored_row(x.id)
-     AND p_row = ANY (SELECT unnest(d.mirror_rows) FROM public.intercompany_mirrored_duplicate(x.id, ca.period_end) d)
-   ORDER BY ca.posted_at, ca.id LIMIT 1
-$$;
-REVOKE ALL ON FUNCTION public.intercompany_manual_cover(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_manual_cover(uuid) TO app_user, app_service, migration_admin;
 
 -- THE STORED, EXCLUSIVE LINK of a manual (P1) row to the mirrored document that eliminates it after the pair's cutover (RULING 2026-11-21).
 -- One active link per row and one per (mirror, role): a mirror accounts for at most one sale row (sale / mgmt_fee) and one purchase row (the two
@@ -1934,8 +1886,9 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirror_link_holds(uuid, uuid, date
 --              row's own month (it gets the mirror when its period runs);
 --   'none'     no single mirror matches it and eliminates it for the period (or the row is before its pair's cutover, or not the caller's).
 -- The candidates are tried in closeness order (intercompany_mirror_candidates), so a second equal sale takes its own free mirror. The run takes
--- the generator's per-group advisory lock; p_asat is held to [the row's date, today] (Johannesburg; a future row: its own date): a forged later
--- date can only release a link, which the next proper run makes again.
+-- the generator's per-group advisory lock, so a direct call is serialised with a run; p_asat is held to [the row's date, today] (Johannesburg;
+-- a row dated in the future: its own date) (a later stop is judged by its own counter-elimination; a forged later date can only release a
+-- link, which the next proper run makes again).
 -- mirror_ref names the mirror concerned. For a row of a group the caller WRITES in (the generator's caller); otherwise 'none'.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_link(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_link(p_row uuid, p_asat date)
@@ -2405,7 +2358,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_mirror_eliminations(uuid,date,date)', 'public.intercompany_mirror_eliminations(uuid, date, date)',
      'nothing: a read of the mirrored group rows of a group the caller is a member of (both companies current members), their journals'' dated reversal chains and the receiver''s documents, giving the elimination and counter-elimination lines dated in a period (derived from the ledgers as they stood on each event date, never stored)'),
     ('intercompany_mirror_unresolved(uuid,date,date)', 'public.intercompany_mirror_unresolved(uuid, date, date)',
-     'nothing: for a group the caller is a member of, the mirrored group rows dated in a period (both companies current members) whose sender journal still stands as at the period end and whose message the receiver accepted and acted on (approved or cancelled its document) while the pair stands neither at the period end nor as of all links, or the receiver rejected, dismissed or failed to accept, and which has no posted manual elimination, with the reason and a reason code (a read of intercompany_transactions, intercompany_messages, the receiver''s document status and the journals'' reversal chains); the reports and the Eliminations page say these need a manual elimination'),
+     'nothing: for a group the caller is a member of, the mirrored group rows dated in a period (both companies current members) whose sender journal still stands as at the period end and whose message the receiver accepted and acted on (approved or cancelled its document) while the pair stands neither at the period end nor as of all links, or the receiver rejected, dismissed or failed to accept,, with the reason and a reason code (a read of intercompany_transactions, intercompany_messages, the receiver''s document status and the journals'' reversal chains); informational: the reports and the Eliminations page say these have no elimination from any path'),
     ('intercompany_message_source_out(uuid)', 'public.intercompany_message_source_out(uuid)',
      'nothing: a read of the sender''s approved document through the payload builder and of the sent-with journal''s reversal chain, for the receiver of that message only'),
     ('intercompany_journal_chain_changed(uuid)', 'public.intercompany_journal_chain_changed(uuid)',
@@ -2431,8 +2384,6 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_mirrored_row(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_row_manually_eliminated(uuid, date, date)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_manual_cover(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_claimed(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirrored_duplicate(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_facts(uuid, date)', 'EXECUTE')

@@ -45,12 +45,12 @@ interface GroupAccount { id: string; code: string; name: string; type: string; s
  * A mirrored row the group figures keep un-eliminated, reported with the derivation (the mirror is automatic: nobody would see it otherwise):
  *  - 'unmapped': its elimination event could NOT be applied, one of its accounts has no group account mapped (map the accounts);
  *  - 'unresolved': it has NO elimination from any path (a variance: the receiver's journal does not carry the sender's figures; the receiver
- *    cancelled its document, rejected, dismissed or failed to accept the message; the manual generator and match refuse a mirrored row), so
- *    only a manual elimination with a reason (carrying the row) can eliminate the sale. `detail` says why, `code` which (intercompany_mirror_unresolved);
- *    `keyDate` is the row's date.
+ *    cancelled its document, rejected, dismissed or failed to accept the message; the manual generator, the match and a manual elimination
+ *    all refuse a mirrored row), so the receiver's side must be put right for mirroring to eliminate it: INFORMATIONAL, nothing here can be
+ *    eliminated by hand yet. `detail` says why, `code` which (intercompany_mirror_unresolved); `keyDate` is the row's date.
  */
 export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number; kind: 'unmapped' | 'unresolved'; detail: string;
-  /** unresolved only: why (drafted / rejected / dismissed / failed / cancelled / variance), so the notice gives the right advice. */ code?: string }
+  /** unresolved only: why (rejected / dismissed / failed / cancelled / variance), so the notice gives the right advice. */ code?: string }
 
 /** Money to cents, as the consolidated reports round (the derived lines are summed by the reports, so each is rounded here once). */
 const cents = (n: number): number => Math.round(n * 100) / 100;

@@ -7,8 +7,8 @@ import { useRef, useState } from 'react';
 import type React from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
-import { docWord, fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
-import { manualReasonMissing, manualReasonTooLong, resolveReasonMissing } from '@/modules/accounting/services/reports/manualReason';
+import { fmt, type EliminationLine, type EliminationType } from './EliminationsShared';
+import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
 
 const BLANK_LINES: EliminationLine[] = [{ groupAccountCode: '', debit: 0, credit: 0 }, { groupAccountCode: '', debit: 0, credit: 0 }];
 
@@ -32,9 +32,6 @@ export function reasonRequired(period: string, reasonRequiredFrom: string | null
   return reasonRequiredFrom !== null && period >= reasonRequiredFrom;
 }
 
-/** The unresolved mirrored row a form eliminates (the "Eliminate this row" of the notice): the elimination carries it. */
-export interface ResolvedRow { id: string; keyDate: string; description: string; amount: number }
-
 export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: string | null, onCreated: () => Promise<void>) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<EliminationType>('interco_revenue');
@@ -44,18 +41,13 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
   const [lines, setLines] = useState<EliminationLine[]>(BLANK_LINES);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [row, setRow] = useState<ResolvedRow | null>(null);
   // `saving` is state: a second submit in the same event batch (Enter, a double click) would pass it, so a ref guards the POST
   const inFlight = useRef(false);
-  const needsReason = row !== null || reasonRequired(period, reasonRequiredFrom);
+  const needsReason = reasonRequired(period, reasonRequiredFrom);
 
   const start = () => {
-    setType('interco_revenue'); setDescription(''); setPeriod(localISODate()); setReason(''); setRow(null);
+    setType('interco_revenue'); setDescription(''); setPeriod(localISODate()); setReason('');
     setLines(BLANK_LINES.map((l) => ({ ...l }))); setError(''); setOpen(true);
-  };
-  /** Opens the form for one unresolved mirrored row: dated on the row's date, described from it, and the elimination carries the row. */
-  const startFor = (r: ResolvedRow) => {
-    start(); setRow(r); setPeriod(r.keyDate); setDescription(`Manual elimination of mirrored ${docWord(r.amount)}: ${r.description}`.slice(0, 200));
   };
 
   async function submit(e: React.FormEvent<Element>) {
@@ -65,8 +57,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
     const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.01) { setError(`Debits (${fmt(totalDebit)}) must equal credits (${fmt(totalCredit)})`); return; }
     if (lines.some((l) => !l.groupAccountCode)) { setError('All lines must have a group account code'); return; }
-    const problem = manualReasonTooLong(reason.trim())
-      ?? (row ? resolveReasonMissing(reason.trim()) : needsReason ? manualReasonMissing(reason.trim(), reasonRequiredFrom ?? '') : null);
+    const problem = manualReasonTooLong(reason.trim()) ?? (needsReason ? manualReasonMissing(reason.trim(), reasonRequiredFrom ?? '') : null);
     if (problem) { setError(problem); return; }
     inFlight.current = true;
     setSaving(true); setError('');
@@ -79,7 +70,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
         body: JSON.stringify({
           // The field names the route reads; the elimination is dated on the chosen day.
           action: 'create-elimination', adjustmentType: type, description, periodStart: period, periodEnd: period,
-          ...(reason.trim() ? { manualReason: reason.trim() } : {}), ...(row ? { sourceIntercompanyId: row.id } : {}),
+          ...(reason.trim() ? { manualReason: reason.trim() } : {}),
           lines: lines.map((l) => ({ groupAccountId: ids.get(l.groupAccountCode.trim()), debit: Number(l.debit || 0), credit: Number(l.credit || 0) })),
         }),
       });
@@ -91,7 +82,7 @@ export function useEliminationCreateForm(groupId: string, reasonRequiredFrom: st
   }
 
   return {
-    open, setOpen, start, startFor, row, submit, type, setType, description, setDescription, period, setPeriod, reason, setReason, needsReason,
+    open, setOpen, start, submit, type, setType, description, setDescription, period, setPeriod, reason, setReason, needsReason,
     lines, setLines, error, saving,
   };
 }

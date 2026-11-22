@@ -87,8 +87,6 @@ export default function EliminationsPage() {
 
   // a draft that may be the same sale as a mirrored document is posted only after the person confirms (the server refuses it otherwise)
   const [confirmPost, setConfirmPost] = useState<PossibleDuplicate | null>(null);
-  // a discard is recorded against the person and cannot be undone: it asks first, naming the draft
-  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
 
   /* Shared action helper — avoids triple-duplicating fetch + error handling */
   const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string, onResult?: (json: unknown) => void) => {
@@ -129,8 +127,6 @@ export default function EliminationsPage() {
 
   const handleReverse = (id: string) =>
     postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
-  const discard = (id: string) => postAction(id, { action: 'discard-elimination', adjustmentId: id }, 'Could not discard the draft - try again');
-  const discarding = items.find((i) => i.id === confirmDiscard);
 
   return (
     <AppLayout>
@@ -182,10 +178,10 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
-          <MirroredDroppedNotice rows={dropped} onEliminate={(r) => form.startFor({ id: r.transactionId, keyDate: r.keyDate, description: r.description, amount: r.amount })} />
+          <MirroredDroppedNotice rows={dropped} />
           <EliminationsFlaggedNotice rows={generateNotes.flagged} skipped={generateNotes.skipped} onDismiss={() => setGenerateNotes(NO_NOTES)} />
           {/* a failed load must not also say "none found" */}
-          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} onDiscard={setConfirmDiscard} />}
+          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>
 
         <ConfirmDialog
@@ -196,19 +192,11 @@ export default function EliminationsPage() {
           onConfirm={() => { const id = confirmPost?.id; setConfirmPost(null); if (id) void post(id, true); }}
           onCancel={() => setConfirmPost(null)}
         />
-        <ConfirmDialog
-          open={confirmDiscard !== null}
-          title="Discard this draft?"
-          message={`${discarding?.number ? `${discarding.number}: ` : ''}${discarding?.description ?? 'This draft'} will not be posted, and the row it names can be eliminated afresh. The discard is recorded against your name and cannot be undone.`}
-          confirmLabel="Discard" confirmTone="danger"
-          onConfirm={() => { const id = confirmDiscard; setConfirmDiscard(null); if (id) void discard(id); }}
-          onCancel={() => setConfirmDiscard(null)}
-        />
         {form.open && (
           <EliminationsCreateModal
             formType={form.type} formDescription={form.description} formPeriod={form.period}
             formLines={form.lines} formError={form.error} formSaving={form.saving}
-            formReason={form.reason} onReasonChange={form.setReason} reasonRequiredFrom={form.needsReason ? reasonRequiredFrom : null} resolvedRow={form.row}
+            formReason={form.reason} onReasonChange={form.setReason} reasonRequiredFrom={form.needsReason ? reasonRequiredFrom : null}
             onClose={() => form.setOpen(false)}
             onSubmit={form.submit}
             onTypeChange={form.setType} onDescriptionChange={form.setDescription} onPeriodChange={form.setPeriod}

@@ -3,9 +3,8 @@
  * nobody would notice otherwise). Shown on the consolidated reports and the Eliminations page, in two kinds:
  *  - 'unmapped': an account of the mirrored documents has no group account mapped, so the event was left out whole (map the accounts);
  *  - 'unresolved': the row has NO elimination from any path (the receiver's journal does not carry the sender's figures, the receiver
- *    cancelled its document, or rejected / dismissed / failed to accept it): only a manual elimination with a reason can eliminate the document
- *    (the row's "Eliminate this row" opens it carrying the row, so it unlists once posted);
- *  - 'stale' (a kind of unresolved, shown apart): a person's posted elimination still counts for a sale the sender has since cancelled; reverse it.
+ *    cancelled its document, or rejected / dismissed / failed to accept it). The list is INFORMATIONAL: eliminating a mirrored row by hand is not
+ *    available yet (docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md), so each row says what to correct on the receiver's side.
  */
 import { AlertCircle } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -37,20 +36,18 @@ const Block = ({ title, help, children }: { title: string; help: string; childre
   </div>
 );
 
-/** What to do about an unresolved row, by why it is one and what the document is: with no receiver expense (cancelled, rejected, dismissed, failed) the sender's revenue stands alone. */
-const CANCEL_NOTE = ' (an elimination you made of it by hand must then be reversed: it is listed here once the sale is cancelled)';
+/** What fixes an unresolved row, by why it is one and what the document is: with no receiver expense (cancelled, rejected, dismissed, failed) the sender's revenue stands alone. */
 const ADVICE: Record<string, (doc: string) => string> = {
-  cancelled: (d) => `The receiver cancelled its document, so it carries no expense for this ${d}: have it book the document again, or have the sender cancel ${d === 'sale' ? 'or credit ' : ''}the ${d}${CANCEL_NOTE}.`,
-  rejected: (d) => `The receiver booked no expense for this ${d}: it returns to the sender's outbox to be corrected, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
-  dismissed: (d) => `The receiver booked no expense for this ${d}: it can restore the message and accept it, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
-  failed: (d) => `The receiver booked no expense for this ${d}: it can accept the message itself, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
-  drafted: () => 'A manual elimination of it is drafted: post it below.',
+  variance: (d) => `Fix: the receiver corrects or re-books its document so that it carries the sender's figures in the same financial year, or the sender cancels ${d === 'sale' ? 'or credits ' : ''}the ${d}.`,
+  cancelled: (d) => `Fix: the receiver books its document again, or the sender cancels ${d === 'sale' ? 'or credits ' : ''}the ${d}.`,
+  rejected: (d) => `Fix: the receiver booked no expense for this ${d}. A rejection is final: the ${d} returns to the sender's outbox, where it is corrected and sent again, or the sender cancels the ${d}.`,
+  dismissed: (d) => `Fix: the receiver booked no expense for this ${d}. It can restore the message and accept it, or the sender cancels the ${d}.`,
+  failed: (d) => `Fix: the receiver booked no expense for this ${d}. It can accept the message itself, or the sender cancels the ${d}.`,
 };
 
-export function MirroredDroppedNotice({ rows, onEliminate }: { rows: DroppedMirrored[]; onEliminate?: (row: DroppedMirrored) => void }) {
+export function MirroredDroppedNotice({ rows }: { rows: DroppedMirrored[] }) {
   const unmapped = rows.filter((r) => r.kind !== 'unresolved');
-  const unresolved = rows.filter((r) => r.kind === 'unresolved' && r.code !== 'stale');
-  const stale = rows.filter((r) => r.kind === 'unresolved' && r.code === 'stale');
+  const unresolved = rows.filter((r) => r.kind === 'unresolved');
   return (
     <>
       {unmapped.length > 0 && (
@@ -59,22 +56,13 @@ export function MirroredDroppedNotice({ rows, onEliminate }: { rows: DroppedMirr
           {unmapped.map((r) => <li key={`${r.transactionId}:${r.keyDate}`}>{r.keyDate}: {r.description} ({formatMoney(r.amount)})</li>)}
         </Block>
       )}
-      {stale.length > 0 && (
-        <Block title={`${stale.length} manual ${stale.length === 1 ? 'elimination covers' : 'eliminations cover'} a sale the sender cancelled`}
-          help="Each still counts in the group figures, but the sale it eliminates is no longer in the sender's books: reverse the elimination below (it counts until you do).">
-          {stale.map((r) => <li key={`${r.transactionId}:${r.keyDate}`}>{r.keyDate}: {r.description} ({formatMoney(r.amount)}): {r.detail}</li>)}
-        </Block>
-      )}
       {unresolved.length > 0 && (
         <Block title={`${unresolved.length} mirrored ${unresolved.length === 1 ? 'document has' : 'documents have'} no elimination`}
-          help="Nothing eliminates these (see the reason on each), and a mirrored row is never drafted or matched by hand, so the group figures still include the sender's revenue, and the receiver's expense only where the receiver booked one. Make a manual elimination with a reason, or have the documents put right.">
+          help="No path eliminates these (see the reason on each). Eliminating a mirrored row by hand is not available yet, and a mirrored row is never drafted or matched by hand, so the group figures still include the sender's revenue, and the receiver's expense only where the receiver booked one. Each line says what puts the document right.">
           {unresolved.map((r) => (
             <li key={`${r.transactionId}:${r.keyDate}`}>
               {r.keyDate}: {r.description} ({formatMoney(r.amount)}): {r.detail}
               {r.code && ADVICE[r.code] ? ` ${ADVICE[r.code]!(docWord(r.amount))}` : ''}
-              {onEliminate && r.code !== 'drafted' && (
-                <button type="button" onClick={() => onEliminate(r)} className="ml-2 underline text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">Eliminate this row</button>
-              )}
             </li>
           ))}
         </Block>
