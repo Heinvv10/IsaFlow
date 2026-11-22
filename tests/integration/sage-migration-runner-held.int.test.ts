@@ -91,7 +91,9 @@ describe('F5: rows deleted after a run', () => {
 
     const stale = await run();
     expect(stale.status).toBe('failed');
-    const bad = [...stale.live!.items.batches, ...stale.live!.purchaseOrders.batches];
+    // M3 (round 3): the items are checked BEFORE the PO phase, which is then not started (no cascade of PO failures behind a replayed item batch).
+    expect(stale.live!.purchaseOrders.batches).toEqual([]);
+    const bad = stale.live!.items.batches;
     expect(bad.every((b) => b.status === 'failed' && b.rowsAbsent === b.size)).toBe(true);
     expect(bad[0]!.error).toMatch(/replayed, rows absent: 20 of 20 rows/);
     expect(bad[0]!.error).toMatch(/--run-tag/);
@@ -195,6 +197,7 @@ describe('#1: an owned-ness the snapshot got wrong is caught by the dry run, bef
     const r = await run({}, exportFile(), p2);
     expect(r.status).toBe('dry_run_failed');
     expect(r.live).toBeNull();
+    expect(r.dryRun.purchaseOrders.batches).toEqual([]); // L9: the dry run does not go on to the POs after a failed item batch
     expect(r.dryRun.items.batches[0]!.error).toMatch(/row 0 \(FIB-0001, Sage id 50001\) came back updated, but it is not an item this migration owns/);
     expect((await pool.query(`SELECT description, item_type, inventory_tracked, selling_price_excl FROM items WHERE company_id = $1`, [s.companyId])).rows)
       .toEqual([{ description: 'HUMAN MADE', item_type: 'physical', inventory_tracked: true, selling_price_excl: '500.00' }]);
@@ -220,6 +223,7 @@ describe('#8: replayed categories whose rows are gone', () => {
     const cats = stale.live!.categories.batches;
     expect(cats).toHaveLength(4);
     expect(cats.every((b) => b.status === 'failed' && b.rowsAbsent === 1)).toBe(true);
+    expect(stale.live!.items.batches).toEqual([]); // the items phase is not started behind absent categories
     expect(cats[0]!.error).toMatch(/replayed, rows absent: 1 of 1 rows/);
     expect(cats[0]!.error).toMatch(/--run-tag/);
     const fresh = await run({ runTag: 'again2' });

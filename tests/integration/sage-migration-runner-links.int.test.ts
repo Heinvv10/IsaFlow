@@ -47,7 +47,7 @@ describe('item links (#1740): a line the plan is not sure of goes without item_c
       { description: 'Installation visit [item SVC-005]', item_code: null }, // refused
     ]);
     expect((await lineRows('PO0000199'))[0]).toEqual({ description: 'Fibre cable drum (PO 199)', item_code: 'FIB-0002' }); // linked, same batch
-    expect(r.lineLinks.linked).toBe(1);
+    expect(r.lineLinks).toMatchObject({ linked: 1, basis: 'booked', alreadyThere: [] }); // measured in the books
     expect(r.lineLinks.notLinked.map((x) => [x.poNumber, x.itemCode, x.reason]).sort()).toEqual([
       ['PO0000197', 'FIB-0001', 'inactive'], ['PO0000197', 'SVC-005', 'refused'], ['PO0000201', 'SVC-005', 'refused'],
       ['PO0000202', 'FIB-0001', 'inactive'], ['PO0000205', 'SVC-005', 'refused'],
@@ -66,6 +66,22 @@ describe('item links (#1740): a line the plan is not sure of goes without item_c
     expect(d.differences).toEqual([expect.objectContaining({ field: 'lines[0].item_id', existing: null })]);
     expect((await lineRows('PO0000197'))[0]!.item_code).toBeNull(); // a PO found already there is never changed
     expect(r.differences.items).toEqual([{ code: 'FIB-0001', changed: ['is_active'] }]);
+  });
+
+  it('with --allow-differences the run goes on, but a PO already there is not changed: linked lines are MEASURED (0), the POs listed as already there', async () => {
+    const inactive = exportFile();
+    rowsOf(inactive)[0] = { ...rowsOf(inactive)[0], Active: false };
+    await run({}, inactive);
+    const r = await run({ allowDifferences: true }, exportFile());
+    expect(r.status).toBe('completed');
+    expect((await lineRows('PO0000197'))[0]!.item_code).toBeNull();
+    expect(r.lineLinks.basis).toBe('booked');
+    expect(r.lineLinks.linked).toBe(0); // the plan would have linked 5; the books have none of them
+    expect(r.lineLinks.notLinked).toEqual([]);
+    expect(r.lineLinks.alreadyThere).toHaveLength(10);
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain('PO lines linked to their item: 0 (counted in the books)');
+    expect(t).toContain('10 PO(s) were already there and are not changed');
   });
 });
 

@@ -22,6 +22,7 @@ import { checkRowsPresent, planBatches, sendBatch, type PlannedBatches, type Sen
 import { ownershipProblem } from './sageOwnership';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
+import { buildLineLinks } from './sageLineLinks';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
 import { buildReconciliation } from './sageReconciliation';
@@ -58,10 +59,10 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
       }
       return p;
     };
+    // The phases go in the order the live run's do, and a phase does not start behind a failed one (its refusals would only be a cascade).
     const categories = await run(all.categories);
-    // Items cannot be previewed without their categories; a failed category makes their refusals follow from it.
-    const items = await run(all.items);
-    const purchaseOrders = await run(all.purchaseOrders);
+    const items = categories.failed === 0 ? await run(all.items) : emptyPhase();
+    const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : emptyPhase();
     return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0 };
   });
 }
@@ -73,7 +74,8 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
     } catch (err) {
-      // The request transaction failed as a whole (a lost connection, a failed COMMIT): nothing of the batch is in the books.
+      // The request transaction failed as a whole (a lost connection, a failed COMMIT): the batch is reported failed. A COMMIT whose answer
+      // never came may still have landed, so the books are the judge: the run's final reconciliation reads them, and a re-run replays.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: batchKey(s.entity, s.n, s.args, s.runTag), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
@@ -97,12 +99,12 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   });
   const all = planBatches(plan, opts);
   const dry = await dryRun(pool, opts, all, before);
-  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, lineLinks: plan.lineLinks };
+  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   const dryDifferences = differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches]);
   const dryReconciliation = buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false });
   const noLive = (status: MigrationReport['status'], liveBlockedBy: string[] = []): MigrationReport => ({
-    ...base, status, liveBlockedBy, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders), differences: dryDifferences, reconciliation: dryReconciliation,
+    ...base, status, liveBlockedBy, live: null, lineLinks: buildLineLinks(plan, before, null), budgetWouldHaveFailed: skipped(dry.purchaseOrders), differences: dryDifferences, reconciliation: dryReconciliation,
   });
   if (!dry.clean) return noLive('dry_run_failed');
   if (!opts.live) return noLive('dry_run_ok');
@@ -111,22 +113,25 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const blockers = liveBlockers(dryReconciliation, dryDifferences, opts);
   if (blockers.length > 0) return noLive('live_blocked', blockers);
 
-  const categories = await livePhase(pool, opts, all.categories, before);
-  const liveItems = categories.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
-  const livePos = categories.failed + liveItems.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
-  const after = await withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
-  // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy.
-  const verified = (phase: PhaseReport, sends: Send[]): PhaseReport => {
-    const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, after));
+  const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
+  // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy. It is
+  // checked BETWEEN the phases, so the next phase does not start behind absent rows (an item batch replayed "ok" with its rows gone would
+  // otherwise fail every PO naming those items, a misleading cascade).
+  const verified = (phase: PhaseReport, sends: Send[], snapshot: Snapshot): PhaseReport => {
+    const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, snapshot));
     return { batches, failed: batches.filter((b) => b.status === 'failed').length };
   };
-  const categoriesVerified = verified(categories, all.categories);
-  const items = verified(liveItems, all.items);
-  const purchaseOrders = verified(livePos, all.purchaseOrders);
+  const liveCategories = await livePhase(pool, opts, all.categories, before);
+  const categoriesVerified = liveCategories.failed === 0 ? verified(liveCategories, all.categories, await readAfter()) : liveCategories;
+  const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
+  const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? verified(liveItems, all.items, await readAfter()) : liveItems;
+  const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
+  const after = await readAfter();
+  const purchaseOrders = verified(livePos, all.purchaseOrders, after);
   const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
-  const phaseSkipped = categories.failed > 0 || liveItems.failed > 0;
+  const phaseSkipped = categoriesVerified.failed > 0 || items.failed > 0;
   return {
-    ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders },
+    ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders }, lineLinks: buildLineLinks(plan, before, after),
     budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
     differences: differencesFrom([...items.batches, ...purchaseOrders.batches]),
     reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),

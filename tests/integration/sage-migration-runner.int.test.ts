@@ -142,7 +142,7 @@ describe('the live run', () => {
     const unlinked = (await pool.query(
       `SELECT count(*)::INT AS n FROM po_items p JOIN purchase_orders o ON o.id = p.purchase_order_id WHERE o.company_id = $1 AND p.item_id IS NULL`, [s.companyId])).rows[0].n;
     expect(unlinked).toBe(18 - 5); // the fixture's 18 lines, 5 of them name an item
-    expect(report.lineLinks).toEqual({ linked: 5, notLinked: [] });
+    expect(report.lineLinks).toEqual({ linked: 5, basis: 'booked', notLinked: [], alreadyThere: [] });
   });
 
   it('the report lists the PDFs still to attach and the batches with their keys', () => {

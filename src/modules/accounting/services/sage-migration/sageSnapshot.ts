@@ -33,6 +33,8 @@ export interface Snapshot {
   itemRefs: Set<string>;
   /** external_ref -> total in cents of every Sage purchase order. */
   poTotals: Map<string, number>;
+  /** external_ref -> how many lines of that Sage PO carry an item_id. */
+  poLinkedLines: Map<string, number>;
   stockMovements: number;
   items: ExistingItem[];
   categories: ExistingCategory[];
@@ -65,6 +67,11 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     WHERE company_id = ${companyId}::UUID AND lower(external_system) = 'sage' AND external_ref IS NOT NULL AND deleted_at IS NULL
   `) as Array<{ id: string; external_ref: string }>;
   const inactive = (await sql`SELECT id::TEXT AS id FROM suppliers WHERE company_id = ${companyId}::UUID AND is_active = false AND deleted_at IS NULL`) as Array<{ id: string }>;
+  const linked = (await sql`
+    SELECT o.external_ref, count(p.id) FILTER (WHERE p.item_id IS NOT NULL)::INT AS n
+      FROM purchase_orders o LEFT JOIN po_items p ON p.purchase_order_id = o.id
+     WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL GROUP BY o.external_ref
+  `) as Array<{ external_ref: string; n: number }>;
   const stock = (await sql`SELECT count(*)::INT AS n FROM stock_movements WHERE company_id = ${companyId}::UUID`) as Array<{ n: number }>;
   const existing = items.map((r): ExistingItem => ({
     // The item and category tools compare external_system EXACTLY (case-sensitive 'sage'): a row stored as 'Sage' is not theirs, nor ours.
@@ -75,6 +82,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
   return {
     itemRefs: new Set(existing.filter((i) => i.system === 'sage' && i.ref !== null && !i.deleted).map((i) => i.ref!)),
     poTotals: new Map(pos.filter((r) => r.external_system === 'sage' && r.external_ref !== null).map((r) => [String(r.external_ref), Number(r.cents)])),
+    poLinkedLines: new Map(linked.map((r) => [String(r.external_ref), Number(r.n)])),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
     budgetPolicy: await readCheckPolicy(companyId),

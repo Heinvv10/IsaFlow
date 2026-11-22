@@ -77,8 +77,12 @@ export interface MigrationReport {
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
   /** With skip_budget_check_for_import: the POs the budget check would have blocked, with its reasons (live run, else dry run). */
   budgetWouldHaveFailed: Array<{ poNumber: string; reasons: string[] }>;
-  /** PO lines (of the POs sent) linked to their item by item_code, and those sent without it because the item is inactive or refused. */
-  lineLinks: { linked: number; notLinked: NotLinkedLine[] };
+  /**
+   * PO lines linked to their item by item_code, for the POs THIS run created: counted in the books after a live run (`booked`), what the plan
+   * would send for a dry run (`planned`). `notLinked`: lines of those POs sent without item_code (item inactive or refused). `alreadyThere`: POs
+   * found in the books, which the PO tool never changes, so their lines are neither counted nor listed.
+   */
+  lineLinks: { linked: number; basis: 'booked' | 'planned'; notLinked: NotLinkedLine[]; alreadyThere: string[] };
   /** A re-run's findings (live run, else dry run): POs already there with other figures (not changed), owned items that Sage's values would change. */
   differences: {
     purchaseOrders: Array<{ poNumber: string; differences: Array<{ field: string; existing: unknown; requested: unknown }> }>;
