@@ -22,13 +22,19 @@ export function KeptDraftOffer({ savedAt, disabled, onRestore, onDiscard }: { sa
 
 const CLEARANCE_GAP_PX = 16;
 
-/** The nearest ancestor that scrolls (the shell's <main>), else the page's own scrolling element. */
+/**
+ * The nearest ancestor that scrolls (the shell's <main>): overflow auto or scroll with content past its height; else
+ * the nearest that may scroll (a short invoice has nothing past it yet); else the page's own scrolling element.
+ */
 function scrollerOf(el: HTMLElement): HTMLElement | null {
+  let mayScroll: HTMLElement | null = null;
   for (let p = el.parentElement; p; p = p.parentElement) {
     const y = getComputedStyle(p).overflowY;
-    if (y === 'auto' || y === 'scroll') return p;
+    if (y !== 'auto' && y !== 'scroll') continue;
+    if (p.scrollHeight > p.clientHeight) return p;
+    mayScroll ??= p;
   }
-  return document.scrollingElement as HTMLElement | null;
+  return mayScroll ?? (document.scrollingElement as HTMLElement | null);
 }
 
 /**

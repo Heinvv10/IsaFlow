@@ -30,6 +30,27 @@ describe('the sticky invoice action bar never covers a focused field', () => {
     scroller.remove();
   });
 
+  it('an overflow-auto wrapper that does not scroll is passed over for the ancestor that does', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 63 } as DOMRect);
+    const sized = (el: HTMLElement, scroll: number, client: number) => {
+      Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scroll });
+      Object.defineProperty(el, 'clientHeight', { configurable: true, value: client });
+    };
+    const main = document.createElement('main');
+    main.style.overflowY = 'auto';
+    sized(main, 2000, 800); // the shell's scroller: it scrolls
+    const wrapper = document.createElement('div');
+    wrapper.style.overflowY = 'auto';
+    sized(wrapper, 500, 500); // overflow-auto, but as tall as its content: it never scrolls
+    main.appendChild(wrapper);
+    document.body.appendChild(main);
+    const { unmount } = render(<InvoiceActionBar status={null}><button>Save</button></InvoiceActionBar>, { container: wrapper });
+    expect(main.style.scrollPaddingBottom).toBe('79px');
+    expect(wrapper.style.scrollPaddingBottom).toBe('');
+    unmount();
+    main.remove();
+  });
+
   it('with no scrolling ancestor, the page itself scrolls: its scrolling element is padded', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 63 } as DOMRect);
     const page = document.scrollingElement as HTMLElement;
