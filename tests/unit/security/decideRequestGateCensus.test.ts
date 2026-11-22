@@ -18,6 +18,12 @@ import { programFor } from '../helpers/approveCensusProgram';
 const ROUTE = 'pages/api/accounting/approval-requests.ts';
 const SERVICE = 'src/modules/accounting/services/gl/approvalService.ts';
 const WRITES = 'src/modules/accounting/services/gl/approvalRequestWrites.ts';
+/**
+ * Wave 6 OC (#1679): cancelling an off-cycle run withdraws its pending request, a REJECTION only, behind owner/admin and Payroll
+ * Approve (pages/api/payroll/runs/[id]/cancel.ts). It is the one other caller, and every call it makes passes the literal 'rejected'
+ * (asserted below), so the route stays the only path that approves.
+ */
+const CANCEL = 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts';
 
 /** Every file (relative path) holding a call that RESOLVES to a function declared `name` in `declFile`. */
 function callersOf(program: ts.Program, name: string, declFile: string, rel: (f: string) => string): string[] {
@@ -45,13 +51,27 @@ describe('decideRequest and approval_request_decide', () => {
   const real = () => programFor(files.map((f) => resolve(process.cwd(), f)));
   const relReal = (f: string) => f.replace(`${process.cwd()}/`, '');
 
-  it('decideRequest has one caller (the approval-requests route) and decideRequestRow one (approvalService); the definer is read only by approvalRequestWrites', () => {
+  it('decideRequest has one approving caller (the approval-requests route) and one rejecting (off-cycle cancel); decideRequestRow one (approvalService); the definer is read only by approvalRequestWrites', () => {
     const p = real();
-    expect(callersOf(p, 'decideRequest', SERVICE, relReal)).toEqual([ROUTE]);
+    expect(callersOf(p, 'decideRequest', SERVICE, relReal)).toEqual([ROUTE, CANCEL].sort());
     expect(callersOf(p, 'decideRequestRow', WRITES, relReal)).toEqual([SERVICE]);
     const definer = files.filter((f) => /FROM\s+approval_request_decide\s*\(/i.test(readFileSync(f, 'utf8')));
     expect(definer).toEqual([WRITES]);
   }, 180_000);
+
+  it('off-cycle cancel only ever rejects: every decideRequest call there passes the string literal \'rejected\' as its decision', () => {
+    const sf = ts.createSourceFile(CANCEL, readFileSync(CANCEL, 'utf8'), ts.ScriptTarget.Latest, true);
+    const decisions: string[] = [];
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'decideRequest') {
+        const arg = n.arguments[2];
+        decisions.push(arg && ts.isStringLiteral(arg) ? arg.text : `<not a literal: ${arg?.getText(sf) ?? 'missing'}>`);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    expect(decisions).toEqual(['rejected']);
+  });
 
   it('in the route, the approving path is refused (an if whose then-branch returns) BEFORE decideRequest, in an enclosing block', () => {
     const sf = ts.createSourceFile(ROUTE, readFileSync(ROUTE, 'utf8'), ts.ScriptTarget.Latest, true);
