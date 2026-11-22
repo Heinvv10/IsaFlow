@@ -61,9 +61,16 @@ describe('the backfill', () => {
         return r;
       } finally { c.release(); }
     };
-    expect((await row(m.id)).source_journal_entry_id, 'the plant: the message has its journal and its row').not.toBeNull();
-    expect(await attempt(true)).toBe('23514');
-    expect(await attempt(false)).toBe('cleared');
+    const journal = (await row(m.id)).source_journal_entry_id as string | null;
+    expect(journal, 'the plant: the message has its journal and its row').not.toBeNull();
+    try {
+      expect(await attempt(true)).toBe('23514');
+      expect(await attempt(false)).toBe('cleared');
+    } finally {
+      // attempt(false) nulled the journal on ANOTHER connection (committed, outside the rolled-back transaction): put it back, so no message with a row and no journal is left in the file's database
+      await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query('UPDATE intercompany_messages SET source_journal_entry_id = $2 WHERE id = $1', [m.id, journal]));
+    }
+    expect((await row(m.id)).source_journal_entry_id, 'restored: the message has its journal again').toBe(journal);
   });
 
   it('takes a journal only if it is provably the document\'s approval posting: a forged link (another document\'s journal) records nothing; a cleared link falls back to the row the send wrote', async () => {

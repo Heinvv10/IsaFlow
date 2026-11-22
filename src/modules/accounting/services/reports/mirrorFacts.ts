@@ -41,6 +41,8 @@ export interface MirrorFacts {
   mirrors: MirrorFact[];
   /** The end of the period the facts were judged for (the adjustment's period end). */
   periodEnd: string;
+  /** The date `senderCancelled` was judged at: LEAST(the period end, today) (intercompany_mirror_facts.judged_at). Before the period end when the period ends after today. */
+  judgedAt?: string;
 }
 
 type Row = Record<string, unknown>;
@@ -53,7 +55,7 @@ export function factsFromRows(rows: Row[] | null | undefined, periodEnd: string)
   const sorted = [...rows].sort((a, b) => Number(a.ord) - Number(b.ord));
   const link = (v: unknown): MirrorLinkState => (v === 'here' || v === 'elsewhere' ? v : 'none');
   return {
-    label: String(sorted[0]!.label), sum: sorted[0]!.is_sum === true, periodEnd,
+    label: String(sorted[0]!.label), sum: sorted[0]!.is_sum === true, periodEnd, ...(day(sorted[0]!.judged_at) ? { judgedAt: day(sorted[0]!.judged_at) } : {}),
     mirrors: sorted.map((r) => ({ ref: String(r.mirror_ref), amount: Number(r.amount), stands: r.stands === true, link: link(r.link),
       byTotal: r.by_total === true, elimDate: day(r.elim_date), otherRole: role(r.other_role), senderCancelled: r.sender_cancelled === true })),
   };
@@ -66,7 +68,8 @@ export function parseMirrorFacts(raw: unknown): MirrorFacts | null {
   const mirrors = f.mirrors.flatMap((m: Partial<MirrorFact>) => (typeof m?.ref === 'string' && typeof m.amount === 'number' && Number.isFinite(m.amount)
     ? [{ ref: m.ref, amount: m.amount, stands: m.stands === true, link: m.link === 'here' || m.link === 'elsewhere' ? m.link : 'none',
         byTotal: m.byTotal === true, elimDate: day(m.elimDate), otherRole: role(m.otherRole), senderCancelled: m.senderCancelled === true } as MirrorFact] : []));
-  return mirrors.length === f.mirrors.length ? { label: f.label, sum: f.sum === true, mirrors, periodEnd: f.periodEnd } : null;
+  return mirrors.length === f.mirrors.length
+    ? { label: f.label, sum: f.sum === true, mirrors, periodEnd: f.periodEnd, ...(day(f.judgedAt) ? { judgedAt: day(f.judgedAt) } : {}) } : null;
 }
 
 /** Every named mirror is eliminated automatically for the period. */
@@ -82,9 +85,18 @@ const CANCELLED_TAIL = (ctx: DuplicateContext): string => 'If it is the same sal
   + `${ctx === 'draft' ? 'do not post this (a posted elimination would be an over-elimination to reverse)' : 'this elimination is an over-elimination, reverse it'}. `
   + 'If it is another sale, it still needs this elimination.';
 
+/** The date the cancels were judged at (the period end, unless it is after today). */
+const judgedAt = (f: MirrorFacts): string => f.judgedAt && f.judgedAt < f.periodEnd ? f.judgedAt : f.periodEnd;
+/**
+ * A cancel is judged as at LEAST(period end, today). When the period ends after today a journal dated after today and up to the period end may revive the
+ * mirror (which is then eliminated automatically for the period): said where a mirror is worded as cancelled, so "no revenue left to eliminate" is not claimed as at the period end.
+ */
+const reviveNote = (f: MirrorFacts, ctx: DuplicateContext): string => (judgedAt(f) < f.periodEnd && f.mirrors.some(isCancelled)
+  ? ` A journal dated up to ${f.periodEnd} may change this: a mirror it revives is eliminated automatically for the period, and ${ctx === 'draft' ? 'posting this would eliminate it twice' : 'this elimination eliminates it twice'}.` : '');
+
 /** What is true of one mirror. `short`: the form inside a month sum's list ("eliminated automatically, not matched to any row yet"). */
-function state(m: MirrorFact, periodEnd: string, short = false): string {
-  if (isCancelled(m)) return `cancelled by the sender (its journal is reversed as at ${periodEnd})`;
+function state(m: MirrorFact, periodEnd: string, judged: string, short = false): string {
+  if (isCancelled(m)) return `cancelled by the sender (its journal is reversed as at ${judged})`;
   if (!m.stands) return `NOT eliminated automatically for the period to ${periodEnd}`;
   const when = m.elimDate && m.elimDate > periodEnd ? ` on ${m.elimDate}, after the period to ${periodEnd}` : '';
   const and = short ? ',' : when ? ', and' : ' and';
@@ -102,7 +114,7 @@ function state(m: MirrorFact, periodEnd: string, short = false): string {
  */
 export function linkedMirrorState(f: MirrorFacts, ref: string): string {
   const m = f.mirrors.find((x) => x.link === 'here') ?? f.mirrors.find((x) => x.ref === ref) ?? f.mirrors[0]!;
-  return state(m, f.periodEnd);
+  return state(m, f.periodEnd, judgedAt(f));
 }
 
 const joinAnd = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
@@ -126,16 +138,16 @@ export function mirrorFactsSentence(f: MirrorFacts, pairCutover: string | null =
   if (!f.sum) {
     const m = f.mirrors[0]!;
     if (isSenderCancelled(f)) {
-      const head = `Possibly the same sale as mirrored document ${m.ref}, which the sender cancelled (its journal is reversed as at ${f.periodEnd})${cut}.`;
+      const head = `Possibly the same sale as mirrored document ${m.ref}, which the sender cancelled (its journal is reversed as at ${judgedAt(f)})${cut}.${reviveNote(f, ctx)}`;
       return `${head} ${CANCELLED_TAIL(ctx)}`;
     }
-    const head = `Possibly the same sale as mirrored document ${m.ref}, which is ${state(m, f.periodEnd)}${cut}`;
+    const head = `Possibly the same sale as mirrored document ${m.ref}, which is ${state(m, f.periodEnd, judgedAt(f))}${cut}`;
     return m.stands ? `${head}. If it is the same sale, ${twice('it')}.` : `${head}: this may be the sale's only elimination.`;
   }
   const byTotal = f.mirrors.some((m) => m.byTotal);
   const withVat = byTotal ? ' with VAT' : '';
-  const list = joinAnd(f.mirrors.map((m) => `${m.ref} (${formatMoney(m.amount)}${withVat}: ${state(m, f.periodEnd, true)})`));
-  const head = `Possibly the same sale as ${f.label}: ${list}${cut}.`;
+  const list = joinAnd(f.mirrors.map((m) => `${m.ref} (${formatMoney(m.amount)}${withVat}: ${state(m, f.periodEnd, judgedAt(f), true)})`));
+  const head = `Possibly the same sale as ${f.label}: ${list}${cut}.${reviveNote(f, ctx)}`;
   const standingN = f.mirrors.filter((m) => m.stands).length;
   const netOfVat = byTotal ? ', net of their VAT' : '';
   const cancelled = f.mirrors.filter(isCancelled);
@@ -147,7 +159,11 @@ export function mirrorFactsSentence(f: MirrorFacts, pairCutover: string | null =
   }
   if (standingN === 0) return `${head} None of them is eliminated automatically for the period to ${f.periodEnd}: this may be the sale's only elimination.`;
   if (standingN === f.mirrors.length) return `${head} All of them are eliminated automatically by mirroring${netOfVat}: if it is the same sale, ${twice('it')}.`;
-  const part = ctx === 'draft' ? 'posting this in full would eliminate that part twice' : 'that part is eliminated twice';
+  const cancelledPart = round2(cancelled.reduce((x, m) => x + m.amount, 0));
+  // the cancelled members (beside the standing ones) have no revenue left to eliminate either: posting in full would over-eliminate them
+  const overNote = cancelled.length === 0 ? '' : ctx === 'draft'
+    ? ` and over-eliminate the ${formatMoney(cancelledPart)}${withVat} the sender cancelled` : ` and the ${formatMoney(cancelledPart)}${withVat} the sender cancelled is over-eliminated`;
+  const part = `${ctx === 'draft' ? 'posting this in full would eliminate that part twice' : 'that part is eliminated twice'}${overNote}`;
   // "R P of R T" only where it is a part of the row: every member the same sign as the row, and amounts net of VAT
   const T = round2(f.mirrors.reduce((s, m) => s + m.amount, 0));
   const P = round2(f.mirrors.filter((m) => m.stands).reduce((s, m) => s + m.amount, 0));

@@ -2,8 +2,10 @@
  * Intercompany P2, round 26, INFO3 + round 27, L1: the descoped manual elimination of a mirrored row (docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md)
  * left objects in 1019's earlier shapes. A database that applied one converges on the current 1019: its two functions, the discarded_by /
  * discarded_at columns, the per-row index and the (row, has-a-reason) shape of the unique index are gone / replaced, and applying it twice changes nothing more.
- * Round 27 (L1): the same holds for a database that USED that feature (duplicate standing eliminations: the old index is dropped all the same, the strict
- * index stays absent and the NOTICE names the rows) and for a message an older backfill bound to a P1 manual row by matching NULL to NULL (it is unbound).
+ * Round 27 (L1), as REVISED in round 28: the same holds for a database that USED that feature (duplicate standing eliminations: the old (row, has-a-reason)
+ * index is KEPT, because it still refuses a third and a fourth standing row; the strict index stays absent and the NOTICE names the rows and says the old
+ * index is kept; once the duplicates are cleaned and 1019 is re-applied the strict index replaces it) and for a message an older backfill bound to a P1
+ * manual row by matching NULL to NULL (it is unbound).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

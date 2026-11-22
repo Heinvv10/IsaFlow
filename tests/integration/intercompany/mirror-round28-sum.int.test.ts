@@ -6,7 +6,10 @@
  *     leaves the member in and not "cancelled" (the period still carries it).
  *   - REACHABLE: a period that ends AFTER today, with members reversed today and revived by a journal dated in the future (before the period end).
  *     The sum judges each member as at the period end (revived: in), the facts as at LEAST(period end, today) (reversed: cancelled, nothing eliminated).
- *     The sentence is then the conditional one (no revenue left to eliminate if it is the same sale; if another sale it still needs this elimination).
+ *     The sentence is then the conditional one (no revenue left to eliminate if it is the same sale; if another sale it still needs this elimination),
+ *     said as at TODAY (round 29 L1: the date actually judged), with a note that a journal dated up to the period end may change it.
+ *     Every date of that scenario is derived from today (round 29 M1: a fixed future date turned the check red from that date on), and the revival's
+ *     own fiscal period is created when none covers it (the fixtures' year ends on 31 December).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -25,6 +28,12 @@ const L = makeLedger(pool);
 beforeAll(async () => { await L.setup(); await L.monthly(co.A, 2026); await L.monthly(co.B, 2026); }, 60000);
 afterAll(L.cleanup, 60000);
 beforeEach(L.reset);
+/** An open period for the sender covering `date` when none does (the 2026 fixtures end on 31 December); the shared cleanup removes it with the company. */
+async function ensurePeriod(date: string) {
+  if ((await pool.query('SELECT 1 FROM fiscal_periods WHERE company_id = $1 AND $2::date BETWEEN start_date AND end_date', [co.A, date])).rowCount) return;
+  await pool.query(`INSERT INTO fiscal_periods(company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+    VALUES ($1, $2, 1, EXTRACT(YEAR FROM $3::date)::int, $3::date, $3::date, 'open')`, [co.A, `IC28 ${date}`, date]);
+}
 
 const conn = async () => (await pool.query("SELECT id FROM intercompany_connections WHERE status <> 'revoked' AND $1 IN (company_low_id, company_high_id) AND $2 IN (company_low_id, company_high_id)", [co.A, co.B])).rows[0].id as string;
 async function turnOn(cutover: string) {
@@ -105,38 +114,54 @@ describe('M1: a month sum never forms from members whose cancel is dated inside 
     const { a, b, r } = await twoApril();
     await cancelRolled(a.inv.id); await cancelRolled(b.inv.id);
     expect((await facts(r, '2026-04-30')).map((x) => [x.amount, x.stands, x.sender_cancelled])).toEqual([[1000, true, false], [500, true, false]]);
+    // a period that ends on or before today is judged at its own end
+    expect((await asMember(async (q) => (await q.query("SELECT DISTINCT judged_at::text AS j FROM public.intercompany_mirror_facts($1, '2026-04-30'::date)", [r])).rows))).toEqual([{ j: '2026-04-30' }]);
   });
 });
 
+/** Johannesburg's today (the date the functions clamp to) and a date `days` after it: every date of the reachable scenario is relative, so it holds on any day the suite runs. */
+const dayFromToday = async (days: number) => (await pool.query("SELECT ((now() AT TIME ZONE 'Africa/Johannesburg')::date + $1::int)::text AS d", [days])).rows[0].d as string;
+
 describe('M1 (reachable): the period ends after today and a journal dated in the future revives the cancelled members', () => {
+  const REVIVE_DAYS = 10; const END_DAYS = 40;   // (revival after today, before the period end)
+  const dates = async () => ({ today: await dayFromToday(0), revive: await dayFromToday(REVIVE_DAYS), end: await dayFromToday(END_DAYS) });
   async function revived() {
     const t = await twoApril();
+    const d = await dates();
     await L.cancelSender(t.a.inv.id); await L.cancelSender(t.b.inv.id);
-    for (const m of [t.a, t.b]) await reviveOn(await reversalOf(m.message.source_journal_entry_id), '2026-12-15');
-    return t;
+    await ensurePeriod(d.revive);
+    for (const m of [t.a, t.b]) await reviveOn(await reversalOf(m.message.source_journal_entry_id), d.revive);
+    return { ...t, ...d };
   }
-  const END = '2026-12-31';
-  const CANC = `cancelled by the sender (its journal is reversed as at ${END})`;
-  const sentence = (a: string, b: string, cut = '') => `Possibly the same sale as 2 mirrored documents of April 2026: ${a} (${R(1000)}: ${CANC}) and ${b} (${R(500)}: ${CANC})${cut}. `
-    + 'If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). If it is another sale, it still needs this elimination.';
+  // the cancels are judged as at LEAST(period end, today) = today (the revival is in the future), so every sentence says today, then the revive note
+  const sentence = (d: { today: string; end: string }, a: string, b: string, cut = '') => {
+    const canc = `cancelled by the sender (its journal is reversed as at ${d.today})`;
+    return `Possibly the same sale as 2 mirrored documents of April 2026: ${a} (${R(1000)}: ${canc}) and ${b} (${R(500)}: ${canc})${cut}. `
+      + `A journal dated up to ${d.end} may change this: a mirror it revives is eliminated automatically for the period, and posting this would eliminate it twice. `
+      + 'If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). If it is another sale, it still needs this elimination.';
+  };
 
-  it('the sum is formed (as at the period end the members are revived) and the facts say each is cancelled, nothing eliminated', async () => {
-    const { r } = await revived();
-    expect((await dup(r, END)).map((d) => [d.is_sum, d.n])).toEqual([[true, 2]]);
-    expect((await facts(r, END)).map((x) => [x.amount, x.stands, x.sender_cancelled])).toEqual([[1000, false, true], [500, false, true]]);
+  it('the sum is formed (as at the period end the members are revived) and the facts say each is cancelled as at today, nothing eliminated', async () => {
+    const { r, end, today } = await revived();
+    expect((await dup(r, end)).map((d) => [d.is_sum, d.n])).toEqual([[true, 2]]);
+    const f = await asMember(async (q) => (await q.query('SELECT stands, sender_cancelled, judged_at::text AS judged_at FROM public.intercompany_mirror_facts($1, $2::date) ORDER BY ord', [r, end])).rows);
+    expect(f).toEqual([{ stands: false, sender_cancelled: true, judged_at: today }, { stands: false, sender_cancelled: true, judged_at: today }]);
+    expect((await facts(r, end)).map((x) => [x.amount, x.stands, x.sender_cancelled])).toEqual([[1000, false, true], [500, false, true]]);
   });
 
   it('the run drafts the row flagged with the conditional sentence; the stored draft\'s confirm and the list carry the same words; never "only elimination"', async () => {
-    const { a, b, r } = await revived();
+    const { a, b, r, end, today } = await revived();
     const flagged: FlaggedEliminationRow[] = [];
-    const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-04-01', END, flagged, []));
+    const made = await asService(pool, U.ab, co.A, () => autoGenerateEliminations(co.G, '2026-04-01', end, flagged, []));
     expect(made.map((m) => m.sourceIntercompanyId)).toEqual([r]);
     const [refA, refB] = [await refOf(a), await refOf(b)];
-    expect(flagged.map((f) => [f.transactionId, f.reason])).toEqual([[r, `The pair mirrors from 2026-03-01. ${sentence(refA, refB)}`]]);
-    expect(flagged[0]!.reason).not.toMatch(/only elimination|None of them|NOT eliminated|twice/);
-    const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-04-01', END))).find((x) => x.sourceIntercompanyId === r)!;
+    const words = sentence({ today, end }, refA, refB);
+    expect(flagged.map((f) => [f.transactionId, f.reason])).toEqual([[r, `The pair mirrors from 2026-03-01. ${words}`]]);
+    expect(flagged[0]!.reason).not.toMatch(/only elimination|None of them|NOT eliminated|reversed as at 2026-04/);
+    const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-04-01', end))).find((x) => x.sourceIntercompanyId === r)!;
     expect(row.mirrorFacts?.mirrors.map((m) => [m.stands, m.senderCancelled])).toEqual([[false, true], [false, true]]);
+    expect(row.mirrorFacts?.judgedAt).toBe(today);
     const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G, false)).then(() => 'posted', (e: Error) => e.message);
-    expect(refused).toBe(`${sentence(refA, refB, ' (the pair mirrors from 2026-03-01)')} Confirm to post it.`);
+    expect(refused).toBe(`${sentence({ today, end }, refA, refB, ' (the pair mirrors from 2026-03-01)')} Confirm to post it.`);
   });
 });

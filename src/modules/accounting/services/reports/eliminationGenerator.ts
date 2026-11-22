@@ -73,7 +73,7 @@ export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
 /** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. */
 async function factsOf(rowId: string, periodEnd: string): Promise<MirrorFacts | null> {
-  return factsFromRows((await sql`SELECT f.*, f.elim_date::TEXT AS elim_date FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE) f`) as DbRow[], periodEnd);
+  return factsFromRows((await sql`SELECT f.*, f.elim_date::TEXT AS elim_date, f.judged_at::TEXT AS judged_at FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE) f`) as DbRow[], periodEnd);
 }
 const label = (tx: DbRow): EliminationRowLabel => ({ description: String(tx.description ?? ''), date: String(tx.td), amount: Number(tx.amount) });
 

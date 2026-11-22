@@ -1715,7 +1715,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 -- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
 -- different row"), 'none'; other_role: the role of another row's active link of the OTHER role (the sale's other side); by_total: matched by
 -- its total with VAT (mirroring eliminates net of VAT); elim_date: the date its elimination falls on (the later document date, which can be
--- after the period: "stands" judges the pair, not that date); sender_cancelled: the journal the message was sent with is REVERSED as at that date (its chain has an even number, above 0, of journals counting as at it: reversed and not
+-- after the period: "stands" judges the pair, not that date); sender_cancelled: the journal the message was sent with is REVERSED as at that date (judged_at: LEAST(the period end, today), the date it was judged at) (its chain has an even number, above 0, of journals counting as at it: reversed and not
 -- reinstated; whoever reversed it, cancelling the document being what does). It is a fact for WORDING only (mirrorFacts.ts: "possibly the same sale as X, which the sender
 -- cancelled (its journal is reversed as at <date>): if it is the same sale there is no revenue left to eliminate, if another sale it still needs this elimination"); the
 -- generator never skips a row for it (RULING 2026-11-21: a row is left to mirroring only through the stored link). A month sum names every member; a member is
@@ -1729,7 +1729,7 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 DROP FUNCTION IF EXISTS public.intercompany_mirror_facts(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_facts(p_row uuid, p_asat date DEFAULT NULL)
 RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text,
-               by_total boolean, elim_date date, other_role text, sender_cancelled boolean)
+               by_total boolean, elim_date date, other_role text, sender_cancelled boolean, judged_at date)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -1748,6 +1748,7 @@ DECLARE
   v_pick_s boolean;
   v_ids uuid[] := '{}';
   v_st boolean[] := '{}';
+  v_judged date := LEAST(COALESCE(p_asat, (now() AT TIME ZONE 'Africa/Johannesburg')::date), (now() AT TIME ZONE 'Africa/Johannesburg')::date);
 BEGIN
   SELECT x.mirror_rows, x.mirror_ref, x.is_sum INTO d FROM public.intercompany_mirrored_duplicate(p_row, p_asat) x LIMIT 1;
   IF NOT FOUND OR d.mirror_rows IS NULL THEN RETURN; END IF;
@@ -1793,12 +1794,13 @@ BEGIN
            -- the role of an active link of the OTHER role (the purchase side of the sale for a sale row, and the reverse)
            (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1),
            -- the SENDER cancelled it as at the period end (the same date "stands" judges the pair at): its sent-with journal's chain is out, having been in
-           COALESCE(x.chain > 0 AND x.chain % 2 = 0, false)
+           COALESCE(x.chain > 0 AND x.chain % 2 = 0, false),
+           -- the date sender_cancelled was judged at: LEAST(the period end, today); the wording says it, and that a journal up to the period end may change it
+           v_judged
       FROM unnest(v_ids) WITH ORDINALITY AS u(id, n)
       JOIN public.intercompany_transactions o ON o.id = u.id
       LEFT JOIN LATERAL (SELECT m.payload,
-                                public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id,
-                                  LEAST(COALESCE(p_asat, (now() AT TIME ZONE 'Africa/Johannesburg')::date), (now() AT TIME ZONE 'Africa/Johannesburg')::date)) AS chain,
+                                public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, v_judged) AS chain,
                                 COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id),
                                          (SELECT cn.credit_date FROM public.credit_notes cn WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id)) AS bd
                            FROM public.intercompany_messages m WHERE m.group_transaction_id = o.id AND m.kind IN ('invoice', 'credit_note') LIMIT 1) x ON true

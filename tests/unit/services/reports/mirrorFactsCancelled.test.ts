@@ -96,13 +96,64 @@ describe('round 28 M1: a month sum with members the sender cancelled (conditiona
     expect(duplicateBadgeText(f, 'posted')).toBe(`Posted. ${head} None of them is eliminated automatically for the period to 2026-06-30. If it is the same sale, the part the sender cancelled (${R(1000)}) has no revenue left to eliminate, so this elimination over-eliminates it; the rest may be the sale's only elimination.`);
   });
 
-  it('a cancelled member beside a standing one keeps the partial sentence, the cancelled one worded as cancelled', () => {
+  it('a cancelled member beside a standing one: the standing part is eliminated twice AND the cancelled part is over-eliminated (round 29 L2)', () => {
     const f = sum([{}, { stands: true, senderCancelled: false }]);
-    expect(mirrorFactsSentence(f)).toBe(`Possibly the same sale as 2 mirrored documents of April 2026: INV-A (${R(1000)}: ${CANC}) and INV-B (${R(500)}: eliminated automatically, not matched to any row yet). `
-      + `${R(500)} of ${R(1500)} is eliminated automatically by mirroring: if it is the same sale, posting this in full would eliminate that part twice.`);
+    const head = `Possibly the same sale as 2 mirrored documents of April 2026: INV-A (${R(1000)}: ${CANC}) and INV-B (${R(500)}: eliminated automatically, not matched to any row yet). `;
+    expect(mirrorFactsSentence(f)).toBe(`${head}${R(500)} of ${R(1500)} is eliminated automatically by mirroring: if it is the same sale, `
+      + `posting this in full would eliminate that part twice and over-eliminate the ${R(1000)} the sender cancelled.`);
+    expect(duplicateBadgeText(f, 'posted')).toBe(`Posted. ${head}${R(500)} of ${R(1500)} is eliminated automatically by mirroring: if it is the same sale, `
+      + `that part is eliminated twice and the ${R(1000)} the sender cancelled is over-eliminated. Check, and reverse this one if so.`);
+  });
+
+  it('the same, matched by total with VAT (no "R P of R T"): the cancelled part carries "with VAT"', () => {
+    const f = sum([{ byTotal: true }, { stands: true, senderCancelled: false, byTotal: true }]);
+    expect(mirrorFactsSentence(f).endsWith(`Only some of them are eliminated automatically by mirroring, net of their VAT: if it is the same sale, `
+      + `posting this in full would eliminate that part twice and over-eliminate the ${R(1000)} with VAT the sender cancelled.`)).toBe(true);
   });
 
   it('a sum with no cancelled member is worded as before', () => {
     expect(mirrorFactsSentence(sum([{ senderCancelled: false }, { senderCancelled: false }]))).toMatch(/None of them is eliminated automatically for the period to 2026-06-30: this may be the sale's only elimination\.$/);
+  });
+});
+
+describe('round 29 L1: a cancel is judged at LEAST(period end, today): the sentence says that date, and that a journal up to the period end may change it', () => {
+  const PE = '2026-12-31'; const JA = '2026-11-22';
+  const CANC = `cancelled by the sender (its journal is reversed as at ${JA})`;
+  const NOTE = ` A journal dated up to ${PE} may change this: a mirror it revives is eliminated automatically for the period, and posting this would eliminate it twice.`;
+  const mk = (ms: MirrorFact[], sum: boolean, judgedAt: string | undefined = JA): MirrorFacts => ({ label: sum ? '2 mirrored documents of April 2026' : 'INV-1 (mirrored)', sum, periodEnd: PE, ...(judgedAt ? { judgedAt } : {}), mirrors: ms });
+  const single = mk([mirror()], false);
+  const all = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500 })], true);
+
+  it('a single mirror: "reversed as at <today>" (not the period end), then the revive note, then the advice', () => {
+    expect(mirrorFactsSentence(single)).toBe(`Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at ${JA}).${NOTE} ${CONDITIONAL}`);
+    expect(mirrorFactsSentence(single, '2026-03-01')).toBe(`Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at ${JA}) (the pair mirrors from 2026-03-01).${NOTE} ${CONDITIONAL}`);
+    expect(duplicateBadgeText(single, 'posted')).toContain(`${NOTE.replace('posting this would eliminate it twice', 'this elimination eliminates it twice')} If it is the same sale there is no revenue left to eliminate: this elimination is an over-elimination, reverse it.`);
+  });
+
+  it('an all-cancelled sum: every member and the head say <today>, and the note follows', () => {
+    expect(mirrorFactsSentence(all)).toBe(`Possibly the same sale as 2 mirrored documents of April 2026: INV-A (${R(1000)}: ${CANC}) and INV-B (${R(500)}: ${CANC}).${NOTE} ${CONDITIONAL}`);
+    expect(generatorReason(all, null, null, PE)).toBe(mirrorFactsSentence(all));
+    expect(mirrorFactsSentence(all)).not.toContain(`reversed as at ${PE}`);
+  });
+
+  it('a partly cancelled sum (the rest not eliminated, or standing) carries the date and the note too', () => {
+    const rest = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500, senderCancelled: false })], true);
+    expect(mirrorFactsSentence(rest)).toContain(`(${R(1000)}: ${CANC}) and INV-B (${R(500)}: NOT eliminated automatically for the period to ${PE}).${NOTE}`);
+    const stand = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500, stands: true, senderCancelled: false })], true);
+    expect(mirrorFactsSentence(stand)).toContain(`${NOTE} ${R(500)} of ${R(1500)} is eliminated`);
+  });
+
+  it('no note where nothing is cancelled, and none when the period does not end after today (judged_at = period end, or absent)', () => {
+    expect(mirrorFactsSentence(mk([mirror({ senderCancelled: false })], false))).not.toContain('may change this');
+    expect(mirrorFactsSentence({ ...single, judgedAt: PE })).toBe(`Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at ${PE}). ${CONDITIONAL}`);
+    expect(mirrorFactsSentence({ ...single, judgedAt: undefined })).toContain(`reversed as at ${PE}). If it`);
+  });
+
+  it('judged_at travels: factsFromRows (a text date) and parseMirrorFacts keep it', () => {
+    const row = { ord: 1, label: 'INV-1 (mirrored)', is_sum: false, mirror_ref: 'INV-1 (mirrored)', amount: '1000', stands: false, link: 'none', by_total: false, elim_date: '2026-04-10', other_role: null, sender_cancelled: true, judged_at: JA };
+    const f = factsFromRows([row], PE)!;
+    expect(f.judgedAt).toBe(JA);
+    expect(parseMirrorFacts(JSON.parse(JSON.stringify(f)))!.judgedAt).toBe(JA);
+    expect(factsFromRows([{ ...row, judged_at: undefined }], PE)!.judgedAt).toBeUndefined();
   });
 });
