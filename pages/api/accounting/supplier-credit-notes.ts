@@ -32,6 +32,7 @@ import {
   listCreditNoteAllocations,
   parseCreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
@@ -104,6 +105,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       if (!supplierId) return apiResponse.badRequest(res, 'supplierId is required');
       if (!creditDate) return apiResponse.badRequest(res, 'creditDate is required');
+      // Create-and-post into a period that is not open is refused here, before the draft is written: a 4xx after the
+      // draft would be committed (withAuth) and leave it behind, a 5xx would roll back but hide the reason. A date no
+      // period covers passes: posting creates its fiscal year.
+      if (submitAction === 'post' && (await getPeriodStatusForDate(companyId, creditDate)) === 'closed') {
+        return apiResponse.badRequest(res, 'The credit date is in a closed fiscal period, so the credit note cannot be posted and nothing was saved. Choose a date in an open period, or save it as a draft.');
+      }
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
 
       // W1 family (P2.1): negative/zero lines invert the CN's GL at approve.
