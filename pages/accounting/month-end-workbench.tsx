@@ -10,6 +10,7 @@ import { Fragment, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { MonthField } from '@/components/ui/MonthField';
 import { Loader2, AlertCircle, CheckCircle2, Clock, AlertTriangle, Circle, ChevronRight } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { STATUS_TONE_CLASSES, type StatusTone } from '@/lib/statusVocabulary';
@@ -137,15 +138,8 @@ export default function MonthEndWorkbenchPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <label htmlFor="workbench-period" className="sr-only">Period</label>
-            <input
-              id="workbench-period"
-              type="month"
-              value={period}
-              onChange={e => setPeriod(e.target.value)}
-              aria-label="Period"
-              className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-teal-500"
-            />
+            <MonthField id="workbench-period" label="Period" labelHidden required value={period}
+              onChange={ym => { if (ym) setPeriod(ym); }} className="w-40" />
           </div>
         </div>
 

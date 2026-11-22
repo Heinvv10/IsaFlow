@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { MonthField } from '@/components/ui/MonthField';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -174,15 +175,8 @@ export default function PortfolioWorkbenchPage() {
               aria-label="Filter clients"
               className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 w-48 focus:outline-none focus:border-teal-500"
             />
-            <label htmlFor="portfolio-period" className="sr-only">Period</label>
-            <input
-              id="portfolio-period"
-              type="month"
-              value={period}
-              onChange={e => setPeriod(e.target.value)}
-              aria-label="Period"
-              className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-teal-500"
-            />
+            <MonthField id="portfolio-period" label="Period" labelHidden required value={period}
+              onChange={ym => { if (ym) setPeriod(ym); }} className="w-40" />
           </div>
         </div>
 
