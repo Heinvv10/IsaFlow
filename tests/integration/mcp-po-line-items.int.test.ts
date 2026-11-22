@@ -14,6 +14,8 @@ import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from '.
 import { callTool, counterNext, poCount, sagePo, type Json } from './helpers/poImportHarness';
 import { dropMaintExtras, glCount, poLines, seedItem } from './helpers/poMaintHarness';
 import { bulkCreatePurchaseOrdersTool as create } from '@/lib/mcp/tools/writeBulkPurchaseOrders';
+import { parsePurchaseOrderBatch, type ParsedPo } from '@/lib/mcp/tools/purchaseOrderImportArgs';
+import { resolveLineItems } from '@/lib/mcp/tools/purchaseOrderImportItems';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -156,5 +158,24 @@ describe('dry_run parity and replay', () => {
     expect(again.wroteNothing).toBe(true);
     expect(await snapshot()).toEqual(before);
     expect((await poLines(pool, await poId(p.po_number))).map((l) => l.item_id)).toEqual([cab, null]);
+  });
+});
+
+describe('the lookup is scoped by company_id itself, not only by RLS', () => {
+  // Outside a request transaction `sql` runs as the fixture's superuser, which RLS does not bind: only the query's own
+  // company_id predicate then keeps another company's item out (defence in depth under the app_user policies the tests above run in).
+  const parsedBatch = (extra: Json) => parsePurchaseOrderBatch([po(extra)]) as ParsedPo[];
+
+  it('another company\'s id and code are not resolved for this company, and resolve for their own', async () => {
+    expect(await resolveLineItems(f.co, parsedBatch({ item_id: theirs }))).toBe('purchase_orders[0].lines[0].item_id is not an item of your company');
+    expect(await resolveLineItems(f.co, parsedBatch({ item_code: 'THEIRS-1' }))).toBe('purchase_orders[0].lines[0].item_code: no item with the code "THEIRS-1" in this company');
+    expect(await resolveLineItems(other.co, parsedBatch({ item_id: theirs }))).toEqual(new Map([['0:0', theirs]]));
+    expect(await resolveLineItems(other.co, parsedBatch({ item_code: 'THEIRS-1' }))).toEqual(new Map([['0:0', theirs]]));
+  });
+
+  it('an inactive item is refused whichever way it is named', async () => {
+    const off = String((await pool.query("SELECT id FROM items WHERE company_id = $1 AND code = 'OFF-1'", [f.co])).rows[0].id);
+    expect(await resolveLineItems(f.co, parsedBatch({ item_id: off }))).toBe('purchase_orders[0].lines[0].item_id is an inactive item');
+    expect(await resolveLineItems(f.co, parsedBatch({ item_code: 'OFF-1' }))).toBe('purchase_orders[0].lines[0].item_id is an inactive item');
   });
 });
