@@ -150,7 +150,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
 
     const input: UpdateItemInput = { id };
-    if (body.code !== undefined) input.code = String(body.code).trim();
+    if (body.code !== undefined) input.code = body.code.trim();
     if (body.description !== undefined) input.description = String(body.description);
     if (body.item_type !== undefined) input.item_type = String(body.item_type);
     if (body.category_id !== undefined) input.category_id = String(body.category_id);

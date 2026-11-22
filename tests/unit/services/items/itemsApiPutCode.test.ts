@@ -73,6 +73,21 @@ describe('items PUT code', () => {
     expect(ok.statusCode).toBe(200);
   });
 
+  it('refuses a number code (it would be stored as "123")', async () => {
+    const res = await put({ id: ID, code: 123 });
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Item code must be text');
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses a code another item holds and writes nothing', async () => {
+    vi.mocked(checkCodeDuplicate).mockResolvedValueOnce(true);
+    const res = await put({ id: ID, code: 'FIB-0001' });
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('already exists');
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
   it('leaves the code out of the update when the body has none', async () => {
     await put({ id: ID, description: 'x' });
     const input = vi.mocked(updateItem).mock.calls[0][1];
