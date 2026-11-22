@@ -78,10 +78,21 @@ explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query par
 `isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
 `MIGRATION_ADMIN_DATABASE_URL` are held to the same rule when set. `--no-env-file` keeps bun from loading a `.env.local`.
 Exit 0 = a clean dry run, or a live run that booked everything it sent; `--expect-*` figures must match what was sent (dry) or
-booked (live); and no row refused unless `--allow-refusals`. 1 = anything else; 2 = refused start. The dry run writes categories and
-POs inside its rolled-back transaction so each PO batch's budget check sees the batches before it. `--po-gl-account` puts one expense
-account on every PO line so the budget check judges the lines (with none a line is "No budget" and never blocked).
-`--skip-budget-check` lists the POs the check would have blocked.
+booked (live); no row refused unless `--allow-refusals`; and no PO already in IsaFlow with other figures than Sage, and no owned item
+that Sage's values would change, unless `--allow-differences` (a PO found already there is never changed: one Sage has since invoiced
+stays as imported until a person closes it). 1 = anything else; 2 = refused start. The dry run is the live run in a rolled-back
+transaction: categories, items and POs are all written live inside it, so each PO batch's budget check sees the batches before it.
+`--po-gl-account` puts one expense account on every PO line so the budget check judges the lines. `--skip-budget-check` lists the POs
+the check would have blocked.
+
+A re-run sets the items and categories the migration owns back to Sage's values: **edits made to them in IsaFlow after the import are
+overwritten** (the report lists each owned item that would change, and the summary says so).
+
+Budget policy: a PO line with no GL account is "No budget" and is not judged, EXCEPT under the company's `block` policy, where the PO
+tool refuses a whole batch for any approved (open) PO with an account-less line. The plan reads the policy and refuses each such PO
+itself (`accountless_under_block_policy`), naming the remedies: `--skip-budget-check` (owner or admin), `--po-gl-account <uuid>`, or
+importing open POs as drafts (`OPEN_SAGE_PO_IMPORTED_AS`). Other codes: `supplier_collapsed` (two Sage suppliers that resolve by name
+to one IsaFlow supplier are both refused).
 
 ## Named limits
 
@@ -89,6 +100,8 @@ account on every PO line so the budget check judges the lines (with none a line 
   run, and the plan refuses rows against it. A writer that adds a clashing row between that read and the live batch can still make a
   tool refuse a batch. The dry run reports such a refusal and writes nothing; a live batch that hits it is reported failed with the
   tool's whole message, nothing of it written, and running again resumes.
+- **Other causes that can still fail a PO batch as a whole:** a PO that is really over budget under `block` (the dry run reports it
+  and nothing is written), and a supplier merged into another or deleted after the snapshot (the tool refuses the batch).
 - **`--po-gl-account` posts every PO line to that one account.** It is opt-in; the default is no account, and a line with none is
-  "No budget" (never blocked). With the flag the budget check, and so what a PO commits, is only as right as that one choice: a line
+  "No budget" (not judged; under `block` an approved one is refused, see above). With the flag the budget check, and so what a PO commits, is only as right as that one choice: a line
   that Sage would have coded elsewhere is judged against this account's budget.

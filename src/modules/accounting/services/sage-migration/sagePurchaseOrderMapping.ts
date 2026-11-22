@@ -15,7 +15,7 @@
  *   Lines[].TaxPercentage or TaxTypeId     tax_rate
  *   Lines[].Exclusive / Tax                line_total / tax_amount (the source's own figures)
  *   (option --po-gl-account)               gl_account_id on every line: the expense account the budget check judges them on; with none a
- *                                          line is "No budget" and is never blocked
+ *                                          line is "No budget" (not judged; under the block policy the plan refuses an approved PO with none)
  *
  * The PO tool has no item_id on a line (its line keys refuse one), so the item link is the code in the description.
  */
