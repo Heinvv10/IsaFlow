@@ -41,6 +41,8 @@ describe('AR aging on touch', () => {
     const row = container.querySelector('tbody tr')!;
     expect(row.className).toContain('max-lg:relative');
     for (const c of ['max-lg:absolute', 'max-lg:min-h-11', 'max-lg:min-w-11']) expect(row.querySelector('td')!.className).toContain(c);
+    // display and width are set on td by the card CSS, so the chevron needs `!` to stay a 44px box instead of a full-width block.
+    expect(row.querySelector('td')!.className.split(' ')).toEqual(expect.arrayContaining(['max-lg:!flex', 'max-lg:!w-auto']));
     const name = screen.getByRole('link', { name: 'Acme Clients' });
     expect(name.className).toContain('max-lg:min-h-11');
     expect(name.closest('td')!.className.split(' ')).toContain('max-lg:!pr-14');
