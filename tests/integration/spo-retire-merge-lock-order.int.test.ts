@@ -3,13 +3,16 @@
  * refusals, the PO-link one (migration 1006) and assertSupplierMergeMovesNoNotedBill, AFTER its suppliers FOR UPDATE lock
  * (assertSupplierMergeKeepsDrcFlag), so neither can race a bill create: a create in flight holds the supplier through the bill INSERT's
  * FK KEY SHARE, the merge waits for it, and then sees the create's app link and refuses (a 400 class); nothing moves.
+ * Merge review HIGH 1: purchase orders never move, so a bill tied to a source PO by its HEADER or a LINE only (no link row) is refused
+ * too, on both paths (the REST route, 400; mergeEntities, SupplierMergeRefusal): no bill ends up naming another supplier's PO.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
-import { seedPo, seedSupplier } from './helpers/poBillLinkHarness';
+import { callRoute, dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { seedBill, seedPo, seedSupplier } from './helpers/poBillLinkHarness';
+import mergeRoute from '../../pages/api/accounting/supplier-merge';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierMergeRefusal, mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 
@@ -60,3 +63,30 @@ describe('the duplicates merge refuses a PO-linked source only after its supplie
     expect((await pool.query('SELECT deleted_at IS NULL AS live FROM suppliers WHERE id = $1', [f.supplier])).rows[0].live).toBe(true);
   }, 60_000);
 });
+
+describe('a bill tied to a source PO only by its header or a line (no link row)', () => {
+  for (const tie of ['header', 'line'] as const) {
+    it(`${tie}: both merge paths refuse; the bill and the PO stay with the source; no cross-supplier tie`, async () => {
+      const own = await seedBillFixture(pool, `spo-merge-${tie}`);
+      try {
+        const target = await seedSupplier(pool, own, `Merge target (${tie})`);
+        const po = await seedPo(pool, own, { lines: [100] });
+        const bill = await seedBill(pool, own, { lines: [100] });
+        await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+        if (tie === 'header') await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, po.po]);
+        else await pool.query('UPDATE supplier_invoice_items SET po_item_id = $2 WHERE supplier_invoice_id = $1', [bill.id, po.items[0]]);
+        const rest = await callRoute(mergeRoute as never, own, own.owner, '/api/accounting/supplier-merge', { source_id: own.supplier, target_id: target });
+        expect(rest.statusCode).toBe(400);
+        expect(JSON.stringify(rest.body)).toContain('bills linked to purchase orders');
+        const req = await openRequest(pool, own, own.owner);
+        const dup = await req.run(() => mergeEntities(own.co, 'supplier', target, own.supplier, own.owner)).catch((e: unknown) => e);
+        await req.rollback();
+        expect(dup).toBeInstanceOf(SupplierMergeRefusal);
+        const where = (await pool.query(`SELECT si.supplier_id::TEXT AS bill_sup, po.supplier_id::TEXT AS po_sup FROM supplier_invoices si, purchase_orders po
+          WHERE si.id = $1 AND po.id = $2`, [bill.id, po.po])).rows[0];
+        expect(where).toEqual({ bill_sup: own.supplier, po_sup: own.supplier });
+      } finally { await dropBillFixture(pool, own); }
+    }, 60_000);
+  }
+});
+

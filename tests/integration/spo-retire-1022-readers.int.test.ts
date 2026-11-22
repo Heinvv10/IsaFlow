@@ -3,8 +3,9 @@
  * Legacy POs are seeded and copied by the migration file; then:
  *   - reports-supplier-pos gives the figures the legacy table held (per order and per supplier), with the canonical statuses;
  *   - the purchase order PDF is built from the copy (number, line);
- *   - supplier merge (the route) and the duplicate merge (mergeEntities) move the copied orders to the surviving supplier, and
- *     both refuse (400, nothing moved) a supplier whose purchase order has a linked bill;
+ *   - supplier merge (the route) and the duplicate merge (mergeEntities) leave the copied orders with the source supplier (#1697's
+ *     invariant, PR #1703 merge review HIGH 1: a merge never moves purchase_orders), and both refuse (400, nothing moved) a supplier
+ *     whose purchase order has a bill tied to it;
  *   - the bill PDF's "PO #" names a copied order its header names, and never another company's;
  *   - the Demo reseed's wipe steps, in their own order, delete every legacy row past the retirement trigger: copied ones, one
  *     whose copy's lines the PO PUT replaced (new po_items ids), and a skipped one.
@@ -127,21 +128,21 @@ describe('the purchase order PDF', () => {
   });
 });
 
-describe('supplier merges move the copied orders', () => {
-  it('the supplier-merge route moves the source supplier\'s purchase orders to the target', async () => {
+describe('supplier merges leave the copied orders with the source', () => {
+  it('the supplier-merge route merges; the source supplier\'s purchase order stays with it', async () => {
     const out = await callRoute(supplierMergeRoute as never, f, f.owner, '/api/accounting/supplier-merge', { source_id: sup3, target_id: f.supplier });
     expect(out.statusCode).toBe(200);
-    expect(await poSupplier(S.d!.id)).toBe(f.supplier);
+    expect(await poSupplier(S.d!.id)).toBe(sup3);
   });
 
-  it('mergeEntities (duplicates) moves the duplicate\'s purchase orders to the primary', async () => {
+  it('mergeEntities (duplicates) merges; the duplicate\'s purchase order stays with it', async () => {
     const req = await openRequest(pool, f, f.owner);
     try {
       const res = await req.run(() => mergeEntities(f.co, 'supplier', f.supplier, sup4, f.owner));
       await req.commit();
-      expect(res.reassignedTransactions).toBe(1);
+      expect(res.reassignedTransactions).toBe(0);
     } catch (e) { await req.rollback(); throw e; }
-    expect(await poSupplier(S.e!.id)).toBe(f.supplier);
+    expect(await poSupplier(S.e!.id)).toBe(sup4);
   });
 });
 

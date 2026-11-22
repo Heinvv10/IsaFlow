@@ -9,6 +9,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { SupplierMergeRefusal } from './supplierMergeRefusal';
 import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
+import { assertSupplierMergeMovesNoPoTiedBill } from './supplierMergePoTies';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
@@ -27,6 +28,7 @@ export interface MergeResult {
 export { SupplierMergeRefusal } from './supplierMergeRefusal';
 // A source bill carrying a goods received note (#1708): checked before the move, and on the bill UPDATE's RETURNING rows.
 export { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
+export { assertSupplierMergeMovesNoPoTiedBill } from './supplierMergePoTies';
 
 /**
  * DRC VAT eligibility reads the supplier's `subject_to_drc_vat` flag, and a
@@ -100,18 +102,9 @@ export async function mergeEntities(
 async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
-  // Migration 1006: a purchase order <-> bill link joins one supplier's documents, and the database refuses moving either
-  // side alone. Refused before anything moves (a 400), as the supplier-merge route does.
-  const linked = await sql`
-    SELECT 1 FROM purchase_order_bill_links l
-      JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
-     WHERE l.company_id = ${companyId}::UUID AND po.supplier_id = ${duplicateId}::UUID LIMIT 1
-  `;
-  if ((linked as unknown[]).length > 0) {
-    throw new SupplierMergeRefusal(
-      'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.',
-    );
-  }
+  // After the supplier lock, before anything moves (a 400), in the REST route's order: a bill tied to a PO of the source (purchase
+  // orders never move), then a bill carrying a goods received note.
+  await assertSupplierMergeMovesNoPoTiedBill(companyId, duplicateId);
   await assertSupplierMergeMovesNoNotedBill(companyId, duplicateId);
 
   // One savepoint for the moves: the bill UPDATE's RETURNING can still refuse (refuseIfMovedNotedBills), and a 4xx answer is
@@ -134,12 +127,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   count += r1.length;
   await stampBatchesOfMovedPayments(companyId, batchIds, userId);
 
-  // Purchase orders BEFORE the bills (the link tool's PO -> bill order; migration 1022 made purchase_orders the one table).
-  const r3 = await sql`
-    UPDATE purchase_orders SET supplier_id = ${primaryId}::UUID, updated_at = NOW()
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
-  `;
+  // Purchase orders are NOT moved (#1697's invariant; PR #1703 merge review HIGH 1): they stay with the source, as do their notes.
 
   // supplier_id is approval content (R-035): the merging user becomes an author of every moved bill.
   const r2 = await sql`
@@ -151,7 +139,6 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   // A bill made live and noted while this ran, without the supplier lock, is moved by this UPDATE after it waited on the row.
   refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
   count += r2.length;
-  count += r3.length;
 
   await sql`
     UPDATE suppliers SET deleted_at = NOW()

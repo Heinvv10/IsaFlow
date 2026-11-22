@@ -2,8 +2,8 @@
  * Supplier Merge API
  * POST /api/accounting/supplier-merge
  *
- * Re-parents the source's payments, purchase orders and bills onto target_id within a single
- * transaction, then deactivates the source (is_active = false) and renames it "... [MERGED]". It does NOT
+ * Re-parents the source's payments and bills onto target_id within a single transaction (purchase orders, their goods
+ * received notes and their links stay with the source; a bill tied to one is refused first), then deactivates the source (is_active = false) and renames it "... [MERGED]". It does NOT
  * soft-delete it (deleted_at stays NULL): see docs/design/mcp-goods-received.md, Known limits.
  */
 
@@ -17,7 +17,8 @@ import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import {
-  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills,
+  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, assertSupplierMergeMovesNoPoTiedBill,
+  refuseIfMovedNotedBills,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -45,7 +46,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Before the transaction: a refusal moves nothing.
     await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id, source_id);
-    // A bill tied to a PO only by its goods received note is refused as a PO link is (#1708).
+    // A bill tied to a PO of the source (link, header, line; purchase orders never move), then a bill tied to a PO only by its goods
+    // received note (#1708): the duplicates merge's order.
+    await assertSupplierMergeMovesNoPoTiedBill(companyId, source_id);
     await assertSupplierMergeMovesNoNotedBill(companyId, source_id);
     await withTransaction(async (tx) => {
       // 1. Validate both suppliers belong to this company and are active
@@ -59,19 +62,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       if ((suppliers as { id: string; name: string }[]).length !== 2) {
         throw new Error('One or both suppliers not found or do not belong to this company');
-      }
-
-      // Migration 1006: a purchase order <-> bill link joins one supplier's documents; moving only some of them would leave
-      // a cross-supplier link (the database refuses it). The smaller safe option: refuse while the source has links.
-      const linked = await tx`
-        SELECT 1 FROM purchase_order_bill_links l
-          JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
-         WHERE l.company_id = ${companyId} AND po.supplier_id = ${source_id} LIMIT 1
-      `;
-      if ((linked as unknown[]).length > 0) {
-        throw new SupplierMergeRefusal(
-          'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.',
-        );
       }
 
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
@@ -89,15 +79,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
-      // 3. Re-parent purchase_orders (the one PO table since migration 1022 retired supplier_purchase_orders) — BEFORE
-      // the bills: the link tool takes a PO and then its bills, so this order cannot cycle with it; a bill create holds
-      // its bill and takes the PO only FOR KEY SHARE, which this UPDATE (no key column) does not conflict with.
-      await tx`
-        UPDATE purchase_orders
-        SET supplier_id = ${target_id}, updated_at = NOW()
-        WHERE supplier_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
+      // 3. Purchase orders are NOT moved (#1697's invariant; PR #1703 merge review HIGH 1): they, their goods received notes and
+      // their links stay with the source, and a bill still tied to one was refused above.
 
       // 4. Re-parent supplier_invoices — AFTER the payments, as every payment
       // writer takes a payment and then its bills (bank/.claude.md lock order;
