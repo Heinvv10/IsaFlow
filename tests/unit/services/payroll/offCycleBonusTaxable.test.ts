@@ -5,10 +5,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const rows = vi.hoisted(() => ({ bonus: [] as Array<Record<string, unknown>> }));
-// The bonus inputs; the final-regular-run check (gate item 2 on 06c106a94d) finds every employee on it.
+const rows = vi.hoisted(() => ({ bonus: [] as Array<Record<string, unknown>>, missing: [] as Array<Record<string, unknown>> }));
+// The bonus inputs; the final-regular-run check (gate item 2 on 06c106a94d) returns rows.missing (none by default).
 vi.mock('@/lib/neon', () => ({
-  sql: Object.assign(vi.fn(async (strings: readonly string[]) => (strings.join('?').includes('NOT EXISTS') ? [] : rows.bonus)),
+  sql: Object.assign(vi.fn(async (strings: readonly string[]) => (strings.join('?').includes('NOT EXISTS') ? rows.missing : rows.bonus)),
     { unsafe: (t: string) => t }),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunRegularDirective', () => ({ loadRegularPayDirectives: vi.fn(async () => new Map()) }));
@@ -41,5 +41,19 @@ describe('the bonus component at calculation', () => {
     const err = await prepare().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(OffCycleRunRefusedError);
     expect(err).toMatchObject({ status: 409, message: expect.stringMatching(/Ruby Rubric's bonus component "Annual bonus" is no longer a taxable annual-payment earning/) });
+  });
+});
+
+// Review L4 of e9f437f366 (gate item 2 on 06c106a94d): an employee with no line on the month's final regular run is
+// refused at calculation, named, with REGULAR_LINE_MISSING.
+describe('prepareOffCycleComponents: the final regular run', () => {
+  it('an employee missing from it: 409 REGULAR_LINE_MISSING naming them', async () => {
+    rows.bonus = [bonusRow()];
+    rows.missing = [{ employee_number: 'E7', first_name: 'Ruby', last_name: 'Rubric' }];
+    const err = await prepareOffCycleComponents({ companyId: 'c', runId: 'r', period: { month: 11, year: 2026 }, reason: 'bonus', employees: [employee] })
+      .catch((e: unknown) => e);
+    rows.missing = [];
+    expect(err).toBeInstanceOf(OffCycleRunRefusedError);
+    expect(err).toMatchObject({ status: 409, refusal: 'REGULAR_LINE_MISSING', message: expect.stringMatching(/Ruby Rubric \(E7\): not on the month's final regular run/) });
   });
 });

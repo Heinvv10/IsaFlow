@@ -76,3 +76,15 @@ describe('setOffCycleBonusAmount: a stale edit', () => {
     expect(logAuditOrThrow).not.toHaveBeenCalled();
   });
 });
+
+// Review L4 of e9f437f366 (gate item 6 on 06c106a94d): an unchanged amount, past the expectedAmount check, writes
+// nothing: no line is deleted, no header or input updated, no audit row.
+describe('setOffCycleBonusAmount: the same amount', () => {
+  it('returns success and writes nothing', async () => {
+    const out = await setOffCycleBonusAmount(CO, RUN, EMP, 50_000, USER, 50_000);
+    expect(out).toEqual({ runId: RUN, employeeId: EMP, amount: 50_000 });
+    expect(h.calls.filter((c) => /^\s*(UPDATE|DELETE|INSERT)\b/.test(c.text)).map((c) => c.text.trim().slice(0, 40))).toEqual([]);
+    expect(vi.mocked(logAuditOrThrow)).not.toHaveBeenCalled();
+  });
+});
+
