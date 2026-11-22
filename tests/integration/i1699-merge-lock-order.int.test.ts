@@ -4,7 +4,7 @@
  *   M1  a bill create naming a PO of the source takes the supplier FIRST (lockSupplierIfLive): it used to take the PO FOR KEY SHARE
  *       and the supplier only at the INSERT's FK, while the merge takes the supplier FOR UPDATE and then the source's POs: 40P01.
  *   H1  a supplier payment (createSupplierPayment), a payment batch (createBatch) and a bank-line supplier payment
- *       (validateBankSupplierPayment) wait for a merge of their payee and are then refused before any write; migration 1022's
+ *       (validateBankSupplierPayment) wait for a merge of their payee and are then refused before any write; migration 1023's
  *       trigger refuses a payment written onto a merged-away supplier by any writer.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -53,7 +53,9 @@ describe('M1: a bill create naming a PO of the source, against a merge (no 40P01
         expect(await waitsOnLock(pool, merge.pid)).toBe(true);
         bill = await startRequest(pool, fx, () => createSupplierInvoice(fx.co, {
           trustSourceTax: true, supplierId: fx.supplier, invoiceNumber: `M1-${fx.co.slice(0, 8)}`, invoiceDate: '2026-06-15',
-          purchaseOrderId: po.po, taxRate: 15, items: [{ description: 'Goods', quantity: 1, unitPrice: 20, taxRate: 15, glAccountId: fx.acc.opex }],
+          purchaseOrderId: po.po, taxRate: 15,
+          // A line naming the PO's line: the create takes that PO FOR KEY SHARE (assertBillPoLinks) before the bill INSERT's FK.
+          items: [{ description: 'Goods', quantity: 1, unitPrice: 20, taxRate: 15, glAccountId: fx.acc.opex, poItemId: po.items[0] }],
         } as never, fx.owner));
         expect(await waitsOnLock(pool, bill.pid)).toBe(true);
       } finally { await hold.release(); }
@@ -131,7 +133,7 @@ describe('H1: supplier payments and a merge of their payee', () => {
     });
   }, 30_000);
 
-  it('migration 1022: any payment written onto a merged-away supplier is refused; one already there can still be updated', async () => {
+  it('migration 1023: any payment written onto a merged-away supplier is refused; one already there can still be updated', async () => {
     await withFixture('i1699-h1-trigger', async (fx, target) => {
       const old = String((await pool.query(`INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, payment_method, created_by)
                          VALUES ($1, $2, '2026-06-01', 50, 'eft', $3) RETURNING id`, [fx.co, fx.supplier, fx.owner])).rows[0].id);

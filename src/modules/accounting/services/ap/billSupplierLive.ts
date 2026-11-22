@@ -18,7 +18,7 @@ export class BillSupplierDeletedError extends Error {
   }
 }
 
-/** A supplier payment written onto a soft-deleted supplier: migration 1022's trg_supplier_payments_supplier_live (#1699 H1). */
+/** A supplier payment written onto a soft-deleted supplier: migration 1023's trg_supplier_payments_supplier_live (#1699 H1). */
 export class PaymentSupplierDeletedError extends Error {
   readonly code = 'SUPPLIER_PAYMENT_SUPPLIER_DELETED';
   constructor() {
@@ -28,7 +28,7 @@ export class PaymentSupplierDeletedError extends Error {
   }
 }
 
-/** The typed refusal for 1022's trigger error, or null for anything else. */
+/** The typed refusal for 1023's trigger error, or null for anything else. */
 export function asPaymentSupplierDeleted(err: unknown): PaymentSupplierDeletedError | null {
   const e = err as { code?: unknown; constraint?: unknown } | null;
   return e && e.code === '23503' && e.constraint === 'supplier_payments_supplier_live' ? new PaymentSupplierDeletedError() : null;

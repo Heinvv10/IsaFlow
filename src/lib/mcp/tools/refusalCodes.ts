@@ -296,7 +296,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_INVOICE_GRN_REFUSED',
   // A bill onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1021's supplier-live trigger).
   'SUPPLIER_INVOICE_SUPPLIER_DELETED',
-  // A payment onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1022's supplier-live trigger).
+  // A payment onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1023's supplier-live trigger).
   'SUPPLIER_PAYMENT_SUPPLIER_DELETED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',

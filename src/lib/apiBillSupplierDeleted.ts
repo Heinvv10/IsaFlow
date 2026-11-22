@@ -17,7 +17,7 @@
  *   - recurring, the Sage import service, the migration AP import: they refuse a deleted supplier before their INSERT (or match live
  *     suppliers only) and run each row in a savepoint.
  * A new caller that catches the error and goes on writing in the same transaction would commit those writes with this 409.
- * Migration 1022's payment twin (constraint supplier_payments_supplier_live, `PaymentSupplierDeletedError`) is answered the same:
+ * Migration 1023's payment twin (constraint supplier_payments_supplier_live, `PaymentSupplierDeletedError`) is answered the same:
  * the payment writers lock the payee live first (core/supplierLiveLock), so it is reached only by a writer that skips that.
  */
 import type { NextApiResponse } from 'next';

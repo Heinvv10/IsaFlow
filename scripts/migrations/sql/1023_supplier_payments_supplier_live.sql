@@ -1,4 +1,4 @@
--- 1022: a supplier payment is never written onto a soft-deleted (merged-away or deleted) supplier (#1699, breaker of aad49a02, H1).
+-- 1023: a supplier payment is never written onto a soft-deleted (merged-away or deleted) supplier (#1699, breaker of aad49a02, H1).
 --
 -- 1021's trg_supplier_invoices_supplier_live refuses a BILL onto a soft-deleted supplier. Payments had no such rule: a payment create
 -- racing a supplier merge waited at its FK check (KEY SHARE on the supplier) for the merge's FOR UPDATE and then landed on the
