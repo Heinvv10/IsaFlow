@@ -27,27 +27,31 @@ export interface DateRangeFieldProps {
   getToday?: () => Date;
   className?: string;
   disabled?: boolean;
+  /** An emptied box shows "Enter a date." instead of silently keeping the old range. */
+  required?: boolean;
 }
 
 export function DateRangeField({
-  label, value, onChange, fyStartMonth, presets, fromLabel = 'From', toLabel = 'To', getToday, className, disabled,
+  label, value, onChange, fyStartMonth, presets, fromLabel = 'From', toLabel = 'To', getToday, className, disabled, required,
 }: DateRangeFieldProps) {
-  const [custom, setCustom] = React.useState(false);
-  const setFrom = (from: string | null) => {
-    setCustom(true);
-    onChange({ from, to: from && value.to && value.to < from ? from : value.to });
-  };
-  const setTo = (to: string | null) => { setCustom(true); onChange({ from: value.from, to }); };
+  // Custom holds for the range the user typed. A range the parent sets on its own (a reset, a deep link) is a
+  // different key, so Custom lets go.
+  const [customFor, setCustomFor] = React.useState<string | null>(null);
+  const rangeKey = (r: DateRange) => `${r.from}|${r.to}`;
+  const custom = customFor === rangeKey(value);
+  const emit = (r: DateRange) => { setCustomFor(rangeKey(r)); onChange(r); };
+  const setFrom = (from: string | null) => emit({ from, to: from && value.to && value.to < from ? from : value.to });
+  const setTo = (to: string | null) => emit({ from: value.from, to });
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       <FiscalPresetBar label={label} value={value} custom={custom} fyStartMonth={fyStartMonth} presets={presets}
-        getToday={getToday} disabled={disabled} onCustom={() => setCustom(true)}
-        onPick={r => { setCustom(false); onChange({ from: r.from, to: r.to }); }} />
+        getToday={getToday} disabled={disabled} onCustom={() => setCustomFor(rangeKey(value))}
+        onPick={r => { setCustomFor(null); onChange({ from: r.from, to: r.to }); }} />
       <div className="flex flex-wrap items-end gap-4">
-        <DateField label={fromLabel} value={value.from} disabled={disabled} getToday={getToday}
+        <DateField label={fromLabel} value={value.from} disabled={disabled} required={required} getToday={getToday}
           onChange={(iso, v) => { if (v.valid) setFrom(iso); }} />
-        <DateField label={toLabel} value={value.to} disabled={disabled} getToday={getToday}
+        <DateField label={toLabel} value={value.to} disabled={disabled} required={required} getToday={getToday}
           minDate={value.from ?? undefined} minMessage={`${toLabel} can't be before ${fromLabel}`}
           anchorDate={value.from}
           onChange={(iso, v) => { if (v.valid) setTo(iso); }} />

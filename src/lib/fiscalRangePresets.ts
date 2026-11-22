@@ -10,11 +10,17 @@ export const FY_PRESET_KEYS: FyPresetKey[] = [
   'this_month', 'last_month', 'this_quarter', 'last_quarter', 'this_fy', 'fy_to_date', 'last_fy', 'last_30_days', 'custom',
 ];
 
+/** For a page that owns its From/To boxes: typing there is Custom, so the bar needs no Custom pill. */
+export const FY_PRESETS_FIXED: FyPresetKey[] = FY_PRESET_KEYS.filter(k => k !== 'custom');
+
 export const FY_PRESET_LABELS: Record<FyPresetKey, string> = {
   this_month: 'This month', last_month: 'Last month', this_quarter: 'This quarter', last_quarter: 'Last quarter',
   this_fy: 'This financial year', fy_to_date: 'Year to date', last_fy: 'Last financial year',
   last_30_days: 'Last 30 days', custom: 'Custom',
 };
+
+/** Used when a company has no financial-year start month set (the books' historical default). */
+export const DEFAULT_FY_START_MONTH = 3;
 
 export interface IsoRange { from: string; to: string }
 
@@ -87,3 +93,5 @@ export function asAtPresetDate(key: AsAtPresetKey, today: string, fyStartMonth: 
     case 'custom': return null;
   }
 }
+
+export const AS_AT_PRESETS_FIXED: AsAtPresetKey[] = AS_AT_PRESET_KEYS.filter(k => k !== 'custom');

@@ -3,8 +3,7 @@
  * (March when none is set, as before); the arithmetic lives in `@/lib/fiscalRangePresets`.
  */
 import type { DatePreset } from './listTypes';
-import { presetRange, type FyPresetKey } from '@/lib/fiscalRangePresets';
-import { DEFAULT_FY_START_MONTH } from '@/components/ui/FiscalPresetBar';
+import { DEFAULT_FY_START_MONTH, presetRange, type FyPresetKey } from '@/lib/fiscalRangePresets';
 import { todayInSast } from '@/lib/saDateParser';
 
 const SHARED: Partial<Record<DatePreset, FyPresetKey>> = {

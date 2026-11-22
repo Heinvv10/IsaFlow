@@ -7,11 +7,10 @@ import { cn } from '@/utils/cn';
 import { useCompany } from '@/contexts/CompanyContext';
 import { todayInSast } from '@/lib/saDateParser';
 import {
-  AS_AT_PRESET_KEYS, AS_AT_PRESET_LABELS, FY_PRESET_KEYS, FY_PRESET_LABELS, asAtPresetDate, matchPreset, presetRange,
+  AS_AT_PRESET_KEYS, DEFAULT_FY_START_MONTH, AS_AT_PRESET_LABELS, FY_PRESET_KEYS, FY_PRESET_LABELS, asAtPresetDate, matchPreset, presetRange,
   type AsAtPresetKey, type FyPresetKey, type IsoRange,
 } from '@/lib/fiscalRangePresets';
 
-export const DEFAULT_FY_START_MONTH = 3;
 const PILL = 'min-h-8 rounded-full border px-3 py-1 text-xs transition-colors max-lg:min-h-11';
 const ON = 'border-brand-600 bg-brand-600 text-white hover:bg-brand-700';
 const OFF = 'border-[var(--ff-border-primary)] bg-transparent text-ink-muted hover:border-slate-500';
@@ -53,7 +52,8 @@ export function FiscalPresetBar({
 }: FiscalPresetBarProps) {
   const fy = useFyStartMonth(fyStartMonth);
   const today = todayInSast((getToday ?? (() => new Date()))());
-  const pressed = custom ? 'custom' : matchPreset(value, today, fy);
+  const matched = matchPreset(value, today, fy);
+  const pressed = custom || !presets.includes(matched) ? 'custom' : matched;
   const pick = (key: FyPresetKey) => {
     if (key === 'custom') { onCustom?.(); return; }
     const r = presetRange(key, today, fy);
@@ -91,7 +91,7 @@ export function AsAtPresetBar({
 }: AsAtPresetBarProps) {
   const fy = useFyStartMonth(fyStartMonth);
   const today = todayInSast((getToday ?? (() => new Date()))());
-  const matched = AS_AT_PRESET_KEYS.find(k => k !== 'custom' && value !== null && asAtPresetDate(k, today, fy) === value);
+  const matched = presets.find(k => k !== 'custom' && value !== null && asAtPresetDate(k, today, fy) === value);
   const pressed = custom ? 'custom' : (matched ?? 'custom');
   return (
     <div role="group" aria-label={`${label} presets`} className={cn('flex flex-wrap gap-1.5', className)}>

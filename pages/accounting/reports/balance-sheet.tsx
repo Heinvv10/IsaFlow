@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { AS_AT_PRESETS_FIXED } from '@/lib/fiscalRangePresets';
 import { AsAtPresetBar } from '@/components/ui/FiscalPresetBar';
 import { FixDateNotice, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -39,8 +40,7 @@ export default function BalanceSheetPage() {
   // The route sets this date too, so the field binds here, ahead of every read of `blocked` (GatedDateField binds later).
   const dates = useDateGate();
   const { reset: resetDate } = dates;
-  const [presetCustom, setPresetCustom] = useState(false);
-  const onAsAtChange = dates.bind('asAt', (v: string) => { setPresetCustom(true); setAsAtDate(v); }, asAtDate);
+  const onAsAtChange = dates.bind('asAt', setAsAtDate, asAtDate);
   useEffect(() => { resetDate('asAt'); }, [queryKey, resetDate]);
   const restoredColumns = useRef('');
   const [columnsReadyKey, setColumnsReadyKey] = useState('');
@@ -171,8 +171,8 @@ export default function BalanceSheetPage() {
         {/* Full width: two grids side by side, each scrolling inside its own frame with the header
             row and the label column pinned. */}
         <div className="p-6 space-y-6">
-          <AsAtPresetBar label="As at" value={asAtDate || null} custom={presetCustom} onCustom={() => setPresetCustom(true)}
-            onPick={d => { setPresetCustom(false); setAsAtDate(d); resetDate('asAt'); }} />
+          <AsAtPresetBar label="As at" presets={AS_AT_PRESETS_FIXED} value={asAtDate || null} disabled={!periodResolved}
+            onPick={d => { setAsAtDate(d); resetDate('asAt'); }} />
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <DateField label="As at" value={asAtDate || null} resetKey={dates.resetKey('asAt')} onChange={onAsAtChange} />

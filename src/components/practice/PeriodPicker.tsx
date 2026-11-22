@@ -51,7 +51,7 @@ export function PeriodPicker({ mode = 'range', value, onChange, labelRange, labe
   if (mode === 'range') {
     const rv = value as PeriodRange;
     return (
-      <DateRangeField label="Period" fromLabel={labelRange?.from ?? 'From'} toLabel={labelRange?.to ?? 'To'}
+      <DateRangeField label="Period" required fromLabel={labelRange?.from ?? 'From'} toLabel={labelRange?.to ?? 'To'}
         value={{ from: rv.dateFrom || null, to: rv.dateTo || null }}
         onChange={r => { if (r.from && r.to) onChange({ dateFrom: r.from, dateTo: r.to }); }} />
     );

@@ -73,4 +73,23 @@ describe('DateRangeField', () => {
     expect(screen.getByRole('group', { name: /period presets|Period/ })).toBeTruthy();
     act(() => {});
   });
+  it('required: an emptied box says so instead of silently keeping the old range', () => {
+    const spy = vi.fn();
+    render(<DateRangeField label="Period" required fyStartMonth={3} getToday={NOW} value={{ from: '2026-11-01', to: '2026-11-30' }} onChange={spy} />);
+    typeInto('From', '');
+    expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it('Custom lets go when the parent sets the range itself (a reset)', () => {
+    const { rerender } = render(<DateRangeField label="Period" fyStartMonth={3} getToday={NOW} value={{ from: '2026-11-01', to: '2026-11-30' }} onChange={() => {}} />);
+    fireEvent.click(preset('Custom'));
+    expect(preset('Custom').getAttribute('aria-pressed')).toBe('true');
+    rerender(<DateRangeField label="Period" fyStartMonth={3} getToday={NOW} value={{ from: '2026-10-01', to: '2026-10-31' }} onChange={() => {}} />);
+    expect(preset('Custom').getAttribute('aria-pressed')).toBe('false');
+    expect(preset('Last month').getAttribute('aria-pressed')).toBe('true');
+  });
+  it('a matched preset the page does not offer leaves Custom pressed', () => {
+    render(<DateRangeField label="Period" fyStartMonth={3} getToday={NOW} presets={['last_month', 'custom']} value={{ from: '2026-11-01', to: '2026-11-30' }} onChange={() => {}} />);
+    expect(preset('Custom').getAttribute('aria-pressed')).toBe('true');
+  });
 });
