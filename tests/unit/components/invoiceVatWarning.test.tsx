@@ -1,13 +1,14 @@
 /**
- * Master plan wave 3, PR D review, F3: the user's VAT choice stands, but the form says when it conflicts with the
- * customer's VAT type: on the new page however the choice got there, and on the edit page once the customer is changed.
+ * Master plan wave 3, PR D review, F3, on the line-level VAT form: the user's VAT type on a line stands, but the form
+ * says when the lines conflict with the customer's VAT type: on the new page however the type got there, and on the
+ * edit page on load or once the customer is changed.
  */
 import { act, cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
-import { ACME, BARE, descriptionField, INV, invoiceDate, pickClient, pickMode, sentBody, serve, ZERO } from '../helpers/invoiceDefaultsHarness';
+import { ACME, BARE, descriptionField, INV, invoiceDate, pickClient, pickVatType, sentBody, serve, vatTypesShown, ZERO } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
 const scan = vi.hoisted(() => ({ current: { vatRate: null as number | null, lineItems: [] as unknown[] } }));
@@ -35,60 +36,63 @@ const CONTACTS = {
   'c-odd': { ...BARE, default_vat_type: 'Reduced' },
 };
 const open = async () => { serve(CONTACTS); render(<NewPage />); await screen.findByRole('combobox', { name: 'Client' }); typeDate(invoiceDate(), '1 Oct 2026'); };
-const rateField = () => screen.getByLabelText('VAT rate %') as HTMLInputElement;
 const mode = () => screen.getByRole('combobox', { name: 'Amounts are' }).textContent;
+/** The picked customer's answer has landed (its terms set the due date hint, or none: the request was answered). */
+const contactLanded = () => vi.mocked(apiFetch).mock.calls.some((c) => String(c[0]).includes('customers?id=')) && !(screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement).disabled;
 
 describe('new page', () => {
-  it('a rate touched first: the rate stands and the conflict is on screen', async () => {
+  it('a type picked first: the type stands and the conflict is on screen', async () => {
     await open();
-    fireEvent.change(rateField(), { target: { value: '14' } });
+    await pickVatType(0, /Standard/);
     await pickClient('c-zero');
-    await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 14%.');
-    expect(rateField().value).toBe('14');
+    await screen.findByText('This customer is zero-rated, but a line is standard-rated.');
+    expect(vatTypesShown()).toEqual(['Standard (15%)']);
   });
 
-  it('a scan with a rate over a zero-rated customer: the scan stands and the conflict is on screen', async () => {
+  it('a scan with the standard rate over a zero-rated customer: the scan stands and the conflict is on screen', async () => {
     await open();
     await pickClient('c-zero');
-    await waitFor(() => expect(rateField().disabled).toBe(true));
-    expect(screen.queryByText(/but this invoice/)).toBeNull();
+    await waitFor(() => expect(vatTypesShown()).toEqual(['Zero-rated (0%)']));
+    expect(screen.queryByText(/standard-rated/)).toBeNull();
     scan.current = { vatRate: 15, lineItems: [] };
     fireEvent.click(screen.getByText('scan stub'));
-    await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 15%.');
-    expect(rateField().value).toBe('15');
+    await screen.findByText('This customer is zero-rated, but a line is standard-rated.');
+    expect(vatTypesShown()).toEqual(['Standard (15%)']);
   });
 
-  it('No VAT chosen for a standard customer is a conflict too', async () => {
+  it('every line VAT-free for a standard customer is a conflict too', async () => {
     await open();
     await pickClient('c-acme');
-    await waitFor(() => expect(screen.getByText(/from customer: standard rate/i)).toBeTruthy());
-    expect(screen.queryByText(/but this invoice/)).toBeNull();
-    await pickMode(/No VAT/);
-    await screen.findByText('This customer is standard-rated, but this invoice charges no VAT.');
+    await waitFor(() => expect(contactLanded()).toBe(true));
+    expect(screen.queryByText(/but/)).toBeNull();
+    expect(screen.queryByText(/VAT type from customer/)).toBeNull(); // standard is the default chain's end: nothing to say
+    await pickVatType(0, /Zero-rated/);
+    await screen.findByText('This customer is standard-rated, but no line charges VAT.');
   });
 
   it('the warning goes when the conflict does', async () => {
     await open();
-    fireEvent.change(rateField(), { target: { value: '14' } });
+    await pickVatType(0, /Standard/);
     await pickClient('c-zero');
     await screen.findByText(/zero-rated, but/);
-    await pickMode(/No VAT/);
-    await waitFor(() => expect(screen.queryByText(/but this invoice/)).toBeNull());
+    await pickVatType(0, /Zero-rated/);
+    await waitFor(() => expect(screen.queryByText(/zero-rated, but/)).toBeNull());
   });
 
   it('a VAT type in the wrong case or with spaces is read as what it says', async () => {
     await open();
     await pickClient('c-shout');
-    await waitFor(() => expect(rateField().disabled).toBe(true));
-    expect(screen.getByText(/from customer: VAT exempt/i)).toBeTruthy();
+    await waitFor(() => expect(vatTypesShown()).toEqual(['Exempt']));
+    expect(screen.getByText('VAT type from customer: VAT exempt')).toBeTruthy();
     expect(screen.queryByText(/not one IsaFlow knows/)).toBeNull();
   });
 
-  it('a VAT type nobody knows is flagged, and is not treated as standard', async () => {
+  it('a VAT type nobody knows is flagged, and is not treated as anything but the standard end of the chain', async () => {
     await open();
     await pickClient('c-odd');
     await screen.findByText(/VAT type "reduced" is not one IsaFlow knows/);
     expect(mode()).toMatch(/Excluding VAT/);
+    expect(vatTypesShown()).toEqual(['Standard (15%)']); // the server's default chain reads it so too
     expect(screen.queryByText(/from customer/i)).toBeNull();
   });
 });
@@ -122,11 +126,11 @@ describe('edit page', () => {
   const load = async () => { serve(CONTACTS); render(<EditPage />); await screen.findByDisplayValue('L'); };
   const saveButton = () => screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement;
 
-  it('a conflict already on the draft warns on load, and nothing is refilled', async () => {
+  it('a conflict already on the draft warns on load, and nothing is re-typed', async () => {
     serve(CONTACTS, { ...INV, client_id: 'c-zero' });
     render(<EditPage />);
-    await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 15%.');
-    expect(rateField().value).toBe('15');
+    await screen.findByText('This customer is zero-rated, but a line is standard-rated.');
+    expect(vatTypesShown()).toEqual(['Standard (15%)']);
     expect(mode()).toMatch(/Excluding VAT/);
   });
 
@@ -144,11 +148,11 @@ describe('edit page', () => {
     expect(saveButton().disabled).toBe(false);
   });
 
-  it('changing to a zero-rated customer warns, and the stored rate and price stand', async () => {
+  it('changing to a zero-rated customer warns, and the stored type and price stand', async () => {
     await load();
     await pickClient('c-zero');
-    await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 15%.');
-    expect(rateField().value).toBe('15');
+    await screen.findByText('This customer is zero-rated, but a line is standard-rated.');
+    expect(vatTypesShown()).toEqual(['Standard (15%)']);
     expect(mode()).toMatch(/Excluding VAT/);
     await waitFor(() => expect(saveButton().disabled).toBe(false));
     fireEvent.click(saveButton());

@@ -49,6 +49,18 @@ const qty = (i = 0) => screen.getAllByLabelText('Quantity')[i]!;
 export const discounts = () => (screen.getAllByLabelText('Discount %') as HTMLInputElement[]).map((d) => d.value);
 export const pickClient = (name: string) => pickOption('Client', name);
 export const pickMode = (name: RegExp) => pickOption('Amounts are', name);
+/** Each line's VAT type as its picker shows it (the line grid's VAT column; a VAT vendor only). */
+export const vatTypesShown = () => screen.queryAllByRole('combobox', { name: 'VAT type' }).map((c) => c.textContent ?? '');
+/** Picks line `i`'s VAT type. */
+export const pickVatType = async (i: number, name: RegExp) => {
+  fireEvent.click(screen.getAllByRole('combobox', { name: 'VAT type' })[i]!);
+  fireEvent.click(await screen.findByRole('option', { name }));
+};
+/** The totals under the lines, as text. */
+export const totalsText = () => screen.getByRole('region', { name: 'Invoice totals' }).textContent ?? '';
+/** The Total row alone (a Subtotal or VAT row of the same figure would also match the whole block). */
+export const totalRowText = () => [...screen.getByRole('region', { name: 'Invoice totals' }).querySelectorAll('div')]
+  .find((d) => d.firstElementChild?.textContent === 'Total')?.textContent ?? '';
 export const hintFromCustomer = () => screen.queryAllByText(/from customer|customer terms/i);
 export const submitAndWait = async (push: ReturnType<typeof vi.fn>) => {
   const create = screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement;
