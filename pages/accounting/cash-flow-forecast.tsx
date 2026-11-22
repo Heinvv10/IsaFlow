@@ -148,7 +148,7 @@ export default function CashFlowForecastPage() {
     <AppLayout>
       <div className="p-4 lg:p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-teal-500/10">
               <TrendingUp className="h-6 w-6 text-teal-500" />
@@ -164,7 +164,7 @@ export default function CashFlowForecastPage() {
             <select
               value={months}
               onChange={e => setMonths(Number(e.target.value))}
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm"
+              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm max-lg:min-h-11"
             >
               <option value={3}>3 months</option>
               <option value={6}>6 months</option>
@@ -173,7 +173,7 @@ export default function CashFlowForecastPage() {
             <button
               onClick={() => void fetchForecast()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 max-lg:min-h-11"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -334,7 +334,7 @@ export default function CashFlowForecastPage() {
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Monthly Breakdown</h2>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="table-cards w-full text-sm">
                   <thead>
                     <tr className="bg-[var(--ff-bg-secondary)]">
                       <th className="text-left px-6 py-3 font-medium text-[var(--ff-text-secondary)]">Month</th>
@@ -349,15 +349,15 @@ export default function CashFlowForecastPage() {
                     {data.forecastPoints.map((p, i) => (
                       <tr key={i} className="hover:bg-[var(--ff-bg-hover)]">
                         <td className="px-6 py-3 text-[var(--ff-text-primary)] font-medium">{p.label}</td>
-                        <td className="px-6 py-3 text-right text-teal-500">{formatCurrency(p.projectedInflow)}</td>
-                        <td className="px-6 py-3 text-right text-orange-500">{formatCurrency(p.projectedOutflow)}</td>
-                        <td className={`px-6 py-3 text-right font-medium ${p.projectedNet >= 0 ? 'text-teal-500' : 'text-red-500'}`}>
+                        <td data-label="Inflow" className="px-6 py-3 text-right text-teal-500">{formatCurrency(p.projectedInflow)}</td>
+                        <td data-label="Outflow" className="px-6 py-3 text-right text-orange-500">{formatCurrency(p.projectedOutflow)}</td>
+                        <td data-label="Net" className={`px-6 py-3 text-right font-medium ${p.projectedNet >= 0 ? 'text-teal-500' : 'text-red-500'}`}>
                           {formatCurrency(p.projectedNet)}
                         </td>
-                        <td className={`px-6 py-3 text-right font-semibold ${p.projectedBalance >= 0 ? 'text-[var(--ff-text-primary)]' : 'text-red-500'}`}>
+                        <td data-label="Balance" className={`px-6 py-3 text-right font-semibold ${p.projectedBalance >= 0 ? 'text-[var(--ff-text-primary)]' : 'text-red-500'}`}>
                           {formatCurrency(p.projectedBalance)}
                         </td>
-                        <td className="px-6 py-3 text-center">
+                        <td data-label="Confidence" className="px-6 py-3 text-center">
                           <ConfidenceBadge value={p.confidence} />
                         </td>
                       </tr>
