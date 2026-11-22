@@ -18,3 +18,6 @@ export const shownDate = (iso: string): string => {
   const [y, m, d] = iso.split('-');
   return `${d} ${MONTHS[Number(m) - 1]} ${y}`;
 };
+
+/** Type text into a MonthField and leave it, which is what commits it to the page. */
+export const typeMonth = typeDate;

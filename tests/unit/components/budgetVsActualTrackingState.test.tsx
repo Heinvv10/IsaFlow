@@ -12,6 +12,7 @@
  *   Quarter period opens on the quarter holding today (Q1 for a year that
  *   does not hold today), as Month opens on the month holding today.
  */
+import { typeMonth } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -119,8 +120,8 @@ describe('coalescing, refusal and retry (browser review r1)', () => {
     render(<BudgetVsActualPage />);
     await screen.findByRole('button', { name: /Sales/ });
     fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'month' } });
-    fireEvent.change(screen.getByTestId('bva-month'), { target: { value: '2026-07' } });
-    fireEvent.change(screen.getByTestId('bva-month'), { target: { value: '2026-08' } });
+    typeMonth(screen.getByTestId('bva-month'), '2026-07');
+    typeMonth(screen.getByTestId('bva-month'), '2026-08');
     await waitFor(() => expect(reportQueries()).toHaveLength(2));
     await new Promise((r) => setTimeout(r, 600));
     expect(reportQueries()).toEqual([{ period: 'ytd', group_by: 'cc1' }, { period: 'month', month: '2026-08', group_by: 'cc1' }]);
@@ -171,9 +172,11 @@ describe('controls the client can judge (browser review r1)', () => {
     await screen.findByRole('button', { name: /Sales/ });
     fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'custom' } });
     await waitFor(() => expect(reportQueries()).toHaveLength(2));
-    fireEvent.change(screen.getByTestId('bva-from'), { target: { value: '2026-09' } });
-    fireEvent.change(screen.getByTestId('bva-to'), { target: { value: '2026-05' } });
+    typeMonth(screen.getByTestId('bva-from'), '2026-09');
+    typeMonth(screen.getByTestId('bva-to'), '2026-05');
     expect((await screen.findByTestId('bva-range-error')).textContent).toBe('The From month is after the To month.');
+    expect(screen.getByTestId('bva-to').getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByTestId('bva-to').getAttribute('aria-describedby')).toContain('bva-range-error');
     await new Promise((r) => setTimeout(r, 600));
     expect(reportQueries().filter((q) => q.from === '2026-09')).toEqual([]);
     expect(screen.queryByRole('button', { name: /Sales/ })).toBeNull();
@@ -241,8 +244,8 @@ describe('review r2: retry, a late response under an inverted range, the chosen 
     await screen.findByRole('button', { name: /Sales/ });
     fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'custom' } });
     await waitFor(() => expect(reportQueries().some((q) => q.period === 'custom')).toBe(true));
-    fireEvent.change(screen.getByTestId('bva-from'), { target: { value: '2026-09' } });
-    fireEvent.change(screen.getByTestId('bva-to'), { target: { value: '2026-05' } });
+    typeMonth(screen.getByTestId('bva-from'), '2026-09');
+    typeMonth(screen.getByTestId('bva-to'), '2026-05');
     await screen.findByTestId('bva-range-error');
     release();
     await new Promise((r) => setTimeout(r, 100));

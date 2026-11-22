@@ -27,6 +27,14 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
 // Step 6: a share journal with live undo-share journals is refused (gl/shareUndoReversalGuard, real-ledger proof in
 // breaker6-r2.int.test.ts); none here, and the positional sql queue must not see its read.
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
+// 1018 round 13: the sorted chain locks before the claim (gl/ledgerLinkKeys); the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/ledgerLinkKeys', () => ({ lockJournalChains: vi.fn(async () => undefined) }));
+// 1018 round 15 L2: the lines' accounts re-read under the claim (gl/reversalLines, real-ledger proof in
+// ledger-freeze-round15.int.test.ts); the positional sql queue must not see that read.
+vi.mock('@/modules/accounting/services/gl/reversalLines', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/reversalLines')>()),
+  accountsUnderClaim: vi.fn(async (_c: string, _id: string, _orig: unknown[], contra: unknown[]) => contra),
+}));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),
@@ -342,6 +350,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 
@@ -355,6 +364,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 });

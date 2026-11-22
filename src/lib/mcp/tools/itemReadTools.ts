@@ -62,8 +62,10 @@ export const listItemsTool: McpTool = {
     + 'rowsTotal is the count of the WHOLE filter, not the page. Soft-deleted items never appear; inactive ones do unless is_active is given. '
     + 'This is the `items` catalogue. The older `products` table is legacy (still written by the products screens and stock adjustments) and is NOT read by these tools; use stock_valuation for stock on hand. '
     + 'Needs read:items, or read:reports for one more release (this tool used to sit on read:reports). The old active argument ("true" / "false") still works and means is_active.',
-  // Either scope (read:items, or the old read:reports for one release): checked in the handler, as find_by_external_ref does.
+  // Either scope (read:items, or the old read:reports for one release): the registry refuses a token with neither (anyOfScopes);
+  // the handler keeps its own check, so a direct call is held to the same rule.
   scope: null,
+  anyOfScopes: ['read:items', 'read:reports'],
   write: false,
   inputSchema: {
     type: 'object',

@@ -34,6 +34,7 @@ function refused(err: unknown) {
 
 export const auditSnapshotsTool: McpTool = {
   name: 'audit_snapshots',
+  admits: mayReadAudit,
   description:
     'SEALED AUDIT SNAPSHOTS OF THE BOOKS. Without snapshot_id: the company\'s snapshots, newest first — cutoff, when and '
     + 'by whom taken, trigger (manual / period_close / vat_lock / year_close), status (sealed, or failed with the reason), '
@@ -81,6 +82,7 @@ export const auditSnapshotsTool: McpTool = {
 
 export const compareAuditSnapshotTool: McpTool = {
   name: 'compare_audit_snapshot',
+  admits: mayReadAudit,
   description:
     'WHAT CHANGED IN THE BOOKS BEHIND A SNAPSHOT. Compares a sealed snapshot with today\'s books at its cutoff (or, with '
     + 'against_snapshot_id, with a later snapshot at the same or a later cutoff): journals dated on or before the cutoff '
@@ -118,6 +120,7 @@ export const compareAuditSnapshotTool: McpTool = {
 
 export const takeAuditSnapshotTool: McpTool = {
   name: 'take_audit_snapshot',
+  admits: mayTakeAudit,
   description:
     'TAKE A SEALED AUDIT SNAPSHOT NOW at an accounting-date cutoff: the RAW LEDGER trial balance (a posted year-end closing '
     + 'journal is in it, so closed years show zero revenue and expense and the profit in retained earnings; the trial_balance '

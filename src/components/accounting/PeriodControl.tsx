@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { localDateFromISO } from '@/lib/dateUtils';
 import { currentMonth, monthRange, wholeMonthOf } from './invoicePeriod';
 import { DateField } from '@/components/ui/DateField';
+import { MonthField } from '@/components/ui/MonthField';
 import { Select, type SelectOption } from '@/components/ui/Select';
 
 type Mode = 'all' | 'month' | 'custom';
@@ -15,7 +16,6 @@ interface Props {
   from: string;
   to: string;
   onChange: (from: string, to: string) => void;
-  inputClassName: string;
 }
 
 const MODES: SelectOption[] = [
@@ -32,7 +32,7 @@ function modeOf(from: string, to: string): Mode {
   return wholeMonthOf(from, to) ? 'month' : 'custom';
 }
 
-export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
+export function PeriodControl({ from, to, onChange }: Props) {
   const [mode, setMode] = useState<Mode>(() => modeOf(from, to));
 
   // Follow the URL (deep link, back/forward, clear all), but keep a custom
@@ -58,16 +58,13 @@ export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
         <Select label="Invoice date period" labelClassName="sr-only" options={MODES} value={mode} onChange={v => pickMode((v ?? 'all') as Mode)} />
       </div>
       {mode === 'month' && (
-        <input
-          type="month"
-          name="month"
-          aria-label="Invoice month"
-          value={month}
-          onChange={e => {
-            const r = monthRange(e.target.value);
+        <MonthField
+          label="Invoice month" labelHidden required name="month" value={month || null}
+          onChange={ym => {
+            const r = ym ? monthRange(ym) : null;
             if (r) onChange(r.from, r.to);
           }}
-          className={inputClassName}
+          className="w-40"
         />
       )}
       {mode === 'custom' && (
