@@ -160,20 +160,45 @@ export async function committedBillingByPoItem(companyId: string, poItemIds: str
   return out;
 }
 
-export async function readCommitments(
-  companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,
-): Promise<CommitmentRow[]> {
+/** A committed PO line as `readCommitments` reads it, plus the PO and supplier it belongs to; `glAccountId` null: the line names no account. */
+export interface CommitmentLine extends Omit<CommitmentRow, 'glAccountId'> {
+  glAccountId: string | null;
+  poId: string;
+  supplierId: string;
+}
+
+/**
+ * Which committing PO lines to read. `accounts` null reads every line, one naming no account too (`readCommitments` always names
+ * accounts: a line with none cannot meet a budget; the committed-spend report asks for the rest as well). `range` null: any order date.
+ * Every filter narrows the lines read, never how a line is netted (netting is per PO line, over its PO's bills).
+ */
+export interface CommitmentFilter {
+  accounts: readonly string[] | null;
+  range: { start: string; end: string } | null;
+  supplierId?: string | null;
+  cc2Id?: string | null;
+  poIds?: readonly string[] | null;
+}
+
+/** The committing PO lines of `filter`, each with the bills that count against it (`committedBillingByPoItem`). The one reading of committed. */
+export async function readCommitmentLines(companyId: string, filter: CommitmentFilter, opts: CommittedOptions): Promise<CommitmentLine[]> {
   const exclude = (opts.excludePoItemIds ?? []).map((id) => id.toLowerCase());
+  const accounts = filter.accounts === null ? null : [...filter.accounts];
+  const pos = filter.poIds == null ? null : [...filter.poIds];
   const all = (await sql`
     SELECT pi.id::TEXT AS po_item_id, pi.gl_account_id::TEXT AS gl_account_id, to_char(po.order_date, 'YYYY-MM') AS month,
            pi.cc1_id::TEXT AS cc1_id, pi.cc2_id::TEXT AS cc2_id, pi.bu_id::TEXT AS bu_id, pi.line_total::TEXT AS line_total,
-           po.id::TEXT AS po_id, (po.status = 'closed' AND po.closed_by_billing) AS closed_by_billing
+           po.id::TEXT AS po_id, po.supplier_id::TEXT AS supplier_id, (po.status = 'closed' AND po.closed_by_billing) AS closed_by_billing
       FROM po_items pi
       JOIN purchase_orders po ON po.id = pi.purchase_order_id
      WHERE po.company_id = ${companyId}::UUID
        AND (po.status = ANY(${[...COMMITTING_PO_STATUSES]}::TEXT[]) OR (po.status = 'closed' AND po.closed_by_billing))
-       AND pi.gl_account_id = ANY(${accounts}::UUID[])
-       AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
+       AND (${accounts}::UUID[] IS NULL OR pi.gl_account_id = ANY(${accounts}::UUID[]))
+       AND (${filter.range?.start ?? null}::DATE IS NULL OR po.order_date >= ${filter.range?.start ?? null}::DATE)
+       AND (${filter.range?.end ?? null}::DATE IS NULL OR po.order_date <= ${filter.range?.end ?? null}::DATE)
+       AND (${filter.supplierId ?? null}::UUID IS NULL OR po.supplier_id = ${filter.supplierId ?? null}::UUID)
+       AND (${filter.cc2Id ?? null}::UUID IS NULL OR pi.cc2_id = ${filter.cc2Id ?? null}::UUID)
+       AND (${pos}::UUID[] IS NULL OR po.id = ANY(${pos}::UUID[]))
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
@@ -183,9 +208,19 @@ export async function readCommitments(
   return rows.map((r) => {
     const id = String(text(r.po_item_id));
     return {
-      poItemId: id, glAccountId: String(text(r.gl_account_id)), month: String(r.month),
+      poItemId: id, glAccountId: text(r.gl_account_id), month: String(r.month),
       cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id),
       lineTotal: Number(r.line_total), billed: billed.get(id) ?? [],
+      poId: String(text(r.po_id)), supplierId: String(text(r.supplier_id)),
     };
   });
+}
+
+export async function readCommitments(
+  companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,
+): Promise<CommitmentRow[]> {
+  const lines = await readCommitmentLines(companyId, { accounts, range: { start, end } }, opts);
+  return lines.map((l) => ({
+    poItemId: l.poItemId, glAccountId: String(l.glAccountId), month: l.month, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId, lineTotal: l.lineTotal, billed: l.billed,
+  }));
 }
