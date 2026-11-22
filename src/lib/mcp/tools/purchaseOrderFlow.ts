@@ -6,6 +6,8 @@
 export const PURCHASE_ORDER_FLOW_OPERATIONS: Record<string, null> = {
   list_purchase_orders: null,
   get_purchase_order: null,
+  po_status_report: null,
+  committed_spend: null,
   bulk_create_purchase_orders: null,
   link_bills_to_purchase_order: null,
   unlink_bill_from_purchase_order: null,

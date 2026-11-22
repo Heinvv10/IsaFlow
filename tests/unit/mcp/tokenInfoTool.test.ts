@@ -17,8 +17,12 @@ vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({ 
 
 import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getCompanyUser } from '@/modules/accounting/services/practice/practiceUsersService';
-import { tokenInfoTool } from '@/lib/mcp/tools/tokenInfo';
-import type { McpToolContext } from '@/lib/mcp/types';
+import { makeTokenInfoTool } from '@/lib/mcp/tools/tokenInfo';
+import type { McpTool, McpToolContext } from '@/lib/mcp/types';
+
+// A registry of four tools: the listing is derived from their `scope`, whatever they are.
+const tool = (name: string, scope: string | null): McpTool => ({ name, description: '', inputSchema: {}, scope, write: false, handler: async () => ({ content: [] }) });
+const tokenInfoTool = makeTokenInfoTool(() => [tool('z_report', 'read:reports'), tool('a_report', 'read:reports'), tool('post_it', 'write:post'), tool('any_token', null)]);
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-11-13T10:00:00.000Z');
@@ -77,6 +81,8 @@ describe('token_info', () => {
       oauth_app_id: null,
       role: 'admin',
       scopes: ['read:reports', 'write:post'],
+      tools: { 'read:reports': ['a_report', 'z_report'], 'write:post': ['post_it'] },
+      tools_without_scope: ['any_token'],
       expires_at: '2026-12-13T10:00:00.000Z',
       expires_in_seconds: 30 * 24 * 3600,
       refresh_expires_at: null,
