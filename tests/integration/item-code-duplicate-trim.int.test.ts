@@ -31,13 +31,15 @@ beforeAll(async () => {
   await legacy('nbsp', 'FIB-0003 ');
   await legacy('crlf', '\r\nFIB-0004');
   await legacy('clean', 'FIB-0005');
+  await legacy('ideographic', 'FIB-0006\u3000');
+  await legacy('narrow', '\u202fFIB-0007');
 }, 120000);
 afterAll(async () => {
   try { await cleanupWorld(pool, w); } finally { await pool.end(); }
 }, 120000);
 
 describe('checkCodeDuplicate against legacy untrimmed codes', () => {
-  it.each(['FIB-0001', 'FIB-0002', 'FIB-0003', 'FIB-0004', 'FIB-0005'])('%s is held by an existing item', async (code) => {
+  it.each(['FIB-0001', 'FIB-0002', 'FIB-0003', 'FIB-0004', 'FIB-0005', 'FIB-0006', 'FIB-0007'])('%s is held by an existing item', async (code) => {
     expect(await checkCodeDuplicate(company, code)).toBe(true);
   });
 
