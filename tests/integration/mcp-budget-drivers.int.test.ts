@@ -230,7 +230,8 @@ describe('what a live write leaves', () => {
     expect(cells.filter((c) => c.startsWith(w.cogs))).toHaveLength(12);
     expect(cells.find((c) => c.startsWith(`${w.cogs}||||${w.months[0]}`))).toBe(`${w.cogs}||||${w.months[0]}=380.00:driver`);
     const audits = await fx.audits(v);
-    expect(audits.map((a) => a.changes.metadata?.driverAction)).toEqual(['driver_saved', 'hire_created']);
+    // (one transaction writes both rows with the same created_at, so their order is not defined: compare the set)
+    expect(audits.map((a) => a.changes.metadata?.driverAction).sort()).toEqual(['driver_saved', 'hire_created']);
     const snaps = await reads.snapshots(v);
     expect(snaps).toHaveLength(1);
     expect([snaps[0]!.tool, snaps[0]!.cells.length, snaps[0]!.created_by]).toEqual(['set_budget_drivers', 12, w.u.userId]);

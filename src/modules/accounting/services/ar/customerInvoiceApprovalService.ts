@@ -22,6 +22,7 @@ import { storedInvoiceLinesRefusal } from './invoiceLineCodingGuard';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import { ArPostingAfterWriteError } from './arErrors';
 import { assertDocumentPostable } from '../shared/documentCurrency';
+import { mirrorApprovedInvoice } from '../intercompany/outboxService';
 
 type Row = DbRow;
 
@@ -267,6 +268,10 @@ export async function approveCustomerInvoice(
   } catch (snapErr) {
     log.error('PDF snapshot failed (invoice still transitioned)', { id: invoiceId, error: snapErr });
   }
+
+  // Intercompany P2: an invoice for a customer that is a connected company's partner leaves a message in this company's own
+  // outbox (never fails the approval: it runs in its own savepoint; no second message on a retry).
+  await mirrorApprovedInvoice(companyId, invoiceId);
 
   return { id: invoiceId, status: 'approved', glJournalEntryId, evidenceDocumentId };
 }

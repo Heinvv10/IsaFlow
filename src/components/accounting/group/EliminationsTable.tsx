@@ -10,6 +10,7 @@ import {
   ELIMINATION_TYPE_LABELS,
   type EliminationAdjustment,
 } from './EliminationsShared';
+import { duplicateBadgeText } from '@/modules/accounting/services/reports/mirrorFacts';
 
 interface Props {
   items: EliminationAdjustment[];
@@ -17,6 +18,11 @@ interface Props {
   actionLoading: string | null;
   onPost: (id: string) => void;
   onReverse: (id: string) => void;
+}
+
+/** What the list says about a possible duplicate of a mirrored document: the facts' one wording (mirrorFacts.ts), never more than they show. */
+export function duplicateText(adj: EliminationAdjustment): string {
+  return adj.mirrorFacts ? duplicateBadgeText(adj.mirrorFacts, adj.status, adj.pairCutover ?? null, adj.mirrorShared ?? 1) : '';
 }
 
 export function EliminationsTable({ items, loading, actionLoading, onPost, onReverse }: Props) {
@@ -64,15 +70,24 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                 {ELIMINATION_TYPE_LABELS[adj.type] || adj.type}
               </td>
-              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs truncate">
-                {adj.description}
+              <td className="px-4 py-3 text-[var(--ff-text-secondary)] max-w-xs">
+                <div className="truncate" title={adj.description}>{adj.description}</div>
+                {adj.manualReason && <div className="mt-0.5 text-xs text-[var(--ff-text-secondary)]">Reason: {adj.manualReason}</div>}
+                {adj.mirrorFacts && (
+                  <div role="note" className="mt-1 text-xs text-[var(--ff-text-primary)] border-l-2 border-amber-500/60 pl-2">
+                    <span className="mr-1 inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold">
+                      Possible duplicate
+                    </span>
+                    {duplicateText(adj)}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">
                 {adj.period}
               </td>
               <td className="px-4 py-3">
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[adj.status]}`}>
-                  {adj.status}
+                  {adj.automatic ? 'automatic' : adj.status}
                 </span>
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
@@ -80,7 +95,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-1">
-                  {adj.status === 'draft' && (
+                  {!adj.automatic && adj.status === 'draft' && (
                     <button
                       onClick={() => onPost(adj.id)}
                       disabled={actionLoading === adj.id}
@@ -93,7 +108,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                       Post
                     </button>
                   )}
-                  {adj.status === 'posted' && (
+                  {!adj.automatic && adj.status === 'posted' && (
                     <button
                       onClick={() => onReverse(adj.id)}
                       disabled={actionLoading === adj.id}

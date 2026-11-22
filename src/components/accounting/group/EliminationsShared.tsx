@@ -3,8 +3,12 @@
  */
 
 import { formatMoney } from '@/lib/money/formatMoney';
+import { parseMirrorFacts, type MirrorFacts } from '@/modules/accounting/services/reports/mirrorFacts';
 
 export const fmt = (n: number) => formatMoney(n);
+
+/** What a mirrored row is, by its document: a credit note is carried negative (the sender's figures as it wrote them), an invoice positive. */
+export const docWord = (amount: number): 'sale' | 'credit note' => (amount < 0 ? 'credit note' : 'sale');
 
 export const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
@@ -37,6 +41,19 @@ export interface EliminationAdjustment {
   status: EliminationStatus;
   amount: number;
   lines?: EliminationLine[];
+  /** Derived from the ledgers at read time (mirrored intercompany documents): nothing to post or reverse. */
+  automatic?: boolean;
+  /** A draft or posted adjustment whose row now matches a live mirrored sale: the mirrored document(s) it may be eliminating a second time. */
+  mirroredDuplicateOf?: string;
+  /** What is true of that mirror(s) for the adjustment's period (each one's amount, whether it is eliminated automatically, whose link holds
+   *  it): the badge and the confirm are worded from these only (mirrorFacts.ts). */
+  mirrorFacts?: MirrorFacts;
+  /** How many listed adjustments point at the same mirror (more than one: at most one of them can be its duplicate). */
+  mirrorShared?: number;
+  /** On or after its pair's mirroring cutover: the cutover date (the row was drafted because no standing mirror was left to it). */
+  pairCutover?: string;
+  /** Why it was made by hand (required on or after a mirroring cutover). */
+  manualReason?: string;
 }
 
 export const ELIMINATION_TYPE_LABELS: Record<EliminationType, string> = {
@@ -76,5 +93,11 @@ export function toEliminationRow(raw: unknown): EliminationAdjustment {
     period: start && end && start !== end ? `${start} – ${end}` : start || end,
     status: text(r.status) as EliminationStatus,
     amount: Math.round(amount * 100) / 100,
+    automatic: r.automatic === true,
+    mirroredDuplicateOf: typeof r.mirroredDuplicateOf === 'string' && r.mirroredDuplicateOf ? r.mirroredDuplicateOf : undefined,
+    mirrorFacts: parseMirrorFacts(r.mirrorFacts) ?? undefined,
+    mirrorShared: typeof r.mirrorShared === 'number' ? r.mirrorShared : undefined,
+    pairCutover: typeof r.pairCutover === 'string' && r.pairCutover ? r.pairCutover : undefined,
+    manualReason: typeof r.manualReason === 'string' && r.manualReason ? r.manualReason : undefined,
   };
 }
