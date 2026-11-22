@@ -1,6 +1,6 @@
 /**
  * Product decision (Dev Team orchestrator for Hein, 22 Nov 2026): a form that chooses a posting date refuses a date in a
- * closed, locked or closing fiscal period up front. The four forms that only save a DRAFT (customer invoice, customer
+ * closed, locked or closing fiscal period up front. The four forms that save a DRAFT (customer invoice, customer
  * credit note, supplier invoice, supplier credit note) are `postingDate="draft"`: they warn instead, because the server
  * refuses to post into such a period (proven in tests/integration/closed-period-post-refusal.int.test.ts, #1757).
  * A linter in test clothes: it pins the decision, the behaviour is tested in DateFieldFiscal.test.tsx.

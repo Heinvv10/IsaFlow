@@ -71,6 +71,13 @@ describe('supplier-credit-notes POST submitAction:post into a period that is not
     expect(createCreditNote).toHaveBeenCalledTimes(1);
     expect(approveCreditNote).not.toHaveBeenCalled();
   });
+  it.each(['abc', '2026-13-45', '2026-02-30'])('a malformed creditDate %s skips the lookup and is still the 400 it was', async (creditDate) => {
+    const res = await post({ ...BODY, creditDate, submitAction: 'post' });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/creditDate must be a date/);
+    expect(getPeriodStatusForDate).not.toHaveBeenCalled();
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
   it.each(['open', 'no_period'] as const)('%s: creates and posts (no_period gets its year created on posting)', async (st) => {
     vi.mocked(getPeriodStatusForDate).mockResolvedValue(st);
     const res = await post({ ...BODY, submitAction: 'post' });

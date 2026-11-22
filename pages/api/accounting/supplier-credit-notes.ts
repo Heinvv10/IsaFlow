@@ -47,6 +47,13 @@ import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { approveRefusedMessage, assertMayApprove, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
+/** A real calendar date written YYYY-MM-DD; anything else is left to the date validation below, not the period lookup's cast. */
+function isRealIsoDate(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = req.user.id;
@@ -108,7 +115,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Create-and-post into a period that is not open is refused here, before the draft is written: a 4xx after the
       // draft would be committed (withAuth) and leave it behind, a 5xx would roll back but hide the reason. A date no
       // period covers passes: posting creates its fiscal year.
-      if (submitAction === 'post' && (await getPeriodStatusForDate(companyId, creditDate)) === 'closed') {
+      if (submitAction === 'post' && isRealIsoDate(creditDate) && (await getPeriodStatusForDate(companyId, creditDate)) === 'closed') {
         return apiResponse.badRequest(res, 'The credit date is in a closed fiscal period, so the credit note cannot be posted and nothing was saved. Choose a date in an open period, or save it as a draft.');
       }
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
