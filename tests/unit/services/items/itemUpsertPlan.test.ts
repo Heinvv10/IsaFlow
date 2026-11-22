@@ -22,9 +22,10 @@ const stored = (over: Partial<ExistingItem> & Pick<ExistingItem, 'id' | 'code'>)
 function ctxOf(items: ExistingItem[], movements: string[] = []): UpsertContext {
   const byId = new Map(items.map((i) => [i.id, i]));
   const byCode = new Map(items.map((i) => [i.code, i]));
+  const paddedByCode = new Map(items.filter((i) => i.code.trim() !== i.code).map((i) => [i.code.trim(), i]));
   const byRef = new Map(items.filter((i) => i.externalSystem && i.externalRef).map((i) => [refKey(i.externalSystem!, i.externalRef!), i]));
   return {
-    byId, byCode, byRef,
+    byId, byCode, paddedByCode, byRef,
     categories: [
       { id: CAT_OPTICS, code: 'optics', name: 'Optics', isActive: true },
       { id: CAT_OLD, code: 'old', name: 'Old', isActive: false },
@@ -222,5 +223,32 @@ describe('planItemRows: a change of the (system, ref) identity is checked for un
     const ctx = ctxOf([a]);
     expect(planItemRows([row(0, { external_system: 'pastel', external_ref: 'R9' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'updated', changed: ['external_system', 'external_ref'] });
     expect(planItemRows([row(0, { external_system: 'sage', external_ref: 'R1' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'unchanged' });
+  });
+});
+
+describe('planItemRows — a code held by an item stored with surrounding whitespace', () => {
+  const legacy = stored({ id: 'L', code: 'FIB-0001 ' });
+
+  it('refuses the trimmed code as a create, naming the whitespace', () => {
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001', description: 'New' })], ctxOf([legacy]));
+    expect(planned).toEqual([]);
+    expect(refusals).toEqual([{ index: 0, code: 'code_held_with_whitespace', reason: expect.stringMatching(/surrounding whitespace/) }]);
+  });
+
+  it('refuses it for an update_item that names another item by id', () => {
+    const other = stored({ id: 'O', code: 'OTHER' });
+    const { refusals } = planItemRows([row(0, { code: 'FIB-0001' }, 'O')], ctxOf([legacy, other]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+  });
+
+  it('lets the legacy item itself take its trimmed code (update by id)', () => {
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001' }, 'L')], ctxOf([legacy]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'updated', itemId: 'L', values: { code: 'FIB-0001' } });
+  });
+
+  it('leaves an unrelated code alone', () => {
+    const { refusals } = planItemRows([row(0, { code: 'FIB-0002', description: 'New' })], ctxOf([legacy]));
+    expect(refusals).toEqual([]);
   });
 });

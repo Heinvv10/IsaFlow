@@ -29,6 +29,7 @@ export function upsertCtx(items: ExistingItem[] = [], movements: string[] = []):
   return {
     byId: new Map(items.map((i) => [i.id, i])),
     byCode: new Map(items.map((i) => [i.code, i])),
+    paddedByCode: new Map(items.filter((i) => i.code.trim() !== i.code).map((i) => [i.code.trim(), i])),
     byRef: new Map(items.filter((i) => i.externalSystem && i.externalRef).map((i) => [refKey(i.externalSystem!, i.externalRef!), i])),
     categories: [{ id: CAT, code: 'optics', name: 'Optics', isActive: true }],
     accounts: new Map([[ACC, true]]),

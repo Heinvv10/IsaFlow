@@ -178,6 +178,12 @@ export function planItemRows(rows: PlanInputRow[], ctx: UpsertContext): ItemPlan
       }
       match = refHit ?? codeHit;
     }
+    // The unique index compares codes exactly, so a legacy 'FIB-0001 ' does not stop a second 'FIB-0001'; the UI's dupe check does.
+    const padded = f.code ? ctx.paddedByCode.get(f.code) : undefined;
+    if (padded && padded.id !== match?.id) {
+      refuse('code_held_with_whitespace', `code ${f.code} is held by another item stored with surrounding whitespace ('${padded.code}'); fix that item's code first`);
+      continue;
+    }
     if (match?.deleted) { refuse('item_deleted', 'the matching item has been deleted'); continue; }
     // ANY change to the item's (system, ref) identity needs the uniqueness check, in the dry run as in the live call: the
     // identity the item would hold after this row must not belong to another item.
