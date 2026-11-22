@@ -20,7 +20,7 @@ const VARIANTS: Variant[] = ['plain', 'creditNote', 'byTotal', 'late', 'otherRol
 
 function factsFor(kind: 'single' | 'sum', standing: Standing, link: MirrorLinkState, v: Variant): MirrorFacts | null {
   if (v === 'otherRole' && link !== 'none') return null;          // (the other role's link is said only where no link of this role holds it)
-  const extra = (m: MirrorFact): MirrorFact => ({ ...m, byTotal: m.byTotal ?? false, elimDate: v === 'late' ? '2026-04-03' : '2026-03-10', otherRole: v === 'otherRole' ? 'purchase' : null });
+  const extra = (m: MirrorFact): MirrorFact => ({ ...m, byTotal: m.byTotal ?? false, elimDate: v === 'late' ? '2026-04-03' : '2026-03-10', otherRole: v === 'otherRole' ? 'purchase' : null, byPerson: false });
   if (kind === 'single') {
     if (standing === 'partly' || v === 'creditNote' || v === 'byTotal') return null;   // (one mirror stands or not; the sum-only variants)
     return { label: 'INV-1 (mirrored)', sum: false, periodEnd: END, mirrors: [extra({ ref: 'INV-1 (mirrored)', amount: 1000, stands: standing === 'stands', link })] };
@@ -131,6 +131,27 @@ describe('the link\'s own answers after the cutover', () => {
     expect(parseMirrorFacts(null)).toBeNull();
     expect(parseMirrorFacts({ label: 'x', periodEnd: END, mirrors: [] })).toBeNull();
     expect(parseMirrorFacts({ label: 'x', periodEnd: END, mirrors: [{ ref: 'a', amount: 'NaN' }] })).toBeNull();
+  });
+});
+
+describe('R24 M-2: a mirror a person\'s posted elimination covers is "eliminated by a person\'s adjustment", and counts as eliminated', () => {
+  const one = (byPerson: boolean): MirrorFacts => ({ label: 'INV-1', sum: false, periodEnd: END,
+    mirrors: [{ ref: 'INV-1', amount: 1000, stands: byPerson, link: 'none', byTotal: false, elimDate: '2026-03-10', otherRole: null, byPerson }] });
+  it('says so (never "NOT eliminated"), warns that posting would eliminate it twice, and survives the API', () => {
+    const f = one(true);
+    expect(mirrorFactsSentence(f)).toBe("Possibly the same sale as mirrored document INV-1, which is eliminated by a person's adjustment. If it is the same sale, posting this would eliminate it twice.");
+    expect(mirrorFactsSentence(f)).not.toMatch(/NOT eliminated|automatically/);
+    expect(duplicateBadgeText(f, 'posted')).toMatch(/is eliminated twice/);
+    expect(parseMirrorFacts(JSON.parse(JSON.stringify(f)))).toEqual(f);
+    expect(mirrorFactsSentence(one(false))).toMatch(/NOT eliminated automatically/);   // (without it the wording is as before)
+  });
+  it('in a month sum, the member a person eliminated is named so, the others as before', () => {
+    const f: MirrorFacts = { label: '2 mirrored documents of March 2026', sum: true, periodEnd: END, mirrors: [
+      { ref: 'A', amount: 600, stands: true, link: 'none', byPerson: true, elimDate: '2026-03-10' }, { ref: 'B', amount: 400, stands: false, link: 'none', elimDate: '2026-03-10' }] };
+    const text = mirrorFactsSentence(f);
+    expect(text).toContain(`A (${R(600)}: eliminated by a person's adjustment)`);
+    expect(text).toContain(`B (${R(400)}: NOT eliminated automatically`);
+    expect(text).toContain(`${R(600)} of ${R(1000)} is eliminated by mirroring or a person's adjustment`);   // (not "automatically": part of it is a person's)
   });
 });
 

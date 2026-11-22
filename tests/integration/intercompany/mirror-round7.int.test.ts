@@ -140,7 +140,7 @@ describe('R2: the migration never changes existing consolidation data; without i
       await pool.query(block());
       expect(await indexExists()).toBe(true);
     } finally {
-      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id, (manual_reason IS NOT NULL))
                         WHERE status IN ('draft', 'posted')`);
     }
   });
@@ -164,7 +164,7 @@ describe('R2: the migration never changes existing consolidation data; without i
       expect(await L.adjustments()).toHaveLength(1);
     } finally {
       await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]);
-      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id, (manual_reason IS NOT NULL))
                         WHERE status IN ('draft', 'posted')`);
     }
   });

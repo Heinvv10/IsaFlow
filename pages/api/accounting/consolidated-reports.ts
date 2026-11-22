@@ -13,7 +13,7 @@ import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/serv
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
 import {
-  EliminationAlreadyStandsError, EliminationNotUnresolvedError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError,
+  EliminationAlreadyStandsError, EliminationCoveredError, EliminationNotUnresolvedError, EliminationPossibleDuplicateError, EliminationSourceError, EliminationStateError,
   EliminationUnbalancedError,
 } from '@/modules/accounting/services/reports/eliminationErrors';
 import { assertMirroredRowResolvable } from '@/modules/accounting/services/reports/eliminationResolve';
@@ -79,6 +79,7 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
     if (err instanceof EliminationSourceError) return apiResponse.badRequest(res, err.message, { reason: 'bad_source_row' });
     if (err instanceof EliminationAlreadyStandsError) return apiResponse.conflict(res, err.message, { reason: 'already_stands' });
     if (err instanceof EliminationNotUnresolvedError) return apiResponse.conflict(res, err.message, { reason: 'not_unresolved' });
+    if (err instanceof EliminationCoveredError) return apiResponse.conflict(res, err.message, { reason: 'covered_by_manual' });
     if (err instanceof EliminationPossibleDuplicateError) {
       return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorFacts: err.facts, pairCutover: err.pairCutover });
     }
@@ -208,9 +209,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    if (action === 'discard-elimination') {   // (the undo of a create: a draft only, never posted; no approval is asked, as none is for creating it)
+    if (action === 'discard-elimination') {   // (the undo of a create: a draft only, never posted; no approval is asked, as none is for creating it; the row records who)
       return answerRefusals(res, async () => {
-        await discardEliminationAdjustment(body.adjustmentId as string, gId);
+        await discardEliminationAdjustment(body.adjustmentId as string, gId, userId);
         return apiResponse.success(res, { discarded: true });
       });
     }

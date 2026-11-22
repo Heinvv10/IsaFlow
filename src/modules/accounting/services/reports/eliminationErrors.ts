@@ -31,8 +31,9 @@ export class EliminationStateError extends Error {
  * consolidation_adjustments(source_intercompany_id) refused a second. The generator treats it as a skip.
  */
 export class EliminationAlreadyStandsError extends Error {
-  constructor(readonly sourceIntercompanyId: string) {
-    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands: discard it (a draft) or reverse it (a posted one) before making another.`);
+  /** `by`: what stands, e.g. "a posted elimination by a person for 2026-03-01 to 2026-03-31" (said in the message when known). */
+  constructor(readonly sourceIntercompanyId: string, by = '') {
+    super(`An elimination for intercompany row ${sourceIntercompanyId} already stands${by ? ` (${by})` : ''}: discard it (a draft) or reverse it (a posted one) before making another.`);
     this.name = 'EliminationAlreadyStandsError';
   }
 }
@@ -53,6 +54,17 @@ export class EliminationNotUnresolvedError extends Error {
   constructor(readonly sourceIntercompanyId: string, readonly period: string) {
     super(`Intercompany row ${sourceIntercompanyId} has nothing to eliminate by hand for ${period}: the mirror now eliminates it, it waits in the receiver's inbox, or another elimination already counts for it.`);
     this.name = 'EliminationNotUnresolvedError';
+  }
+}
+
+/**
+ * A mirrored row's elimination is refused because a POSTED elimination of a manual row may be the same sale (409): eliminating both counts it twice.
+ * Reverse that one first if it is the same sale. There is no confirm: the match is the wide duplicate flag, and this refusal names what to reverse.
+ */
+export class EliminationCoveredError extends Error {
+  constructor(readonly sourceIntercompanyId: string, readonly manualRowDescription: string, readonly period: string) {
+    super(`Intercompany row ${sourceIntercompanyId} may be the same sale as the manual row "${manualRowDescription}", whose posted elimination for ${period} already counts: eliminating this row too would eliminate the sale twice. Reverse that elimination first if it is the same sale.`);
+    this.name = 'EliminationCoveredError';
   }
 }
 

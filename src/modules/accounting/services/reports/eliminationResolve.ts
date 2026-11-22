@@ -9,7 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
-import { EliminationAlreadyStandsError, EliminationNotUnresolvedError, EliminationSourceError } from './eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationCoveredError, EliminationNotUnresolvedError, EliminationSourceError } from './eliminationErrors';
 import { lockGroupEliminations } from './eliminationLock';
 
 export async function assertMirroredRowResolvable(groupId: string, rowId: string, periodStart: string, periodEnd: string): Promise<void> {
@@ -26,12 +26,19 @@ export async function assertMirroredRowResolvable(groupId: string, rowId: string
   if (td < periodStart || td > periodEnd) throw new EliminationSourceError(rowId, `it is dated ${td}, outside the elimination's period ${periodStart} to ${periodEnd}`);
   await lockGroupEliminations(groupId, 'assertMirroredRowResolvable');
   const stands = (await sql`
-    SELECT 1 FROM consolidation_adjustments ca WHERE ca.source_intercompany_id = ${rowId}::UUID AND ca.group_id = ${groupId}::UUID
-       AND ca.status IN ('draft', 'posted') AND ca.manual_reason IS NOT NULL LIMIT 1
+    SELECT ca.status, ca.period_start::TEXT AS ps, ca.period_end::TEXT AS pe FROM consolidation_adjustments ca WHERE ca.source_intercompany_id = ${rowId}::UUID
+       AND ca.group_id = ${groupId}::UUID AND ca.status IN ('draft', 'posted') AND ca.manual_reason IS NOT NULL LIMIT 1
   `) as DbRow[];
-  if (stands.length > 0) throw new EliminationAlreadyStandsError(rowId);
+  if (stands[0]) throw new EliminationAlreadyStandsError(rowId, `a ${String(stands[0].status)} elimination by a person for ${String(stands[0].ps)} to ${String(stands[0].pe)}`);
+  await refuseIfCoveredByManual(rowId);
   const listed = (await sql`
     SELECT 1 FROM public.intercompany_mirror_unresolved(${groupId}::UUID, ${periodStart}::DATE, ${periodEnd}::DATE) u WHERE u.transaction_id = ${rowId}::UUID
   `) as DbRow[];
   if (listed.length === 0) throw new EliminationNotUnresolvedError(rowId, `${periodStart} to ${periodEnd}`);
+}
+
+/** Refuses (EliminationCoveredError) a mirrored row that a POSTED elimination of a manual row may also eliminate (intercompany_manual_cover). */
+export async function refuseIfCoveredByManual(rowId: string): Promise<void> {
+  const cover = (await sql`SELECT description, period_start::TEXT AS ps, period_end::TEXT AS pe FROM public.intercompany_manual_cover(${rowId}::UUID)`) as DbRow[];
+  if (cover[0]) throw new EliminationCoveredError(rowId, String(cover[0].description ?? '(no description)'), `${String(cover[0].ps)} to ${String(cover[0].pe)}`);
 }

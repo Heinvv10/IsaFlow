@@ -225,17 +225,20 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
   }
 }
 
-/** A draft is never deleted (the app has no DELETE on it): it is marked discarded, and counts, lists and blocks nothing. */
-export async function discardEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
+/**
+ * A draft is never deleted (the app has no DELETE on it): it is marked discarded (by whom, and when, on the row), and counts, lists and blocks nothing.
+ * Any draft may be discarded, the generator's too: it has no ledger effect, and it is the only way to withdraw a wrong one (post and reverse need approval).
+ */
+export async function discardEliminationAdjustment(adjustmentId: string, groupId: string, actorId: string): Promise<void> {
   try {
     const result = (await sql`
-      UPDATE consolidation_adjustments SET status='discarded', updated_at=NOW()
+      UPDATE consolidation_adjustments SET status='discarded', updated_at=NOW(), discarded_by=${actorId}::UUID, discarded_at=NOW()
       WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
     `) as DbRow[];
     if (result.length === 0) throw new EliminationStateError(adjustmentId, 'draft');
-    log.info('Discarded elimination adjustment', { adjustmentId, groupId }, 'accounting');
+    log.info('Discarded elimination adjustment', { adjustmentId, groupId, actorId }, 'accounting');
   } catch (err) {
-    log.error('Failed to discard elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
+    log.error('Failed to discard elimination adjustment', { adjustmentId, groupId, actorId, error: err }, 'accounting');
     throw err;
   }
 }

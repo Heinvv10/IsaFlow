@@ -3,7 +3,7 @@
  * expense when the receiver cancelled / rejected), and the form it opens is dated on the row, always needs a reason and sends the row's id.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -42,8 +42,8 @@ describe('MirroredDroppedNotice: advice by reason, and the button', () => {
   it('a CREDIT NOTE (carried negative) is worded as one, never as a sale', () => {
     render(<MirroredDroppedNotice rows={[{ ...row('rejected'), amount: -400 }, row('failed')]} onEliminate={() => undefined} />);
     const text = screen.getByRole('alert').textContent ?? '';
-    expect(text).toMatch(/The receiver booked no expense for this credit note: .* the sender can cancel the credit note\./);
-    expect(text).toMatch(/The receiver booked no expense for this sale: .* the sender can cancel the sale\./);
+    expect(text).toMatch(/The receiver booked no expense for this credit note: .* the sender can cancel the credit note \(an elimination you made of it by hand must then be reversed[^)]*\)\./);
+    expect(text).toMatch(/The receiver booked no expense for this sale: .* the sender can cancel the sale \(an elimination you made of it by hand must then be reversed[^)]*\)\./);
     expect(text).toMatch(/2 mirrored documents have no elimination/);
   });
 
@@ -121,6 +121,13 @@ describe('the Eliminations page: a draft can be discarded', () => {
     const discard = await screen.findAllByRole('button', { name: /Discard/ });
     expect(discard).toHaveLength(1);
     fireEvent.click(discard[0]!);
+    const dialog = await screen.findByRole('dialog');                                   // (it asks first: nothing is sent yet)
+    expect(dialog.textContent).toMatch(/recorded against your name and cannot be undone/);
+    expect(posts).toEqual([]);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(posts).toEqual([]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Discard/ })[0]!);
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Discard' }));
     await waitFor(() => expect(posts).toEqual([{ action: 'discard-elimination', adjustmentId: 'draft-1' }]));
   });
 });

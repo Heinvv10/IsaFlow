@@ -4,7 +4,8 @@
  *  - 'unmapped': an account of the mirrored documents has no group account mapped, so the event was left out whole (map the accounts);
  *  - 'unresolved': the row has NO elimination from any path (the receiver's journal does not carry the sender's figures, the receiver
  *    cancelled its document, or rejected / dismissed / failed to accept it): only a manual elimination with a reason can eliminate the document
- *    (the row's "Eliminate this row" opens it carrying the row, so it unlists once posted).
+ *    (the row's "Eliminate this row" opens it carrying the row, so it unlists once posted);
+ *  - 'stale' (a kind of unresolved, shown apart): a person's posted elimination still counts for a sale the sender has since cancelled; reverse it.
  */
 import { AlertCircle } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -37,23 +38,31 @@ const Block = ({ title, help, children }: { title: string; help: string; childre
 );
 
 /** What to do about an unresolved row, by why it is one and what the document is: with no receiver expense (cancelled, rejected, dismissed, failed) the sender's revenue stands alone. */
+const CANCEL_NOTE = ' (an elimination you made of it by hand must then be reversed: it is listed here once the sale is cancelled)';
 const ADVICE: Record<string, (doc: string) => string> = {
-  cancelled: (d) => `The receiver cancelled its document, so it carries no expense for this ${d}: have it book the document again, or have the sender cancel ${d === 'sale' ? 'or credit ' : ''}the ${d}.`,
-  rejected: (d) => `The receiver booked no expense for this ${d}: it returns to the sender's outbox to be corrected, or the sender can cancel the ${d}.`,
-  dismissed: (d) => `The receiver booked no expense for this ${d}: it can restore the message and accept it, or the sender can cancel the ${d}.`,
-  failed: (d) => `The receiver booked no expense for this ${d}: it can accept the message itself, or the sender can cancel the ${d}.`,
+  cancelled: (d) => `The receiver cancelled its document, so it carries no expense for this ${d}: have it book the document again, or have the sender cancel ${d === 'sale' ? 'or credit ' : ''}the ${d}${CANCEL_NOTE}.`,
+  rejected: (d) => `The receiver booked no expense for this ${d}: it returns to the sender's outbox to be corrected, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
+  dismissed: (d) => `The receiver booked no expense for this ${d}: it can restore the message and accept it, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
+  failed: (d) => `The receiver booked no expense for this ${d}: it can accept the message itself, or the sender can cancel the ${d}${CANCEL_NOTE}.`,
   drafted: () => 'A manual elimination of it is drafted: post it below.',
 };
 
 export function MirroredDroppedNotice({ rows, onEliminate }: { rows: DroppedMirrored[]; onEliminate?: (row: DroppedMirrored) => void }) {
   const unmapped = rows.filter((r) => r.kind !== 'unresolved');
-  const unresolved = rows.filter((r) => r.kind === 'unresolved');
+  const unresolved = rows.filter((r) => r.kind === 'unresolved' && r.code !== 'stale');
+  const stale = rows.filter((r) => r.kind === 'unresolved' && r.code === 'stale');
   return (
     <>
       {unmapped.length > 0 && (
         <Block title={`${unmapped.length} mirrored ${unmapped.length === 1 ? 'elimination' : 'eliminations'} not applied: an account has no group account mapped`}
           help="The group figures still include that intercompany revenue and expense. Map the accounts of these documents to group accounts.">
           {unmapped.map((r) => <li key={`${r.transactionId}:${r.keyDate}`}>{r.keyDate}: {r.description} ({formatMoney(r.amount)})</li>)}
+        </Block>
+      )}
+      {stale.length > 0 && (
+        <Block title={`${stale.length} manual ${stale.length === 1 ? 'elimination covers' : 'eliminations cover'} a sale the sender cancelled`}
+          help="Each still counts in the group figures, but the sale it eliminates is no longer in the sender's books: reverse the elimination below (it counts until you do).">
+          {stale.map((r) => <li key={`${r.transactionId}:${r.keyDate}`}>{r.keyDate}: {r.description} ({formatMoney(r.amount)}): {r.detail}</li>)}
         </Block>
       )}
       {unresolved.length > 0 && (

@@ -28,7 +28,7 @@ const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
-import { EliminationAlreadyStandsError, EliminationNotUnresolvedError, EliminationSourceError, EliminationStateError } from '@/modules/accounting/services/reports/eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationCoveredError, EliminationNotUnresolvedError, EliminationSourceError, EliminationStateError } from '@/modules/accounting/services/reports/eliminationErrors';
 
 const GROUP = '80000000-0000-4000-8000-000000000001';
 const ACCT = '81000000-0000-4000-8000-000000000001';
@@ -123,10 +123,22 @@ describe('post-elimination / discard-elimination', () => {
     expect(message(res)).toContain('not_unresolved');
   });
 
+  it('a mirrored row a posted manual elimination covers is refused at creation and at post → 409 covered_by_manual', async () => {
+    resolve.assertMirroredRowResolvable.mockRejectedValueOnce(new EliminationCoveredError(ROW, 'Manual sale', '2026-12-30 to 2026-12-30'));
+    const made = await call({ ...BODY, sourceIntercompanyId: ROW, manualReason: 'because' });
+    expect(made.status).toHaveBeenCalledWith(409);
+    expect(message(made)).toContain('covered_by_manual');
+    expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+    svc.postEliminationAdjustment.mockRejectedValueOnce(new EliminationCoveredError(ROW, 'Manual sale', '2026-12-30 to 2026-12-30'));
+    const posted = await call({ action: 'post-elimination', adjustmentId: ADJ });
+    expect(posted.status).toHaveBeenCalledWith(409);
+    expect(message(posted)).toContain('covered_by_manual');
+  });
+
   it('discard-elimination discards the draft of THIS group and answers discarded', async () => {
     const res = await call({ action: 'discard-elimination', adjustmentId: ADJ });
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(svc.discardEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP);
+    expect(svc.discardEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP, 'u1');   // (the actor is the signed-in user, recorded on the row)
     expect(message(res)).toContain('discarded');
   });
 

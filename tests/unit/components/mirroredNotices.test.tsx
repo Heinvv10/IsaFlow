@@ -31,6 +31,25 @@ describe('MirroredDroppedNotice', () => {
     expect(alerts[1]).toMatch(/1 mirrored document has no elimination/);
   });
 
+  it('stale: a person\'s elimination of a sale the sender cancelled is its own alert, says to reverse it, and offers no "Eliminate this row"', () => {
+    const stale = { transactionId: 't3', keyDate: '2026-03-05', description: 'March sale', amount: 1000, kind: 'unresolved' as const, code: 'stale',
+      detail: "a person's posted elimination of this sale still counts, but the sender has cancelled the sale: reverse that elimination" };
+    render(<MirroredDroppedNotice rows={[stale, { ...unresolved, code: 'rejected', detail: 'the receiver rejected it' }]} onEliminate={() => undefined} />);
+    const alerts = screen.getAllByRole('alert').map((x) => x.textContent ?? '');
+    expect(alerts).toHaveLength(2);
+    expect(alerts[0]).toMatch(/1 manual elimination covers a sale the sender cancelled/);
+    expect(alerts[0]).toMatch(/reverse that elimination/);
+    expect(alerts[0]).not.toMatch(/Eliminate this row/);
+    expect(alerts[1]).toMatch(/1 mirrored document has no elimination/);
+    expect(alerts[1]).not.toMatch(/March sale/);
+    expect(alerts[1]).toMatch(/Eliminate this row/);
+  });
+
+  it('the advice to have the sender cancel says an elimination made by hand must then be reversed', () => {
+    render(<MirroredDroppedNotice rows={[{ ...unresolved, code: 'rejected', detail: 'the receiver rejected it' }]} />);
+    expect(screen.getByRole('alert').textContent).toMatch(/or the sender can cancel the sale \(an elimination you made of it by hand must then be reversed/);
+  });
+
   it('nothing is shown for no rows; a body without a kind parses as the unmapped kind (older payloads)', () => {
     const { container } = render(<MirroredDroppedNotice rows={[]} />);
     expect(container.textContent).toBe('');
