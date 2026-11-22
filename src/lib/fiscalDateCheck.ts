@@ -1,6 +1,6 @@
 /**
  * What a POSTING date may be, judged in the browser before save (date rework 4/4): a date inside a closed or locked
- * fiscal period is refused (the server refuses it too: ClosedFiscalPeriodError); a date outside the current financial
+ * fiscal period is refused (the server refuses it too when the document is POSTED: ClosedFiscalPeriodError; a form that only saves a draft must not use this); a date outside the current financial
  * year only warns. Pure ISO-string logic; the periods come from GET /api/accounting/fiscal-periods (useFiscalCalendar).
  * A date no period covers is NOT blocked: the server creates the period on posting. A `closing` period is not blocked
  * (it is a transient state). Nothing is judged until the periods have loaded (`periods === null`).

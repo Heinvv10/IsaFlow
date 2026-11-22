@@ -79,6 +79,30 @@ describe('DateField postingDate: closed periods', () => {
   });
 });
 
+describe('DateField postingDate: values that were already there', () => {
+  it('a pre-filled date in a closed period shows its error without any blur, and a date is accepted before the periods load', async () => {
+    render(<Harness postingDate initial="2026-03-15" />);
+    expect(screen.queryByRole('alert')).toBeNull(); // periods not loaded yet: fail open
+    await loaded();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Mar 2026.*closed/));
+  });
+  it('a pending request never blocks typing', () => {
+    vi.mocked(apiFetch).mockImplementation(() => new Promise(() => undefined));
+    render(<Harness postingDate />);
+    type('15 Mar 2026');
+    expect(out()).toBe('2026-03-15');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('a blocked day in the popup says why in its accessible name', async () => {
+    render(<Harness postingDate initial="2026-05-10" />);
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: /choose date/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    const cell = screen.getByRole('grid').querySelector<HTMLElement>('[data-iso="2026-04-15"]')!;
+    expect(cell.getAttribute('aria-label')).toMatch(/unavailable: .*Apr 2026.*locked/);
+  });
+});
+
 describe('DateField postingDate: outside the financial year', () => {
   it('warns (amber, not an error) and still accepts the date', async () => {
     const spy = vi.fn(); render(<Harness postingDate spy={spy} />);
@@ -110,6 +134,15 @@ describe('DateField y / r shortcuts (financial year)', () => {
     type('y'); // 1 Mar 2026 is in the closed March
     expect(screen.getByRole('alert').textContent).toMatch(/Mar 2026.*closed/);
     type('r'); expect(out()).toBe('2027-02-28');
+  });
+  it('they follow the periods when those differ from the start month (short year)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([
+      P(1, '2026-07-01', '2026-07-31', 'open', 'Jul 2026'), P(5, '2026-11-01', '2026-11-30', 'open', 'Nov 2026'), P(6, '2026-12-01', '2026-12-31', 'open', 'Dec 2026'),
+    ]));
+    render(<Harness postingDate />);
+    await loaded();
+    type('y'); expect(out()).toBe('2026-07-01');
+    type('r'); expect(out()).toBe('2026-12-31');
   });
   it('the popup hint lists them', () => {
     render(<Harness />);

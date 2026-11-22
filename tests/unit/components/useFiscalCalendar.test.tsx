@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn() }));
-const company = vi.hoisted(() => ({ id: 'c1' as string | null, fy: 3 }));
+const company = vi.hoisted(() => ({ id: 'c1' as string | null, fy: 3 as unknown }));
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: company.id ? { id: company.id, financialYearStart: company.fy } : null }),
 }));
@@ -22,7 +22,7 @@ function Probe({ iso }: { iso: string }) {
 }
 const out = () => screen.getByTestId('o').textContent;
 
-beforeEach(() => { resetFiscalCalendarCache(); company.id = 'c1'; vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(periods)); });
+beforeEach(() => { resetFiscalCalendarCache(); company.id = 'c1'; company.fy = 3; vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(periods)); });
 afterEach(cleanup);
 
 describe('useFiscalCalendar', () => {
@@ -70,5 +70,11 @@ describe('useFiscalCalendar', () => {
     render(<Probe iso="2026-03-15" />);
     expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
     expect(out()).toBe('false|null|null');
+  });
+  it.each([13, 0, -1, 3.5, '3'])('a stored financial-year start of %s does not throw; the default month (March) is used', (bad) => {
+    company.fy = bad;
+    function FY() { const f = useFiscalCalendar(false).fiscalYear('2026-11-22'); return <output data-testid="o">{`${f.start}|${f.end}`}</output>; }
+    render(<FY />);
+    expect(out()).toBe('2026-03-01|2027-02-28');
   });
 });

@@ -115,11 +115,12 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   };
 
   const field = useParsedField<string, DateFieldCode>({ value, format: show, parse, onChange, resetKey });
-  const error = externalError ?? field.error;
   const fyOfText = fiscalYearShortcut(field.text, cal.fiscalYear(todayIso()));
   const understood = field.text.trim() === '' ? null : fyOfText ? { ok: true as const, iso: fyOfText } : parseSaDate(field.text, now(), anchorDate);
   const heldCheck = postingDate && understood?.ok ? cal.check(understood.iso, todayIso()) : null;
   const warning = heldCheck?.level === 'warn' ? heldCheck.message : null;
+  // A value that arrived pre-filled (a draft, a copy, today's default) is judged too, not only on blur.
+  const error = externalError ?? field.error ?? (heldCheck?.level === 'block' ? heldCheck.message : null);
   const echo = understood?.ok ? formatDisplayDateWeekday(localDateFromISO(understood.iso), '') || null : null;
   const frame = { error, helperText, echo, help, warning };
 

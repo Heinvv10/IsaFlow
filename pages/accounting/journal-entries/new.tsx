@@ -151,7 +151,7 @@ export default function NewJournalEntryPage() {
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <DateField label="Entry Date" required postingDate name="entryDate" value={entryDate || null}
+                      <DateField label="Entry Date" required name="entryDate" value={entryDate || null}
                         onChange={dates.bind('entryDate', setEntryDate, entryDate)} />
                     </div>
                     <div>

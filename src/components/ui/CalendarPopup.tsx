@@ -140,7 +140,8 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                 const inMonth = ymOf(iso).month === view.month;
                 const disabled = off(iso);
                 const isSel = iso === selected;
-                const label = formatDisplayDateWeekday(localDateFromISO(iso), '') ?? iso;
+                const reason = blockedReason?.(iso) ?? null;
+                const label = `${formatDisplayDateWeekday(localDateFromISO(iso), '') ?? iso}${reason ? `, unavailable: ${reason}` : ''}`;
                 return (
                   <td
                     key={iso}
@@ -150,7 +151,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                     aria-selected={isSel}
                     aria-current={iso === today ? 'date' : undefined}
                     aria-disabled={disabled || undefined}
-                    title={blockedReason?.(iso) ?? undefined}
+                    title={reason ?? undefined}
                     tabIndex={iso === focusIso ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(iso); }}
                     onFocus={() => { if (disabled) { grabFocus.current = true; ref.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus(); return; } grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}

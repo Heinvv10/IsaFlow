@@ -65,6 +65,14 @@ describe('currentFiscalYear', () => {
   it('uses the periods of the year that holds today when they exist', () => {
     expect(currentFiscalYear(PERIODS, TODAY, 3)).toEqual({ start: '2026-03-01', end: '2027-02-28' });
   });
+  it('takes the year from the periods, not the start month, when they differ (short transition year)', () => {
+    const short = [
+      P(2099, 1, '2026-07-01', '2026-07-31', 'open', 'Jul 2026'),
+      P(2099, 5, '2026-11-01', '2026-11-30', 'open', 'Nov 2026'),
+      P(2099, 6, '2026-12-01', '2026-12-31', 'open', 'Dec 2026'),
+    ];
+    expect(currentFiscalYear(short, TODAY, 3)).toEqual({ start: '2026-07-01', end: '2026-12-31' });
+  });
   it('falls back to the company financial-year month when no period holds today', () => {
     expect(currentFiscalYear([], TODAY, 3)).toEqual({ start: '2026-03-01', end: '2027-02-28' });
     expect(currentFiscalYear(null, '2026-02-10', 3)).toEqual({ start: '2025-03-01', end: '2026-02-28' });

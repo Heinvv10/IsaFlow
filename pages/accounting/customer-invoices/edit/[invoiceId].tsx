@@ -263,7 +263,7 @@ export default function EditCustomerInvoicePage() {
               <p role="status" className="text-xs text-slate-600 dark:text-slate-400 empty:hidden">{baselineWaits ? "Loading the customer's VAT defaults…" : null}</p>
               <fieldset disabled={approve.busy || approved || baselineWaits} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} postingDate={false} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable settings={<InvoiceSettingsRow form={form} currencies={currencies} onChange={patch => setForm(p => ({ ...p, ...patch }))} registered={modeSwitch.registered}
