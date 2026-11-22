@@ -44,7 +44,7 @@ export function todayInSast(now: Date = new Date()): string {
 }
 
 /** Month number 1-12 from "oct", "Okt", "october", "sept", "mrt"; null when not a month. */
-function monthFromName(name: string): number | null {
+export function monthFromName(name: string): number | null {
   const n = name.toLowerCase();
   if (MONTH_EXTRA[n] !== undefined) return MONTH_EXTRA[n] ?? null;
   if (n.length < 3) return null;
@@ -64,7 +64,7 @@ function build(year: number, month: number, day: number, shown: string): DatePar
 }
 
 /** 2026 + "46" is 2046; "47" is 1947 (more than 20 years ahead reads as the last century). */
-function expandYear(y: string, thisYear: number): number {
+export function expandYear(y: string, thisYear: number): number {
   if (y.length !== 2) return Number(y);
   const candidate = 2000 + Number(y);
   return candidate > thisYear + 20 ? candidate - 100 : candidate;

@@ -22,6 +22,7 @@
  * Nothing is deleted. `gl_journal_lines` are updated in place, and the source
  * account stays in the chart, deactivated, carrying zero.
  */
+import { lockLinkKeysOfAccountJournals } from './ledgerLinkKeys';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
@@ -70,9 +71,10 @@ export interface MergeAccountsResult {
   documentRowsRepointed: DocumentRowCounts;
 }
 
-export async function repointMovableLines(
-  companyId: string, sourceId: string, targetId: string,
-): Promise<string[]> {
+/** Internal to `mergeAccounts`: only correct after its preview refused every closed-period line (a reversal pair split
+ *  across a closed period is refused there by name, never left to the deferred 23514 of migration 1018). */
+export async function repointMovableLines(companyId: string, sourceId: string, targetId: string): Promise<string[]> {
+  await lockLinkKeysOfAccountJournals(companyId, sourceId); // 1018 round 12 L3 (gl/ledgerLinkKeys)
   const rows = (await sql`
     UPDATE gl_journal_lines l
        SET gl_account_id = ${targetId}::UUID, updated_at = NOW()

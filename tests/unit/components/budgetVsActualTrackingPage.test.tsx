@@ -69,7 +69,7 @@ function serve(report: (q: URLSearchParams) => unknown = () => trackingReport(RO
 const reportQueries = () => vi.mocked(apiFetch).mock.calls.map(([u]) => String(u))
   .filter((u) => u.includes('reports-budget-tracking')).map((u) => new URL(u, 'http://x').searchParams);
 const lastQuery = () => Object.fromEntries(reportQueries().at(-1)!.entries());
-const change = (testId: string, value: string) => fireEvent.change(screen.getByTestId(testId), { target: { value } });
+const change = (testId: string, value: string) => { fireEvent.change(screen.getByTestId(testId), { target: { value } }); fireEvent.blur(screen.getByTestId(testId)); };
 
 describe('budget vs actual tracking page: controls → query string', () => {
   it('opens on year to date, asking for the bullets, and renders the engine rows with "—" for no budget', async () => {
