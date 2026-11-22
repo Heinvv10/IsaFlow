@@ -51,7 +51,7 @@ interface ConsolidatedTBResponse {
     value: number;
     byEntity: UnmappedEntity[];
   };
-  coterminous: boolean;
+  coterminous: boolean; eliminationsNote?: string | null;
 }
 
 interface EntityGroup { id: string; name: string }
@@ -181,7 +181,7 @@ export default function ConsolidatedTrialBalancePage() {
         <div className="p-6">
           {!loading && data && <MirroredDroppedNotice rows={parseDroppedMirrored(data)} />}
           {!loading && data && (
-            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} />
+            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} eliminationsNote={data.eliminationsNote} />
           )}
 
           {!loading && data && data.groupAccounts.length > 0 && totals && (

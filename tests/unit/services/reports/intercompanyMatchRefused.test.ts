@@ -68,6 +68,7 @@ describe('matchIntercompanyTransactions: both rows or neither', () => {
     const err = await matchIntercompanyTransactions(T1, T2, G, U).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(IntercompanyMirroredRowError);
     expect(err).toMatchObject({ ids: [T1] });
+    expect((err as Error).message).toContain('make a manual elimination with a reason there');   // (R21 M1: where a row with no elimination is dealt with)
     expect(mockTx).not.toHaveBeenCalled();
     expect(log.info).not.toHaveBeenCalled();
   });

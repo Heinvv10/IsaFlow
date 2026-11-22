@@ -3,7 +3,7 @@
  * SAVEPOINT on the caller's transaction and never throw: a failure is logged at ERROR (with the SQLSTATE only) and the caller's change
  * stands. Both are registered definers (migration 1019) that act for the session company only.
  *
- * Hooks keep INBOX state and the group row's DISPLAY columns only; they never block (each definer has lock_timeout = 2 s) and no figure
+ * Hooks keep INBOX state and the group row's DISPLAY columns only; they never block (each definer bounds its lock waits at 2 s, tighten-only: a caller's tighter lock_timeout is kept and restored) and no figure
  * depends on them: the eliminations of mirrored documents are derived from the ledgers at read time (mirrorEliminations.ts).
  *
  * - `withdrawForCancelledDocument` (the SENDER cancelled a customer invoice / customer credit note): a message the receiver has not

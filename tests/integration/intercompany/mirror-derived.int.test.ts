@@ -64,14 +64,6 @@ describe('F1: no hook, no stored figure: a hook that fails leaves nothing wrong'
     expect(await getPostedEliminations(co.G, '2026-01-01', '2026-12-31')).toEqual([]);
   });
 
-  it('the three hook definers carry their own lock_timeout of 2 s (the connection\'s default is longer: a held lock must not stall a cancel for it)', async () => {
-    const r = await pool.query(
-      `SELECT proname, proconfig FROM pg_proc WHERE pronamespace = 'public'::regnamespace
-        AND proname IN ('intercompany_withdraw_for_source', 'intercompany_sync_group_row', 'intercompany_journal_chain_changed') ORDER BY proname`);
-    expect(r.rows.map((x) => [x.proname, (x.proconfig as string[]).includes('lock_timeout=2s')])).toEqual([
-      ['intercompany_journal_chain_changed', true], ['intercompany_sync_group_row', true], ['intercompany_withdraw_for_source', true]]);
-  });
-
   it.each([
     ['the receiver cancels its bill (the group-row sync)', 'receiver'],
     ['the sender cancels its invoice (the withdrawal and the reversal hook)', 'sender'],

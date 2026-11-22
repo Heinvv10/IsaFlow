@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  duplicateBadgeText, generatorReason, mirrorFactsSentence, NO_MIRROR_MATCH, parseMirrorFacts, possibleDuplicateMessage,
+  duplicateBadgeText, generatorReason, linkedMirrorState, mirrorFactsSentence, NO_MIRROR_MATCH, parseMirrorFacts, possibleDuplicateMessage,
   type MirrorFact, type MirrorFacts, type MirrorLinkState,
 } from '@/modules/accounting/services/reports/mirrorFacts';
 import { formatMoney as R } from '@/lib/money/formatMoney';
@@ -131,5 +131,22 @@ describe('the link\'s own answers after the cutover', () => {
     expect(parseMirrorFacts(null)).toBeNull();
     expect(parseMirrorFacts({ label: 'x', periodEnd: END, mirrors: [] })).toBeNull();
     expect(parseMirrorFacts({ label: 'x', periodEnd: END, mirrors: [{ ref: 'a', amount: 'NaN' }] })).toBeNull();
+  });
+});
+
+describe('R21 M2: linkedMirrorState (a row left to mirroring)', () => {
+  const f = (elimDate: string, link: MirrorLinkState = 'here'): MirrorFacts => ({ label: 'INV-1', sum: false, periodEnd: END,
+    mirrors: [{ ref: 'INV-1', amount: 1000, stands: true, link, byTotal: false, elimDate, otherRole: null }] });
+  it('an elimination inside the period: matched to this row, no date', () => {
+    expect(linkedMirrorState(f('2026-03-10'), 'INV-1')).toBe('eliminated automatically and is matched to this row');
+  });
+  it('an elimination after the period: the date and the period end are said (the later document date)', () => {
+    expect(linkedMirrorState(f('2026-04-03'), 'INV-1')).toBe('eliminated automatically on 2026-04-03, after the period to 2026-03-31, and is matched to this row');
+  });
+  it('names the mirror the link holds, else the one the answer names, else the first', () => {
+    const two: MirrorFacts = { label: '2 mirrored documents', sum: true, periodEnd: END, mirrors: [
+      { ref: 'A', amount: 1, stands: true, link: 'none', elimDate: '2026-03-01' }, { ref: 'B', amount: 1, stands: true, link: 'here', elimDate: '2026-04-09' }] };
+    expect(linkedMirrorState(two, 'A')).toContain('2026-04-09');
+    expect(linkedMirrorState({ ...two, mirrors: two.mirrors.map((m) => ({ ...m, link: 'none' as const })) }, 'B')).toContain('2026-04-09');
   });
 });

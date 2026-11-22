@@ -16,9 +16,7 @@ import { MirroredDroppedNotice, parseDroppedMirrored } from '@/components/accoun
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-interface EntityAmount {
-  amount: number;
-}
+interface EntityAmount { amount: number }
 
 interface ConsolidatedISRow {
   groupAccountCode: string;

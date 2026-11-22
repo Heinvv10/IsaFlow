@@ -21,9 +21,11 @@ interface Props {
   unmapped?: { accountCount: number; value: number; byEntity: UnmappedEntity[] };
   /** False when members do not share a financial year end. */
   coterminous?: boolean;
+  /** What the income-statement eliminations cover when the members' years start on different dates. */
+  eliminationsNote?: string | null;
 }
 
-export function TBConsolidationWarnings({ unmapped, coterminous }: Props) {
+export function TBConsolidationWarnings({ unmapped, coterminous, eliminationsNote }: Props) {
   const hasUnmapped = (unmapped?.accountCount ?? 0) > 0;
   if (!hasUnmapped && coterminous !== false) return null;
 
@@ -59,6 +61,7 @@ export function TBConsolidationWarnings({ unmapped, coterminous }: Props) {
             Each entity&apos;s income statement is measured from its own year start, so those columns
             cover different windows and are not additive without adjustment.
           </p>
+          {eliminationsNote && <p className="mt-1 text-[var(--ff-text-secondary)]">{eliminationsNote}</p>}
         </div>
       )}
     </>

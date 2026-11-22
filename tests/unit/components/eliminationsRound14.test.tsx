@@ -74,14 +74,15 @@ describe('round 14: the Eliminations page', () => {
   it('Auto-Generate lists the rows left to mirroring, by description, date and amount (never an id)', async () => {
     serve({ post: () => new Response(JSON.stringify({ success: true, data: { items: [], count: 0, flagged: [],
       skipped: [{ transactionId: 'cccccccc-0000-4000-8000-000000000003', reason: 'eliminated by mirroring (Invoice ICAR-3 (mirrored))', cutover: '2026-03-01', mirroredRef: 'Invoice ICAR-3 (mirrored)',
+        detail: 'eliminated automatically on 2026-04-03, after the period to 2026-03-31, and is matched to this row',
         description: 'Manual sale March', date: '2026-03-05', amount: 1000 }] } }), { status: 200 }) });
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
-    // (round 16: one heading, then each row with its mirror; no repeated "eliminated by mirroring" per row)
-    expect(n.textContent).toMatch(/1 intercompany row was not drafted: eliminated by mirroring\./);
-    expect(n.textContent).toMatch(/2026-03-05 Manual sale March \(R\s?1[\s\u00a0]?000\.00\): mirrored document Invoice ICAR-3 \(mirrored\)/);
-    expect((n.textContent ?? '').match(/eliminated by mirroring/g)).toHaveLength(1);
+    // (one heading, then each row with its mirror and what is true of that mirror for the period: R21 M2, the date it falls on)
+    expect(n.textContent).toMatch(/1 intercompany row was not drafted: a mirrored document of the pair eliminates it\./);
+    expect(n.textContent).toMatch(/2026-03-05 Manual sale March \(R\s?1[\s\u00a0]?000\.00\): mirrored document Invoice ICAR-3 \(mirrored\), which is eliminated automatically on 2026-04-03, after the period to 2026-03-31, and is matched to this row/);
+    expect(n.textContent).not.toMatch(/not drafted: eliminated by mirroring/);   // (said for EVERY linked row before: the mirror's date can fall after the period)
     expect(n.textContent).not.toMatch(/cccccccc/);
   });
 
@@ -90,6 +91,8 @@ describe('round 14: the Eliminations page', () => {
     render(<EliminationsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /manual elimination/i }));
     const reason = await screen.findByLabelText(/Reason for a manual elimination/);
+    // (what mirroring covers, said from the facts: a pair, ZAR, approved, mapped; never "this group's documents are eliminated by mirroring")
+    expect(screen.getByText(/A company pair of this group mirrors its intercompany invoices and credit notes from 2026-01-01\. Mirroring eliminates only a ZAR document the receiver has approved/)).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText(/Describe the elimination/), { target: { value: 'by hand' } });
     const codes = screen.getAllByPlaceholderText('e.g. 4000');
     codes.forEach((c) => fireEvent.change(c, { target: { value: '4000' } }));
@@ -97,7 +100,7 @@ describe('round 14: the Eliminations page', () => {
     fireEvent.change(amounts[0]!, { target: { value: '10' } });
     fireEvent.change(amounts[3]!, { target: { value: '10' } });
     fireEvent.submit(reason.closest('form')!);
-    expect(await screen.findByText(/eliminated by mirroring from 2026-01-01: give a reason/)).toBeTruthy();
+    expect(await screen.findByText(/dated on or after 2026-01-01 needs a reason: give one/)).toBeTruthy();
     expect(posts).toEqual([]);
     fireEvent.change(reason, { target: { value: 'fee booked as a journal' } });
     fireEvent.submit(reason.closest('form')!);

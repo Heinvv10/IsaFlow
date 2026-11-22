@@ -214,7 +214,8 @@ describe('create-elimination after a mirroring cutover', () => {
     dupes.cutoverRequiringReason.mockResolvedValue('2026-01-15');
     const res = await call('POST', { group_id: GROUP }, VALID_CREATE);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(message(res)).toContain('eliminated by mirroring from 2026-01-15');
+    expect(message(res)).toContain('mirrors its intercompany invoices and credit notes from 2026-01-15');
+    expect(message(res)).toContain('only a ZAR document the receiver has approved');   // (what mirroring covers, not "every document")
     expect(dupes.cutoverRequiringReason).toHaveBeenCalledWith(GROUP, '2026-01-31');
     expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
   });

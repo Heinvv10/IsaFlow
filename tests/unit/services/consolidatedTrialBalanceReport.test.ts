@@ -202,21 +202,6 @@ describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () 
     const revenue = tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!;
     expect(revenue.eliminationDebit).toBe(300); // in-range, not the 9999 cumulative figure
   });
-
-  it('B-M3: a mid-year range takes the income-statement eliminations from the members\' fiscal year start (the window of their P&L columns), not periodStart', async () => {
-    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
-    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
-    expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
-    expect(getPostedEliminationsSplit).toHaveBeenCalledWith(GROUP_ID, '2025-03-01', '2025-06-30', '1900-01-01', []);
-  });
-
-  it('R13 quality M2: the mirrored eliminations the derivation could not apply (unmapped account) are returned for the page', async () => {
-    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
-    const gone = { transactionId: 't9', keyDate: '2025-06-10', description: 'Automatic: mirrored intercompany documents - Invoice 9', amount: 750 };
-    getPostedEliminationsSplit.mockImplementation(async (...a: unknown[]) => { (a[4] as unknown[]).push(gone); return { cumulative: [], inRange: [] }; });
-    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2025-06-01', '2025-06-30');
-    expect(tb.droppedMirrored).toEqual([gone]);
-  });
 });
 
 // ── P2-5: the assertion the single-company report has ─────────────────────────

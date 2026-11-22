@@ -2,8 +2,9 @@
  * Stored eliminations against the mirrored documents (whose eliminations are derived, mirrorEliminations.ts).
  *
  * RULING 2026-11-21 (Hein), the per-pair cutover: from the date both companies of a pair have mirroring on (intercompany_pair_cutovers), the
- * pair's invoices and credit notes are eliminated by mirroring only. The generator drafts nothing for the pair's sale-class rows dated on or
- * after it (eliminationGenerator.ts), and a hand-made elimination dated on or after a cutover of the group needs a typed reason (below).
+ * pair's invoices and credit notes that mirroring covers (ZAR, approved by the receiver, expense lines in one financial year, mapped accounts:
+ * manualReason.ts mirrorCoverage) are eliminated by mirroring only. The generator drafts nothing for the pair's sale-class rows dated on or
+ * after it that a standing mirror eliminates (eliminationGenerator.ts), and a hand-made elimination dated on or after a cutover of the group needs a typed reason (below).
  *
  * Before the cutover a manual row can still be the same sale as a mirror (a document dated after the connection's cut-over date but approved
  * once both sides were on is mirrored): intercompany_mirrored_duplicate flags it (a plain match), and posting a matching draft needs the

@@ -113,6 +113,8 @@ export interface ConsolidatedTrialBalance {
    * cover different windows and are not additive without adjustment.
    */
   coterminous: boolean;
+  /** When members' years start on different dates: what the income-statement eliminations cover (from the earliest start), else null. */
+  eliminationsNote: string | null;
   /** Mirrored eliminations in the period that could not be applied (an account with no group account mapped): the figures keep them. */
   droppedMirrored: DroppedMirroredElimination[];
 }
@@ -232,7 +234,8 @@ export async function getConsolidatedTrialBalance(
 
     const starts = Object.values(fiscalYearStarts).sort();
     const droppedMirrored: DroppedMirroredElimination[] = [];
-    await applyEliminations(accountMap, groupId, starts[0] ?? periodStart, periodEnd, droppedMirrored);
+    const eliminationsFrom = starts[0] ?? periodStart;
+    await applyEliminations(accountMap, groupId, eliminationsFrom, periodEnd, droppedMirrored);
 
     const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
     const totals: ConsolidatedTrialBalanceTotals = {
@@ -266,6 +269,7 @@ export async function getConsolidatedTrialBalance(
     // single-company report does. No consumer may derive its own.
     const difference = round2(totals.consolidatedDebit - totals.consolidatedCredit);
     const years = Object.values(fiscalYearStarts);
+    const coterminous = years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5));
 
     return {
       groupId, periodStart, periodEnd, groupAccounts, totals,
@@ -281,7 +285,9 @@ export async function getConsolidatedTrialBalance(
       },
       entityNames,
       fiscalYearStarts,
-      coterminous: years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5)),
+      coterminous,
+      eliminationsNote: coterminous ? null : `The members' years start on different dates: the income-statement eliminations run from ${eliminationsFrom} (the earliest year start) to ${periodEnd}. `
+        + 'A member whose year started later has no income-statement amount before its own year start, so an elimination dated between those dates has no matching amount in its column.',
       droppedMirrored,
     };
   } catch (err) {

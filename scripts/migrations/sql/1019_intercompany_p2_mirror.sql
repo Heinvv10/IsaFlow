@@ -15,8 +15,9 @@
 --   2. THE ELIMINATIONS OF MIRRORED DOCUMENTS ARE DERIVED AT READ TIME, never stored: intercompany_mirror_eliminations(group, start, end) returns
 --      the dated EVENTS of the mirrored rows of the group's current members: +E when the two ledgers start supporting a pair, -E when they stop
 --      (each judged with the reversal links dated on or before it; the receiver's financial-year cut-off; both journals' figures by value), the
---      period being the sum of the events dated in it, so at any moment a range is the sum of its months. Past periods change only if a receiver
---      document's journal link is re-pointed (1018 refuses that swap to non-superusers). No hook, lock or repair stands between a ledger and a figure.
+--      period being the sum of the events dated in it, so at any moment a range is the sum of its months. A later booking or reversal does not change
+--      an earlier period; the reference data the judgement reads is not dated, so editing it can (see the limit at intercompany_mirror_eliminations).
+--      No hook, lock or repair stands between a ledger and a figure.
 
 --   3. Hooks maintain INBOX and DISPLAY state only: intercompany_withdraw_for_source / intercompany_journal_chain_changed withdraw or revive a
 --      message by the ledger's parity, and intercompany_sync_group_row (best effort) binds a group row to the receiver's journal the first time it
@@ -33,7 +34,7 @@
 -- Rollback (code first):
 --   DROP FUNCTION IF EXISTS public.intercompany_auto_accept_queue(integer, boolean), public.intercompany_withdraw_for_source(text, uuid),
 --     public.intercompany_sync_group_row(text, uuid), public.intercompany_send_for_source(text, uuid), public.intercompany_message_source_changed(uuid),
---     public.intercompany_journal_chain_changed(uuid), public.intercompany_mirror_eliminations(uuid, date, date), public.intercompany_is_mirrored_row(uuid),
+--     public.intercompany_journal_chain_changed(uuid), public.intercompany_mirror_eliminations(uuid, date, date), public.intercompany_mirror_unresolved(uuid, date, date), public.intercompany_is_mirrored_row(uuid),
 --     public.intercompany_auto_accept_exhausted();
 
 --   DROP FUNCTION IF EXISTS public.intercompany_sync_core(uuid, text, uuid, uuid), public.intercompany_withdraw_message(uuid), public.intercompany_revive_message(uuid),
@@ -61,7 +62,7 @@
 --   DELETE FROM app_definer_reviews WHERE signature LIKE 'intercompany\_%' AND signature IN ('intercompany_auto_accept_queue(integer,boolean)',
 --     'intercompany_withdraw_for_source(text,uuid)', 'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)',
 --     'intercompany_message_source_changed(uuid)', 'intercompany_auto_accept_exhausted()', 'intercompany_is_mirrored_row(uuid)',
---     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid,date)',
+--     'intercompany_mirror_eliminations(uuid,date,date)', 'intercompany_mirror_unresolved(uuid,date,date)', 'intercompany_journal_chain_changed(uuid)', 'intercompany_journal_claimed(uuid)', 'intercompany_mirrored_duplicate(uuid,date)',
 --     'intercompany_mirror_facts(uuid,date)', 'intercompany_mirror_stands(uuid,date)', 'intercompany_mirror_link(uuid,date)', 'intercompany_pair_cutovers(uuid)', 'intercompany_auto_accept_release(uuid[],integer[])');
 --   DROP TABLE IF EXISTS intercompany_mirror_links;
 
@@ -749,11 +750,13 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirror_pair_at(uuid, date, date[],
 -- journal replaced by another); standing again is a new +E. Those dates are the chains' own journal dates, so the first +E is dated the later
 -- of the sender's and the receiver's journal dates. A period p_start..p_end is the sum of the events dated in it (each judged with only the
 -- links dated on or before it), so AT ANY MOMENT any range is the sum of its months line by line. A booking, a reversal or a re-reversal in a
--- later period does not change an earlier one. A PAST period does change when a receiver document's journal link is RE-POINTED: the receiver
--- journals read are the row's first match and the document's CURRENT journal, so a journal it was linked to in between is forgotten (no dated
--- history of links is kept). 1018 refuses a swap of a document's journal link to every non-superuser session. The state only changes on a
--- chain date, so a row is judged on its chain dates inside the period and once just before p_start; a row with no chain date in the period
--- is not judged at all.
+-- later period does not change an earlier one. THE LIMIT: the REVERSAL CHAINS are dated (a later reversal never changes an earlier period);
+-- the REFERENCE DATA the judgement reads is as it is TODAY and is not dated: the receiver's fiscal periods (the financial-year cut-off), the
+-- connection side's supplier and the document's supplier (an UNBOUND row: one never matched by the sync, whose receiver journal is the
+-- document's current one), which other rows hold a journal, the group's members and its account mappings. Editing one of them can change a
+-- PAST period's figure (and so a report already given); re-pointing a receiver document's journal link does too (1018 refuses that swap to
+-- non-superusers). The state only changes on a chain date, so a row is judged on its chain dates inside the period and once just before
+-- p_start; a row with no chain date in the period is not judged at all.
 -- Within the period a +E and a -E on one receiver journal cancel; what is left is one row per (row, receiver journal): kind 'eliminate' (+E)
 -- or 'reverse' (-E), key_date its latest event in the period. One row per elimination LINE, from the journals' OWN lines
 -- (each of its own company): the sender's revenue lines (credit - debit) and the receiver's expense lines (debit - credit), signed as the
@@ -855,6 +858,64 @@ $$;
 ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
+
+-- THE MIRRORED ROWS NO PATH ELIMINATES, for the reports and the Eliminations page (the mirror is automatic, so nobody would notice otherwise).
+-- A mirrored row is skipped by the manual generator, refused by the manual match, and eliminated by the derivation only while the receiver's
+-- journal carries the sender's figures in the same financial year; a row where that fails (a variance: the receiver edited the amount, booked
+-- it in another financial year, a journal that is not the document's posting; or the receiver cancelled its approved document) has NO
+-- elimination at all, and only a manual one with a reason can eliminate it. Listed: a row of the group (both companies current members, the
+-- caller a member) dated in the period, whose message the receiver ACCEPTED and then acted on (its document is approved-class or cancelled:
+-- a draft is a pending person, not a stuck row), whose sender journal still stands as at the period end by value, and whose pair stands
+-- neither as at the period end NOR as at today (a bill booked after the period eliminates then: not stuck). A row whose group-row match
+-- columns still say 'matched' (a hook that failed, best effort) is not looked at: the listing starts from the display status
+-- ('variance' / 'unmatched'), so it stays a bounded read. Unmapped accounts are the derivation's own report (intercompany_mirror_eliminations).
+-- A definer: only for a group the caller is a member of. reason: the variance reason the sync recorded, or why the pair does not stand.
+DROP FUNCTION IF EXISTS public.intercompany_mirror_unresolved(uuid, date, date);
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_unresolved(p_group uuid, p_start date, p_end date)
+RETURNS TABLE (transaction_id uuid, transaction_date date, description text, amount numeric, reason text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET jit = off
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT it.id, it.transaction_date, it.description, it.amount,
+         COALESCE(NULLIF(btrim(it.variance_reason), ''),
+                  CASE WHEN bill.cancelled THEN 'the receiver cancelled its document'
+                       ELSE 'the receiver''s journal does not carry the sender''s figures as a standing posting' END)
+    FROM public.intercompany_transactions it
+    JOIN public.intercompany_messages m ON m.group_transaction_id = it.id AND m.kind IN ('invoice', 'credit_note')
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(
+               (SELECT si.status IN ('approved', 'partially_paid', 'paid', 'cancelled') OR si.deleted_at IS NOT NULL
+                  FROM public.supplier_invoices si WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id AND si.company_id = m.to_company_id),
+               (SELECT cn.status IN ('approved', 'partially_applied', 'applied', 'cancelled')
+                  FROM public.credit_notes cn WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id AND cn.company_id = m.to_company_id AND cn.type = 'supplier'),
+               false) AS acted,
+             COALESCE(
+               (SELECT si.status = 'cancelled' OR si.deleted_at IS NOT NULL FROM public.supplier_invoices si
+                 WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id AND si.company_id = m.to_company_id),
+               (SELECT cn.status = 'cancelled' FROM public.credit_notes cn
+                 WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id AND cn.company_id = m.to_company_id AND cn.type = 'supplier'),
+               false) AS cancelled) bill
+   WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
+     AND it.transaction_date BETWEEN p_start AND p_end
+     AND it.match_status IN ('variance', 'unmatched')
+     AND m.status = 'accepted' AND m.target_doc_id IS NOT NULL AND m.source_journal_entry_id IS NOT NULL
+     AND bill.acted
+     AND EXISTS (SELECT 1 FROM public.company_group_members a WHERE a.group_id = p_group AND a.company_id = it.source_company_id AND a.left_date IS NULL)
+     AND EXISTS (SELECT 1 FROM public.company_group_members b WHERE b.group_id = p_group AND b.company_id = it.target_company_id AND b.left_date IS NULL)
+     AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
+     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
+     AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
+           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
+     AND public.intercompany_mirror_pair_at(it.id, p_end) IS NULL
+     AND public.intercompany_mirror_pair_at(it.id, (now() AT TIME ZONE 'Africa/Johannesburg')::date) IS NULL
+   ORDER BY it.transaction_date, it.id
+$$;
+ALTER FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_unresolved(uuid, date, date) TO app_user, app_service, migration_admin;
 
 -- The ONE way a document message is written (the messages guard refuses the sender's own INSERT of one). For the session company, a signed-in
 -- user with a write role, and an APPROVED customer invoice / customer credit note of that company whose customer is the partner on an ACTIVE
@@ -1312,21 +1373,24 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
-SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
   m RECORD;
   n integer := 0;
   v_chain integer;
+  v_prev text;
 BEGIN
-  IF v_co IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN RETURN 0; END IF;
+  -- a 2 s bound that never LOOSENS the caller's (a cancel under underFlowLockBudget may hold a tighter one; '0' = none): set here, put back at every exit
+  v_prev := pg_catalog.current_setting('lock_timeout');
+  IF v_prev::interval = interval '0' OR v_prev::interval > interval '2s' THEN PERFORM pg_catalog.set_config('lock_timeout', '2s', true); END IF;
+  IF v_co IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   IF p_source_type = 'customer_invoice' THEN
-    IF NOT EXISTS (SELECT 1 FROM public.customer_invoices WHERE id = p_source_id AND company_id = v_co AND status = 'cancelled' AND gl_journal_entry_id IS NULL) THEN RETURN 0; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.customer_invoices WHERE id = p_source_id AND company_id = v_co AND status = 'cancelled' AND gl_journal_entry_id IS NULL) THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   ELSIF p_source_type = 'credit_note' THEN
-    IF NOT EXISTS (SELECT 1 FROM public.credit_notes WHERE id = p_source_id AND company_id = v_co AND type = 'customer' AND status = 'cancelled') THEN RETURN 0; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.credit_notes WHERE id = p_source_id AND company_id = v_co AND type = 'customer' AND status = 'cancelled') THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   ELSE
-    RETURN 0;
+    PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0;
   END IF;
   FOR m IN SELECT x.id, x.source_journal_entry_id AS je FROM public.intercompany_messages x
             WHERE x.from_company_id = v_co AND x.source_doc_type = p_source_type AND x.source_doc_id = p_source_id AND x.kind IN ('invoice', 'credit_note')
@@ -1334,7 +1398,7 @@ BEGIN
     v_chain := CASE WHEN m.je IS NULL THEN 0 ELSE public.intercompany_journal_chain_length(m.je, v_co) END;
     IF v_chain > 0 AND v_chain % 2 = 0 AND public.intercompany_withdraw_message(m.id) THEN n := n + 1; END IF;
   END LOOP;
-  RETURN n;
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN n;
 END;
 $$;
 ALTER FUNCTION public.intercompany_withdraw_for_source(text, uuid) OWNER TO migration_admin;
@@ -1351,7 +1415,6 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
-SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
@@ -1359,17 +1422,21 @@ DECLARE
   v_len integer;
   r RECORD;
   n integer := 0;
+  v_prev text;
 BEGIN
-  IF v_co IS NULL OR p_je IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN RETURN 0; END IF;
+  -- a 2 s bound that never LOOSENS the caller's (a cancel under underFlowLockBudget may hold a tighter one; '0' = none): set here, put back at every exit
+  v_prev := pg_catalog.current_setting('lock_timeout');
+  IF v_prev::interval = interval '0' OR v_prev::interval > interval '2s' THEN PERFORM pg_catalog.set_config('lock_timeout', '2s', true); END IF;
+  IF v_co IS NULL OR p_je IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   -- the original of the chain p_je is in (a reversal's reversal belongs to the chain of the journal it undoes)
   WITH RECURSIVE up(id, parent) AS (
     SELECT je.id, je.reversal_of_id FROM public.gl_journal_entries je WHERE je.id = p_je AND je.company_id = v_co
     UNION
     SELECT g.id, g.reversal_of_id FROM public.gl_journal_entries g JOIN up ON g.id = up.parent WHERE g.company_id = v_co)
   SELECT up.id INTO v_root FROM up WHERE up.parent IS NULL LIMIT 1;
-  IF v_root IS NULL THEN RETURN 0; END IF;
+  IF v_root IS NULL THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   v_len := public.intercompany_journal_chain_length(v_root, v_co);
-  IF v_len = 0 THEN RETURN 0; END IF;
+  IF v_len = 0 THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN 0; END IF;
   FOR r IN SELECT x.id FROM public.intercompany_messages x
             WHERE x.from_company_id = v_co AND x.source_journal_entry_id = v_root AND x.kind IN ('invoice', 'credit_note') LOOP
     IF v_len % 2 = 0 THEN
@@ -1390,7 +1457,7 @@ BEGIN
     END IF;
     n := n + 1;
   END LOOP;
-  RETURN n;
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN n;
 END;
 $$;
 ALTER FUNCTION public.intercompany_journal_chain_changed(uuid) OWNER TO migration_admin;
@@ -2080,13 +2147,19 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
-SET lock_timeout = '2s'
 AS $$
 DECLARE
   v_co uuid := app.current_company_id();
+  v_prev text;
+  v_res text;
 BEGIN
-  IF v_co IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN RETURN NULL; END IF;
-  RETURN public.intercompany_sync_core(v_co, p_doc_type, p_doc_id, auth.uid()::uuid);
+  -- a 2 s bound that never LOOSENS the caller's (a cancel under underFlowLockBudget may hold a tighter one; '0' = none): set here, put back at every exit
+  v_prev := pg_catalog.current_setting('lock_timeout');
+  IF v_prev::interval = interval '0' OR v_prev::interval > interval '2s' THEN PERFORM pg_catalog.set_config('lock_timeout', '2s', true); END IF;
+  IF v_co IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN PERFORM pg_catalog.set_config('lock_timeout', v_prev, true); RETURN NULL; END IF;
+  v_res := public.intercompany_sync_core(v_co, p_doc_type, p_doc_id, auth.uid()::uuid);
+  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
+  RETURN v_res;
 END;
 $$;
 ALTER FUNCTION public.intercompany_sync_group_row(text, uuid) OWNER TO migration_admin;
@@ -2135,14 +2208,22 @@ BEGIN
     SELECT e.* FROM eligible e WHERE e.rn <= 10
      ORDER BY COALESCE(e.nxt, e.cat), e.cat, e.mid
      LIMIT LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200)
+  ), locked AS (
+    -- a claim takes a message only if no other claim holds it (SKIP LOCKED: two overlapping runs never take, and so never attempt, the same
+    -- message twice), and still at the attempt this run's pick read (a run that committed between the pick and the lock has moved it on: the
+    -- row's quals are re-checked after the wait, so the second run skips it too)
+    SELECT m.id AS lid FROM public.intercompany_messages m JOIN picked p ON p.mid = m.id
+     WHERE p_claim AND m.status = 'pending' AND m.auto_attempts = p.att
+       FOR UPDATE OF m SKIP LOCKED
   ), claimed AS (
     UPDATE public.intercompany_messages m
        SET auto_attempts = m.auto_attempts + 1,
            auto_next_attempt_at = clock_timestamp() + LEAST(power(2, m.auto_attempts)::integer, 60) * interval '1 minute'
-      FROM picked p WHERE p_claim AND m.id = p.mid
+      FROM locked l WHERE m.id = l.lid
     RETURNING m.id AS cid
   )
   SELECT p.mid, p.co, p.uid, p.att + CASE WHEN p_claim THEN 1 ELSE 0 END FROM picked p
+   WHERE NOT p_claim OR p.mid IN (SELECT l.lid FROM locked l)
    ORDER BY COALESCE(p.nxt, p.cat), p.cat, p.mid;
   IF p_claim THEN PERFORM pg_catalog.set_config('app.intercompany_system_update', '', true); END IF;
 END;
@@ -2280,6 +2361,8 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'nothing: whether a group row is the one a message records (a read of intercompany_messages for a trigger of a writer who is no party of the message)'),
     ('intercompany_mirror_eliminations(uuid,date,date)', 'public.intercompany_mirror_eliminations(uuid, date, date)',
      'nothing: a read of the mirrored group rows of a group the caller is a member of (both companies current members), their journals'' dated reversal chains and the receiver''s documents, giving the elimination and counter-elimination lines dated in a period (derived from the ledgers as they stood on each event date, never stored)'),
+    ('intercompany_mirror_unresolved(uuid,date,date)', 'public.intercompany_mirror_unresolved(uuid, date, date)',
+     'nothing: for a group the caller is a member of, the mirrored group rows dated in a period (both companies current members) whose message the receiver accepted and acted on (approved or cancelled its document), whose sender journal still stands as at the period end, and whose pair stands neither at the period end nor today, with the reason (a read of intercompany_transactions, intercompany_messages, the receiver''s document status and the journals'' reversal chains); the reports and the Eliminations page say these need a manual elimination'),
     ('intercompany_message_source_out(uuid)', 'public.intercompany_message_source_out(uuid)',
      'nothing: a read of the sender''s approved document through the payload builder and of the sent-with journal''s reversal chain, for the receiver of that message only'),
     ('intercompany_journal_chain_changed(uuid)', 'public.intercompany_journal_chain_changed(uuid)',
@@ -2314,6 +2397,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_release(uuid[], integer[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_bound_elsewhere(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_eliminations(uuid, date, date)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_mirror_unresolved(uuid, date, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_receiver_journal_value_problem(text, uuid, numeric, numeric, numeric)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_fiscal_year(uuid, date)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_journal_chain_changed(uuid)', 'EXECUTE')

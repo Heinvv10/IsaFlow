@@ -85,6 +85,16 @@ function state(m: MirrorFact, periodEnd: string, short = false): string {
   return `eliminated automatically${when}${and} ${is}not matched to any row yet`;
 }
 
+/**
+ * What is true of the mirror that eliminates a row the generator LEFT to mirroring (its stored link holds it): "eliminated automatically
+ * on 2026-04-03, after the period to 2026-03-31, and is matched to this row" when the elimination falls after the period (the later of the
+ * two document dates), else "eliminated automatically and is matched to this row". Worded by the same `state` as every other sentence.
+ */
+export function linkedMirrorState(f: MirrorFacts, ref: string): string {
+  const m = f.mirrors.find((x) => x.link === 'here') ?? f.mirrors.find((x) => x.ref === ref) ?? f.mirrors[0]!;
+  return state(m, f.periodEnd);
+}
+
 const joinAnd = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Whether the row is still to be posted (a draft: "posting this would ...") or already posted ("it is ..."). */

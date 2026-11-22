@@ -11,7 +11,7 @@ import { createEliminationAdjustment } from './consolidatedReportingService';
 import type { ConsolidationAdjustment, CreateEliminationInput, EliminationLine } from './consolidatedReportingService';
 import { EliminationAlreadyStandsError } from './eliminationErrors';
 import { getPairCutovers, pairCutover } from './eliminationDuplicates';
-import { factsFromRows, generatorReason, type LinkAnswer, type MirrorFacts } from './mirrorFacts';
+import { factsFromRows, generatorReason, linkedMirrorState, type LinkAnswer, type MirrorFacts } from './mirrorFacts';
 
 async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
   const rows = (await sql`
@@ -62,7 +62,11 @@ export interface FlaggedEliminationRow extends EliminationRowLabel { transaction
  * sale row and one purchase row, across every run and period). A run for a period whose mirror stopped eliminating the row in it (judged as
  * at that period, so a stop after it is the mirror's own counter-elimination later) releases the link and drafts the row.
  */
-export interface SkippedEliminationRow extends EliminationRowLabel { transactionId: string; reason: string; cutover: string; mirroredRef: string }
+export interface SkippedEliminationRow extends EliminationRowLabel {
+  transactionId: string; reason: string; cutover: string; mirroredRef: string;
+  /** What is true of the mirror for the period (mirrorFacts.ts): whether its elimination falls after the period, and on which date. */
+  detail: string;
+}
 export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
 /** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. */
@@ -157,7 +161,9 @@ export async function autoGenerateEliminations(
       const link = ((await sql`SELECT state, mirror_ref FROM public.intercompany_mirror_link(${String(tx.id)}::UUID, ${periodEnd}::DATE)`) as DbRow[])[0];
       const answer: LinkAnswer = { state: String(link?.state ?? 'none'), ref: link?.mirror_ref ? String(link.mirror_ref) : '' };
       if (answer.state === 'linked') {
-        skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${answer.ref})`, cutover, mirroredRef: answer.ref, ...label(tx) });
+        const facts = await factsOf(String(tx.id), periodEnd);
+        skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${answer.ref})`, cutover, mirroredRef: answer.ref,
+          detail: facts ? linkedMirrorState(facts, answer.ref) : '', ...label(tx) });
         continue;
       }
       pending.push({ tx, cutover, link: answer, made: await draft(groupId, tx, '', periodStart, periodEnd, created) });

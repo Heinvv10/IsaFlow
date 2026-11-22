@@ -5,8 +5,10 @@
  * the group: +E (kind 'eliminate') on the date the two ledgers start supporting the pair, and the counter-elimination -E (kind 'reverse') on
  * the date they stop (a value-negating reversal on either side), each judged with only the links dated on or before it; standing again is a
  * new +E. A period is the sum of the events dated in it, so at any moment any range is the sum of its months line by line; a later booking or
- * reversal does not change an earlier period, but re-pointing a receiver document's journal link does (no dated history of links is kept;
- * 1018 refuses that swap to non-superusers). Within a period a +E and a -E on one receiver journal cancel. The lines are the journals' OWN accounts (the sender's
+ * reversal does not change an earlier period. THE LIMIT: the reversal chains are dated, the reference data the judgement reads is NOT: the receiver's
+ * fiscal periods (the financial-year cut-off), the connection side's and the document's supplier (an unbound row), which other rows hold a journal, the
+ * group's members and its account mappings are read as they are today, so editing one can change a PAST period's figure; so does re-pointing a
+ * receiver document's journal link (1018 refuses that swap to non-superusers). Within a period a +E and a -E on one receiver journal cancel. The lines are the journals' OWN accounts (the sender's
  * revenue, the receiver's expense), each mapped to its group account. A credit note's row is negative: its entry is the invoice's with the
  * sides swapped, in positive amounts; a counter-elimination swaps them again.
  */
@@ -40,10 +42,13 @@ export interface MirroredElimination {
 interface GroupAccount { id: string; code: string; name: string; type: string; subtype: string }
 
 /**
- * A mirrored row's elimination event that could NOT be applied: one of its accounts has no group account mapped, so the group figures keep that
- * intercompany revenue / expense. The reports and the eliminations page show these (the mirror is automatic: nobody would see it otherwise).
+ * A mirrored row the group figures keep un-eliminated, reported with the derivation (the mirror is automatic: nobody would see it otherwise):
+ *  - 'unmapped': its elimination event could NOT be applied, one of its accounts has no group account mapped (map the accounts);
+ *  - 'unresolved': it has NO elimination from any path (a variance: the receiver's journal does not carry the sender's figures, or the receiver
+ *    cancelled its document; the manual generator and match refuse a mirrored row), so only a manual elimination with a reason can eliminate
+ *    the sale. `detail` says why (intercompany_mirror_unresolved); `keyDate` is the row's date.
  */
-export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number }
+export interface DroppedMirroredElimination { transactionId: string; keyDate: string; description: string; amount: number; kind: 'unmapped' | 'unresolved'; detail: string }
 
 /** Money to cents, as the consolidated reports round (the derived lines are summed by the reports, so each is rounded here once). */
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -66,6 +71,24 @@ async function loadMappings(groupId: string): Promise<Map<string, GroupAccount>>
  * whole (half an elimination would unbalance the group) and reported: logged at ERROR and, when `dropped` is given, pushed there for the page.
  */
 export async function getMirroredEliminations(
+  groupId: string, periodStart: string, periodEnd: string, dropped?: DroppedMirroredElimination[],
+): Promise<MirroredElimination[]> {
+  const derived = await deriveEliminations(groupId, periodStart, periodEnd, dropped);
+  if (dropped) dropped.push(...await unresolvedMirrored(groupId, periodStart, periodEnd));
+  return derived;
+}
+
+/** The mirrored rows dated in the period that NO path eliminates (intercompany_mirror_unresolved), as the page and the reports list them. */
+async function unresolvedMirrored(groupId: string, periodStart: string, periodEnd: string): Promise<DroppedMirroredElimination[]> {
+  const rows = ((await sql`
+    SELECT transaction_id, transaction_date, description, amount, reason
+      FROM public.intercompany_mirror_unresolved(${groupId}::UUID, ${periodStart}::DATE, ${periodEnd}::DATE)
+  `) ?? []) as Row[];
+  return rows.map((r) => ({ transactionId: String(r.transaction_id), keyDate: dateText(r.transaction_date), description: String(r.description ?? '').trim(),
+    amount: cents(Number(r.amount)), kind: 'unresolved', detail: String(r.reason ?? '') }));
+}
+
+async function deriveEliminations(
   groupId: string, periodStart: string, periodEnd: string, dropped?: DroppedMirroredElimination[],
 ): Promise<MirroredElimination[]> {
   const rows = (await sql`
@@ -105,7 +128,7 @@ export async function getMirroredEliminations(
   for (const { skip, ...e } of byRow.values()) {
     if (skip) {
       log.error('Mirrored elimination left out: an account has no group account mapped', { groupId, transactionId: e.transactionId }, 'accounting');
-      dropped?.push({ transactionId: e.transactionId, keyDate: e.keyDate, description: e.description, amount: e.amount });
+      dropped?.push({ transactionId: e.transactionId, keyDate: e.keyDate, description: e.description, amount: e.amount, kind: 'unmapped', detail: '' });
     } else out.push(e);
   }
   return out;

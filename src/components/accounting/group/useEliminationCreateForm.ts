@@ -1,7 +1,7 @@
 /**
  * The manual-elimination form of the Eliminations page: its state and its submit. RULING 2026-11-21: on or after a mirroring pair's cutover
- * (`reasonRequiredFrom`, the group's earliest) the pair's documents are eliminated by mirroring, so a hand-made elimination dated then needs a
- * typed reason; the form refuses to send without one, and the API refuses it too.
+ * (`reasonRequiredFrom`, the group's earliest) the pair's covered documents are eliminated by mirroring (manualReason.ts mirrorCoverage), so a
+ * hand-made elimination dated then needs a typed reason; the form refuses to send without one, and the API refuses it too.
  */
 import { useRef, useState } from 'react';
 import type React from 'react';

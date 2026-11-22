@@ -2,7 +2,8 @@
  * Accepting an intercompany message (P2), as the RECEIVER, in the receiver's own request (or, for auto-accept, in the worker's
  * transaction opened as the receiver: its claims, its company, its RLS). Accept creates a DRAFT supplier invoice / supplier
  * credit note in this company from the sender's snapshot, marks the message accepted with that document, and records the
- * mirror link (and, for a group pair, marks the sender's elimination row matched). Nothing is posted or approved.
+ * mirror link. It does NOT match the sender's group (elimination) row: a draft eliminates nothing, and the row is matched when the receiver
+ * APPROVES the document (mirrorHooks). Nothing is posted or approved.
  *
  * Everything below runs in ONE savepoint, so a refusal (answered 4xx, which a request would otherwise commit) leaves no draft,
  * no half-accepted message and no link. The message row is locked first, so a double click or the worker and a person at the

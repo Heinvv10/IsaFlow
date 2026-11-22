@@ -14,7 +14,7 @@ import {
   type EliminationLine,
 } from './EliminationsShared';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
-import { MANUAL_REASON_MAX, MANUAL_REASON_MIN } from '@/modules/accounting/services/reports/manualReason';
+import { MANUAL_REASON_MAX, MANUAL_REASON_MIN, mirrorCoverage } from '@/modules/accounting/services/reports/manualReason';
 
 interface Props {
   formType: EliminationType;
@@ -106,7 +106,7 @@ export function EliminationsCreateModal({
               <input id="elimination-manual-reason" type="text" value={formReason} onChange={(e) => onReasonChange(e.target.value)} required minLength={MANUAL_REASON_MIN} maxLength={MANUAL_REASON_MAX}
                 aria-describedby="elimination-manual-reason-help" className={inputClass + ' w-full'} />
               <p id="elimination-manual-reason-help" className="mt-1 text-xs text-[var(--ff-text-secondary)]">
-                From {reasonRequiredFrom} this group&apos;s intercompany invoices and credit notes are eliminated by mirroring. Say why this one is made by hand.
+                {mirrorCoverage(reasonRequiredFrom)} Say why this one is made by hand.
               </p>
             </div>
           )}

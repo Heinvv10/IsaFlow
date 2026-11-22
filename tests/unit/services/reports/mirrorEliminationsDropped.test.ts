@@ -22,12 +22,25 @@ describe('getMirroredEliminations: unmapped accounts', () => {
       .mockResolvedValueOnce([
         { company_id: 'A', company_account_id: 'rev', id: 'gr', account_code: '4000', account_name: 'Rev', account_type: 'revenue', account_subtype: '' },
         { company_id: 'B', company_account_id: 'exp', id: 'ge', account_code: '5000', account_name: 'Exp', account_type: 'expense', account_subtype: '' },
-      ]);
+      ])
+      .mockResolvedValueOnce([]);   // (the unresolved rows: none)
     const dropped: DroppedMirroredElimination[] = [];
     const out = await getMirroredEliminations('g', '2026-01-01', '2026-01-31', dropped);
     expect(out.map((e) => e.transactionId)).toEqual(['t1']);
     expect(out[0]!.lines.map((l) => [l.debit, l.credit])).toEqual([[333.33, 0], [0, 333.33]]);
-    expect(dropped).toEqual([{ transactionId: 't2', keyDate: '2026-01-15', description: 'Automatic: mirrored intercompany documents - Invoice t2', amount: 1000 }]);
+    expect(dropped).toEqual([{ transactionId: 't2', keyDate: '2026-01-15', description: 'Automatic: mirrored intercompany documents - Invoice t2', amount: 1000, kind: 'unmapped', detail: '' }]);
     expect(logMock.error).toHaveBeenCalledWith(expect.stringMatching(/left out/), expect.objectContaining({ transactionId: 't2' }), 'accounting');
+  });
+
+  it('R21 M1: the rows no path eliminates are appended as kind "unresolved" (date, trimmed description, cents, the reason), also when nothing is derived; none without a `dropped` list', async () => {
+    const unresolved = [{ transaction_id: 'u1', transaction_date: new Date('2026-12-30T00:00:00Z'), description: ' Sale Dec ', amount: '1000.004', reason: 'cut-off: different financial years' }];
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce(unresolved);
+    const dropped: DroppedMirroredElimination[] = [];
+    expect(await getMirroredEliminations('g', '2026-12-01', '2026-12-31', dropped)).toEqual([]);
+    expect(dropped).toEqual([{ transactionId: 'u1', keyDate: '2026-12-30', description: 'Sale Dec', amount: 1000, kind: 'unresolved', detail: 'cut-off: different financial years' }]);
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([]);
+    await getMirroredEliminations('g', '2026-12-01', '2026-12-31');
+    expect(sqlMock).toHaveBeenCalledTimes(1);   // (a caller that does not list them does not pay for the read)
   });
 });
