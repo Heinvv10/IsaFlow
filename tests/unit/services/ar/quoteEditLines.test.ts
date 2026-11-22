@@ -163,6 +163,13 @@ describe('review round 3: description before item, position before ambiguity, na
     expect(r).toEqual({ ids: ['s1', 's2'], problem: null });
   });
 
+  it('lines of different items are never identical: the remaining "Widget" of item B is the exempt one', () => {
+    const B = '22222222-2222-2222-2222-222222222222';
+    const r = run([{ description: 'Widget', quantity: 1, unitPrice: 100, itemId: B }],
+      [stored('a', { itemId: I }), stored('b', { itemId: B, vatType: 'exempt', taxRate: 0, taxAmount: 0 })]);
+    expect(r).toEqual({ ids: ['b'], problem: null });
+  });
+
   it('LOW 2: a renamed legacy 0% line (no type) counts as zero-rated: refused, not typed by the default chain', () => {
     const legacy0 = stored('l', { description: 'Fee', vatType: null, taxAmount: null, taxRate: 0 });
     expect(run([{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }], [legacy0]).problem).toMatch(/had a zero-rated line it may be/);
