@@ -68,3 +68,40 @@ describe('item links (#1740): a line the plan is not sure of goes without item_c
     expect(r.differences.items).toEqual([{ code: 'FIB-0001', changed: ['is_active'] }]);
   });
 });
+
+describe('an owned item that is present but not sent (it has stock movements, so the export cannot change it)', () => {
+  const ownedWithStock = async (active: boolean) => {
+    const item = String((await pool.query(
+      `INSERT INTO items (company_id, code, description, item_type, inventory_tracked, is_active, external_system, external_ref)
+       VALUES ($1, 'FIB-0001', 'x', 'physical', true, $2, 'sage', '50001') RETURNING id`, [s.companyId, active])).rows[0].id);
+    const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'P-1', 'P') RETURNING id`, [s.companyId])).rows[0].id);
+    await pool.query(`INSERT INTO stock_movements (company_id, product_id, item_id, movement_type, quantity) VALUES ($1, $2, $3, 'purchase', 5)`, [s.companyId, product, item]);
+    return item;
+  };
+  const firstLine = async () => (await pool.query(
+    `SELECT p.description, p.item_id::TEXT AS item_id FROM po_items p JOIN purchase_orders o ON o.id = p.purchase_order_id
+      WHERE o.company_id = $1 AND o.po_number = 'PO0000197' ORDER BY p.sort_order LIMIT 1`, [s.companyId])).rows[0] as { description: string; item_id: string | null };
+  const cleanup = async () => {
+    await pool.query('DELETE FROM stock_movements WHERE company_id = $1', [s.companyId]);
+    await pool.query('DELETE FROM products WHERE company_id = $1', [s.companyId]);
+  };
+
+  it('active: its PO line is linked to it (by the code IsaFlow holds it under); inactive: unlinked with the suffix', async () => {
+    try {
+      const id = await ownedWithStock(true);
+      const r = await run();
+      expect(r.refused.some((x) => x.code === 'item_has_stock_movements')).toBe(true);
+      expect(await firstLine()).toEqual({ description: 'Fibre cable drum (PO 197)', item_id: id });
+      await pool.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)', [s.companyId]);
+      await pool.query('DELETE FROM purchase_orders WHERE company_id = $1', [s.companyId]);
+      await pool.query('UPDATE items SET is_active = false WHERE id = $1', [id]);
+      const r2 = await run({ runTag: 'inactive1' });
+      expect(r2.status).toBe('completed');
+      expect(await firstLine()).toEqual({ description: 'Fibre cable drum (PO 197) [item FIB-0001]', item_id: null });
+      expect(r2.lineLinks.notLinked.find((x) => x.poNumber === 'PO0000197' && x.itemCode === 'FIB-0001')).toMatchObject({ reason: 'inactive' });
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
