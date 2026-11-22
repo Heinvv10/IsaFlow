@@ -25,24 +25,26 @@ const muted = 'text-sm text-gray-600 dark:text-gray-300';
 function Lines({ caption, lines }: { caption: string; lines: Line[] }) {
   if (lines.length === 0) return null;
   return (
-    <table className="mb-3 w-full text-left text-sm">
-      <caption className="sr-only">{caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col" className={`${cell} w-16`}>Code</th>
-          <th scope="col" className={cell}>{caption}</th>
-          <th scope="col" className={`${cell} text-right`}>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        {lines.map((l) => (
-          <tr key={`${l.code}-${l.label}`}>
-            <td className={cell}>{l.code}</td><td className={cell}>{l.label}</td>
-            <td className={`${cell} text-right`}><Money amount={l.amount} /></td>
+    <div className="mb-3 max-lg:overflow-x-auto" data-testid="irp5-lines-scroll">
+      <table className="w-full text-left text-sm">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col" className={`${cell} w-16`}>Code</th>
+            <th scope="col" className={cell}>{caption}</th>
+            <th scope="col" className={`${cell} text-right`}>Amount</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={`${l.code}-${l.label}`}>
+              <td className={cell}>{l.code}</td><td className={cell}>{l.label}</td>
+              <td className={`${cell} text-right`}><Money amount={l.amount} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
