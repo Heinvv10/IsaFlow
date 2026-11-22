@@ -5,6 +5,9 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { CancelOffCycleRun } from '@/components/payroll/offCycle/CancelOffCycleRun';
+import { OffCycleBonusAmounts } from '@/components/payroll/offCycle/OffCycleBonusAmounts';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
@@ -24,7 +27,7 @@ import type { OnExplain, RunLineAmounts } from '@/components/payroll/PayrollRunL
 import { useLineExplain } from '@/components/payroll/LineExplain';
 import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
-import { periodLabel } from '@/components/payroll/RunCards';
+import { runPeriodTitle } from '@/components/payroll/RunCards';
 import { emptyLinesMessage } from '@/components/payroll/runEmptyLines';
 import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
 
@@ -38,7 +41,8 @@ export default function PayrollRunDetailPage() {
   const {
     run, setRun, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen,
   } = useRunDetail(runId);
-  const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
+  // An off-cycle run pays only what it was created with (wave 6 OC): no input grid.
+  const editable = canWrite(companyRole) && !!run && run.runKind !== 'off_cycle' && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
   const grid = useRunInputs(runId, editable, setRun);
   const [approvalHeld, setApprovalHeld] = useState('');
   const [payslip, setPayslip] = useState<PayslipTarget | null>(null);
@@ -70,7 +74,7 @@ export default function PayrollRunDetailPage() {
 
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
-  const period = periodLabel(run);
+  const period = runPeriodTitle(run);
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
@@ -103,6 +107,8 @@ export default function PayrollRunDetailPage() {
           calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
 
         <div className="p-6 space-y-6">
+          <OffCycleBonusAmounts runId={runId} run={run} companyRole={companyRole} onChanged={() => void load()} />
+          <CancelOffCycleRun runId={runId} run={run} companyRole={companyRole} onCancelled={() => void load()} />
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
           <SelfApprovedNote decision={run.approvalDecision} />
@@ -146,7 +152,12 @@ export default function PayrollRunDetailPage() {
                 </span>
               )}
             </div>
-            {run.lines.length === 0 ? (
+            {run.status === 'cancelled' ? (
+              <div className="p-8 text-center text-[var(--ff-text-secondary)] text-sm">
+                This run was cancelled{run.cancelledAt ? ` on ${formatDisplayDate(run.cancelledAt)}` : ''}{run.cancelledByName ? ` by ${run.cancelledByName}` : ''}.
+                {' '}Nothing was paid, posted or declared.
+              </div>
+            ) : run.lines.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
                 {emptyLinesMessage(run, canWrite(companyRole))}
               </div>

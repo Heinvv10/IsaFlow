@@ -1,4 +1,4 @@
-import { readdirSync,readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { afterAll,beforeAll,expect,it,vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
@@ -20,20 +20,18 @@ const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
 // 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
-// 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with
-// the suites that run after this one (s07e-breaker-cron-and-deploy asserts 945's rules; migration-1010d asserts
-// 1010d's): every later migration that redefines it is re-applied after 937, in migration order, so the function is
-// left as the migrations leave it. The list is read from the migrations, not kept by hand: a hand-kept one stopped at
-// 946 and left 1010d's company_user_permissions rule out for every suite after this one in its shard.
-const SQL_DIR='scripts/migrations/sql';
-const REACH_MIGRATIONS=readdirSync(SQL_DIR).filter((f)=>/^\d+[a-z]?_.*\.sql$/.test(f)&&parseInt(f,10)>=937
-  &&readFileSync(`${SQL_DIR}/${f}`,'utf8').includes('FUNCTION public.app_pool_reach_violations()'))
-  .sort((a,b)=>parseInt(a,10)-parseInt(b,10)||a.localeCompare(b));
-const restore937=async()=>{for(const f of REACH_MIGRATIONS) await pool.query(readFileSync(`${SQL_DIR}/${f}`,'utf8'));};
-/** The body the LAST migration that defines app_pool_reach_violations() gives it (what prosrc must be once this suite is done). */
-const latestReachBody=()=>{const t=readFileSync(`${SQL_DIR}/${REACH_MIGRATIONS[REACH_MIGRATIONS.length-1]}`,'utf8');
-  const from=t.indexOf('AS $$',t.indexOf('FUNCTION public.app_pool_reach_violations()'))+'AS $$'.length;return t.slice(from,t.indexOf('$$',from));};
+// 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with the suites that run
+// after this one (s07e-breaker-cron-and-deploy asserts 945's rules, migration-1010d its own): the LIVE body is saved before
+// anything runs and replayed after each 937 and in afterAll, as whatsapp-inbox-routing does, so no later migration that
+// redefines the function can be left out (a hard-coded 945 / 946 list did leave 1010d's out, PR #1703).
+const reachFn="SELECT pg_get_functiondef('public.app_pool_reach_violations()'::regprocedure) AS def";
+let reachDef='';
+const restore937=async()=>{
+  await pool.query(readFileSync('scripts/migrations/sql/937_credential_tables_off_app_pools.sql','utf8'));
+  if(reachDef)await pool.query(reachDef);
+};
 beforeAll(async()=>{
+  reachDef=(await pool.query(reachFn)).rows[0].def as string;
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);
   vi.stubEnv('APP_URL',origin);
@@ -55,7 +53,7 @@ afterAll(async()=>{
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[]) AND user_id=ANY($2::text[])',[companies,[userA,userB]]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',[[userA,userB]]);
-  }finally{await pool.end();}
+  }finally{try{if(reachDef)await pool.query(reachDef);}finally{await pool.end();}}
 });
 async function configure(company:string,address:string){
   const req=request({'sb-access-token':tokens.get(company)!,active_company_id:company},'POST');
@@ -183,12 +181,6 @@ it('migration repeats without inventing proof for legacy rows',async()=>{
   await pool.query("INSERT INTO capture_inboxes(company_id,channel,address,is_active) VALUES($1,'whatsapp','+27820002008',false)",[second]);
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
   expect((await pool.query("SELECT webhook_token_hash,provider_verified_at FROM capture_inboxes WHERE company_id=$1 AND address='+27820002008'",[second])).rows).toEqual([{webhook_token_hash:null,provider_verified_at:null}]);
-});
-it('leaves app_pool_reach_violations() as the last migration that defines it leaves it (937 is re-run here)',async()=>{
-  expect(REACH_MIGRATIONS[0]).toBe('937_credential_tables_off_app_pools.sql');
-  expect(REACH_MIGRATIONS).toContain('1010d_company_user_permissions_off_app_pools.sql');
-  const src=(await pool.query("SELECT prosrc FROM pg_proc WHERE oid='public.app_pool_reach_violations()'::regprocedure")).rows[0].prosrc as string;
-  expect(src).toBe(latestReachBody());
 });
 it('removed creator membership prevents activation',async()=>{
   const pending=await start(first,'+27820002009');

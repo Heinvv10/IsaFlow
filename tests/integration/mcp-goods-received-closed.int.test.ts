@@ -2,7 +2,8 @@
  * A goods received note on a closed or cancelled PO (docs/design/mcp-goods-received.md, breaker round 2 M1), real PostgreSQL, as
  * app_user (grnHarness):
  *   - a note on a CLOSED PO cancels: the PO stays closed, the quantities come back, and its closing records (closed_from_status, and a
- *     link close's closed_po_from_status) become the status the receipts now give, so a later reopen lands there;
+ *     link close's PO-level record since PR #1703, closed_by_billing staying true) become the status the receipts now give, so a later
+ *     reopen lands there;
  *   - a cancelled PO carries only cancelled notes: every way to cancel a PO refuses one with a live note; a note on a cancelled PO (only
  *     by hand) is refused, offering no exit that does not exist.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -71,17 +72,23 @@ describe('a note on a closed PO cancels (breaker M1)', () => {
     expect(await poState(pool, po)).toEqual({ status: 'closed', received: [6] });
   });
 
-  it('closed by a link: the link\'s closing record follows the receipts, so the unlink reopens to what the receipts say', async () => {
+  // Adapted with PR #1703 (migrations 1016 / 1022): a close by billing is recorded on the PO (closed_by_billing + closed_from_status),
+  // never on a link. The note's cancel keeps closed_by_billing TRUE (the PO stays closed) and recomputes closed_from_status from the
+  // receipts (1021's definer: a closed PO holding a closed_from_status gets the receipts' status), so the unlink reopens to it.
+  it('closed by a link: the PO\'s closing record follows the receipts, so the unlink reopens to what the receipts say', async () => {
     const po = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     const grn = await receive(po, 1);
     const bill = await seedBill(pool, f, { lines: [100] });
     const linked = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }], close_when_fully_billed: true });
     expect(linked.isError, linked.text).toBe(false);
-    expect(await poRow(pool, po.po)).toMatchObject({ status: 'closed', closed_from_status: null });
-    expect(await claims(po.po)).toEqual(['received']);
+    const byBilling = async () => (await pool.query('SELECT closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0].closed_by_billing;
+    expect(await poRow(pool, po.po)).toMatchObject({ status: 'closed', closed_from_status: 'received' });
+    expect(await byBilling()).toBe(true);
+    expect(await claims(po.po)).toEqual([null]);
     expect((await cancelNote(grn)).isError).toBe(false);
-    expect(await claims(po.po)).toEqual(['approved']);
-    expect((await poRow(pool, po.po)).closed_from_status).toBeNull();
+    expect(await poRow(pool, po.po)).toMatchObject({ status: 'closed', closed_from_status: 'approved' });
+    expect(await byBilling()).toBe(true);
+    expect(await claims(po.po)).toEqual([null]);
     const u = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'wrong bill' });
     expect(u.isError, u.text).toBe(false);
     expect(u.body).toMatchObject({ reopened_to: 'approved' });

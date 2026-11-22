@@ -75,7 +75,7 @@ describe('line discount from the customer', () => {
     fillLine(0, '1000');
     await pickClient('c-bare');
     await waitFor(() => expect(screen.queryByLabelText('Discount %')).toBeNull());
-    expect(screen.getByText('Invoice Summary').closest('.rounded-2xl')!.textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?150\.00/);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?150\.00/);
     await submit();
     expect(sentBody('POST').items[0]!.discount).toBe(0);
   });
@@ -94,7 +94,7 @@ describe('line discount from the customer', () => {
     fillLine(0, '1000');
     await act(async () => { slow.release!(); });
     await waitFor(() => expect(discounts()).toEqual(['10']));
-    expect(screen.getByText('Invoice Summary').closest('.rounded-2xl')!.textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?035\.00/);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?035\.00/);
   });
 
   it('a discount typed while the customer is being read stays the user\'s', async () => {

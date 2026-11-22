@@ -17,6 +17,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // R-032 L5: the Login-as guard runs its own query first; it is covered by
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
+// PR #1703 R4-1 / r5: the POs a bill keeps closed by billing are locked first and re-judged after; none here.
+vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({
+  guardBillGone: vi.fn(async () => ({
+    recheck: vi.fn(async () => {}),
+    reopen: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] })),
+  })),
+}));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,

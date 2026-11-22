@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, within, waitFor } from '@testing-library/react';
 import { RUN_ID, RUN_URL, line, runBody, ok, type Warning } from './payroll/payrollRunFixtures';
 
 vi.mock('@/components/layout/AppLayout', () => ({
@@ -46,13 +46,21 @@ describe('payroll run page — explains its numbers (PAY-06)', () => {
   // Review round 1, item 5: the cards show what the journal books. The journal
   // splits the header's combined UIF in half, so when the lines' employee and
   // employer UIF differ by a cent the cards follow the journal's 2175 figure.
-  it('the stat cards carry the journal split, not the line sums, when the UIF halves differ', async () => {
+  it('the stat cards carry the journal split: the employee UIF is the lines\' own when the sides differ (#1679)', async () => {
     serveRun(runBody({ totalUif: 354.25, lines: [line('1', 'Riaan Smit', [], { uifEmployee: 177.12, uifEmployer: 177.13 })] }));
     render(<PayrollRunDetailPage />);
     await screen.findByText('Riaan Smit');
-    // round2(354.25 / 2) = 177.13; 75 000 − 19 966.33 − 177.13 − 41 681.55 = 13 174.99 (the 2175 credit)
-    expect(card('Other deductions').textContent).toMatch(/13[\s ]174\.99/);
-    expect(card('UIF (employee)').textContent).toMatch(/177\.13/);
+    // The journal books each side as the lines hold it (an off-cycle line's sides can differ, review of fd9193cc2):
+    // 75 000 - 19 966.33 - 177.12 - 41 681.55 = 13 175.00 (the 2175 credit).
+    expect(card('Other deductions').textContent).toMatch(/13[\s ]175\.00/);
+    expect(card('UIF (employee)').textContent).toMatch(/177\.12/);
+    expect(card('UIF (employer)').textContent).toMatch(/177\.13/);
+  });
+  it('a run with no lines splits UIF in half, as the journal does', async () => {
+    serveRun(runBody({ totalUif: 354.25, lines: [] }));
+    render(<PayrollRunDetailPage />);
+    // round2(354.25 / 2) = 177.13 employee, 177.12 employer: never all of it the employer's.
+    await waitFor(() => expect(card('UIF (employee)').textContent).toMatch(/177\.13/));
     expect(card('UIF (employer)').textContent).toMatch(/177\.12/);
   });
 });

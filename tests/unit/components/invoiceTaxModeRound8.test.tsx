@@ -4,17 +4,18 @@
  *     115 + 100, still R215 (the header rate repriced the exempt line to 115 and autosave stored R230).
  * (3) a switch that would change a line's total (1,000 x R0.03 excl. is R34.50; R0.0345 rounds to R0.03 = R30.00) is
  *     refused: the prices and the mode stay, and the page says why.
- * (4) a company not registered for VAT is offered No VAT only, so nothing converts its prices (R100 went to R115 and
- *     was saved as net).
- * (5) an inclusive draft stored at 0% reloads at 0%: a line added to it is not standard-rated.
+ * (4) a company not registered for VAT is offered no choice (No VAT, no VAT column), so nothing converts its prices
+ *     (R100 went to R115 and was saved as net).
+ * (5) an inclusive draft stored at 0% reloads with its own line types; a line added to it shows the type it takes (the
+ *     customer's default chain) and the user's pick is what saves.
  */
-import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { fillLine, INV, pickMode, price, prices, sentBody, serve } from '../helpers/invoiceDefaultsHarness';
+import { fillLine, INV, pickMode, pickVatType, price, prices, sentBody, serve, totalRowText, vatTypesShown } from '../helpers/invoiceDefaultsHarness';
 import { typeDate } from '../helpers/dateFields';
-import { openCombobox, pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 
 const push = vi.hoisted(() => vi.fn());
 const reg = vi.hoisted(() => ({ isRegistered: true }));
@@ -36,10 +37,10 @@ configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
 afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); reg.isRegistered = true; });
 
-const totalText = () => within(screen.getByText('Invoice Summary').closest('.rounded-2xl') as HTMLElement).getByText('Total').parentElement!.textContent;
+const totalText = totalRowText;
 const modeShown = () => (screen.getByRole('combobox', { name: 'Amounts are' }) as HTMLElement).textContent;
 const save = async () => {
-  fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+  await clickWhenEnabled(/save changes/i); // a line that follows the customer: Save waits for its answer
   await waitFor(() => expect(push).toHaveBeenCalled());
 };
 const MIXED = { ...INV, items: [
@@ -83,29 +84,43 @@ describe('(3) a switch that would change a line\'s total is refused', () => {
   });
 });
 
-describe('(4) a company not registered for VAT is offered No VAT only', () => {
-  const options = async () => { openCombobox('Amounts are'); return (await screen.findAllByRole('option')).map((o) => o.textContent); };
-  it('new page: only No VAT; R100 stays R100', async () => {
+describe('(4) a company not registered for VAT: No VAT, no choice', () => {
+  const noChoice = () => {
+    expect(screen.queryByRole('combobox', { name: 'Amounts are' })).toBeNull();
+    expect(vatTypesShown()).toEqual([]); // no VAT column
+    expect(screen.getByText('No VAT: this company is not registered for VAT.')).toBeTruthy();
+  };
+  it('new page: no "Amounts are", no VAT column; R100 stays R100 and Create sends no VAT', async () => {
     reg.isRegistered = false;
     serve();
     render(<NewPage />);
     fillLine(0, '100');
-    expect(await options()).toEqual(['No VAT']);
+    noChoice();
     expect(prices()).toEqual(['100']);
     expect(totalText()).toMatch(/100\.00/);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).not.toMatch(/VAT/);
+    await pickOption('Client', 'c-acme');
+    const create = screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement;
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const body = sentBody('POST');
+    expect([body.taxRate, body.amountsAre, body.items.map((i) => i.vatType)]).toEqual([0, 'exclusive', [undefined]]);
   });
-  it('edit page: only No VAT, and the shown mode is No VAT', async () => {
+  it('edit page: no choice either, and Save sends the header 0 with untyped lines', async () => {
     reg.isRegistered = false;
     serve(undefined, { ...INV, tax_rate: 0, items: [{ description: 'L', quantity: 1, unit_price: 100, amount: 100 }] });
     render(<EditPage />);
     await screen.findByDisplayValue('L');
-    expect(modeShown()).toMatch(/No VAT/);
-    expect(await options()).toEqual(['No VAT']);
+    noChoice();
+    await save();
+    const put = sentBody('PUT');
+    expect([put.taxRate, put.items.map((i) => i.vatType)]).toEqual([0, [undefined]]);
   });
 });
 
-describe('(5) an inclusive draft stored at 0% keeps its zero rate', () => {
-  it('a line added for R115 carries no VAT and goes zero-rated', async () => {
+describe('(5) an inclusive draft stored at 0% keeps its own line types', () => {
+  it('a line added for R115 shows the type it takes (standard, the customer\'s); picked zero-rated it carries no VAT', async () => {
     serve(undefined, { ...INV, tax_rate: 0, amounts_are: 'inclusive', total_amount: 100,
       items: [{ description: 'Zero', quantity: 1, unit_price: 100, amount: 100, tax_rate: 0, vat_type: 'zero_rated', tax_amount: 0 }] });
     render(<EditPage />);
@@ -113,7 +128,12 @@ describe('(5) an inclusive draft stored at 0% keeps its zero rate', () => {
     fireEvent.click(screen.getByRole('button', { name: /add line/i }));
     fireEvent.change(screen.getAllByPlaceholderText('Item description')[1]!, { target: { value: 'New' } });
     fireEvent.change(price(1), { target: { value: '115' } });
+    expect(vatTypesShown()).toEqual(['Zero-rated (0%)', 'Standard (15%)']);
+    expect(totalText()).toMatch(/215\.00/); // inclusive: the R115 is its gross either way
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/VAT Standard \(15%\) on R\s?100\.00R\s?15\.00/);
+    await pickVatType(1, /Zero-rated/);
     expect(totalText()).toMatch(/215\.00/);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/VAT \(zero-rated\)R\s?0\.00/);
     await save();
     expect(sentBody('PUT').items.map((i) => [i.unitPrice, i.vatType])).toEqual([[100, 'zero_rated'], [115, 'zero_rated']]);
   });
@@ -146,7 +166,7 @@ describe('(round 9) the refusal is said by the selector, and clears', () => {
     await waitFor(() => expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull());
     await pickMode(/Including VAT/);
     expect(prices()).toEqual(['0.03']);
-    await pickMode(/No VAT/);
+    await pickMode(/Excluding VAT/);
     expect(screen.queryByText(/would change/)).toBeNull();
   });
 });
@@ -168,9 +188,9 @@ describe('(round 10) the held refusal is dropped for good when anything it was d
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText(/Switching to Including VAT would change/)).toBeNull();
   });
-  it('a change of the form rate clears it', async () => {
+  it('a change of a line\'s VAT type clears it', async () => {
     await refusedOnEdit();
-    fireEvent.change(screen.getByLabelText('VAT rate %'), { target: { value: '0' } });
+    await pickVatType(0, /Exempt/);
     await gone();
   });
   it('a change of the invoice date clears it', async () => {
@@ -178,7 +198,7 @@ describe('(round 10) the held refusal is dropped for good when anything it was d
     typeDate(screen.getByLabelText(/^Invoice date/), '16 Sep 2026');
     await gone();
   });
-  it('new page: a customer\'s defaults landing (a zero-rated one moves the mode to No VAT) clear it', async () => {
+  it('new page: a customer\'s defaults landing (a zero-rated one re-types the lines) clear it', async () => {
     serve();
     render(<NewPage />);
     fillLine(0, '0.03', '1000');
@@ -186,7 +206,8 @@ describe('(round 10) the held refusal is dropped for good when anything it was d
     await screen.findByText(/Switching to Including VAT would change "Work"/);
     await pickOption('Client', 'c-zero');
     await gone();
-    await waitFor(() => expect(modeShown()).toMatch(/No VAT/));
+    await waitFor(() => expect(vatTypesShown()).toEqual(['Zero-rated (0%)']));
+    expect(modeShown()).toMatch(/Excluding VAT/);
   });
 });
 

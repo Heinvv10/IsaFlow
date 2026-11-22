@@ -15,8 +15,9 @@
  *   read separately from 3605 in the stored breakdown so an annual-payment
  *   clawback cannot erase a salary period (a severance-only or
  *   donation-correction-only line has none);
- * - retirementCapPeriods: those lines or a line with a pre-deduction annual
- *   payment, so each bonus-only period advances the pro-rated s11F cap;
+ * - retirementCapPeriods: those lines or a regular run's line with a pre-deduction
+ *   annual payment, so each bonus-only period advances the pro-rated s11F cap (an
+ *   off-cycle bonus beside its month's regular run does not, review #1679 M2);
  * - periodicTaxable / annualPayments: the line's periodic_taxable /
  *   annual_taxable (migration 913). A line written before 913 has NULLs, and
  *   its split is derived from the stored breakdown: annual payments = its
@@ -86,7 +87,7 @@ export async function loadPayeYearToDate(
              r.periodic_before_deductions,
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
-             h.period_year, h.period_month, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
+             h.period_year, h.period_month, h.run_kind, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
              l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
              l.donation_receipted, l.donation_base, l.donation_deduction,
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
@@ -136,7 +137,10 @@ export async function loadPayeYearToDate(
     SELECT employee_id,
            COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods,
            COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END)
-             FILTER (WHERE on_tables AND (periodic_before_deductions > 0 OR annual_before_deductions > 0)), 0)::float8 AS retirement_cap_periods,
+             -- An annual payment alone advances the cap only on a REGULAR run's line: an off-cycle bonus supplements its
+             -- month's regular run, which counted the month (review #1679 M2; payeCumulative adds none for it either).
+             FILTER (WHERE on_tables AND (periodic_before_deductions > 0
+               OR (annual_before_deductions > 0 AND run_kind = 'regular'))), 0)::float8 AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines,
            -- Only these lines may need the legacy restoration to add a cap period.

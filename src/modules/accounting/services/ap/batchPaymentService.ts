@@ -19,6 +19,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { assertBatchUnchangedSinceApproval } from './batchApprovedDigest';
+import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
 
 type Row = DbRow;
 
@@ -230,10 +231,9 @@ export async function processBatch(companyId: string, id: string, userId: string
       await tx`
         UPDATE supplier_invoices
         SET amount_paid = amount_paid + ${Number(p.amount_allocated)},
-            status = CASE
+            status = CASE WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status -- behind the under-lock re-check
               WHEN (total_amount - amount_paid - ${Number(p.amount_allocated)}) <= 0.01 THEN 'paid'
-              WHEN amount_paid + ${Number(p.amount_allocated)} > 0 THEN 'partially_paid'
-              ELSE status END
+              WHEN amount_paid + ${Number(p.amount_allocated)} > 0 THEN 'partially_paid' ELSE status END
         WHERE id = ${p.invoice_id}::UUID AND company_id = ${companyId}::UUID
       `;
     }

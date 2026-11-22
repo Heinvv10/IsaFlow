@@ -35,6 +35,7 @@ export async function listOwnPayslips(companyId: string, employeeId: string): Pr
       JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = h.company_id
      WHERE prl.employee_id = ${employeeId}::uuid AND h.company_id = ${companyId}::uuid
        AND ${sql.unsafe(payRunFinalSql('h'))}
+       -- Off-cycle payslips are deliberately not listed in the portal yet (SS scope: monthly regular runs; wave 7).
        AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly'
      ORDER BY h.period_year DESC, h.period_month DESC
   `) as ListRow[];

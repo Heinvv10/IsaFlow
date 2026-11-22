@@ -61,10 +61,10 @@ describeIfDb('AP readers keep another tenant\'s supplier name out', () => {
   });
 
   it('the purchase order PDF does not name B\'s supplier', async () => {
-    const pdf = (await generatePurchaseOrderPdf(S.A, docs.POISONED.supplierPo)).toString('latin1');
+    const pdf = (await generatePurchaseOrderPdf(S.A, docs.POISONED.poolPo)).toString('latin1');
     expect(pdf).not.toContain(S.LEAK_SUPPLIER);
     expect(pdf).toContain('Unknown Supplier');
-    expect((await generatePurchaseOrderPdf(S.A, docs.OK.supplierPo)).toString('latin1')).toContain(OK_NAME);
+    expect((await generatePurchaseOrderPdf(S.A, docs.OK.poolPo)).toString('latin1')).toContain(OK_NAME);
   });
 
   it.each([

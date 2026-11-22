@@ -9,8 +9,12 @@
  *   payments and bills. A bill create (`recordBillLinks`, ap/billPurchaseOrderLinks) takes FOR KEY SHARE on the PO it links, and
  *   a FOR NO KEY UPDATE lock does not conflict with that: a bill still uncommitted on the source could link to a PO the merge
  *   moves, leaving a link across two suppliers, which migration 1006 says must never exist (the guard cannot see the uncommitted
- *   link). FOR UPDATE does conflict with it, so the merge waits for that bill, then sees its link and refuses; and a bill create
- *   that arrives later waits for the merge, then finds the PO on the other supplier and links nothing. The lock comes BEFORE the
+ *   link). FOR UPDATE does conflict with it, so a merge that reaches the PO after the bill's INSERT waits for that bill, then sees
+ *   its link and refuses; and a bill create that arrives later waits for the merge, then finds the PO on the other supplier and
+ *   links nothing. SECOND KNOWN CYCLE, ACCEPTED (liveness only; isaflow-c8's review of #1699): a bill create that holds the PO's
+ *   KEY SHARE (assertBillPoLinks / lockNotePo, first in its transaction) BEFORE its INSERT, while the merge holds both supplier
+ *   rows FOR UPDATE and waits on that PO, then waits at the INSERT's supplier FK (KEY SHARE) on the merge: Postgres kills one with
+ *   40P01, the retryable 503 on both routes, nothing written (spo-retire-merge-lock-order pins it). The lock comes BEFORE the
  *   bill-link check for the same reason. Cost: a contention window against bill creates, answered, never faulted: waited at most
  *   5 s (`withRowLockBudget`, `PurchaseOrderLockTimeoutError`) and a deadlock victim (40P01) is the same retryable 503 on both
  *   routes (`respondIfLockTimeout`). Both sides take POs in id order, so two POs cannot cycle. KNOWN CYCLE, ACCEPTED: a draft

@@ -57,7 +57,12 @@ export async function rig(label: string) {
         ...opts,
         body: { action: 'request', documentType: 'pay_run', documentId: id },
       });
-      if (raised.statusCode !== 200) throw new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`);
+      // A refused submit (4xx: the run cannot be submitted, e.g. an off-cycle refusal, wave 6 OC) is the approval's
+      // answer: approveWith returns it as the response, as the live approval would have refused.
+      if (raised.statusCode !== 200) {
+        throw Object.assign(new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`),
+          raised.statusCode >= 400 && raised.statusCode < 500 ? { refusal: raised } : {});
+      }
       const request = raised.body.data as { id: string; documentDigest: string };
       const decided = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
         ...opts,
@@ -93,10 +98,24 @@ export async function rig(label: string) {
   const api = {
     preview: (id: string, o = {}) => journalPlan ? call(journalPlan, 'GET', url(id, 'journal-plan'), id, o) : Promise.resolve({ statusCode: 0, body: {} } as Res),
     approveWith: async (id: string, expectedPlanHash: unknown, o = {}) => {
-      await ensureAuthorised(id, expectedPlanHash, o);
+      try {
+        await ensureAuthorised(id, expectedPlanHash, o);
+      } catch (err) {
+        const refusal = (err as { refusal?: Res }).refusal;
+        if (refusal) return refusal;
+        throw err;
+      }
       const result = await call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash } });
       if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
       return result;
+    },
+    /**
+     * The approve endpoint alone, no R-035 submission first (gate ruling 5 on e0eec1dea1): a refusal here is the final
+     * approval's own, never the submission's.
+     */
+    approveOnly: async (id: string, o = {}) => {
+      const planHash = (await api.preview(id, o)).body.data?.planHash;
+      return call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash: planHash } });
     },
     approve: async (id: string, o = {}) => {
       const planHash = (await api.preview(id, o)).body.data?.planHash;
@@ -108,7 +127,8 @@ export async function rig(label: string) {
       if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
       return result;
     },
-    createRun: (month: number, o = {}) => call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { ...o, body: { month, year: 2026 } }),
+    /** A regular run for (year, month); the year defaults to 2026, the year these suites' fixtures are written in. */
+    createRun: (month: number, o = {}, year = 2026) => call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { ...o, body: { month, year } }),
     reverse: (journalId: string, o = {}) => call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { ...o, body: { id: journalId, action: 'reverse' } }),
   };
 
@@ -161,9 +181,9 @@ export async function rig(label: string) {
     return u;
   }
 
-  /** A run for (2026, month) created and costed through the real routes. */
-  async function calculatedRun(month: number): Promise<string> {
-    const made = await api.createRun(month);
+  /** A run for (year, month), 2026 by default, created and costed through the real routes. */
+  async function calculatedRun(month: number, year = 2026): Promise<string> {
+    const made = await api.createRun(month, {}, year);
     if (made.statusCode !== 201) throw new Error(`create run ${month}: ${made.statusCode} ${JSON.stringify(made.body)}`);
     const id = String(made.body.data!.id);
     const calc = await api.calculate(id);

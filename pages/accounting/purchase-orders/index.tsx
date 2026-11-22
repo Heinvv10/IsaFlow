@@ -64,7 +64,7 @@ export default function PurchaseOrdersPage() {
           actions={
             <>
               <ExportCSVButton endpoint="/api/accounting/purchase-orders?format=csv" filenamePrefix="purchase-orders" label="Export" />
-              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors">
+              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors max-lg:min-h-11">
                 <Plus className="w-4 h-4" /> New PO
               </Link>
             </>
@@ -76,14 +76,14 @@ export default function PurchaseOrdersPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 max-lg:min-h-11 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {t.replace(/_/g, ' ')}
                 </button>
               ))}
             </div>
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO #, supplier…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO #, supplier…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56 max-lg:w-full max-lg:min-h-11" />
             </div>
           </div>
 
@@ -102,10 +102,10 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No orders found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first purchase order</p>
-                <Link href="/accounting/purchase-orders/new" className="mt-5 inline-block px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">New PO</Link>
+                <Link href="/accounting/purchase-orders/new" className="mt-5 inline-block px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors max-lg:min-h-11">New PO</Link>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['PO #', 'Supplier', 'Order Date', 'Delivery Date', 'Total', 'Status'].map((h, i) => (
@@ -116,14 +116,14 @@ export default function PurchaseOrdersPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {orders.map(o => (
                     <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="px-5 py-3.5 font-id text-amber-500 font-semibold">
-                        <Link href={`/accounting/purchase-orders/${o.id}`} className="hover:text-amber-400 transition-colors">{o.po_number}</Link>
+                      <td data-label="PO #" className="px-5 py-3.5 font-id text-amber-500 font-semibold max-lg:items-center">
+                        <Link href={`/accounting/purchase-orders/${o.id}`} className="hover:text-amber-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{o.po_number}</Link>
                       </td>
-                      <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.supplier_name}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.order_date)}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.expected_delivery_date)}</td>
-                      <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(o.total))}</td>
-                      <td className="px-5 py-3.5">
+                      <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.supplier_name}</td>
+                      <td data-label="Order Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.order_date)}</td>
+                      <td data-label="Delivery Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.expected_delivery_date)}</td>
+                      <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(o.total))}</td>
+                      <td data-label="Status" className="px-5 py-3.5">
                         <StatusPill status={o.status} />
                       </td>
                     </tr>

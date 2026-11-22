@@ -88,7 +88,8 @@ beforeAll(async () => {
   run.c = await seedRun(C, 9, 'approved', STAMPED, [
     { employee: emp.c1, gross: 50_000, paye: 9_000, uifEmployee: 177.12, uifEmployer: 177.12, sdl: 500 },
   ]);
-  await pool.query(`UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1`, [run.c]);
+  // Since OC a MONTHLY off-cycle run is supported; the guard still refuses a weekly one (off-cycle runs are monthly only).
+  await pool.query(`UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus', pay_frequency = 'weekly' WHERE id = $1`, [run.c]);
   emp.d1 = await employee(D, 'EF-D1');
   await pool.query(`UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1`, [emp.d1]);
   run.d = await seedRun(D, 9, 'approved', STAMPED, [
@@ -200,7 +201,7 @@ describe('UI-19: runs by finality', () => {
 });
 
 describe('the run-kind guard (wave 6 FQa, called by the EMP201 and the IRP5)', () => {
-  it('a final off-cycle run is refused by name on both, never summed as a regular one', async () => {
+  it('a final weekly off-cycle run is refused by name on both, never summed as a regular one', async () => {
     const e = await generateEMP201(C, '2028-09-01', '2028-09-30').catch((x: unknown) => x);
     expect(e).toBeInstanceOf(RunKindUnsupportedError);
     expect((e as RunKindUnsupportedError).action).toBe('emp201');

@@ -80,10 +80,13 @@ export const notify = {
     );
   },
 
-  warning(title: string, message?: string) {
+  /** `live`: announced to screen readers (role="status"); custom toasts get no live region from react-hot-toast. Opt-in, so
+   *  the other warning callers render exactly as before. */
+  warning(title: string, message?: string, opts?: { live?: boolean }) {
     return toast.custom(
       (t) => (
         <div
+          {...(opts?.live ? { role: 'status', 'aria-live': 'polite' as const } : {})}
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
             bg-[var(--ff-surface-elevated)] border border-amber-500/30
