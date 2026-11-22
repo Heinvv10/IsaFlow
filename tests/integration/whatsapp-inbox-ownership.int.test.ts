@@ -20,13 +20,18 @@ const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
 // 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
-// 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with
-// the suites that run after this one (s07e-breaker-cron-and-deploy asserts 945's rules): 945 and 946, which
-// redefine it after it, and 1010d (#1656), which redefines it last, are re-applied after it so the function is left
-// as the migrations leave it (the 1010d permissions suite read 946's body when this list stopped at 946).
-const restore937=async()=>{for(const m of ['937_credential_tables_off_app_pools','945_billing_and_temp_off_app_pools','946_routes_off_app_pools','1010d_company_user_permissions_off_app_pools'])
-  await pool.query(readFileSync(`scripts/migrations/sql/${m}.sql`,'utf8'));};
+// 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with the suites that run
+// after this one (s07e-breaker-cron-and-deploy asserts 945's rules, migration-1010d its own): the LIVE body is saved before
+// anything runs and replayed after each 937 and in afterAll, as whatsapp-inbox-routing does, so no later migration that
+// redefines the function can be left out (a hard-coded 945 / 946 list did leave 1010d's out, PR #1703).
+const reachFn="SELECT pg_get_functiondef('public.app_pool_reach_violations()'::regprocedure) AS def";
+let reachDef='';
+const restore937=async()=>{
+  await pool.query(readFileSync('scripts/migrations/sql/937_credential_tables_off_app_pools.sql','utf8'));
+  if(reachDef)await pool.query(reachDef);
+};
 beforeAll(async()=>{
+  reachDef=(await pool.query(reachFn)).rows[0].def as string;
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);
   vi.stubEnv('APP_URL',origin);
@@ -48,7 +53,7 @@ afterAll(async()=>{
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[]) AND user_id=ANY($2::text[])',[companies,[userA,userB]]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',[[userA,userB]]);
-  }finally{await pool.end();}
+  }finally{try{if(reachDef)await pool.query(reachDef);}finally{await pool.end();}}
 });
 async function configure(company:string,address:string){
   const req=request({'sb-access-token':tokens.get(company)!,active_company_id:company},'POST');
