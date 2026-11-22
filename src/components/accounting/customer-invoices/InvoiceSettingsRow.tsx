@@ -2,7 +2,8 @@
  * InvoiceSettingsRow — the compact row above the line grid on the new and edit invoice pages: "Amounts are", the
  * currency and (foreign currency only) the exchange rate. VAT is per line (formVat), so there is no rate here. A company
  * not registered for VAT is offered no choice: the row says the invoice carries no VAT. The page owns the form; a
- * refused "Amounts are" switch (useTaxModeSwitch) is said by the selector, announced and scrolled into view.
+ * refused "Amounts are" switch (useTaxModeSwitch) is said by the selector, announced and scrolled into view. The quote
+ * modal shows it with `currency={false}`: a quote is in the company's currency (customer_quotes has no currency column).
  */
 import { useEffect, useId, useRef } from 'react';
 import { Select } from '@/components/ui/Select';
@@ -23,11 +24,13 @@ interface Props {
   /** Why the last "Amounts are" change was refused (taxModeSwitch); null when none. */
   taxModeProblem?: string | null;
   onTaxModeChange: (mode: TaxMode) => void;
+  /** False: no currency picker (a document with no currency of its own). Default true. */
+  currency?: boolean;
 }
 
 const lbl = 'mb-1 text-xs font-medium text-slate-600 dark:text-slate-400';
 
-export function InvoiceSettingsRow({ form, currencies, onChange, registered, taxMode, taxModes = TAX_MODE_OPTIONS, taxModeProblem, onTaxModeChange }: Props) {
+export function InvoiceSettingsRow({ form, currencies, onChange, registered, taxMode, taxModes = TAX_MODE_OPTIONS, taxModeProblem, onTaxModeChange, currency = true }: Props) {
   const problemId = useId();
   const problem = useRef<HTMLParagraphElement>(null);
   // A refused switch is said where the user is looking: scrolled into view.
@@ -51,11 +54,11 @@ export function InvoiceSettingsRow({ form, currencies, onChange, registered, tax
         ) : (
           <p className="text-xs text-slate-600 dark:text-slate-400 pb-1.5">No VAT: this company is not registered for VAT.</p>
         )}
-        <div className="w-64">
+        {currency && <div className="w-64">
           <Select label="Currency" labelClassName={lbl} size="sm" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
             onChange={pickCurrency} />
-        </div>
-        {isFx && (
+        </div>}
+        {currency && isFx && (
           <div className="w-48">
             <Input label={`Exchange rate (${form.currencyCode} → ZAR)`} size="sm" type="number" name="exchangeRate" min={0.000001} step={0.000001}
               value={form.exchangeRate} placeholder="e.g. 18.5" onChange={(e) => onChange({ exchangeRate: Number(e.target.value) })} />
