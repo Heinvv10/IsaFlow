@@ -18,8 +18,11 @@ Sage-imported PO line links to its imported item (`items`, `list_items`). `updat
   - malformed (`item_id` not a UUID, `item_code` not a string / too long): refused at parse.
 - The batch stays all or nothing: one refused line refuses the batch and nothing is written.
 - Idempotency: unchanged. Arguments are validated before the `external_ref` replay, so a re-run naming an item that has since been
-  deactivated is refused rather than replayed. A replay never changes a stored PO, so its lines keep the item they were written
-  with; a changed item is not reported in `differences` (that lists number, date, total, status only).
+  deactivated is refused rather than replayed. A replay never changes a stored PO, but never drops a link silently either: a line
+  that names an item the stored line (same position) does not carry, or carries differently, is listed in `differences` as
+  `lines[i].item_id` (existing vs requested) with `payload_differs: true`. A line naming no item is never compared. A re-sent
+  `po_number` of another PO is refused as before (only `external_ref` replays).
+- The first offending line, in line order, is the one named, whether it names its item by id or by code.
 
 ## Decision made here (flag if wrong)
 

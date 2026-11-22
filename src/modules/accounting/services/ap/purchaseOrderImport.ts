@@ -14,7 +14,7 @@
  *   3. one advisory lock per external reference, in sorted order (two batches naming the same Sage ids never cross).
  *
  * A PO whose (external_system, external_ref) is already on a PO of this company, in any status, is NOT created again:
- * it comes back already_existed (with payload_differs when its number, date or total differ). Any other PO whose
+ * it comes back already_existed (with payload_differs when its number, date, total, status or a line's item link differ). Any other PO whose
  * number already exists is refused, and so is the batch: nothing is written. `approved` POs pass the same budget
  * check the Approve action runs (channel mcp, the gate held) before they count as committed; a block refusal throws
  * BudgetExceededError, discarding the batch. Its refused event is not recorded: the PO it would name never existed.
@@ -129,6 +129,15 @@ async function replays(companyId: string, items: readonly ImportPo[]): Promise<M
     // The stored status is never changed here: a PO imported open that the source has since billed stays approved
     // (and committed) until a person closes or cancels it. Saying so is the least a re-run owes the caller.
     if (found.status !== p.status) differences.push({ field: 'status', existing: found.status, requested: p.status });
+    // A line that names an item the stored line does not carry (added or different) is reported, never silently dropped.
+    const storedItems = (await sql`
+      SELECT i.item_id::TEXT AS item_id FROM po_items i JOIN purchase_orders o ON o.id = i.purchase_order_id
+       WHERE o.id = ${found.id}::UUID AND o.company_id = ${companyId}::UUID ORDER BY i.sort_order
+    `) as DbRow[];
+    for (const [i, line] of p.lines.entries()) {
+      const had = storedItems[i]?.item_id ? String(storedItems[i]!.item_id).toLowerCase() : null;
+      if (line.itemId && line.itemId !== had) differences.push({ field: `lines[${i}].item_id`, existing: had, requested: line.itemId });
+    }
     const stored = (await sql`
       SELECT subtotal, tax_amount, total FROM purchase_orders WHERE id = ${found.id}::UUID AND company_id = ${companyId}::UUID
     `) as DbRow[];

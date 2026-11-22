@@ -128,6 +128,15 @@ describe('refusals name the PO and the line and write nothing', () => {
     expect(r.text).toMatch(/^purchase_orders\[0\]\.lines\[1\]\.item_code: no item with the code "NOPE"/);
   });
 
+  it('the first offending line in line order is named, whether it names its item by id or by code', async () => {
+    const p = po({ item_id: theirs });
+    (p.lines as Json[])[1] = { ...(p.lines as Json[])[1], item_code: 'NOPE' };
+    expect((await callTool(pool, f, create, { purchase_orders: [p] })).text).toMatch(/^purchase_orders\[0\]\.lines\[0\]\.item_id is not an item/);
+    const q = po({ item_code: 'NOPE' });
+    (q.lines as Json[])[1] = { ...(q.lines as Json[])[1], item_id: theirs };
+    expect((await callTool(pool, f, create, { purchase_orders: [q] })).text).toMatch(/^purchase_orders\[0\]\.lines\[0\]\.item_code: no item with the code "NOPE"/);
+  });
+
   it('an item refusal never reaches the supplier-of-another-company answer: a good batch after a refused one still works', async () => {
     const bad = await callTool(pool, f, create, { purchase_orders: [po({ item_code: 'NOPE' })] });
     expect(bad.isError).toBe(true);
@@ -157,9 +166,47 @@ describe('dry_run parity and replay', () => {
     const again = await callTool(pool, f, create, { purchase_orders: [p] });
     expect(again.isError, again.text).toBe(false);
     expect(again.body).toMatchObject({ created: 0, already_existed: 1 });
+    expect((again.body.purchase_orders as Json[])[0]).not.toHaveProperty('differences');
     expect(again.wroteNothing).toBe(true);
     expect(await snapshot()).toEqual(before);
     expect((await poLines(pool, await poId(p.po_number))).map((l) => l.item_id)).toEqual([cab, null]);
+  });
+
+  it('a replay that adds or changes a line\'s item is reported in differences, never silently dropped, and writes nothing', async () => {
+    const other2 = await seedItem(pool, f, { code: 'CAB-2', acct: f.acc.travel });
+    const p = po(null, { ref: 'replay-2' });
+    expect((await callTool(pool, f, create, { purchase_orders: [p] })).isError).toBe(false);
+    const withItem = (id: string, code?: string) => ({ ...p, lines: (p.lines as Json[]).map((l, i) => (i === 0 ? { ...l, ...(code ? { item_code: code } : { item_id: id }) } : l)) });
+    const before = await snapshot();
+    const added = await callTool(pool, f, create, { purchase_orders: [withItem(cab)] });
+    expect(added.isError, added.text).toBe(false);
+    expect((added.body.purchase_orders as Json[])[0]).toMatchObject({
+      already_existed: true, payload_differs: true, differences: [{ field: 'lines[0].item_id', existing: null, requested: cab }],
+    });
+    expect(added.wroteNothing).toBe(true);
+    expect((await poLines(pool, await poId(p.po_number))).map((l) => l.item_id)).toEqual([null, null]);
+    // The stored link is cab: the same item is no difference, a different one (by code too) is.
+    await pool.query('UPDATE po_items SET item_id = $1 WHERE purchase_order_id = $2 AND sort_order = 0', [cab, await poId(p.po_number)]);
+    const same = await callTool(pool, f, create, { purchase_orders: [withItem(cab)] });
+    expect((same.body.purchase_orders as Json[])[0]).toMatchObject({ already_existed: true, payload_differs: false });
+    const changed = await callTool(pool, f, create, { purchase_orders: [withItem('', 'CAB-2')] });
+    expect((changed.body.purchase_orders as Json[])[0]).toMatchObject({
+      payload_differs: true, differences: [{ field: 'lines[0].item_id', existing: cab, requested: other2 }],
+    });
+    expect(await snapshot()).toEqual(before);
+    expect((await poLines(pool, await poId(p.po_number))).map((l) => l.item_id)).toEqual([cab, null]);
+  });
+
+  it('a replay naming an item deactivated since the first import is refused, not replayed', async () => {
+    const soon = await seedItem(pool, f, { code: 'SOON-OFF', acct: f.acc.travel });
+    const p = po({ item_id: soon }, { ref: 'replay-3' });
+    expect((await callTool(pool, f, create, { purchase_orders: [p] })).isError).toBe(false);
+    await pool.query('UPDATE items SET is_active = false WHERE id = $1', [soon]);
+    const before = await snapshot();
+    const again = await callTool(pool, f, create, { purchase_orders: [p] });
+    expect(again.isError).toBe(true);
+    expect(again.text).toMatch(/^purchase_orders\[0\]\.lines\[0\]\.item_id is an inactive item/);
+    expect(await snapshot()).toEqual(before);
   });
 });
 

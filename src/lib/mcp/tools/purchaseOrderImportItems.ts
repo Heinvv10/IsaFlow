@@ -16,23 +16,19 @@ export async function resolveLineItems(companyId: string, batch: readonly Parsed
   const lines = batch.flatMap((p) => p.lines.map((l, i) => ({ p, l, i, at: `purchase_orders[${p.index}].lines[${i}]` })));
   const byCode = await itemIdsByCode(companyId, lines.flatMap(({ l }) => (l.itemCode ? [l.itemCode] : [])));
   const named = new Map<string, string>();
-  for (const { p, l, i, at } of lines) {
-    if (l.itemCode) {
-      const id = byCode.get(l.itemCode);
-      if (!id) return `${at}.item_code: no item with the code "${l.itemCode}" in this company`;
-      named.set(`${p.index}:${i}`, id);
-    } else if (l.itemId) {
-      named.set(`${p.index}:${i}`, l.itemId);
-    }
+  for (const { p, l, i } of lines) {
+    const id = l.itemCode ? byCode.get(l.itemCode) : l.itemId;
+    if (id) named.set(`${p.index}:${i}`, id);
   }
-  if (named.size === 0) return named;
   const ids = [...new Set(named.values())];
-  const rows = (await sql`
+  const rows = ids.length === 0 ? [] : (await sql`
     SELECT id::TEXT AS id, is_active FROM items
      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND deleted_at IS NULL
   `) as DbRow[];
   const active = new Map(rows.map((r) => [String(r.id).toLowerCase(), r.is_active !== false]));
-  for (const { p, i, at } of lines) {
+  // One pass in line order, so the refusal names the first offending line.
+  for (const { p, l, i, at } of lines) {
+    if (l.itemCode && !named.has(`${p.index}:${i}`)) return `${at}.item_code: no item with the code "${l.itemCode}" in this company`;
     const id = named.get(`${p.index}:${i}`);
     if (!id) continue;
     const isActive = active.get(id);
