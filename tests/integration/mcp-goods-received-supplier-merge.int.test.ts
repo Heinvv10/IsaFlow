@@ -84,7 +84,7 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     const { bill } = await billOnlyTiedByItsNote();
     const merge = async () => {
       const req = await openRequest(pool, f, f.owner);
-      try { const r = await req.run(() => mergeEntities(f.co, 'supplier', target, f.supplier, f.owner)); await req.commit(); return r; } catch (err) { await req.rollback(); return err; }
+      try { const r = await req.run(() => mergeEntities(f.co, 'supplier', target, f.supplier, f.owner, 'owner')); await req.commit(); return r; } catch (err) { await req.rollback(); return err; }
     };
     const refused = await merge();
     expect(refused).toBeInstanceOf(SupplierMergeRefusal);
@@ -125,7 +125,7 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
       try {
         await creating.run(() => createSupplierInvoice(own.co, billInput(String(note.body.grn_id), own), own.owner));
         const m = await openRequest(pool, own, own.owner);
-        merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))
+        merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner'))
           .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
         expect(await waitsOnLock('FROM suppliers')).toBe(true);
         await creating.commit();
@@ -150,7 +150,7 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
       await hold.query('BEGIN');
       await hold.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [plain.id]);
       const m = await openRequest(pool, own, own.owner);
-      const merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner))
+      const merging = m.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner'))
         .then(async (r) => { await m.commit(); return r; }, async (e) => { await m.rollback(); return e; });
       let creating: Promise<unknown> | undefined;
       try {
@@ -158,7 +158,8 @@ describe('a bill create and a merge of its supplier are serialised on the suppli
         const c = await openRequest(pool, own, own.owner);
         creating = c.run(() => createSupplierInvoice(own.co, billInput(note, own), own.owner))
           .then(async (r) => { await c.commit(); return r; }, async (e) => { await c.rollback(); return e; });
-        expect(await waitsOnLock('INSERT INTO supplier_invoices')).toBe(true);
+        // Since #1655 the merge also holds the source's POs FOR UPDATE, so the create waits at its note's PO (lockNotePo, FOR KEY SHARE).
+        expect(await waitsOnLock('FROM goods_received_notes g')).toBe(true);
       } finally { await hold.query('ROLLBACK'); hold.release(); }
       expect(await merging).toMatchObject({ reassignedTransactions: expect.any(Number) });
       // The create waited for the merge, then met its supplier soft-deleted: a typed refusal, nothing written (review of 0d51f4a5, L2).
@@ -184,7 +185,7 @@ describe('the merge\'s supplier lock is bounded', () => {
       await holder.query('SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [own.supplier]);
       const req = await openRequest(pool, own, own.owner);
       let out: unknown;
-      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner)); await req.commit(); }
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner')); await req.commit(); }
       catch (err) { await req.rollback(); out = err; }
       expect(out).toBeInstanceOf(RowLockTimeoutError);
       expect((out as RowLockTimeoutError).code).toBe('ROW_LOCK_TIMEOUT');
@@ -221,7 +222,7 @@ describe('only live bills block the merge (follow-up: the live-only filter)', ()
       } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
       const req = await openRequest(pool, own, own.owner);
       let out: unknown;
-      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner)); await req.commit(); }
+      try { out = await req.run(() => mergeEntities(own.co, 'supplier', fresh, own.supplier, own.owner, 'owner')); await req.commit(); }
       catch (err) { await req.rollback(); out = err; }
       expect(out).not.toBeInstanceOf(Error);
       const moved = (await pool.query('SELECT supplier_id::text AS s FROM supplier_invoices WHERE id = ANY($1::uuid[])', [bills])).rows.map((r) => r.s);

@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import { raiseGapAlert } from './gapAlertWrite';
 
 type Row = DbRow;
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -144,37 +145,9 @@ export async function detectGaps(
     // Only alert if expected_by <= today
     if (expectedBy > todayStr) { unchanged++; continue; }
 
-    // Check if a matching invoice arrived within ±7 days
-    const [matchRow] = await sql`
-      SELECT id FROM supplier_invoices
-      WHERE company_id = ${companyId}::uuid
-        AND supplier_id = ${String(exp.supplier_id)}::uuid
-        AND deleted_at IS NULL
-        AND invoice_date BETWEEN (${expectedBy}::date - INTERVAL '7 days')
-                              AND (${expectedBy}::date + INTERVAL '7 days')
-      LIMIT 1
-    ` as Row[];
-
-    if (matchRow) { unchanged++; continue; }
-
-    // Upsert alert (idempotent via UNIQUE constraint)
-    const result = await sql`
-      INSERT INTO expected_invoice_alerts (
-        company_id, supplier_id, expectation_id,
-        expected_by, expected_amount, status
-      ) VALUES (
-        ${companyId}::uuid,
-        ${String(exp.supplier_id)}::uuid,
-        ${String(exp.id)}::uuid,
-        ${expectedBy}::date,
-        ${exp.expected_amount != null ? Number(exp.expected_amount) : null},
-        'pending'
-      )
-      ON CONFLICT (company_id, supplier_id, expected_by) DO NOTHING
-      RETURNING id
-    ` as Row[];
-
-    if (result.length > 0) {
+    // Locked and re-checked against a concurrent supplier merge (raiseGapAlert): never an alert on a merged-away supplier.
+    const result = await raiseGapAlert(companyId, exp, expectedBy);
+    if (result) {
       created++;
       log.info('Created expected_invoice_alert', {
         companyId, supplierId: exp.supplier_id, expectedBy,
