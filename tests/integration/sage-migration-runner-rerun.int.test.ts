@@ -183,6 +183,14 @@ describe('what the company already holds', () => {
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 8 }); // 19 imported + the one that was there
   });
 
+  it('a DELETED item with the code is read from the books too: item_deleted for that row, the rest booked', async () => {
+    await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref, deleted_at) VALUES ($1, 'FIB-0004', 'gone', 'sage', '50004', now())`, [s.companyId]);
+    const r = await run();
+    expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0004', 'item_deleted']]);
+    expect(r.refused[0]!.reasons[0]).toMatch(/has been deleted/);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 }); // 19 imported + the deleted one still in the table
+  });
+
   it('nothing is sent for a row the company\'s data would make a tool refuse: the whole file still goes through the dry run clean', async () => {
     await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'FIB-0002', 'someone else', 'pastel', '77')`, [s.companyId]);
     const r = await run({ live: false });

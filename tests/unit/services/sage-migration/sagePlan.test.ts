@@ -9,7 +9,7 @@ import { planMigration } from '@/modules/accounting/services/sage-migration/sage
 import type { SupplierResolution } from '@/modules/accounting/services/sage-migration/sageSuppliers';
 import { batchKey, byStableKey, chunk, MAX_ITEM_BATCH, MAX_PO_BATCH } from '@/modules/accounting/services/sage-migration/sageBatches';
 import { buildReconciliation } from '@/modules/accounting/services/sage-migration/sageReconciliation';
-import { CONSOLE_ERROR_CHARS, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import { CONSOLE_ERROR_CHARS, exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 import type { MigrationReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
@@ -224,5 +224,44 @@ describe('reconciliation and its lines', () => {
     expect(line).not.toContain('END');
     expect(failedBatch.error).toBe(long); // the report object is untouched
     expect(JSON.stringify(report)).toContain('END');
+  });
+});
+
+describe('exitCodeFor', () => {
+  const { reconciliation: base } = (() => {
+    const p = parsed();
+    const plan = planMigration(p, allResolved(), NONE);
+    const after = { itemRefs: new Set(plan.items.map((i) => i.sageId)), poTotals: new Map(plan.purchaseOrders.map((x) => [x.sageId, x.totalCents] as [string, number])), stockMovements: 0 };
+    return { reconciliation: buildReconciliation({ parsed: p, plan, before: { itemRefs: new Set<string>(), poTotals: new Map<string, number>(), stockMovements: 0 }, after, failedBatches: 0, expect: undefined, live: true }) };
+  })();
+  const phase = { batches: [], failed: 0 };
+  const report = (status: MigrationReport['status'], rec: Partial<typeof base> = {}): MigrationReport => ({
+    companyId: 'c', status, refused: [], budgetWouldHaveFailed: [], live: null,
+    dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: status !== 'dry_run_failed' }, reconciliation: { ...base, ...rec },
+  });
+  const miss = { expected: 5, actual: 4, basis: 'booked' as const, ok: false };
+
+  it('0 for a clean dry run and for a live run that booked everything it sent', () => {
+    expect(exitCodeFor(report('dry_run_ok', { allSentBooked: false }), false)).toBe(0);
+    expect(exitCodeFor(report('completed'), false)).toBe(0);
+  });
+  it('1 for a failed dry run or a failed run', () => {
+    expect(exitCodeFor(report('dry_run_failed'), true)).toBe(1);
+    expect(exitCodeFor(report('failed'), true)).toBe(1);
+  });
+  it('1 for a completed run whose sent rows are not all booked (a total off, a stock row), whatever is allowed', () => {
+    expect(exitCodeFor(report('completed', { allSentBooked: false }), true)).toBe(1);
+  });
+  it('1 when a row was refused, unless refusals are allowed; a dry run is no different', () => {
+    expect(exitCodeFor(report('completed', { nothingRefused: false }), false)).toBe(1);
+    expect(exitCodeFor(report('completed', { nothingRefused: false }), true)).toBe(0);
+    expect(exitCodeFor(report('dry_run_ok', { nothingRefused: false }), false)).toBe(1);
+    expect(exitCodeFor(report('dry_run_ok', { nothingRefused: false }), true)).toBe(0);
+  });
+  it('1 when any --expect-* figure missed, and no allowance excuses it', () => {
+    const missed = { ...base.expected, purchaseOrders: miss };
+    expect(exitCodeFor(report('completed', { expected: missed }), true)).toBe(1);
+    expect(exitCodeFor(report('dry_run_ok', { expected: missed }), true)).toBe(1);
+    expect(exitCodeFor(report('completed', { expected: { ...base.expected, items: { ...miss, ok: true } } }), false)).toBe(0);
   });
 });
