@@ -39,13 +39,27 @@ export async function mkPo(
   return { po, number, items };
 }
 
-/** A goods received note on `po`'s lines (qty per line id); returns its id. A cancelled note is only possible once 1021 is in the schema. */
+/**
+ * A goods received note on `po`'s lines (qty per line id); returns its id. The note and its items go in ONE transaction, as the app writes
+ * them (migration 1021 refuses an item added to a note outside the transaction that created it). `po_items.quantity_received` is the
+ * caller's to set on the PO's lines (mkPo `received`), as createGoodsReceived adds to it.
+ */
 export async function mkGrn(pool: Pool, f: BillFixture, po: SeededPo, qty: Array<[string, number]>, date: string, status = 'received'): Promise<string> {
   const grn = crypto.randomUUID();
-  await pool.query(
-    'INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_date, received_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [grn, f.co, `GRN-${grn.slice(0, 8)}`, po.po, date, 'tester', status]);
-  for (const [item, q] of qty) await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, $3)', [grn, item, q]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_date, received_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [grn, f.co, `GRN-${grn.slice(0, 8)}`, po.po, date, 'tester', status]);
+    for (const [item, q] of qty) await client.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, $3)', [grn, item, q]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
   return grn;
 }
 

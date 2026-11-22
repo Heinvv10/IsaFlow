@@ -5,7 +5,7 @@
  *     counted as received (once the schema has 1021's status: see the skipIf below);
  *   - another company's POs never appear, for a user who belongs to both companies;
  *   - filters, ordering (oldest first, then PO number) and paging walk every PO once.
- * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips but the one named case.
+ * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -21,8 +21,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 let w: World;
 let other: World;
 let recv: SeededPo;
-let cancelledGrnPo: SeededPo | null = null;
-let hasCancelledStatus = false;
 
 interface Bill { bill_id: string; invoice_number: string; status: string; attributed_via: string; attributed_amount: string; invoice_date: string; counts_as_billed: boolean }
 interface Item {
@@ -62,15 +60,6 @@ beforeAll(async () => {
   recv = await mkPo(pool, w.f, { month: '2026-05', status: 'partially_received', lines: [{ acct, qty: 10, price: 5, received: 4 }, { acct, qty: 4, price: 25, received: 6 }] });
   await mkGrn(pool, w.f, recv, [[recv.items[0]!, 3]], '2026-05-20');
   await mkGrn(pool, w.f, recv, [[recv.items[0]!, 1], [recv.items[1]!, 6]], '2026-06-10');
-  const def = (await pool.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'goods_received_notes_status_check'")).rows[0]?.d as string | undefined;
-  hasCancelledStatus = !!def && def.includes('cancelled');
-  if (hasCancelledStatus) {
-    // As 1021's goods_received_note_cancel leaves it: the note cancelled and its quantities taken back off the PO line.
-    cancelledGrnPo = await mkPo(pool, w.f, { month: '2026-05', status: 'partially_received', lines: [{ acct, qty: 10, price: 5, received: 3 }] });
-    await mkGrn(pool, w.f, cancelledGrnPo, [[cancelledGrnPo.items[0]!, 3]], '2026-05-21');
-    const dead = await mkGrn(pool, w.f, cancelledGrnPo, [[cancelledGrnPo.items[0]!, 7]], '2026-06-30');
-    await pool.query("UPDATE goods_received_notes SET status = 'cancelled', cancelled_at = now(), cancelled_by = $2, cancel_reason = 'wrong delivery' WHERE id = $1", [dead, w.f.owner]);
-  }
 }, 120_000);
 afterAll(async () => {
   try {
@@ -87,7 +76,7 @@ afterAll(async () => {
 describe('billed and received are what get_purchase_order reports', () => {
   it('for every PO of the world', async () => {
     const out = await report();
-    const all = [...Object.values(w.po), recv, ...(cancelledGrnPo ? [cancelledGrnPo] : [])];
+    const all = [...Object.values(w.po), recv];
     expect(out.items.map((i) => i.id).sort()).toEqual(all.map((p) => p.po).sort());
     const committed = await poCommittedByIds(all);
     for (const po of all) {
@@ -193,13 +182,26 @@ describe('ages, bills and receipts', () => {
     expect(find(await report(), w.po.partial!)).toMatchObject({ received: '0.00', last_receipt_date: null, days_since_last_receipt: null });
   });
 
-  it('a cancelled goods received note is not counted as received, nor as the last receipt', async (t) => {
-    // ci-integration-skip: the schema of a branch cut before migration 1021 has no 'cancelled' note status; on master (1021) this runs.
-    if (!hasCancelledStatus) t.skip();
-    const out = await report();
-    const row = find(out, cancelledGrnPo!);
+  it('a goods received note cancelled through the real cancel path (cancel_goods_received) leaves received and the last receipt date', async () => {
+    const acct = w.f.acc.opex;
+    // 10 ordered at 5; two live notes of 3 and 4 received, so quantity_received is 7 as createGoodsReceived leaves it.
+    const po = await mkPo(pool, w.f, { month: '2026-05', status: 'partially_received', lines: [{ acct, qty: 10, price: 5, received: 7 }] });
+    await mkGrn(pool, w.f, po, [[po.items[0]!, 3]], '2026-05-21');
+    const later = await mkGrn(pool, w.f, po, [[po.items[0]!, 4]], '2026-06-30');
+    const before = await report();
+    expect([find(before, po).received, find(before, po).last_receipt_date]).toEqual(['35.00', '2026-06-30']);
+
+    const cancelled = body(await mcp(pool, w.u, 'cancel_goods_received', { grn_id: later, reason: 'wrong delivery', idempotency_key: crypto.randomUUID() }, { role: 'owner', scopes: ['write:invoices'] }));
+    expect(cancelled).toMatchObject({ cancelled: true, status: 'cancelled' });
+    expect((await pool.query('SELECT status FROM goods_received_notes WHERE id = $1', [later])).rows[0].status).toBe('cancelled');
+
+    const after = await report();
+    const row = find(after, po);
     expect([row.received, row.last_receipt_date]).toEqual(['15.00', '2026-05-21']);
-    expect(row.days_since_last_receipt).toBe(daysSince('2026-05-21', out.as_of));
+    expect(row.days_since_last_receipt).toBe(daysSince('2026-05-21', after.as_of));
+    // And it is what get_purchase_order reports for the line.
+    const theirs = await detail(po.po);
+    expect((theirs.lines as Array<{ quantity_received: number }>)[0]!.quantity_received).toBe(3);
   });
 
   it('a note whose quantities were taken back (po line received 0) counts 0 even though its items remain', async () => {
