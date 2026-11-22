@@ -75,7 +75,7 @@ export default function ItemAdjustmentsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:gap-3 max-lg:flex-wrap">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10"><ArrowUpDown className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
@@ -84,7 +84,7 @@ export default function ItemAdjustmentsPage() {
               </div>
             </div>
             <button onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium">
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium max-lg:min-h-11">
               <Plus className="h-4 w-4" /> New Adjustment
             </button>
           </div>
@@ -99,21 +99,21 @@ export default function ItemAdjustmentsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Item</label>
-                  <select value={form.itemId} onChange={e => setForm(f => ({ ...f, itemId: e.target.value }))} className="ff-input w-full" required>
+                  <select value={form.itemId} onChange={e => setForm(f => ({ ...f, itemId: e.target.value }))} className="ff-input w-full max-lg:min-h-11" required>
                     <option value="">Select...</option>
                     {items.map(i => <option key={i.id} value={i.id}>{i.item_code} — {i.item_name} ({fmtQty(i.current_quantity)} {i.uom})</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Type</label>
-                  <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value as 'increase' | 'decrease' }))} className="ff-input w-full">
+                  <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value as 'increase' | 'decrease' }))} className="ff-input w-full max-lg:min-h-11">
                     <option value="increase">Increase</option>
                     <option value="decrease">Decrease</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Quantity</label>
-                  <input type="number" step="0.0001" min="0" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="ff-input w-full" required />
+                  <input type="number" step="0.0001" min="0" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="ff-input w-full max-lg:min-h-11" required />
                 </div>
                 <div>
                   <GatedDateField gate={dates} gateKey="date" label="Date" name="adjustmentDate" value={form.date || null}
@@ -121,12 +121,12 @@ export default function ItemAdjustmentsPage() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Reason</label>
-                  <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input w-full" placeholder="e.g. Physical count correction" required />
+                  <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input w-full max-lg:min-h-11" placeholder="e.g. Physical count correction" required />
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
-                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">
+                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] max-lg:min-h-11">Cancel</button>
+                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50 max-lg:min-h-11">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
                 </button>
               </div>
@@ -137,7 +137,7 @@ export default function ItemAdjustmentsPage() {
             {loading ? (
               <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
@@ -148,11 +148,11 @@ export default function ItemAdjustmentsPage() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {items.map(i => (
                     <tr key={i.id} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{i.item_code}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{i.item_name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{(i as unknown as Record<string, unknown>).category as string || '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{i.uom}</td>
+                      <td data-label="Code" className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{i.item_code}</td>
+                      <td data-label="Item" className="px-4 py-3 text-[var(--ff-text-primary)]">{i.item_name}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">{(i as unknown as Record<string, unknown>).category as string || '—'}</td>
+                      <td data-label="On Hand" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
+                      <td data-label="UOM" className="px-4 py-3 text-[var(--ff-text-tertiary)]">{i.uom}</td>
                     </tr>
                   ))}
                 </tbody>
