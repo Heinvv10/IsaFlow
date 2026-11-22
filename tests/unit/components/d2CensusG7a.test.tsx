@@ -19,7 +19,6 @@ vi.mock('next/router', () => ({ useRouter: () => route }));
 import AssetDetailPage from '../../../pages/accounting/assets/[assetId]';
 import BatchPaymentDetailPage from '../../../pages/accounting/batch-payments/[batchId]';
 import ProductDetailPage from '../../../pages/accounting/products/[productId]';
-import PurchaseOrderDetailPage from '../../../pages/accounting/supplier-purchase-orders/[poId]';
 import DeliveryNotesPage from '../../../pages/accounting/delivery-notes/index';
 import CustomerCategoriesPage from '../../../pages/accounting/customer-categories/index';
 import ItemAdjustmentsPage from '../../../pages/accounting/item-adjustments';
@@ -47,9 +46,6 @@ const SITES: Site[] = [
   { name: 'product detail', match: '/api/accounting/products', page: () => <ProductDetailPage />, query: { productId: 'p1' },
     okBody: [{ id: 'p1', sku: 'SKU-D2', name: 'D2 Widget', description: null, category_name: null, selling_price: null, cost_price: null, qty_on_hand: null, is_active: true, created_at: '2026-01-01' }],
     shows: 'D2 Widget', plain: /could not load the product/i },
-  { name: 'supplier purchase order detail', match: '/api/accounting/supplier-purchase-orders', page: () => <PurchaseOrderDetailPage />, query: { poId: 'po1' },
-    okBody: [{ id: 'po1', po_number: 'PO-D2-55', supplier_name: null, order_date: null, expected_delivery_date: null, status: 'draft', subtotal: null, tax_amount: null, total_amount: null, notes: null, created_at: '2026-01-01' }],
-    shows: 'PO-D2-55', plain: /could not load the purchase order/i },
   { name: 'delivery notes list', match: '/api/accounting/delivery-notes', page: () => <DeliveryNotesPage />,
     okBody: { notes: [{ id: 'd1', deliveryNoteNumber: 'DN-D2-9', customerName: 'D2 Customer', deliveryDate: '2026-01-01', status: 'draft', lineCount: 1 }], total: 1 },
     shows: 'DN-D2-9', plain: /could not load delivery notes/i },

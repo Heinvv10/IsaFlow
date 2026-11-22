@@ -19,7 +19,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
-import { billedLinesByPoItem } from '../budgets/remainingCommitted';
+import { committedBillingByPoItem } from '../budgets/remainingCommitted';
 import { openPoLineCents } from '../budgets/remainingBudgetCore';
 import {
   checkDocumentBudget, evaluateDocumentLines, labelBudgetLines, readCheckPolicy,
@@ -74,7 +74,7 @@ async function readPoBudgetLines(companyId: string, poId: string): Promise<PoBud
      ORDER BY pi.sort_order, pi.id
   `) as DbRow[];
   const out: PoBudgetLines = { lines: [], noAccount: [], itemIds: [] };
-  const billed = await billedLinesByPoItem(companyId, rows.map((r) => String(id(r.id))), []);
+  const billed = await committedBillingByPoItem(companyId, rows.map((r) => String(id(r.id))), []);
   for (const r of rows) {
     const item = String(id(r.id));
     out.itemIds.push(item);

@@ -51,6 +51,8 @@ export interface EmploymentClassification {
   dayPayNote?: string;
   /** The class was decided from the line's earnings alone: no daily or hourly rate is recorded (a warning on the line). */
   rateNotRecorded?: boolean;
+  /** What to do when undetermined, when not this line's own terms (an off-cycle line taking its regular line's class). */
+  remedy?: string;
 }
 
 /** The relative gap between the earnings-derived day pay and the recorded rate that counts as a disagreement (rounding of days a month sits near 2%). */

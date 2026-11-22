@@ -9,7 +9,7 @@ import type { AgingScope } from './agingScopeFixture';
 export type Variant = 'OK' | 'POISONED';
 
 interface Ids {
-  apInvoice: string; arInvoice: string; poolPo: string; supplierPo: string; supplierPayment: string;
+  apInvoice: string; arInvoice: string; poolPo: string; supplierPayment: string;
   customerPayment: string; deliveryNote: string; salesOrder: string; timeEntry: string; recon: string;
 }
 export type PartyDocs = Record<Variant, Ids> & { bankAccount: string; template: string };
@@ -25,8 +25,6 @@ async function seedSupplierSide(pool: Pool, s: AgingScope, v: Variant, sup: stri
   const n = (kind: string) => docNo(s, kind, v);
   const { rows: [bill] } = await pool.query(
     'SELECT id FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [A, `${s.TAG}-AP-${v}`]);
-  const supplierPo = await one(pool, `INSERT INTO supplier_purchase_orders (company_id, order_number, supplier_id)
-    VALUES ($1,$2,$3) RETURNING id`, [A, n('SPO'), sup]);
   const poolPo = await one(pool, `INSERT INTO purchase_orders (company_id, po_number, supplier_id, status, total)
     VALUES ($1,$2,$3,'approved',4321) RETURNING id`, [A, n('PO'), sup]);
   const supplierPayment = await one(pool, `INSERT INTO supplier_payments
@@ -46,7 +44,7 @@ async function seedSupplierSide(pool: Pool, s: AgingScope, v: Variant, sup: stri
   await pool.query(`INSERT INTO accounting_adjustments
     (company_id, adjustment_number, entity_type, entity_id, adjustment_type, amount, reason, created_by)
     VALUES ($1,$2,'supplier',$3,'debit',5,'scope',$4)`, [A, n('ADJS'), sup, USER]);
-  return { apInvoice: String(bill.id), supplierPo, poolPo, supplierPayment, recon };
+  return { apInvoice: String(bill.id), poolPo, supplierPayment, recon };
 }
 
 async function seedCustomerSide(pool: Pool, s: AgingScope, v: Variant, cust: string, template: string, bank: string): Promise<Partial<Ids>> {
@@ -107,7 +105,7 @@ export async function dropPartyDocs(pool: Pool, s: AgingScope): Promise<void> {
   const co = [s.A];
   await pool.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [co]);
   await pool.query('DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ANY($1))', [co]);
-  for (const table of ['supplier_payments', 'customer_payments', 'supplier_purchase_orders', 'purchase_orders', 'fraud_alerts',
+  for (const table of ['supplier_payments', 'customer_payments', 'purchase_orders', 'fraud_alerts',
     'supplier_statement_reconciliations', 'captured_documents', 'accounting_adjustments', 'delivery_notes', 'customer_sales_orders',
     'customer_write_offs', 'recurring_invoices', 'time_entries', 'projects', 'customer_dunning_overrides', 'dunning_sends',
     'dunning_templates', 'bank_categorisation_rules', 'bank_transactions', 'gl_accounts']) {

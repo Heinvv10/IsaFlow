@@ -23,6 +23,7 @@ import {
   type APSignalChip,
 } from './listTypes';
 import { presetToRange } from './datePresets';
+import { useFyStartMonth } from '@/components/ui/FiscalPresetBar';
 import { currentMonth, monthRange, wholeMonthOf } from '../invoicePeriod';
 
 const SORT_KEYS: readonly SortKey[] = [
@@ -171,6 +172,7 @@ export interface SupplierInvoiceListState {
 
 export function useSupplierInvoiceListState(): SupplierInvoiceListState {
   const router = useRouter();
+  const fyStartMonth = useFyStartMonth();
   const [filters, setFilters] = useState<SupplierInvoiceListFilters>(DEFAULTS);
   const [hydrated, setHydrated] = useState(false);
   const lastQueryRef = useRef<Record<string, string>>({});
@@ -215,9 +217,9 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     if (p === 'all') return update({ datePreset: 'all', fromDate: '', toDate: '', page: 1 });
     if (p === 'custom') return update({ datePreset: 'custom', page: 1 });
     if (p === 'month') return setMonth(currentMonth());
-    const r = presetToRange(p);
+    const r = presetToRange(p, undefined, fyStartMonth);
     update({ datePreset: p, fromDate: r.from || '', toDate: r.to || '', page: 1 });
-  }, [update, setMonth]);
+  }, [update, setMonth, fyStartMonth]);
 
   const setCustomDate = useCallback((key: 'fromDate' | 'toDate', value: string) => {
     update({ [key]: value, datePreset: 'custom', page: 1 } as Partial<SupplierInvoiceListFilters>);

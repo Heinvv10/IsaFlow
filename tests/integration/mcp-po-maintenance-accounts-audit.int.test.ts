@@ -80,19 +80,18 @@ describe('no account-less line on an approved PO under block: update, import and
 });
 
 describe('audit rows', () => {
-  it('set status leaving closed names the links whose closing record it cleared', async () => {
+  // PR #1703 R4-1: the closing record lives on the PO (closed_by_billing), cleared by 1022's trigger as the status leaves closed;
+  // no link carries one, so the audit row names none.
+  it('set status leaving closed clears the PO\'s closed_by_billing, and names no link', async () => {
     await setPolicy(pool, f, 'warn');
     const po = await seedQtyPo(pool, f, { external: true, lines: [{ qty: 1, price: 100 }] });
     const bill = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }], close_when_fully_billed: true })).isError).toBe(false);
-    const linkId = String((await pool.query('SELECT id FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows[0].id);
+    expect((await pool.query('SELECT closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0].closed_by_billing).toBe(true);
     expect((await callTool(pool, f, setStatus, { po_id: po.po, status: 'approved', reason: 'reopen' })).isError).toBe(false);
-    const meta = (await auditOf(pool, f, po.po)).at(-1)!.changes.metadata!;
-    expect(meta.cleared_link_records).toBe('1');
-    expect(meta.cleared_links).toContain(linkId);
-    expect(meta.cleared_links).toContain(`bill ${bill.id}`);
-    expect(meta.cleared_links).toContain('was approved');
-    // A close with no link record clears nothing and says nothing.
+    expect((await pool.query('SELECT closed_by_billing FROM purchase_orders WHERE id = $1', [po.po])).rows[0].closed_by_billing).toBe(false);
+    expect((await auditOf(pool, f, po.po)).at(-1)!.changes.metadata).not.toHaveProperty('cleared_links');
+    // A close by hand had no record to clear either.
     const plain = await seedQtyPo(pool, f, { external: true, status: 'closed', lines: [{ qty: 1, price: 100 }] });
     await callTool(pool, f, setStatus, { po_id: plain.po, status: 'approved', reason: 'reopen' });
     expect((await auditOf(pool, f, plain.po)).at(-1)!.changes.metadata).not.toHaveProperty('cleared_links');

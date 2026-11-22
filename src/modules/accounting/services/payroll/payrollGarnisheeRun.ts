@@ -26,6 +26,7 @@ import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import type { GarnisheeDeduction, GarnisheeKind, GarnisheeOrderInput } from './payrollGarnishee';
+import type { ValidationResult } from './payrollTypes';
 
 const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
 
@@ -189,4 +190,18 @@ export async function runGarnisheePayslipItems(companyId: string, runId: string)
     byEmployee.set(String(r.employee_id), list);
   }
   return byEmployee;
+}
+
+/**
+ * Wave 6 OC (review #1679e): an off-cycle run (bonus or termination) takes no garnishee instalment. The month's
+ * instalment is the regular run's, so taking one again on the off-cycle line would deduct it twice in the month. A line
+ * with an order in force says so (info). Attaching a termination lump sum is logged for wave 7.
+ */
+export function offCycleGarnisheeNotice(orders: readonly GarnisheeOrderInput[] | undefined): ValidationResult[] {
+  if (!orders || orders.length === 0) return [];
+  const named = orders.map((o) => `${o.creditorName} (${o.reference})`).join(', ');
+  return [{
+    code: 'GARNISHEE_TAKEN_BY_REGULAR_RUN', severity: 'info',
+    message: `Garnishee order in force: ${named}. Garnishee instalments are taken by the regular run, not by this off-cycle run.`,
+  }];
 }

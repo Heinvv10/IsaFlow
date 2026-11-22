@@ -25,7 +25,7 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({})).toEqual([]);
   });
 
-  it('passes a weekly or fortnightly regular run (wave 6 FQd lifts the clause); refuses an unknown frequency and an off-cycle run, for every action', () => {
+  it('passes a weekly or fortnightly regular run (wave 6 FQd) and a monthly off-cycle run (wave 6 OC); refuses an unknown frequency, a weekly off-cycle run and an unknown kind', () => {
     // IRP5/EMP501 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): weekly payrolls in wave 7.
     expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(['irp5']);
     expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(['irp5']);
@@ -33,9 +33,11 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ pay_frequency: 'daily' })).toEqual(ALL);
     expect(refusedBy({ pay_frequency: null })).toEqual(ALL);
     expect(judgeRunKind({ ...OK, pay_frequency: 'daily' }, 'approve')[0]!.detail).toContain('a daily run');
+    // Wave 6 OC lifted the off-cycle clause for MONTHLY off-cycle runs; a weekly one is still refused for every action.
+    expect(refusedBy({ run_kind: 'off_cycle' })).toEqual([]);
     expect(refusedBy({ pay_frequency: 'weekly', run_kind: 'off_cycle' })).toEqual(ALL);
-    expect(refusedBy({ run_kind: 'off_cycle' })).toEqual(ALL);
-    expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
+    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle runs are monthly only');
+    expect(refusedBy({ run_kind: 'supplementary' })).toEqual(ALL);
   });
 
   it('garnishee_frequency (GA, kept by FQd): a weekly run with an order in force is refused costing only, naming the employee', () => {
@@ -114,7 +116,7 @@ describe('a value a later release added (review #1483): listed, then refused', (
   it('the guard refuses such a run for every action, by its database value', () => {
     expect(refusedBy({ pay_frequency: 'biweekly' })).toEqual(ALL);
     expect(refusedBy({ run_kind: 'correction' })).toEqual(ALL);
-    expect(judgeRunKind({ ...OK, run_kind: 'correction' }, 'approve')[0]!.detail).toBe("it is a 'correction' run, and only regular runs are supported");
+    expect(judgeRunKind({ ...OK, run_kind: 'correction' }, 'approve')[0]!.detail).toBe("it is a 'correction' run, and only regular and off-cycle runs are supported");
   });
 });
 

@@ -38,7 +38,7 @@ Organized in `pages/api/accounting/` with patterns:
 ## Database
 Postgres on Supabase (self-hosted). 50+ tables across migrations `000` through `478`. Key tables:
 - `companies`, `customers`, `suppliers`, `items`
-- `customer_invoices`, `supplier_invoices`, `customer_sales_orders`, `supplier_purchase_orders`
+- `customer_invoices`, `supplier_invoices`, `customer_sales_orders`, `purchase_orders` (`supplier_purchase_orders` retired, migration 1022)
 - `gl_accounts`, `gl_journal_entries`, `gl_journal_lines`
 - `bank_transactions`, `assets`, `credit_notes`
 - `company_document_numbers`, `company_messages`

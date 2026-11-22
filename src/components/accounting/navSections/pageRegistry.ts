@@ -23,7 +23,6 @@ export const EXTRA_PAGES: NavIndexEntry[] = [
   { href: '/accounting/sales-reps', label: 'Sales Reps', trail: ['Sales'] },
   { href: '/accounting/ap/supplier-statements', label: 'Supplier Statements', trail: ['Purchases'] },
   { href: '/accounting/capture', label: 'Capture', trail: ['Purchases'] },
-  { href: '/accounting/supplier-purchase-orders', label: 'Purchase Orders', trail: ['Purchases'] },
   { href: '/accounting/products', label: 'Products & Inventory', trail: ['Inventory'] },
   { href: '/accounting/currencies', label: 'Currencies', trail: ['Accounting'] },
   { href: '/accounting/exchange-rates', label: 'Exchange Rates', trail: ['Accounting'] },
