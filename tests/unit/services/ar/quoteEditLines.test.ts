@@ -86,6 +86,46 @@ describe('a quote with a zero-rated or exempt line: only a positional resend inh
   });
 });
 
+describe('review round 5: the positional resend checks the rate, the one change keeps its description or item', () => {
+  const legacy = (id: string, description: string, rate: number) => stored(id, { description, vatType: null, taxAmount: null, taxRate: rate });
+
+  it('H1: a legacy quote resent identical but at another legacy rate is not a positional resend (nor "unchanged")', () => {
+    const st = [legacy('a', 'A', 15), legacy('b', 'B', 0)];
+    const sent = [line({ description: 'A', taxRate: 15 }), line({ description: 'B', taxRate: 15 })];
+    const m = matchQuoteLines(sent, st, D);
+    expect(m.positional).toBe(false);
+    expect(legacyLinesUnchanged(sent, st, m.matches, undefined)).toBe(false);
+    expect(unmatchedVatProblem(sent, m)).toBeNull(); // rate 15 types each line standard by itself
+    const single = [legacy('z', 'Rent', 0)];
+    const rent = [line({ description: 'Rent', unitPrice: 100, taxRate: 15 })];
+    expect(legacyLinesUnchanged(rent, single, matchQuoteLines(rent, single, D).matches, undefined)).toBe(false);
+  });
+
+  it('M1: the one line changed both its description and its item: another line, refused', () => {
+    const bread = stored('x', { description: 'Bread', unitPrice: 10, itemId: A, ...ZR });
+    expect(run([line({ description: 'Labour', quantity: 3, unitPrice: 500, itemId: B })], [bread]).refused).toMatch(REFUSED);
+    expect(run([line({ description: 'Labour', quantity: 3, unitPrice: 500 })], [bread]).refused).toMatch(REFUSED);
+    // Keeping either is the same line edited: it keeps zero-rated.
+    expect(run([line({ description: 'Bread', unitPrice: 12, itemId: B })], [bread]).kept).toEqual(['zero_rated']);
+    expect(run([line({ description: 'Rye bread', unitPrice: 12, itemId: A })], [bread]).kept).toEqual(['zero_rated']);
+  });
+
+  it('M1: [A standard, B zero-rated], B deleted and a typeless Consulting appended (same count): refused', () => {
+    expect(run([line({ description: 'A' }), line({ description: 'Consulting', quantity: 2, unitPrice: 900 })],
+      [stored('a', { description: 'A' }), stored('b', { description: 'B', ...ZR })]).refused).toMatch(REFUSED);
+  });
+
+  it('L1: a missing or non-text description reads as empty, never a crash', () => {
+    expect(() => matchQuoteLines([{ quantity: 1, unitPrice: 1 } as unknown as SentQuoteLine, line({ description: 7 as unknown as string })], [std, ex], D)).not.toThrow();
+  });
+
+  it('L2 / L3: ids compare case-insensitively, and a line sent by id is not "the one change"', () => {
+    const st = [stored('aa-1', { description: 'A' }), stored('bb-2', { description: 'B', ...EX }), stored('cc-3', { description: 'C' })];
+    const r = run([line({ id: 'AA-1', description: 'A renamed', unitPrice: 1 }), line({ description: 'B', unitPrice: 150 }), line({ description: 'C' })], st);
+    expect(r).toEqual({ ids: ['aa-1', 'bb-2', 'cc-3'], kept: ['standard', 'exempt', 'standard'], refused: null });
+  });
+});
+
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
   it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {

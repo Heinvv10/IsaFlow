@@ -7,7 +7,7 @@ import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import type { AmountsAre } from './invoiceLineVatPricing';
 import { toColumnCents } from './invoiceLineAmount';
 
-interface QuoteCheckedLine { quantity: number; unitPrice: number; taxRate?: unknown; accountId?: string | null; lineNo?: unknown }
+interface QuoteCheckedLine { description?: unknown; quantity: number; unitPrice: number; taxRate?: unknown; accountId?: string | null; lineNo?: unknown }
 
 /** Thrown for W1 line-validation failures — handlers map it to HTTP 400. Re-exported by quoteService. */
 export class LineValidationError extends Error {
@@ -39,6 +39,8 @@ export function quoteAmountsAre(v: unknown): AmountsAre {
 export async function assertValidLines(companyId: string, lines: readonly QuoteCheckedLine[]): Promise<void> {
   for (const [i, l] of (lines || []).entries()) {
     const n = shownPosition(l.lineNo, i + 1); // the number on the form, which may have dropped blank lines
+    // customer_quote_lines.description is NOT NULL: a missing or non-text one (a bare API body) is a 400, not a 23502 500.
+    if (typeof l.description !== 'string' || l.description.trim() === '') throw new LineValidationError(`Line ${n}: description is required`);
     if (!(Number(l.quantity) > 0) || !Number.isFinite(Number(l.quantity))) throw new LineValidationError(`Line ${n}: quantity must be positive`);
     if (!Number.isFinite(Number(l.unitPrice))) throw new LineValidationError(`Line ${n}: unit price must be a number`);
     if (Number(l.unitPrice) < 0) throw new LineValidationError(`Line ${n}: unit price cannot be negative`);

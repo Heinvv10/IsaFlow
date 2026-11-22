@@ -26,6 +26,7 @@ const TOOL = 'delete_draft_credit_note';
 
 export const deleteDraftCreditNoteTool: McpTool = {
   name: TOOL,
+  admits: canDeleteDraftCreditNote,
   description:
     'Delete a DRAFT credit note (customer or supplier) that was never approved, e.g. a duplicate or a mistake. It has '
     + 'no journal, so nothing posts and no balance moves. Only a draft can be deleted: an approved, partially applied '

@@ -150,6 +150,8 @@ as well as the read one, and they say so on the consent screen:
   writes only, never these. `submit_budget_for_review` submits the caller's own budget slice; approving or returning
   a slice stays a person's step in IsaFlow. The reads `get_budget_drivers`, `get_three_way`, `derive_three_way`,
   `budget_remaining` and `budget_tracking` need `read:reports`; per-head pay rates go to owners, admins and managers only.
+  `committed_spend` (`read:reports`, owners, admins and managers) reads the same committed figure by supplier, cost centre, account or
+  month; `po_status_report` (`read:invoices`) shows each purchase order's ordered, received, billed, outstanding and committed value and age.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
