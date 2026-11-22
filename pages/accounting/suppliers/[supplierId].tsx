@@ -143,7 +143,7 @@ export default function SupplierDetailPage() {
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between mb-3">
-            <Link href="/accounting/suppliers" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
+            <Link href="/accounting/suppliers" className="inline-flex items-center gap-1 max-lg:min-h-11 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
               <ArrowLeft className="h-4 w-4" /> Back to Suppliers
             </Link>
             {typeof supplierId === 'string' && (
@@ -166,7 +166,7 @@ export default function SupplierDetailPage() {
             <div className="ml-auto flex items-center gap-2">
               <Link
                 href={`/accounting/suppliers/${supplier.id}/edit`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 max-lg:min-h-11 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
               >
                 <Pencil className="h-4 w-4" />
                 Edit
@@ -175,7 +175,7 @@ export default function SupplierDetailPage() {
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 max-lg:min-h-11 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
                 {deleting ? 'Deleting…' : 'Delete supplier'}
@@ -190,7 +190,7 @@ export default function SupplierDetailPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]' }`}
+              className={`px-4 py-2.5 max-lg:min-h-11 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]' }`}
             >
               {tab.label}
             </button>
