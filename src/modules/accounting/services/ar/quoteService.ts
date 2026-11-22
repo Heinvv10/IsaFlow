@@ -241,7 +241,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   // LEGACY quote whose lines the edit leaves as they are keeps them as stored. An edit naming no mode keeps the stored one.
   const priced = await priceQuoteLines(companyId, {
     clientId: input.clientId || null, quoteDate: qd, lines, amountsAre: input.amountsAre ?? existing.amountsAre,
-    stored: storedQuoteOf(existing),
+    stored: storedQuoteOf(existing), sent: input.lines,
   });
   const { subtotal, tax, total, taxRate, amountsAre } = priced.header;
 

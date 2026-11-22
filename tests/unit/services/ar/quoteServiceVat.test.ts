@@ -30,6 +30,7 @@ const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const QUOTE_ID = '22222222-2222-2222-2222-222222222222';
 const CLIENT_ID = '33333333-3333-3333-3333-333333333333';
 const ITEM_ID = '44444444-4444-4444-4444-444444444444';
+const ITEM_B = '55555555-5555-5555-5555-555555555555';
 
 const text = (call: unknown[]) => (call[0] as readonly string[]).join('?');
 const header = { id: QUOTE_ID, quote_number: 'QUO1', client_id: null, customer_name: 'Acme', quote_date: '2026-11-11', expiry_date: null,
@@ -122,6 +123,12 @@ describe('createQuote: per-line VAT types', () => {
     expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt']);
   });
 
+  it('a line naming a catalogue item and its vatType gets no taxRate from the item (no vatType + taxRate conflict)', async () => {
+    world.itemVat = 'zero';
+    await create([{ description: 'Item line', quantity: 1, unitPrice: 10, itemId: ITEM_ID, vatType: 'standard' }]);
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_rate])).toEqual([['standard', 15]]);
+  });
+
   it('the legacy per-line taxRate: the standard rate is standard, 0 is zero_rated (what the quote form sends)', async () => {
     await create([
       { description: 'A', quantity: 2, unitPrice: 100, taxRate: 15 },
@@ -212,14 +219,6 @@ describe('updateQuote: per-line VAT', () => {
     expect(updatedHeader()).toMatchObject({ subtotal: 61, tax_amount: 0, total: 61, tax_rate: 0, amounts_are: 'exclusive' });
   });
 
-  it('a line that is new (no stored line at its position or like it) takes the default chain', async () => {
-    world.stored = [storedLine({ description: 'Rent', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
-    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
-      { description: 'Rent', quantity: 1, unitPrice: 10 }, { description: 'New', quantity: 1, unitPrice: 31 },
-    ] }, 'u1');
-    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount])).toEqual([['exempt', 0], ['standard', 4.65]]);
-  });
-
   it('a legacy taxRate 0 resent on an exempt line keeps it exempt (a type of that rate)', async () => {
     world.stored = [storedLine({ description: 'Exempt', unit_price: '10.00', amount: '10.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' })];
     await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Exempt', quantity: 1, unitPrice: 10, taxRate: 0 }] }, 'u1');
@@ -247,37 +246,6 @@ describe('updateQuote: per-line VAT', () => {
     expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 12]]);
   });
 
-  it('twins "Widget 1 x 100" standard and exempt, the first deleted: the remaining line resent at 0 stays exempt', async () => {
-    world.stored = [
-      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
-      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
-    ];
-    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }] }, 'u1');
-    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt']);
-  });
-
-  it('Hosting (standard) deleted and Fee (exempt) re-priced, sent with no id or rate: Fee stays exempt', async () => {
-    world.stored = [
-      storedLine({ id: 'h', description: 'Hosting', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
-      storedLine({ id: 'f', sort_order: 2, description: 'Fee', unit_price: '50.00', amount: '50.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
-    ];
-    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee', quantity: 1, unitPrice: 60 }] }, 'u1');
-    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([['exempt', 60]]);
-  });
-
-  it('a typeless line whose saved type cannot be told (twins of different types, a renamed exempt line) is refused, nothing written', async () => {
-    world.stored = [
-      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
-      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
-    ];
-    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Widget', quantity: 1, unitPrice: 100 }] }, 'u1'))
-      .rejects.toThrow(/items\[0\] could be more than one saved line of different VAT types/);
-    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
-      { description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'standard' }, { description: 'Widget (Nov)', quantity: 1, unitPrice: 90 },
-    ] }, 'u1')).rejects.toThrow(InvoiceLineVatRefusal);
-    expect(wrote()).toBe(false);
-  });
-
   it('twins standard and exempt resent unchanged in their places (notes only) save, each keeping its type', async () => {
     world.stored = [
       storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
@@ -296,10 +264,56 @@ describe('updateQuote: per-line VAT', () => {
     expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.amount])).toEqual([[null, 60]]);
   });
 
-  it('a registered company\'s renamed legacy 0% line is refused (it may be zero-rated), nothing written', async () => {
+  it('a standard-only quote: a new line takes the default chain (the customer\'s exempt), a kept one its type', async () => {
+    world.customerVat = 'exempt';
+    world.stored = [storedLine({ description: 'Rent', unit_price: '10.00', amount: '10.00', tax_rate: '15', vat_type: 'standard', tax_amount: '1.5' })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', clientId: CLIENT_ID, lines: [
+      { description: 'Rent', quantity: 1, unitPrice: 10 }, { description: 'New', quantity: 1, unitPrice: 31 },
+    ] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['standard', 'exempt']);
+  });
+
+  const twins = () => [
+    storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15' }),
+    storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0' }),
+  ];
+  it('a quote with an exempt line edited other than in place (a line deleted, a line added, two changed) refuses every typeless line, nothing written', async () => {
+    world.stored = twins();
+    const edit = (lines: Record<string, unknown>[]) => updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines } as never, 'u1');
+    await expect(edit([{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }])).rejects.toThrow(/does not resend them in their places/);
+    await expect(edit([{ description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'New', quantity: 1, unitPrice: 5 }]))
+      .rejects.toThrow(InvoiceLineVatRefusal);
+    await expect(edit([{ description: 'Widget', quantity: 1, unitPrice: 101 }, { description: 'Widget', quantity: 1, unitPrice: 102 }])).rejects.toThrow(InvoiceLineVatRefusal);
+    expect(wrote()).toBe(false);
+  });
+
+  it('the same edits naming each line\'s vatType (as the quote modal does) or id save', async () => {
+    world.stored = twins();
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { id: 'w2', description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'New', quantity: 1, unitPrice: 5, vatType: 'standard' },
+    ] } as never, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['exempt', 'standard']);
+  });
+
+  it('M2: matched on the lines as SENT, not after the item inheritance (twins of items A and B, the first re-priced)', async () => {
+    world.stored = [
+      storedLine({ id: 'w1', description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: 'standard', tax_amount: '15', item_id: ITEM_ID }),
+      storedLine({ id: 'w2', sort_order: 2, description: 'Widget', unit_price: '100.00', amount: '100.00', tax_rate: '0', vat_type: 'exempt', tax_amount: '0', item_id: ITEM_B }),
+    ];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { description: 'Widget', quantity: 1, unitPrice: 110 }, { description: 'Widget', quantity: 1, unitPrice: 100 },
+    ] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['standard', 'exempt']);
+  });
+
+  it('a registered company\'s legacy 0% line renamed in place keeps zero-rated; renamed with a line added it is refused', async () => {
     world.stored = [storedLine({ description: 'Fee', unit_price: '50.00', amount: '50.00', tax_rate: '0', vat_type: null, tax_amount: null })];
-    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }] }, 'u1'))
-      .rejects.toThrow(/had a zero-rated line it may be/);
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.vat_type)).toEqual(['zero_rated']);
+    mockSql.mockClear();
+    await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }, { description: 'Extra', quantity: 1, unitPrice: 5 },
+    ] }, 'u1')).rejects.toThrow(/does not resend them in their places/);
     expect(wrote()).toBe(false);
   });
 
