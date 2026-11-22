@@ -2,13 +2,14 @@
  * Sage migration runner (Phase D). LOCAL DATABASES ONLY: it refuses to start unless DATABASE_URL (and any other database URL in
  * the environment) is a local throwaway database (src/modules/accounting/services/sage-migration/localGuard.ts).
  *
- *   DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun scripts/sage-migration/run.ts \
+ *   DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
  *     --company <uuid> --user <uuid> --file <export.json> [--live] [--report <file>] [--skip-budget-check] \
  *     [--expect-items N] [--expect-pos N] [--expect-po-total 80950000.00]
  *
  * Without --live: the dry run only, nothing written. With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
- * run or a complete live run, 1 for anything else, 2 for a refused start. Format and mapping: docs/design/sage-migration-export-format.md.
+ * run or a complete live run whose --expect-* figures match the export, 1 for anything else, 2 for a refused start.
+ * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -60,7 +61,10 @@ async function main(): Promise<void> {
     });
     if (values.report) writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
     for (const line of summaryLines(report)) out(line);
-    process.exitCode = report.status === 'dry_run_ok' || report.status === 'completed' ? 0 : 1;
+    const rec = report.reconciliation;
+    const expectationsMet = Object.values(rec.expected).every((e) => e === null || e.ok);
+    const finished = report.status === 'dry_run_ok' || (report.status === 'completed' && rec.complete);
+    process.exitCode = finished && expectationsMet ? 0 : 1;
   } finally {
     await pool.end();
   }

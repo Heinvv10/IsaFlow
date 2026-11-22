@@ -62,7 +62,7 @@ message, and its rows are not written.
 ## Running it (local databases only)
 
 ```
-DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun scripts/sage-migration/run.ts \
+DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
   --company <uuid> --user <uuid> --file export.json [--live] [--report report.json] [--skip-budget-check] \
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
@@ -70,4 +70,6 @@ DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun scripts/sag
 Without `--live` it is a dry run and writes nothing. With `--live` it dry-runs first and goes live only if the dry run is clean.
 The runner refuses unless `DATABASE_URL` is a local throwaway database (`localGuard.ts`): host 127.0.0.1 or localhost, an
 explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query parameters but `sslmode`, and a database named
-`isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`. It never reads `.env` files.
+`isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
+`MIGRATION_ADMIN_DATABASE_URL` are held to the same rule when set. `--no-env-file` keeps bun from loading a `.env.local`.
+Exit 0 = clean dry run, or a complete live run whose `--expect-*` figures match; 1 = anything else; 2 = refused start.
