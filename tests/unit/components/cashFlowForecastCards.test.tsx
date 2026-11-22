@@ -15,7 +15,7 @@ vi.mock('@/lib/apiFetch', async (orig) => ({
       alerts: [],
       assumptions: ['Based on 12 months of history'],
       historical: [],
-      forecastPoints: [{ date: '2026-12-01', label: 'Dec 2026', projectedInflow: 500, projectedOutflow: 300, projectedNet: 200, projectedBalance: 1200, confidence: 80 }],
+      forecastPoints: [{ date: '2026-12-01', label: 'Dec 2026', projectedInflow: 500, projectedOutflow: 300, projectedNet: 200, projectedBalance: 1200, confidence: 0.8 }],
     },
   }), { status: 200, headers: { 'Content-Type': 'application/json' } })),
 }));
