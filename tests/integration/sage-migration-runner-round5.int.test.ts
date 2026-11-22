@@ -30,22 +30,37 @@ const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: R
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
 
 describe('M2: the run lock is watched', () => {
-  it('its connection killed after the first category batch: the run stops at the next phase boundary with the committed batches, items not started', async () => {
+  const killLock = async () => {
     const [k1, k2] = migrationLockKey(s.companyId);
-    const killLock = async () => {
-      await pool.query(
-        `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,
-        [String(BigInt.asUintN(32, BigInt(k1))), String(BigInt.asUintN(32, BigInt(k2)))]);
-      await new Promise((r) => setTimeout(r, 150)); // let the server drop it and the client see it
-    };
-    const hooked = afterCommitOf(pool, 'upsert_item_category', { after: killLock });
-    const err = await run({}, exportFile(), hooked).then(() => null, (e: unknown) => e);
+    await pool.query(
+      `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,
+      [String(BigInt.asUintN(32, BigInt(k1))), String(BigInt.asUintN(32, BigInt(k2)))]);
+    await new Promise((r) => setTimeout(r, 150)); // let the server drop it and the client see it
+  };
+  const stoppedAfter = async (tool: string): Promise<MigrationStopped> => {
+    const err = await run({}, exportFile(), afterCommitOf(pool, tool, { after: killLock })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(MigrationStopped);
-    const stopped = err as MigrationStopped;
-    expect(stopped.liveStarted).toBe(true);
-    expect(stopped.message).toMatch(/lock lost/);
+    expect((err as MigrationStopped).liveStarted).toBe(true);
+    expect((err as MigrationStopped).message).toMatch(/lock lost/);
+    return err as MigrationStopped;
+  };
+
+  it('killed after the category batches: the run stops before the items phase, the committed batches listed', async () => {
+    const stopped = await stoppedAfter('upsert_item_category');
     expect(stopped.committed.map((b) => b.entity)).toContain('category');
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, pos: 0 }); // the items phase never started
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, pos: 0 });
+  });
+
+  it('killed after the items batch: the run stops before the PO phase', async () => {
+    const stopped = await stoppedAfter('bulk_upsert_items');
+    expect(stopped.committed.map((b) => b.entity)).toContain('item');
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 0 });
+  });
+
+  it('killed after the PO batches: the run stops before its final reading, the POs are committed and listed', async () => {
+    const stopped = await stoppedAfter('bulk_create_purchase_orders');
+    expect(stopped.committed.map((b) => b.entity)).toContain('purchase_order');
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 });
   });
 
   it('with nothing killed the same run completes (the watch is no false alarm)', async () => {
