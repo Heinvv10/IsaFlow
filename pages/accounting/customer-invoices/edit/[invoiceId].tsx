@@ -260,6 +260,7 @@ export default function EditCustomerInvoicePage() {
           <div className="max-w-screen-2xl mx-auto min-w-0 space-y-5">
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
+              {baselineWaits && <p role="status" className="text-xs text-slate-600 dark:text-slate-400">{"Loading the customer's VAT defaults…"}</p>}
               <fieldset disabled={approve.busy || approved || baselineWaits} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} options={codingOptions}
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} />

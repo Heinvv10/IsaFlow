@@ -66,6 +66,7 @@ describe('the edit page waits for the customer a line follows', () => {
     await pastDebounce();
     expect(puts()).toHaveLength(0); // never the line typed by no customer (standard)
     expect(saveChanges().disabled).toBe(true);
+    expect(screen.queryByText("Loading the customer's VAT defaults…")).toBeNull(); // the form stays editable: no hint
     await act(async () => { beta.release(); await beta.promise; });
     await pastDebounce();
     await waitFor(() => expect(puts()).toHaveLength(1));
@@ -100,8 +101,11 @@ describe('the edit page waits for the customer a line follows', () => {
     await waitFor(() => expect(lookups('c-1')).toBe(1));
     // The server's baseline is the first body: an edit typed now would be in it, and never autosaved.
     expect(form().disabled).toBe(true);
+    const hint = () => screen.queryByText("Loading the customer's VAT defaults…");
+    expect(hint()?.closest('[role="status"]')).toBeTruthy(); // said why, not a greyed form with no reason
     await act(async () => { stored.release(); await stored.promise; });
     await waitFor(() => expect(form().disabled).toBe(false));
+    expect(hint()).toBeNull();
     await pastDebounce();
     expect(puts()).toHaveLength(0);
     fireEvent.change(field, { target: { value: 'After the answer' } });
