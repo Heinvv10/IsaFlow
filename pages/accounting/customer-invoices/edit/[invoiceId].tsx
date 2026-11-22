@@ -134,7 +134,7 @@ export default function EditCustomerInvoicePage() {
         billingPeriodStart: invoice.billing_period_start ? String(invoice.billing_period_start).slice(0, 10) : '',
         billingPeriodEnd: invoice.billing_period_end ? String(invoice.billing_period_end).slice(0, 10) : '',
         notes: invoice.notes || '',
-        currencyCode: invoice.currency_code || 'ZAR',
+        currencyCode: String(invoice.currency_code ?? '').trim().toUpperCase() || 'ZAR', // as the server reads it (customerInvoiceDraftEdit)
         exchangeRate: Number(invoice.exchange_rate ?? 1),
         projectId: invoice.project_id ?? '',
       });

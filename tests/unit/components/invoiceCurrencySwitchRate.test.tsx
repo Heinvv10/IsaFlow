@@ -110,4 +110,23 @@ describe('a currency picked: the rate is the user\'s to give', () => {
     expect(alertText()).not.toContain('Exchange rate');
     expect(JSON.parse(String((sent('PUT')[0]![1] as RequestInit).body))).toMatchObject({ currencyCode: 'ZAR', exchangeRate: 1 });
   });
+
+  it('edit page: a code stored in lower case ("zar", " usd") reads as the server reads it (trimmed, upper-cased)', async () => {
+    h.query = { invoiceId: 'inv-1' };
+    serve({ ...INV, currency_code: 'zar', exchange_rate: 0 });
+    const { unmount } = render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    expect(rate()).toBeNull(); // ZAR: no rate field, and nothing holds Save
+    const save = screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() => expect(sent('PUT')).toHaveLength(1));
+    expect(JSON.parse(String((sent('PUT')[0]![1] as RequestInit).body))).toMatchObject({ currencyCode: 'ZAR', exchangeRate: 1 });
+    unmount();
+    serve({ ...INV, currency_code: ' usd', exchange_rate: 18.5 });
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    expect(Number(rate().value)).toBe(18.5);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/ZAR equivalent/);
+  });
 });
