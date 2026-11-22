@@ -73,7 +73,8 @@ export async function withToolSession<T>(
     const session: ToolSession = {
       companyId,
       call: async (name, args) => {
-        // The registry's company guard: every write names the company it was told to write to.
+        // The registry's company guard only COMPARES this with the context's company (it selects nothing); the tenant is held by the
+        // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
         const r = await mcpRegistry.call(name, sent, ctx);
         return outcome(r.content[0]?.text ?? '', r.isError === true);

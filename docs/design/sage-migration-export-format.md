@@ -21,7 +21,7 @@ Fields not listed below are ignored. Money is a JSON number.
 | `Description` | required, 1-255 chars | `description` |
 | `Active` | required boolean | `is_active` |
 | `Physical` | required boolean; false = service | `item_type` `physical` / `service` |
-| `PriceExclusive` | optional, >= 0 | `sales_price` |
+| `PriceExclusive` | optional, >= 0, whole cents (a third decimal is refused) | `sales_price` |
 | `PriceInclusive` | ignored | |
 | `LastCost`, `AverageCost` | optional, >= 0, rounded to cents | `purchase_price`: LastCost when above 0, else AverageCost |
 | `TaxTypeIdSales`, `TaxTypeIdPurchases` | optional; 1 standard, 2 zero, 3 exempt, any other id is refused | `vat_on_sales`, `vat_on_purchases` |
@@ -37,7 +37,7 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 |---|---|---|
 | `ID` | required | `external_ref` (`sage`) |
 | `DocumentNumber` | required, unique in the file | `po_number`, `external_document_number` |
-| `Date`, `DeliveryDate` | `YYYY-MM-DD` or an ISO date-time; Date required | `order_date`, `delivery_date` |
+| `Date`, `DeliveryDate` | `YYYY-MM-DD` or an ISO date-time; Date required. A date-time with a Z or an offset is converted to the Johannesburg (UTC+2) date: `2026-03-04T22:00:00Z` is 2026-03-05; with no zone it is taken as written | `order_date`, `delivery_date` |
 | `Status` | Pending, Overdue, Invoiced, Cancelled (any case) | open, open, billed (= closed), cancelled; any other is refused |
 | `Reference`, `Comments` | optional | `reference`; `notes` = "Sage status: X" + comments |
 | `SupplierId`, `SupplierName` | `SupplierId` required | `supplier_id`: found by Sage reference on the supplier, else by exact name; unresolved or ambiguous refuses the PO |
@@ -45,7 +45,7 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 | `PdfFile` | optional file name of the PO's PDF | listed in the report; **not uploaded by the runner** |
 | `Lines[]` | at least one | `lines` |
 | `Lines[].Description`, `Quantity` (> 0, 2 dp), `UnitPriceExclusive` | required | `description`, `quantity`, `unit_price` |
-| `Lines[].TaxPercentage` / `TaxTypeId` | one of them; both must agree | `tax_rate` |
+| `Lines[].TaxPercentage` / `TaxTypeId` | one of them; both must agree. The rate is the one that applied on the PO date: standard 14% before 2018-04-01, 15% from then; a percentage is that rate or 0, any other is refused | `tax_rate` |
 | `Lines[].Exclusive`, `Tax` | optional, whole cents | `line_total`, `tax_amount` |
 | `Lines[].ItemId` (alias `SelectionId`) | optional; must be an item in the file | " [item CODE]" appended to the description |
 
@@ -55,15 +55,17 @@ The PO tool has no `item_id` on a line, so the link to the item is the code in t
 
 A row is refused with a code and every reason: `invalid_row`, `duplicate_id`, `duplicate_code`, `duplicate_number`,
 `category_description_conflict`, `category_name_collision`, `unknown_status`, `line_item_unknown`, `supplier_unresolved`,
-`supplier_ambiguous`, `tool_refuses` (the item or PO tool's own validator). A refused row is reported and not sent; the rest of
-the file goes on. A batch the tool refuses as a whole (a number already taken, a budget block) is reported with the tool's
-message, and its rows are not written.
+`supplier_ambiguous` (also when a supplier name search hits its 1000-row cap), `line_item_refused` (a line names an item that is
+refused), `code_in_use_by_other_ref`, `ref_code_conflict`, `item_deleted` (the company already holds the code under another
+reference, or the item was deleted), `po_number_taken` (another PO carries the number), `tool_refuses` (the item or PO tool's own
+validator). A refused row is reported and not sent; the rest of the file goes on. A batch a tool refuses as a whole (a budget
+block, a race) fails the dry run, so nothing is written; its whole message is in the report file, the console shows its start.
 
 ## Running it (local databases only)
 
 ```
 DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
-  --company <uuid> --user <uuid> --file export.json [--live] [--report report.json] [--skip-budget-check] \
+  --company <uuid> --user <uuid> --file export.json [--live] [--report report.json] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] \
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
 
@@ -72,4 +74,8 @@ The runner refuses unless `DATABASE_URL` is a local throwaway database (`localGu
 explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query parameters but `sslmode`, and a database named
 `isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
 `MIGRATION_ADMIN_DATABASE_URL` are held to the same rule when set. `--no-env-file` keeps bun from loading a `.env.local`.
-Exit 0 = clean dry run, or a complete live run whose `--expect-*` figures match; 1 = anything else; 2 = refused start.
+Exit 0 = a clean dry run, or a live run that booked everything it sent; `--expect-*` figures must match what was sent (dry) or
+booked (live); and no row refused unless `--allow-refusals`. 1 = anything else; 2 = refused start. The dry run writes categories and
+POs inside its rolled-back transaction so each PO batch's budget check sees the batches before it. `--po-gl-account` puts one expense
+account on every PO line so the budget check judges the lines (with none a line is "No budget" and never blocked).
+`--skip-budget-check` lists the POs the check would have blocked.
