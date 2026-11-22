@@ -25,25 +25,58 @@ const WRITES = 'src/modules/accounting/services/gl/approvalRequestWrites.ts';
  */
 const CANCEL = 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts';
 
-/** Every file (relative path) holding a call that RESOLVES to a function declared `name` in `declFile`. */
-function callersOf(program: ts.Program, name: string, declFile: string, rel: (f: string) => string): string[] {
+/** The function `name` declared in `declFile` that `id` resolves to (aliases and barrel re-exports followed), else undefined. */
+function resolvesTo(checker: ts.TypeChecker, id: ts.Node, name: string, declFile: string, rel: (f: string) => string): boolean {
+  let sym = checker.getSymbolAtLocation(id);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  const d = sym?.declarations?.[0];
+  return Boolean(d && rel(d.getSourceFile().fileName) === declFile && sym!.name === name);
+}
+
+/** Every call (with its file's relative path) that RESOLVES to a function declared `name` in `declFile`. */
+function callsOf(program: ts.Program, name: string, declFile: string, rel: (f: string) => string): { file: string; call: ts.CallExpression }[] {
   const checker = program.getTypeChecker();
-  const out = new Set<string>();
+  const out: { file: string; call: ts.CallExpression }[] = [];
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || sf.fileName.includes('node_modules')) continue;
     const visit = (n: ts.Node) => {
       if (ts.isCallExpression(n)) {
         const id = ts.isPropertyAccessExpression(n.expression) ? n.expression.name : n.expression;
-        let sym = checker.getSymbolAtLocation(id);
-        if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-        const d = sym?.declarations?.[0];
-        if (d && rel(d.getSourceFile().fileName) === declFile && sym!.name === name) out.add(rel(sf.fileName));
+        if (resolvesTo(checker, id, name, declFile, rel)) out.push({ file: rel(sf.fileName), call: n });
       }
       ts.forEachChild(n, visit);
     };
     visit(sf);
   }
-  return [...out].sort();
+  return out;
+}
+
+/** Every file (relative path) holding a call that RESOLVES to a function declared `name` in `declFile`. */
+function callersOf(program: ts.Program, name: string, declFile: string, rel: (f: string) => string): string[] {
+  return [...new Set(callsOf(program, name, declFile, rel).map((c) => c.file))].sort();
+}
+
+/**
+ * In `file`, what each resolved decideRequest call passes as its decision (a string literal's text, else a marker), plus every
+ * reference to decideRequest that is not a call's callee or an import (a value passed on, which could be called with anything).
+ * Review L1 of 819c2861c0: by symbol, so a namespace (`approvals.decideRequest`) or aliased (`as settle`) call is seen too.
+ */
+function decisionsIn(program: ts.Program, file: string, declFile: string, rel: (f: string) => string): string[] {
+  const out = callsOf(program, 'decideRequest', declFile, rel).filter((c) => c.file === file).map(({ call }) => {
+    const arg = call.arguments[2];
+    return arg && ts.isStringLiteral(arg) ? arg.text : `<not a literal: ${arg?.getText() ?? 'missing'}>`;
+  });
+  const sf = program.getSourceFiles().find((f) => rel(f.fileName) === file);
+  const checker = program.getTypeChecker();
+  const visit = (n: ts.Node) => {
+    if (ts.isIdentifier(n) && !ts.isImportSpecifier(n.parent) && !ts.isNamespaceImport(n.parent) && resolvesTo(checker, n, 'decideRequest', declFile, rel)) {
+      const callee = ts.isPropertyAccessExpression(n.parent) && n.parent.name === n ? n.parent : n;
+      if (!(ts.isCallExpression(callee.parent) && callee.parent.expression === callee)) out.push(`<a reference, not a call: ${n.parent.getText()}>`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  if (sf) visit(sf);
+  return out;
 }
 
 describe('decideRequest and approval_request_decide', () => {
@@ -59,19 +92,9 @@ describe('decideRequest and approval_request_decide', () => {
     expect(definer).toEqual([WRITES]);
   }, 180_000);
 
-  it('off-cycle cancel only ever rejects: every decideRequest call there passes the string literal \'rejected\' as its decision', () => {
-    const sf = ts.createSourceFile(CANCEL, readFileSync(CANCEL, 'utf8'), ts.ScriptTarget.Latest, true);
-    const decisions: string[] = [];
-    const visit = (n: ts.Node) => {
-      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'decideRequest') {
-        const arg = n.arguments[2];
-        decisions.push(arg && ts.isStringLiteral(arg) ? arg.text : `<not a literal: ${arg?.getText(sf) ?? 'missing'}>`);
-      }
-      ts.forEachChild(n, visit);
-    };
-    visit(sf);
-    expect(decisions).toEqual(['rejected']);
-  });
+  it('off-cycle cancel only ever rejects: every call resolving to decideRequest there passes the string literal \'rejected\'', () => {
+    expect(decisionsIn(real(), CANCEL, SERVICE, relReal)).toEqual(['rejected']);
+  }, 180_000);
 
   it('in the route, the approving path is refused (an if whose then-branch returns) BEFORE decideRequest, in an enclosing block', () => {
     const sf = ts.createSourceFile(ROUTE, readFileSync(ROUTE, 'utf8'), ts.ScriptTarget.Latest, true);
@@ -114,6 +137,27 @@ describe('decideRequest and approval_request_decide', () => {
     });
     it('a property call on a namespace import is caught', () => {
       expect(project({ '/v/fourth.ts': "import * as svc from './svc';\nexport async function x() { await svc.decideRequest('c'); }" })).toEqual(['/v/fourth.ts', '/v/route.ts']);
+    });
+    // Review L1 of 819c2861c0: the cancel pin, by symbol.
+    const decisions = (cancel: string) => {
+      const v: Record<string, string> = {
+        '/v/svc.ts': "export async function decideRequest(c: string, r: string, d: 'approved' | 'rejected') { return c + r + d; }",
+        '/v/cancel.ts': cancel,
+      };
+      return decisionsIn(programFor(Object.keys(v), v), '/v/cancel.ts', '/v/svc.ts', (f) => f);
+    };
+    it('cancel pin baseline: a direct rejecting call', () => {
+      expect(decisions("import { decideRequest } from './svc';\nexport const x = () => decideRequest('c', 'r', 'rejected');")).toEqual(['rejected']);
+    });
+    it('cancel pin: an approving call through a namespace import is caught', () => {
+      expect(decisions("import * as approvals from './svc';\nexport const x = () => approvals.decideRequest('c', 'r', 'approved');")).toEqual(['approved']);
+    });
+    it('cancel pin: an approving call through an aliased import is caught', () => {
+      expect(decisions("import { decideRequest as settle } from './svc';\nexport const x = () => settle('c', 'r', 'approved');")).toEqual(['approved']);
+    });
+    it('cancel pin: decideRequest passed on as a value is caught', () => {
+      expect(decisions("import { decideRequest } from './svc';\nconst f = decideRequest;\nexport const x = () => f('c', 'r', 'approved');"))
+        .toEqual(['<a reference, not a call: f = decideRequest>']);
     });
     it('a same-named function elsewhere is NOT a caller', () => {
       expect(project({ '/v/other.ts': "function decideRequest(c: string) { return c; }\nexport const y = decideRequest('c');" })).toEqual(['/v/route.ts']);
