@@ -75,7 +75,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
               const days = daysOverdueAsAt(inv.dueDate, asAtDate);
               return (
                 <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
-                  <td data-label="Invoice #" className="pl-12 pr-4 py-2 text-sm font-mono">
+                  <td data-label="Invoice #" className="pl-12 pr-4 py-2 text-sm font-mono max-lg:items-center">
                     <Link href={buildInvoiceHref(inv.id, { from, entityId, asAtDate })} className={`${INVOICE_LINK} max-lg:inline-flex max-lg:items-center max-lg:min-h-11`}>
                       {inv.invoiceNumber}
                     </Link>

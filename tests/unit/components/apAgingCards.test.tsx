@@ -51,6 +51,7 @@ describe('AP aging on touch', () => {
     fireEvent.click(await screen.findByText('Acme Supplies', { selector: 'a' }).then(a => a.closest('tr')!));
     const link = await screen.findByRole('link', { name: 'SI-1' });
     expect(link.className).toContain('max-lg:min-h-11');
+    expect(link.closest('td')!.className).toContain('max-lg:items-center'); // centred against its label
     const inner = container.querySelectorAll('table')[1];
     expect(inner.className).toContain('table-cards');
     expect(labels(inner)).toEqual(heads(inner));
