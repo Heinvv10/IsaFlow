@@ -112,6 +112,8 @@ describe('never guessed: a typeless line whose saved type cannot be told', () =>
     expect(problem([{ description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'exempt' }], [std, ex])).toBeNull();
     expect(problem([{ id: 's2', description: 'Widget', quantity: 1, unitPrice: 100 }], [std, ex])).toBeNull();
     expect(problem([{ description: 'Widget', quantity: 1, unitPrice: 100, taxRate: 0 }], [std, ex])).toBeNull();
+    // A new line naming its type beside a saved exempt line it does not match: the type is the caller's, nothing guessed.
+    expect(problem([{ description: 'Other', quantity: 1, unitPrice: 5, vatType: 'standard' }], [fee])).toBeNull();
   });
 
   it('a new typeless line beside only standard saved lines takes the default chain (no refusal)', () => {
