@@ -25,4 +25,6 @@ export interface Tab {
   /** Plain daily navigation links, shown above `topItems` and the sections. */
   links?: DropdownItem[];
   items?: NavItem[];
+  /** A slot held while the nav's answers load (`NAV_PENDING`): drawn invisible and inert, so nothing after it moves. */
+  pending?: boolean;
 }

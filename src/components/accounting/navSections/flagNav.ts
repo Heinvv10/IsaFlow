@@ -33,6 +33,13 @@ export const NAV_MODULES: readonly string[] = [...new Set(Object.values(MODULE_S
 /** The read markers of `NAV_MODULES`. */
 export const MODULE_READ_NAV_FLAGS: readonly string[] = NAV_MODULES.map(moduleReadFlag);
 
+/**
+ * In the set while the answers are still loading (`useNavFlags`). It enables nothing: what it gates stays hidden. A
+ * nav drawn as a row or a column passes `keepSlots` so a whole tab it would drop is kept as a `pending` slot instead,
+ * laid out but invisible, and the tabs after it do not move when the answer lands (the shell layout-shift gate).
+ */
+export const NAV_PENDING = 'nav:pending';
+
 /** Every flag the nav filters on: a set holding all of them hides nothing. */
 export const NAV_FLAGS: readonly string[] = [...FEATURE_NAV_FLAGS, ...MODULE_READ_NAV_FLAGS];
 
@@ -67,14 +74,14 @@ function stripItems(items: NavItem[], enabled: ReadonlySet<string>): NavItem[] {
   return kept;
 }
 
-function stripTab(tab: Tab, enabled: ReadonlySet<string>): Tab | null {
+function stripTab(tab: Tab, enabled: ReadonlySet<string>, keepSlots: boolean): Tab | null {
   const items = tab.items ? stripItems(tab.items, enabled) : undefined;
   const topItems = tab.topItems?.filter((i) => !hidden(i.href, enabled));
   const links = tab.links?.filter((i) => !hidden(i.href, enabled));
   const href = tab.href && !hidden(tab.href, enabled) ? tab.href : undefined;
   const hadLinks = Boolean(tab.items?.length) || Boolean(tab.topItems?.length) || Boolean(tab.links?.length) || Boolean(tab.href);
   const hasLinks = Boolean(items?.length) || Boolean(topItems?.length) || Boolean(links?.length) || Boolean(href);
-  if (hadLinks && !hasLinks) return null;
+  if (hadLinks && !hasLinks) return keepSlots && enabled.has(NAV_PENDING) ? { ...tab, pending: true } : null;
   const next: Tab = { ...tab, ...(items ? { items } : {}), ...(topItems ? { topItems } : {}), ...(links ? { links } : {}) };
   if (href) next.href = href;
   else delete next.href;
@@ -83,9 +90,9 @@ function stripTab(tab: Tab, enabled: ReadonlySet<string>): Tab | null {
 
 /**
  * Remove the links whose flag is not in `enabled`. Returns `tabs` unchanged (same reference) when every
- * nav flag is enabled, so a flagged company pays nothing for this.
+ * nav flag is enabled, so a flagged company pays nothing for this. `keepSlots`: see `NAV_PENDING`.
  */
-export function stripFlagNav(tabs: Tab[], enabled: ReadonlySet<string>): Tab[] {
+export function stripFlagNav(tabs: Tab[], enabled: ReadonlySet<string>, keepSlots = false): Tab[] {
   if (NAV_FLAGS.every((f) => enabled.has(f))) return tabs;
-  return tabs.map((t) => stripTab(t, enabled)).filter((t): t is Tab => t !== null);
+  return tabs.map((t) => stripTab(t, enabled, keepSlots)).filter((t): t is Tab => t !== null);
 }

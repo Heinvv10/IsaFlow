@@ -42,7 +42,9 @@ function server(payroll: Perm | 'fail' | 'hang'): void {
   });
 }
 
-const tabIds = () => (h.moduleTabs.at(-1) ?? []).map((t) => t.id);
+/** The tabs the top bar shows: a `pending` slot (held invisible while the answer loads) is not shown. */
+const shown = (tabs: Tab[]) => tabs.filter((t) => !t.pending).map((t) => t.id);
+const tabIds = () => shown(h.moduleTabs.at(-1) ?? []);
 
 beforeEach(() => { resetNavFlagsCache(); h.moduleTabs = []; h.apiFetch.mockReset(); });
 afterEach(() => { cleanup(); });
@@ -59,21 +61,25 @@ describe('AccountingNav (the top bar)', () => {
     render(<AccountingNav />);
     await waitFor(() => expect(h.apiFetch).toHaveBeenCalledWith(expect.stringContaining('/api/accounting/my-permissions')));
     await waitFor(() => expect(tabIds()).toContain('sales'));
-    expect(tabIds()).not.toContain('payroll');
+    // The slot held while the answer loaded goes too once the answer is no.
+    await waitFor(() => expect(h.moduleTabs.at(-1)!.map((t) => t.id)).not.toContain('payroll'));
   });
 
   it('does not flash Payroll in before the answer: the first render has no Payroll tab', async () => {
     server({ read: true, write: false, approve: false });
     render(<AccountingNav />);
-    expect(h.moduleTabs[0]!.map((t) => t.id)).not.toContain('payroll');
+    expect(shown(h.moduleTabs[0]!)).not.toContain('payroll');
+    // Its slot is held, invisible, where it will appear, so the tabs after it do not move when the answer lands.
+    expect(h.moduleTabs[0]!.find((t) => t.id === 'payroll')?.pending).toBe(true);
     await waitFor(() => expect(tabIds()).toContain('payroll'));
+    expect(h.moduleTabs.at(-1)!.map((t) => t.id).indexOf('payroll')).toBe(h.moduleTabs[0]!.map((t) => t.id).indexOf('payroll'));
   });
 
   it('keeps Payroll hidden while the answer is pending', async () => {
     server('hang');
     render(<AccountingNav />);
     await waitFor(() => expect(h.apiFetch).toHaveBeenCalled());
-    expect(h.moduleTabs.every((tabs) => !tabs.some((t) => t.id === 'payroll'))).toBe(true);
+    expect(h.moduleTabs.every((tabs) => !shown(tabs).includes('payroll'))).toBe(true);
   });
 
   it('keeps Payroll hidden when the permissions request fails', async () => {

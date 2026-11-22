@@ -14,9 +14,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { FEATURE_NAV_FLAGS, moduleReadFlag, NAV_MODULES } from '@/components/accounting/navSections/flagNav';
+import { FEATURE_NAV_FLAGS, moduleReadFlag, NAV_MODULES, NAV_PENDING } from '@/components/accounting/navSections/flagNav';
 
 const NONE: ReadonlySet<string> = new Set();
+/** Inside the providers before the answers are in: hides what NONE hides, and lets a row nav hold the slots (`NAV_PENDING`). */
+const PENDING: ReadonlySet<string> = new Set([NAV_PENDING]);
 const resolved = new Map<string, ReadonlySet<string>>();
 /** What arrived when one of the two answers failed: used on screen, never final (asked again after the backoff). */
 const partial = new Map<string, { flags: ReadonlySet<string>; retryAfter: number }>();
@@ -94,19 +96,23 @@ function useAuthUser(): { inProvider: boolean; id: string | null } {
   }
 }
 
-/** The active company's id, or null outside a CompanyProvider (a nav rendered on its own in a test or a shell). */
-function useActiveCompanyIdOrNull(): string | null {
+/**
+ * The active company's id, or null outside a CompanyProvider (a nav rendered on its own in a test or a shell); `loading`
+ * while the provider is still finding it.
+ */
+function useActiveCompanyOrNull(): { id: string | null; loading: boolean } {
   try {
     // useCompany calls useContext first on every render and only then throws, so the hook order never changes.
-    return useCompany().activeCompany?.id ?? null;
+    const company = useCompany();
+    return { id: company.activeCompany?.id ?? null, loading: company.loading === true };
   } catch (err) {
     if (!(err instanceof Error && err.message.includes('within a CompanyProvider'))) throw err;
-    return null;
+    return { id: null, loading: false };
   }
 }
 
 export function useNavFlags(): ReadonlySet<string> {
-  const companyId = useActiveCompanyIdOrNull();
+  const { id: companyId, loading: companyLoading } = useActiveCompanyOrNull();
   const { inProvider, id: userId } = useAuthUser();
   // Inside the AuthProvider with no user yet (still loading): nothing is asked and nothing is cached, so no answer is stored under a
   // key that is not this user's; the key appears when the user does.
@@ -120,5 +126,7 @@ export function useNavFlags(): ReadonlySet<string> {
     void loadNavFlags(companyId, userId).then(() => { if (!gone) setAnswered((n) => n + 1); });
     return () => { gone = true; };
   }, [companyId, userId, key]);
-  return key ? resolved.get(key) ?? partial.get(key)?.flags ?? NONE : NONE;
+  if (key) return resolved.get(key) ?? partial.get(key)?.flags ?? PENDING;
+  // Still loading the company or the user: the answer is coming, so the slots are held (no answer is coming outside the providers).
+  return companyLoading || (companyId && inProvider && !userId) ? PENDING : NONE;
 }
