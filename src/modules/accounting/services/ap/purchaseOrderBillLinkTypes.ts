@@ -3,7 +3,7 @@
  * shapes the planner (`purchaseOrderBillLinkPlan`, pure), the reader under lock (`purchaseOrderBillLinkRead`) and the
  * writers (`purchaseOrderBillLink`, `purchaseOrderBillUnlink`) share. Money is integer cents inside, rand on the wire.
  */
-import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, isFullyBilled } from '../budgets/poCommitStatus';
 
 /** PO statuses a bill may be linked to: the committing ones, and closed (a Sage Invoiced PO is imported closed). */
 export const LINKABLE_PO_STATUSES = ['approved', 'partially_received', 'received', 'closed'] as const;
@@ -11,8 +11,8 @@ export const LINKABLE_PO_STATUSES = ['approved', 'partially_received', 'received
 export const CLOSABLE_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
 /** The bill statuses MCP links accept, and the ones that count as billed (approved / paid / partially_paid). */
 export const LINKABLE_BILL_STATUSES: readonly string[] = BILLED_STATUSES;
-/** A PO is fully billed from this many cents short of its subtotal (Hein, 19 Nov). */
-export const FULLY_BILLED_TOLERANCE_CENTS = 1;
+/** A PO is fully billed from this many cents short of its subtotal (Hein, 19 Nov): budgets/poCommitStatus. */
+export { FULLY_BILLED_TOLERANCE_CENTS, isFullyBilled };
 export const MAX_LINKS_PER_CALL = 200;
 
 export interface LinkRowRefusal { index: number; reason: string }
@@ -42,7 +42,8 @@ export interface LinkRequest {
   ref: { system: string; ref: string } | null;
 }
 
-export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number }
+/** `subtotalCents`: the billing basis, max(header subtotal, lines' total) (review r7 M2); `headerSubtotalCents`: the header's own. */
+export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number; headerSubtotalCents: number }
 
 export interface BillLineFacts {
   id: string;
@@ -71,10 +72,12 @@ export interface ExistingLink {
   poId: string;
   billId: string;
   billStatus: string;
+  /** What the pair holds by the one attribution (`budgets/billAttribution`): the lines' posted amount when lines name the PO. */
   amountCents: number;
+  /** The amount stored on the row, as the link tool wrote it: what an idempotent replay is compared against (review r3 L1). */
+  storedAmountCents: number;
   refSystem: string | null;
   refRef: string | null;
-  closedFrom: string | null;
 }
 
 export interface PlannedLink {
@@ -88,8 +91,14 @@ export interface PlannedLink {
   /** Bill lines whose po_item_id must be written (a line already naming the same PO line is not listed). */
   lineWrites: { poItemId: string; billLineId: string }[];
   linesLinked: number;
-  /** The PO status this link's call moved the PO from to closed. */
+  /** The PO status this link's call moved the PO from to closed (recorded on the PO: closed_from_status + closed_by_billing). */
   closedFrom: string | null;
+  /**
+   * The rands this link takes from what the bill's header held on ANOTHER PO (a header tie is a residual, never a hold; PR #1703
+   * breaker R4-4): that PO commits them again, and the reply warns, naming it. Signed: below 0 when the row grows the residual
+   * (a lines link naming a negative line; breaker r12 F4).
+   */
+  takesFromHeader: { poId: string; poNumber: string; cents: number } | null;
   /** Set when the pair was already linked: under the same reference nothing is written; with `adopt`, the reference is set. */
   existing: ExistingLink | null;
   /** The pair was linked by a ref-less app / backfill link and this call's external_ref is set on it. */
@@ -101,7 +110,9 @@ export interface PoAfter {
   statusBefore: string;
   statusAfter: string;
   billedCents: number;
+  /** The billing basis fully_billed is judged against; `headerSubtotalCents` the header's own subtotal (review r8 L3). */
   subtotalCents: number;
+  headerSubtotalCents: number;
   fullyBilled: boolean;
 }
 
@@ -109,6 +120,3 @@ export interface LinkPlan {
   planned: PlannedLink[];
   poAfter: Map<string, PoAfter>;
 }
-
-export const isFullyBilled = (billedCents: number, subtotalCents: number): boolean =>
-  billedCents >= subtotalCents - FULLY_BILLED_TOLERANCE_CENTS;
