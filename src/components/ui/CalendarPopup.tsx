@@ -150,7 +150,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                     aria-disabled={disabled || undefined}
                     tabIndex={iso === focusIso ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(iso); }}
-                    onFocus={() => { if (disabled) return; grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}
+                    onFocus={() => { if (disabled) { grabFocus.current = true; ref.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus(); return; } grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}
                     className={cn(
                       cellSize, 'cursor-pointer rounded-md ff-focus-ring tabular-nums hover:bg-gray-100 dark:hover:bg-gray-700',
                       !inMonth && 'text-ink-muted',

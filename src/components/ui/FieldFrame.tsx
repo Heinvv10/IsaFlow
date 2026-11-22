@@ -12,6 +12,8 @@ export interface FieldFrameProps {
   /** Visually hidden label (still the control's accessible name). */
   labelHidden?: boolean;
   required?: boolean;
+  /** Show the * for a required field (default). A filter that only wants its empty box refused turns it off. */
+  requiredMark?: boolean;
   error?: string | null;
   helperText?: string;
   /** What the parser understood, e.g. "R 25 000.00". Hidden while there is an error. */
@@ -38,14 +40,14 @@ export function describedBy(
   return parts.filter(Boolean).join(' ') || undefined;
 }
 
-export function FieldFrame({ id, label, labelHidden, required, error, helperText, echo, help, children }: FieldFrameProps) {
+export function FieldFrame({ id, label, labelHidden, required, requiredMark = true, error, helperText, echo, help, children }: FieldFrameProps) {
   const ids = fieldIds(id);
   return (
     <div className="flex flex-col gap-1">
       <div className={labelHidden && !help ? 'sr-only' : 'flex items-center gap-1.5'}>
         <label htmlFor={id} className={labelHidden ? 'sr-only' : 'text-sm font-medium text-gray-700 dark:text-gray-300'}>
           {label}
-          {required && (
+          {required && requiredMark && (
             <span aria-hidden="true" className="ml-0.5 text-red-600 dark:text-red-400">
               *
             </span>

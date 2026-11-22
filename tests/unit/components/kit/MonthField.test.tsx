@@ -217,6 +217,8 @@ describe('MonthField review fixes', () => {
     fireEvent.focus(aug); fireEvent.click(aug);
     expect(cell('2026-03').tabIndex).toBe(0); // the roving stop did not move onto the disabled month
     expect(aug.tabIndex).toBe(-1);
+    // the browser focus on the disabled month was handed straight back to the roving stop
+    expect(document.activeElement).toBe(cell('2026-03'));
     fireEvent.keyDown(screen.getByRole('grid'), { key: 'Enter' });
     expect(out()).toBe('2026-03'); // Enter picked the month that still has the roving stop, never August
   });
@@ -235,6 +237,11 @@ describe('MonthField review fixes', () => {
     expect(input().value).toBe('abc');
     rerender(<MonthField label="Period" value="2026-07" getToday={NOW} onChange={() => {}} />);
     expect(input().value).toBe('Jul 2026');
+  });
+  it('requiredMark={false} keeps the box required but drops the asterisk', () => {
+    render(<MonthField label="Month" required requiredMark={false} value="2026-03" getToday={NOW} onChange={() => {}} />);
+    expect(screen.getByRole('textbox', { name: 'Month' }).getAttribute('aria-required')).toBe('true');
+    expect(screen.getByText('Month').textContent).toBe('Month');
   });
   it('a hidden label is still the accessible name and leaves no gap row', () => {
     render(<MonthField label="Period" labelHidden value={null} getToday={NOW} onChange={() => {}} />);

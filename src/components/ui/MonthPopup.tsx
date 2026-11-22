@@ -108,7 +108,7 @@ export function MonthPopup({ anchor, trigger, selected, start, today, minMonth, 
                     aria-disabled={disabled || undefined}
                     tabIndex={v === focusYm ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(v); }}
-                    onFocus={() => { if (disabled) return; grabFocus.current = true; if (v !== focusYm) setFocusYm(v); }}
+                    onFocus={() => { if (disabled) { grabFocus.current = true; ref.current?.querySelector<HTMLElement>(`[data-ym="${focusYm}"]`)?.focus(); return; } grabFocus.current = true; if (v !== focusYm) setFocusYm(v); }}
                     className={cn(
                       cellSize, 'cursor-pointer rounded-md ff-focus-ring hover:bg-gray-100 dark:hover:bg-gray-700',
                       v === today && 'font-bold ring-1 ring-teal-500',

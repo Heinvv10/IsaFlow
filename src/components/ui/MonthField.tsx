@@ -37,6 +37,8 @@ export interface MonthFieldProps {
   help?: FieldHelpContent;
   placeholder?: string;
   required?: boolean;
+  /** Show the * on a required field (default). Off for a filter that only wants an emptied box refused. */
+  requiredMark?: boolean;
   disabled?: boolean;
   /** What "today" is; defaults to the local clock. Injected by tests. */
   getToday?: () => Date;
@@ -52,7 +54,7 @@ export interface MonthFieldProps {
 export const MonthField = React.forwardRef<HTMLInputElement, MonthFieldProps>(function MonthField(
   {
     label, value, onChange, id, name, minMonth, maxMonth, resetKey, error: externalError, helperText, help,
-    placeholder = 'Mar 2026', required, disabled, getToday, className, labelHidden, invalid, describedById, 'data-testid': testId,
+    placeholder = 'Mar 2026', required, requiredMark, disabled, getToday, className, labelHidden, invalid, describedById, 'data-testid': testId,
   },
   ref,
 ) {
@@ -102,7 +104,7 @@ export const MonthField = React.forwardRef<HTMLInputElement, MonthFieldProps>(fu
   };
 
   return (
-    <FieldFrame id={inputId} label={label} required={required} labelHidden={labelHidden} {...frame}>
+    <FieldFrame id={inputId} label={label} required={required} requiredMark={requiredMark} labelHidden={labelHidden} {...frame}>
       <div ref={setWrapEl} className="relative">
         <input
           ref={setRefs}
