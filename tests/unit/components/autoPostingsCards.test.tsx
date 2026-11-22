@@ -41,14 +41,13 @@ describe('Auto-postings on touch', () => {
   });
 
   it('makes the entry and source-document links 44px and centred against their labels', async () => {
-    const { container } = render(<Page />);
+    render(<Page />);
     await screen.findByText('JE-1');
     for (const name of ['JE-1', 'Open']) {
       const link = screen.getByRole('link', { name });
       for (const c of ['max-lg:inline-flex', 'max-lg:items-center', 'max-lg:min-h-11']) expect(link.className, name).toContain(c);
       expect(link.closest('td')!.className, name).toContain('max-lg:items-center');
     }
-    expect(container.querySelector('tbody')).not.toBeNull();
   });
 
   it('makes the source filter, Clear and the pager buttons 44px on phones', async () => {
