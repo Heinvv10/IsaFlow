@@ -29,6 +29,13 @@ describe('runSageMigration refuses before it connects', () => {
     await expect(runSageMigration(p, file(), opts)).rejects.toThrow(/SERVICE_DATABASE_URL/);
     expect(connect).not.toHaveBeenCalled();
   });
+  it('B5-G (round 5): a pool of one connection is refused at the start: the run lock would take it and the tool session wait forever', async () => {
+    vi.stubEnv('DATABASE_URL', LOCAL);
+    const connect = vi.fn(async () => { throw new Error('connected'); });
+    await expect(runSageMigration({ options: { connectionString: LOCAL, max: 1 }, connect } as never, file(), opts)).rejects.toThrow(/at least 2 connections/);
+    expect(connect).not.toHaveBeenCalled();
+    await expect(runSageMigration({ options: { connectionString: LOCAL, max: 2 }, connect } as never, file(), opts)).rejects.toThrow('connected');
+  });
   it('a local pool and a local environment get as far as connecting', async () => {
     vi.stubEnv('DATABASE_URL', LOCAL);
     vi.stubEnv('SERVICE_DATABASE_URL', '');

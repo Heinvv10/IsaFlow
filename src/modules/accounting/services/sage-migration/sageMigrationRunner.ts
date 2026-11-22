@@ -28,6 +28,7 @@ import { buildLineLinks } from './sageLineLinks';
 import { acquireRunLock } from './sageRunLock';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
+import { poContentDifferences, withContentDifferences } from './sagePoContent';
 import { buildReconciliation } from './sageReconciliation';
 import { readSnapshot, type Snapshot } from './sageSnapshot';
 import { resolveSuppliers } from './sageSuppliers';
@@ -94,6 +95,8 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing, and one run per company.
   assertLocalDatabase();
   assertLocalPool(pool);
+  // The run lock holds one connection for the whole run and every tool session needs another: with one in all, the run would wait forever.
+  if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId);
   try {
     return await runLocked(pool, parsed, opts, lock.check);
@@ -114,7 +117,9 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   const dry = await dryRun(pool, opts, all, before);
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
-  const dryDifferences = differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches]);
+  // What the PO tool does not compare (supplier, delivery date, reference, lines) is compared here, from the books as read before the run.
+  const contentDifferences = poContentDifferences(plan, before.poContent);
+  const dryDifferences = withContentDifferences(differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches]), contentDifferences);
   const dryReconciliation = buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false });
   const noLive = (status: MigrationReport['status'], liveBlockedBy: string[] = []): MigrationReport => ({
     ...base, status, liveBlockedBy, live: null, lineLinks: buildLineLinks(plan, before, null), budgetWouldHaveFailed: skipped(dry.purchaseOrders), differences: dryDifferences, reconciliation: dryReconciliation,
@@ -172,7 +177,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
     const phaseSkipped = categoriesVerified.failed > 0 || items.failed > 0;
     // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.
-    const differences = differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches, ...categoriesVerified.batches, ...items.batches, ...purchaseOrders.batches]);
+    const differences = withContentDifferences(differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches, ...categoriesVerified.batches, ...items.batches, ...purchaseOrders.batches]), contentDifferences);
     return {
       ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders }, lineLinks: buildLineLinks(plan, before, after),
       budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),

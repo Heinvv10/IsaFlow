@@ -98,7 +98,7 @@ describe('batching and keys', () => {
 
 describe('reconciliation and its lines', () => {
   const snap = (items: string[], pos: Array<[string, number]>, stock = 0) => ({
-    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), poStates: new Map<string, string>(), poLinkedLines: new Map<string, number>(), inactiveSuppliers: new Set<string>(),
+    itemRefs: new Set(items), poTotals: new Map(pos), stockMovements: stock, items: [], categories: [], supplierSageRefs: new Map<string, string>(), poNumbers: new Map(), poStates: new Map<string, string>(), poLinkedLines: new Map<string, number>(), poContent: new Map(), inactiveSuppliers: new Set<string>(),
   });
   const base = () => {
     const p = parsed();
