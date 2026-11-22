@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { MAX_CODE_LENGTH } from '@/modules/accounting/services/items/itemCatalogTypes';
 import {
   getItem,
   listItems,
@@ -78,13 +79,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { item_type: 'Must be physical or service' });
     }
 
-    // A missing or null code means "generate one"; a code that is sent must be text that fits VARCHAR(50), as on PUT.
+    // A missing or null code means "generate one"; a code that is sent must be text that fits VARCHAR(50) (MAX_CODE_LENGTH), as on PUT.
     if (body.code !== undefined && body.code !== null && typeof body.code !== 'string') {
       return apiResponse.validationError(res, { code: 'Item code must be text' });
     }
     const code = (body.code ?? '').trim();
-    if (code.length > 50) {
-      return apiResponse.validationError(res, { code: 'Item code must be at most 50 characters' });
+    if (code.length > MAX_CODE_LENGTH) {
+      return apiResponse.validationError(res, { code: `Item code must be at most ${MAX_CODE_LENGTH} characters` });
     }
     if (code) {
       const isDupe = await checkCodeDuplicate(companyId, code);
@@ -133,6 +134,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!exists) return apiResponse.notFound(res, 'Item', id);
 
     if (body.code !== undefined) {
+      if (body.code === null) {
+        return apiResponse.validationError(res, { code: 'code: null is not allowed on update; omit code to keep it' });
+      }
       if (typeof body.code !== 'string') {
         return apiResponse.validationError(res, { code: 'Item code must be text' });
       }
@@ -140,8 +144,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!newCode) {
         return apiResponse.validationError(res, { code: 'Item code cannot be blank' });
       }
-      if (newCode.length > 50) {
-        return apiResponse.validationError(res, { code: 'Item code must be at most 50 characters' });
+      if (newCode.length > MAX_CODE_LENGTH) {
+        return apiResponse.validationError(res, { code: `Item code must be at most ${MAX_CODE_LENGTH} characters` });
       }
       const isDupe = await checkCodeDuplicate(companyId, newCode, id);
       if (isDupe) {
