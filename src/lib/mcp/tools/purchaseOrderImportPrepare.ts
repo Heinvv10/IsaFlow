@@ -4,12 +4,14 @@
  * a line account another company owns, or an inactive one, is the bill lines' refusal (`documentLineAccountGuard`);
  * CC1 / CC2 / BU go through the bills' resolver and derivation (`dimensionArgs`): a code, alias or UUID, CC1 derived
  * from CC2, a contradicting CC1 refused, and a cost-of-sales line with no project warned (or refused where the company
- * blocks it). Supplier default dimensions are not applied: they are a bill rule (`ap/purchaseOrderLineDimensions`).
+ * blocks it). A line's catalogue item (item_id / item_code) is resolved and proved the company's, active, before anything else
+ * (`purchaseOrderImportItems`): it is only linked, nothing is derived from it. Supplier default dimensions are not applied: they are a bill rule (`ap/purchaseOrderLineDimensions`).
  */
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import type { ImportPo } from '@/modules/accounting/services/ap/purchaseOrderImport';
 import { dimensionWarningsOrRefusal, resolveLineDimensionRefs } from './dimensionArgs';
+import { resolveLineItems } from './purchaseOrderImportItems';
 import type { ParsedPo } from './purchaseOrderImportArgs';
 import { NOT_FOUND } from './toolHelpers';
 
@@ -24,6 +26,9 @@ export async function preparePurchaseOrders(companyId: string, batch: readonly P
   for (const supplierId of new Set(batch.map((p) => p.supplierId))) {
     if (!(await supplierBelongsToCompany(companyId, supplierId))) return NOT_FOUND;
   }
+
+  const itemIds = await resolveLineItems(companyId, batch);
+  if (typeof itemIds === 'string') return itemIds;
 
   const accountIds = batch.flatMap((p) => p.lines.map((l) => l.glAccountId));
   if (await documentLineAccountRefusal(companyId, accountIds)) {
@@ -44,6 +49,7 @@ export async function preparePurchaseOrders(companyId: string, batch: readonly P
       description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate,
       netCents: l.cents.net, taxCents: l.cents.tax, glAccountId: l.glAccountId,
       cc1Id: dims[i]?.cc1Id ?? null, cc2Id: dims[i]?.cc2Id ?? null, buId: dims[i]?.buId ?? null,
+      itemId: itemIds.get(`${p.index}:${i}`) ?? null,
     }));
     const cos = await dimensionWarningsOrRefusal(companyId, lines, label);
     if (typeof cos === 'string') return cos;
