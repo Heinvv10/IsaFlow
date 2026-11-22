@@ -8,7 +8,8 @@
  * is caught without being named here (round 4, F-M2).
  */
 import type { GateSpec } from './approveCensusGraph';
-import type { SqlPrimitive } from './approveCensusProgram';
+import type { ModuleResolver, SqlPrimitive } from './approveCensusProgram';
+import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 export const SINK_MODULES: Readonly<Record<string, string>> = {
   // GL / accounts
@@ -48,8 +49,14 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
 
 export const POSTING_SERVICES = Object.keys(SINK_MODULES);
 
-/** A gate whose module argument is returnApproveModule(<form>) asks the form's module: the census calls it 'returns'. */
-export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, string>> = { returnApproveModule: 'returns' };
+/**
+ * A gate whose module argument is returnApproveModule(<form>) asks the form's module, read from the REAL mapping (r13 L2): a literal
+ * form is 'returns:<its module>' (EMP501 -> 'returns:payroll'), a form the census cannot read is 'returns' (some return's module),
+ * an unmapped literal form covers nothing.
+ */
+export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, ModuleResolver>> = {
+  returnApproveModule: (form) => (form === null ? 'returns' : ((m) => (m ? `returns:${m}` : '?'))(returnApproveModule(form))),
+};
 
 /**
  * SQL that makes the function holding it a primitive (matched against the static text of its tagged templates and `.query()` calls, a
@@ -57,16 +64,30 @@ export const RETURN_MODULE_RESOLVERS: Readonly<Record<string, string>> = { retur
  * Budgets gate does not cover a bill flipped to approved. '*' where the document decides the module (a journal, posted by every module;
  * a credit note; a tax return). The documents and modules follow APPROVE_MODULE_BY_DOCUMENT and SINK_MODULES above.
  */
-const flips = (tables: string, statuses: string, module: string) => ({
-  module,
-  // `SET ... status = '<s>'` before any WHERE: a cancel `WHERE status = 'approved'` is not an approval
-  re: new RegExp(`UPDATE\\s+(?:public\\.)?(?:${tables})\\b(?:(?!\\bWHERE\\b)[^;]){0,300}?\\bSET\\b(?:(?!\\bWHERE\\b)[^;]){0,600}?\\bstatus\\s*=\\s*'(?:${statuses})'`, 'i'),
-});
+const flips = (tables: string, statuses: string, module: string, caseForm = true) => {
+  const T = `(?:public\\.)?(?:${tables})\\b`;
+  const noWhere = (n: number) => `(?:(?!\\bWHERE\\b)[^;]){0,${n}}?`;
+  // `status = '<s>'`, or `status = CASE ... THEN '<s>'` (r13 L3)
+  const set = `\\bstatus\\s*=\\s*${caseForm ? '(?:CASE(?:(?!\\bEND\\b)[^;]){0,400}?\\bTHEN\\s*)?' : ''}'(?:${statuses})'`;
+  return {
+    module,
+    // `SET ... status = '<s>'` before any WHERE (a cancel `WHERE status = 'approved'` is no approval); `SET (status, ...) = ('<s>', ...)`;
+    // an upsert's `ON CONFLICT ... DO UPDATE SET status = '<s>'` (r13 L3)
+    re: new RegExp([
+      `UPDATE\\s+${T}${noWhere(300)}\\bSET\\b${noWhere(600)}${set}`,
+      `UPDATE\\s+${T}${noWhere(300)}\\bSET\\s*\\([^)]*\\bstatus\\b[^)]*\\)\\s*=\\s*\\([^)]*'(?:${statuses})'`,
+      `INSERT\\s+INTO\\s+${T}[^;]{0,1500}?\\bON\\s+CONFLICT\\b[^;]{0,400}?\\bDO\\s+UPDATE\\s+SET\\b${noWhere(600)}${set}`,
+    ].join('|'), 'i'),
+  };
+};
 export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   { module: '*', re: /UPDATE\s+(?:public\.)?gl_journal_entries[^;]{0,400}?status\s*=\s*'posted'/i },
   { module: '*', re: /INSERT\s+INTO\s+(?:public\.)?gl_journal_entries[^;]{0,600}?'posted'/i },
   { module: 'customers', re: /UPDATE\s+(?:public\.)?customer_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
   { module: 'suppliers', re: /UPDATE\s+(?:public\.)?supplier_invoices[^;]{0,300}?SET[^;]{0,300}?status\s*=\s*'approved'/i },
+  // Invoices without the CASE form: their payment recompute sets `status = CASE ... WHEN status IN ('partially_paid', 'paid') THEN
+  // 'approved'`, an un-payment back to the approved state, no approval (invoiceStatusRecompute, the allocation reversals).
+  flips('gl_journal_entries', 'posted', '*'), flips('customer_invoices', 'approved', 'customers', false), flips('supplier_invoices', 'approved', 'suppliers', false),
   flips('credit_notes', 'approved', '*'),
   flips('supplier_payments', 'approved|processed', 'suppliers'),
   flips('supplier_payment_batches', 'approved|processed|reversed', 'suppliers'),
@@ -84,9 +105,10 @@ export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [
   flips('fiscal_periods', 'closed|locked', 'accounts'),
   // A return finalised or filed (Hein's gate-everything ruling, 2026-11-21) takes the FORM's module Approve: 'returns', which only a gate
   // whose module is returnApproveModule(...) gives (RETURN_MODULE_RESOLVERS; r12 L1: a literal 'vat' or 'budgets' gate is a finding).
-  flips('tax_return_versions', 'finalised|filed', 'returns'),
+  flips('tax_return_versions', 'finalised|filed|superseded', 'returns'), // superseded: an amend (r13 M1)
+  { module: 'returns', re: /INSERT\s+INTO\s+(?:public\.)?tax_return_versions\b/i }, // the finalise: a new version, status 'finalised' (r13 M1)
   flips('sars_submissions', 'submitted', 'returns'), // the legacy / ISV way of marking a return submitted
-  { module: 'returns', re: /INSERT\s+INTO\s+(?:public\.)?vat_period_locks\b/i }, // a VAT period lock records the filed return
+  { module: 'vat', re: /INSERT\s+INTO\s+(?:public\.)?vat_period_locks\b/i }, // a VAT period lock records the filed VAT201 (r13 L2: VAT's)
   flips('uif_declarations', 'submitted', 'payroll'), // the UIF declaration marked submitted (re-arms markPaid)
 ];
 

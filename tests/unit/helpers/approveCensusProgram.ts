@@ -145,17 +145,49 @@ export function sqlTextOf(n: ts.Node, queryCalls: boolean, r?: ConstResolver): s
   });
 }
 
+/** A module RESOLVER: given its first argument's static value (null: not static), the module the gate asks. */
+export type ModuleResolver = (literalArg: string | null) => string;
+/** The module of a gate the census cannot read: it covers NOTHING (#1670 r13 L1), so a computed module never passes for 'any'. */
+export const UNREADABLE = '?';
+
+/** A static string value: a literal, or a const bound to one. */
+function staticString(e: ts.Expression | undefined, r: ConstResolver, depth = 0): string | null {
+  const x = e ? unwrap(e) : undefined;
+  if (!x) return null;
+  if (ts.isStringLiteralLike(x)) return x.text;
+  const init = ts.isIdentifier(x) && depth < 3 ? r(x) : undefined;
+  return init ? staticString(init, r, depth + 1) : null;
+}
+
 /**
- * A gate's module argument: a string literal; a call of a module RESOLVER (`resolvers`: function name -> the module it stands for,
- * e.g. returnApproveModule -> 'returns'), directly or through a const; else '*' (any module: the census cannot tell which).
+ * A gate's module argument: a string literal; a call of a module RESOLVER (`resolvers`), which is given its own first argument
+ * (r13 L2: returnApproveModule('EMP501') asks Payroll, not "some return's module"); either directly or through a const. Anything
+ * else is UNREADABLE.
  */
-export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<string, string>>, r: ConstResolver, depth = 0): string {
+export function moduleOfArg(arg: ts.Expression, resolvers: Readonly<Record<string, ModuleResolver>>, r: ConstResolver, depth = 0): string {
   const x = unwrap(arg);
   if (ts.isStringLiteralLike(x)) return x.text;
   const nm = ts.isCallExpression(x) ? calleeName(x) : null;
-  if (nm !== null && Object.hasOwn(resolvers, nm)) return resolvers[nm]!;
+  if (nm !== null && Object.hasOwn(resolvers, nm)) return resolvers[nm]!(staticString((x as ts.CallExpression).arguments[0], r));
   const init = ts.isIdentifier(x) && depth < 3 ? r(x) : undefined;
-  return init ? moduleOfArg(init, resolvers, r, depth + 1) : '*';
+  return init ? moduleOfArg(init, resolvers, r, depth + 1) : UNREADABLE;
+}
+
+/**
+ * Does a gate for module `gate` cover a need for `need`? Equal modules do. '*' (a gate deciding per document) covers any but a
+ * strict need. A resolved return gate 'returns:<m>' covers <m> and the form-agnostic 'returns'. UNREADABLE covers nothing.
+ */
+function gateCovers(gate: string, need: string, strict: ReadonlySet<string>): boolean {
+  if (gate === UNREADABLE) return false;
+  if (gate === need) return true;
+  if (gate === '*') return !strict.has(need);
+  return gate.startsWith('returns:') && (need === 'returns' || need === gate.slice('returns:'.length));
+}
+
+/** Every need covered by one of the gates ('*' needs: any gate the census can read). */
+export function gatesCover(gates: ReadonlySet<string>, needs: Iterable<string>, strict: ReadonlySet<string>): boolean {
+  const g = [...gates];
+  return g.length > 0 && [...needs].every((m) => (m === '*' ? g.some((x) => x !== UNREADABLE) : g.some((x) => gateCovers(x, m, strict))));
 }
 
 /** A posting / approving SQL pattern and the module whose Approve it needs ('*': any gate). A bare RegExp is '*'. */

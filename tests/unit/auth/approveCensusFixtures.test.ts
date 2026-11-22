@@ -81,19 +81,52 @@ describe('posting census fixtures (#1670)', () => {
     expect(fixture(handler(filed))).toHaveLength(1);
   });
 
-  it('#1670 r12 L1: a filing needs the gate whose module is returnApproveModule(<form>); a literal module gate is a finding', () => {
+  it('#1670 r12 L1 / r13 L2: a filing needs the form gate (returnApproveModule); a VAT lock needs VAT\'s; a literal other module is a finding', () => {
     const filed = "await sql`UPDATE tax_return_versions SET status = 'filed' WHERE id = ${id}`;";
     const lock = "await sql`INSERT INTO vat_period_locks (company_id) VALUES (${id})`;";
-    const viaResolver = "if (await refuseWithoutApprove(res, 'c', 'u', returnApproveModule('VAT201')!, 'x')) return;";
+    const form = (f: string) => `if (await refuseWithoutApprove(res, 'c', 'u', returnApproveModule('${f}')!, 'x')) return;`;
     const viaConst = "const m = returnApproveModule(id); if (!m) return; if (await refuseWithoutApprove(res, 'c', 'u', m, 'x')) return;";
-    for (const body of [filed, lock, 'await fileIt(id);']) { // in the handler's own SQL, and through a helper
+    const unreadable = "const any = id as 'vat'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return;";
+    for (const body of [filed, 'await fileIt(id);']) { // in the handler's own SQL, and through a helper
       expect(fixture(handler(`${gate('vat')} ${body}`)), `vat: ${body}`).toHaveLength(1);
       expect(fixture(handler(`${gate('budgets')} ${body}`)), `budgets: ${body}`).toHaveLength(1);
-      expect(fixture(handler(`${viaResolver} ${body}`)), `resolver: ${body}`).toEqual([]);
+      expect(fixture(handler(`${form('VAT201')} ${body}`)), `VAT201: ${body}`).toEqual([]);
+      expect(fixture(handler(`${form('EMP501')} ${body}`)), `EMP501: ${body}`).toEqual([]);
       expect(fixture(handler(`${viaConst} ${body}`)), `const: ${body}`).toEqual([]);
-      // A module the census cannot read (any variable) covers other posting, but never a filing: 'returns' is strict.
-      expect(fixture(handler(`const any = id as 'vat'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return; ${body}`)), `any: ${body}`).toHaveLength(1);
+      expect(fixture(handler(`${unreadable} ${body}`)), `any: ${body}`).toHaveLength(1);
+      expect(fixture(handler(`${form('ITR14')} ${body}`)), `unmapped form: ${body}`).toHaveLength(1);
     }
+    // r13 L2: the resolver is given its argument: an EMP501 gate (Payroll) before a VAT lock is a finding; VAT201's is not.
+    expect(fixture(handler(`${form('EMP501')} ${lock}`))).toHaveLength(1);
+    expect(fixture(handler(`${form('VAT201')} ${lock}`))).toEqual([]);
+    expect(fixture(handler(`${gate('vat')} ${lock}`))).toEqual([]);
+    expect(fixture(handler(`${viaConst} ${lock}`))).toHaveLength(1); // some return's module is not provably VAT
+  });
+
+  it('#1670 r13 L1: a gate whose module the census cannot read covers nothing, not even a journal (any module)', () => {
+    const posted = "await sql`UPDATE gl_journal_entries SET status = 'posted' WHERE id = ${id}`;";
+    expect(fixture(handler(`const any = id as 'accounts'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return; ${posted}`))).toHaveLength(1);
+    expect(fixture(handler(`const m = 'accounts'; if (await refuseWithoutApprove(res, 'c', 'u', m, 'x')) return; ${posted}`))).toEqual([]);
+    // and nothing module-specific either: a computed module before a bill approval is a finding.
+    const bill = "await sql`UPDATE supplier_invoices SET status = 'approved' WHERE id = ${id}`;";
+    expect(fixture(handler(`const any = id as 'suppliers'; if (await refuseWithoutApprove(res, 'c', 'u', any, 'x')) return; ${bill}`))).toHaveLength(1);
+    expect(fixture(handler(`${gate('accounts')} ${posted}`))).toEqual([]);
+  });
+
+  it('#1670 r13 M1 / L3: a finalise INSERT, an amend, a CASE, a tuple SET and an upsert flip are primitives', () => {
+    for (const [sqlText, need] of [
+      ["INSERT INTO tax_return_versions (company_id, form_type) VALUES (${id}, 'VAT201')", "returnApproveModule('VAT201')!"],
+      ["UPDATE tax_return_versions SET status = 'superseded', amended_at = now() WHERE id = ${id}", "returnApproveModule('VAT201')!"],
+      ["UPDATE supplier_payments SET status = CASE WHEN ${id} = '' THEN 'approved' ELSE status END WHERE id = ${id}", "'suppliers'"],
+      ["UPDATE purchase_orders SET (status, approved_by) = ('approved', ${id}) WHERE id = ${id}", "'suppliers'"],
+      ["INSERT INTO budget_versions (id, status) VALUES (${id}, 'draft') ON CONFLICT (id) DO UPDATE SET status = 'approved'", "'budgets'"],
+    ] as const) {
+      const body = `await sql\`${sqlText}\`;`;
+      expect(fixture(handler(body)), `ungated: ${sqlText}`).toHaveLength(1);
+      expect(fixture(handler(`if (await refuseWithoutApprove(res, 'c', 'u', ${need}, 'x')) return; ${body}`)), `gated: ${sqlText}`).toEqual([]);
+    }
+    // A CASE that only keeps or resets the status is no flip.
+    expect(fixture(handler("await sql`UPDATE supplier_payments SET status = CASE WHEN status = 'draft' THEN 'draft' ELSE status END`;"))).toEqual([]);
   });
 
   it('#1670 Codex: withPayrollModule (Payroll read / write) is no proof of Payroll Approve in the posting census; it still is for payroll access', () => {

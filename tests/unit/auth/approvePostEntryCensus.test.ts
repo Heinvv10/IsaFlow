@@ -43,10 +43,12 @@ const EXEMPT_TOOLS: Readonly<Record<string, string>> = {
   submit_budget_for_review: 'submits for review; approving it is approve_budget_version (gated)',
   submit_time_entries: 'submits for review; approving them is the Accountant\'s Area approve (gated on the routes)',
   mark_vat_declared_elsewhere: 'records where a period was declared; posts nothing',
+  restore_budget_version: 'restores budget cells an MCP amount write changed (a grid save); approving a version is approve_budget_version',
+  undo_bank_import: 'deletes only still-imported (never allocated or posted) bank lines; posts and reverses nothing',
 };
 
-/** A tool name that says it approves, posts, finalises or reverses. */
-const POSTING_NAME = /^(approve|bulk_approve|finali[sz]e|bulk_finali[sz]e|post|run|close|year_end|book|reverse|void|cancel|settle|reopen|allocate|bulk_allocate|reallocate|split_allocate|perform|merge|confirm|process|apply|unapply|adjust|link|tag|set_opening|dispose|write_off|auto_apply|submit|mark|lock)_/;
+/** A tool name that says it approves, posts, finalises, reverses, sends, files, pays, undoes, restores or releases (r13 L4). */
+const POSTING_NAME = /^(send|file|pay|undo|restore|release|approve|bulk_approve|finali[sz]e|bulk_finali[sz]e|post|run|close|year_end|book|reverse|void|cancel|settle|reopen|allocate|bulk_allocate|reallocate|split_allocate|perform|merge|confirm|process|apply|unapply|adjust|link|tag|set_opening|dispose|write_off|auto_apply|submit|mark|lock)_/;
 
 const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf8' })
   .split('\n')
@@ -135,8 +137,10 @@ describe('approve / post entry-point census (#1656)', () => {
 
   it('every exempt tool exists and still lacks a module (no stale pin)', () => {
     const names = new Set(MCP_TOOLS.map((t) => t.name));
+    // r13 L4: and is a posting tool by the census's own test (a scope or its name), else its exemption pins nothing.
     const stale = Object.keys(EXEMPT_TOOLS).filter((n) => !names.has(n)
-      || MCP_TOOLS.find((t) => t.name === n)!.approveModule !== undefined);
+      || MCP_TOOLS.find((t) => t.name === n)!.approveModule !== undefined
+      || !(MCP_TOOLS.find((t) => t.name === n)!.requiresPost || POSTING_NAME.test(n)));
     expect(stale).toEqual([]);
   });
 

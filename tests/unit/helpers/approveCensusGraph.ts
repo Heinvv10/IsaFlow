@@ -24,7 +24,7 @@
 import ts from 'typescript';
 import { resolve } from 'path';
 import { calleeName, callAncestors, constResolver, exits, markersAbove, markersIn, moduleOfArg, objectProp, primitiveModule, programFor, ROOT,
-  sqlTextOf, unwrap, type MarkerScope, type SqlPrimitive } from './approveCensusProgram';
+  gatesCover, sqlTextOf, unwrap, type MarkerScope, type ModuleResolver, type SqlPrimitive } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
@@ -42,7 +42,7 @@ export interface CensusConfig {
   flagPrimitiveRoots?: boolean;
   queryCalls?: boolean; // also read `<x>.query('...')` (a static string or template) as SQL: both censuses
   markerScope?: MarkerScope; // the census whose markers apply (`census-exempt(<callee>, <scope>)`, scope required); none: every marker
-  moduleResolvers?: Readonly<Record<string, string>>; // a gate's module from a resolver call: returnApproveModule(...) -> 'returns'
+  moduleResolvers?: Readonly<Record<string, ModuleResolver>>; // a gate's module from a resolver call, given its argument (r13 L2)
   strictModules?: readonly string[]; // modules a '*' gate (a module the census cannot read) does not cover: 'returns'
 }
 export interface BadRoute { file: string; unit: string; sites: string[] }
@@ -61,7 +61,7 @@ export function analyse(cfg: CensusConfig): Census {
 
   // ── gate recognition ──────────────────────────────────────────────────────────────────────────
   const gateModule = (c: ts.CallExpression, spec: GateSpec): string => spec.module
-    ?? (spec.moduleArg !== undefined && c.arguments[spec.moduleArg] ? moduleOfArg(c.arguments[spec.moduleArg]!, cfg.moduleResolvers ?? {}, constResolver(checker)) : '*');
+    ?? (spec.moduleArg !== undefined && c.arguments[spec.moduleArg] ? moduleOfArg(c.arguments[spec.moduleArg]!, cfg.moduleResolvers ?? {}, constResolver(checker)) : '?');
   const asGate = (e: ts.Expression): { spec: GateSpec; module: string } | null => {
     const x = unwrap(e);
     if (!ts.isCallExpression(x)) return null;
@@ -236,9 +236,7 @@ export function analyse(cfg: CensusConfig): Census {
     const g = new Set(c.gates);
     const w = wrapped.get(file);
     if (w) g.add(w);
-    if (g.size === 0) return false;
-    if (g.has('*') && ![...needs].some((m) => strict.has(m))) return true; // a strict module takes its own gate, never 'any'
-    return [...needs].filter((m) => m !== '*').every((m) => g.has(m));
+    return gatesCover(g, needs, strict); // a strict module takes its own gate, never 'any'; an unreadable gate covers nothing
   };
   const covered = (c: Call, file: string, needs: Set<string>): boolean => c.exempt !== null || rawCovered(c, file, needs);
   for (let changed = true; changed;) {
@@ -280,7 +278,7 @@ export function analyse(cfg: CensusConfig): Census {
       const sites: string[] = [];
       for (const { node: site, module } of u.primSites) {
         const g = dominating(site, u.node);
-        if ((g.has('*') && !strict.has(module)) || (module === '*' ? g.size > 0 : g.has(module))) continue;
+        if (gatesCover(g, [module], strict)) continue;
         const marker = markersAbove(site, cfg.markerScope).find((m) => m.callee === 'sql');
         if (marker) used.add(`${u.file}:${marker.line}`);
         else sites.push(`sql(primitive)[${module}]@${u.file}:${site.getSourceFile().getLineAndCharacterOfPosition(site.getStart()).line + 1}`);
