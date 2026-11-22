@@ -32,6 +32,8 @@ import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
 import { getPurchaseOrderTool } from './tools/getPurchaseOrder';
 import { listGoodsReceivedTool, getGoodsReceivedTool } from './tools/goodsReceivedReadTools';
+import { poStatusReportTool } from './tools/poStatusReportTool';
+import { committedSpendTool } from './tools/committedSpendTool';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -256,6 +258,9 @@ export const MCP_TOOLS = [
   getPurchaseOrderTool,
   listGoodsReceivedTool,
   getGoodsReceivedTool,
+  poStatusReportTool,
+  // Section 5 (docs/design/mcp-po-reports.md): the two PO reports; committed_spend is budget_remaining's committed read by group.
+  committedSpendTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
