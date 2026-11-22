@@ -132,8 +132,11 @@ export function InvoiceLineItemsTable({
   const carriesDiscount = lines.some((l) => l.discount > 0);
   const showDiscount = carriesDiscount || discountToggled === true;
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
-  // Open by default when a line already carries a dimension, so an edit shows what it will save.
-  const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
+  // Open whenever a line carries a dimension, and not hideable, as the discount: coding the user cannot see is saved all
+  // the same. Picking one pins them open, so clearing a dimension to pick another does not take the pickers away.
+  const carriesDimension = lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
+  const showDimensions = carriesDimension || dimensionsToggled === true;
+  const updateDimension = (key: string, field: keyof InvoiceLine, value: string) => { setDimensionsToggled(true); onUpdate(key, field, value); };
   const showVat = vatTypes !== undefined;
   const columns = 6 + (showIncomeType ? 1 : 0) + (showDiscount ? 1 : 0) + (showVat ? 1 : 0);
 
@@ -142,7 +145,7 @@ export function InvoiceLineItemsTable({
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 whitespace-nowrap"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>Line Items</h3>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" aria-expanded={showDimensions} onClick={() => setDimensionsToggled(!showDimensions)} className={toggle(showDimensions)}>
+          <button type="button" aria-expanded={showDimensions} disabled={carriesDimension} title={carriesDimension ? 'Clear the dimensions to hide them' : undefined} onClick={() => setDimensionsToggled(!showDimensions)} className={`${toggle(showDimensions)} disabled:opacity-60 disabled:cursor-not-allowed`}>
             <Tags className="h-3 w-3" />{showDimensions ? 'Hide Dimensions' : 'Dimensions'}
           </button>
           <button type="button" aria-expanded={showDiscount} disabled={carriesDiscount} title={carriesDiscount ? 'Clear the discounts to hide this column' : undefined} onClick={() => setDiscountToggled(!showDiscount)} className={`${toggle(showDiscount)} disabled:opacity-60 disabled:cursor-not-allowed`}>
@@ -203,7 +206,7 @@ export function InvoiceLineItemsTable({
               <td className="px-2 py-2"><button type="button" aria-label="Remove line" onClick={() => onRemove(l.key)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button></td>
             </tr>
             {showDimensions && (
-              <tr><td colSpan={columns} className="px-3 pb-3 pt-0"><InvoiceLineDimensions line={l} options={options} onUpdate={onUpdate} /></td></tr>
+              <tr><td colSpan={columns} className="px-3 pb-3 pt-0"><InvoiceLineDimensions line={l} options={options} onUpdate={updateDimension} /></td></tr>
             )}
             </Fragment>
           ))}
