@@ -217,7 +217,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                       cellSize, 'cursor-pointer rounded-md ff-focus-ring tabular-nums hover:bg-gray-100 dark:hover:bg-gray-700',
                       !inMonth && 'text-ink-muted',
                       iso === today && 'font-bold ring-1 ring-teal-500',
-                      isSel && 'bg-teal-600 text-white hover:bg-teal-600 dark:bg-teal-600',
+                      isSel && 'bg-brand-600 text-white hover:bg-brand-700',
                       disabled && 'cursor-not-allowed opacity-40 line-through hover:bg-transparent',
                     )}
                   >
