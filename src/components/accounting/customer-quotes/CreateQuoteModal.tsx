@@ -27,7 +27,7 @@ interface Props { customers: CustomerOption[]; onClose: () => void; onCreated: (
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
-const th = 'px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400';
+const th = 'px-3 py-2 text-xs font-semibold text-ink-muted';
 let seq = 0;
 const blank = (): QuoteFormLine => ({ key: `q${++seq}`, description: '', quantity: 1, unitPrice: 0 });
 const ZAR = { currencyCode: 'ZAR', exchangeRate: 1 };
@@ -73,7 +73,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
   return (
     <Modal open onClose={onClose} title="New Quote" size="xl">
       <Modal.Body className="space-y-5">
-        <p className="text-xs text-slate-500 dark:text-slate-400">Fill in the quote details below</p>
+        <p className="text-xs text-ink-muted">Fill in the quote details below</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="sm:col-span-3">
             <label htmlFor="quote-customer" className={lbl}>Customer *</label>
