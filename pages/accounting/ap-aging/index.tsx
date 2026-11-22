@@ -174,7 +174,7 @@ export default function APAgingPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
-                    <td className="px-4 py-3 max-lg:hidden"></td>
+                    <td className="px-4 py-3 max-lg:!hidden"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
                     <td data-label="Current" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{formatCurrency(totals.current)}</td>
                     <td data-label="30 Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-amber-700 dark:text-amber-400">{formatCurrency(totals.days30)}</td>
