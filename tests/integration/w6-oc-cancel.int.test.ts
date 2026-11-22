@@ -141,7 +141,10 @@ describe('Cancel run', () => {
     });
     expect(raised.statusCode, JSON.stringify(raised.body)).toBe(200);
     const requestId = String((raised.body.data as { id: string }).id);
-    // Another session holds the request (as a decision does) and rejects it while cancel is under way.
+    // Another session holds the request and rejects it while cancel is under way. DEFENCE IN DEPTH (review L-e of
+    // 87708dc593): raw SQL, so it skips the run header that every real decide path writes first (approval-requests ->
+    // preparePayRunApprovalRequest, then decideRequest), which already serialises a real decision with cancel's header
+    // lock. This pins cancel's own request lock and re-read for a writer that does not.
     const other = await a.pool.connect();
     try {
       await other.query('BEGIN');
