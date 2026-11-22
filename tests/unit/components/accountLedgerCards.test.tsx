@@ -33,6 +33,10 @@ describe('Account ledger on touch', () => {
     expect(cell(first, 'Debit')).not.toContain('max-lg:!hidden');
     expect(cell(second, 'Debit')).toContain('max-lg:!hidden');
     expect(cell(second, 'Credit')).not.toContain('max-lg:!hidden');
+    // Desktop is byte-identical: a populated cell carries exactly the original class string (no stray space from the template).
+    const exact = (tr: Element, label: string) => tr.querySelector(`td[data-label="${label}"]`)!.className;
+    expect(exact(first, 'Debit')).toBe('px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]');
+    expect(exact(second, 'Credit')).toBe('px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]');
     expect(cell(first, 'Description')).toEqual(expect.arrayContaining(['truncate', 'max-w-xs', 'max-lg:max-w-none', 'max-lg:whitespace-normal']));
   });
 
