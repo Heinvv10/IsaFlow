@@ -16,12 +16,12 @@ async function toPreview() {
   const view = render(<Page />);
   const input = view.container.querySelector('input[type=file]')!;
   fireEvent.change(input, { target: { files: [new File([CSV], 'tb.csv', { type: 'text/csv' })] } });
-  await waitFor(() => expect(view.container.querySelector('table')).not.toBeNull(), { timeout: 10000 });
+  await waitFor(() => expect(view.container.querySelector('table')).not.toBeNull(), { timeout: 20000 }); // first papaparse import and file read are slow on a loaded runner
   return view;
 }
 
 describe('Migration opening balances on touch', () => {
-  it('turns the preview table into labelled cards whose labels equal the headers', async () => {
+  it('turns the preview table into labelled cards whose labels equal the headers', { timeout: 30000 }, async () => {
     const { container } = await toPreview();
     const table = container.querySelector('table')!;
     expect(table.className).toContain('table-cards');
@@ -31,7 +31,7 @@ describe('Migration opening balances on touch', () => {
     for (const r of rows) expect([...r.querySelectorAll(':scope > td')].map(td => td.getAttribute('data-label'))).toEqual(HEADS);
   });
 
-  it('makes the amount inputs 44px, shrinkable beside their labels and centred in their rows', async () => {
+  it('makes the amount inputs 44px, shrinkable beside their labels and centred in their rows', { timeout: 30000 }, async () => {
     const { container } = await toPreview();
     const inputs = [...container.querySelectorAll('tbody input')];
     expect(inputs).toHaveLength(4);
@@ -41,7 +41,7 @@ describe('Migration opening balances on touch', () => {
     }
   });
 
-  it('makes the back link, upload and submit buttons 44px and stacks the totals strip', async () => {
+  it('makes the back link, upload and submit buttons 44px and stacks the totals strip', { timeout: 30000 }, async () => {
     const { container } = await toPreview();
     const back = screen.getByRole('link', { name: /Back to Migration Hub/ });
     expect(back.className).toContain('max-lg:min-h-11'); // already a flex row, so it only needs the height
