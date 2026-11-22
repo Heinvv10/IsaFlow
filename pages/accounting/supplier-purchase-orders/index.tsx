@@ -112,7 +112,7 @@ export default function SupplierPurchaseOrdersPage() {
                   {orders.map(po => {
                     return (
                       <tr key={po.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                        <td data-label="PO #" className="px-5 py-3.5">
+                        <td data-label="PO #" className="px-5 py-3.5 max-lg:items-center">
                           <Link href={`/accounting/supplier-purchase-orders/${po.id}`} className="font-mono text-amber-500 font-semibold hover:text-amber-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{po.order_number}</Link>
                         </td>
                         <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{po.supplier_name || '—'}</td>
@@ -120,7 +120,7 @@ export default function SupplierPurchaseOrdersPage() {
                         <td data-label="Delivery Date" className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{po.delivery_date ? formatDate(po.delivery_date) : '—'}</td>
                         <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(po.total_amount)}</td>
                         <td data-label="Status" className="px-5 py-3.5 text-center"><StatusPill status={po.status} /></td>
-                        <td data-label="Actions" className="px-4 py-3.5">
+                        <td data-label="Actions" className="px-4 py-3.5 max-lg:items-center">
                           <div className="flex justify-end items-center gap-1">
                             {po.status === 'draft' && (
                               <button onClick={() => handleDelete(po.id, po.order_number)} disabled={deleting === po.id} title="Delete draft" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 max-lg:inline-flex max-lg:items-center max-lg:justify-center max-lg:min-h-11 max-lg:min-w-11">

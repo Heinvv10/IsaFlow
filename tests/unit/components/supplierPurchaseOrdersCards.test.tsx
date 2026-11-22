@@ -38,6 +38,8 @@ describe('Supplier purchase orders on touch', () => {
     for (const c of controls) expect(c.className, c.textContent || c.getAttribute('title') || c.tagName).toContain('max-lg:min-h-11');
     // The icon-only row actions are also 44px wide, and the search spans the phone.
     expect(screen.getByTitle('Delete draft').className).toContain('max-lg:min-w-11');
+    // The 44px link and action cells are centred against their label, not hung from the top of the row.
+    for (const l of ['PO #', 'Actions']) expect(container.querySelector(`td[data-label="${l}"]`)!.className).toContain('max-lg:items-center');
     expect(container.querySelector('input')!.className).toContain('max-lg:w-full');
     expect(screen.getByRole('button', { name: /^all$/i }).parentElement!.className).toContain('max-lg:flex-wrap');
   });
