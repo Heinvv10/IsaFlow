@@ -15,7 +15,7 @@ const plan = (items: number, pos: number, categories = 0): MigrationPlan => ({
   purchaseOrders: Array.from({ length: pos }, (_, i) => ({ sageId: String(i + 1), documentNumber: `PO${i}`, totalCents: 1, element: { po_number: `PO${i}` }, pdfFile: null })),
   refusals: [],
 });
-const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], supplierSageRefs: new Map(), poNumbers: new Map() });
+const empty = (): Snapshot => ({ itemRefs: new Set(), poTotals: new Map(), stockMovements: 0, items: [], categories: [], supplierSageRefs: new Map(), poNumbers: new Map() });
 const sizes = (b: { size: number }[]) => b.map((x) => x.size);
 
 describe('the caps are the tools\' own', () => {
@@ -91,7 +91,7 @@ describe('sendBatch', () => {
 });
 
 describe('budgetWouldHaveFailed', () => {
-  const batch = (toolReported: Record<string, unknown> | null) => ({ entity: 'purchase_order' as const, n: 1, size: 1, key: 'k', status: 'ok' as const, allRowsAlreadyPresent: false, toolReported, error: null });
+  const batch = (toolReported: Record<string, unknown> | null) => ({ entity: 'purchase_order' as const, n: 1, size: 1, key: 'k', status: 'ok' as const, allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported, error: null });
   it('lists the POs each batch answered would_have_failed, with their reasons, across batches', () => {
     const r = budgetWouldHaveFailed([
       batch({ would_have_failed: [{ index: 0, po_number: 'PO1', reasons: ['over by 10'] }] }),
