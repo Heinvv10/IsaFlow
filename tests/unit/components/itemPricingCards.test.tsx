@@ -33,6 +33,8 @@ describe('Item pricing on touch', () => {
     await screen.findByText('Widget');
     const price = container.querySelector('tbody input')!;
     expect(price.className).toContain('max-lg:min-h-11');
+    // Fixed w-32 beside the label overflowed a 320px card; on phones the input must be allowed to shrink.
+    for (const c of ['max-lg:w-auto', 'max-lg:min-w-0', 'max-lg:flex-1']) expect(price.className.split(' ')).toContain(c);
     expect(price.closest('td')!.className).toContain('max-lg:items-center'); // centred against its label
     expect(screen.getByPlaceholderText('Search items...').className).toContain('max-lg:min-h-11');
     expect(screen.getByRole('button', { name: /^Save/ }).className).toContain('max-lg:min-h-11');

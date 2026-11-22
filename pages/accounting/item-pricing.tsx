@@ -79,7 +79,7 @@ export default function ItemPricingPage() {
     <AppLayout>
       <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between gap-3 max-lg:flex-wrap">
+          <div className="flex items-center justify-between max-lg:gap-3 max-lg:flex-wrap">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-violet-500/10"><Tag className="h-6 w-6 text-violet-500" /></div>
               <div>
@@ -132,7 +132,7 @@ export default function ItemPricingPage() {
                           <AmountInput min={0}
                             value={edits[item.id] ?? item.selling_price ?? ''}
                             onValueChange={(_n, t) => setEdits(p => ({ ...p, [item.id]: t }))}
-                            className={`w-32 px-2 py-1 max-lg:min-h-11 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
+                            className={`w-32 px-2 py-1 max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
                         <td data-label="Margin" className={`px-4 py-2 text-right ${margin >= 0 ? 'text-teal-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>
                       </tr>
