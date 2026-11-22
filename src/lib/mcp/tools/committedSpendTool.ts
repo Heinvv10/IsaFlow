@@ -34,6 +34,7 @@ export function committedRow(g: CommittedGroup) {
 
 export const committedSpendTool: McpTool = {
   name: 'committed_spend',
+  admits: canWrite,
   description:
     'Committed spend: the open value of purchase orders that commit spend (approved, partially_received, received, and closed by billing while not fully billed) in the order-date months from_month to to_month (YYYY-MM, at most 12 months), '
     + 'ordered less billed per PO line, floored at 0, ex VAT, summed per group. It is the committed figure of budget_remaining read by supplier, cc2, account, cc1, bu or month: for any account, month and budget-level slice the rows add up to budget_remaining\'s committed, to the cent '

@@ -27,13 +27,24 @@ let hasCancelledStatus = false;
 interface Bill { bill_id: string; invoice_number: string; status: string; attributed_via: string; attributed_amount: string; invoice_date: string; counts_as_billed: boolean }
 interface Item {
   id: string; po_number: string; supplier: { id: string; name: string }; status: string; closed_from_status: string | null; closed_by_billing: boolean; order_date: string; age_days: number;
-  ordered: string; received: string; billed: string; outstanding: string; committed: string; last_receipt_date: string | null; days_since_last_receipt: number | null;
+  ordered: string; received: string; billed: string; outstanding: string; committed: string | null; committed_hidden?: string; last_receipt_date: string | null; days_since_last_receipt: number | null;
   last_bill_date: string | null; days_since_last_bill: number | null; bills: Bill[]; bills_total: number;
 }
 interface Out { as_of: string; items: Item[]; total: number; next_offset: number | null }
 
 const INV = { role: 'owner', scopes: ['read:invoices'] };
-const report = async (args: Record<string, unknown> = {}, u = w.u) => body(await mcp(pool, u, 'po_status_report', { limit: 100, ...args }, INV)) as unknown as Out;
+const page = async (args: Record<string, unknown>, u = w.u, opts: { role: string; scopes: string[] } = INV) => body(await mcp(pool, u, 'po_status_report', args, opts)) as unknown as Out;
+/** One page when `limit` or `offset` is given; else every page, walked by next_offset, as one answer. */
+const report = async (args: Record<string, unknown> = {}, u = w.u, opts = INV): Promise<Out> => {
+  if ('limit' in args || 'offset' in args) return page(args, u, opts);
+  const first = await page(args, u, opts);
+  for (let next = first.next_offset; next !== null;) {
+    const more = await page({ ...args, offset: next }, u, opts);
+    first.items.push(...more.items);
+    next = more.next_offset;
+  }
+  return { ...first, next_offset: null };
+};
 const detail = async (po: string) => body(await mcp(pool, w.u, 'get_purchase_order', { po_id: po }, INV)) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const cents = (v: string | number) => Math.round(Number(v) * 100);
 const money = (c: number) => `${c < 0 ? '-' : ''}${Math.floor(Math.abs(c) / 100)}.${String(Math.abs(c) % 100).padStart(2, '0')}`;
@@ -89,7 +100,7 @@ describe('billed and received are what get_purchase_order reports', () => {
       const basis = Math.max(cents(theirs.purchase_order.subtotal), lines.reduce((s, l) => s + cents(l.line_total), 0));
       expect(cents(mine.ordered), `${mine.po_number} ordered`).toBe(basis);
       expect(cents(mine.outstanding), `${mine.po_number} outstanding`).toBe(cents(theirs.outstanding_to_bill));
-      expect(cents(mine.committed), `${mine.po_number} committed`).toBe(committed.get(po.po.toLowerCase()) ?? 0);
+      expect(cents(mine.committed!), `${mine.po_number} committed`).toBe(committed.get(po.po.toLowerCase()) ?? 0);
       expect(mine.bills_total, `${mine.po_number} bills`).toBe(theirs.bills_total);
       expect(mine.bills.map((b) => [b.bill_id, b.counts_as_billed, cents(b.attributed_amount)]).sort())
         .toEqual((theirs.bills as Array<Record<string, any>>).map((b) => [b.bill_id, b.counts_as_billed, cents(b.attributed_amount)]).sort()); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -111,7 +122,7 @@ describe('billed and received are what get_purchase_order reports', () => {
 
   it('the committed of all POs adds up to committed_spend, account-less included', async () => {
     const out = await report({ from: '2026-06-01', to: '2026-06-30' });
-    const sum = out.items.reduce((s, i) => s + cents(i.committed), 0);
+    const sum = out.items.reduce((s, i) => s + cents(i.committed!), 0);
     const spend = body(await mcp(pool, w.u, 'committed_spend', { from_month: '2026-06', to_month: '2026-06', group_by: [] }, { role: 'owner', scopes: ['read:reports'] })) as
       { total: { committed: string }; no_account: { committed: string } };
     expect(sum).toBe(cents(spend.total.committed) + cents(spend.no_account.committed));
@@ -251,6 +262,99 @@ describe('filters, order and paging', () => {
   });
 });
 
+describe('review findings', () => {
+  const as = (role: string, args: Record<string, unknown> = {}) => report(args, w.u, { role, scopes: ['read:invoices'] });
+
+  it('committed is fenced as budget_remaining fences it: null with a reason for a viewer, the figure for a manager and an owner', async () => {
+    for (const role of ['viewer', 'storeman', 'technician']) {
+      const out = await as(role);
+      expect(out.items.length).toBeGreaterThan(5);
+      for (const i of out.items) expect([i.committed, typeof i.committed_hidden]).toEqual([null, 'string']);
+      expect(out.items[0]!.committed_hidden).toMatch(/owners, admins and managers/);
+      // The rest of the report is whole.
+      expect(cents(find(out, w.po.partial!).billed)).toBe(4000);
+    }
+    for (const role of ['manager', 'admin', 'owner']) {
+      const row = find(await as(role), w.po.partial!);
+      expect([row.committed, row.committed_hidden]).toEqual(['260.00', undefined]);
+    }
+  });
+
+  it('received derives from line_total: a line of 0.25 x 4.02 (total 1.00) fully received is 1.00, not 1.01; a partial receipt is pro rata', async () => {
+    const acct = w.f.acc.opex;
+    const po = await mkPo(pool, w.f, { month: '2026-06', status: 'partially_received', lines: [
+      { acct, qty: 0.25, price: 4.02, lineTotal: 1.0, received: 0.25 },
+      { acct, qty: 3, price: 3.33, lineTotal: 10.0, received: 1 },
+      { acct, qty: 2, price: 7, lineTotal: 14, received: 0 },
+    ] });
+    const row = find(await report(), po);
+    // 1.00 + 10.00 x 1/3 (3.33) + 0.
+    expect([row.ordered, row.received]).toEqual(['25.00', '4.33']);
+    expect(cents(row.received)).toBeLessThanOrEqual(cents(row.ordered));
+  });
+
+  it('total is the true filter count whatever the offset: three POs, offset 10', async () => {
+    const supplier = (await pool.query("INSERT INTO suppliers (id, company_id, name, is_active) VALUES (gen_random_uuid(), $1, 'Three POs', true) RETURNING id", [w.f.co])).rows[0].id as string;
+    for (const n of [1, 2, 3]) await mkPo(pool, w.f, { month: '2026-06', supplier, lines: [{ acct: w.f.acc.opex, price: 10 * n }] });
+    const past = await report({ supplier_id: supplier, offset: 10 });
+    expect([past.items, past.total, past.next_offset]).toEqual([[], 3, null]);
+    const first = await report({ supplier_id: supplier, limit: 2 });
+    expect([first.items.length, first.total, first.next_offset]).toEqual([2, 3, 2]);
+    const pastOutstanding = await report({ supplier_id: supplier, offset: 10, only_outstanding: true });
+    expect([pastOutstanding.items, pastOutstanding.total, pastOutstanding.next_offset]).toEqual([[], 3, null]);
+  });
+
+  it('only_outstanding is "still to bill on a live order": a cancelled, a draft and a short-closed PO are out; outstanding itself is unchanged', async () => {
+    const all = await report();
+    const live = await report({ only_outstanding: true });
+    const ids = live.items.map((i) => i.id);
+    for (const po of [w.po.cancelled!, w.po.draft!, w.po.shortClosed!]) {
+      expect(cents(find(all, po).outstanding), `${po.number} still reports its outstanding`).toBeGreaterThan(0);
+      expect(ids, po.number).not.toContain(po.po);
+    }
+    expect(ids).toEqual(expect.arrayContaining([w.po.partial!.po, w.po.header!.po, recv.po]));
+    expect(live.items.every((i) => ['approved', 'partially_received', 'received'].includes(i.status))).toBe(true);
+    expect((await report({ only_outstanding: true, status: ['cancelled'] })).items).toEqual([]);
+  });
+
+  it('the last receipt date counts only notes that hold goods: a rejected and a draft note do not set it', async () => {
+    const po = await mkPo(pool, w.f, { month: '2026-05', status: 'partially_received', lines: [{ acct: w.f.acc.opex, qty: 10, price: 5, received: 2 }] });
+    await mkGrn(pool, w.f, po, [[po.items[0]!, 2]], '2026-05-10');
+    await mkGrn(pool, w.f, po, [[po.items[0]!, 1]], '2026-06-20', 'rejected');
+    await mkGrn(pool, w.f, po, [[po.items[0]!, 1]], '2026-06-25', 'draft');
+    const row = find(await report(), po);
+    expect(row.last_receipt_date).toBe('2026-05-10');
+    await mkGrn(pool, w.f, po, [[po.items[0]!, 1]], '2026-06-01', 'accepted');
+    expect(find(await report(), po).last_receipt_date).toBe('2026-06-01');
+  });
+
+  it('the bills list shows the ten NEWEST (date, then id, descending); bills_total counts all twelve', async () => {
+    const po = await mkPo(pool, w.f, { month: '2026-06', lines: [{ acct: w.f.acc.opex, price: 1000 }] });
+    const ids: string[] = [];
+    for (let d = 1; d <= 12; d++) {
+      const id = crypto.randomUUID();
+      ids.push(id);
+      await pool.query(
+        `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status, purchase_order_id)
+         VALUES ($1, $2, $3, $4, $5, 10, 15, 1.5, 11.5, $6, 'approved', $7)`, [id, w.f.co, `TWELVE-${d}`, w.f.supplier, `2026-06-${String(d).padStart(2, '0')}`, w.f.owner, po.po]);
+    }
+    // Two bills on the same day: the larger id comes first.
+    const tieA = crypto.randomUUID();
+    const tieB = crypto.randomUUID();
+    const [lo, hi] = [tieA, tieB].sort();
+    for (const [id, no] of [[lo!, 'TIE-LO'], [hi!, 'TIE-HI']] as const) {
+      await pool.query(
+        `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status, purchase_order_id)
+         VALUES ($1, $2, $3, $4, '2026-06-30', 10, 15, 1.5, 11.5, $5, 'approved', $6)`, [id, w.f.co, no, w.f.supplier, w.f.owner, po.po]);
+    }
+    const row = find(await report(), po);
+    expect(row.bills_total).toBe(14);
+    expect(row.bills).toHaveLength(10);
+    expect(row.bills.map((b) => b.invoice_number)).toEqual(['TIE-HI', 'TIE-LO', 'TWELVE-12', 'TWELVE-11', 'TWELVE-10', 'TWELVE-9', 'TWELVE-8', 'TWELVE-7', 'TWELVE-6', 'TWELVE-5']);
+    expect(row.last_bill_date).toBe('2026-06-30');
+  });
+});
+
 describe('refusals and tenancy', () => {
   it('a missing scope and malformed arguments are refused', async () => {
     expect((await mcp(pool, w.u, 'po_status_report', {}, { role: 'owner', scopes: ['read:reports'] })).isError).toBe(true);
@@ -275,7 +379,7 @@ describe('refusals and tenancy', () => {
 
   it('the money columns are exact decimal text, never a float', async () => {
     for (const i of (await report()).items) {
-      for (const v of [i.ordered, i.received, i.billed, i.outstanding, i.committed]) expect(v).toMatch(/^-?\d+\.\d{2}$/);
+      for (const v of [i.ordered, i.received, i.billed, i.outstanding, i.committed!]) expect(v).toMatch(/^-?\d+\.\d{2}$/);
       expect(money(cents(i.ordered) - cents(i.billed) < 0 ? 0 : cents(i.ordered) - cents(i.billed))).toBe(i.outstanding);
     }
   });

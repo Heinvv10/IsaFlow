@@ -11,6 +11,8 @@ import { centsText } from './budgetToolArgs';
 export const PO_REPORT_LIMIT_DEFAULT = 15;
 export const PO_REPORT_LIMIT_MAX = 20;
 const TEXT_CAP = 60;
+/** Why committed is null: the same fence budget_remaining and committed_spend apply to the figure. */
+export const COMMITTED_HIDDEN = 'committed is shown to owners, admins and managers only, as budget_remaining\'s is';
 
 const short = (v: string | null): string | null => (v === null ? null : v.slice(0, TEXT_CAP));
 
@@ -24,7 +26,9 @@ export const poStatusItem = (r: PoStatusRow) => ({
   status: r.status, closed_from_status: r.closedFromStatus, closed_by_billing: r.closedByBilling,
   order_date: r.orderDate, age_days: r.ageDays,
   ordered: centsText(r.orderedCents), received: centsText(r.receivedCents), billed: centsText(r.billedCents),
-  outstanding: centsText(r.outstandingCents), committed: centsText(r.committedCents),
+  outstanding: centsText(r.outstandingCents),
+  committed: r.committedCents === null ? null : centsText(r.committedCents),
+  ...(r.committedCents === null ? { committed_hidden: COMMITTED_HIDDEN } : {}),
   last_receipt_date: r.lastReceiptDate, days_since_last_receipt: r.daysSinceLastReceipt,
   last_bill_date: r.lastBillDate, days_since_last_bill: r.daysSinceLastBill,
   bills: r.bills.map(billView), bills_total: r.billsTotal,

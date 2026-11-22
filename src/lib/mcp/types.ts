@@ -123,6 +123,12 @@ export interface McpTool {
    */
   requiresRole?: WithRoleLevel;
   /**
+   * The role predicate the tool's OWN handler applies to refuse a caller the registry's fences admit (budget_remaining: owner / admin /
+   * manager; take_audit_snapshot: owner / admin). The registry does not enforce it: the handler answers its own refusal. It is declared
+   * so `token_info` lists a tool only to a role that can call it (toolAccess.callableBy). Set it to the predicate the handler calls.
+   */
+  admits?: (role: string | null | undefined) => boolean;
+  /**
    * A READ that returns a file or other bulk content by design (get_document with include_content). Exempts it from
    * the registry's oversized-result refusal (resultSize.ts); every other read is held to MAX_READ_RESULT_BYTES.
    */

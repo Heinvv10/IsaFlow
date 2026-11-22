@@ -10,7 +10,7 @@
 import { transitionVersion, type VersionAction } from '@/modules/accounting/services/budgets/budgetVersionStatus';
 import { setPrimary } from '@/modules/accounting/services/budgets/budgetVersions';
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
-import { BUDGET_WRITE_FENCE, isResult, ownerGate, ownVersion, versionTokenArg, versionView } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isCompanyOwner, isResult, ownerGate, ownVersion, versionTokenArg, versionView } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
 const GATE_NOTE = 'Only a token whose user is the company owner may do this; any other role is told "A person must approve this budget in IsaFlow".';
@@ -39,6 +39,7 @@ async function move(ctx: McpToolContext, args: Record<string, unknown>, action: 
 export const approveBudgetVersionTool: McpTool = {
   name: 'approve_budget_version',
   approveModule: 'budgets', // #1656: moduleFence asks this Approve before the handler
+  admits: isCompanyOwner,
   description: `Approve a DRAFT budget version (draft → approved; it stays editable, every edit audited). ${GATE_NOTE} `
     + 'Refused while a budget holder\'s slice is not approved, unless force true with a reason (1-500 characters), recorded in the audit log.',
   ...BUDGET_WRITE_FENCE,
@@ -54,6 +55,7 @@ export const approveBudgetVersionTool: McpTool = {
 
 export const lockBudgetVersionTool: McpTool = {
   name: 'lock_budget_version',
+  admits: isCompanyOwner,
   description: `Lock an APPROVED budget version (approved → locked: immutable, the database refuses any change). ${GATE_NOTE}`,
   ...BUDGET_WRITE_FENCE,
   write: true,
@@ -63,6 +65,7 @@ export const lockBudgetVersionTool: McpTool = {
 
 export const unlockBudgetVersionTool: McpTool = {
   name: 'unlock_budget_version',
+  admits: isCompanyOwner,
   description: `Unlock a LOCKED budget version (locked → approved, editable again). reason (1-500 characters) is required and kept in the audit log. ${GATE_NOTE}`,
   ...BUDGET_WRITE_FENCE,
   write: true,
@@ -77,6 +80,7 @@ export const unlockBudgetVersionTool: McpTool = {
 
 export const setPrimaryBudgetVersionTool: McpTool = {
   name: 'set_primary_budget_version',
+  admits: isCompanyOwner,
   description: `Make a budget version its financial year's PRIMARY: every report without a named version (Budget vs Actual, packs, budget_variance) then reads it. ${GATE_NOTE}`,
   ...BUDGET_WRITE_FENCE,
   write: true,

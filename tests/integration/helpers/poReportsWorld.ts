@@ -9,7 +9,7 @@ import { seedBillFixture, setPolicy, type BillFixture } from './budgetBillFixtur
 import { seedBill, seedRawBill, seedSupplier } from './poBillLinkHarness';
 import type { SetupUser } from './onboardingSetupFixture';
 
-export interface PoLineSeed { acct: string | null; qty?: number; price: number; cc1?: string | null; cc2?: string | null; bu?: string | null; received?: number }
+export interface PoLineSeed { acct: string | null; qty?: number; price: number; cc1?: string | null; cc2?: string | null; bu?: string | null; received?: number; lineTotal?: number }
 export interface SeededPo { po: string; number: string; items: string[] }
 
 let seq = 0;
@@ -22,7 +22,7 @@ export async function mkPo(
 ): Promise<SeededPo> {
   const po = crypto.randomUUID();
   const number = o.number ?? `PR${String(100 + seq++)}-${po.slice(0, 4)}`;
-  const subtotal = Math.round(o.lines.reduce((s, l) => s + (l.qty ?? 1) * l.price, 0) * 100) / 100;
+  const subtotal = Math.round(o.lines.reduce((s, l) => s + (l.lineTotal ?? (l.qty ?? 1) * l.price), 0) * 100) / 100;
   await pool.query(
     `INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status, subtotal, tax_amount, total, closed_by_billing, closed_from_status)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $7, $8, $9)`,
@@ -33,7 +33,7 @@ export async function mkPo(
     await pool.query(
       `INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, quantity_received, gl_account_id,
          cc1_id, cc2_id, bu_id, sort_order) VALUES ($1, $2, $3, $4, $5, 0, $6, 0, $7, $8, $9, $10, $11, $12)`,
-      [item, po, `PO line ${i}`, l.qty ?? 1, l.price, Math.round((l.qty ?? 1) * l.price * 100) / 100, l.received ?? 0, l.acct, l.cc1 ?? null, l.cc2 ?? null, l.bu ?? null, i]);
+      [item, po, `PO line ${i}`, l.qty ?? 1, l.price, l.lineTotal ?? Math.round((l.qty ?? 1) * l.price * 100) / 100, l.received ?? 0, l.acct, l.cc1 ?? null, l.cc2 ?? null, l.bu ?? null, i]);
     items.push(item);
   }
   return { po, number, items };

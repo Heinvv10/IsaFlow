@@ -18,6 +18,7 @@
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext } from '../types';
+import { callableBy } from '../toolAccess';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getCompanyUser, type CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -46,13 +47,14 @@ async function tokenHolder(ctx: McpToolContext): Promise<CompanyUserSummary | nu
 }
 
 /**
- * The tool names each GRANTED scope opens, from the registry's own `scope` metadata (nothing is listed by hand: a tool registered
- * tomorrow appears under its scope today). A tool is listed under the scope it names; a write tool that also needs another scope
- * (`requiresScope`, `write:post`) is listed under its own, and refuses a call that lacks the other. Tools that need no scope are
- * returned apart: any token opens them.
+ * The tool names each GRANTED scope opens, from the registry's own metadata (nothing is listed by hand: a tool registered tomorrow
+ * appears under its scope today). A tool is listed under the scope it names, and only when this token AND role can call it
+ * (`toolAccess.callableBy`: the registry's own scope / write:post / requiresScope / role fences, and the tool's `admits`): a write tool
+ * is not offered to a viewer, nor one that needs a second scope the token lacks. Tools that need no scope are returned apart.
  */
-export function toolsOpenedBy(tools: readonly McpTool[], granted: readonly string[]): { tools: Record<string, string[]>; tools_without_scope: string[] } {
-  const names = (pick: (t: McpTool) => boolean) => tools.filter(pick).map((t) => t.name).sort();
+export function toolsOpenedBy(tools: readonly McpTool[], ctx: McpToolContext): { tools: Record<string, string[]>; tools_without_scope: string[] } {
+  const granted = ctx.scopes;
+  const names = (pick: (t: McpTool) => boolean) => tools.filter((t) => pick(t) && callableBy(t, ctx)).map((t) => t.name).sort();
   return {
     tools: Object.fromEntries([...new Set(granted)].sort().map((scope) => [scope, names((t) => t.scope === scope)])),
     tools_without_scope: names((t) => t.scope === null),
@@ -72,7 +74,7 @@ export function makeTokenInfoTool(tools: () => readonly McpTool[]): McpTool {
       + 'its scopes, your role in the company, and when it expires. expires_at is the credential on this call; for OAuth '
       + 'the access token renews itself, so reconnect_by (the refresh token\'s expiry) is when the connector must be '
       + 're-authorised. tools lists, under each scope the token holds, the tools that scope opens (tools_without_scope: the ones any token opens); '
-      + 'a write tool may also need another scope (read:reports, write:post), which it names when it refuses. '
+      + 'only tools this token and your role can call are listed (a write tool needing a scope or role you lack is left out). '
       + 'Call it before a long run, or when a write is refused for a missing scope.',
     scope: null, // any authenticated token: it describes the token, not company data
     write: false,
@@ -90,7 +92,7 @@ export function makeTokenInfoTool(tools: () => readonly McpTool[]): McpTool {
         oauth_app_id: ctx.oauthAppId,
         role: ctx.companyRole ?? null,
         scopes: [...ctx.scopes].sort(),
-        ...toolsOpenedBy(tools(), ctx.scopes),
+        ...toolsOpenedBy(tools(), ctx),
         expires_at: ctx.tokenExpiresAt ?? null,
         expires_in_seconds: secondsUntil(ctx.tokenExpiresAt),
         refresh_expires_at: ctx.refreshExpiresAt ?? null,

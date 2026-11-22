@@ -192,8 +192,8 @@ describe('token_info lists the tools each granted scope opens', () => {
     expect(none.tools_without_scope).toEqual(MCP_TOOLS.filter((t) => t.scope === null).map((t) => t.name).sort());
   });
 
-  it('census: with every scope granted, every registered tool appears exactly once, under its own scope', async () => {
-    const all = [...new Set(MCP_TOOLS.map((t) => t.scope).filter((s): s is string => s !== null))];
+  it('census: an owner with every scope granted sees every registered tool exactly once, under its own scope', async () => {
+    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
     const out = await info(all);
     const seen = new Map<string, string>();
     for (const [scope, names] of Object.entries(out.tools)) {
@@ -209,8 +209,79 @@ describe('token_info lists the tools each granted scope opens', () => {
   });
 
   it('the full listing is a small read: well under MAX_READ_RESULT_BYTES', async () => {
-    const all = [...new Set(MCP_TOOLS.map((t) => t.scope).filter((s): s is string => s !== null))];
+    const all = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))]; // every scope a token could hold, an owner's role
     const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(all));
     expect(bytes(r)).toBeLessThan(MAX_READ_RESULT_BYTES / 3);
   });
 });
+
+describe('token_info lists only what this token AND role can call', () => {
+  const ALL_SCOPES = [...new Set(MCP_TOOLS.flatMap((t) => [t.scope, t.requiresScope, t.requiresPost ? 'write:post' : null]).filter((s): s is string => !!s))];
+  const info = async (scopes: string[], role: string | null) => {
+    const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(scopes, role as string));
+    const out = JSON.parse(r.content[0]!.text) as { tools: Record<string, string[]>; tools_without_scope: string[] };
+    return new Set([...Object.values(out.tools).flat(), ...out.tools_without_scope]);
+  };
+
+  it('a viewer with read:reports does not see committed_spend or budget_remaining; a manager sees them', async () => {
+    const viewer = await info(['read:reports'], 'viewer');
+    expect(viewer.has('committed_spend') || viewer.has('budget_remaining') || viewer.has('derive_three_way')).toBe(false);
+    expect(viewer.has('trial_balance')).toBe(true);
+    const manager = await info(['read:reports'], 'manager');
+    expect(['committed_spend', 'budget_remaining'].every((n) => manager.has(n))).toBe(true);
+    expect((await info(['read:reports'], null)).has('committed_spend')).toBe(false);
+  });
+
+  it('a tool whose requiresScope or write:post is not held is left out; held, it is listed', async () => {
+    const needs = MCP_TOOLS.find((t) => t.requiresScope && t.scope && !t.requiresPost)!;
+    expect((await info([needs.scope!], 'owner')).has(needs.name)).toBe(false);
+    expect((await info([needs.scope!, needs.requiresScope!], 'owner')).has(needs.name)).toBe(true);
+    const posts = MCP_TOOLS.find((t) => t.requiresPost && t.scope && !t.requiresScope)!;
+    expect((await info([posts.scope!], 'owner')).has(posts.name)).toBe(false);
+    expect((await info([posts.scope!, 'write:post'], 'owner')).has(posts.name)).toBe(true);
+  });
+
+  it('role levels: a manager is not offered an owner / admin tool, an owner is; a viewer is offered no write tool', async () => {
+    const manager = await info(ALL_SCOPES, 'manager');
+    const owner = await info(ALL_SCOPES, 'owner');
+    for (const n of ['close_fiscal_period', 'approve_budget_version', 'close_purchase_order', 'take_audit_snapshot', 'delete_fixed_asset', 'budget_tracking']) {
+      expect(manager.has(n), `manager ${n}`).toBe(false);
+      expect(owner.has(n), `owner ${n}`).toBe(true);
+    }
+    expect(manager.has('post_journal')).toBe(true);
+    const viewer = await info(ALL_SCOPES, 'viewer');
+    expect(MCP_TOOLS.filter((t) => (t.write || t.requiresWriteRole) && viewer.has(t.name)).map((t) => t.name)).toEqual([]);
+  });
+
+  it('agrees with the registry: for every tool and role, listed exactly when a call gets past the scope and role fences and the tool\'s own `admits`', async () => {
+    for (const role of ['viewer', 'manager', 'admin', 'owner']) {
+      for (const scopes of [ALL_SCOPES, ['read:reports'], ['read:reports', 'write:budgets'], ALL_SCOPES.filter((s) => s !== 'write:post')]) {
+        const listed = await info(scopes, role);
+        for (const tool of MCP_TOOLS) {
+          const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '{}' }] }));
+          const registry = new McpRegistry();
+          registry.register({ ...tool, handler });
+          const r = await registry.call(tool.name, { idempotency_key: 'k' }, ctx(scopes, role));
+          const passes = !r.isError && handler.mock.calls.length === 1;
+          const admitted = tool.admits === undefined || tool.admits(role);
+          expect(listed.has(tool.name), `${tool.name} as ${role} with ${scopes.length} scopes`).toBe(passes && admitted);
+        }
+      }
+    }
+  });
+
+  it('the handler-gated reads carry the predicate their handler uses, and refuse a role it does not admit', async () => {
+    for (const [name, args] of [['committed_spend', { from_month: '2026-06', to_month: '2026-06' }], ['budget_remaining', { lines: [{ account: 'x', month: '2026-06' }] }]] as const) {
+      const tool = MCP_TOOLS.find((t) => t.name === name)!;
+      expect(tool.admits, name).toBeTypeOf('function');
+      for (const role of ['viewer', 'manager', 'admin', 'owner', null]) {
+        if (tool.admits!(role)) continue;
+        const r = await tool.handler(args as Record<string, unknown>, ctx(['read:reports'], role as string));
+        expect(r.isError, `${name} as ${String(role)}`).toBe(true);
+        expect(r.content[0]!.text).toMatch(/owners, admins and managers/);
+      }
+      expect(tool.admits!('manager')).toBe(true);
+    }
+  });
+});
+

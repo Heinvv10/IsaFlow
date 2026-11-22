@@ -19,6 +19,7 @@ const r2 = (cents: number) => cents / 100;
 
 export const closePurchaseOrderTool: McpTool = {
   name: TOOL,
+  admits: canCancelApprovedPo,
   description:
     'Short-close a purchase order (po_id or po_number): an approved, partially_received or received PO becomes closed, so what was ordered and never received (or never will be) stops counting as committed spend. '
     + 'Owner or admin only (closing releases a commitment). A reason is required and audited with the status it was closed from and the received and billed amounts at that moment. Posts nothing: bills and links to the PO stay. '

@@ -4,6 +4,7 @@
  * `get_purchase_order`'s billed_total and committed is the figure budget_remaining / committed_spend read: one engine, no recomputation
  * (`ap/poStatusReport`). Free; read:invoices, as get_purchase_order.
  */
+import { canWrite } from '@/lib/auth/writeRoles';
 import type { McpTool } from '../types';
 import { PoReportScanError, readPoStatusReport } from '@/modules/accounting/services/ap/poStatusReport';
 import { isRealCalendarDate } from '@/lib/validation';
@@ -15,11 +16,12 @@ import { clampLimit, guardCastableArgs, ok, toolError } from './toolHelpers';
 export const poStatusReportTool: McpTool = {
   name: 'po_status_report',
   description:
-    'Purchase orders with where each stands, oldest first (then PO number): ordered (the PO\'s billing basis: the larger of its header subtotal and its lines, ex VAT), received (per line min(received, ordered) quantity x unit price; a cancelled goods received note is already taken back), '
+    'Purchase orders with where each stands, oldest first (then PO number): ordered (the PO\'s billing basis: the larger of its header subtotal and its lines, ex VAT), received (per line the line total x min(received, ordered) / ordered quantity, so a fully received line is its line total; a cancelled goods received note is already taken back), '
     + 'billed (get_purchase_order\'s billed_total: the one attribution, lines first, then the link, then the capped header fallback; approved / paid / partially_paid bills that are not deleted), outstanding (ordered less billed, floored at 0) and committed '
-    + '(what budget_remaining / committed_spend count for it: 0 for a PO that does not commit), age_days, days_since_last_receipt and days_since_last_bill (null: none), status with closed_from_status and closed_by_billing, '
-    + 'and the bills that tie it (up to 10: invoice_number, status, attributed_amount, invoice_date, attributed_via lines / link / header, counts_as_billed: false for a bill not yet approved; a soft-deleted or cancelled bill is never listed) with bills_total. Figures are decimal text, ex VAT. '
-    + 'Filters: status (one or a list), supplier_id, from / to (order date), older_than_days (age_days above it), only_outstanding (outstanding above 0; narrow the filters first when more than 2000 POs match). '
+    + '(the PO\'s open committed value from the engine budget_remaining reads, 0 for a PO that does not commit; it counts lines with no account, which committed_spend reports under no_account and budget_remaining never sees; '
+    + 'shown to owners, admins and managers only: null with committed_hidden for any other role, the rest of the report whole), age_days, days_since_last_receipt (from the latest note that holds goods: not a draft, rejected or cancelled one) and days_since_last_bill (null: none), status with closed_from_status and closed_by_billing, '
+    + 'and the bills that tie it (the 10 newest: invoice_number, status, attributed_amount, invoice_date, attributed_via lines / link / header, counts_as_billed: false for a bill not yet approved; a soft-deleted or cancelled bill is never listed) with bills_total. Figures are decimal text, ex VAT. '
+    + 'Filters: status (one or a list), supplier_id, from / to (order date), older_than_days (age_days above it), only_outstanding (still to bill on a live order: approved, partially_received or received POs with outstanding above 0; closed, cancelled and draft POs are left out, though their outstanding field still reads as above; narrow the filters first when more than 2000 POs match). '
     + `as_of is the day the ages are measured to (Johannesburg). Paged: limit (default ${PO_REPORT_LIMIT_DEFAULT}, max ${PO_REPORT_LIMIT_MAX}), offset = the previous next_offset; total is over the whole filter. Needs read:invoices.`,
   scope: 'read:invoices',
   write: false,
@@ -64,7 +66,7 @@ export const poStatusReportTool: McpTool = {
     try {
       const report = await readPoStatusReport(ctx.companyId, {
         statuses: statuses as string[] | null, supplierId: text('supplier_id')?.toLowerCase() ?? null, from: text('from'), to: text('to'),
-        olderThanDays: typeof older === 'number' ? older : null, onlyOutstanding: only === true,
+        olderThanDays: typeof older === 'number' ? older : null, onlyOutstanding: only === true, includeCommitted: canWrite(ctx.companyRole),
         offset, limit: clampLimit(args, PO_REPORT_LIMIT_DEFAULT, PO_REPORT_LIMIT_MAX),
       });
       return ok({ as_of: report.asOf, items: report.rows.map(poStatusItem), total: report.total, next_offset: report.nextOffset });
