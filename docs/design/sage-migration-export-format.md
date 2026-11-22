@@ -91,7 +91,7 @@ DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-fi
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
 
-Without `--live` it is a dry run and writes nothing. `--live` is NOT started when the dry run shows what the person did not allow: `--expect-*` figures that miss what would be sent, rows refused without `--allow-refusals`, differences without `--allow-differences` (status `live_blocked`, exit 1, nothing written). `--po-gl-account` must name an active, non-header expense account of the company (checked before the dry run). With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. A re-run replays finished PO batches under their keys; item and category batches are keyed by the state of the owned rows they touch, so the first re-run after a run is a fresh call that answers unchanged (it writes nothing). If the rows of an earlier run were deleted since, a replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
+Without `--live` it is a dry run and writes nothing. `--live` is NOT started when the dry run shows what the person did not allow: `--expect-*` figures that miss what would be sent, rows refused without `--allow-refusals`, differences without `--allow-differences` (status `live_blocked`, exit 1, nothing written). `--po-gl-account` must name an active, non-header expense account of the company (checked before the dry run). With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. Every batch (category, item and PO) is keyed by the state of the existing rows it touches, so a re-run is a fresh call that finds them unchanged or already there (it writes nothing): a stored answer is only ever replayed for rows that are absent, never one true of an earlier state. If the rows of an earlier run were deleted since, a replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
 The runner refuses unless `DATABASE_URL` is a local throwaway database (`localGuard.ts`): host 127.0.0.1 or localhost, an
 explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query parameters but `sslmode`, and a database named
 `isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
@@ -132,9 +132,12 @@ to one IsaFlow supplier are both refused).
   that batch: the tool matches by code. External systems of items and categories are compared exactly (case-sensitive `sage`), as
   those tools do; PO and supplier lookups are case-insensitive, as theirs are.
 - **Exit codes.** 3 = the run finished but `--report` could not be written (the summary is printed before the report is written).
-- **Item batches follow IsaFlow's state.** An item batch's idempotency key is salted with a hash of the state of the owned rows it touches, so
+- **Batches follow IsaFlow's state.** Every batch's idempotency key (category, item and PO: one shared salt, `stateSalt`) is salted with a hash of the state of the existing rows it touches (for a PO: the fields the PO tool compares, its line items and updated_at), so
   once a person has changed an owned item in IsaFlow the batch is not replayed from the stored answer of the run that wrote it (that would
   write nothing and leave the item as the person left it, while the dry run said it would be put back). With no owned row (a first run, or
   rows deleted) the key is the plain one, so a failed batch still resumes under its key. After the items phase the books are also checked
   against what was sent (code, active flag, type, tracking); on a mismatch the PO phase is not started. The report's differences list
   combines the dry run's findings with the live run's.
+- **One run per company.** A session advisory lock is held on its own connection for the whole run, dry runs included. A second run for the
+  same company is refused at its start ("another Sage migration is running for this company", exit 2) and writes nothing; other companies
+  are not held up. The lock goes with its connection if the process dies.

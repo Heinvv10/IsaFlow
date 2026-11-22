@@ -16,7 +16,7 @@ export interface BatchReport {
   allRowsAlreadyPresent: boolean;
   /** Rows of this batch that are NOT in the books although the tool answered (a replayed answer of rows since deleted); 0 when all are there. */
   rowsAbsent: number;
-  /** What the tool answered (counts, outcomes). PO batches are replayed from the stored answer of the run that wrote them; item and category batches are keyed by their owned rows' state, so only a batch whose rows are absent or unchanged since it was sent is. */
+  /** What the tool answered (counts, outcomes). Every batch is keyed by the state of the existing rows it touches, so a stored answer is replayed only for rows that are absent. */
   toolReported: Record<string, unknown> | null;
   /** The tool's refusal text when the batch failed: nothing in it was written. */
   error: string | null;
