@@ -120,3 +120,51 @@ describe('never guessed: a typeless line whose saved type cannot be told', () =>
     expect(problem([{ description: 'Hosting', quantity: 1, unitPrice: 100 }, { description: 'Extra', quantity: 1, unitPrice: 5 }], [hosting])).toBeNull();
   });
 });
+
+describe('review round 3: description before item, position before ambiguity, named types first', () => {
+  const I = '11111111-1111-1111-1111-111111111111';
+  const exportZr = stored('zr', { description: 'Export service', itemId: I, vatType: 'zero_rated', taxRate: 0, taxAmount: 0 });
+  const feeEx = stored('f', { description: 'Fee', unitPrice: 50, amount: 50, vatType: 'exempt', taxRate: 0, taxAmount: 0 });
+  const run = (sent: SentQuoteLine[], st: StoredQuoteVatLine[]) => {
+    const m = matchQuoteLines(sent, st, D);
+    return { ids: ids(m), problem: unmatchedVatProblem(sent, st, m, D) };
+  };
+
+  it('HIGH: a new line of the same item above the zero-rated line does not take it; the zero-rated line keeps it, and the new one is refused', () => {
+    const r = run([{ description: 'Local service', quantity: 1, unitPrice: 80, itemId: I }, { description: 'Export service', quantity: 1, unitPrice: 120, itemId: I }], [exportZr]);
+    expect(r.ids).toEqual([null, 'zr']);
+    expect(r.problem).toMatch(/^items\[0\] and items\[1\] are both like the saved zero-rated line/);
+  });
+
+  it('HIGH: a new "Fee" above the re-priced exempt "Fee": which is which cannot be told, refused', () => {
+    expect(run([{ description: 'Fee', quantity: 1, unitPrice: 10 }, { description: 'Fee', quantity: 1, unitPrice: 60 }], [feeEx]).problem)
+      .toMatch(/are both like the saved exempt line/);
+  });
+
+  it('an item-only match: the line renamed and re-priced, its item unchanged, keeps the zero-rated type', () => {
+    expect(run([{ description: 'Export services', quantity: 1, unitPrice: 120, itemId: I }], [exportZr])).toEqual({ ids: ['zr'], problem: null });
+  });
+
+  it('MEDIUM A: twins standard and exempt resent unchanged in their places (a notes-only save) match their own places', () => {
+    expect(run([{ description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'Widget', quantity: 1, unitPrice: 100 }], [std, ex]))
+      .toEqual({ ids: ['s1', 's2'], problem: null });
+  });
+
+  it('MEDIUM B: two lines of one item, both re-priced, descriptions kept: each resolves by its description at its place', () => {
+    const local = stored('std', { description: 'Local', itemId: I });
+    const exp = stored('zr', { description: 'Export', itemId: I, vatType: 'zero_rated', taxRate: 0, taxAmount: 0 });
+    const r = run([{ description: 'Export', quantity: 1, unitPrice: 110, itemId: I }, { description: 'Local', quantity: 1, unitPrice: 110, itemId: I }], [exp, local]);
+    expect(r).toEqual({ ids: ['zr', 'std'], problem: null });
+  });
+
+  it('LOW 1: a typeless twin is judged against what the named twin leaves (a line deleted, so not by place)', () => {
+    const other = stored('o', { description: 'Other', unitPrice: 1, amount: 1 });
+    const r = run([{ description: 'Widget', quantity: 1, unitPrice: 100 }, { description: 'Widget', quantity: 1, unitPrice: 100, vatType: 'exempt' }], [other, std, ex]);
+    expect(r).toEqual({ ids: ['s1', 's2'], problem: null });
+  });
+
+  it('LOW 2: a renamed legacy 0% line (no type) counts as zero-rated: refused, not typed by the default chain', () => {
+    const legacy0 = stored('l', { description: 'Fee', vatType: null, taxAmount: null, taxRate: 0 });
+    expect(run([{ description: 'Fee (Nov)', quantity: 1, unitPrice: 60 }], [legacy0]).problem).toMatch(/had a zero-rated line it may be/);
+  });
+});

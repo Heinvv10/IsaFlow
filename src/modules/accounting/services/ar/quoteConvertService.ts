@@ -45,6 +45,8 @@ export class QuoteNotConvertibleError extends Error {
   constructor(
     readonly quoteStatus: string,
     readonly existingOrderId: string | null,
+    /** A quote already invoiced: the invoice it was converted to (the route answers it too). */
+    readonly existingInvoiceId: string | null = null,
   ) {
     super(`A quote with status '${quoteStatus}' cannot be converted to a sales order`);
     this.name = 'QuoteNotConvertibleError';
@@ -62,6 +64,8 @@ export class QuoteNotInvoiceableError extends Error {
   constructor(
     readonly quoteStatus: string,
     readonly existingInvoiceId: string | null,
+    /** A quote already turned into a sales order: that order (the route answers it too). */
+    readonly existingOrderId: string | null = null,
   ) {
     super(`A quote with status '${quoteStatus}' cannot be converted to an invoice`);
     this.name = 'QuoteNotInvoiceableError';
@@ -72,20 +76,23 @@ export class QuoteNotInvoiceableError extends Error {
  * The refusal of a quote that cannot be claimed, from the row as it is NOW: the loser of a double-click needs the
  * winner's order / invoice id, which did not exist when the quote was first read.
  */
-async function refuseOrder(companyId: string, id: string, readStatus: string): Promise<never> {
+async function linksNow(companyId: string, id: string, readStatus: string): Promise<{ status: string; invoiceId: string | null; orderId: string | null }> {
   const [current] = (await sql`
-    SELECT status, converted_order_id FROM customer_quotes
+    SELECT status, converted_invoice_id, converted_order_id FROM customer_quotes
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
-  throw new QuoteNotConvertibleError(String(current?.status ?? readStatus), current?.converted_order_id ? String(current.converted_order_id) : null);
+  const idOf = (v: unknown) => (v ? String(v) : null);
+  return { status: String(current?.status ?? readStatus), invoiceId: idOf(current?.converted_invoice_id), orderId: idOf(current?.converted_order_id) };
+}
+
+async function refuseOrder(companyId: string, id: string, readStatus: string): Promise<never> {
+  const now = await linksNow(companyId, id, readStatus);
+  throw new QuoteNotConvertibleError(now.status, now.orderId, now.invoiceId);
 }
 
 async function refuseInvoice(companyId: string, id: string, readStatus: string): Promise<never> {
-  const [current] = (await sql`
-    SELECT status, converted_invoice_id FROM customer_quotes
-    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-  `) as Row[];
-  throw new QuoteNotInvoiceableError(String(current?.status ?? readStatus), current?.converted_invoice_id ? String(current.converted_invoice_id) : null);
+  const now = await linksNow(companyId, id, readStatus);
+  throw new QuoteNotInvoiceableError(now.status, now.invoiceId, now.orderId);
 }
 
 export async function convertToSalesOrder(

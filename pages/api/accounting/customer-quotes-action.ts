@@ -64,6 +64,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           return apiResponse.conflict(res, err.message, {
             quoteStatus: err.quoteStatus,
             invoiceId: err.existingInvoiceId,
+            salesOrderId: err.existingOrderId, // a quote already turned into an order: that order
           });
         }
         throw err;
@@ -86,6 +87,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           return apiResponse.conflict(res, err.message, {
             quoteStatus: err.quoteStatus,
             salesOrderId: err.existingOrderId,
+            invoiceId: err.existingInvoiceId, // a quote already invoiced: that invoice
           });
         }
         throw err;

@@ -48,12 +48,12 @@ export interface PricedQuote { lines: VatPricedLine[]; header: Omit<VatPricedHea
 
 
 const given = (v: unknown): boolean => v !== undefined && v !== null;
+type QuoteVatParties = Awaited<ReturnType<typeof invoiceVatParties>>;
 
 /** Each line's type (or untyped for a non-vendor): the invoice contract, the legacy per-line rate read as a header rate. */
 async function resolveQuoteVat(
-  companyId: string, clientId: string | null, quoteDate: string, lines: readonly QuoteVatLineIn[], kept: readonly (DocumentLineVatType | null)[] | undefined,
+  companyId: string, parties: QuoteVatParties, quoteDate: string, lines: readonly QuoteVatLineIn[], kept: readonly (DocumentLineVatType | null)[] | undefined,
 ): Promise<ResolvedLineVat> {
-  const parties = await invoiceVatParties(companyId, clientId);
   // One resolution per legacy rate (and one for the lines with none): each group's rate is that group's header rate.
   const groups = new Map<number | null, number[]>();
   lines.forEach((l, i) => {
@@ -94,10 +94,12 @@ export async function priceQuoteLines(companyId: string, args: {
       header: { subtotal, tax, total, taxRate, amountsAre: null },
     };
   }
-  // A line whose saved type cannot be told (twins of different types, or a saved exempt line it may be): asked, not guessed.
-  const unread = args.stored && matched ? unmatchedVatProblem(args.lines, args.stored.lines, matched, args.quoteDate) : null;
+  const parties = await invoiceVatParties(companyId, args.clientId);
+  // A line whose saved type cannot be told (twins of different types, or a saved exempt line it may be): asked, not
+  // guessed. Not for a company not registered for VAT: its lines carry no type at all.
+  const unread = parties.registered && args.stored && matched ? unmatchedVatProblem(args.lines, args.stored.lines, matched, args.quoteDate) : null;
   if (unread) throw new InvoiceLineVatRefusal(unread);
-  const vat = await resolveQuoteVat(companyId, args.clientId, args.quoteDate, args.lines, matches && keptQuoteTypes(matches));
+  const vat = await resolveQuoteVat(companyId, parties, args.quoteDate, args.lines, matches && keptQuoteTypes(matches));
   const priced = priceInvoiceVat(args.lines.map((l) => ({ quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })), vat, args.quoteDate, amountsAre);
   // numeric(15,2): priceInvoiceVat leaves a line past the column unpriced and carries it into the total.
   if (!(Math.abs(priced.header.total) < 1e13)) throw new LineValidationError('The quote total is too large');
