@@ -237,11 +237,13 @@ describe('L5 (round 5): whole-cent checks hold at large amounts (an absolute tol
     expect(refusedFor(big({}))).toBe('NOT REFUSED');
   });
   it('R999 999 999.99 is accepted, and a third decimal is still refused at that size', () => {
-    expect(refusedFor(big({ Exclusive: 999999999.99, Tax: 0, Total: 999999999.99 }, { Exclusive: 999999999.99, Tax: 0 }))).toBe('NOT REFUSED');
+    // 2500000000.43 * 100 is 250000000043.00003: whole cents all the same (the old absolute tolerance refused it)
+    expect(refusedFor(big({ Exclusive: 2500000000.43, Tax: 0, Total: 2500000000.43 }, { Exclusive: 2500000000.43, Tax: 0, UnitPriceExclusive: 2500000000.43 }))).toBe('NOT REFUSED');
     expect(refusedFor(big({ Exclusive: 123456789.105, Tax: 0, Total: 123456789.105 }))).toMatch(/Exclusive must be whole cents/);
   });
   it('a large quantity with two decimals is accepted, a third decimal refused', () => {
     expect(refusedFor(big({}, { Quantity: 12345678.91 }))).toBe('NOT REFUSED');
+    expect(refusedFor(big({}, { Quantity: 2500000000.43 }))).toBe('NOT REFUSED');
     expect(refusedFor(big({}, { Quantity: 12345678.915 }))).toMatch(/Quantity has at most two decimals/);
   });
   it('the small cases still behave: 0.07 and 1.15 are whole cents, 1.005 and 10.005 are not', () => {

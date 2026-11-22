@@ -83,6 +83,7 @@ describe('L3: --allow-differences and a PO booked with another total', () => {
     expect(r.reconciliation.allSentBooked).toBe(true);
     expect(exitCodeFor(r, false, true)).toBe(0);
     expect(exitCodeFor(r, false, false)).toBe(1); // without the allowance the difference still fails the exit
+    expect((await run({ allowDifferences: false }, f)).status).toBe('live_blocked'); // not allowed: the live run does not even start
   });
 });
 

@@ -184,6 +184,7 @@ describe('scripts/sage-migration/run.ts', () => {
       expect(await closed).toBe(4);
       expect(err).toMatch(/sage migration stopped: lock lost/);
       expect(err).toMatch(/the live run may already have committed some batches/);
+      expect(await booked(pool, world.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0 }); // stopped BEFORE the first live batch
     } finally {
       child.kill();
       await cleanupSageWorld(pool, world);
