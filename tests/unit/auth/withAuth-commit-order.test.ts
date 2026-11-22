@@ -125,7 +125,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     vi.resetModules();
     process.env.JWT_SECRET = TEST_SECRET;
     process.env.GOTRUE_URL = 'http://example.test/auth/v1';
-    process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
+    process.env.DATABASE_URL = 'postgresql://dummy@dummy/test';
     process.env.SENTRY_ENABLED = 'false';
     poolFactory.connect.mockClear();
     settled.length = 0;
