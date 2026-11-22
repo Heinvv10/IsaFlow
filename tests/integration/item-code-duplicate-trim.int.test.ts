@@ -108,3 +108,27 @@ describe('bulk_upsert_items by external_ref against a legacy untrimmed code', ()
   });
 });
 
+describe('soft-deleted rows', () => {
+  const softDeleted = async (code: string): Promise<void> => {
+    await pool.query(`INSERT INTO items (company_id, code, description, deleted_at) VALUES ($1, $2, 'deleted', now())`, [company, code]);
+  };
+
+  it('checkCodeDuplicate: a soft-deleted padded row does not hold the trimmed code, a soft-deleted exact row does', async () => {
+    await softDeleted('SD-1 ');
+    await softDeleted('SD-2');
+    expect(await checkCodeDuplicate(company, 'SD-1')).toBe(false);
+    expect(await checkCodeDuplicate(company, 'SD-1', ids.clean)).toBe(false);
+    expect(await checkCodeDuplicate(company, 'SD-2')).toBe(true);
+    expect(await checkCodeDuplicate(company, 'SD-2', ids.clean)).toBe(true);
+  });
+
+  it('bulk_upsert_items creates a code beside a soft-deleted padded row, and refuses one beside a soft-deleted exact row', async () => {
+    await softDeleted('FIB-0009 ');
+    await softDeleted('FIB-0010');
+    const run = async (code: string) => JSON.parse(text(await as(pool, w.a).run('bulk_upsert_items', { items: [{ code, description: 'new' }], dry_run: false })));
+    expect((await run('FIB-0009')).refusals ?? []).toEqual([]);
+    expect((await pool.query(`SELECT 1 FROM items WHERE company_id = $1 AND code = 'FIB-0009' AND deleted_at IS NULL`, [company])).rowCount).toBe(1);
+    expect((await run('FIB-0010')).refusals?.map((r: { code: string }) => r.code)).toEqual(['item_deleted']);
+  });
+});
+

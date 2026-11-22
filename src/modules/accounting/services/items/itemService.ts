@@ -185,13 +185,17 @@ export async function checkCodeDuplicate(
   if (excludeId) {
     const rows = await sql`
       SELECT id FROM items
-      WHERE company_id = ${companyId} AND btrim(code, ${ITEM_CODE_WHITESPACE}::TEXT) = ${code} AND id != ${excludeId}
+      WHERE company_id = ${companyId} AND (code = ${code} OR (btrim(code, ${ITEM_CODE_WHITESPACE}::TEXT) = ${code} AND deleted_at IS NULL))
+        AND id != ${excludeId}
       LIMIT 1
     ` as Row[];
     return rows.length > 0;
   }
   const rows = await sql`
-    SELECT id FROM items WHERE company_id = ${companyId} AND btrim(code, ${ITEM_CODE_WHITESPACE}::TEXT) = ${code} LIMIT 1
+    SELECT id FROM items
+    WHERE company_id = ${companyId}
+      AND (code = ${code} OR (btrim(code, ${ITEM_CODE_WHITESPACE}::TEXT) = ${code} AND deleted_at IS NULL))
+    LIMIT 1
   ` as Row[];
   return rows.length > 0;
 }
