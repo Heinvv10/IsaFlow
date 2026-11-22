@@ -11,6 +11,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Pool } from 'pg';
+import { migrationLockKey } from '@/modules/accounting/services/sage-migration/sageRunLock';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
 import { booked, cleanupSageWorld, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
@@ -139,6 +140,25 @@ describe('scripts/sage-migration/run.ts', () => {
       expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report could not be written to .*no-such-dir.*ENOENT/);
       expect(await booked(pool, world.companyId)).toMatchObject({ items: 20, pos: 10 });
     } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
+  }, 180_000);
+
+  it('R2 (round 4): while another run holds the company the CLI is refused at its start: exit 2, the message, nothing written', async () => {
+    const world = await sageWorld(pool);
+    const holder = await pool.connect();
+    const [k1, k2] = migrationLockKey(world.companyId);
+    try {
+      await holder.query('SELECT pg_advisory_lock($1, $2)', [k1, k2]);
+      const r = cli(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json']);
+      expect(r.code).toBe(2);
+      expect(r.err).toMatch(/another Sage migration is running for this company/);
+      expect(r.out).toBe('');
+      expect(await booked(pool, world.companyId)).toMatchObject({ items: 0, pos: 0, toolCalls: 0 });
+    } finally {
+      await holder.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);
+      holder.release();
       await cleanupSageWorld(pool, world);
       await cleanupWorld(pool, world.w);
     }

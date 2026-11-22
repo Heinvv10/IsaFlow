@@ -8,8 +8,8 @@
  *      budget block among them) makes the dry run not clean and the run stops there.
  *   3. LIVE (opts.live and a clean dry run): each category, then each item batch (<= 500), then each PO batch (<= 100) is ONE
  *      committed request through the real registry, under a key derived from its rows (an item or category batch: and from the state of
- *      the owned rows it touches, so a re-run after a change in IsaFlow is a fresh call, not a replay). A PO batch replays; the others
- *      answer `unchanged`. A run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
+ *      the owned rows it touches, so a re-run after a change in IsaFlow is a fresh call, not a replay). Every batch is keyed by the state of the existing rows it touches, so the others
+ *      answer `unchanged` / already there. A run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
  *      nothing of it is written; the other batches of its phase still run, and the next phase does not start.
  *   4. The reconciliation is measured in the database before and after, not taken from what the tools said.
  */
@@ -25,6 +25,7 @@ import { MigrationStopped } from './sageMigrationStopped';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
+import { acquireRunLock } from './sageRunLock';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
 import { buildReconciliation } from './sageReconciliation';
@@ -90,9 +91,18 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
 }
 
 export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
-  // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing.
+  // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing, and one run per company.
   assertLocalDatabase();
   assertLocalPool(pool);
+  const release = await acquireRunLock(pool, opts.companyId);
+  try {
+    return await runLocked(pool, parsed, opts);
+  } finally {
+    await release();
+  }
+}
+
+async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
