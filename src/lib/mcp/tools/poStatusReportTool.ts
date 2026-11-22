@@ -15,12 +15,12 @@ import { clampLimit, guardCastableArgs, ok, toolError } from './toolHelpers';
 export const poStatusReportTool: McpTool = {
   name: 'po_status_report',
   description:
-    'Purchase orders with where each stands, oldest first (then PO number): ordered (ex-VAT sum of its lines), received (per line min(received, ordered) quantity x unit price; a cancelled goods received note is already taken back), '
+    'Purchase orders with where each stands, oldest first (then PO number): ordered (the PO\'s billing basis: the larger of its header subtotal and its lines, ex VAT), received (per line min(received, ordered) quantity x unit price; a cancelled goods received note is already taken back), '
     + 'billed (get_purchase_order\'s billed_total: the one attribution, lines first, then the link, then the capped header fallback; approved / paid / partially_paid bills that are not deleted), outstanding (ordered less billed, floored at 0) and committed '
     + '(what budget_remaining / committed_spend count for it: 0 for a PO that does not commit), age_days, days_since_last_receipt and days_since_last_bill (null: none), status with closed_from_status and closed_by_billing, '
-    + 'and the bills that tie it (up to 10: invoice_number, status, attributed_amount, invoice_date, attributed_via lines / link / header, counts_as_billed, deleted) with bills_total. Figures are decimal text, ex VAT. '
+    + 'and the bills that tie it (up to 10: invoice_number, status, attributed_amount, invoice_date, attributed_via lines / link / header, counts_as_billed: false for a bill not yet approved; a soft-deleted or cancelled bill is never listed) with bills_total. Figures are decimal text, ex VAT. '
     + 'Filters: status (one or a list), supplier_id, from / to (order date), older_than_days (age_days above it), only_outstanding (outstanding above 0; narrow the filters first when more than 2000 POs match). '
-    + `Paged: limit (default ${PO_REPORT_LIMIT_DEFAULT}, max ${PO_REPORT_LIMIT_MAX}), offset = the previous next_offset; total is over the whole filter. Needs read:invoices.`,
+    + `as_of is the day the ages are measured to (Johannesburg). Paged: limit (default ${PO_REPORT_LIMIT_DEFAULT}, max ${PO_REPORT_LIMIT_MAX}), offset = the previous next_offset; total is over the whole filter. Needs read:invoices.`,
   scope: 'read:invoices',
   write: false,
   inputSchema: {

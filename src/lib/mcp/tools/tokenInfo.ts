@@ -45,34 +45,57 @@ async function tokenHolder(ctx: McpToolContext): Promise<CompanyUserSummary | nu
   }
 }
 
-export const tokenInfoTool: McpTool = {
-  name: 'token_info',
-  description:
-    'The token this connection uses: the company it is bound to (id and name), user = the token holder\'s own id, email '
-    + 'and name (never another member; email and name null when not readable), how it authenticated (pat or oauth), '
-    + 'its scopes, your role in the company, and when it expires. expires_at is the credential on this call; for OAuth '
-    + 'the access token renews itself, so reconnect_by (the refresh token\'s expiry) is when the connector must be '
-    + 're-authorised. Call it before a long run, or when a write is refused for a missing scope.',
-  scope: null, // any authenticated token: it describes the token, not company data
-  write: false,
-  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  handler: async (_args, ctx) => {
-    const company = await getCompany(ctx.companyId); // companyId from ctx ONLY
-    if (!company) return toolError(NOT_FOUND);
-    const member = await tokenHolder(ctx);
-    const name = member ? [member.firstName, member.lastName].filter(Boolean).join(' ') : '';
-    return ok({
-      company: { id: ctx.companyId, name: company.name },
-      user: { id: ctx.userId, email: member?.email ?? null, name: name === '' ? null : name },
-      auth_method: ctx.authMethod ?? null,
-      token_id: ctx.tokenJti,
-      oauth_app_id: ctx.oauthAppId,
-      role: ctx.companyRole ?? null,
-      scopes: [...ctx.scopes].sort(),
-      expires_at: ctx.tokenExpiresAt ?? null,
-      expires_in_seconds: secondsUntil(ctx.tokenExpiresAt),
-      refresh_expires_at: ctx.refreshExpiresAt ?? null,
-      reconnect_by: reconnectBy(ctx),
-    });
-  },
-};
+/**
+ * The tool names each GRANTED scope opens, from the registry's own `scope` metadata (nothing is listed by hand: a tool registered
+ * tomorrow appears under its scope today). A tool is listed under the scope it names; a write tool that also needs another scope
+ * (`requiresScope`, `write:post`) is listed under its own, and refuses a call that lacks the other. Tools that need no scope are
+ * returned apart: any token opens them.
+ */
+export function toolsOpenedBy(tools: readonly McpTool[], granted: readonly string[]): { tools: Record<string, string[]>; tools_without_scope: string[] } {
+  const names = (pick: (t: McpTool) => boolean) => tools.filter(pick).map((t) => t.name).sort();
+  return {
+    tools: Object.fromEntries([...new Set(granted)].sort().map((scope) => [scope, names((t) => t.scope === scope)])),
+    tools_without_scope: names((t) => t.scope === null),
+  };
+}
+
+/**
+ * `tools` is the registry's tool list, read when the tool is called (a getter: toolIndex.ts, which builds the list, imports this
+ * file). Written as a factory so this module never imports the registry.
+ */
+export function makeTokenInfoTool(tools: () => readonly McpTool[]): McpTool {
+  return {
+    name: 'token_info',
+    description:
+      'The token this connection uses: the company it is bound to (id and name), user = the token holder\'s own id, email '
+      + 'and name (never another member; email and name null when not readable), how it authenticated (pat or oauth), '
+      + 'its scopes, your role in the company, and when it expires. expires_at is the credential on this call; for OAuth '
+      + 'the access token renews itself, so reconnect_by (the refresh token\'s expiry) is when the connector must be '
+      + 're-authorised. tools lists, under each scope the token holds, the tools that scope opens (tools_without_scope: the ones any token opens); '
+      + 'a write tool may also need another scope (read:reports, write:post), which it names when it refuses. '
+      + 'Call it before a long run, or when a write is refused for a missing scope.',
+    scope: null, // any authenticated token: it describes the token, not company data
+    write: false,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async (_args, ctx) => {
+      const company = await getCompany(ctx.companyId); // companyId from ctx ONLY
+      if (!company) return toolError(NOT_FOUND);
+      const member = await tokenHolder(ctx);
+      const name = member ? [member.firstName, member.lastName].filter(Boolean).join(' ') : '';
+      return ok({
+        company: { id: ctx.companyId, name: company.name },
+        user: { id: ctx.userId, email: member?.email ?? null, name: name === '' ? null : name },
+        auth_method: ctx.authMethod ?? null,
+        token_id: ctx.tokenJti,
+        oauth_app_id: ctx.oauthAppId,
+        role: ctx.companyRole ?? null,
+        scopes: [...ctx.scopes].sort(),
+        ...toolsOpenedBy(tools(), ctx.scopes),
+        expires_at: ctx.tokenExpiresAt ?? null,
+        expires_in_seconds: secondsUntil(ctx.tokenExpiresAt),
+        refresh_expires_at: ctx.refreshExpiresAt ?? null,
+        reconnect_by: reconnectBy(ctx),
+      });
+    },
+  };
+}

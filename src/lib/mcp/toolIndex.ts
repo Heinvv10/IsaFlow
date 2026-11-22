@@ -5,7 +5,8 @@
  */
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
-import { tokenInfoTool } from './tools/tokenInfo';
+import type { McpTool } from './types';
+import { makeTokenInfoTool } from './tools/tokenInfo';
 import { findByExternalRefTool } from './tools/externalRef';
 import { listGlAccountsTool, searchGlTool } from './tools/reports';
 import { trialBalanceTool } from './tools/reportsTrialBalance';
@@ -188,6 +189,11 @@ import {
 import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 import { DIMENSION_READ_TOOLS, DIMENSION_WRITE_TOOLS } from './tools/dimensionToolSet';
+
+// token_info lists the tools each granted scope opens, from this very list: a function (hoisted, annotated) breaks the cycle a
+// closure over MCP_TOOLS would make in its own initializer.
+function registeredTools(): readonly McpTool[] { return MCP_TOOLS; }
+const tokenInfoTool = makeTokenInfoTool(registeredTools);
 
 export const MCP_TOOLS = [
   // read (64)

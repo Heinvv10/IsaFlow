@@ -15,6 +15,7 @@ import { UUID_RE } from '@/lib/validation';
 import type { McpTool } from '../types';
 import { BUDGET_READ_SCOPE, centsText, ID_OR_CODE, refText } from './budgetToolArgs';
 import { offsetArg } from './budgetPaging';
+import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
 
 /** A page of the widest rows (six members with 60-character names) stays well under MAX_READ_RESULT_BYTES (committedSpendTool.test.ts). */
@@ -75,6 +76,9 @@ export const committedSpendTool: McpTool = {
     }
     if (args.supplier_id !== undefined && (typeof args.supplier_id !== 'string' || !UUID_RE.test(args.supplier_id))) return toolError('invalid supplier_id');
 
+    // The bucket budget_remaining's previews use (120 a minute a user): both read the same committed engine. After validation, as there.
+    const limited = await remainingLimit(ctx);
+    if (limited) return limited;
     const named = { account: refText(args.account), cc2: refText(args.cc2, 'cc2') };
     for (const [what, r] of Object.entries(named)) if ('error' in r) return toolError(`${what}: ${r.error}`);
     const wantsRefs = (named.account as { ref: string }).ref !== '' || (named.cc2 as { ref: string }).ref !== '';

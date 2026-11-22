@@ -16,7 +16,7 @@ const short = (v: string | null): string | null => (v === null ? null : v.slice(
 
 const billView = (b: PoStatusBill) => ({
   bill_id: b.billId, invoice_number: short(b.number), status: b.status, attributed_via: b.via, attributed_amount: centsText(b.attributedCents),
-  invoice_date: b.date, counts_as_billed: b.countsAsBilled, deleted: b.deleted,
+  invoice_date: b.date, counts_as_billed: b.countsAsBilled,
 });
 
 export const poStatusItem = (r: PoStatusRow) => ({

@@ -20,11 +20,17 @@ vi.mock('@/lib/mcp/flowMetering', async (orig) => ({
   ...(await orig<typeof import('@/lib/mcp/flowMetering')>()),
   debitForTool: vi.fn(async () => ({ ok: true as const, handle: null })), refundForTool: vi.fn(async () => undefined),
 }));
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn(async () => ({ name: 'Acme' })) }));
+vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({ getCompanyUser: vi.fn(async () => null) }));
 vi.mock('@/modules/accounting/services/ap/poStatusReport', async (orig) => ({ ...(await orig<object>()), readPoStatusReport: vi.fn() }));
+vi.mock('@/modules/accounting/services/budgets/committedSpend', async (orig) => { const real = await orig<typeof import('@/modules/accounting/services/budgets/committedSpend')>(); return { ...real, committedSpendReport: vi.fn(real.committedSpendReport) }; });
 vi.mock('@/modules/accounting/services/budgets/remainingCommitted', async (orig) => ({ ...(await orig<object>()), readCommitmentLines: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) => ({ ...(await orig<object>()), loadChartRefs: vi.fn(async () => ({ accounts: [], members: [] })) }));
 
 import { sql } from '@/lib/neon';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { committedSpendReport } from '@/modules/accounting/services/budgets/committedSpend';
 import { McpRegistry } from '@/lib/mcp/registry';
 import { MCP_TOOLS, mcpRegistry } from '@/lib/mcp/toolIndex';
 import { MAX_READ_RESULT_BYTES } from '@/lib/mcp/resultSize';
@@ -45,7 +51,7 @@ const LONG = 'N'.repeat(400);
 beforeEach(() => vi.clearAllMocks());
 
 describe('po_status_report page bound', () => {
-  const bill = (i: number): PoStatusBill => ({ billId: uuid(i, 'b'), number: LONG, status: 'partially_paid', via: 'header', attributedCents: 999_999_999_999_999, date: '2026-12-31', countsAsBilled: true, deleted: true });
+  const bill = (i: number): PoStatusBill => ({ billId: uuid(i, 'b'), number: LONG, status: 'partially_paid', via: 'header', attributedCents: 999_999_999_999_999, date: '2026-12-31', countsAsBilled: true });
   const row = (i: number): PoStatusRow => ({
     id: uuid(i, 'p'), poNumber: LONG, supplierId: uuid(i, 's'), supplierName: LONG, status: 'partially_received', closedFromStatus: 'partially_received', closedByBilling: true,
     orderDate: '2026-12-31', ageDays: 36500, orderedCents: 999_999_999_999_999, receivedCents: 999_999_999_999_999, billedCents: 999_999_999_999_999, outstandingCents: 999_999_999_999_999,
@@ -134,5 +140,77 @@ describe('registry and census', () => {
   it('no new scope: every scope the two tools need is one an existing tool already needs', () => {
     const used = new Set(MCP_TOOLS.filter((t) => !NAMES.includes(t.name)).map((t) => t.scope));
     for (const n of NAMES) expect(used.has(MCP_TOOLS.find((t) => t.name === n)!.scope)).toBe(true);
+  });
+});
+
+describe('committed_spend rate limit (the bucket budget_remaining uses)', () => {
+  const args = { from_month: '2026-06', to_month: '2026-06', group_by: [] };
+
+  it('a user past the limit is refused before any read, with the budget previews wording', async () => {
+    vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
+    const r = await committedSpendTool.handler(args, ctx(['read:reports']));
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/Too many budget previews/);
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-remaining:u-1', { max: 120, windowSecs: 60 });
+    expect(committedSpendReport).not.toHaveBeenCalled();
+    expect(readCommitmentLines).not.toHaveBeenCalled();
+  });
+
+  it('within the limit it reads', async () => {
+    vi.mocked(readCommitmentLines).mockResolvedValue([]);
+    const r = await committedSpendTool.handler(args, ctx(['read:reports']));
+    expect(r.isError).toBeUndefined();
+    expect(committedSpendReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused request (bad window, viewer) does not spend a place in the bucket', async () => {
+    await committedSpendTool.handler({ from_month: '2026-07', to_month: '2026-06' }, ctx(['read:reports']));
+    await committedSpendTool.handler(args, ctx(['read:reports'], 'viewer'));
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe('token_info lists the tools each granted scope opens', () => {
+  const info = async (scopes: string[]) => JSON.parse((await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(scopes))).content[0]!.text) as
+    { tools: Record<string, string[]>; tools_without_scope: string[]; scopes: string[] };
+
+  it('read:reports lists committed_spend and not po_status_report; read:invoices the reverse', async () => {
+    const reports = await info(['read:reports']);
+    expect(Object.keys(reports.tools)).toEqual(['read:reports']);
+    expect(reports.tools['read:reports']).toEqual(expect.arrayContaining(['committed_spend', 'budget_remaining']));
+    expect(reports.tools['read:reports']).not.toContain('po_status_report');
+    const invoices = await info(['read:invoices']);
+    expect(Object.keys(invoices.tools)).toEqual(['read:invoices']);
+    expect(invoices.tools['read:invoices']).toEqual(expect.arrayContaining(['po_status_report', 'get_purchase_order']));
+    expect(invoices.tools['read:invoices']).not.toContain('committed_spend');
+  });
+
+  it('a scope no tool needs opens an empty list; scope-less tools are listed apart, whatever the grant', async () => {
+    const none = await info(['read:nothing-uses-this']);
+    expect(none.tools).toEqual({ 'read:nothing-uses-this': [] });
+    expect(none.tools_without_scope).toEqual(expect.arrayContaining(['token_info']));
+    expect(none.tools_without_scope).toEqual(MCP_TOOLS.filter((t) => t.scope === null).map((t) => t.name).sort());
+  });
+
+  it('census: with every scope granted, every registered tool appears exactly once, under its own scope', async () => {
+    const all = [...new Set(MCP_TOOLS.map((t) => t.scope).filter((s): s is string => s !== null))];
+    const out = await info(all);
+    const seen = new Map<string, string>();
+    for (const [scope, names] of Object.entries(out.tools)) {
+      expect(names).toEqual([...names].sort());
+      for (const n of names) {
+        expect(seen.has(n), `${n} listed twice`).toBe(false);
+        seen.set(n, scope);
+      }
+    }
+    for (const n of out.tools_without_scope) seen.set(n, '(none)');
+    for (const t of MCP_TOOLS) expect(seen.get(t.name), t.name).toBe(t.scope ?? '(none)');
+    expect(seen.size).toBe(MCP_TOOLS.length);
+  });
+
+  it('the full listing is a small read: well under MAX_READ_RESULT_BYTES', async () => {
+    const all = [...new Set(MCP_TOOLS.map((t) => t.scope).filter((s): s is string => s !== null))];
+    const r = await MCP_TOOLS.find((t) => t.name === 'token_info')!.handler({}, ctx(all));
+    expect(bytes(r)).toBeLessThan(MAX_READ_RESULT_BYTES / 3);
   });
 });

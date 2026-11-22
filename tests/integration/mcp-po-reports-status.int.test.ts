@@ -12,7 +12,8 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture } from './helpers/budgetBillFixture';
 import { body, mcp, text } from './helpers/mcpBudgetFixture';
-import { mkGrn, mkPo, seedWorld, type SeededPo, type World } from './helpers/poReportsWorld';
+import { linkLine, mkGrn, mkPo, seedWorld, type SeededPo, type World } from './helpers/poReportsWorld';
+import { seedBill } from './helpers/poBillLinkHarness';
 import { poCommittedCents } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 
 assertDisposable();
@@ -23,22 +24,22 @@ let recv: SeededPo;
 let cancelledGrnPo: SeededPo | null = null;
 let hasCancelledStatus = false;
 
-interface Bill { bill_id: string; invoice_number: string; status: string; attributed_via: string; attributed_amount: string; invoice_date: string; counts_as_billed: boolean; deleted: boolean }
+interface Bill { bill_id: string; invoice_number: string; status: string; attributed_via: string; attributed_amount: string; invoice_date: string; counts_as_billed: boolean }
 interface Item {
   id: string; po_number: string; supplier: { id: string; name: string }; status: string; closed_from_status: string | null; closed_by_billing: boolean; order_date: string; age_days: number;
   ordered: string; received: string; billed: string; outstanding: string; committed: string; last_receipt_date: string | null; days_since_last_receipt: number | null;
   last_bill_date: string | null; days_since_last_bill: number | null; bills: Bill[]; bills_total: number;
 }
-interface Out { items: Item[]; total: number; next_offset: number | null }
+interface Out { as_of: string; items: Item[]; total: number; next_offset: number | null }
 
 const INV = { role: 'owner', scopes: ['read:invoices'] };
 const report = async (args: Record<string, unknown> = {}, u = w.u) => body(await mcp(pool, u, 'po_status_report', { limit: 100, ...args }, INV)) as unknown as Out;
 const detail = async (po: string) => body(await mcp(pool, w.u, 'get_purchase_order', { po_id: po }, INV)) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const cents = (v: string | number) => Math.round(Number(v) * 100);
 const money = (c: number) => `${c < 0 ? '-' : ''}${Math.floor(Math.abs(c) / 100)}.${String(Math.abs(c) % 100).padStart(2, '0')}`;
-/** Whole days from `date` (YYYY-MM-DD) to today's calendar day in Johannesburg. */
-const sast = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
-const daysSince = (date: string) => Math.round((Date.parse(sast.format(new Date())) - Date.parse(date)) / 86_400_000);
+/** Whole days from `date` (YYYY-MM-DD) to `asOf`: the day the report itself read from the database (`as_of`), so a run across midnight cannot flake. */
+const daysSince = (date: string, asOf: string) => Math.round((Date.parse(asOf) - Date.parse(date)) / 86_400_000);
+const dbToday = async () => String((await pool.query("SELECT to_char((now() AT TIME ZONE 'Africa/Johannesburg')::date, 'YYYY-MM-DD') AS d")).rows[0].d);
 const find = (out: Out, po: SeededPo) => out.items.find((i) => i.id === po.po)!;
 
 beforeAll(async () => {
@@ -85,7 +86,9 @@ describe('billed and received are what get_purchase_order reports', () => {
       const received = lines.reduce((s, l) => s + Math.round(Math.min(l.quantity_received, l.quantity_ordered) * l.unit_price * 100), 0);
       expect(cents(mine.billed), `${mine.po_number} billed`).toBe(cents(theirs.billed_total));
       expect(cents(mine.received), `${mine.po_number} received`).toBe(received);
-      expect(cents(mine.ordered), `${mine.po_number} ordered`).toBe(lines.reduce((s, l) => s + cents(l.line_total), 0));
+      const basis = Math.max(cents(theirs.purchase_order.subtotal), lines.reduce((s, l) => s + cents(l.line_total), 0));
+      expect(cents(mine.ordered), `${mine.po_number} ordered`).toBe(basis);
+      expect(cents(mine.outstanding), `${mine.po_number} outstanding`).toBe(cents(theirs.outstanding_to_bill));
       expect(cents(mine.committed), `${mine.po_number} committed`).toBe(committed.get(po.po.toLowerCase()) ?? 0);
       expect(mine.bills_total, `${mine.po_number} bills`).toBe(theirs.bills_total);
       expect(mine.bills.map((b) => [b.bill_id, b.counts_as_billed, cents(b.attributed_amount)]).sort())
@@ -117,40 +120,75 @@ describe('billed and received are what get_purchase_order reports', () => {
 
 describe('ages, bills and receipts', () => {
   it('age_days, days since the last bill and the bills list (number, status, attributed amount, date)', async () => {
+    const before = await dbToday();
     const out = await report();
+    expect([before, await dbToday()]).toContain(out.as_of);
     const partial = find(out, w.po.partial!);
-    expect(partial.age_days).toBe(daysSince('2026-06-02'));
+    expect(partial.age_days).toBe(daysSince('2026-06-02', out.as_of));
     expect(partial.last_bill_date).toBe('2026-06-15');
-    expect(partial.days_since_last_bill).toBe(daysSince('2026-06-15'));
-    expect(partial.bills).toEqual([expect.objectContaining({ bill_id: w.bills.partial, status: 'approved', attributed_via: 'lines', attributed_amount: '40.00', invoice_date: '2026-06-15', counts_as_billed: true })]);
-    expect(partial.bills[0]!.invoice_number).toMatch(/^P52-/);
+    expect(partial.days_since_last_bill).toBe(daysSince('2026-06-15', out.as_of));
+    expect(partial.bills).toEqual([{ bill_id: w.bills.partial, invoice_number: expect.stringMatching(/^P52-/), status: 'approved', attributed_via: 'lines', attributed_amount: '40.00', invoice_date: '2026-06-15', counts_as_billed: true }]);
     expect(find(out, w.po.twoA!)).toMatchObject({ days_since_last_bill: null, last_bill_date: null, bills: [], bills_total: 0 });
   });
 
-  it('a bill that no longer counts (cancelled) is listed but not billed; days since last bill ignore it', async () => {
-    const po = await mkPo(pool, w.f, { month: '2026-06', lines: [{ acct: w.f.acc.opex, price: 500 }] });
-    const bill = (await pool.query("INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status, purchase_order_id) VALUES (gen_random_uuid(), $1, 'CANC-1', $2, '2026-07-01', 500, 15, 75, 575, $3, 'cancelled', $4) RETURNING id", [w.f.co, w.f.supplier, w.f.owner, po.po])).rows[0].id as string;
-    await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 500, 'mcp')", [w.f.co, po.po, bill]);
+  it('a cancelled bill and a soft-deleted bill are never listed; a bill that does not count yet (draft) is, flagged', async () => {
+    const po = await mkPo(pool, w.f, { month: '2026-06', lines: [{ acct: w.f.acc.opex, price: 500 }, { acct: w.f.acc.opex, price: 100 }] });
+    const header = (id: string, status: string, no: string) => pool.query(
+      `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status, purchase_order_id)
+       VALUES ($1, $2, $3, $4, '2026-07-01', 500, 15, 75, 575, $5, $6, $7)`, [id, w.f.co, no, w.f.supplier, w.f.owner, status, po.po]);
+    const link = (bill: string) => pool.query(
+      "INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 500, 'mcp')", [w.f.co, po.po, bill]);
+    const cancelled = crypto.randomUUID();
+    const draft = crypto.randomUUID();
+    await header(cancelled, 'cancelled', 'CANC-1'); await link(cancelled);
+    await header(draft, 'draft', 'DRAFT-1'); await link(draft);
+    // A deleted bill tied BY LINES, and a deleted bill tied by a link: neither bills nor is listed.
+    const gone = await seedBill(pool, w.f, { lines: [100] });
+    await linkLine(pool, gone.lines[0]!, po.items[1]!);
+    await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [gone.id]);
+    const goneLink = crypto.randomUUID();
+    await header(goneLink, 'approved', 'GONE-1'); await link(goneLink);
+    await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [goneLink]);
     const row = find(await report(), po);
-    expect(row).toMatchObject({ billed: '0.00', outstanding: '500.00', days_since_last_bill: null, bills_total: 1 });
-    expect(row.bills[0]).toMatchObject({ bill_id: bill, status: 'cancelled', counts_as_billed: false });
+    expect(row).toMatchObject({ billed: '0.00', outstanding: '600.00', days_since_last_bill: null, bills_total: 1 });
+    expect(row.bills).toEqual([expect.objectContaining({ bill_id: draft, status: 'draft', counts_as_billed: false })]);
+    expect(JSON.stringify(row)).not.toMatch(new RegExp(`${cancelled}|${gone.id}|${goneLink}`));
+  });
+
+  it('ordered is the larger of the header subtotal and the lines, as get_purchase_order\'s outstanding_to_bill is: a subtotal above its lines, and a PO with no lines', async () => {
+    const above = await mkPo(pool, w.f, { month: '2026-06', lines: [{ acct: w.f.acc.opex, price: 100 }] });
+    await pool.query('UPDATE purchase_orders SET subtotal = 250, total = 250 WHERE id = $1', [above.po]);
+    const bare = await mkPo(pool, w.f, { month: '2026-06', lines: [] });
+    await pool.query('UPDATE purchase_orders SET subtotal = 80, total = 80 WHERE id = $1', [bare.po]);
+    const bill = await seedBill(pool, w.f, { lines: [30] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, bare.po]);
+    const out = await report();
+    for (const [po, ordered, billed, outstanding] of [[above, '250.00', '0.00', '250.00'], [bare, '80.00', '30.00', '50.00']] as const) {
+      const mine = find(out, po);
+      const theirs = await detail(po.po);
+      expect([mine.ordered, mine.billed, mine.outstanding]).toEqual([ordered, billed, outstanding]);
+      expect(cents(mine.outstanding)).toBe(cents(theirs.outstanding_to_bill));
+      expect(cents(mine.billed)).toBe(cents(theirs.billed_total));
+    }
   });
 
   it('received is min(received, ordered) x unit price; the days since the last receipt come from the latest note', async () => {
-    const row = find(await report(), recv);
+    const out = await report();
+    const row = find(out, recv);
     // line 0: 4 x 5 = 20; line 1: min(6, 4) x 25 = 100.
     expect([row.ordered, row.received, row.billed, row.outstanding]).toEqual(['150.00', '120.00', '0.00', '150.00']);
     expect(row.last_receipt_date).toBe('2026-06-10');
-    expect(row.days_since_last_receipt).toBe(daysSince('2026-06-10'));
+    expect(row.days_since_last_receipt).toBe(daysSince('2026-06-10', out.as_of));
     expect(find(await report(), w.po.partial!)).toMatchObject({ received: '0.00', last_receipt_date: null, days_since_last_receipt: null });
   });
 
   it('a cancelled goods received note is not counted as received, nor as the last receipt', async (t) => {
     // ci-integration-skip: the schema of a branch cut before migration 1021 has no 'cancelled' note status; on master (1021) this runs.
     if (!hasCancelledStatus) t.skip();
-    const row = find(await report(), cancelledGrnPo!);
+    const out = await report();
+    const row = find(out, cancelledGrnPo!);
     expect([row.received, row.last_receipt_date]).toEqual(['15.00', '2026-05-21']);
-    expect(row.days_since_last_receipt).toBe(daysSince('2026-05-21'));
+    expect(row.days_since_last_receipt).toBe(daysSince('2026-05-21', out.as_of));
   });
 
   it('a note whose quantities were taken back (po line received 0) counts 0 even though its items remain', async () => {
@@ -169,8 +207,9 @@ describe('filters, order and paging', () => {
     expect((await report({ status: ['cancelled', 'draft'] })).total).toBe(2);
     expect((await report({ supplier_id: w.sup2 })).items.map((i) => i.id)).toEqual([w.po.twoB!.po]);
     expect((await report({ from: '2026-07-01', to: '2026-12-31' })).items.map((i) => i.id)).toEqual([w.po.july!.po]);
-    const old = await report({ older_than_days: daysSince('2026-06-02') });
-    expect(old.items.every((i) => i.age_days > daysSince('2026-06-02'))).toBe(true);
+    const cut = daysSince('2026-06-02', all.as_of);
+    const old = await report({ older_than_days: cut });
+    expect(old.items.every((i) => i.age_days > cut)).toBe(true);
     expect(old.items.map((i) => i.id)).toContain(recv.po);
     expect(old.items.map((i) => i.id)).not.toContain(w.po.partial!.po);
     const open = await report({ only_outstanding: true });

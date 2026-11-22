@@ -9,13 +9,17 @@
  *   - received: sum over lines of min(quantity_received, quantity) x unit_price. `po_items.quantity_received` is what a goods received
  *     note adds and a cancel takes back (get_purchase_order reports the same column), so a cancelled note is already out of it; the
  *     last receipt date ignores cancelled notes the same way.
- * ordered is the ex-VAT sum of the lines (`line_total`); outstanding is ordered less billed, floored at 0. Money is integer cents.
+ * ordered is the PO's billing basis (`remainingCommitted.poBillingBasisCents`: the larger of the header subtotal and the ex-VAT sum of the lines,
+ * what get_purchase_order's outstanding_to_bill and #1703's fully-billed rule measure against); outstanding is ordered less billed, floored at 0.
+ * Today is the database's Johannesburg calendar day, read in the request's own transaction, and is returned as `asOf`. Money is integer cents.
+ * The bill list leaves out a bill that is soft-deleted or cancelled: it ties nothing. Named limit: a bill that names the PO only in its header is
+ * listed whenever the attribution holds it (same supplier), even where the link tool could not link the pair (get_purchase_order lists only a
+ * header the link tool could link), so the two bill lists can differ for such a bill.
  * po_items, grn_items and the bill links are reached through the company's PO; every query names company_id.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { todayInSast } from '@/lib/saDateParser';
-import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billTies, type BillTie } from '../budgets/billAttribution';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { poCommittedCents } from './purchaseOrderBillingClose';
@@ -53,7 +57,6 @@ export interface PoStatusBill {
   /** 'YYYY-MM-DD'. */
   date: string | null;
   countsAsBilled: boolean;
-  deleted: boolean;
 }
 
 export interface PoStatusRow {
@@ -92,7 +95,6 @@ async function candidates(companyId: string, q: PoStatusQuery, today: string, al
     SELECT po.id::TEXT AS id, po.po_number, po.supplier_id::TEXT AS supplier_id, s.name AS supplier_name, po.status, po.closed_from_status,
            (po.status = 'closed' AND po.closed_by_billing) AS closed_by_billing, to_char(po.order_date, 'YYYY-MM-DD') AS order_date,
            (${today}::DATE - po.order_date)::INT AS age_days,
-           (SELECT COALESCE(SUM(round(x.line_total * 100)), 0)::BIGINT FROM po_items x WHERE x.purchase_order_id = po.id) AS ordered_cents,
            (SELECT COALESCE(SUM(round(LEAST(COALESCE(x.quantity_received, 0), x.quantity) * x.unit_price * 100)), 0)::BIGINT
               FROM po_items x WHERE x.purchase_order_id = po.id) AS received_cents,
            count(*) OVER ()::INT AS count
@@ -120,9 +122,9 @@ async function lastReceipts(companyId: string, poIds: readonly string[]): Promis
   return new Map(rows.map((r) => [lower(r.po), String(r.last)]));
 }
 
-/** The bills tying each PO by the attribution, with their number, status and date (company-scoped), oldest first. */
+/** The live bills tying each PO by the attribution (never a soft-deleted or cancelled one), with number, status and date (company-scoped), oldest first. */
 async function billsByPo(companyId: string, poIds: readonly string[]): Promise<Map<string, PoStatusBill[]>> {
-  const ties = await billTies(companyId, poIds, { statuses: null });
+  const ties = (await billTies(companyId, poIds, { statuses: null })).filter((t) => !t.deleted && t.status !== 'cancelled');
   const out = new Map<string, PoStatusBill[]>();
   if (ties.length === 0) return out;
   const heads = (await sql`
@@ -134,21 +136,30 @@ async function billsByPo(companyId: string, poIds: readonly string[]): Promise<M
     const h = head.get(t.billId);
     out.set(t.poId, [...(out.get(t.poId) ?? []), {
       billId: t.billId, number: String(h?.invoice_number ?? ''), status: t.status, via: t.via, attributedCents: t.cents, date: day(h?.date),
-      countsAsBilled: (BILLED_STATUSES as readonly string[]).includes(t.status) && !t.deleted, deleted: t.deleted,
+      countsAsBilled: (BILLED_STATUSES as readonly string[]).includes(t.status),
     }]);
   }
   for (const list of out.values()) list.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.number.localeCompare(b.number) || a.billId.localeCompare(b.billId));
   return out;
 }
 
-export async function readPoStatusReport(companyId: string, q: PoStatusQuery, today: string = todayInSast()): Promise<PoStatusReport> {
+/** The Johannesburg calendar day, from the database clock (the transaction's start): what the report's ages are measured to. */
+async function databaseToday(): Promise<string> {
+  const row = ((await sql`SELECT to_char((now() AT TIME ZONE 'Africa/Johannesburg')::date, 'YYYY-MM-DD') AS today`) as DbRow[])[0];
+  return String(row?.today);
+}
+
+export async function readPoStatusReport(companyId: string, q: PoStatusQuery, today?: string): Promise<PoStatusReport> {
+  const asOf = today ?? await databaseToday();
   const scan = q.onlyOutstanding;
-  let rows = await candidates(companyId, q, today, scan);
+  let rows = await candidates(companyId, q, asOf, scan);
   if (scan && rows.length > MAX_OUTSTANDING_SCAN) throw new PoReportScanError();
   let total = rows[0] ? Number(rows[0].count) : 0;
   const ids = (rs: readonly DbRow[]) => rs.map((r) => String(r.id));
   const billed = await billedCentsByPo(companyId, ids(rows));
-  const outstanding = (r: DbRow) => Math.max(0, Number(r.ordered_cents) - (billed.get(lower(r.id)) ?? 0));
+  const basis = await poBillingBasisCents(companyId, ids(rows));
+  const ordered = (r: DbRow) => basis.get(lower(r.id)) ?? 0;
+  const outstanding = (r: DbRow) => Math.max(0, ordered(r) - (billed.get(lower(r.id)) ?? 0));
   if (scan) {
     rows = rows.filter((r) => outstanding(r) > 0);
     total = rows.length;
@@ -156,9 +167,9 @@ export async function readPoStatusReport(companyId: string, q: PoStatusQuery, to
   }
   const page = ids(rows);
   const [committed, receipts, bills] = await Promise.all([poCommittedCents(companyId, page), lastReceipts(companyId, page), billsByPo(companyId, page)]);
-  const todayNumber = dayNumber(today);
+  const todayNumber = dayNumber(asOf);
   return {
-    asOf: today,
+    asOf,
     total,
     nextOffset: q.offset + rows.length < total ? q.offset + rows.length : null,
     rows: rows.map((r) => {
@@ -171,8 +182,8 @@ export async function readPoStatusReport(companyId: string, q: PoStatusQuery, to
         id, poNumber: String(r.po_number), supplierId: String(r.supplier_id), supplierName: r.supplier_name == null ? null : String(r.supplier_name),
         status: String(r.status), closedFromStatus: r.closed_from_status == null ? null : String(r.closed_from_status), closedByBilling: r.closed_by_billing === true,
         orderDate: String(r.order_date), ageDays: Number(r.age_days),
-        orderedCents: Number(r.ordered_cents), receivedCents: Number(r.received_cents), billedCents,
-        outstandingCents: Math.max(0, Number(r.ordered_cents) - billedCents), committedCents: committed.get(id) ?? 0,
+        orderedCents: ordered(r), receivedCents: Number(r.received_cents), billedCents,
+        outstandingCents: outstanding(r), committedCents: committed.get(id) ?? 0,
         lastReceiptDate: lastReceipt, daysSinceLastReceipt: lastReceipt === null ? null : todayNumber - dayNumber(lastReceipt),
         lastBillDate: lastBill, daysSinceLastBill: lastBill === null ? null : todayNumber - dayNumber(lastBill),
         bills: all.slice(0, BILLS_SHOWN), billsTotal: all.length,
