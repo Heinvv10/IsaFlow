@@ -30,7 +30,7 @@ const isGet = (init?: RequestInit) => !init?.method || init.method === 'GET';
 const clickBtn = async (name: RegExp) => fireEvent.click(await screen.findByRole('button', { name }));
 
 describe('assets/new submit', () => {
-  trio3({ name: 'create asset', render: () => render(<AssetNewPage />), drive: async () => { await screen.findByRole('button', { name: /./ }); fireEvent.submit(document.querySelector('form')!); },
+  trio3({ name: 'create asset', render: () => render(<AssetNewPage />), drive: async () => { await screen.findAllByRole('button', { name: /./ }); fireEvent.submit(document.querySelector('form')!); },
     match: (u, i) => u.endsWith('/accounting/assets') && i?.method === 'POST', data: { id: 'a1' },
     others: u => (u.includes('assets-categories') ? ok([]) : undefined), plain: 'Could not create the asset - try again',
     succeeds: async () => { await vi.waitFor(() => expect(push).toHaveBeenCalledWith('/accounting/assets')); },
