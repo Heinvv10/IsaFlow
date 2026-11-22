@@ -10,3 +10,11 @@ export function stopMessage(err: unknown): string {
   const committed = err.committed.filter((b) => b.status === 'ok').map((b) => `\ncommitted: ${b.entity} batch ${b.n} (${b.key})`).join('');
   return `${why}\nthe live run may already have committed some batches before this error: check the books (or run again without --live: a dry run lists what is there and what differs); a re-run resumes.${committed}`;
 }
+
+/**
+ * The CLI's exit code for an error: 2 = refused or failed to start, nothing written; 4 = the run stopped AFTER its live phase started, so
+ * batches may have been committed (the message lists them). 1 and 3 are the run's own results (see run.ts).
+ */
+export function exitCodeForError(err: unknown): 2 | 4 {
+  return err instanceof MigrationStopped && err.liveStarted ? 4 : 2;
+}

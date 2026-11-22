@@ -10,7 +10,7 @@
  * deliberate fresh import after the rows of an earlier run were deleted (the registry would otherwise replay that run's answers). With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
  * run or a live run that booked every row it sent, whose --expect-* figures match what was sent (dry run) or booked (live) and
- * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start, 3 when the run finished but --report could not be written (the summary is printed first).
+ * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start (nothing written), 4 when the run stopped on an error AFTER its live phase started (batches may be committed: the message lists them; check the books, a re-run resumes), 3 when the run finished but --report could not be written (the summary is printed first).
  * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
-import { stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
+import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 const fail = (s: string): never => { process.stderr.write(`${s}\n`); process.exit(2); };
@@ -89,5 +89,5 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   process.stderr.write(`${stopMessage(err)}\n`);
-  process.exit(2);
+  process.exit(exitCodeForError(err));
 });

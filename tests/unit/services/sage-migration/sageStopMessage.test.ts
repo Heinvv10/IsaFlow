@@ -1,6 +1,6 @@
 /** L3 (round 4): the stop message follows whether the live phase actually started, not the command line. */
 import { describe, expect, it } from 'vitest';
-import { stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { exitCodeForError, stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
 import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 
@@ -35,5 +35,17 @@ describe('MigrationStopped', () => {
     expect(e.message).toBe('inner');
     expect(e.committed).toHaveLength(1);
     expect(new MigrationStopped('text', false, []).message).toBe('text');
+  });
+});
+
+describe('exitCodeForError (M1, round 5): 2 is "refused to start, nothing written"; a stop after the live phase started is 4', () => {
+  it('a plain error, or a stop before the live phase, is 2', () => {
+    expect(exitCodeForError(new Error('x'))).toBe(2);
+    expect(exitCodeForError('text')).toBe(2);
+    expect(exitCodeForError(new MigrationStopped(new Error('x'), false, []))).toBe(2);
+  });
+  it('a stop after the live phase started is 4, with or without batches committed', () => {
+    expect(exitCodeForError(new MigrationStopped(new Error('x'), true, []))).toBe(4);
+    expect(exitCodeForError(new MigrationStopped(new Error('x'), true, [batch('item', 1)]))).toBe(4);
   });
 });
