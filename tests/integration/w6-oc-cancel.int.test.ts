@@ -163,6 +163,40 @@ describe('Cancel run', () => {
     expect((await a.pool.query('SELECT decision_notes FROM approval_requests WHERE id = $1', [requestId])).rows[0].decision_notes).toBe('decided elsewhere');
   });
 
+  it('a decision queued behind cancel writes no plan hash onto the cancelled run (review L-f of 87708dc593)', async () => {
+    const made = await create({ reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: p.mid }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    const raised = await a.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+      body: { action: 'request', documentType: 'pay_run', documentId: id },
+    });
+    expect(raised.statusCode, JSON.stringify(raised.body)).toBe(200);
+    const requestId = String((raised.body.data as { id: string }).id);
+    // Cancel's transaction, held open: it locks the header (as cancelOffCycleRun does first), then writes what cancel writes.
+    // The decision reads the request pending (unlocked), then waits on the header, and goes on after cancel commits.
+    const held = await a.pool.connect();
+    try {
+      await held.query('BEGIN');
+      await held.query('SELECT id FROM payroll_run_headers WHERE id = $1 FOR UPDATE', [id]);
+      const deciding = a.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+        user: a.approver, body: { action: 'reject', requestId, notes: 'queued behind cancel' },
+      });
+      await new Promise((r) => setTimeout(r, 1_000));
+      await held.query(`UPDATE approval_requests SET status = 'rejected', decided_by = $2, decided_at = now(), decision_notes = 'Withdrawn: the off-cycle run was cancelled.'
+        WHERE id = $1`, [requestId, a.admin]);
+      await held.query(`DELETE FROM payroll_run_lines WHERE run_id = $1`, [id]);
+      await held.query(`UPDATE payroll_run_headers SET status = 'cancelled', approval_plan_hash = NULL, cancelled_by = $2, cancelled_at = now() WHERE id = $1`, [id, a.admin]);
+      await held.query('COMMIT');
+      const decided = await deciding;
+      expect(decided.statusCode, JSON.stringify(decided.body)).toBe(404);
+    } finally {
+      held.release();
+    }
+    expect((await a.pool.query('SELECT status, approval_plan_hash FROM payroll_run_headers WHERE id = $1', [id])).rows[0])
+      .toEqual({ status: 'cancelled', approval_plan_hash: null });
+  });
+
   it('a run whose approval was already cleared (request approved, run not final): cancelled, the cleared request stays history and can approve nothing', async () => {
     await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-21', termination_reason = 'resignation',
       termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.young]);
