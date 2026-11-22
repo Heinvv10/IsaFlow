@@ -9,8 +9,10 @@
  *
  * The note must also AGREE with the bill (merge-gate finding 1, decided for Hein): its PO is a PO of the bill's supplier, and when the
  * bill names POs (its header `purchase_order_id`, the POs its lines' `po_item_id`s belong to, and on a restore its link rows) the note's
- * PO is one of them. A note's PO and that PO's supplier do not move while the note is live (app_user cannot UPDATE a note, and the PO
- * tools refuse a supplier change on a PO with a live receipt), so they are read after the hold.
+ * PO is one of them. A note's PO does not change while the note is live (app_user cannot UPDATE a note), and that PO's supplier
+ * changes only in a supplier merge (#1699; the PO tools refuse a supplier change on a PO with a live receipt), which moves it with
+ * EVERY bill of the supplier under both supplier rows and its PO rows FOR UPDATE, so a bill and its note's PO keep one supplier;
+ * they are read after the hold.
  *
  * `lock: true` (inside the writing transaction): the note is held `FOR SHARE` (migration 1021's `goods_received_note_hold`, a
  * definer: app_user has no UPDATE on the notes, which a row lock needs) and judged UNDER that lock. The cancel takes the note
@@ -209,7 +211,8 @@ export async function unlinkNoteRefusal(companyId: string, billId: string, poId:
 export async function assertBillRestorableGrn(companyId: string, billId: string): Promise<void> {
   // No supplier lock here (review of 0d51f4a5, M1): a merge's bill UPDATE moves deleted bills too, so a restore and a merge always meet
   // on this bill row: the merge waits for the restore and its RETURNING then refuses the moved live noted bill, or the restore waits for
-  // the merge and then reads the bill on the target, where its note disagrees and it is refused. A supplier KEY SHARE here was
+  // the merge and then reads the bill on the target, where the merge also moved its note's PO (#1699), so it agrees and the restore
+  // goes through (mcp-goods-received-merge-races R2): never a bill and its note's PO on two suppliers. A supplier KEY SHARE here was
   // redundant and closed a cycle with the journal number lock 857 the undo takes afterwards (reinstateInvoiceJournal).
   const bill = (await withRowLockBudget(async () => (await sql`
     SELECT grn_id::text AS grn_id, supplier_id::text AS supplier_id, purchase_order_id::text AS purchase_order_id FROM supplier_invoices

@@ -12,6 +12,7 @@
  * can act on — and a typo that silently became 'fifo' would have an unattended
  * sweep apply cash the rule's author asked to leave on account.
  */
+import { anyRuleWrite } from '../../../helpers/ruleGuards';
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), getPoolForTests: vi.fn() }));
@@ -60,14 +61,14 @@ beforeEach(() => {
 
 describe('createRule — auto_apply', () => {
   it('writes the mode the caller chose', async () => {
-    await createRule(COMPANY, { ...INPUT, autoApply: 'none' }, USER);
+    await createRule(COMPANY, { ...INPUT, autoApply: 'none' }, USER, anyRuleWrite);
     expect(lastQuery()).toContain('auto_apply');
     // Two 'none' values now: vat_code and the mode.
     expect(lastValues().filter((v) => v === 'none')).toHaveLength(2);
   });
 
   it('binds the default EXPLICITLY when the caller names nothing', async () => {
-    await createRule(COMPANY, INPUT, USER);
+    await createRule(COMPANY, INPUT, USER, anyRuleWrite);
     // NOT undefined. A parameter bound as undefined reaches pg as an explicit
     // NULL, and an explicit NULL in an INSERT's column list does not take the
     // column DEFAULT — it violates the NOT NULL. Binding undefined failed every
@@ -79,7 +80,7 @@ describe('createRule — auto_apply', () => {
 
   it('refuses a mode that is not one, before the INSERT', async () => {
     await expect(
-      createRule(COMPANY, { ...INPUT, autoApply: 'oldest' as never }, USER),
+      createRule(COMPANY, { ...INPUT, autoApply: 'oldest' as never }, USER, anyRuleWrite),
     ).rejects.toThrow(/auto_apply must be one of: fifo, none/);
     expect(mockSql).not.toHaveBeenCalled();
   });
@@ -93,7 +94,7 @@ describe('updateRule — auto_apply', () => {
       .mockResolvedValueOnce([{ p: { auto_apply: 'fifo' } }] as never)
       .mockResolvedValueOnce([{ after: { auto_apply: 'none' }, held: false, toggle_only: false }] as never)
       .mockResolvedValueOnce([ROW] as never);
-    await updateRule(COMPANY, RULE, { autoApply: 'none' }, USER);
+    await updateRule(COMPANY, RULE, { autoApply: 'none' }, USER, anyRuleWrite);
     expect(mockSql.mock.calls[2]!.slice(1)).toContain(JSON.stringify({ auto_apply: 'none' }));
     expect(lastQuery()).toContain('auto_apply = n.auto_apply');
     expect(lastValues()).toContain(JSON.stringify({ auto_apply: 'none' }));
@@ -101,7 +102,7 @@ describe('updateRule — auto_apply', () => {
 
   it('refuses a mode that is not one', async () => {
     await expect(
-      updateRule(COMPANY, RULE, { autoApply: 'fifo ' as never }, USER),
+      updateRule(COMPANY, RULE, { autoApply: 'fifo ' as never }, USER, anyRuleWrite),
     ).rejects.toThrow(/auto_apply must be one of/);
   });
 
@@ -112,12 +113,14 @@ describe('updateRule — auto_apply', () => {
       .mockResolvedValueOnce([{
         after: { auto_create_entry: true, rule_name: 'Renamed' }, posts_money: true, held: false, toggle_only: false,
       }] as never);
+    mockSql.mockResolvedValueOnce([{ posts_money: true }] as never); // the rule as it stands: bank_rule_posts_money (round 6)
     const guard = vi.fn(() => { throw new Error('locked refusal'); });
 
     await expect(updateRule(COMPANY, RULE, { ruleName: 'Renamed' }, USER, guard))
       .rejects.toThrow('locked refusal');
 
-    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true);
+    // the third argument is the locked rule before the change (round 5: the approval guard compares it with the result)
+    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' }, true, { auto_create_entry: true, rule_name: 'Reload' }, true);
     expect(mockSql.mock.calls.some((call) => call[0].join('').includes('UPDATE bank_categorisation_rules'))).toBe(false);
   });
 });
@@ -127,13 +130,13 @@ describe('mapRuleRow — a rule written before the column existed', () => {
     // Reading it as 'none' would reproduce the state the default exists to
     // end: cash posted by a rule, against bills it never closes.
     mockSql.mockResolvedValue([{ ...ROW, auto_apply: null }] as never);
-    const rule = await createRule(COMPANY, INPUT, USER);
+    const rule = await createRule(COMPANY, INPUT, USER, anyRuleWrite);
     expect(rule.autoApply).toBe('fifo');
   });
 
   it('reads a stored mode back verbatim', async () => {
     mockSql.mockResolvedValue([{ ...ROW, auto_apply: 'none' }] as never);
-    const rule = await createRule(COMPANY, INPUT, USER);
+    const rule = await createRule(COMPANY, INPUT, USER, anyRuleWrite);
     expect(rule.autoApply).toBe('none');
   });
 });

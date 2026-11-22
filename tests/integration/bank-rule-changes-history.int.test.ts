@@ -6,6 +6,7 @@
  * the whole batch on a missing or foreign id. A merge under `bank_rule`
  * refuses, before any write, to re-point an AUTO-POSTING rule.
  */
+import { anyRuleWrite } from '../helpers/ruleGuards';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import bankRulesSeed from '../../pages/api/accounting/bank-rules-seed';
@@ -98,7 +99,7 @@ describe.each([false, true])('every UI writer records history (bank_rule enforce
     await inRequest(pool, a, f.c, async () => {
       await seedRules(f.c, [{ ruleName: 'BRC Seed Three', pattern: 'brc seed three', glAccountId: f.expA }], a);
       await createRule(f.c, { ruleName: 'BRC after seed', matchField: 'description', matchType: 'contains', matchPattern: 'X',
-        glAccountId: f.expA }, a);
+        glAccountId: f.expA }, a, anyRuleWrite);
     });
     expect((await historyOf(pool, f.c)).map((h) => h.kind)).toEqual(['seed', 'seed', 'seed', 'create']);
   });

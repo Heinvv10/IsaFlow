@@ -5,6 +5,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// PR #1703 R4-1 / r5: the POs a bill keeps closed by billing are locked first and re-judged after; none here.
+vi.mock('@/modules/accounting/services/ap/purchaseOrderBillingClose', () => ({
+  lockPosClosedByBilling: vi.fn(async () => new Map()),
+  previewReopenOnBillGone: vi.fn(async () => []),
+  reopenAfterBillGone: vi.fn(async () => ({ reopenedPurchaseOrders: [], budgetWarnings: [] })),
+}));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([{ id: 'rev-1', entry_number: 'JE-9' }]) }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => {
   class SupplierInvoiceCancelRefusal extends Error {}
@@ -18,6 +24,7 @@ import {
   SupplierInvoiceCancelRefusal, lockAndPlanSupplierInvoiceCancel,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { lockPosClosedByBilling } from '@/modules/accounting/services/ap/purchaseOrderBillingClose';
 import { cancelSupplierInvoiceTool } from '@/lib/mcp/tools/writeCancelSupplierInvoice';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -41,7 +48,7 @@ const plan = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(lockAndPlanSupplierInvoiceCancel).mockResolvedValue(plan);
-  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled' } as never);
+  vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled', reopenedPurchaseOrders: [], budgetWarnings: [], uncheckedPurchaseOrders: [] } as never);
 });
 
 describe('cancel_supplier_invoice', () => {
@@ -73,10 +80,14 @@ describe('cancel_supplier_invoice', () => {
   });
 
   it('cancels as the agent, with NO catch around the write', async () => {
+    // Codex gate review M1: the POs locked before the plan are handed to the cancel, which does not lock them again.
+    const held = new Map([['p1', 100]]) as never;
+    vi.mocked(lockPosClosedByBilling).mockResolvedValueOnce(held);
     const r = await cancelSupplierInvoiceTool.handler({ invoice_id: BILL, ...KEY }, ctx);
     expect(cancelSupplierInvoice).toHaveBeenCalledWith(
       COMPANY, BILL, 'u-1', expect.objectContaining({ postingAgent: 'mcp:cancel_supplier_invoice:v1' }),
     );
+    expect(vi.mocked(cancelSupplierInvoice).mock.calls[0]![3]!.heldPos).toBe(held);
     expect(JSON.parse(text(r))).toMatchObject({
       status: 'cancelled', journal_reversed: true, reversal_journal_entry_id: 'rev-1',
     });

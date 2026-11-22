@@ -11,6 +11,7 @@ import { SupplierMergeRefusal } from './supplierMergeRefusal';
 import { assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills } from './supplierMergeNotedBills';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
+import type { RuleWriteGuard } from '../bank/bankRuleChangeControl';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
@@ -81,6 +82,8 @@ export async function mergeEntities(
   primaryId: string,
   duplicateId: string,
   userId: string,
+  /** For a customer merge: run for each bank rule it re-points (autoPostApprovalGuard). */
+  ruleGuard: RuleWriteGuard,
   /** The caller's company role: a supplier merge moves approved purchase orders only for one that may edit them (owner, admin). */
   companyRole?: string | null,
 ): Promise<MergeResult> {
@@ -91,7 +94,7 @@ export async function mergeEntities(
   // One customer merge for both routes (K-061): this path used to move five
   // tables and leave the duplicate's recurring invoices billing a deleted customer.
   if (entityType === 'customer') {
-    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId);
+    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId, ruleGuard);
     return {
       reassignedTransactions: merged.movedDocuments,
       pausedRecurring: merged.pausedRecurring,
@@ -149,14 +152,9 @@ async function mergeSuppliers(
   refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
   count += r2.length;
 
-  const r3 = await sql`
-    UPDATE supplier_purchase_orders SET supplier_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
-  `;
-  count += r3.length;
-
-  // purchase_orders is the canonical PO table (mig 246b; supplier_purchase_orders above is the older one): moved under the
+  // supplier_purchase_orders is retired (migration 1022, PR #1703): every row was copied into purchase_orders under the same id,
+  // and the legacy table refuses UPDATE (a row trigger), so the canonical move below is the only PO move.
+  // purchase_orders is the canonical PO table (mig 246b): moved under the
   // supplier-change controls of updatePurchaseOrder (supplierMergePurchaseOrders). Supplier credit notes live in credit_notes
   // (mig 202); supplier_id is approval content on one, as on a bill. The supplier_id tables that stay on the merged-away row
   // on purpose are listed in supplierMergeOpenWork.
@@ -207,16 +205,6 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     RETURNING cii.id
   `;
   count += r1.length;
-
-  const r2 = await sql`
-    UPDATE supplier_purchase_order_items spoi SET item_id = ${primaryId}::UUID
-    FROM supplier_purchase_orders spo
-    WHERE spoi.purchase_order_id = spo.id
-      AND spo.company_id = ${companyId}::UUID
-      AND spoi.item_id = ${duplicateId}::UUID
-    RETURNING spoi.id
-  `;
-  count += r2.length;
 
   const r3 = await sql`
     UPDATE customer_sales_order_items csoi SET item_id = ${primaryId}::UUID

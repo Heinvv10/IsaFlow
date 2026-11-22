@@ -33,6 +33,9 @@ import { listVersions, type ReturnVersionView } from '@/modules/accounting/servi
 import { emp501Readiness } from '@/modules/accounting/services/returns/emp501Readiness';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { ReturnRefusal, type ReturnVersion } from '@/modules/accounting/services/returns/returnVersionTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Query = z.object({ periodStart: ISO_DATE, periodEnd: ISO_DATE });
@@ -77,16 +80,19 @@ async function post(req: NextApiRequest, res: NextApiResponse, companyId: string
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
   if (b.action === 'finalise') {
+    if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('EMP501'), 'EMP501 returns')) return; // #1656 (Hein: gate everything), before any write
     const { version } = await finaliseReturn(companyId, 'EMP501', b.periodStart, b.periodEnd, actor);
     log.info('EMP501 finalised', { companyId, versionId: version.id }, 'emp501-returns');
     return apiResponse.success(res, { version: summary(version) });
   }
   if (b.action === 'file') {
+    if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('EMP501'), 'EMP501 returns')) return; // filing: Hein's gate-everything ruling, 2026-11-21
     const out = await markReturnFiled(companyId, 'EMP501', b.versionId, b.reference, actor,
       { correctsLegacySubmissionIds: b.correctsLegacySubmissionIds, reason: b.reason });
     log.info('EMP501 filed', { companyId, versionId: out.version.id }, 'emp501-returns');
     return apiResponse.success(res, { version: summary(out.version), submissionId: out.submission.id });
   }
+  if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('EMP501'), 'EMP501 returns')) return; // an amend (#1670 r13 M1)
   const version = await amendReturn(companyId, 'EMP501', b.versionId, b.reason, actor);
   log.info('EMP501 amended', { companyId, versionId: version.id }, 'emp501-returns');
   return apiResponse.success(res, { version: summary(version) });
@@ -107,4 +113,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

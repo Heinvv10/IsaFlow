@@ -40,6 +40,7 @@ const TOOL = 'set_opening_balance';
 
 export const setOpeningBalanceTool: McpTool = {
   name: TOOL,
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description:
     'Post an opening balance for a bank account so it reconciles from a known starting point — for a card or account whose earlier history was never captured. ' +
     'Posts a real journal dated as_at (DR the bank account and CR the contra for a positive amount, reversed for a negative one) and records the figure on the account so the banking screens agree with the ledger. ' +

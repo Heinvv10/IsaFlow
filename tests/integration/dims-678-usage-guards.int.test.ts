@@ -29,6 +29,13 @@ afterAll(async () => {
 
 type Plant = (cc: string) => Promise<unknown>;
 const q = (text: string, values: unknown[]) => pool.query(text, values);
+/** A purchase order line on the centre (purchase_orders + po_items; migration 1022 retired supplier_purchase_orders). */
+const poLine = async (cc: string, col: 'cc1_id' | 'cc2_id') => {
+  await q(`UPDATE cost_centres SET cc_type = $2 WHERE id = $1`, [cc, col.slice(0, 3)]);
+  const po = (await q('INSERT INTO purchase_orders(company_id, po_number, supplier_id) VALUES($1, $2, $3) RETURNING id',
+    [company, `PO-${cc.slice(0, 6)}`, b.supplier])).rows[0].id;
+  return q(`INSERT INTO po_items(purchase_order_id, description, quantity, unit_price, line_total, ${col}) VALUES($1, 'x', 1, 1, 1, $2)`, [po, cc]);
+};
 const PLANTS: [string, string, Plant][] = [
   ['journal line cost_center_id', 'journal line(s)', (cc) => journalLine(pool, b, 'cost_center_id', cc)],
   ['journal line cc1_id', 'journal line(s)', (cc) => journalLine(pool, b, 'cc1_id', cc)],
@@ -62,9 +69,8 @@ const PLANTS: [string, string, Plant][] = [
   ['supplier payment', 'document(s)', (cc) => q(
     "INSERT INTO supplier_payments(company_id, supplier_id, payment_date, total_amount, created_by, cost_center_id) VALUES($1, $2, '2026-08-01', 1, $3, $4)",
     [company, b.supplier, user, cc])],
-  ['purchase order', 'document(s)', (cc) => q(
-    'INSERT INTO supplier_purchase_orders(company_id, order_number, supplier_id, cost_center_id) VALUES($1, $2, $3, $4)',
-    [company, `PO-${cc.slice(0, 6)}`, b.supplier, cc])],
+  ['purchase order line cc1', 'document(s)', (cc) => poLine(cc, 'cc1_id')],
+  ['purchase order line cc2', 'document(s)', (cc) => poLine(cc, 'cc2_id')],
   ['expense claim line', 'document(s)', (cc) => q(
     "INSERT INTO expense_claim_lines(company_id, claim_id, line_date, cost_centre_id) VALUES($1, $2, '2026-08-01', $3)",
     [company, b.claim, cc])],

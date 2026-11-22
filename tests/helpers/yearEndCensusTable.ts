@@ -104,6 +104,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/documentChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/index.ts', 'INTEGRITY'],
+  ['gl/integrityChecks/vatChecks.ts', 'INTEGRITY'],
   ['gl/journalEntryListService.ts', 'RAW'],
   ['gl/journalEntryReadService.ts', 'RAW'],
   ['gl/nonControlPostingAccounts.ts', 'SUBLEDGER'],

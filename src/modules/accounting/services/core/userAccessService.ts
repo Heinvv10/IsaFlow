@@ -7,11 +7,12 @@
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 
 export { OwnerProtectedError } from './ownerLock';
 
 
-export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+export { COMPANY_ROLES as VALID_ROLES } from '@/lib/auth/companyRoles';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,8 @@ export interface CompanyUserRecord {
   name: string;
   email: string;
   role: string;
+  /** The manager default of Approve and Payroll is withheld (a former accountant / bookkeeper): shown beside the role. */
+  approveWithheld: boolean;
   joinedAt: string;
 }
 
@@ -74,11 +77,18 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
     ORDER BY m.created_at ASC
   `) as DbRow[];
 
+  // company_users.approve_withheld (1010c): the manager default withheld, shown beside the role. Owner / admin read every row (cu_select).
+  const withheldRows = (await sql`
+    SELECT user_id FROM company_users WHERE company_id = ${companyId}::UUID AND approve_withheld = true
+  `) as DbRow[];
+  const withheld = new Set(withheldRows.map((w) => String(w.user_id)));
+
   return rows.map((r: DbRow) => ({
+    approveWithheld: withheld.has(String(r.user_id)),
     userId: r.user_id as string,
     name: `${(r.first_name as string) ?? ''} ${(r.last_name as string) ?? ''}`.trim() || (r.email as string),
     email: r.email as string,
-    role: r.role as string,
+    role: normalizeCompanyRole(r.role as string),
     joinedAt: toIso(r.created_at as string | Date | null) ?? '',
   }));
 }

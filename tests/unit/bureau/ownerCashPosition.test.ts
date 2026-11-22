@@ -59,13 +59,138 @@ describe('pickPayrollRun', () => {
   });
 
   it('with asAt, a run whose pay date has passed is judged alone, never added to the runs still due (review #1549 N-H1)', () => {
-    const paid = { ...prev, pay_date: '2026-05-25' };
+    const paid = { ...prev, pay_date: '2026-05-25', final: true };
     const due = { ...cur, pay_date: '2026-06-30' };
     expect(pickPayrollRun([paid, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: true, totalRequired: 5000, runsCounted: 1 });
     expect(pickPayrollRun([paid, due], 4000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 1000, runsCounted: 1 });
-    expect(pickPayrollRun([paid, due], 300, '2026-06-11')).toMatchObject({ runId: 'prev', canPay: false, shortfall: 100 });
+    // A paid run never produces a shortfall (review #1679 codex 4): the due run is the one short.
+    expect(pickPayrollRun([paid, due], 300, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4700 });
     // A pay date of today is still due.
     expect(pickPayrollRun([{ ...paid, pay_date: '2026-06-11' }, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, runsCounted: 2 });
+  });
+
+  // Review #1679 codex 3 and 4: the forecast follows the PAY DATE, not the costing order (regular before off-cycle).
+  describe('by pay date (review #1679)', () => {
+    const regular = run({ id: 'regular', total_net: '600', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-30' });
+    it('a bonus due tomorrow is funded first; the shortfall falls on the regular run at month-end', () => {
+      const bonus = run({ id: 'bonus', total_net: '600', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-12' });
+      // Rows arrive in costing order (regular first); cash pays the bonus first.
+      expect(pickPayrollRun([regular, bonus], 1000, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: false, shortfall: 200, runsCounted: 2 });
+      expect(pickPayrollRun([regular, bonus], 1200, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: true, totalRequired: 1200 });
+    });
+    it('a bonus already paid never reports a shortfall over an affordable due run', () => {
+      const due = { ...regular, total_net: '500' };
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
+      expect(pickPayrollRun([due, paidBonus], 1000, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: true, totalRequired: 500, runsCounted: 1 });
+    });
+    // Review #1679 codex M3: only a FINAL run past its pay date has been paid; an overdue calculated run is still owed.
+    it('zero cash and yesterday\'s calculated R20 000 run: R20 000 short', () => {
+      const overdue = run({ id: 'overdue', status: 'calculated', total_net: '20000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false });
+      expect(pickPayrollRun([overdue], 0, '2026-06-11')).toMatchObject({ runId: 'overdue', canPay: false, shortfall: 20000 });
+      // A row that does not say it is final is not taken as paid.
+      const { final: _f, ...unknown } = overdue;
+      expect(pickPayrollRun([unknown], 0, '2026-06-11')).toMatchObject({ runId: 'overdue', canPay: false, shortfall: 20000 });
+    });
+    it('an overdue calculated run still counts against the run due after it', () => {
+      const overdue = run({ id: 'overdue', status: 'calculated', total_net: '20000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false });
+      expect(pickPayrollRun([overdue, regular], 20_400, '2026-06-11')).toMatchObject({ runId: 'regular', canPay: false, shortfall: 200, totalRequired: 20_600, runsCounted: 2 });
+    });
+    // Gate rulings 4 and 5 on 7630d9379f: payday settles net pay only; PAYE, UIF and SDL stay owed until the month's
+    // EMP201 is due (7th of the next month: after it, assumed paid, as the 13-week forecast does). A reopened run that
+    // was paid out owes only what is above its paid snapshot.
+    it('a final run past payday still owes its PAYE, UIF and SDL until its EMP201 is due', () => {
+      const june = run({ id: 'june', total_net: '10000', total_paye: '2000', total_uif: '200', total_sdl: '100', total_eti: '0', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([june], 1000, '2026-06-30')).toMatchObject({ runId: 'june', canPay: false, totalRequired: 2300, shortfall: 1300 });
+      expect(pickPayrollRun([june], 1000, '2026-07-07')).toMatchObject({ runId: 'june', totalRequired: 2300 });
+      expect(pickPayrollRun([june], 1000, '2026-07-08')).toMatchObject({ runId: 'june', canPay: true, shortfall: 0 });
+    });
+    it('the EMP201 due date moves back off a weekend: a Saturday 7th to Friday the 6th, a Sunday 7th to Friday the 5th', () => {
+      const paidRun = (month: number, year: number) => run({ id: `r${month}`, period_month: month, period_year: year, total_net: '1000',
+        total_paye: '300', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: `${year}-${String(month).padStart(2, '0')}-25`, final: true });
+      // October 2026: due Saturday 7 November, so Friday the 6th.
+      expect(pickPayrollRun([paidRun(10, 2026)], 0, '2026-11-06')).toMatchObject({ totalRequired: 300, canPay: false });
+      expect(pickPayrollRun([paidRun(10, 2026)], 0, '2026-11-07')).toMatchObject({ canPay: true, shortfall: 0 });
+      // January 2027: due Sunday 7 February, so Friday the 5th.
+      expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-05')).toMatchObject({ totalRequired: 300, canPay: false });
+      expect(pickPayrollRun([paidRun(1, 2027)], 0, '2027-02-06')).toMatchObject({ canPay: true, shortfall: 0 });
+    });
+    it('a paid run whose statutory figure is negative (ETI above its PAYE, UIF and SDL) nets against its month (review L2)', () => {
+      // A bonus paid on the 15th with R300 more ETI than its PAYE: the month's EMP201 owes R300 less.
+      const credit = run({ id: 'credit', total_net: '5000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '500', pay_date: '2026-06-15', final: true });
+      const june = run({ id: 'june', total_net: '10000', total_paye: '2000', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([credit, june], 0, '2026-06-30')).toMatchObject({ runId: 'june', canPay: false, totalRequired: 1700, runsCounted: 1 });
+      // ETI offsets the EMP201 only, never net pay (review F1 of 3401802134): an unpaid same-month run of net pay alone
+      // still needs all of it.
+      const unpaidNet = run({ id: 'unpaid', total_net: '10000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-30', final: false });
+      expect(pickPayrollRun([credit, unpaidNet], 0, '2026-06-20')).toMatchObject({ runId: 'unpaid', totalRequired: 10000 });
+      // The credit is used once (review L of f57ef5aa96): R300 of credit against two paid June runs owing R200 statutory
+      // each clears the first and leaves R100 on the second, never both.
+      const a1 = run({ id: 'a1', total_net: '4000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-20', final: true });
+      const a2 = run({ id: 'a2', total_net: '4000', total_paye: '200', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([credit, a1], 0, '2026-06-30')).toMatchObject({ runId: 'a1', canPay: true, shortfall: 0 });
+      expect(pickPayrollRun([credit, a1, a2], 0, '2026-06-30')).toMatchObject({ runId: 'a2', canPay: false, totalRequired: 100, shortfall: 100, runsCounted: 1 });
+      // ETI offsets PAYE only (gate ruling 2 on e0eec1dea1): R0 PAYE, R200 UIF, R100 SDL and R300 ETI still owes R300.
+      const etiNoPaye = run({ id: 'eti', total_net: '3000', total_paye: '0', total_uif: '200', total_sdl: '100', total_eti: '300', pay_date: '2026-06-15', final: true });
+      expect(pickPayrollRun([etiNoPaye], 0, '2026-06-30')).toMatchObject({ runId: 'eti', canPay: false, totalRequired: 300 });
+      // Nor does a month's ETI credit come off another run's UIF and SDL: only its PAYE.
+      const uifOnly = run({ id: 'uif', total_net: '4000', total_paye: '0', total_uif: '200', total_sdl: '0', total_eti: '0', pay_date: '2026-06-20', final: true });
+      expect(pickPayrollRun([credit, uifOnly], 0, '2026-06-30')).toMatchObject({ runId: 'uif', totalRequired: 200 });
+      // Review L1 of f37f0f15a6: a run whose ETI nets the whole run to nil (net 100, PAYE 0, UIF 50, SDL 30, ETI 500)
+      // is not skipped: its UIF and SDL, R80, stay owed before the due date.
+      const small = run({ id: 'small', total_net: '100', total_paye: '0', total_uif: '50', total_sdl: '30', total_eti: '500', pay_date: '2026-06-15', final: true });
+      expect(pickPayrollRun([small], 0, '2026-06-30')).toMatchObject({ runId: 'small', canPay: false, totalRequired: 80 });
+      // ... and counts beside a run due after it: R80 + R1 000.
+      const july = run({ id: 'july', period_month: 7, total_net: '1000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-07-01' });
+      expect(pickPayrollRun([small, july], 0, '2026-06-30')).toMatchObject({ runId: 'small', totalRequired: 80 });
+      expect(pickPayrollRun([small, july], 80, '2026-06-30')).toMatchObject({ runId: 'july', totalRequired: 1080, runsCounted: 2 });
+      // The fallback (nothing owed anywhere) states what is owed, never the run netted below nil.
+      const etiOnly = run({ id: 'etiOnly', status: 'calculated', total_net: '0', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '100', pay_date: '2026-07-25' });
+      expect(pickPayrollRun([etiOnly], 0, '2026-06-30')).toMatchObject({ runId: 'etiOnly', totalRequired: 0, canPay: true });
+      // Gate item 3 on 06c106a94d: a run marked paid has paid its net pay, whatever its pay date says; its PAYE, UIF and
+      // SDL stay owed until its EMP201 is due.
+      const markedPaid = run({ id: 'marked', status: 'paid', total_net: '1000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-07-31', final: true });
+      expect(pickPayrollRun([markedPaid], 100, '2026-06-30')).toMatchObject({ runId: 'marked', canPay: true, shortfall: 0 });
+      const markedWithPaye = { ...markedPaid, id: 'markedPaye', total_paye: '300' };
+      expect(pickPayrollRun([markedWithPaye], 100, '2026-06-30')).toMatchObject({ runId: 'markedPaye', totalRequired: 300, shortfall: 200 });
+      // Another month's credit is not netted (its own EMP201).
+      const may = { ...credit, id: 'may', period_month: 5, pay_date: '2026-05-15' };
+      expect(pickPayrollRun([may, june], 0, '2026-06-05')).toMatchObject({ runId: 'june', totalRequired: 12000 });
+    });
+    it('a reopened bonus already paid out owes only the gross above its paid snapshot (after its EMP201 is due)', () => {
+      const reopened = run({ id: 'bonus', status: 'calculated', total_gross: '5500', total_net: '4000', total_paye: '1500', total_uif: '0',
+        total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: false, disbursed: true, paid_gross: '5000' });
+      expect(pickPayrollRun([reopened], 100, '2026-07-08')).toMatchObject({ runId: 'bonus', canPay: false, totalRequired: 500, shortfall: 400 });
+      // Never approved and overdue: still owed in full (review #1679 M3).
+      expect(pickPayrollRun([{ ...reopened, disbursed: false }], 100, '2026-07-08')).toMatchObject({ totalRequired: 5500 });
+    });
+    it('with only paid runs, the latest is reported as covered (its money has left)', () => {
+      const paidBonus = run({ id: 'bonus', total_net: '2000', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-05', final: true });
+      expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, shortfall: 0 });
+      // Nothing outstanding (gate nit on e0eec1dea1): R0 required and no run counted as due, the paid run named.
+      expect(pickPayrollRun([paidBonus], 100, '2026-06-11')).toMatchObject({ totalRequired: 0, runsCounted: 0 });
+    });
+    // Review #1679 Codex of 7630d9379: salaries paid, PAYE / UIF / SDL still owed until the month's EMP201 is due.
+    it('a paid run keeps its PAYE, UIF and SDL less ETI in the requirement until the 7th of the next month', () => {
+      const paid = run({ id: 'paid', period_month: 6, total_net: '9000', total_paye: '1400', total_uif: '180', total_sdl: '100', total_eti: '80', pay_date: '2026-06-25', final: true });
+      expect(pickPayrollRun([paid], 1000, '2026-06-26')).toMatchObject({ runId: 'paid', canPay: false, totalRequired: 1600, shortfall: 600 });
+      expect(pickPayrollRun([paid], 1600, '2026-07-07')).toMatchObject({ runId: 'paid', canPay: true, totalRequired: 1600 });
+      expect(pickPayrollRun([paid, regular], 1700, '2026-06-26')).toMatchObject({ runId: 'regular', canPay: false, totalRequired: 2200, shortfall: 500, runsCounted: 2 });
+      // After the due date the remittance is taken as made: the run needs nothing.
+      expect(pickPayrollRun([paid], 0, '2026-07-08')).toMatchObject({ runId: 'paid', canPay: true, shortfall: 0 });
+      // December's EMP201 is due in January of the next year.
+      const december = { ...paid, period_month: 12, pay_date: '2026-12-24' };
+      expect(pickPayrollRun([december], 0, '2027-01-07')).toMatchObject({ canPay: false, shortfall: 1600 });
+      expect(pickPayrollRun([december], 0, '2027-01-08')).toMatchObject({ canPay: true, shortfall: 0 });
+    });
+    it('a run reopened after its salaries left (approved over its pay date) is not counted as a new net payment', () => {
+      const reopened = run({ id: 'bonus', status: 'calculated', total_net: '20000', total_paye: '500', total_uif: '0', total_sdl: '0', total_eti: '0', pay_date: '2026-06-10', final: false, disbursed: true });
+      expect(pickPayrollRun([reopened], 500, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: true, totalRequired: 500 });
+      expect(pickPayrollRun([reopened], 0, '2026-06-11')).toMatchObject({ runId: 'bonus', canPay: false, shortfall: 500 });
+      // Never approved over its pay date: still owed in full (review #1679 M3).
+      expect(pickPayrollRun([{ ...reopened, disbursed: false }], 0, '2026-06-11')).toMatchObject({ canPay: false, shortfall: 20500 });
+      // Before its pay date it is due in full whatever its history.
+      expect(pickPayrollRun([reopened], 0, '2026-06-10')).toMatchObject({ canPay: false, shortfall: 20500 });
+    });
   });
 
   it('cash that covers each run alone but not both is short on the second', () => {

@@ -2,8 +2,8 @@
  * R-035 N1 round 1 (adversarial REPRO 1): every route that raises, re-binds
  * or decides an approval request is wrapped in withWriteAccess with the
  * default roles (owner, admin, manager — src/lib/auth/writeRoles.ts), so the
- * definers refuse any other role the same way (RA008): an accountant cannot
- * approve, nor a viewer raise, by calling the functions directly. The SQL list
+ * definers refuse any other role the same way (RA008): a viewer cannot
+ * approve nor raise (the legacy accountant / bookkeeper are managers since #1656, 1010), by calling the functions directly. The SQL list
  * is bound to writeRoles.ts role by role.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -32,7 +32,7 @@ const digestOf = async (id: string) => (await requestRow(pool, id))?.document_di
 /** A bill by a, under an `<role> any` rule, its request raised by b through the route. */
 async function raisedUnder(role: string) {
   const c = await postableCompany(pool,
-    [[u.a, 'owner'], [u.b, 'owner'], [u.m, 'manager'], [u.acc, 'accountant'], [u.v, 'viewer']], companies);
+    [[u.a, 'owner'], [u.b, 'owner'], [u.m, 'manager'], [u.acc, 'viewer'], [u.v, 'viewer']], companies); // u.acc was an 'accountant' until #1656: that is a withheld manager now, so a viewer stands for the role withWriteAccess refuses
   const ruleId = await plantRule(pool, c, role, { name: `roles ${role}` });
   await enforce(pool, c, u.a);
   const bill = await plantBill(pool, c, u.a);
@@ -55,8 +55,8 @@ describe('the SQL write-role list is writeRoles.ts', () => {
 });
 
 describe('a role withWriteAccess refuses is refused by the definers too (RA008)', () => {
-  it('an accountant the route refuses (403) cannot approve directly; the bill stays gated', async () => {
-    const f = await raisedUnder('accountant');
+  it('a member the route refuses (403: not a write role) cannot approve directly; the bill stays gated', async () => {
+    const f = await raisedUnder('owner');
     expect((await r.decide(pool, u.acc, f.c, f.requestId)).state.statusCode).toBe(403);
     expect(await outcome(asRole(pool, 'app_user', f.c, { sub: u.acc },
       async (cl) => decideFn(cl, f.c, f.requestId, 'approved', u.acc, await digestOf(f.requestId)), true))).toBe('RA008');
@@ -78,7 +78,7 @@ describe('a role withWriteAccess refuses is refused by the definers too (RA008)'
 
   it('a requester outside the write roles cannot even withdraw (withWriteAccess gates reject too)', async () => {
     const f = await raisedUnder('owner');
-    await pool.query("UPDATE company_users SET role = 'bookkeeper' WHERE company_id = $1 AND user_id = $2", [f.c, u.b]);
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.c, u.b]);
     expect(await outcome(asRole(pool, 'app_user', f.c, { sub: u.b },
       (cl) => decideFn(cl, f.c, f.requestId, 'rejected', u.b, null)))).toBe('RA008');
   });

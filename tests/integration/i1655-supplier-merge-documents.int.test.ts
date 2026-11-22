@@ -15,6 +15,9 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageMergedWorld } from './helpers/sageMergedSupplierWorld';
 import { plantExternal } from './intercompany/intercompany.plant';
 import { asOwner } from './intercompany/intercompany.session';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+/** #1656: mergeEntities' bank-rule guard (a customer merge's); a supplier merge re-points no bank rule. */
+const NO_RULE_GUARD = autoPostApprovalGuard(true);
 
 assertDisposable();
 const w = sageMergedWorld('docs');
@@ -23,7 +26,7 @@ const partner = randomUUID();
 const partner2 = randomUUID();
 
 const merge = (survivor: string, gone: string, role: string | null = 'admin') =>
-  inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, role), true);
+  inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, NO_RULE_GUARD, role), true);
 const seedPo = async (supplierId: string, number: string, status = 'approved') => String((await pool.query(
   'INSERT INTO purchase_orders (company_id, po_number, supplier_id, status, approved_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
   [companyId, `${number}-${tag}`, supplierId, status, status === 'draft' ? null : 'original-approver'])).rows[0].id);
@@ -202,7 +205,7 @@ describe('the intercompany side (#1699 review)', () => {
     const connection = await plantExternal(pool, companyId, partner, 'active', userId);
     await plantSide(gone, connection);
     const po = await seedPo(gone, 'PO-GUARD', 'draft');
-    await expect(inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, 'admin')))
+    await expect(inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId, NO_RULE_GUARD, 'admin')))
       .rejects.toThrow(SIDE_GUARD_REFUSAL);
     expect(await sideSupplier(connection)).toBe(gone);
     expect(await ownerOf('purchase_orders', po)).toBe(gone);

@@ -22,7 +22,7 @@ import { periodIsHonoured } from '@/modules/accounting/services/ask/askPeriod';
 
 const CO = '11111111-1111-1111-1111-111111111111';
 const TODAY = '2026-11-13';
-const ask = (q: string, co = CO) => answerQuestion(co, q, TODAY);
+const ask = (q: string, co = CO, payrollRead = true) => answerQuestion(co, q, TODAY, { payrollRead });
 const aged = [{ entityId: 'a', entityName: 'Acme', total: 1000.5 }, { entityId: 'b', entityName: 'Bolt', total: 250.25 },
   { entityId: 'c', entityName: 'Cog', total: 5000 }, { entityId: 'd', entityName: 'Dyn', total: 20 }, { entityId: 'e', entityName: 'Eve', total: 0 }];
 const bankRows = [
@@ -435,3 +435,20 @@ describe('unrecognised and ambiguous', () => {
     expect(m.income).not.toHaveBeenCalled();
   });
 });
+
+describe('without Payroll read', () => {
+  it.each(['what do I owe sars for payroll', 'emp201', 'what did the last pay run cost', 'paye for october'])('"%s" is refused, no payroll service is called, and nothing payroll leaks', async (q) => {
+    const a = await ask(q, CO, false);
+    expect(a.text).toMatch(/needs Payroll access/);
+    expect([a.figure, a.link, a.lines]).toEqual([null, null, []]);
+    for (const fn of [m.emp, m.run, m.others]) expect(fn).not.toHaveBeenCalled();
+  });
+  it('the other questions are answered as before', async () => {
+    expect((await ask('who owes me money', CO, false)).figure).not.toBeNull();
+    expect((await ask('vat', CO, false)).text).not.toMatch(/needs Payroll access/);
+  });
+  it('with Payroll read the same questions are answered', async () => {
+    expect((await ask('emp201', CO, true)).figure).toBe(1150.07);
+  });
+});
+

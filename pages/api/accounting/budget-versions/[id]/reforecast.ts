@@ -62,10 +62,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (body && typeof body === 'object' && 'action' in body) {
       const parsed = RollSchema.safeParse(body);
       if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
+      // census-exempt(rollVersion, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
       return apiResponse.success(res, await rollVersion(companyId, userId, id, { expectedUpdatedAt: parsed.data.expectedUpdatedAt }));
     }
     const parsed = CreateSchema.safeParse(body);
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
+    // census-exempt(createReforecastFromActuals, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     return apiResponse.created(res, await createReforecastFromActuals(companyId, { userId, role: companyRole }, id, parsed.data));
   } catch (err) {
     if (respondBudgetDriverError(res, err)) return;

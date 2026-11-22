@@ -136,7 +136,7 @@ describeIfDb('customer-invoice VAT legs coded standard (post + migration 856), V
     const rev2 = (await inTx(fx, () => reverseJournalEntry(fx.companyId, rev, fx.userId))).id;
     // Cancelling reverses the journal and NULLs the invoice's link to it.
     const cancelled = await postedInvoice('INV-D', '2026-07-13', 400);
-    const cancelRev = (await inTx(fx, () => cancelCustomerInvoice(fx.companyId, cancelled.id, fx.userId))).reversedJournalEntryId;
+    const cancelRev = (await inTx(fx, () => cancelCustomerInvoice(fx.companyId, cancelled.id, fx.userId, { allowReversal: true }))).reversedJournalEntryId;
     const link = (await sql`SELECT gl_journal_entry_id FROM customer_invoices WHERE id = ${cancelled.id}::UUID`) as Row[];
     cancelLinkCleared = link[0]!.gl_journal_entry_id == null;
     invJournals = [a, b, reversed, rev, rev2, cancelled.je, String(cancelRev)];

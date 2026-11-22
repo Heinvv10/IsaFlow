@@ -101,13 +101,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // refused, and this transaction's savepoint takes the whole merge back.
       refuseIfMovedNotedBills(movedBills as Array<Record<string, unknown>>);
 
-      // 4. Re-parent supplier_purchase_orders
-      await tx`
-        UPDATE supplier_purchase_orders
-        SET supplier_id = ${target_id}
-        WHERE supplier_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
+      // 4. supplier_purchase_orders is retired (migration 1022, PR #1703): its rows were copied into purchase_orders under the
+      // same ids and the legacy table refuses UPDATE, so step 5's canonical move is the only PO move.
 
       // 5. Re-parent purchase_orders (the canonical PO table, mig 246b) under updatePurchaseOrder's supplier-change controls
       // (an audit row per PO; supplierMergePurchaseOrders), and supplier credit notes (credit_notes, mig 202: one table for both

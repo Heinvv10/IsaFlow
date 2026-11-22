@@ -26,7 +26,9 @@ export const ALL_TIE_KINDS: readonly TieKind[] = ['link', 'line', 'header'];
  * The ties, ordered, capped at `limit` with the total. `kinds` narrows the list to the kinds a given guard actually refuses on, so a
  * refusal never names a bill that is not what blocks it. Each branch is DRIVEN FROM THE PO (its po_items through idx_sii_po_item, its
  * header references through idx_si_po, its link rows through the link table's (company, PO) key), so the cost follows the PO's own
- * bills, not the company's.
+ * bills, not the company's. `amount` is the link row's STORED amount, deliberately (a tie names the row a person unlinks); what the
+ * bill holds on the PO by the one attribution is `budgets/billAttribution`, shown beside it as get_purchase_order's
+ * `attributed_amount` (PR #1703 review r3 L4).
  */
 export async function readPoTies(companyId: string, poId: string, limit: number, kinds: readonly TieKind[] = ALL_TIE_KINDS, opts: TieOptions = {}): Promise<PoTies> {
   const rows = (await sql`

@@ -58,13 +58,13 @@ export async function pausedMerge(pool: Pool, fx: BillFixture, target: string) {
   return { merge, release: hold.release };
 }
 
-/** Rows the fixture's dropBillFixture leaves behind (batches, credit notes, legacy POs, expectations and alerts). */
+/** Rows the fixture's dropBillFixture leaves behind (batches, credit notes, expectations and alerts). */
 export async function dropMergeRaceExtras(pool: Pool, fx: BillFixture): Promise<void> {
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
     await c.query('SET LOCAL session_replication_role = replica');
-    for (const t of ['expected_invoice_alerts', 'supplier_expectations', 'credit_notes', 'supplier_payment_batches', 'supplier_purchase_orders']) {
+    for (const t of ['expected_invoice_alerts', 'supplier_expectations', 'credit_notes', 'supplier_payment_batches']) {
       await c.query(`DELETE FROM ${t} WHERE company_id = $1`, [fx.co]);
     }
     await c.query('COMMIT');

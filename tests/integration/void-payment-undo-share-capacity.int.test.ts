@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import { billWithJournal, dropStepExtras, postedJournal, seedStepAccounts, type StepAccounts } from './helpers/shareUndoFixture';
 import { text, undoShareKit } from './helpers/undoShareKit';
 
@@ -24,9 +24,10 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
   beforeAll(async () => {
     assertNotProductionDb('This test posts journals and voids payments.');
     fx = await seedFixture('UNDOC', DATABASE_URL!);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
     a = await seedStepAccounts(fx);
   }, 120000);
-  afterAll(async () => { await dropStepExtras(fx); await dropFixture(fx); }, 120000);
+  afterAll(async () => { await dropStepExtras(fx); await dropFixtureMember(fx); await dropFixture(fx); }, 120000);
 
   it('the clearing-account side: account credits to spare, but the clearing debit is used up', async () => {
     const b1 = await billWithJournal(fx, a, 'XSIDE1', '2026-05-10', legs());

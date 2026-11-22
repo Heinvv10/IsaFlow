@@ -83,7 +83,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const flags = useNavFlags();
   const index = useMemo(() => buildNavIndex(TABS, isRegistered, flags), [isRegistered, flags]);
   const sections = useMemo(() => {
-    const base = buildSections({ query, index, recent, server });
+    const base = buildSections({ query, index, recent, server, flags });
     // Typed text that is a question gets its own "Ask IsaFlow" row: first for a wh-question, last for a phrase that is also a page search.
     const where = askRowPlacement(query);
     if (!where) return base;
@@ -91,7 +91,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
     const action: PaletteAction = { id: 'ask-query', label: `Ask IsaFlow: ${text}`, kind: 'ask', icon: 'message-circle', keywords: [], query: text };
     const ask = { id: 'ask-query', heading: 'Ask IsaFlow', rows: [{ key: 'action-ask-query', kind: 'action' as const, action }] };
     return where === 'first' ? [ask, ...base] : [...base, ask];
-  }, [query, index, recent, server]);
+  }, [query, index, recent, server, flags]);
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
   // Back to the top when the typing changes, not when a reply lands: the highlight must not jump under the arrow keys.

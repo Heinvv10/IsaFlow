@@ -49,16 +49,17 @@ describe('a due date added on this visit', () => {
 });
 
 describe('another invoice opened in place', () => {
-  it('takes its own VAT mode: a rate-0 invoice, then a 15% one', async () => {
-    serveInvoice((u) => (u.includes('id=inv-1') ? ok({ ...DRAFT, tax_rate: 0 }) : u.includes('id=inv-2') ? ok({ ...DRAFT, id: 'inv-2' }) : undefined));
+  it('takes its own VAT: an inclusive rate-0 invoice, then an exclusive 15% one', async () => {
+    serveInvoice((u) => (u.includes('id=inv-1') ? ok({ ...DRAFT, tax_rate: 0, amounts_are: 'inclusive' }) : u.includes('id=inv-2') ? ok({ ...DRAFT, id: 'inv-2' }) : undefined));
     const { rerender } = render(<EditPage />);
     await settle();
-    expect(mode()).toMatch(/No VAT/);
+    expect(mode()).toMatch(/Including VAT/);
+    expect(screen.getAllByRole('combobox', { name: 'VAT type' }).map((c) => c.textContent)).toEqual(['Zero-rated (0%)']);
     h.query = { invoiceId: 'inv-2' };
     rerender(<EditPage />);
     await settle();
     expect(mode()).toMatch(/Excluding VAT/);
-    expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('15');
+    expect(screen.getAllByRole('combobox', { name: 'VAT type' }).map((c) => c.textContent)).toEqual(['Standard (15%)']);
   });
 
   it('starts with no refused dates from the one before', async () => {

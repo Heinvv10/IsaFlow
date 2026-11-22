@@ -3,14 +3,14 @@
  * and only when that body differs from what the server last took. An edit PUT stamps the editor as an approval author
  * (R-035 PR4), so loading the page, or typing a value back to what it was, must send nothing. One PUT at a time; a reply
  * for an older body never marks a newer one saved; a 400 stops autosave until the next edit; create is never called.
- * A VAT rate edit under way saves nothing: in inclusive mode each keystroke reprices the net (PR D's warning).
+ * A line's VAT type is one pick (no rate is typed), so it saves once; a line with no type yet is held, saying why.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import {
-  advance, bodyOf, calls, description, ok, pick, puts, refused, routerEvents, serveInvoice, type,
+  advance, bodyOf, calls, description, DRAFT, ok, pick, puts, refused, routerEvents, serveInvoice, type,
 } from '../helpers/invoiceAutosaveHarness';
 
 const h = vi.hoisted(() => ({ push: vi.fn(), events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
@@ -36,7 +36,6 @@ async function open() {
   expect(description().value).toBe('Consulting');
 }
 const status = () => screen.queryByText(/^Saved|^Saving|^Unsaved changes/)?.textContent ?? null;
-const rate = () => screen.getByLabelText('VAT rate %');
 const price = () => screen.getAllByLabelText(/^Unit price/)[0] as HTMLInputElement;
 
 describe('edit page autosave', () => {
@@ -89,31 +88,35 @@ describe('edit page autosave', () => {
     expect(body.items).toEqual([expect.objectContaining({ unitPrice: 115, vatType: 'standard' })]);
   });
 
-  it('a VAT rate edit under way saves nothing; a rate the server refuses is held, and 0 saves once, gross held', async () => {
+  it('a line re-typed while inclusive saves once, its gross held as entered', async () => {
     serveInvoice();
     await open();
     await pick('Amounts are', /Including VAT/);
-    fireEvent.focus(rate());
-    type(rate(), '1');
-    await advance(5_000);
-    type(rate(), '');
-    await advance(5_000);
-    type(rate(), '14');
-    await advance(5_000);
-    expect(puts()).toHaveLength(0);
-    fireEvent.blur(rate());
-    await advance(1_500);
-    // 14% is not the VAT rate on 2026-09-15: the server would refuse it, so autosave holds and says why.
-    expect(puts()).toHaveLength(0);
-    expect(screen.getByText(/Check the VAT rate: it is the standard rate on the invoice date, or 0/)).toBeTruthy();
-    fireEvent.focus(rate());
-    type(rate(), '0');
-    fireEvent.blur(rate());
     await advance(1_500);
     expect(puts()).toHaveLength(1);
-    const body = bodyOf(puts()[0]!);
+    await pick('VAT type', /Zero-rated/);
+    await advance(1_500);
+    expect(puts()).toHaveLength(2);
+    const body = bodyOf(puts()[1]!);
     expect(body.amountsAre).toBe('inclusive');
     expect(body.items[0]).toMatchObject({ unitPrice: 115, vatType: 'zero_rated' }); // the gross held, as entered
+  });
+
+  it('a line with no VAT type yet (a legacy 14% draft) is held and says why; picking one saves it', async () => {
+    serveInvoice(undefined, { ...DRAFT, tax_rate: 14, total_amount: 114 });
+    await open();
+    type(description(), 'Consulting again');
+    await advance(1_500);
+    // 14% is not the VAT rate on 2026-09-15: the server would refuse it, so autosave holds; Save Changes says why.
+    expect(puts()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await advance(0);
+    expect(screen.getByText('Choose a VAT type for "Consulting again"')).toBeTruthy();
+    expect(puts()).toHaveLength(0);
+    await pick('VAT type', /Standard/);
+    await advance(1_500);
+    expect(puts()).toHaveLength(1);
+    expect(bodyOf(puts()[0]!).items[0]).toMatchObject({ unitPrice: 100, vatType: 'standard' });
   });
 
   it('one PUT at a time; a reply for an older body never marks the newer one saved, and the newest goes next', async () => {

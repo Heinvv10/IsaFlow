@@ -139,9 +139,13 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   else if (action === 'irp5' && row.pay_frequency !== 'monthly') {
     reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and IRP5 certificates cover monthly runs only in this release` });
   }
-  if (row.run_kind !== 'regular') {
-    const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
-    reasons.push({ clause: 'run_kind', detail: `it is ${kind} run, and only regular runs are supported` });
+  // Wave 6 OC lifts the off-cycle clause: a monthly off-cycle (bonus or termination) run is costed, approved, posted,
+  // reopened and printed by this release (payrollOffCycle*.ts). Any other kind is still refused.
+  if (row.run_kind !== 'regular' && row.run_kind !== 'off_cycle') {
+    reasons.push({ clause: 'run_kind', detail: `it is a '${String(row.run_kind)}' run, and only regular and off-cycle runs are supported` });
+  } else if (row.run_kind === 'off_cycle' && row.pay_frequency !== 'monthly') {
+    // FQd costs weekly and fortnightly REGULAR runs; an off-cycle run is monthly only (OC creates no other).
+    reasons.push({ clause: 'run_kind', detail: `it is a ${String(row.pay_frequency)} off-cycle run, and off-cycle runs are monthly only` });
   }
   if (action !== 'reopen' && names(row.unknown_status)) {
     reasons.push({ clause: 'tax_status', detail: `employees ${names(row.unknown_status)} have a tax status this version does not know` });

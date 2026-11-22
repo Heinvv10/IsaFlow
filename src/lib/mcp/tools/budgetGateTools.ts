@@ -38,6 +38,7 @@ async function move(ctx: McpToolContext, args: Record<string, unknown>, action: 
 
 export const approveBudgetVersionTool: McpTool = {
   name: 'approve_budget_version',
+  approveModule: 'budgets', // #1656: moduleFence asks this Approve before the handler
   description: `Approve a DRAFT budget version (draft → approved; it stays editable, every edit audited). ${GATE_NOTE} `
     + 'Refused while a budget holder\'s slice is not approved, unless force true with a reason (1-500 characters), recorded in the audit log.',
   ...BUDGET_WRITE_FENCE,

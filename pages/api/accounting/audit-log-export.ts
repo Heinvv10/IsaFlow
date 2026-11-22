@@ -15,6 +15,8 @@ import {
   logAuditOrThrow,
   type AuditLogItem,
 } from '@/modules/accounting/services/core/auditTrailService';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
+import { refuseAuditPayrollType, singleQueryParam } from '@/modules/accounting/services/core/auditPayrollGate';
 import { escapeCsv } from '@/lib/csv';
 
 function formatChanges(item: AuditLogItem): string {
@@ -25,7 +27,7 @@ function formatChanges(item: AuditLogItem): string {
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     if (!(await checkReportRateLimit(companyId, 'audit-log-export'))) {
@@ -44,9 +46,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         search,
       } = req.query;
 
+      // The same Payroll rule as the list: the payroll entity types are not in the CSV without Payroll read (#1656 round 8).
+      const payrollRead = await mayReadPayroll(companyId, user.id);
+      const entityTypeOnce = singleQueryParam(res, 'entity_type', entity_type);
+      if (entityTypeOnce === null) return;
+      if (refuseAuditPayrollType(res, entityTypeOnce, payrollRead)) return;
       // Fetch up to 10,000 rows for export
       const result = await getAuditLog(companyId, {
-        entityType: entity_type as string | undefined,
+        payrollRead,
+        entityType: entityTypeOnce,
         entityId: entity_id as string | undefined,
         userId: user_id as string | undefined,
         action: action as string | undefined,

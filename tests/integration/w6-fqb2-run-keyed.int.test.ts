@@ -84,7 +84,7 @@ describe('owner cash position: the next pay run', () => {
   const position = (flip: boolean, cash: number, when: Date = today) => {
     let ids: string[] = [];
     return twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
-      async () => ({ got: await getOwnerCashPosition(A.company, cash, when), ids: ordered(ids, flip) }));
+      async () => ({ got: await getOwnerCashPosition(A.company, cash, when, { payroll: true }), ids: ordered(ids, flip) }));
   };
 
   it.each(BOTH_ORDERS)('cash covers both: the latest run of the month is the bonus, against both (seeded reversed: %s)', async (flip) => {
@@ -114,13 +114,15 @@ describe('owner cash position: the next pay run', () => {
     let ids: string[] = [];
     const got = await twoRunsInMonth(pool, A, async (c) => {
       ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { ...REGULAR, runDate: '2026-05-31' }]);
-    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z')));
+    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z'), { payroll: true }));
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
   });
 
-  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) is judged alone; only the bonus is still due (seeded reversed: %s)', async (flip) => {
+  // Gate ruling 4 on 7630d9379f: the regular run's net pay left on the 25th, but its PAYE (R2 000; no UIF or SDL seeded)
+  // stays owed until May's EMP201 is due (7 June), so it counts that beside the bonus still due.
+  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) counts only its PAYE; the bonus is still due (seeded reversed: %s)', async (flip) => {
     const { got, ids } = await position(flip, 22_000, new Date('2026-05-27T10:00:00Z'));
-    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 5000, runsCounted: 1 });
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 7000, runsCounted: 2 });
   });
 
   it.each(BOTH_ORDERS)('cash covers neither: the earliest short run is the regular run (seeded reversed: %s)', async (flip) => {

@@ -50,37 +50,57 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'v.id',
   // wave 6 FQc: a payroll component (the frequency refusal; also wave 6 PSP's pspComponentGuard) and the run whose payslip year to date is read
   'componentId', 'run.id', 'run.runId ?? null',
+  // wave 6 OC: the month's regular run, the bonus components, the new off-cycle run and its employees
+  'regularId', 'componentIds', 'String(run.id)', 'e.employeeId', 'e.componentId ?? null',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
-const unlistedUuidBinds = (line: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
-  .map((m) => m[1]!.trim()).filter((expr) => !NON_ACTOR_UUID_BINDS.has(expr));
+/** Non-actor uuid binds allowed in ONE file only (review L-b of 87708dc593): a generic name stays an actor suspect elsewhere. */
+const NON_ACTOR_UUID_BINDS_IN_FILE: Readonly<Record<string, ReadonlySet<string>>> = {
+  // wave 6 OC (review L3 of 819c2861c0): the pending approval request cancel locks and re-reads
+  'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts': new Set(['requestId']),
+};
+const unlistedUuidBinds = (line: string, file?: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
+  .map((m) => m[1]!.trim())
+  .filter((expr) => !NON_ACTOR_UUID_BINDS.has(expr) && !(file && NON_ACTOR_UUID_BINDS_IN_FILE[file]?.has(expr)));
 
 /** file -> line -> exact trimmed text of every actor-column line in a file that names one of the tables. */
 const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}core/payRunApproverGuard.ts`]: {
-    78: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
-    82: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
-    83: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
-    109: 'const requester = request.requested_by.toLowerCase();',
+    100: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
+    104: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
+    105: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
+    133: 'const requester = request.requested_by.toLowerCase();',
   },
-  [`${S}gl/approvalDocuments.ts`]: { 167: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
+  [`${S}gl/approvalDocuments.ts`]: { 171: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
   [`${S}payroll/payRunDecision.ts`]: {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
   },
-  [`${S}payroll/payrollApprovalService.ts`]: { 153: 'approved_by = ${approvedBy},' },
+  [`${S}payroll/payrollApprovalService.ts`]: { 162: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
   // Wave 6 GA: payroll_garnishee_orders.created_by is TEXT, restamped by its trigger from the session user (999z).
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 137: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunCreatePeriod.ts`]: { 83: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end, run_date' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 126: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
-  [`${S}payroll/payrollRunLock.ts`]: { 238: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 79: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunHeaders.ts`]: {
+    138: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
+    // Wave 6 OC: the canceller's name, read as text through the company's member view (cancelled_by is TEXT, 999w/999f).
+    157: 'SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL',
+    158: 'ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name',
+  },
+  // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
+  [`${S}payroll/payrollOffCycleCancel.ts`]: { 83: 'cancelled_by = ${userId}, cancelled_at = now()' },
+  // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
+  [`${S}payroll/payrollOffCycleRun.ts`]: {
+    198: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
+    209: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
+  },
+  [`${S}payroll/payrollRunLock.ts`]: { 239: 'prepared_by     = ${preparedBy},' },
+  [`${S}payroll/payrollRunReopen.ts`]: { 93: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
     122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
@@ -91,16 +111,16 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/taxDirectivePaymentService.ts`]: {
     94: 'createdBy: r.created_by != null ? String(r.created_by) : null,',
-    209: 'bank_account_id, created_by',
+    210: 'bank_account_id, created_by',
   },
   [`${S}payroll/taxDirectiveService.ts`]: {
     91: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
     196: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
-    93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
-    233: 'status, submitted_by, updated_at',
-    273: 'submitted_by = ${submittedByUserId},',
+    94: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
+    236: 'status, submitted_by, updated_at',
+    289: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     49: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -141,12 +161,16 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
+  [`${S}payroll/payrollOffCycleRun.ts`]: {
+    200: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy}, 'monthly', 'off_cycle', ${reason},",
+    210: 'VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount == null ? null : Math.round(e.amount * 100) / 100}, ${createdBy})',
+  },
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 129: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
-  [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 141: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
+  [`${S}payroll/taxDirectivePaymentService.ts`]: { 214: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
-  [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
+  [`${S}payroll/uifDeclarationService.ts`]: { 241: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     134: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
@@ -176,7 +200,7 @@ function trackedFiles(): string[] {
     .split('\n').filter((f) => /\.tsx?$/.test(f));
 }
 const lines = (f: string) => readFileSync(resolve(ROOT, f), 'utf8').split('\n');
-const castsActorToUuid = (line: string) => ACTOR_UUID_CAST.some((re) => re.test(line)) || unlistedUuidBinds(line).length > 0;
+const castsActorToUuid = (line: string, file?: string) => ACTOR_UUID_CAST.some((re) => re.test(line)) || unlistedUuidBinds(line, file).length > 0;
 
 describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa census)', () => {
   const found: Record<string, Record<number, string>> = {};
@@ -186,7 +210,7 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     if (!TABLE.test(stripped)) continue;
     stripped.split('\n').forEach((l, i) => {
       if (COLUMN.test(l)) (found[f] ??= {})[i + 1] = l.trim();
-      if (castsActorToUuid(l)) castLines.push(`${f}:${i + 1}`);
+      if (castsActorToUuid(l, f)) castLines.push(`${f}:${i + 1}`);
     });
   }
 
@@ -213,6 +237,10 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     expect(castsActorToUuid('VALUES (${companyId}::uuid, ${actor}::uuid)')).toBe(true);
     expect(castsActorToUuid('VALUES (${companyId}::uuid, ${runId}::uuid, ${actor})')).toBe(false);
     expect(castsActorToUuid('WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid')).toBe(false);
+    // A file-scoped non-actor bind is allowed in its file only.
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts')).toBe(false);
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleRun.ts')).toBe(true);
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid')).toBe(true);
     expect(castsActorToUuid('prepared_by::text AS prepared_by')).toBe(false);
     expect(TABLE.test(code('// payroll_run_headers in a comment only'))).toBe(false);
   });

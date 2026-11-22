@@ -88,7 +88,8 @@ describe('link_bills_to_purchase_order handler', () => {
     linkMock.mockResolvedValue(done());
     await call({ close_when_fully_billed: true });
     expect(linkMock).toHaveBeenCalledWith('c1', [expect.objectContaining({ index: 0, poId: PO, billId: BILL })],
-      { userId: 'u1', source: 'mcp', via: 'mcp:link_bills_to_purchase_order', closeWhenFullyBilled: true });
+      // budgetFigures: whether the header-residual budget warnings may show figures (read:reports; PR #1703 R4-4).
+      { userId: 'u1', source: 'mcp', via: 'mcp:link_bills_to_purchase_order', closeWhenFullyBilled: true, budgetFigures: false });
     expect(rolledBack).not.toHaveBeenCalled();
   });
 

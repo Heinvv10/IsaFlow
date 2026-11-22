@@ -15,6 +15,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -47,6 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = (req as AuthenticatedNextApiRequest).user.id;
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'opening balances')) return; // #1656 (Hein: gate everything), before any write
     try {
       const entry = await withJournalDateRefusal(res, () => postOpeningBalances(companyId, userId, req.body?.balances));
       if (entry === JOURNAL_DATE_REFUSED) return;

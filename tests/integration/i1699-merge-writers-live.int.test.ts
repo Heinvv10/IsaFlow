@@ -3,7 +3,7 @@
  * so against the REAL merge of that supplier, paused while it holds the supplier FOR UPDATE (helpers/mergeRace), each waits and is
  * then refused, and nothing lands on the merged-away row. Without the lock each one read the supplier live (the merge had not
  * committed), waited only at its INSERT / UPDATE foreign key, and then wrote onto the soft-deleted supplier.
- *   M2  a PO edit moving a PO to the supplier (PUT /purchase-orders/[id]); the legacy supplier_purchase_orders create.
+ *   M2  a PO edit moving a PO to the supplier (PUT /purchase-orders/[id]).
  *   L2  PO create (POST /purchase-orders), bulk_create_purchase_orders (importPurchaseOrders), supplier returns, a supplier credit
  *       note (createCreditNote's validateSupplierLinks).
  *   L4  the expectation engine (recomputeForSupplier) learns no expectation for a supplier merged away meanwhile.
@@ -24,7 +24,6 @@ import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteSer
 import { ExpectationSupplierNotLiveError, recomputeForSupplier } from '@/modules/accounting/services/capture/expectationEngineService';
 import poCreateRoute from '../../pages/api/accounting/purchase-orders';
 import poEditRoute from '../../pages/api/accounting/purchase-orders/[id]';
-import legacyPoRoute from '../../pages/api/accounting/supplier-purchase-orders';
 import supplierReturnsRoute from '../../pages/api/accounting/supplier-returns';
 
 assertDisposable();
@@ -60,7 +59,7 @@ async function againstMerge<T>(fx: BillFixture, target: string, write: () => Pro
 }
 type RouteOut = Awaited<ReturnType<typeof callRoute>>;
 
-describe('M2: a PO is never moved onto, or created on, a supplier merged away meanwhile', () => {
+describe('M2: a PO is never moved onto a supplier merged away meanwhile', () => {
   it('PUT /purchase-orders/[id] changing the supplier to the one being merged: waits, then 400; the PO keeps its supplier', async () => {
     await withFixture('i1699-m2-put', async (fx, target) => {
       const other = await seedSupplier(pool, fx, 'i1699 other');
@@ -71,15 +70,6 @@ describe('M2: a PO is never moved onto, or created on, a supplier merged away me
       expect((out.v as RouteOut).statusCode, JSON.stringify((out.v as RouteOut).body)).toBe(400);
       expect(JSON.stringify((out.v as RouteOut).body)).toContain(SUPPLIER_NOT_LIVE_REFUSAL);
       expect((await pool.query('SELECT supplier_id::text AS s FROM purchase_orders WHERE id = $1', [po.po])).rows).toEqual([{ s: other }]);
-    });
-  }, 30_000);
-
-  it('the legacy supplier_purchase_orders create: waits, then 400; nothing on the merged-away supplier', async () => {
-    await withFixture('i1699-m2-legacy', async (fx, target) => {
-      const out = await againstMerge(fx, target, () => callRoute(legacyPoRoute as never, fx, fx.owner, '/api/accounting/supplier-purchase-orders',
-        { supplier_id: fx.supplier, order_date: '2026-06-10', items: [{ description: 'Widget', quantity: 1, unit_price: 10 }] }), true);
-      expect((out.v as RouteOut).statusCode, JSON.stringify((out.v as RouteOut).body)).toBe(400);
-      expect(await count('supplier_purchase_orders', fx.supplier)).toBe(0);
     });
   }, 30_000);
 });

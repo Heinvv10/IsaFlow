@@ -114,18 +114,29 @@ describeIfDb('PR #1568 adversarial: EMP501 vs the EMP201s filed for its months',
     expect(r.status).toBe(409);
   });
 
-  it('B2: an off-cycle run (refused by the EMP201 and irp5DataService run-kind guard) is certified by the EMP501', async () => {
+  // Wave 6 OC (#1620) made off-cycle runs first-class: an off-cycle run is no longer refused, so B2 (which asserted the
+  // EMP501 refuses one) becomes the H4 control: a March bonus run (3605), final before the March EMP201 was filed, is
+  // finalised with the month and appears on the certificate.
+  it('B2 -> H4 (OC control): a March off-cycle bonus run (3605) final before the March EMP201 was filed: the EMP501 finalises with it, on the certificate', async () => {
     const rf = await company('B2');
+    await sql`INSERT INTO sars_source_codes (code, effective_year, category, description, status)
+      VALUES ('3605', 2026, 'income', 'Annual payment', 'active') ON CONFLICT DO NOTHING`;
+    refreshCache();
     const alice = await employee(rf, 'Alice');
-    await run(rf, 3, [[alice, 30_000, 4_000]]);
-    await legacyFiled(rf, 3);
-    await run(rf, 4, [[alice, 50_000, 20_000]], { kind: 'off_cycle' });
-    await legacyFiled(rf, 4);
+    // A final monthly run whose header totals equal its lines (UIF 177.12 + 177.12 per line, SDL 1% of gross).
+    const regular = await run(rf, 3, [[alice, 30_000, 4_000]]);
+    await sql`UPDATE payroll_run_headers SET total_uif = 354.24, total_sdl = 300, employee_count = 1 WHERE id = ${regular}::UUID`;
+    const bonus = await run(rf, 3, [[alice, 50_000, 20_000]], { kind: 'off_cycle' });
+    await sql`UPDATE payroll_run_headers SET run_date = '2025-03-20', total_uif = 0, total_sdl = 500, employee_count = 1 WHERE id = ${bonus}::UUID`;
+    await sql`UPDATE payroll_run_lines SET uif_employee = 0, uif_employer = 0, periodic_taxable = 0, annual_taxable = 50000,
+      component_breakdown = ${JSON.stringify([{ sarsSourceCode: '3605', amount: 50000, isTaxable: true }])}::JSONB WHERE run_id = ${bonus}::UUID`;
+    const filed = await fileEmp201(rf, 3);
+    expect(Number(filed.totalPAYE)).toBe(24_000);
     const r = await finaliseEmp501(rf);
-    const v = (await emp501Versions(rf))[0];
-    // eslint-disable-next-line no-console
-    console.log('B2', r.status, JSON.stringify(r.body).slice(0, 300), 'EMP501 totals', JSON.stringify((v?.figures as Row | undefined)?.totals));
-    expect(r.status).toBe(409);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const figures = (await emp501Versions(rf))[0]!.figures as { totals: Row; employees: Array<Record<string, number>> };
+    expect(figures.totals).toMatchObject({ paye: 24_000, certificates: 1 });
+    expect(figures.employees[0]).toMatchObject({ grossSalary3601: 30_000, annualPayments3605: 50_000, paye4102: 24_000 });
   });
 
   it('B1b: the March EMP201 was amended (v2 finalised with the new PAYE, NOT filed): readiness still counts March as filed', async () => {

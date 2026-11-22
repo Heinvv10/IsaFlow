@@ -46,7 +46,7 @@ describe('new invoice: the draft on this device', () => {
   const blankDraft: LocalDraftData = {
     form: {
       clientId: '', invoiceDate: '2026-11-03', dueDate: '', billingPeriodStart: '2026-11-03',
-      billingPeriodEnd: '2026-11-03', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '',
+      billingPeriodEnd: '2026-11-03', notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '',
     },
     lines: [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }],
     taxMode: 'exclusive',
@@ -58,7 +58,7 @@ describe('new invoice: the draft on this device', () => {
     ['billing period', (d: LocalDraftData) => { d.form.billingPeriodEnd = '2026-11-30'; }],
     ['currency', (d: LocalDraftData) => { d.form.currencyCode = 'USD'; }],
     ['exchange rate', (d: LocalDraftData) => { d.form.exchangeRate = 17.5; }],
-    ['VAT rate', (d: LocalDraftData) => { d.form.taxRate = 14; }],
+    ['a line\'s VAT type', (d: LocalDraftData) => { d.lines[0]!.vatType = 'exempt'; }],
     ['VAT mode', (d: LocalDraftData) => { d.taxMode = 'inclusive'; }],
     ['invoice project', (d: LocalDraftData) => { d.form.projectId = 'project-1'; }],
     ['quantity', (d: LocalDraftData) => { d.lines[0]!.quantity = 2; }],
@@ -68,7 +68,7 @@ describe('new invoice: the draft on this device', () => {
   ])('keeps a draft whose only edit is %s', async (_name, change) => {
     const onRestore = vi.fn();
     const { result, rerender } = renderHook(({ snapshot }: { snapshot: LocalDraftData }) => useLocalInvoiceDraft({
-      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, paused: false, onRestore,
+      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, onRestore,
     }), { initialProps: { snapshot: structuredClone(blankDraft) } });
     await advance(0);
     const changed = structuredClone(blankDraft);
@@ -126,6 +126,19 @@ describe('new invoice: the draft on this device', () => {
     expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/);
     expect(price().value).toBe('230');
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+  });
+
+  it('a draft kept before per-line VAT restores priced as it was: its No VAT lines zero-rated, Excluding VAT, no rate field', async () => {
+    localStorage.setItem(KEY, JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '', invoiceDate: '2026-09-01', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: 'old', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' }, lines: [{ key: '1', description: 'Old', quantity: 1, unitPrice: 100, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }], taxMode: 'none' } }));
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    await advance(0);
+    expect(description().value).toBe('Old');
+    expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Excluding VAT/);
+    expect(screen.getAllByRole('combobox', { name: 'VAT type' }).map((c) => c.textContent)).toEqual(['Zero-rated (0%)']);
+    expect(screen.getByRole('region', { name: 'Invoice totals' }).textContent).toMatch(/TotalR\s?100\.00/);
+    await advance(800);
+    expect(Object.keys(stored()!.data.form)).not.toContain('taxRate'); // kept from here on in the new shape
   });
 
   it('does not overwrite a kept draft before the user answers the offer; Discard removes it', async () => {

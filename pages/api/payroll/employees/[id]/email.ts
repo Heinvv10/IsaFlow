@@ -17,6 +17,7 @@ import { payslipEmailActor, UUID } from '@/lib/payslipEmailApi';
 import {
   EmployeeEmailForbidden, EmployeeEmailRefused, judgeEmployeeEmail, readEmployeeEmail, setEmployeeEmail,
 } from '@/modules/accounting/services/payroll/payrollEmployeeEmail';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
@@ -51,4 +52,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // The address is personal data: the request log masks it.
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['email'] })));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['email'] })));

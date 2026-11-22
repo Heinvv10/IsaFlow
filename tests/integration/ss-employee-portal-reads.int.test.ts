@@ -127,13 +127,14 @@ describe('employee portal reads', () => {
 
   it('a run the payslip render refuses (run-kind guard) is not listed, so no listed slip 404s (review #1576 L1)', async () => {
     // Since FQd an approved run is judged as at its approval, so an employee moved to weekly no longer makes its payslip
-    // refuse (w6-fqd as-at-run). A run the render still refuses: run 1 made off-cycle here (the freeze trigger lifted for
-    // this row, in the disposable fixture only): the 'payslip' guard refuses it (run_kind), for everyone on it.
+    // refuse (w6-fqd as-at-run). A run the render still refuses: run 1 made a WEEKLY off-cycle run here (OC supports a
+    // monthly one; the freeze trigger lifted for this row, in the disposable fixture only): the 'payslip' guard refuses it
+    // (run_kind: off-cycle runs are monthly only), for everyone on it.
     const flip = async (kind: 'off_cycle' | 'regular') => {
       await a.pool.query('ALTER TABLE payroll_run_headers DISABLE TRIGGER trg_payroll_run_headers_final_frozen');
       try {
-        await a.pool.query('UPDATE payroll_run_headers SET run_kind = $2, off_cycle_reason = $3 WHERE id = $1',
-          [run1, kind, kind === 'off_cycle' ? 'bonus' : null]);
+        await a.pool.query('UPDATE payroll_run_headers SET run_kind = $2, off_cycle_reason = $3, pay_frequency = $4 WHERE id = $1',
+          [run1, kind, kind === 'off_cycle' ? 'bonus' : null, kind === 'off_cycle' ? 'weekly' : 'monthly']);
       } finally {
         await a.pool.query('ALTER TABLE payroll_run_headers ENABLE ALWAYS TRIGGER trg_payroll_run_headers_final_frozen');
       }

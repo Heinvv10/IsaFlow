@@ -96,6 +96,23 @@ export async function seedFixture(prefix: string, databaseUrl: string): Promise<
 }
 
 /**
+ * The fixture's actor as an owner of its company (a users row and the membership), for a suite that
+ * calls a person's approval path: MCP and the routes ask the approver's module Approve, read from
+ * company_users (#1656), and a bearer token's user is always a member. Remove with dropFixtureMember.
+ */
+export async function seedFixtureMember(fx: Fixture): Promise<void> {
+  await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`${fx.userId}@test.local`}, 'viewer', true)
+    ON CONFLICT (id) DO NOTHING`;
+  await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'owner')
+    ON CONFLICT (user_id, company_id) DO NOTHING`;
+}
+
+export async function dropFixtureMember(fx: Fixture): Promise<void> {
+  await sql`DELETE FROM company_users WHERE company_id = ${fx.companyId}::UUID AND user_id = ${fx.userId}`;
+  await sql`DELETE FROM users WHERE id = ${fx.userId}`;
+}
+
+/**
  * A supplier of this test's own.
  *
  * Every test in these files allocates cash with no bill named, which consumes

@@ -128,7 +128,7 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — owner rules
     it('platform_admin still manages non-owners and adds members', async () => {
       const [o, v, x] = [id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o, 'owner'], [v, 'viewer']]);
-      await asRole(pool, 'platform_admin', c, "UPDATE company_users SET role = 'accountant' WHERE company_id = $1 AND user_id = $2", [c, v]);
+      await asRole(pool, 'platform_admin', c, "UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2", [c, v]); // #1656
       await seedUsers(pool, [x]);
       await asRole(pool, 'platform_admin', c, "INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, 'viewer')", [c, x]);
       await asRole(pool, 'platform_admin', c, DEL, [c, v]);

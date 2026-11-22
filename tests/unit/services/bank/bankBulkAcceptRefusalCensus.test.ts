@@ -35,7 +35,7 @@ const NOT_ON_PATH = [
   'ApprovalEnforcementUnavailableError', 'ApprovalExpectedDigestRequiredError', 'ApprovalFieldInvalidError', 'ApprovalImportAuthorityError',
   'ApprovalNameInvalidError', 'ApprovalNotRequiredError', 'ApprovalOperatorInvalidError', 'ApprovalRequestLockTimeoutError',
   'ApprovalRequestNotFoundError', 'ApprovalRoleInvalidError', 'ApprovalRuleAuthorityError', 'ApprovalRuleLegacyTypeError',
-  'ApprovalRuleNotFoundError', 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankFeedConnectionNotFoundError', 'BankImportLockTimeoutError',
+  'ApprovalRuleNotFoundError', 'ApprovePermissionError' /* bankRuleAutoPostApproval: a rule write guard (a person's Banking Approve), not a line's refusal */, 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankFeedConnectionNotFoundError', 'BankImportLockTimeoutError',
   'BankIngestionRefusal', 'BankLineChangedError', 'BankRequestRefusal', 'BankMatchTargetError', 'BankMatchUnavailableError', 'BankReallocationRefusal',
   'BankTransactionAllocatedError', 'BankTransferRefusedError', 'BulkAcceptRefusal', 'ChartRefusal', 'CloseRunNotFoundError', 'ClosingChainTooLong',
   'CompanySettingsStaleError', 'DefaultAccountsRefusal', 'DocumentLineAccountRefusal', 'EveryRowPresent', 'ExtractionActionRefusedError',

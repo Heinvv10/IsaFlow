@@ -5,6 +5,8 @@
  * Billing/analytics types split to admin-billing.types.ts
  */
 
+import type { BureauRole } from '@/lib/auth/companyRoles';
+
 export interface AdminCompanyListItem {
   id: string;
   name: string;
@@ -69,7 +71,7 @@ export interface AdminUserDetail extends AdminUserListItem {
 export interface AdminUserBureau {
   bureau_id: string;
   bureau_name: string;
-  role: 'owner' | 'accountant' | 'viewer';
+  role: BureauRole;
 }
 
 export interface AdminUserCompany {

@@ -22,6 +22,9 @@
  * One more for wave 6 AN (days-based annualisation, 365 / 30.4166, ruling 5): the endsMid and steady employees' paye is
  * 1c higher in both months (2079.09 / 3450.29 feb, 1965.01 / 3316.21 mar), net_pay 1c lower, and total_paye / total_net
  * follow (2c). Nothing else was edited.
+ * One more for wave 6 OC (calculation version 20, #1679 gate ruling 1: the onceOff marker): a once-off assignment's
+ * breakdown item carries `onceOff: true` (feb's Bonus 3605 R10 000, mar's Overtime 3602 R1 200), so an off-cycle line's
+ * classification can leave it out; no other column changes.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -46,7 +49,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "increase": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "10000.00",
-      "component_breakdown": "[{\"amount\": 15000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 10000, \"isTaxable\": true, \"componentId\": \"<bonus>\", \"componentName\": \"Bonus\", \"sarsSourceCode\": \"3605\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 15000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 10000, \"onceOff\": true, \"isTaxable\": true, \"componentId\": \"<bonus>\", \"componentName\": \"Bonus\", \"sarsSourceCode\": \"3605\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "25000.00",
       "medical_credit": "364.00",
@@ -116,7 +119,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "increase": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 16500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 1200, \"isTaxable\": true, \"componentId\": \"<overtime>\", \"componentName\": \"Overtime\", \"sarsSourceCode\": \"3602\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 16500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 1200, \"onceOff\": true, \"isTaxable\": true, \"componentId\": \"<overtime>\", \"componentName\": \"Overtime\", \"sarsSourceCode\": \"3602\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "17700.00",
       "medical_credit": "376.00",

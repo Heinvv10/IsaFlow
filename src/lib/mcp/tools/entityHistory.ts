@@ -13,8 +13,9 @@
 import type { McpTool } from '../types';
 import { EntityChangeCursorError, listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, mayReadType, type EntityChangePage, type EntityType,
+  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, type EntityChangePage, type EntityType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { mayReadTypeFor, readableEntityTypes } from '@/modules/accounting/services/core/entityChanges/entityChangeAccess';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 /** Beyond read:reports, the scope each type's own read tool needs. */
@@ -77,11 +78,12 @@ export const entityHistoryTool: McpTool = {
     }
     if (entityId !== undefined) {
       if (!entityType) return toolError(`entity_id requires entity_type — one of: ${ENTITY_TYPES.join(', ')}`);
-      if (!mayReadType(role, entityType)) return toolError(`Your role (${role ?? 'unknown'}) cannot view ${entityType} history.`);
+      if (!(await mayReadTypeFor(ctx.companyId, ctx.userId, role, entityType))) return toolError(`Your role (${role ?? 'unknown'}) cannot view ${entityType} history.`);
     } else if (!isHistoryAdmin(role)) {
       return toolError('Only an owner or admin can read the company-wide change history; pass entity_type and entity_id.');
     }
-    const types = entityType ? [entityType] : ENTITY_TYPES.filter(allowed);
+    const readable = new Set(await readableEntityTypes(ctx.companyId, ctx.userId, role));
+    const types = entityType ? [entityType] : ENTITY_TYPES.filter((t) => allowed(t) && readable.has(t));
     let page: EntityChangePage;
     try {
       page = await listEntityChanges(ctx.companyId, { types, entityType, entityId, before: cursor, limit });

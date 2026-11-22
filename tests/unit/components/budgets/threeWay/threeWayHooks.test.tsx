@@ -168,7 +168,13 @@ describe('useNavFlags across a company switch (M4)', () => {
   const answer = (enabled: boolean) => new Response(JSON.stringify({ success: true, data: { enabled } }), { status: 200 });
   it("never shows the previous company's flags while the new company's check is in flight", async () => {
     const forB = deferred<Response>();
-    h.apiFetch.mockImplementationOnce(() => Promise.resolve(answer(true))).mockImplementationOnce(() => forB.promise);
+    // Company A answers at once; B's feature check hangs on `forB`. Both companies' permission answers are immediate.
+    let featureChecks = 0;
+    h.apiFetch.mockImplementation((url: string) => {
+      if (url.startsWith('/api/accounting/my-permissions')) return Promise.resolve(new Response(JSON.stringify({ success: true, data: { modules: {} } }), { status: 200 }));
+      featureChecks += 1;
+      return featureChecks === 1 ? Promise.resolve(answer(true)) : forB.promise;
+    });
     const { result, rerender } = renderHook(() => useNavFlags());
     await waitFor(() => expect(result.current.has('budgets_three_way')).toBe(true));
     h.company = { id: 'B' };

@@ -9,7 +9,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import { log } from '@/lib/logger';
-import { RefreshCw, Plus, Play, Trash2, Edit2, Loader2, AlertCircle, CheckCircle, XCircle, Calendar } from 'lucide-react';
+import { RefreshCw, Plus, Play, Pause, Trash2, Edit2, Loader2, AlertCircle, CheckCircle, XCircle, Calendar } from 'lucide-react';
 import {
   RecurringModal, buildTemplateInput,
   type TemplateFormState, ENTITY_LABELS, FREQ_LABELS,
@@ -117,6 +117,23 @@ export default function RecurringTransactionsPage() {
     } catch (err) {
       log.error('Failed to delete template', { error: err }, 'recurring-page');
       setError(apiErrorMessage(err, 'Could not delete the template - try again'));
+    }
+  };
+
+  /**
+   * Pause or resume: ONLY the flag is sent. A pause changes no figure, so the route lets a writer without the module's Approve pause
+   * an auto-posting template (#1670 L3); resuming one is an edit of a template that posts, and the route judges it as one.
+   */
+  const handleSetActive = async (id: string, isActive: boolean) => {
+    try {
+      const res = await apiFetch('/api/accounting/recurring-transactions', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, isActive }),
+      });
+      await assertOk(res, `Could not ${isActive ? 'resume' : 'pause'} the template - try again`);
+      await fetchTemplates();
+    } catch (err) {
+      log.error('Failed to pause or resume template', { error: err }, 'recurring-page');
+      setError(apiErrorMessage(err, `Could not ${isActive ? 'resume' : 'pause'} the template - try again`));
     }
   };
 
@@ -230,6 +247,11 @@ export default function RecurringTransactionsPage() {
                               <button onClick={() => void handleRunNow(t.id)} disabled={executing === t.id || !t.isActive} className={BTN_GHOST}>
                                 {executing === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                                 Run Now
+                              </button>
+                              <button onClick={() => void handleSetActive(t.id, !t.isActive)} className={BTN_GHOST}
+                                aria-label={t.isActive ? `Pause ${t.name}` : `Resume ${t.name}`}>
+                                {t.isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                {t.isActive ? 'Pause' : 'Resume'}
                               </button>
                               <button onClick={() => openEdit(t)} className={BTN_GHOST}><Edit2 className="h-3.5 w-3.5" /></button>
                               <button onClick={() => void handleDelete(t.id)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">

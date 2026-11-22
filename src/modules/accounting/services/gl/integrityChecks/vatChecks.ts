@@ -33,28 +33,50 @@ function sample(rows: DbRow[]): IntegritySampleRow[] {
  * that says whether to care.
  */
 export async function vatDisplayedDiffersFromPosted(ctx: IntegrityCheckContext): Promise<IntegrityCheckResult> {
-  const where = sql`
-    FROM bank_transactions bt
-    JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
-    JOIN gl_journal_lines vl ON vl.journal_entry_id = jl.journal_entry_id AND vl.company_id = bt.company_id
-    JOIN gl_accounts ga ON ga.id = vl.gl_account_id AND ga.company_id = bt.company_id
-    WHERE bt.company_id = ${ctx.companyId}::UUID
-      AND bt.transaction_date <= ${ctx.asAt}::DATE
-      AND ga.account_subtype = ANY(ARRAY['vat_input', 'vat_output']::TEXT[])
-      AND ABS(vl.debit - vl.credit) > 0.005
-      AND COALESCE(bt.suggested_vat_code, 'no_vat') = 'no_vat'
-  `;
-  const totals = (await sql`
-    SELECT COUNT(*)::INT AS count, COALESCE(SUM(ABS(vl.debit - vl.credit)), 0) AS amount ${where}
-  `) as DbRow[];
+  // One statement, one pass: each bank transaction looks up its matched line by
+  // primary key, then that journal's VAT lines by (company_id, journal_entry_id),
+  // so the work is linear in bank transactions. The totals are window aggregates
+  // over every failing row, taken before LIMIT cuts the sample.
+  //
+  // OFFSET 0 is deliberate: it stops Postgres folding the LATERAL subqueries back
+  // into one flat join. A tenant imported since the last ANALYZE has no statistics,
+  // and under the tenant-isolation policy every table is then estimated at one
+  // row. The flat join took that at its word and nested-looped bank_transactions
+  // x gl_journal_lines x gl_journal_lines, filtering on the join keys, once per
+  // VAT line: it timed out for a 1,546-transaction company (Bugsink 0e7c6050).
+  // Per-row lookups cannot be planned any other way.
   const rows = (await sql`
-    SELECT bt.id::TEXT AS id,
-           COALESCE(NULLIF(bt.reference, ''), bt.bank_reference, LEFT(COALESCE(bt.description, ''), 60)) AS label,
-           ABS(vl.debit - vl.credit) AS amount,
-           'displayed "' || COALESCE(bt.suggested_vat_code, 'No VAT')
-             || '" but posted ' || ga.account_code || ' ' || ga.account_name AS detail
-    ${where}
-    ORDER BY ABS(vl.debit - vl.credit) DESC
+    WITH hits AS (
+      SELECT bt.id::TEXT AS id,
+             COALESCE(NULLIF(bt.reference, ''), bt.bank_reference, LEFT(COALESCE(bt.description, ''), 60)) AS label,
+             v.tax AS amount,
+             'displayed "' || COALESCE(bt.suggested_vat_code, 'No VAT')
+               || '" but posted ' || v.account_code || ' ' || v.account_name AS detail
+      FROM bank_transactions bt
+      CROSS JOIN LATERAL (
+        SELECT jl.journal_entry_id
+        FROM gl_journal_lines jl
+        WHERE jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
+        OFFSET 0
+      ) j
+      CROSS JOIN LATERAL (
+        SELECT ABS(vl.debit - vl.credit) AS tax, ga.account_code, ga.account_name
+        FROM gl_journal_lines vl
+        JOIN gl_accounts ga ON ga.id = vl.gl_account_id AND ga.company_id = vl.company_id
+        WHERE vl.journal_entry_id = j.journal_entry_id AND vl.company_id = bt.company_id
+          AND ga.account_subtype = ANY(ARRAY['vat_input', 'vat_output']::TEXT[])
+          AND ABS(vl.debit - vl.credit) > 0.005
+        OFFSET 0
+      ) v
+      WHERE bt.company_id = ${ctx.companyId}::UUID
+        AND bt.transaction_date <= ${ctx.asAt}::DATE
+        AND COALESCE(bt.suggested_vat_code, 'no_vat') = 'no_vat'
+    )
+    SELECT id, label, amount, detail,
+           COUNT(*) OVER ()::INT AS total_count,
+           SUM(amount) OVER () AS total_amount
+    FROM hits
+    ORDER BY amount DESC, id
     LIMIT ${ctx.limit}
   `) as DbRow[];
 
@@ -62,8 +84,8 @@ export async function vatDisplayedDiffersFromPosted(ctx: IntegrityCheckContext):
     id: 'vat_displayed_differs_from_posted',
     label: 'Bank transactions showing no VAT whose journal claims VAT',
     severity: 'high',
-    count: num(totals[0]?.count),
-    amount: r2(num(totals[0]?.amount)),
+    count: num(rows[0]?.total_count),
+    amount: r2(num(rows[0]?.total_amount)),
     sample: sample(rows),
     finding:
       'The bank screen shows no VAT and the journal claims it. Nobody reviewing the transaction sees the claim, so it reaches the VAT201 unreviewed. The amount is the TAX at stake, not the value of the transactions.',

@@ -31,6 +31,7 @@ import {
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { listRetiredMemberWith4001, retiredMember4001Message } from '@/modules/accounting/services/payroll/definedBenefitReadiness';
 import { countSeverity, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 export type { YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
@@ -185,4 +186,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, payload);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(handler))));

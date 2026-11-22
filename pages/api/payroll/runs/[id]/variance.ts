@@ -18,6 +18,7 @@ import {
 } from '@/lib/auth';
 import { getPayrollRunVariance } from '@/modules/accounting/services/payroll/payrollVarianceService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -36,4 +37,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

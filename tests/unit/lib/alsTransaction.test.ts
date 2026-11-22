@@ -44,7 +44,7 @@ beforeEach(() => {
   // getDatabaseUrl() throws before the pool is ever built and every assertion
   // below sees that error instead of the one it is testing. It reproduces with
   // `DATABASE_URL="" bunx vitest run` and only on a runner, never locally.
-  vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
+  vi.stubEnv('DATABASE_URL', 'postgresql://dummy@dummy/test');
   clientQueryMock.mockReset().mockResolvedValue({ rows: [] });
   releaseMock.mockReset();
 });

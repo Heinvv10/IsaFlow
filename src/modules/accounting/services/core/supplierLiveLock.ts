@@ -13,7 +13,7 @@
  * source's POs, payments, bills). That ordering is the point, not only the liveness check: the bill create used to take its POs FOR
  * KEY SHARE and only then the supplier (at the INSERT's FK), the reverse of the merge's supplier -> POs, a 40P01 cycle measured by
  * i1699-merge-lock-order.int.test.ts. Callers: createSupplierInvoice, createSupplierPayment, createBatch, the bank-line supplier
- * payment (validateBankSupplierPayment), PO create / import / edit (both PO tables), supplier credit notes and returns, the AP take-on
+ * payment (validateBankSupplierPayment), PO create / import / edit, supplier credit notes and returns, the AP take-on
  * and the Sage bill import. Known residual, accepted: a writer that locks SEVERAL suppliers one at a time (a batch import, a payment
  * batch takes them in id order) and a merge of two of them can meet in opposite orders; Postgres ends one with 40P01, nothing is
  * written, and the routes answer it 503 + Retry-After (respondIfLockTimeout). Each wait is bounded (withRowLockBudget, 5 s, a typed

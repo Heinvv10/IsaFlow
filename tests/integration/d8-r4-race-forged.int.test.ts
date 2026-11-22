@@ -67,8 +67,8 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     const t0 = await tb(c);
     const inv = await postedInvoice(c);
     const chain = await buildChain(c, inv.je, 2);
-    const t1 = await openTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId));
-    const p2 = settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const t1 = await openTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true }));
+    const p2 = settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     await sleep(800);
     await t1.commit();
     const r2 = await p2;
@@ -116,7 +116,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     const inv = await postedInvoice(c);
     const chain = await buildChain(c, inv.je, 2);
     const m = await openTx(c.fx, () => reverseJournalEntry(c.fx.companyId, chain[2]!, c.fx.userId));
-    const p = settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const p = settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     await sleep(800);
     await m.commit();
     const r = await p;
@@ -128,7 +128,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     const t0 = await tb(c);
     const inv = await postedInvoice(c);
     const chain = await buildChain(c, inv.je, 2);
-    const r = await settle(hookedTx(() => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId), 1, async () => {
+    const r = await settle(hookedTx(() => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true }), 1, async () => {
       const r3 = await reverse(chain[2]!);
       await reverse(r3.id);
     }));
@@ -196,7 +196,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     await sql`
       INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by, reversal_of_id)
       VALUES (${c.fx.companyId}::UUID, '2026-05-10', 'forged draft re-reversal', 'manual', 'draft', ${c.fx.userId}::UUID, ${r}::UUID)`;
-    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     const d = diff(t0, await tb(c));
     expect(d).toMatchObject({ ar: 0, sales: 0 });
   });
@@ -207,7 +207,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     await sql`
       INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by, reversal_of_id)
       VALUES (${c.fx.companyId}::UUID, '2026-05-10', 'forged draft reversal', 'manual', 'draft', ${c.fx.userId}::UUID, ${inv.je}::UUID)`;
-    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     const d = diff(t0, await tb(c));
     const [st] = (await sql`SELECT status FROM customer_invoices WHERE id = ${inv.id}::UUID`) as Row[];
     expect(st!.status === 'cancelled' ? d.ar === 0 : d.ar === 1150).toBe(true);
@@ -220,7 +220,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     await sql`
       INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by, reversal_of_id)
       VALUES (${other.fx.companyId}::UUID, '2026-05-10', 'cross-tenant forged', 'manual', 'posted', ${c.fx.userId}::UUID, ${inv.je}::UUID)`;
-    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     const d = diff(t0, await tb(c));
     expect(res.ok).toBe(true);
     expect(d).toMatchObject({ ar: 0, sales: 0 });
@@ -235,7 +235,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
       INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by, reversal_of_id)
       VALUES (${other.fx.companyId}::UUID, '2026-05-10', 'foreign head', 'manual', 'posted', ${c.fx.userId}::UUID, ${r}::UUID)`;
     const tMid = await tb(c);
-    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)));
+    const res = await settle(inTx(c.fx, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })));
     expect(diff(tMid, await tb(c))).toMatchObject({ ar: 0 });
   });
 });
@@ -256,7 +256,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4 P: re-reversed chain in a
     const inv = await postedInvoice(p);
     const chain = await buildChain(p, inv.je, 2);
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${p.fx.companyId}::UUID AND period_number = 1`;
-    const res = await settle(inTx(p.fx, () => cancelCustomerInvoice(p.fx.companyId, inv.id, p.fx.userId)));
+    const res = await settle(inTx(p.fx, () => cancelCustomerInvoice(p.fx.companyId, inv.id, p.fx.userId, { allowReversal: true })));
     const contras = await postedReversalsOf(p, chain[2]!);
     const dates = contras.length
       ? ((await sql`SELECT entry_date::TEXT AS d FROM gl_journal_entries WHERE id = ${contras[0]!}::UUID`) as Row[])[0]!.d : null;

@@ -44,7 +44,7 @@ export const DATED: readonly DatedColumn[] = [
   { table: 'payroll_run_headers', column: 'period_end', where: "status <> 'draft'" },
   { table: 'payroll_run_headers', column: 'period_start' },
   { table: 'customer_quotes', column: 'quote_date' },
-  { table: 'customer_sales_orders', column: 'order_date' }, { table: 'supplier_purchase_orders', column: 'order_date' },
+  { table: 'customer_sales_orders', column: 'order_date' }, { table: 'purchase_orders', column: 'order_date' },
   { table: 'assets', column: 'purchase_date' }, { table: 'assets', column: 'last_depreciation_date' },
   { table: 'asset_period_ledger', column: 'period_date' },
   { table: 'expense_claims', column: 'claim_date' }, { table: 'expense_claims', column: 'submitted_at' },
@@ -59,6 +59,6 @@ export const DATED: readonly DatedColumn[] = [
 /** Columns that may be after the run date, with how far (days). */
 export const FUTURE_ALLOWED: Readonly<Record<string, number>> = {
   'customer_invoices.due_date': 60, 'supplier_invoices.due_date': 60, 'customer_quotes.expiry_date': 60,
-  'customer_sales_orders.delivery_date': 60, 'supplier_purchase_orders.delivery_date': 60,
+  'customer_sales_orders.delivery_date': 60, 'purchase_orders.expected_delivery_date': 60,
   'practice_jobs.due_date': 14, 'practice_tasks.due_date': 14,
 };

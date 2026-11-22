@@ -30,6 +30,8 @@ import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/cred
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { assertMayApproveCreditNote } from '@/modules/accounting/services/core/approvePermission';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -69,6 +71,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     switch (parsed.data.action) {
       case 'approve': {
         const { creditNoteId, autoApply } = parsed.data;
+        await assertMayApproveCreditNote(companyId, userId, creditNoteId); // #1656: the note module's Approve, pre-read (403)
         const creditNote = await withJournalDateRefusal(res, () => approveCreditNote(companyId, creditNoteId, userId, {
           autoApply: autoApply ?? 'fifo',
         }));
@@ -85,6 +88,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'cancel': {
         const { creditNoteId, reason } = parsed.data;
+        await assertMayApproveCreditNote(companyId, userId, creditNoteId); // #1656: cancelling reverses the note's journal (403)
+        // census-exempt(cancelCreditNote, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const cancelled = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, creditNoteId, userId, reason));
         if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);
@@ -107,6 +112,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return;
     // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
     if (respondIfApprovalRequired(res, err)) return;
+    if (respondIfApprovePermissionRefused(res, err)) return; // #1656: no Approve on the note's module, pre-write
     // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
     if (respondIfLockTimeout(res, err)) return;
     // After the journal was written: a 4xx would COMMIT the orphan draft. 5xx rolls it back.

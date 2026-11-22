@@ -50,6 +50,9 @@ const layoutFaults = (page: Page, min: number) => page.evaluate((minWidth) => {
   const overlaps: string[] = [];
   els.forEach((a, i) => els.slice(i + 1).forEach((b) => {
     if (a.contains(b) || b.contains(a) || pinned(a) !== pinned(b)) return;
+    // A date box's own calendar button is drawn inside the box on purpose (DateField); it is not a collision.
+    const inField = (x: Element, y: Element) => x.tagName === 'INPUT' && y.tagName === 'BUTTON' && y.getAttribute('aria-label') === 'Choose date' && x.parentElement === y.parentElement;
+    if (inField(a, b) || inField(b, a)) return;
     const p = a.getBoundingClientRect(); const q = b.getBoundingClientRect();
     if (Math.min(p.right, q.right) - Math.max(p.left, q.left) > 4 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 4) {
       overlaps.push(`${(a.textContent ?? '').trim().slice(0, 20) || a.tagName} x ${(b.textContent ?? '').trim().slice(0, 20) || b.tagName}`);
