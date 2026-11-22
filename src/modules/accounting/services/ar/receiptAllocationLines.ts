@@ -28,8 +28,8 @@ import { invoicesPayable } from './invoicesPayable';
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
 
-/** Statuses whose invoice is void or not yet a receivable and cannot take cash. */
-const UNALLOCATABLE_INVOICE_STATUSES = new Set(['cancelled', 'draft']);
+/** Void or not yet a receivable, so no cash: the create path's population rule (pending_approval posts no AR; #1720 review). */
+const UNALLOCATABLE_INVOICE_STATUSES = new Set(['cancelled', 'draft', 'pending_approval']);
 
 export interface ReceiptAllocationInput {
   invoiceId: string;

@@ -22,6 +22,7 @@ import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { BALANCE_DERIVED } from './invoiceStatusRecompute';
 
 type Row = DbRow;
 
@@ -203,13 +204,17 @@ async function cancelCustomerPaymentInner(
     // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
     // cancels touching the same two invoices cannot deadlock on each other. Whole cents, like confirm: a cent still
     // paid is 'partially_paid', and any invoice no longer settled loses its paid_at with the 'paid' status.
+    // The status follows recomputeInvoiceStatus's rule, in this one write (#1720 review): only a balance-derived status moves
+    // (a pending_approval invoice is never set to 'approved' here), and 'sent' / 'overdue' stay when nothing is paid any more.
     for (const alloc of delegated ? [] : byInvoiceId(payment.allocations)) {
       await sql`
         UPDATE customer_invoices
         SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
             status = CASE
-              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0 THEN 'approved'
-              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) >= total_amount THEN 'paid'
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) > 0 THEN 'partially_paid'
+              WHEN status IN ('partially_paid', 'paid') THEN 'approved'
               ELSE status
             END,
             paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN NULL ELSE paid_at END

@@ -23,6 +23,7 @@ import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 import { assertVoidKeepsCredit } from './supplierVoidCredit';
 type Row = DbRow;
@@ -232,10 +233,12 @@ async function voidSupplierPaymentInner(
       // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
       // amount against total_amount so an invoice still fully covered by
       // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
+      // Only a balance-derived status moves (#1720 review): a disputed or pending bill keeps its status as the money comes off.
       await sql`
         UPDATE supplier_invoices
         SET amount_paid = GREATEST(amount_paid - ${alloc.amountAllocated}, 0),
             status = CASE
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status
               WHEN (total_amount - GREATEST(amount_paid - ${alloc.amountAllocated}, 0)) <= 0.01 THEN 'paid'
               WHEN GREATEST(amount_paid - ${alloc.amountAllocated}, 0) > 0.01 THEN 'partially_paid'
               ELSE 'approved'
