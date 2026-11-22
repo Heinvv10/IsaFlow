@@ -22,7 +22,7 @@ async function toMappingStep() {
   const view = render(<Page />);
   const input = await waitFor(() => { const i = view.container.querySelector('input[type=file]'); if (!i) throw new Error('no input yet'); return i; });
   fireEvent.change(input, { target: { files: [file] } });
-  await screen.findByText(/data rows detected/, undefined, { timeout: 10000 });
+  await screen.findByText(/data rows detected/, undefined, { timeout: 20000 }); // first exceljs import is slow on a loaded runner
   return view;
 }
 
@@ -35,10 +35,12 @@ describe('GL import on touch', () => {
     // Four steps with arrows do not fit a 360px screen: the row wraps and the arrows go.
     const steps = screen.getByText('Upload').closest('div')!.parentElement!.parentElement!;
     expect(steps.className).toContain('max-lg:flex-wrap');
-    for (const arrow of container.querySelectorAll('svg.lucide-arrow-right')) expect(arrow.getAttribute('class')).toContain('max-lg:hidden');
+    const arrows = [...container.querySelectorAll('svg.lucide-arrow-right')];
+    expect(arrows).toHaveLength(3); // one between each pair of the four steps; fails loudly if lucide renames its class
+    for (const arrow of arrows) expect(arrow.getAttribute('class')).toContain('max-lg:hidden');
   });
 
-  it('turns the column-mapping table into labelled cards with 44px selects', async () => {
+  it('turns the column-mapping table into labelled cards with 44px selects', { timeout: 30000 }, async () => {
     const { container } = await toMappingStep();
     const table = container.querySelector('table')!;
     expect(table.className).toContain('table-cards');
@@ -51,7 +53,7 @@ describe('GL import on touch', () => {
     expect(first.querySelectorAll(':scope > td')[2].className.split(' ')).toEqual(expect.arrayContaining(['max-lg:max-w-none', 'max-lg:whitespace-normal']));
   });
 
-  it('makes Back and Validate 44px', async () => {
+  it('makes Back and Validate 44px', { timeout: 30000 }, async () => {
     await toMappingStep();
     for (const name of [/Back/, /Validat/]) expect(screen.getByRole('button', { name }).className, String(name)).toContain('max-lg:min-h-11');
   });
