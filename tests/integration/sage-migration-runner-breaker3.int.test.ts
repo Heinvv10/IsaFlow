@@ -99,6 +99,17 @@ describe('B3: a re-run does what its dry run said after an owned item was change
     expect((await lines('PO0000206')).length).toBe(0);
   });
 
+  it('the same edit TWICE: a third run still puts the item back (the key follows the row, not just its columns, so state A -> B -> A is not a replay)', async () => {
+    await firstRunWithoutPo206();
+    await deactivate();
+    expect((await run()).status).toBe('completed'); // run 2 reactivates it
+    await deactivate(); // the person does it again: the row's columns are what they were before run 2
+    const r3 = await run();
+    expect(r3.status).toBe('completed');
+    expect((await pool.query(`SELECT is_active FROM items WHERE company_id = $1 AND external_ref = '50001'`, [s.companyId])).rows[0].is_active).toBe(true);
+    expect(r3.differences.items).toEqual([{ code: 'FIB-0001', changed: ['is_active'] }]);
+  });
+
   it('a re-run when nothing changed in IsaFlow is still a no-op that touches no row', async () => {
     await run();
     const stamp = async () => (await pool.query(`SELECT string_agg(id::TEXT || xmin::TEXT, ',' ORDER BY id) AS s FROM items WHERE company_id = $1`, [s.companyId])).rows[0].s;

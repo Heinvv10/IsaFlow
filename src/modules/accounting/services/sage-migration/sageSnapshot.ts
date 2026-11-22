@@ -16,7 +16,7 @@ export interface ExistingItem {
   itemType: string;
   inventoryTracked: boolean;
   isActive: boolean;
-  /** A hash of every column the item tool compares: it changes when a person edits the item in IsaFlow. */
+  /** A hash of every column the item tool compares and of updated_at: it changes whenever the row is written, even back to an earlier state. */
   stateHash: string;
   /** The item has stock_movements rows: its type and tracking are no longer free to change. */
   hasMovements: boolean;
@@ -55,7 +55,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     SELECT i.id::TEXT AS id, i.code, i.external_system, i.external_ref, (i.deleted_at IS NOT NULL) AS deleted, i.item_type, i.inventory_tracked, i.is_active,
            md5(row(i.code, i.description, i.item_type, i.unit, i.category_id, i.cost_price, i.selling_price_excl, i.vat_on_sales, i.vat_on_purchases,
                    i.sales_account_id, i.purchases_account_id, i.inventory_tracked, i.is_active, i.notes, i.external_system, i.external_ref,
-                   i.external_document_number, i.deleted_at)::TEXT) AS state_hash,
+                   i.external_document_number, i.deleted_at, i.updated_at)::TEXT) AS state_hash,
            EXISTS (SELECT 1 FROM stock_movements m WHERE m.company_id = i.company_id AND m.item_id = i.id) AS has_movements
       FROM items i WHERE i.company_id = ${companyId}::UUID
   `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean; item_type: string; inventory_tracked: boolean; is_active: boolean; state_hash: string; has_movements: boolean }>;

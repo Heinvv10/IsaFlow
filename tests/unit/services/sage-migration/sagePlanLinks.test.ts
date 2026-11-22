@@ -144,6 +144,12 @@ describe('B1 (round 3): an owned item that is not sent is linked by id; codes ar
     const p = plan(file(), { ...NONE, items: [{ ...foreign, code: 'FIB-0001 ' }] });
     expect(p.refusals.find((r) => r.label === 'FIB-0001')).toMatchObject({ code: 'code_held_by_existing_item' });
   });
+  it('a Sage code that carries whitespace itself is compared trimmed too', () => {
+    const e = parseSageExport(file());
+    e.items[0] = { ...e.items[0]!, code: 'FIB-0001 ' };
+    const p = planMigration(e, resolved(), { ...NONE, items: [foreign] } as never);
+    expect(p.refusals.find((r) => r.sageId === '50001')).toMatchObject({ code: 'code_held_by_existing_item' });
+  });
   it('the migration\'s own item stored with whitespace, nothing else holding the code: the row is sent (the tool re-stores it trimmed)', () => {
     const p = plan(file(), { ...NONE, items: [owned({})] });
     expect(p.refusals).toEqual([]);
