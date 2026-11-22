@@ -22,6 +22,7 @@ Local throwaway databases only.
 | `sageToolSession.ts` | One request transaction as `app_user` with the member's claims, the real `mcpRegistry.call`; `commit: false` rolls the lot back. What keeps a run inside its company is NOT the `company_id` argument sent on writes (the registry only compares it with the context's own company: it selects nothing): it is the membership check (the user must be an active member of the named company), `app_user` under RLS with that company's claims, and the tools' own ownership checks. |
 | `sageMigrationRunner.ts` | Dry run, then live; `sageSnapshot.ts` + `sageReconciliation.ts` + `sageReportSummary.ts` measure and print the result. |
 | `sageRunLock.ts` | One run per company: a session advisory lock on its own connection for the whole run; the connection is watched (`check()` before the live phase and between phases, `LockLostError` -> `MigrationStopped` "lock lost", exit 4). |
+| `sagePoContent.ts` | PURE. What a re-run compares of a PO already in the books that the PO tool does not: supplier, delivery date, reference, lines (description, quantity, unit price by position); added to the differences list. |
 | `sageOwnership.ts` / `sageDifferences.ts` | What the migration owns (system exactly `sage`, this ref) and the checks that the books hold what a batch sent; the PO / item / category differences list, deduped. |
 | `sageLineLinks.ts` / `sageAccountCheck.ts` / `sageBudgetReport.ts` | PO lines not linked to an item (informational), the `--po-gl-account` check, and the budget findings of the dry run. |
 | `sageMigrationTypes.ts` / `sageMigrationStopped.ts` / `sageStopMessage.ts` | Report and option types; the error after the live phase started (with what was committed); the CLI message and its exit code (`exitCodeForError`: 2 nothing written, 4 stopped after live started). |
@@ -44,6 +45,7 @@ Local throwaway databases only.
 - The dry run is one rolled-back transaction. Categories and purchase orders are written LIVE inside it (items' preview needs the
   categories; PO batch k's budget check must see batches 1..k-1, as the live run's does); items are written live too (the same code and constraints). Its idempotency and audit
   rows roll back with it (a test proves it). A dry run that is not clean stops the run: nothing is written, even with `live`.
+- A valid row sharing an ID/Code/DocumentNumber with an INVALID row is refused too (`duplicate_*`). A pool under 2 connections is refused at the start (the run lock holds one); the lock session sets `idle_session_timeout` to 0 and is pinged every 15 s.
 - Exit codes: 0 ok, 1 not ok, 2 refused/failed to start (nothing written), 3 report not written, 4 stopped after the live phase started (batches may be committed). Every tool the runner calls is free in `flowMetering`: a PAYG wallet is untouched by a dry or live run.
 - Exit 0 needs a clean dry run or a live run that booked everything it sent, `--expect-*` figures that match what was SENT (dry) or
   BOOKED (live), and no refused row unless `--allow-refusals`.
