@@ -3,7 +3,8 @@
  * what the user sees comes from the canonical formatters in `@/utils/dateFormat`.
  *
  * Accepts "1 Oct 2026", "01 October 2026", "2026-10-01", "01/10/2026" (day first, never month first),
- * "1 Oct" (this year), Afrikaans month names ("1 Okt 2026", "Mei", "Maart") and the shortcuts `t` / `today`,
+ * "1 Oct" (this year), a bare day "15" (that day of this month), "15/3" (day/month, this year), "15032026" and
+ * "150326" (ddmmyyyy / ddmmyy), Afrikaans month names ("1 Okt 2026", "Mei", "Maart") and the shortcuts `t` / `today`,
  * `+30` / `-7` (days from today) and `eom` (end of this month). Given an `anchor` ISO date, `+N` / `-N` and
  * `eom` count from it instead (a report's "To" from its "From", a due date from the invoice date); `t` is
  * always today, and an anchor that is not a real date is ignored. A two-digit year is read in the window
@@ -78,7 +79,7 @@ export function parseSaDate(input: string, now: Date = new Date(), anchor?: stri
   const shown = input.trim();
   const s = shown.toLowerCase().replace(/\s+/g, ' ');
   if (s === '') return fail('empty', 'Enter a date.');
-  const formatHelp = `"${shown}" is not a date. Try 01 Oct 2026, 2026-10-01 or 01/10/2026 (day first).`;
+  const formatHelp = `"${shown}" is not a date. Try 01 Oct 2026, 2026-10-01, 01/10/2026 (day first), or just 15 for the 15th of this month.`;
   const today = todayInSast(now);
   const thisYear = Number(today.slice(0, 4));
 
@@ -95,6 +96,14 @@ export function parseSaDate(input: string, now: Date = new Date(), anchor?: stri
 
   const iso = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
   if (iso) return build(Number(iso[1]), Number(iso[2]), Number(iso[3]), shown);
+
+  // A bare day is that day of this month; day/month is this year; 8 or 6 digits are ddmmyyyy / ddmmyy (fast keyboard entry).
+  const bareDay = /^(\d{1,2})$/.exec(s);
+  if (bareDay) return build(thisYear, Number(today.slice(5, 7)), Number(bareDay[1]), shown);
+  const dayMonth = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s);
+  if (dayMonth) return build(thisYear, Number(dayMonth[2]), Number(dayMonth[1]), shown);
+  const packed = /^(\d{2})(\d{2})(\d{4}|\d{2})$/.exec(s);
+  if (packed) return build(expandYear(packed[3] ?? '', thisYear), Number(packed[2]), Number(packed[1]), shown);
 
   const numeric = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/.exec(s);
   if (numeric) return build(expandYear(numeric[3] ?? '', thisYear), Number(numeric[2]), Number(numeric[1]), shown);

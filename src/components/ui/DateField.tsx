@@ -3,7 +3,9 @@
  * parent ISO "2026-10-01" (or null), and echoes what it understood ("Thursday, 1 October 2026").
  *
  * Typed shortcuts: `t` today, `+30` / `-7` days from today, `eom` end of month; also "1 Oct 2026",
- * "2026-10-01" and "01/10/2026" (day first). ArrowUp / ArrowDown move the date by one day.
+ * "2026-10-01", "01/10/2026" (day first), a bare day `15` (this month), `15/3` (this year) and `15032026`.
+ * ArrowUp / ArrowDown move the date by one day. A calendar (CalendarPopup) is an optional aid: the button at the
+ * right of the box or Alt+ArrowDown opens it, nothing else does (never focus, click or typing).
  * With `anchorDate`, `eom` and `+N` / `-N` count from that date instead of today (`t` is still today).
  * `minDate` / `maxDate` (inclusive ISO, e.g. the financial year or a lock date) refuse a date
  * outside them with a message, and the parent receives null rather than a date it must not post.
@@ -11,6 +13,7 @@
  * never on the message text.
  */
 import * as React from 'react';
+import { CalendarDays } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { inputVariants } from './Input';
 import { FieldFrame, describedBy } from './FieldFrame';
@@ -19,6 +22,7 @@ import { useParsedField, type FieldValidity, type ParseOutcome } from './usePars
 import { addDaysISO, localDateFromISO } from '@/lib/dateUtils';
 import { assertISODate, parseSaDate, todayInSast } from '@/lib/saDateParser';
 import { formatDisplayDate, formatDisplayDateWeekday } from '@/utils/dateFormat';
+import { CalendarPopup } from './CalendarPopup';
 
 /** Why DateField refused the text (FieldValidity.code). */
 export type DateFieldCode = 'empty' | 'unreadable' | 'before-min' | 'after-max';
@@ -102,6 +106,23 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const echo = understood?.ok ? formatDisplayDateWeekday(localDateFromISO(understood.iso), '') || null : null;
   const frame = { error, helperText, echo, help };
 
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const [wrapEl, setWrapEl] = React.useState<HTMLDivElement | null>(null);
+  const innerRef = React.useRef<HTMLInputElement | null>(null);
+  const refocusInput = React.useRef(false);
+  const setRefs = (el: HTMLInputElement | null): void => {
+    innerRef.current = el;
+    if (typeof ref === 'function') ref(el);
+    else if (ref) ref.current = el;
+  };
+  // After a pick the popup's own focus trap hands focus back to the calendar button; the typist wants the box.
+  React.useEffect(() => {
+    if (!calendarOpen && refocusInput.current) {
+      refocusInput.current = false;
+      innerRef.current?.focus();
+    }
+  }, [calendarOpen]);
+
   /** One day up or down from the date on screen (or from today when empty). Unreadable text is left alone. */
   const step = (days: number): boolean => {
     if (field.text.trim() === '') {
@@ -115,8 +136,9 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
 
   return (
     <FieldFrame id={inputId} label={label} required={required} {...frame}>
+      <div ref={setWrapEl} className="relative">
       <input
-        ref={ref}
+        ref={setRefs}
         id={inputId}
         type="text"
         autoComplete="off"
@@ -134,13 +156,41 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
           onBlur?.(e);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') field.commit();
+          if (e.key === 'ArrowDown' && e.altKey) {
+            e.preventDefault();
+            if (!disabled) setCalendarOpen(true);
+          } else if (e.key === 'Enter') field.commit();
           else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && step(e.key === 'ArrowUp' ? 1 : -1)) {
             e.preventDefault();
           }
         }}
-        className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums max-lg:min-h-11', className)}
+        className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums max-lg:min-h-11 pr-10', className)}
       />
+      <button
+        type="button"
+        aria-label="Choose date"
+        title="Choose date (Alt+↓)"
+        aria-haspopup="dialog"
+        aria-expanded={calendarOpen}
+        disabled={disabled}
+        onClick={() => setCalendarOpen((o) => !o)}
+        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-md text-gray-600 ff-focus-ring hover:text-teal-700 disabled:opacity-40 max-lg:w-11 dark:text-gray-400 dark:hover:text-teal-300"
+      >
+        <CalendarDays size={16} aria-hidden="true" />
+      </button>
+      </div>
+      {calendarOpen && (
+        <CalendarPopup
+          anchor={wrapEl}
+          selected={value}
+          start={understood?.ok ? understood.iso : (value ?? todayInSast(now()))}
+          today={todayInSast(now())}
+          minDate={minDate}
+          maxDate={maxDate}
+          onPick={(iso) => { refocusInput.current = true; field.commit(show(iso)); setCalendarOpen(false); }}
+          onClose={() => setCalendarOpen(false)}
+        />
+      )}
       {name && <input type="hidden" name={name} value={value ?? ''} />}
     </FieldFrame>
   );
