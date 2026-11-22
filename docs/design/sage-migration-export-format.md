@@ -57,7 +57,7 @@ The PO tool has no `item_id` on a line, so the link to the item is the code in t
 A row is refused with a code and every reason: `invalid_row`, `duplicate_id`, `duplicate_code`, `duplicate_number`,
 `category_description_conflict`, `category_name_collision`, `unknown_status`, `line_item_unknown`, `supplier_unresolved`,
 `supplier_ambiguous` (also when a supplier name search hits its 1000-row cap), `line_item_refused` (a line names an item that is
-refused), `code_held_by_existing_item` (an item the migration did not import holds the code, with or without a reference, deleted or not:
+refused), `category_name_in_use` (an IsaFlow category the migration did not import holds the name, case-insensitively; it is never renamed or adopted) with its items `category_refused`, `code_held_by_existing_item` (an item the migration did not import holds the code, with or without a reference, deleted or not:
 the migration only ever updates an item it owns, never one it matched by code), `ref_code_conflict`, `item_deleted`,
 `line_description_too_long` (a description with its " [item CODE]" passes 500: nothing is cut), `supplier_ref_conflict` (the
 supplier of that name already carries another Sage reference), `foreign_currency`, `po_number_taken` (another PO carries the number), `tool_refuses` (the item or PO tool's own

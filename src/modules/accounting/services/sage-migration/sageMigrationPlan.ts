@@ -29,7 +29,7 @@ export interface MigrationPlan {
   refusals: RowRefusal[];
 }
 
-export type Existing = Pick<Snapshot, 'items' | 'poNumbers'>;
+export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers'>;
 
 /**
  * Why `sageId`/`code` must not be sent, or null. bulk_upsert_items matches by Sage reference and then by CODE, and updates what it
@@ -54,11 +54,26 @@ function itemConflict(sageId: string, code: string, items: readonly ExistingItem
 export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string } = {}): MigrationPlan {
   const refusals: RowRefusal[] = [...parsed.refusals];
 
+  // A category whose name another IsaFlow category (not this Sage category) holds: the category tool would refuse it (name_in_use) and
+  // with it the whole batch of items, so the category and the items in it are refused here, one reason each.
+  const refusedCategories = new Map<string, string>();
+  for (const c of parsed.categories) {
+    const holder = existing.categories.find((x) => x.name.toLowerCase() === c.description.toLowerCase() && !(x.system === SAGE_SYSTEM && x.ref === c.id));
+    if (!holder) continue;
+    const who = `category ${holder.name} (id ${holder.id}, ${holder.ref ? `${holder.system ?? 'no system'} ${holder.ref}` : 'no external reference'})`;
+    refusedCategories.set(c.id, c.description);
+    refusals.push({ entity: 'category', sageId: c.id, label: c.description, code: 'category_name_in_use', reasons: [`the name is held by ${who}, which this migration does not own: it is never renamed or adopted`] });
+  }
+
   const items: PlannedItem[] = [];
   /** The items that will really be sent: the only ones a PO line may name. */
   const sentCodes: Record<string, string> = {};
   const usedCategories = new Set<string>();
   for (const item of byStableKey(parsed.items, (i) => i.id)) {
+    if (item.category && refusedCategories.has(item.category.id)) {
+      refusals.push({ entity: 'item', sageId: item.id, label: item.code, code: 'category_refused', reasons: [`its category ${item.category.description} is refused (category_name_in_use), so the item is not imported`] });
+      continue;
+    }
     const conflict = itemConflict(item.id, item.code, existing.items);
     if (conflict) { refusals.push({ entity: 'item', sageId: item.id, label: item.code, code: conflict.code, reasons: [conflict.reason] }); continue; }
     const row = mapSageItem(item);

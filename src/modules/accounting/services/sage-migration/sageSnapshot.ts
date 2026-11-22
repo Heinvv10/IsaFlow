@@ -14,6 +14,14 @@ export interface ExistingItem {
   deleted: boolean;
 }
 
+/** An item category of the company. The category tool matches by reference, code, then name (case-insensitively). */
+export interface ExistingCategory {
+  id: string;
+  name: string;
+  system: string | null;
+  ref: string | null;
+}
+
 export interface Snapshot {
   /** external_ref of every live item the Sage migration owns. */
   itemRefs: Set<string>;
@@ -21,6 +29,7 @@ export interface Snapshot {
   poTotals: Map<string, number>;
   stockMovements: number;
   items: ExistingItem[];
+  categories: ExistingCategory[];
   /** supplier uuid -> the Sage reference it carries (live suppliers; none carrying one are absent). */
   supplierSageRefs: Map<string, string>;
   /** po_number -> the external reference the PO carries (null: none). Numbers are unique per company, case-sensitively. */
@@ -36,6 +45,9 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     SELECT po_number, lower(external_system) AS external_system, external_ref, round(total * 100)::BIGINT AS cents FROM purchase_orders
     WHERE company_id = ${companyId}::UUID
   `) as Array<{ po_number: string; external_system: string | null; external_ref: string | null; cents: string | number }>;
+  const categories = (await sql`
+    SELECT id::TEXT AS id, name, lower(external_system) AS external_system, external_ref FROM item_categories WHERE company_id = ${companyId}::UUID
+  `) as Array<{ id: string; name: string; external_system: string | null; external_ref: string | null }>;
   const suppliers = (await sql`
     SELECT id::TEXT AS id, external_ref FROM suppliers
     WHERE company_id = ${companyId}::UUID AND lower(external_system) = 'sage' AND external_ref IS NOT NULL AND deleted_at IS NULL
@@ -50,6 +62,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     poTotals: new Map(pos.filter((r) => r.external_system === 'sage' && r.external_ref !== null).map((r) => [String(r.external_ref), Number(r.cents)])),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
+    categories: categories.map((c) => ({ id: String(c.id), name: c.name, system: c.external_system, ref: c.external_ref === null ? null : String(c.external_ref) })),
     supplierSageRefs: new Map(suppliers.map((r) => [String(r.id), String(r.external_ref)])),
     poNumbers: new Map(pos.map((r) => [String(r.po_number), { system: r.external_system, ref: r.external_ref === null ? null : String(r.external_ref) }])),
   };

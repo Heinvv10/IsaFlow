@@ -241,6 +241,27 @@ describe('F5: rows deleted after a run', () => {
   });
 });
 
+describe('a category name IsaFlow already holds', () => {
+  it('the category and its items are refused per row, the dry run stays clean, the holder is untouched, the rest is booked', async () => {
+    const id = String((await pool.query(`INSERT INTO item_categories (company_id, name) VALUES ($1, 'optics') RETURNING id`, [s.companyId])).rows[0].id);
+    const dry = await run({ live: false });
+    expect(dry.status).toBe('dry_run_ok');
+    expect(dry.dryRun.clean).toBe(true);
+    const r = await run();
+    expect(r.status).toBe('completed');
+    expect(r.refused.filter((x) => x.entity === 'category')).toEqual([expect.objectContaining({ label: 'Optics', code: 'category_name_in_use' })]);
+    expect(r.refused.find((x) => x.entity === 'category')!.reasons[0]).toContain(id);
+    const items = r.refused.filter((x) => x.entity === 'item');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((x) => x.code === 'category_refused')).toBe(true);
+    expect(await pool.query('SELECT name, external_ref FROM item_categories WHERE id = $1', [id])).toHaveProperty('rows', [{ name: 'optics', external_ref: null }]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: 4, items: 20 - items.length });
+    expect(r.reconciliation).toMatchObject({ allSentBooked: true, nothingRefused: false });
+    expect(exitCodeFor(r, false)).toBe(1);
+    expect(exitCodeFor(r, true)).toBe(0); // refusals allowed, nothing else wrong
+  });
+});
+
 describe('what the company already holds', () => {
   it('with the figures that were sent and booked, and refusals allowed, the exit is 0; without the allowance it is 1', async () => {
     const file = exportFile();
