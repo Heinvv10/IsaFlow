@@ -21,3 +21,12 @@ export function payRunFinalSql(alias: string): string {
   const statuses = PAY_RUN_FINAL_STATUSES.map((s) => `'${s}'`).join(', ');
   return `(${alias}.status IN (${statuses}) AND COALESCE(${alias}.approved_at, ${alias}.approval_grandfathered_at) IS NOT NULL)`;
 }
+
+/**
+ * The same rule in TypeScript (review #1679 codex 6), for a row already read: approved or paid, with an approval time.
+ * The run list reports it as `final`, so the off-cycle form offers exactly the regular runs the server accepts.
+ */
+export function payRunIsFinal(run: { status: string; approvedAt?: unknown; approvalGrandfatheredAt?: unknown }): boolean {
+  return (PAY_RUN_FINAL_STATUSES as readonly string[]).includes(run.status)
+    && (run.approvedAt ?? run.approvalGrandfatheredAt ?? null) !== null;
+}

@@ -113,6 +113,23 @@ export function rebuildUifLeviable(
   return leviable;
 }
 
+/**
+ * An off-cycle line's base as its calculation recorded it (review of fd9193cc2): the month's runs share one ceiling, so
+ * the line levies only on the room its earlier lines left (payrollOffCycleMonth.offCycleUif). Rebuilt in isolation, a
+ * R5 000 bonus after regular pay at the ceiling would read as R5 000 leviable and uncapped. The employee side's
+ * `uif.leviableEmployee` and `uif.cappedEmployee` steps; null when the line has none (any other line).
+ */
+export function recordedOffCycleUifBase(steps: unknown): UifLineBase | null {
+  if (!Array.isArray(steps)) return null;
+  const amountOf = (key: string): number | null => {
+    const step = (steps as Array<{ key?: unknown; amount?: unknown }>).find((s) => s?.key === key);
+    return step && typeof step.amount === 'number' ? step.amount : null;
+  };
+  const leviable = amountOf('uif.leviableEmployee');
+  if (leviable === null) return null;
+  return { leviableSalary: r2(Math.max(0, leviable)), isCapped: amountOf('uif.cappedEmployee') === 1, exact: true };
+}
+
 export function uifLineBase(
   grossPay: number,
   employeeContribution: number,

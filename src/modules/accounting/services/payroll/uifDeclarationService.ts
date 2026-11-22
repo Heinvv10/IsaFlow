@@ -14,6 +14,7 @@ import {
   loadComponentTypes,
   parseBreakdown,
   rebuildUifLeviable,
+  recordedOffCycleUifBase,
   uifLineBase,
 } from './uifLeviableBase';
 
@@ -141,7 +142,8 @@ export async function getUifDeclaration(
       prl.gross_pay,
       prl.uif_employee,
       prl.uif_employer,
-      prl.component_breakdown
+      prl.component_breakdown,
+      prl.explanation->'uif'->'steps' AS uif_steps
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
@@ -167,7 +169,8 @@ export async function getUifDeclaration(
     const grossPay = Number(r.gross_pay);
     const employeeContribution = Number(r.uif_employee);
     const items = breakdowns[i];
-    const { leviableSalary, isCapped } = uifLineBase(
+    // An off-cycle line's base is the room its month's earlier lines left, as its calculation recorded it.
+    const { leviableSalary, isCapped } = recordedOffCycleUifBase(r.uif_steps) ?? uifLineBase(
       grossPay,
       employeeContribution,
       items ? rebuildUifLeviable(items, types) : null,

@@ -128,10 +128,10 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
   };
 }
 
-/** The approval refusal for the run, or null. Read-only. */
+/** The approval refusal for the run, or null (always for an off-cycle run). Read-only. */
 export async function runProRataBlocker(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const lines = (await sql`
-    SELECT l.employee_id, e.employee_number, h.period_year, h.period_month, h.pay_frequency, h.period_start, h.period_end,
+    SELECT l.employee_id, e.employee_number, h.period_year, h.period_month, h.pay_frequency, h.period_start, h.period_end, h.run_kind,
            jsonb_path_exists(l.validation_results, ${`$[*] ? (@.code == "${PRO_RATA_CODE}")`}::jsonpath) AS flagged
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid
@@ -140,7 +140,9 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
     ORDER BY e.employee_number
   `) as DbRow[];
   const head = lines[0];
-  if (!head) return null;
+  // An off-cycle run pays no recurring component (calculatePayrollRun skips them), so nothing here can change its lines
+  // (gate ruling 4 on e0eec1dea1): the same exemption at approval as at calculation.
+  if (!head || head.run_kind === 'off_cycle') return null;
   const period = runPeriodOf(head);
   // The lines that read components: the run's population, not its severance-only leavers (as calculatePayrollRun).
   const reading = new Set((await listPayrollRunEmployees(companyId, period, payFrequencyOf(head.pay_frequency))).map((e) => e.id));

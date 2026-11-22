@@ -28,6 +28,7 @@ import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/appr
 import { isSoleApproverApproval, soleApproverAuditMetadata } from '@/modules/accounting/services/gl/approvalSelfApproval';
 import { isUuidParam } from '@/lib/validation';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { assertOffCycleSubmittable, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { sql } from '@/lib/neon';
 import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 import { mayReadPayroll, refuseWithoutPayrollRead, refuseWithoutPayrollWrite } from '@/lib/auth/payrollReadGate';
@@ -112,6 +113,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       try {
         let payRunPlanHash: string | null = null;
         if (documentType === 'pay_run') {
+          // census-exempt(assertOffCycleSubmittable, payroll-read): Payroll write is asked just above for a pay_run; it reads the run's kind, month and pay date to refuse, returning no employee's pay
+          await assertOffCycleSubmittable(companyId, documentId); // wave 6 OC: nothing is submitted that approval refuses
           // census-exempt(preparePayRunApprovalRequest, payroll-read): Payroll write is asked just above for a pay_run; it reads the run's kind and plan hash, returning no employee's pay
           payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         }
@@ -138,6 +141,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
         // The note's row was held past the 5s budget (a cancel or approve in flight): retry, 503 rolls back.
         if (respondIfLockTimeout(res, error)) return;
+        if (error instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, error.message, { reason: error.code });
         // The rules or the document moved under the raise twice running
         // (R-035 N1): nothing was written; submitting again is the answer.
         if (error instanceof ApprovalRequestStaleError) {
