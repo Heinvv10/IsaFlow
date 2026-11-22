@@ -66,6 +66,7 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     + 'Known limits: credit notes do not reduce what is billed; a header-only link reduces committed at the PO line, not on the bill\'s own account or month; '
     + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
     + 'A bill tied to one of the purchase orders (by a link, its header or its lines) that another request is changing right now retries briefly, then refuses the whole call with a retryable ROW_LOCK_TIMEOUT ("retry in a moment"), dry run too; nothing is written. '
+    + 'A bill carrying a goods received note must still name that note\'s purchase order after the call: include it for that bill in the same call (note_po_not_named). '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',
   scope: 'write:invoices',
   write: true,

@@ -23,7 +23,10 @@
  *     (billed = the attributed amounts of links on approved / paid / partially_paid bills, plus the bills that tie the PO
  *     with no link row, by header or by lines, as `budgets/billAttribution` and get_purchase_order count them, >= subtotal - 1 c)
  *     becomes closed; the
- *     LAST new link of that PO in the call records the status it came from.
+ *     LAST new link of that PO in the call records the status it came from;
+ *   - a bill carrying a goods received note (`grn_id`) must still name the note's PO once the call is done (its header, its lines'
+ *     POs, its links and this call's): a new link to another PO alone is refused on every new row of that bill, naming the exit
+ *     (include the note's PO for that bill in the same call). Gate finding 3 on #1697; the same rule as the bill create.
  */
 import { COMMITTING_PO_STATUSES, isFullyBilledBasis } from '../budgets/poCommitStatus';
 import {
@@ -176,8 +179,32 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null, adopt: false, takesFromHeader,
     });
   }
-  if (refusals.length > 0) return { plan: null, refusals };
+  noteRefusals(input, planned, refusals);
+  if (refusals.length > 0) return { plan: null, refusals: refusals.sort((a, b) => a.index - b.index) };
   return { plan: { planned, poAfter: afterState(input, planned) }, refusals };
+}
+
+/** The note rule (see the header): a refusal on each new row of a bill whose note's PO the bill would not name after the call. */
+function noteRefusals(input: PlanInput, planned: readonly PlannedLink[], refusals: LinkRowRefusal[]): void {
+  for (const bill of input.bills.values()) {
+    const note = bill.note;
+    const rows = planned.filter((p) => p.billId === bill.id);
+    if (!note || !rows.some((p) => !p.existing)) continue;
+    const named = new Set<string>([
+      ...(bill.headerPoId ? [bill.headerPoId] : []),
+      ...bill.lines.map((l) => l.poItemPoId).filter((v): v is string => v !== null),
+      ...input.existing.filter((l) => l.billId === bill.id).map((l) => l.poId),
+      ...rows.map((p) => p.poId),
+    ]);
+    if (named.has(note.poId)) continue;
+    for (const p of rows.filter((x) => !x.existing)) {
+      refusals.push({
+        index: p.index,
+        reason: `bill ${bill.invoiceNumber} carries goods received note ${note.grnNumber} of purchase order ${note.poNumber}, which it would not name after this call `
+          + `(note_po_not_named); include purchase order ${note.poNumber} for bill ${bill.invoiceNumber} in the same call`,
+      });
+    }
+  }
 }
 
 /** What a re-sent call says that the stored link does not (explicit amount, named lines); null when they agree. */

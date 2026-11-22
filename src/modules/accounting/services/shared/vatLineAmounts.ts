@@ -31,6 +31,9 @@ const toCents = (n: number): bigint => {
 };
 const rands = (cents: bigint): number => Number(cents) / 100;
 
+/** `amount` in whole cents, exact decimal, half away from zero (not Math.round(amount * 100), which a float product skews). */
+export const exactCents = (amount: number): number => Number(toCents(amount));
+
 /** n / d rounded to an integer, half away from zero (d > 0). */
 const divRound = (n: bigint, d: bigint): bigint => {
   const q = ((n < 0n ? -n : n) * 2n + d) / (d * 2n);

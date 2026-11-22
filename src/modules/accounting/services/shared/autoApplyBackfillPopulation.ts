@@ -82,7 +82,7 @@ async function readCreditNotes(
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC
         LIMIT ${limit}`
     : await sql`
-        SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
+        SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id, cn.customer_invoice_id,
                cn.client_id AS entity_id, c.name AS entity_name,
                (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder,
                COALESCE(cn.applied_amount, 0) AS applied, pc.posted
@@ -117,6 +117,7 @@ async function readCreditNotes(
       paymentDate: fmtDate(r.credit_date),
       remainder: skippedReason ? Number(r.remainder) : remainder,
       journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
+      linkedDocumentId: r.customer_invoice_id ? String(r.customer_invoice_id) : null,
       skippedReason,
     };
   });

@@ -38,7 +38,7 @@ describe('create_credit_note — pre-write guards', () => {
   it('refuses a non-positive subtotal before any ownership read or write', async () => {
     for (const subtotal of [0, -100]) {
       const r = await createCreditNoteTool.handler({ ...base, subtotal, client_id: CUSTOMER }, ctx());
-      expect(errText(r)).toContain('subtotal must be a positive number');
+      expect(errText(r)).toContain('subtotal must be a positive amount');
     }
     expect(validateCreditNoteLinks).not.toHaveBeenCalled();
     expect(createCreditNote).not.toHaveBeenCalled();
@@ -60,7 +60,7 @@ describe('create_credit_note — pre-write guards', () => {
 
   it('refuses a tax_rate outside 0..100', async () => {
     const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, tax_rate: 150 }, ctx());
-    expect(errText(r)).toContain('tax_rate must be between 0 and 100');
+    expect(errText(r)).toContain('tax_rate must be a number from 0 to 100');
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 

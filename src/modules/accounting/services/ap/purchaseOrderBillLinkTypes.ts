@@ -61,6 +61,10 @@ export interface BillFacts {
   supplierId: string;
   subtotalCents: number;
   lines: BillLineFacts[];
+  /** The bill's header purchase_order_id (lower case), when set. */
+  headerPoId?: string | null;
+  /** The goods received note the bill carries (`grn_id`, a note of this company): its number and PO (gate finding 3 on #1697). */
+  note?: { grnNumber: string; poId: string; poNumber: string } | null;
 }
 
 export interface ExistingLink {

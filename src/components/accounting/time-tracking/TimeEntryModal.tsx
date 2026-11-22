@@ -1,5 +1,6 @@
 import { X, Loader2 } from 'lucide-react';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Customer { id: string; companyName: string }
 
@@ -67,8 +68,8 @@ export function TimeEntryModal({ form, editId, busy, customers, onClose, onSubmi
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rate (ZAR/hr)</label>
-              <input type="number" step="0.01" min="0" value={form.rate}
-                onChange={e => onChange('rate', e.target.value)}
+              <AmountInput min={0} value={form.rate}
+                onValueChange={(_n, t) => onChange('rate', t)}
                 placeholder="0.00"
                 className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
             </div>

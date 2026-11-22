@@ -185,13 +185,25 @@ export function buildInvoiceRevenueLines(input: {
     .filter((l): l is JournalLineInput => l !== null);
 }
 
+/**
+ * The pre-874 notes REPLAYED over the legs' nets in approval order: what each leg carries after them, and what each
+ * note took (cents). The one replay: remainingCarries (posting) and rule A's detached gross of such a note
+ * (creditNoteLegacyReplay, #1701 round 8) both read it.
+ */
+export function replayLegacyNotes(legs: readonly RevenueLeg[], legacyNotes: readonly number[] = []): { carries: number[]; took: number[] } {
+  let carries = legs.map((l) => cents(l.net));
+  const took: number[] = [];
+  for (const earlier of legacyNotes) {
+    const shares = noteShares(carries, cents(earlier));
+    carries = carries.map((c, i) => c - shares[i]!);
+    took.push(shares.reduce((a, b) => a + b, 0));
+  }
+  return { carries, took };
+}
+
 /** What each leg still carries (cents): its net, less the replayed pre-874 notes and what recorded notes took. */
 export function remainingCarries(legs: readonly RevenueLeg[], legacyNotes: readonly number[] = []): number[] {
-  let carries = legs.map((l) => cents(l.net));
-  for (const earlier of legacyNotes) {
-    const took = noteShares(carries, cents(earlier));
-    carries = carries.map((c, i) => c - took[i]!);
-  }
+  const { carries } = replayLegacyNotes(legs, legacyNotes);
   return carries.map((c, i) => {
     const left = c - cents(legs[i]!.taken ?? 0);
     return legs[i]!.net >= 0 ? Math.max(0, left) : Math.min(0, left);

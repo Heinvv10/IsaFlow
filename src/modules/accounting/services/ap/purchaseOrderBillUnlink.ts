@@ -29,6 +29,9 @@
  * NEVER blocks and never fails on a busy gate or a policy that changed. Reopening is open to any write:invoices holder (Hein): it
  * restores a commitment, the conservative direction.
  * A reason is required; audited. A cancelled or soft-deleted bill can still be unlinked (clean-up).
+ * Refused before any write (gate finding 3 on #1697, `unlinkNoteRefusal`): a bill carrying a goods received note of THIS PO that would
+ * still name another PO after the unlink (its note would sit on a PO it does not name); the exit is to unlink those first, or cancel
+ * the bill. Unlinking the last PO a bill names stays allowed.
  */
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
@@ -47,6 +50,7 @@ import { isFullyBilledBasis } from '../budgets/poCommitStatus';
 import { poCommittedCents, reopenUnderBilled } from './purchaseOrderBillingClose';
 import { BILLED_STATUSES, poBillingBasisCents } from '../budgets/remainingCommitted';
 import { billTies } from '../budgets/billAttribution';
+import { unlinkNoteRefusal } from './billGoodsReceivedLink';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
 
@@ -125,6 +129,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   if (!link && lineRefs.length === 0 && !namesInHeader) {
     throw new PurchaseOrderBillLinkRefusal(`Bill ${invoiceNumber} is not linked to purchase order ${poNumber} (no link, no line on one of its lines, and its header does not name it)`);
   }
+  // Gate finding 3 on #1697: the bill's goods received note stays on a PO the bill names (before any write).
+  const noteBlock = await unlinkNoteRefusal(companyId, req.billId, poId);
+  if (noteBlock) throw new PurchaseOrderBillLinkRefusal(noteBlock);
   // What the PO is billed before anything is cleared (under its lock): a reopen needs the removed tie to have counted (review r4 L2).
   const billedBefore = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
 

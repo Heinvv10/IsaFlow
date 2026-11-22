@@ -57,7 +57,22 @@ const matchOut = (m: ExternalRefMatch) => ({
 });
 
 /** What the request says, compared with the stored record on a replay (only the fields known before the create). */
-export interface ReplayExpectation { number?: string | null; date?: string | null; totalAmount?: number | null }
+export interface ReplayExpectation {
+  number?: string | null; date?: string | null; totalAmount?: number | null; subtotal?: number | null;
+  /**
+   * What makes it the SAME record (a credit note's party and linked document, by field name; null = none). A stored
+   * record differing in any of these is not a replay: the reference was reused for another document, and the create is
+   * REFUSED naming the field (#1701 round 9), never answered with the old record.
+   */
+  identity?: Record<string, string | null>;
+}
+
+/** The identity fields the stored record differs in (a record that reports none is not compared). */
+function identityDifferences(m: ExternalRefMatch, expect: ReplayExpectation): string[] {
+  if (!expect.identity || !m.identity) return [];
+  const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? null)?.toLowerCase() === (b ?? null)?.toLowerCase();
+  return Object.entries(expect.identity).filter(([field, requested]) => !same(m.identity![field], requested)).map(([field]) => field);
+}
 
 function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ field: string; existing: unknown; requested: unknown }> {
   const out: Array<{ field: string; existing: unknown; requested: unknown }> = [];
@@ -65,6 +80,9 @@ function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ fi
   if (expect.date != null && m.date !== expect.date) out.push({ field: 'date', existing: m.date, requested: expect.date });
   if (expect.totalAmount != null && m.totalAmount != null && Math.abs(m.totalAmount - expect.totalAmount) >= 0.005) {
     out.push({ field: 'total_amount', existing: m.totalAmount, requested: expect.totalAmount });
+  }
+  if (expect.subtotal != null && m.subtotal != null && Math.abs(m.subtotal - expect.subtotal) >= 0.005) {
+    out.push({ field: 'subtotal', existing: m.subtotal, requested: expect.subtotal });
   }
   return out;
 }
@@ -84,16 +102,32 @@ export async function createReplayOrLock(
   const live = (await findByExternalRef(ctx.companyId, kind, ref.system, ref.ref, { creditNoteType: opts.creditNoteType }))
     .filter((m) => m.live);
   if (live.length === 0) return null;
-  const diff = differences(live[0]!, opts.expect ?? {});
+  const expect = opts.expect ?? {};
+  // Several live rows may carry one reference (credit_notes has no unique index on it): the replay is whichever has the
+  // request's identity, preferring one that also matches its date and amounts (round 10); none with it is a refusal.
+  const same = live.filter((m) => identityDifferences(m, expect).length === 0);
+  if (same.length === 0) {
+    const fields = [...new Set(live.flatMap((m) => identityDifferences(m, expect)))];
+    const named = live.map((m) => m.number ?? m.id);
+    const what = `${kind.replace('_', ' ')}${named.length > 1 ? 's' : ''} ${named.join(' and ')}`;
+    const r = toolError(`external_ref ${ref.ref} (${ref.system}) is already used by ${what} for a different ${fields.join(' and ')}: a `
+      + `reference names one document. The existing note is ${named.join(' / ')}. Nothing was created; send this document's own `
+      + 'reference, or, if the existing note IS this document (its customer was merged, or its linked invoice changed), use it '
+      + '(find_by_external_ref, get_credit_note).');
+    return { ...r, wroteNothing: true };
+  }
+  const match = same.find((m) => differences(m, expect).length === 0) ?? same[0]!;
+  const others = live.filter((m) => m !== match);
+  const diff = differences(match, expect);
   return {
     ...ok({
       already_existed: true,
       payload_differs: diff.length > 0,
       ...(diff.length > 0 ? { differences: diff } : {}),
-      ...matchOut(live[0]!),
+      ...matchOut(match),
       external_system: ref.system,
       external_ref: ref.ref,
-      ...(live.length > 1 ? { other_live_ids: live.slice(1).map((m) => m.id) } : {}),
+      ...(others.length > 0 ? { other_live_ids: others.map((m) => m.id) } : {}),
       note: diff.length > 0
         ? 'A record with this external reference already exists and DIFFERS from this request (see differences); nothing was created or changed. If the source document was corrected, correct the existing record.'
         : 'A record with this external reference already exists; nothing was created.',
@@ -118,6 +152,7 @@ export const KIND_SCOPE: Record<ExternalRefKind, string> = {
   item: 'read:items',
   purchase_order: 'read:invoices',
   po_bill_link: 'read:invoices',
+  goods_received: 'read:invoices',
 };
 
 export const findByExternalRefTool: McpTool = {
@@ -127,6 +162,7 @@ export const findByExternalRefTool: McpTool = {
     + `kind: ${EXTERNAL_REF_KINDS.join(', ')}, or a Sage code (${Object.keys(EXTERNAL_REF_KIND_ALIASES).join(', ')}; ret/cret = supplier/customer credit notes; po = purchase orders). `
     + 'Returns found: false, or the live match (record) plus any superseded (cancelled, reversed or deleted) rows carrying the same reference. '
     + 'po_bill_link finds a purchase order <-> bill link by the external_ref it was made with (link_bills_to_purchase_order): number reads "PO <- bill", status is the PO\'s, total_amount the linked ex-VAT amount. '
+    + 'goods_received finds a goods received note by the external_ref it was created with (create_goods_received): number is its GRN number; a cancelled note is listed as superseded. '
     + 'A cancelled purchase order is listed as superseded (bulk_create_purchase_orders still will not create it again). '
     + 'Only records created or imported with external_ref are found; older loads that put the Sage id in a description are not. '
     + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts, read:items for item). For an item, number is its code and status is active or inactive.',

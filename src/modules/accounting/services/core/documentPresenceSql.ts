@@ -7,8 +7,9 @@
  * The entity store (procurement_documents, written by POST /api/accounting/documents and attach_entity_document)
  * counts an ACTIVE row filed directly on the entity or cross-linked to it through document_links — EXCEPT a link
  * made for a purchase order or goods receipt. The only document_links writer is autoLinkSupplierInvoice
- * (documentStorageService), which links a bill to its PO's and GRN's documents with link_reason 'po_invoice_link' /
- * 'grn_invoice_link': those are the order's paperwork, not the supplier's tax invoice, so a bill whose own scan is gone
+ * (documentStorageService), with link_reason 'po_invoice_link' / 'grn_invoice_link'; older rows link a bill to its PO's and
+ * GRN's documents (since #1697 the bill's listing resolves those at read time instead, documentQueryService, and counts nothing
+ * here): those are the order's paperwork, not the supplier's tax invoice, so a bill whose own scan is gone
  * is still missing its document (census of every document_links writer, 2026-11-13: no other reason exists).
  * A bill and a customer invoice also count their SOURCE captured document (source_document_id) when it is this
  * company's, still has stored bytes and is not rejected: an invoice created from a capture IS supported

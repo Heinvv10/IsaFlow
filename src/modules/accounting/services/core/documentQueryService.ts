@@ -12,7 +12,7 @@
  *  - `procurement_documents` (+ `document_links`) — what the documents upload
  *    endpoint writes, keyed by (entity_type, entity_id). Also no company_id,
  *    and no parent table it can be joined to generically — which is why an
- *    entity listing must call verifyEntityOwnership FIRST and refuse before
+ *    entity listing must call verifyEntityOwnershipTyped FIRST and refuse before
  *    reading. That ordering is the fence; do not reorder it.
  *
  * Extracted from pages/api/accounting/documents.ts, which is now a caller.
@@ -20,11 +20,11 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { entityTableName, hasEntityDocumentSql, type DocumentedEntityType } from './documentPresenceSql';
-import type { LinkedDocument } from '@/types/procurement/document.types';
+import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
   mapRow,
-  verifyEntityOwnership,
+  verifyEntityOwnershipTyped,
 } from './documentStorageService';
 
 export type EntityDocumentsResult =
@@ -33,6 +33,16 @@ export type EntityDocumentsResult =
 
 /**
  * Direct + cross-linked documents for one accounting entity.
+ *
+ * A bill's (supplier_invoice) linked documents also include, resolved HERE at read time, the active documents of its goods received
+ * note (`grn_id`; entity types goods_received and the legacy goods_receipt_note, link reason grn_invoice_link) and of its POs (the
+ * header `purchase_order_id` and its purchase_order_bill_links rows; po_invoice_link), so a delivery note filed before or after the
+ * bill shows on it without a link row being written (merge-gate finding 4). Every id read off the bill is fenced to `companyId`: the
+ * bill's PO and note columns carry no foreign key, and row security admits every company the user belongs to. A document also
+ * reached through an older document_links row is listed once (the link row's reason wins). Every linked document, however it was
+ * reached, is shown only when its own parent (entity_type + entity_id) is a row of `companyId` (gate finding 2).
+ * The mirror (review M): a note's or PO's linked documents include, resolved here too, the documents of the live bills of the company
+ * that name it now (a note: their grn_id; a PO: header, lines, links), so a bill's scan follows a draft that moves notes or a PO unlink.
  *
  * The cap is per query and the merged result is at most 2×limit — the two
  * stores are paged independently because they have different orderings and a
@@ -48,14 +58,19 @@ export async function listEntityDocuments(
   if (!(VALID_ENTITY_TYPES as readonly string[]).includes(entityType)) {
     return { ok: false, reason: 'invalid_entity_type' };
   }
-  // BEFORE any read: procurement_documents cannot fence itself.
-  if (!(await verifyEntityOwnership(entityId, companyId))) {
+  // BEFORE any read: procurement_documents cannot fence itself. The id must be a row of THE REQUESTED TYPE of this company (Codex round
+  // 3, finding 2): "some row with this id is ours" let another company's note sharing an id with one of our bills through.
+  if (!(await verifyEntityOwnershipTyped(entityType as AccountingEntityType, entityId, companyId))) {
     return { ok: false, reason: 'entity_not_found' };
   }
 
+  // A goods received note's documents are filed under both its entity type and the legacy goods_receipt_note (review L3); the legacy
+  // row is fenced to a note of this company here too.
   const directRows = (await sql`
     SELECT * FROM procurement_documents
-    WHERE entity_type = ${entityType}
+    WHERE (entity_type = ${entityType}
+           OR (${entityType}::text = 'goods_received' AND entity_type = 'goods_receipt_note'
+               AND EXISTS (SELECT 1 FROM goods_received_notes g WHERE g.id = ${entityId}::uuid AND g.company_id = ${companyId}::uuid)))
       AND entity_id = ${entityId}::uuid
       AND is_active = true
     ORDER BY uploaded_at DESC, id DESC
@@ -63,12 +78,79 @@ export async function listEntityDocuments(
   `) as DbRow[];
 
   const linkedRows = (await sql`
-    SELECT pd.*, dl.link_reason
-    FROM document_links dl
-    JOIN procurement_documents pd ON pd.id = dl.document_id
-    WHERE dl.linked_entity_type = ${entityType}
-      AND dl.linked_entity_id = ${entityId}::uuid
-      AND pd.is_active = true
+    WITH bill AS (
+      SELECT si.purchase_order_id, si.grn_id FROM supplier_invoices si
+       WHERE ${entityType}::text = 'supplier_invoice' AND si.id = ${entityId}::uuid AND si.company_id = ${companyId}::uuid
+    ), bill_pos AS (
+      SELECT po.id FROM purchase_orders po
+        JOIN (SELECT b.purchase_order_id AS id FROM bill b
+              UNION
+              SELECT l.purchase_order_id FROM purchase_order_bill_links l, bill
+               WHERE l.company_id = ${companyId}::uuid AND l.supplier_invoice_id = ${entityId}::uuid
+              UNION
+              SELECT pi.purchase_order_id FROM supplier_invoice_items sii JOIN po_items pi ON pi.id = sii.po_item_id, bill
+               WHERE sii.supplier_invoice_id = ${entityId}::uuid) named ON named.id = po.id
+       WHERE po.company_id = ${companyId}::uuid
+    ), bill_note AS (
+      SELECT g.id FROM goods_received_notes g WHERE g.company_id = ${companyId}::uuid AND g.id IN (SELECT b.grn_id FROM bill b)
+    ), naming_bills AS (
+      -- The mirror (review M): listing a note or a PO, the live (not deleted, not cancelled) bills of the company that name it NOW (a note: grn_id; a PO: header,
+      -- lines, link rows). Their scans are resolved here at read time, and an older automatic row onto the note / PO follows them.
+      SELECT si.id FROM supplier_invoices si
+        JOIN (SELECT s.id FROM supplier_invoices s
+               WHERE ${entityType}::text = 'goods_received' AND s.company_id = ${companyId}::uuid AND s.grn_id = ${entityId}::uuid
+              UNION
+              SELECT s.id FROM supplier_invoices s
+               WHERE ${entityType}::text = 'purchase_order' AND s.company_id = ${companyId}::uuid AND s.purchase_order_id = ${entityId}::uuid
+              UNION
+              SELECT l.supplier_invoice_id FROM purchase_order_bill_links l
+               WHERE ${entityType}::text = 'purchase_order' AND l.company_id = ${companyId}::uuid AND l.purchase_order_id = ${entityId}::uuid
+              UNION
+              SELECT sii.supplier_invoice_id FROM supplier_invoice_items sii JOIN po_items pi ON pi.id = sii.po_item_id
+               WHERE ${entityType}::text = 'purchase_order' AND pi.purchase_order_id = ${entityId}::uuid) n ON n.id = si.id
+       WHERE si.company_id = ${companyId}::uuid AND si.deleted_at IS NULL AND si.status IS DISTINCT FROM 'cancelled'
+    ), reached AS (
+      -- A note is also linked to under the legacy alias goods_receipt_note (round 3, finding 6). An older AUTOMATIC row
+      -- (po_invoice_link / grn_invoice_link) is shown only while its document's parent still ties the two: on a bill, the bill's
+      -- current note or a PO it names now (round 3, finding 4); on a note or PO, a bill that names it now (review M). Manual rows always.
+      SELECT dl.document_id, dl.link_reason, 0 AS rank FROM document_links dl
+       WHERE (dl.linked_entity_type = ${entityType} OR (${entityType}::text = 'goods_received' AND dl.linked_entity_type = 'goods_receipt_note'))
+         AND dl.linked_entity_id = ${entityId}::uuid
+         AND (${entityType}::text NOT IN ('supplier_invoice', 'goods_received', 'purchase_order')
+              OR COALESCE(dl.link_reason, '') NOT IN ('po_invoice_link', 'grn_invoice_link')
+              OR EXISTS (SELECT 1 FROM procurement_documents d WHERE d.id = dl.document_id
+                          AND ((d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos))
+                               OR (d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note))
+                               OR (d.entity_type = 'supplier_invoice' AND d.entity_id IN (SELECT id FROM naming_bills)))))
+      UNION ALL
+      SELECT d.id, CASE WHEN ${entityType}::text = 'goods_received' THEN 'grn_invoice_link' ELSE 'po_invoice_link' END, 1
+        FROM procurement_documents d WHERE d.entity_type = 'supplier_invoice' AND d.entity_id IN (SELECT id FROM naming_bills)
+      UNION ALL
+      SELECT d.id, 'po_invoice_link', 1 FROM procurement_documents d
+       WHERE d.entity_type = 'purchase_order' AND d.entity_id IN (SELECT id FROM bill_pos)
+      UNION ALL
+      SELECT d.id, 'grn_invoice_link', 1 FROM procurement_documents d
+       WHERE d.entity_type IN ('goods_received', 'goods_receipt_note') AND d.entity_id IN (SELECT id FROM bill_note)
+    ), once AS (
+      SELECT DISTINCT ON (r.document_id) r.document_id, r.link_reason FROM reached r ORDER BY r.document_id, r.rank
+    )
+    SELECT pd.*, once.link_reason
+    FROM once
+    JOIN procurement_documents pd ON pd.id = once.document_id
+    WHERE pd.is_active = true
+      -- The document's own parent must be this company's (gate finding 2): a document_links row carries no company, and row
+      -- security admits every company the user belongs to. The table's policy, with the membership replaced by companyId; an
+      -- entity type the policy does not name is never shown.
+      AND (
+        (pd.entity_type = 'supplier_invoice' AND EXISTS (SELECT 1 FROM supplier_invoices p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'customer_invoice' AND EXISTS (SELECT 1 FROM customer_invoices p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'supplier_payment' AND EXISTS (SELECT 1 FROM supplier_payments p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'credit_note' AND EXISTS (SELECT 1 FROM credit_notes p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type = 'purchase_order' AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+        OR (pd.entity_type IN ('goods_received', 'goods_receipt_note')
+            AND EXISTS (SELECT 1 FROM goods_received_notes p WHERE p.id = pd.entity_id AND p.company_id = ${companyId}::uuid))
+      )
     ORDER BY pd.uploaded_at DESC, pd.id DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `) as DbRow[];

@@ -10,6 +10,7 @@ import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Adjustment {
   id: string; adjustmentNumber: string; entityType: string; entityId: string;
@@ -142,7 +143,7 @@ export default function AdjustmentsPage() {
                   <option value="debit">Debit (Increase Balance)</option>
                   <option value="credit">Credit (Decrease Balance)</option>
                 </select>
-                <input type="number" step="0.01" min="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="ff-input" placeholder="Amount *" required />
+                <AmountInput min={0.01} value={form.amount} onValueChange={(_n, t) => setForm(f => ({ ...f, amount: t }))} className="ff-input" placeholder="Amount *" required />
                 <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="ff-input" placeholder="Reason *" required />
               </div>
               <div className="flex justify-end gap-2">

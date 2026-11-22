@@ -2,10 +2,10 @@
  * Customer Invoice Create Service
  *
  * Draft-invoice creation for standalone (not project-linked) customer
- * invoices. Extracted verbatim from pages/api/accounting/customer-invoices-create.ts
- * so the MCP write-tool layer calls the SAME code the HTTP route uses — no
- * parallel duplicate of the totals math, number-reservation retry, or the
- * savepointed INSERT.
+ * invoices, shared by the HTTP route (customer-invoices-create) and the MCP
+ * write tools, so both run the SAME code: no parallel duplicate of the per-line
+ * VAT (invoiceLineVatTypes / invoiceLineVatPricing), the number-reservation
+ * retry, or the savepointed INSERT.
  */
 
 import { sql } from '@/lib/neon';
@@ -21,7 +21,7 @@ import {
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
-import { invoiceLineAmount, invoiceTotals, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
+import { isDiscountPercent, toColumnCents } from './invoiceLineAmount';
 import { NotADecimalError, toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
@@ -29,6 +29,8 @@ import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { dueDateSourceOf } from '../shared/dueDateSource';
 import { applyItemLineDefaults } from '../items/itemLineDefaults';
+import { assertPricedPostable, resolveInvoiceVat } from './invoiceLineVatDefaults';
+import { priceInvoiceVat, type AmountsAre } from './invoiceLineVatPricing';
 
 type Row = DbRow;
 
@@ -47,6 +49,8 @@ export interface DraftInvoiceLineInput {
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;
+  /** The line's VAT type (standard, zero_rated, exempt), as sent: held to the contract by invoiceLineVatTypes. */
+  vatType?: unknown;
 }
 
 export interface DraftInvoiceInput {
@@ -57,7 +61,13 @@ export interface DraftInvoiceInput {
   dueDateGivenAs?: 'manual' | 'document';
   billingPeriodStart?: string;
   billingPeriodEnd?: string;
+  /** LEGACY: the standard rate on the invoice date (every line standard) or 0 (zero_rated); never with a line vatType. */
   taxRate?: number;
+  /**
+   * How each unit price reads: 'exclusive' (default) or 'inclusive' (VAT-inclusive, stored AS ENTERED; the VAT is backed
+   * out of each line's gross and `amount` stores the net). Stored on customer_invoices.amounts_are.
+   */
+  amountsAre?: unknown;
   notes?: string;
   items: DraftInvoiceLineInput[];
   currencyCode?: string;
@@ -74,11 +84,11 @@ export class InvoiceLineValidationError extends Error {
   }
 }
 
-export interface PricedDraftLine { qty: number; price: number; amount: number }
+export interface PricedDraftLine { qty: number; price: number }
 
 /**
- * Each line priced as create stores it (invoiceLineAmount.ts), refused as create refuses it. Shared with the unsaved
- * preview (invoicePreviewModel.ts), so the preview's figures are create's by construction.
+ * Each line's quantity and price as their columns store them, refused as create refuses them (the pricing itself is
+ * invoiceLineVatPricing's). Shared with the unsaved preview (invoicePreviewModel.ts), so it refuses what create refuses.
  */
 export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?: unknown; discount?: unknown }[]): PricedDraftLine[] {
   // W1 (P2.1): server-side line validation — the July-4 audit created a
@@ -103,42 +113,23 @@ export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?
     const qty = toColumnCents(qtyIn);
     if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
     const price = toColumnCents(priceIn);
-    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
+    priced.push({ qty, price });
   }
   return priced;
 }
 
-/** The invoice's VAT rate as create takes it: 15 when absent, refused outside 0..100. */
-export function draftTaxRate(taxRate: number | undefined): number {
-  // R-119: the same audit, one field over. `taxRate` comes off the request
-  // body and is used by create for `tax_amount` and the output-VAT journal leg. A
-  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
-  // total 500` — so neither a total guard nor migration 692's total arm sees
-  // it, while the VAT return and the GL leg go negative. Thrown as a line
-  // validation error because that is what it is to the operator, and the
-  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
-  // schema (minimum 0); this is the HTTP route's own guard.
-  const requestedRate = taxRate ?? 15;
-  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
-    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
-  }
-  return requestedRate;
-}
-
 /**
- * The invoice's subtotal, VAT and total (invoiceLineAmount.ts), refused when the total or its functional amount would
- * not fit numeric(15,2): 1e13 or more. Shared with the unsaved preview, so it refuses what create refuses.
- * A rate toFunctional cannot read (1e21 or more: no plain decimal) is a 400 too, where it was a 500.
+ * The invoice's total refused when it or its functional amount would not fit numeric(15,2): 1e13 or more. Shared with
+ * the unsaved preview and the draft edit's VAT pricing, so each refuses what create refuses. An exchange rate
+ * toFunctional cannot read (1e21 or more: no plain decimal) is a 400 too, where it was a 500.
  */
-export function draftTotals(amounts: readonly number[], rate: number, exchangeRate: number): { subtotal: number; tax: number; total: number } {
-  const totals = invoiceTotals(amounts, rate);
+export function assertDraftTotalFits(total: number, exchangeRate: number): void {
   // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
-  if (totals.total >= 1e13 || functionalOf(totals.total, exchangeRate) >= 1e13) {
+  if (total >= 1e13 || functionalOf(total, exchangeRate) >= 1e13) {
     throw new InvoiceLineValidationError('The invoice total is too large');
   }
   // customer_invoices.exchange_rate is numeric(18,6): 1e12 or more overflows the INSERT (22003, a 500).
   if (exchangeRate >= 1e12) throw new InvoiceLineValidationError('The exchange rate is too large');
-  return totals;
 }
 
 function functionalOf(total: number, exchangeRate: number): number {
@@ -148,6 +139,13 @@ function functionalOf(total: number, exchangeRate: number): number {
     if (err instanceof NotADecimalError) throw new InvoiceLineValidationError('The exchange rate is too large');
     throw err;
   }
+}
+
+/** The `amountsAre` a request names, refused (400) unless 'exclusive' or 'inclusive'; absent is 'exclusive'. Shared with the preview. */
+export function draftAmountsAre(v: unknown): AmountsAre {
+  if (v === undefined || v === null) return 'exclusive';
+  if (v === 'exclusive' || v === 'inclusive') return v;
+  throw new InvoiceLineValidationError('amountsAre must be "exclusive" or "inclusive"');
 }
 
 /**
@@ -175,6 +173,9 @@ export async function createDraftCustomerInvoice(
     taxRate, notes, currencyCode, exchangeRate,
   } = input;
   assertDraftDates({ invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd });
+  const amountsAre = draftAmountsAre(input.amountsAre);
+  const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
+  const invDate = invoiceDate || today; // the date each line's VAT rate is read at
 
   // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
   // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
@@ -209,19 +210,22 @@ export async function createDraftCustomerInvoice(
   );
   if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
-  const requestedRate = draftTaxRate(taxRate);
+  // Per-line VAT (invoiceLineVatTypes): each line's type, or untyped for a company not registered for VAT. Refused here,
+  // where the header rate was, before the first write.
+  const vat = await resolveInvoiceVat(companyId, clientId, { invoiceDate: invDate, headerTaxRate: taxRate, lines: items });
 
   // FX PR0: the company's own currency at exactly 1, or a foreign one only once
   // the company has enabled them — refused here, before the first write.
   const { currencyCode: invCurrencyCode, exchangeRate: invExchangeRate } =
     await resolveDocumentCurrency(companyId, currencyCode, exchangeRate, 'invoice');
 
-  // Calculate totals (in foreign currency) — invoiceLineAmount.ts, as the draft
-  // edit and the new-invoice preview compute them.
-  const rate = requestedRate;
-  const { subtotal, tax: taxAmount, total: totalAmount } = draftTotals(priced.map((p) => p.amount), rate, invExchangeRate);
-  const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
-  const invDate = invoiceDate || today;
+  // Totals (in foreign currency) over the lines' own net and VAT — invoiceLineVatPricing, as the draft edit and the
+  // new-invoice preview compute them.
+  const vatPriced = priceInvoiceVat(items.map((item, i) => ({ quantity: priced[i]!.qty, unitPrice: priced[i]!.price, discount: Number(item.discount ?? 0) })),
+    vat, invDate, amountsAre);
+  const { subtotal, tax: taxAmount, total: totalAmount, taxRate: rate } = vatPriced.header;
+  assertDraftTotalFits(totalAmount, invExchangeRate);
+  assertPricedPostable(vatPriced, invDate); // what approve would refuse is refused here, before the first write
   // No due date named: the customer's terms give it, else the company default (migration 960). A named date equal to
   // what the terms give (the new-invoice page prefills it) is recorded as the terms' (migration 962).
   const termsDueDate = await dueDateForContact(companyId, 'customer', clientId, invDate);
@@ -252,14 +256,14 @@ export async function createDraftCustomerInvoice(
           subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date, due_date_source,
           notes, status, created_by,
           currency_code, exchange_rate, functional_total,
-          actor_type, actor_token_jti
+          actor_type, actor_token_jti, amounts_are
         ) VALUES (
           ${companyId}, ${number}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
           ${resolvedDueDate}, ${dueDateSource}, ${notes || null}, 'draft', ${userId},
           ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
-          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${vatPriced.header.amountsAre}
         ) RETURNING id
       `) as Row[];
       return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
@@ -267,19 +271,19 @@ export async function createDraftCustomerInvoice(
   );
 
   for (const [i, item] of items.entries()) {
-    const { qty, price, amount: lineAmount } = priced[i]!;
+    const { qty, price, amount: lineAmount, taxRate: lineRate, taxAmount: lineTax, vatType } = vatPriced.lines[i]!;
     const coding = codings[i]!;
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        gl_account_id, project_id, cc1_id, cc2_id, bu_id, line_position, item_id
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id, line_position, item_id, tax_amount, vat_type
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${price},
-        ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
+        ${qty}, ${lineAmount}, ${lineRate}, ${invCurrencyCode},
         ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID,
         ${i}, -- the entry order (migration 956); created_at stays NOW(), which the approval digest relies on
-        ${item.itemId || null}::UUID
+        ${item.itemId || null}::UUID, ${lineTax}, ${vatType} -- per-line VAT (1008): both, or neither on an untyped line
       )
     `;
   }

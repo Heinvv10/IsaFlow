@@ -3,6 +3,7 @@
  */
 import { Plus, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export interface LineItem {
   key: string;
@@ -65,26 +66,20 @@ export function LineItemsSection({
             />
           </div>
           <div className="col-span-2">
-            <input
-              type="number"
+            <AmountInput min={0.01}
               aria-label={`Line ${index + 1} quantity`}
               className={inputCls}
               value={line.quantity}
-              min={0.01}
-              step="0.01"
-              onChange={e => onUpdateLine(line.key, 'quantity', Number(e.target.value))}
+              onValueChange={(n) => onUpdateLine(line.key, 'quantity', n)}
               required
             />
           </div>
           <div className="col-span-2">
-            <input
-              type="number"
+            <AmountInput min={0}
               aria-label={`Line ${index + 1} unit price`}
               className={inputCls}
               value={line.unitPrice}
-              min={0}
-              step="0.01"
-              onChange={e => onUpdateLine(line.key, 'unitPrice', Number(e.target.value))}
+              onValueChange={(n) => onUpdateLine(line.key, 'unitPrice', n)}
               required
             />
           </div>

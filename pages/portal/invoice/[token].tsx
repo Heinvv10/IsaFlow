@@ -35,6 +35,7 @@ interface PortalInvoiceProps {
     tax_amount: number;
     total_amount: number;
     amount_paid: number;
+    amounts_are?: string | null; // 'inclusive': unit prices incl. VAT, amounts excl. (per-line VAT)
     notes: string | null;
     customer_name: string;
     company_name: string;
@@ -198,9 +199,9 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Description</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-500">Qty</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-500">Unit Price</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500">{invoice.amounts_are === 'inclusive' ? 'Unit Price (incl. VAT)' : 'Unit Price'}</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-500">VAT %</th>
-                    <th className="text-right px-6 py-3 font-medium text-gray-500">Amount</th>
+                    <th className="text-right px-6 py-3 font-medium text-gray-500">{invoice.amounts_are === 'inclusive' ? 'Amount (excl. VAT)' : 'Amount'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">

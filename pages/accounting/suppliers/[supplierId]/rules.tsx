@@ -15,6 +15,8 @@ import {
   type RuleDimensionDefaults,
 } from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { AmountInput } from '@/components/ui/AmountInput';
+import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; accountCode: string; accountName: string }
@@ -136,8 +138,10 @@ export default function SupplierRulesPage() {
 
   function markDirty() { setIsDirty(true); }
 
+  const guard = useAmountGuard();
   async function handleSave() {
     if (!sid) return;
+    if (guard.blocked()) return;
     setSaving(true);
     try {
       const body = {
@@ -216,7 +220,7 @@ export default function SupplierRulesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link href={`/accounting/suppliers/${sid}`}
@@ -308,8 +312,8 @@ export default function SupplierRulesPage() {
             <div className={`space-y-4 ${!autoPublish ? 'opacity-40 pointer-events-none' : ''}`}>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Max amount cap (R) — optional</label>
-                <input type="number" min="0" step="0.01" value={maxAmount}
-                  onChange={e => { setMaxAmount(e.target.value); markDirty(); }}
+                <AmountInput min={0} value={maxAmount}
+                  onValueChange={(_n, t) => { setMaxAmount(t); markDirty(); }}
                   placeholder="No cap"
                   className="w-full px-3 py-2 rounded bg-white/5 border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-blue-500 placeholder:text-slate-600" />
               </div>
