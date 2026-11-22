@@ -1,9 +1,9 @@
 /**
  * What a POSTING date may be, judged in the browser before save (date rework 4/4): a date inside a closed or locked
- * fiscal period is refused (the server refuses it too when the document is POSTED: ClosedFiscalPeriodError; a form that only saves a draft must not use this); a date outside the current financial
+ * fiscal period is refused (the server refuses it too when the document is POSTED: ClosedFiscalPeriodError). `draftOnly` (a form that only saves a draft, proven in closed-period-post-refusal.int.test.ts) warns instead of blocking; a date outside the current financial
  * year only warns. Pure ISO-string logic; the periods come from GET /api/accounting/fiscal-periods (useFiscalCalendar).
- * A date no period covers is NOT blocked: the server creates the period on posting. A `closing` period is not blocked
- * (it is a transient state). Nothing is judged until the periods have loaded (`periods === null`).
+ * A date no period covers is NOT blocked: the server creates the period on posting. A `closing` period counts as closed
+ * (posting into it is refused). Nothing is judged until the periods have loaded (`periods === null`).
  */
 import { presetRange } from './fiscalRangePresets';
 
@@ -22,7 +22,8 @@ export type PostingDateCheck =
   | { level: 'block' | 'warn'; code: PostingDateCode; message: string };
 
 const NONE: PostingDateCheck = { level: null, code: null, message: null };
-const BLOCKING = new Set(['closed', 'locked']);
+// `closing` too: postJournalEntry refuses every non-open period, so a date there can never be posted.
+const BLOCKING = new Set(['closed', 'locked', 'closing']);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** '2026-03-01' -> '1 Mar 2026' (fixed table: the date census forbids Intl here). */
@@ -45,10 +46,16 @@ export function currentFiscalYear(
 }
 
 export function checkPostingDate(
-  iso: string, periods: readonly PeriodLite[] | null, today: string, fyStartMonth: number,
+  iso: string, periods: readonly PeriodLite[] | null, today: string, fyStartMonth: number, draftOnly = false,
 ): PostingDateCheck {
   if (periods === null) return NONE;
   const hit = periods.find((p) => p.startDate <= iso && iso <= p.endDate && BLOCKING.has(p.status));
+  if (hit && draftOnly) {
+    return {
+      level: 'warn', code: 'closed-period',
+      message: `${shortDate(iso)} is in ${hit.periodName}, which is ${hit.status}. You can save a draft, but it cannot be posted until that period is open.`,
+    };
+  }
   if (hit) {
     return {
       level: 'block', code: 'closed-period',

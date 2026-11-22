@@ -56,7 +56,7 @@ function useCompanyLite(): { id: string | null; fyStartMonth: number } {
 export interface FiscalCalendar {
   /** The periods have loaded. */
   ready: boolean;
-  check: (iso: string, today: string) => PostingDateCheck;
+  check: (iso: string, today: string, draftOnly?: boolean) => PostingDateCheck;
   fiscalYear: (today: string) => { start: string; end: string };
 }
 
@@ -74,7 +74,7 @@ export function useFiscalCalendar(enabled = true): FiscalCalendar {
   const periods = loaded && loaded.id === id ? loaded.periods : null;
   return {
     ready: periods !== null,
-    check: (iso, today) => checkPostingDate(iso, periods, today, fyStartMonth),
+    check: (iso, today, draftOnly) => checkPostingDate(iso, periods, today, fyStartMonth, draftOnly),
     fiscalYear: (today) => currentFiscalYear(periods, today, fyStartMonth),
   };
 }

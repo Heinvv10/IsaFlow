@@ -35,6 +35,11 @@ type Row = DbRow;
  *   Approve (the MCP finalize_invoice tool) pass it. Mirrors the
  *   reverseJournalEntry / reverseReconciledTransaction opts pattern.
  */
+/**
+ * The invoice's period is not open: refused before any write, so a route may answer it with a 400.
+ */
+export class InvoicePeriodClosedError extends Error {}
+
 export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
@@ -147,7 +152,7 @@ export async function postCustomerInvoiceToGL(
     if (!opts?.historicalImport) {
       const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
       if (periodStatus === 'closed') {
-        throw new Error(
+        throw new InvoicePeriodClosedError(
           `Cannot post invoice ${inv.invoice_number} to GL — its fiscal period is closed. ` +
             `Reopen the period, or date the invoice in an open one.`,
         );
