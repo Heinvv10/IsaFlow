@@ -21,6 +21,7 @@ import { offCycleRaiseRefusal } from './payrollOffCycleCorrection';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { PSP_TREATMENT_KEPT, pspTreatmentsAtApproval } from './pspComponentGuard';
+import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
 
 const refused = (m: string, status: 400 | 409 = 409) => new OffCycleRunRefusedError(m, status);
 
@@ -81,7 +82,8 @@ export async function setOffCycleBonusAmount(
     `) as DbRow[])[0];
     if (!before) throw refused('That employee is not on this bonus run.', 400);
     if (!Number.isFinite(expected) || Math.round(Number(before.amount) * 100) !== Math.round(expected * 100)) {
-      throw refused('This bonus amount was changed by someone else after you opened it: reload the run and try again.');
+      throw new OffCycleRunRefusedError('This bonus amount was changed by someone else after you opened it: reload the run and try again.',
+        409, PAYROLL_REFUSAL.AMOUNT_CHANGED);
     }
     // The same amount (gate item 6 on 06c106a94d): nothing changes, so the run keeps its lines, totals and status.
     if (Math.round(Number(before.amount) * 100) === Math.round(amount * 100)) return { runId, employeeId, amount };

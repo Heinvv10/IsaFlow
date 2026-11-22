@@ -53,6 +53,17 @@ describe('an unchanged bonus amount (gate item 6 on 06c106a94d)', () => {
   });
 });
 
+describe('a stale expectedAmount (review L2 of e9f437f366)', () => {
+  it('is 409 with refusal AMOUNT_CHANGED, and nothing is written', async () => {
+    const res = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${bonusRun}/off-cycle-amounts`, bonusRun, {
+      body: { employeeId: emp, amount: 1_500, expectedAmount: 1_999 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.body.error?.details?.refusal).toBe('AMOUNT_CHANGED');
+    expect(Number((await a.pool.query('SELECT amount FROM payroll_off_cycle_employees WHERE run_id = $1', [bonusRun])).rows[0].amount)).toBe(2_000);
+  });
+});
+
 describe('the pro-rata rule and an off-cycle run', () => {
   it('an allowance effective on the 28th does not block the bonus\'s approval', async () => {
     const allowance = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)

@@ -41,7 +41,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof OffCycleRunRefusedError) {
-      return err.status === 400 ? apiResponse.badRequest(res, err.message) : apiResponse.conflict(res, err.message, { code: err.code });
+      return err.status === 400 ? apiResponse.badRequest(res, err.message)
+        : apiResponse.conflict(res, err.message, { code: err.code, ...(err.refusal ? { refusal: err.refusal } : {}) });
     }
     throw err;
   }

@@ -19,6 +19,7 @@ import { NO_EARLIER_LINES, type MonthEarlierLines } from './payrollOffCycleMonth
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { payRunFinalSql } from './payRunFinalSql';
+import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
 import type { PreparedRunEmployee } from './payrollRunComponents';
 import type { PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -55,7 +56,7 @@ async function assertLeaversStillLeaving(companyId: string, ids: string[], perio
   const noReason = rows.filter((r) => r.termination_reason == null || String(r.termination_reason).trim() === '').map(who);
   if (noReason.length > 0) {
     throw new OffCycleRunRefusedError(`${noReason.join(', ')}: leaving with no termination reason, so the pay-outs cannot be costed. `
-      + 'Record the termination (with its reason) first.', 409, 'TERMINATION_REASON_MISSING');
+      + 'Record the termination (with its reason) first.', 409, PAYROLL_REFUSAL.TERMINATION_REASON_MISSING);
   }
 }
 
@@ -81,7 +82,7 @@ async function assertOnFinalRegularRun(companyId: string, runId: string, ids: st
   if (rows.length === 0) return;
   const who = rows.map((r) => `${`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim()} (${String(r.employee_number)})`);
   throw new OffCycleRunRefusedError(`${who.join(', ')}: not on the month's final regular run, so a bonus cannot be costed on it. `
-    + 'Approve the regular run with them on it, or take them off this bonus run.', 409, 'REGULAR_LINE_MISSING');
+    + 'Approve the regular run with them on it, or take them off this bonus run.', 409, PAYROLL_REFUSAL.REGULAR_LINE_MISSING);
 }
 
 export async function prepareOffCycleComponents(args: {

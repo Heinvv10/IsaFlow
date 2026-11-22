@@ -26,6 +26,7 @@ import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
 import { laterMonthFinalRefusal, offCycleApprovalRefusal, offCycleOrderRefusal } from './payrollOffCycleOrder';
 import { offCycleFiledMonthRefusal } from './payrollOffCycleCorrection';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
 import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
 
@@ -163,7 +164,7 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   const noReason = named((p) => p.termination_reason == null || String(p.termination_reason).trim() === '');
   if (noReason) {
     throw new OffCycleRunRefusedError(`${noReason} leaving with no termination reason: record the termination (with its reason) first.`,
-      409, 'TERMINATION_REASON_MISSING');
+      409, PAYROLL_REFUSAL.TERMINATION_REASON_MISSING);
   }
   for (const p of people) {
     // Any final run that paid them (the regular run included): none is excluded, the off-cycle run does not exist yet.
