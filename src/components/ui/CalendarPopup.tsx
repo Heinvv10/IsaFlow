@@ -26,6 +26,8 @@ export interface CalendarPopupProps {
   today: string;
   minDate?: string;
   maxDate?: string;
+  /** A reason a day cannot be chosen beyond min / max (e.g. its fiscal period is closed), else null. Shown as the day's title. */
+  blockedReason?: (iso: string) => string | null;
   /** The calendar button: a press on it is its own toggle, not an outside press. */
   trigger: HTMLElement | null;
   onPick: (iso: string) => void;
@@ -35,7 +37,7 @@ export interface CalendarPopupProps {
 
 const PANEL_HEIGHT = 360;
 const PANEL_WIDTH = 288;
-const HINT = 'Type 15 or 15/3 or 15/03/2026 · t today · +30 days · eom month end';
+const HINT = 'Type 15 or 15/3 or 15/03/2026 · t today · +30 days · eom month end · y financial year start · r year end';
 const selectClass = 'h-9 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 ff-focus-ring dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100';
 const navClass = 'inline-flex h-9 w-9 max-lg:h-11 max-lg:w-11 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-40 ff-focus-ring dark:text-gray-300 dark:hover:bg-gray-700';
 
@@ -44,7 +46,7 @@ const ymOf = (iso: string): YearMonth => {
   return { year: y, month: m };
 };
 
-export function CalendarPopup({ anchor, trigger, selected, start, today, minDate, maxDate, onPick, onClose }: CalendarPopupProps) {
+export function CalendarPopup({ anchor, trigger, selected, start, today, minDate, maxDate, blockedReason, onPick, onClose }: CalendarPopupProps) {
   const { sheet, ref, style } = usePopupPanel({ anchor, trigger, onClose, panelHeight: PANEL_HEIGHT, panelWidth: PANEL_WIDTH });
   const [focusIso, setFocusIso] = useState(() => clampToBounds(start, minDate, maxDate));
   const [view, setView] = useState<YearMonth>(() => ymOf(clampToBounds(start, minDate, maxDate)));
@@ -56,7 +58,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
     ref.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus();
   }, [focusIso, view, ref]);
 
-  const off = (iso: string): boolean => Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate));
+  const off = (iso: string): boolean => Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate) || blockedReason?.(iso));
   const goTo = (iso: string): void => {
     const next = clampToBounds(iso, minDate, maxDate);
     grabFocus.current = true;
@@ -148,6 +150,7 @@ export function CalendarPopup({ anchor, trigger, selected, start, today, minDate
                     aria-selected={isSel}
                     aria-current={iso === today ? 'date' : undefined}
                     aria-disabled={disabled || undefined}
+                    title={blockedReason?.(iso) ?? undefined}
                     tabIndex={iso === focusIso ? 0 : -1}
                     onClick={() => { if (!disabled) onPick(iso); }}
                     onFocus={() => { if (disabled) { grabFocus.current = true; ref.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus(); return; } grabFocus.current = true; if (iso !== focusIso) setFocusIso(iso); }}
