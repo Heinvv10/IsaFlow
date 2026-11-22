@@ -10,7 +10,7 @@ a parser change, not a data change: a row the parser cannot read is refused with
 
 One JSON object with `Items` and/or `PurchaseOrders` and NO other key (a misspelt or re-cased container, `Purchase_Orders`, `items`, is refused by name; a file with neither is refused). `Items` and `PurchaseOrders` each hold the rows as an array, as one Sage list page
 (`{"$totalResults", "$startIndex", "$itemsPerPage", "$resources": [...]}`) or as an array of pages.
-A page whose `$totalResults` is more than the rows read, or that has a `$next` link, is a partial export and the file is refused. Fields not listed below are ignored. Money is a JSON number.
+A page whose `$totalResults` is more than the rows read, that has a `$next` link, whose `$totalResults` / `$startIndex` is not a whole number, that starts anywhere but where the rows before it end (a first page with `$startIndex` above 0), or a first page with a `$back` link, is a partial export and the file is refused (later pages of an array of pages may carry `$startIndex` and `$back`). Fields not listed below are ignored. Money is a JSON number.
 
 ## Item (`Items`)
 
@@ -39,7 +39,7 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 | `DocumentNumber` | required, unique in the file | `po_number`, `external_document_number` |
 | `Date`, `DeliveryDate` | `YYYY-MM-DD` or an ISO date-time; Date required. A date-time with a Z or an offset is converted to the Johannesburg (UTC+2) date: `2026-03-04T22:00:00Z` is 2026-03-05; with no zone it is taken as written | `order_date`, `delivery_date` |
 | `Status` | Pending, Overdue, Invoiced, Cancelled (any case) | open, open, billed (= closed), cancelled; any other is refused. How Pending/Overdue go in is the one constant `OPEN_SAGE_PO_IMPORTED_AS` (`sagePoStatus.ts`; `draft` is the alternative) |
-| `Currency`, `CurrencyId`, `ExchangeRate` and any field with "currency" or "exchange" in its name | none, or ZAR / rate 1. Anything else is refused as `foreign_currency` (a `CurrencyId` passes only beside a field saying ZAR: its ids are Sage's) | |
+| `Currency`, `CurrencyId`, `ExchangeRate` and any field with "currency" or "exchange" in its name | none, or ZAR / rate 1. Anything else is refused as `foreign_currency`, `invalid_text` (a NUL byte or a lone surrogate in a text field: item Code / Description / category, PO DocumentNumber / Reference / Comments / supplier name / line description), `item_has_stock_movements` (an owned item with stock movements would change type or tracking), `supplier_inactive` (a `CurrencyId` passes only beside a field saying ZAR: its ids are Sage's) | |
 | `Reference`, `Comments` | optional | `reference`; `notes` = "Sage status: X" + comments |
 | `SupplierId`, `SupplierName` | `SupplierId` required | `supplier_id`: found by Sage reference on the supplier, else by exact name; unresolved or ambiguous refuses the PO |
 | `Exclusive`, `Tax`, `Total` | required, whole cents, Exclusive + Tax = Total | `expected_totals` (checked by the tool to the cent) |
@@ -72,7 +72,7 @@ DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-fi
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
 
-Without `--live` it is a dry run and writes nothing. With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. A re-run replays finished batches under their keys; if the rows of an earlier run were deleted since, the replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
+Without `--live` it is a dry run and writes nothing. `--live` is NOT started when the dry run shows what the person did not allow: `--expect-*` figures that miss what would be sent, rows refused without `--allow-refusals`, differences without `--allow-differences` (status `live_blocked`, exit 1, nothing written). `--po-gl-account` must name an active, non-header expense account of the company (checked before the dry run). With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. A re-run replays finished batches under their keys; if the rows of an earlier run were deleted since, the replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
 The runner refuses unless `DATABASE_URL` is a local throwaway database (`localGuard.ts`): host 127.0.0.1 or localhost, an
 explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query parameters but `sslmode`, and a database named
 `isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
@@ -105,3 +105,9 @@ to one IsaFlow supplier are both refused).
 - **`--po-gl-account` posts every PO line to that one account.** It is opt-in; the default is no account, and a line with none is
   "No budget" (not judged; under `block` an approved one is refused, see above). With the flag the budget check, and so what a PO commits, is only as right as that one choice: a line
   that Sage would have coded elsewhere is judged against this account's budget.
+- **The ownership window.** The dry run's item outcomes are checked against the snapshot (an item that came back `updated` for a Sage id
+  the migration did not own, or `created` for one it did, fails the dry run naming the row), which closes the gap between the snapshot
+  and the dry run. A writer that adds an item with an export code between the dry run and a live batch can still be overwritten by
+  that batch: the tool matches by code. External systems of items and categories are compared exactly (case-sensitive `sage`), as
+  those tools do; PO and supplier lookups are case-insensitive, as theirs are.
+- **Exit codes.** 3 = the run finished but `--report` could not be written (the summary is printed before the report is written).
