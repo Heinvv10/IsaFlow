@@ -73,6 +73,13 @@ describe('DateField calendar: opening', () => {
     expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/October 2026/);
     expect(cell('2026-10-15').getAttribute('aria-current')).toBe('date');
   });
+  it('highlights the typed-but-uncommitted date as selected', () => {
+    render(<Harness initial="2026-10-10" />);
+    fireEvent.change(input(), { target: { value: '20/10/2026' } });
+    fireEvent.click(openBtn());
+    expect(cell('2026-10-20').getAttribute('aria-selected')).toBe('true');
+    expect(cell('2026-10-10').getAttribute('aria-selected')).toBe('false');
+  });
   it('opens on the month of a typed-but-uncommitted readable date', () => {
     render(<Harness />);
     fireEvent.change(input(), { target: { value: '15/03/2024' } });
@@ -97,6 +104,7 @@ describe('DateField calendar: picking and closing', () => {
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(popup()).toBeNull();
     expect(out()).toBe('2026-10-10');
+    expect(document.activeElement).toBe(openBtn()); // W3C: focus returns to the trigger, even if a click did not focus it (Safari, Firefox/mac)
   });
   it('the Today button picks today', () => {
     render(<Harness initial="2026-03-01" />);
@@ -181,11 +189,26 @@ describe('DateField calendar: keyboard (W3C date picker dialog)', () => {
     expect(parentKey).not.toHaveBeenCalled();
     expect(input().value).toMatch(/15 Oct 2026/);
   });
-  it('Tab stays inside the popup (it is a modal dialog)', () => {
+  it('Tab wraps inside the popup: from the last control to the first, and Shift+Tab back', () => {
     open();
-    expect(popup()!.getAttribute('aria-modal')).toBe('true');
-    const dialogButtons = within(popup()!).getAllByRole('button');
-    expect(dialogButtons.length).toBeGreaterThan(2);
+    const close = within(popup()!).getByRole('button', { name: /^close$/i });
+    const first = within(popup()!).getByRole('button', { name: /previous month/i });
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(close);
+  });
+  it('Close returns focus to the calendar button', () => {
+    open();
+    fireEvent.click(within(popup()!).getByRole('button', { name: /^close$/i }));
+    expect(popup()).toBeNull();
+    expect(document.activeElement).toBe(openBtn());
+  });
+  it('a press on the text box (not just outside the field) closes the dialog, but a press on the calendar button does not', () => {
+    open();
+    fireEvent.mouseDown(input());
+    expect(popup()).toBeNull();
   });
 });
 
@@ -227,6 +250,13 @@ describe('DateField calendar: jumping and bounds', () => {
     expect((document.activeElement as HTMLElement).getAttribute('data-iso')).toBe('2026-10-16');
     k('PageDown');
     expect((document.activeElement as HTMLElement).getAttribute('data-iso')).toBe('2026-10-16');
+  });
+  it('picking a year whose same month is out of range lands on the nearest allowed month, with a tab stop', () => {
+    render(<Harness initial="2025-12-10" maxDate="2026-10-31" />);
+    fireEvent.click(openBtn());
+    fireEvent.change(screen.getByLabelText('Year'), { target: { value: '2026' } });
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/October 2026/);
+    expect(screen.getByRole('grid').querySelectorAll('[tabindex="0"]').length).toBe(1);
   });
   it('the year select covers minDate..maxDate when both are given', () => {
     render(<Harness initial="2026-10-15" minDate="2024-01-01" maxDate="2027-12-31" />);

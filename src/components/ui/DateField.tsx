@@ -109,19 +109,20 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [wrapEl, setWrapEl] = React.useState<HTMLDivElement | null>(null);
   const innerRef = React.useRef<HTMLInputElement | null>(null);
-  const refocusInput = React.useRef(false);
+  const [buttonEl, setButtonEl] = React.useState<HTMLButtonElement | null>(null);
+  const refocus = React.useRef<'input' | 'button' | null>(null);
   const setRefs = (el: HTMLInputElement | null): void => {
     innerRef.current = el;
     if (typeof ref === 'function') ref(el);
     else if (ref) ref.current = el;
   };
-  // After a pick the popup's own focus trap hands focus back to the calendar button; the typist wants the box.
+  // After a pick the typist wants the box; after Escape / Close the calendar button (W3C: focus returns to the trigger, which Safari and Firefox on macOS do not focus on click).
   React.useEffect(() => {
-    if (!calendarOpen && refocusInput.current) {
-      refocusInput.current = false;
-      innerRef.current?.focus();
+    if (!calendarOpen && refocus.current) {
+      (refocus.current === 'input' ? innerRef.current : buttonEl)?.focus();
+      refocus.current = null;
     }
-  }, [calendarOpen]);
+  }, [calendarOpen, buttonEl]);
 
   /** One day up or down from the date on screen (or from today when empty). Unreadable text is left alone. */
   const step = (days: number): boolean => {
@@ -167,6 +168,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
         className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums max-lg:min-h-11 pr-10', className)}
       />
       <button
+        ref={setButtonEl}
         type="button"
         aria-label="Choose date"
         title="Choose date (Alt+↓)"
@@ -182,13 +184,14 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
       {calendarOpen && (
         <CalendarPopup
           anchor={wrapEl}
-          selected={value}
+          trigger={buttonEl}
+          selected={understood?.ok ? understood.iso : value}
           start={understood?.ok ? understood.iso : (value ?? todayInSast(now()))}
           today={todayInSast(now())}
           minDate={minDate}
           maxDate={maxDate}
-          onPick={(iso) => { refocusInput.current = true; field.commit(show(iso)); setCalendarOpen(false); }}
-          onClose={() => setCalendarOpen(false)}
+          onPick={(iso) => { refocus.current = 'input'; field.commit(show(iso)); setCalendarOpen(false); }}
+          onClose={(restoreFocus) => { if (restoreFocus) refocus.current = 'button'; setCalendarOpen(false); }}
         />
       )}
       {name && <input type="hidden" name={name} value={value ?? ''} />}

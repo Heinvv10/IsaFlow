@@ -22,7 +22,10 @@ describe('parseSaDate short forms', () => {
   it('reads day/month as this year, day first', () => {
     expect(iso('15/3')).toBe('2026-03-15');
     expect(iso('5-12')).toBe('2026-12-05');
-    expect(iso('15.03')).toBe('2026-03-15');
+  });
+  it('does not read a decimal as a date', () => {
+    expect(iso('1.5')).toBe('ERR:format');
+    expect(iso('15.03')).toBe('ERR:format');
   });
   it('refuses a day/month that is not a real date, or month-first', () => {
     expect(iso('31/2')).toBe('ERR:invalid');
@@ -35,6 +38,9 @@ describe('parseSaDate short forms', () => {
   });
   it('reads six digits as ddmmyy with the two-digit-year window', () => {
     expect(iso('150326')).toBe('2026-03-15');
+    expect(iso('010146')).toBe('2046-01-01'); // within now + 20
+    expect(iso('010147')).toBe('1947-01-01'); // beyond it reads as the last century
+    expect(iso('261015')).toBe('2015-10-26'); // yymmdd is misread on purpose: day first is the rule
   });
   it('does not take 3, 5 or 7 digit runs, nor a signed bare number (that is the offset shortcut)', () => {
     expect(iso('150')).toBe('ERR:format');

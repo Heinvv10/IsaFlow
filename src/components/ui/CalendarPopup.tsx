@@ -27,8 +27,11 @@ export interface CalendarPopupProps {
   today: string;
   minDate?: string;
   maxDate?: string;
+  /** The calendar button: a press on it is its own toggle, not an outside press. */
+  trigger: HTMLElement | null;
   onPick: (iso: string) => void;
-  onClose: () => void;
+  /** `restoreFocus` is true for Escape / Close (focus goes back to the calendar button), false for an outside press. */
+  onClose: (restoreFocus: boolean) => void;
 }
 
 const SHEET_QUERY = '(max-width: 1023.98px)';
@@ -55,7 +58,7 @@ const ymOf = (iso: string): YearMonth => {
   return { year: y, month: m };
 };
 
-export function CalendarPopup({ anchor, selected, start, today, minDate, maxDate, onPick, onClose }: CalendarPopupProps) {
+export function CalendarPopup({ anchor, trigger, selected, start, today, minDate, maxDate, onPick, onClose }: CalendarPopupProps) {
   const sheet = useIsSheet();
   const ref = useRef<HTMLDivElement>(null);
   const [focusIso, setFocusIso] = useState(() => clampToBounds(start, minDate, maxDate));
@@ -63,27 +66,41 @@ export function CalendarPopup({ anchor, selected, start, today, minDate, maxDate
   const grabFocus = useRef(true);
   const [style, setStyle] = useState<CSSProperties | undefined>(undefined);
 
-  useFocusTrap(ref, true, onClose);
+  useFocusTrap(ref, true, () => onClose(true));
 
   // Close on a press outside; a press on the calendar button is the button's own toggle, so it is not "outside".
   useEffect(() => {
     const down = (e: MouseEvent | TouchEvent): void => {
       const t = e.target as Node | null;
-      if (!t || ref.current?.contains(t) || anchor?.contains(t)) return;
-      onClose();
+      if (!t || ref.current?.contains(t) || trigger?.contains(t)) return;
+      onClose(false);
     };
     document.addEventListener('mousedown', down);
     document.addEventListener('touchstart', down);
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('touchstart', down); };
-  }, [anchor, onClose]);
+  }, [trigger, onClose]);
 
   useLayoutEffect(() => {
-    if (sheet || !anchor) { setStyle(undefined); return; }
-    const r = anchor.getBoundingClientRect();
-    const side = chooseSide(r, window.innerHeight, PANEL_HEIGHT);
-    const p = placePanel(r, window.innerHeight, side);
-    setStyle({ position: 'fixed', left: Math.max(8, Math.min(r.left, window.innerWidth - PANEL_WIDTH - 8)), top: p.top, bottom: p.bottom, maxHeight: p.maxHeight, width: PANEL_WIDTH });
+    if (sheet || !anchor) { setStyle(undefined); return undefined; }
+    const place = (): void => {
+      const r = anchor.getBoundingClientRect();
+      const p = placePanel(r, window.innerHeight, chooseSide(r, window.innerHeight, PANEL_HEIGHT));
+      setStyle({ position: 'fixed', left: Math.max(8, Math.min(r.left, window.innerWidth - PANEL_WIDTH - 8)), top: p.top, bottom: p.bottom, maxHeight: p.maxHeight, width: PANEL_WIDTH });
+    };
+    place();
+    // Follow the field when the page or a scrolling dialog body moves, or the window resizes.
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
   }, [sheet, anchor]);
+
+  // The sheet covers the page: it must not scroll underneath.
+  useEffect(() => {
+    if (!sheet) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [sheet]);
 
   // Focus follows the roving stop only when the user is navigating the grid (not while they use the month / year controls).
   useEffect(() => {
@@ -100,9 +117,11 @@ export function CalendarPopup({ anchor, selected, start, today, minDate, maxDate
   };
   const shiftView = (ym: YearMonth): void => {
     grabFocus.current = false;
-    setView(ym);
     const [y, m] = focusIso.split('-').map(Number) as [number, number];
-    setFocusIso(clampToBounds(addMonthsISO(focusIso, (ym.year * 12 + ym.month) - (y * 12 + m)), minDate, maxDate));
+    // A month outside the bounds (Dec after picking 2026 with a max in Oct) lands on the nearest allowed one, so the grid always has a tab stop.
+    const next = clampToBounds(addMonthsISO(focusIso, (ym.year * 12 + ym.month) - (y * 12 + m)), minDate, maxDate);
+    setView(ymOf(next));
+    setFocusIso(next);
   };
   const monthOk = (ym: YearMonth): boolean => {
     const first = `${String(ym.year).padStart(4, '0')}-${String(ym.month).padStart(2, '0')}-01`;
@@ -202,14 +221,14 @@ export function CalendarPopup({ anchor, selected, start, today, minDate, maxDate
       </table>
       <div className="flex items-center justify-between gap-2">
         <button type="button" disabled={todayOff} onClick={() => onPick(today)} className="h-9 rounded-md border border-gray-300 px-3 text-sm ff-focus-ring disabled:opacity-40 dark:border-gray-600">Today</button>
-        <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-sm text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
+        <button type="button" onClick={() => onClose(true)} className="h-9 rounded-md px-3 text-sm text-gray-700 ff-focus-ring dark:text-gray-300">Close</button>
       </div>
       <p className="text-xs text-gray-600 dark:text-gray-400">{HINT}</p>
     </div>
   );
 
   return createPortal(
-    sheet ? <><div aria-hidden="true" className="fixed inset-0 z-[69] bg-black/40" onClick={(e) => { e.stopPropagation(); onClose(); }} />{body}</> : body,
+    <>{sheet && <div aria-hidden="true" className="fixed inset-0 z-[69] bg-black/40" onClick={(e) => { e.stopPropagation(); onClose(false); }} />}{body}</>,
     document.body,
   );
 }

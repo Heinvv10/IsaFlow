@@ -55,19 +55,14 @@ export function clampToBounds(iso: string, min?: string, max?: string): string {
   return iso;
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+
+export const monthName = (month: number): string => MONTHS[month - 1] ?? '';
+
 export function monthLabel(year: number, month: number): string {
-  return new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+  return `${monthName(month)} ${year}`;
 }
 
-export const monthName = (month: number): string =>
-  new Intl.DateTimeFormat('en-ZA', { month: 'long' }).format(new Date(2026, month - 1, 1));
-
-/** Mon … Sun, narrow + full names for the column headers. */
-export const WEEKDAYS: ReadonlyArray<{ short: string; full: string }> = Array.from({ length: 7 }, (_, i) => {
-  const d = new Date(2026, 0, 5 + i); // 5 Jan 2026 is a Monday
-  return {
-    short: new Intl.DateTimeFormat('en-ZA', { weekday: 'short' }).format(d).slice(0, 2),
-    full: new Intl.DateTimeFormat('en-ZA', { weekday: 'long' }).format(d),
-  };
-});
-
+/** Mon … Sun, two letters + full names for the column headers. */
+export const WEEKDAYS: ReadonlyArray<{ short: string; full: string }> = DAYS.map((full) => ({ short: full.slice(0, 2), full }));
