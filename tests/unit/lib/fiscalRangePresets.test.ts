@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fiscalRangePresets, presetRange, matchPreset, FY_PRESET_KEYS } from '@/lib/fiscalRangePresets';
+import { fiscalRangePresets, presetRange, matchPreset, FY_PRESET_KEYS, asAtPresetDate, AS_AT_PRESET_KEYS } from '@/lib/fiscalRangePresets';
 
 // FY starting March: 1 Mar 2026 -> 28 Feb 2027
 describe('fiscalRangePresets (FY starts March)', () => {
@@ -51,5 +51,24 @@ describe('fiscalRangePresets (FY starts March)', () => {
     expect(matchPreset({ from: '2026-11-01', to: '2026-11-30' }, today, 3)).toBe('this_month');
     expect(matchPreset({ from: '2026-11-02', to: '2026-11-30' }, today, 3)).toBe('custom');
     expect(matchPreset({ from: null, to: null }, today, 3)).toBe('custom');
+  });
+});
+
+describe('asAtPresetDate (FY starts March)', () => {
+  const today = '2026-11-22';
+  it('today, month ends, quarter end and FY end', () => {
+    expect(asAtPresetDate('today', today, 3)).toBe(today);
+    expect(asAtPresetDate('last_month_end', today, 3)).toBe('2026-10-31');
+    expect(asAtPresetDate('this_month_end', today, 3)).toBe('2026-11-30');
+    expect(asAtPresetDate('last_quarter_end', today, 3)).toBe('2026-08-31');
+    expect(asAtPresetDate('last_fy_end', today, 3)).toBe('2026-02-28');
+  });
+  it('last FY end across a leap year and a January start', () => {
+    expect(asAtPresetDate('last_fy_end', '2028-06-01', 3)).toBe('2028-02-29');
+    expect(asAtPresetDate('last_fy_end', today, 1)).toBe('2025-12-31');
+  });
+  it('custom has no date; keys are unique', () => {
+    expect(asAtPresetDate('custom', today, 3)).toBeNull();
+    expect(new Set(AS_AT_PRESET_KEYS).size).toBe(AS_AT_PRESET_KEYS.length);
   });
 });

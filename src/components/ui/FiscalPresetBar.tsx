@@ -7,7 +7,8 @@ import { cn } from '@/utils/cn';
 import { useCompany } from '@/contexts/CompanyContext';
 import { todayInSast } from '@/lib/saDateParser';
 import {
-  FY_PRESET_KEYS, FY_PRESET_LABELS, matchPreset, presetRange, type FyPresetKey, type IsoRange,
+  AS_AT_PRESET_KEYS, AS_AT_PRESET_LABELS, FY_PRESET_KEYS, FY_PRESET_LABELS, asAtPresetDate, matchPreset, presetRange,
+  type AsAtPresetKey, type FyPresetKey, type IsoRange,
 } from '@/lib/fiscalRangePresets';
 
 export const DEFAULT_FY_START_MONTH = 3;
@@ -64,6 +65,45 @@ export function FiscalPresetBar({
         <button key={key} type="button" disabled={disabled} aria-pressed={pressed === key}
           onClick={() => pick(key)} className={cn(PILL, pressed === key ? ON : OFF)}>
           {FY_PRESET_LABELS[key]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export interface AsAtPresetBarProps {
+  label: string;
+  value: string | null;
+  /** The date to set. The page puts it in its own state and resets its date gate. */
+  onPick: (date: string) => void;
+  onCustom?: () => void;
+  custom?: boolean;
+  fyStartMonth?: number;
+  presets?: AsAtPresetKey[];
+  getToday?: () => Date;
+  disabled?: boolean;
+  className?: string;
+}
+
+/** Preset pills for an as-at report (balance sheet, aged balances): today, month ends, quarter end, last year end. */
+export function AsAtPresetBar({
+  label, value, onPick, onCustom, custom = false, fyStartMonth, presets = AS_AT_PRESET_KEYS, getToday, disabled, className,
+}: AsAtPresetBarProps) {
+  const fy = useFyStartMonth(fyStartMonth);
+  const today = todayInSast((getToday ?? (() => new Date()))());
+  const matched = AS_AT_PRESET_KEYS.find(k => k !== 'custom' && value !== null && asAtPresetDate(k, today, fy) === value);
+  const pressed = custom ? 'custom' : (matched ?? 'custom');
+  return (
+    <div role="group" aria-label={`${label} presets`} className={cn('flex flex-wrap gap-1.5', className)}>
+      {presets.map(key => (
+        <button key={key} type="button" disabled={disabled} aria-pressed={pressed === key}
+          onClick={() => {
+            if (key === 'custom') { onCustom?.(); return; }
+            const d = asAtPresetDate(key, today, fy);
+            if (d) onPick(d);
+          }}
+          className={cn(PILL, pressed === key ? ON : OFF)}>
+          {AS_AT_PRESET_LABELS[key]}
         </button>
       ))}
     </div>

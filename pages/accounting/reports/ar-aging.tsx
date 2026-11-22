@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { AsAtPresetBar } from '@/components/ui/FiscalPresetBar';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -78,6 +79,7 @@ const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
 
 export default function ARAgingPage() {
   const [asAtDate, setAsAtDate] = useState(() => todayInSast());
+  const [presetCustom, setPresetCustom] = useState(false);
   const dates = useDateGate();
   const [hasMore, setHasMore] = useState(false);
   const [data, setData] = useState<ARAgingData | null>(null);
@@ -168,7 +170,7 @@ export default function ARAgingPage() {
             </div>
             <div className="flex items-center gap-3">
               <div>
-                <GatedDateField gate={dates} gateKey="asAt" label="As at date" value={asAtDate || null} onValue={setAsAtDate} />
+                <GatedDateField gate={dates} gateKey="asAt" label="As at date" value={asAtDate || null} onValue={v => { setPresetCustom(true); setAsAtDate(v); }} />
               </div>
               <button
                 onClick={handleExport}
@@ -187,6 +189,9 @@ export default function ARAgingPage() {
               <AlertCircle className="h-4 w-4" /> Showing the first rows only (server cap) — summary totals below include ALL records. Exports carry a TRUNCATED marker.
             </div>
           )}
+          <AsAtPresetBar label="As at" value={asAtDate || null} custom={presetCustom} className="mb-3"
+            onCustom={() => setPresetCustom(true)}
+            onPick={d => { setPresetCustom(false); setAsAtDate(d); dates.reset('asAt'); }} />
           <FixDateNotice gate={dates} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">

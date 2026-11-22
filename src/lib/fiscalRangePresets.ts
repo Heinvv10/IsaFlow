@@ -68,3 +68,22 @@ export function matchPreset(value: { from: string | null; to: string | null }, t
   const hit = fiscalRangePresets(today, fyStartMonth).find(p => p.range.from === value.from && p.range.to === value.to);
   return hit ? hit.key : 'custom';
 }
+
+export type AsAtPresetKey = 'today' | 'last_month_end' | 'this_month_end' | 'last_quarter_end' | 'last_fy_end' | 'custom';
+export const AS_AT_PRESET_KEYS: AsAtPresetKey[] = ['today', 'last_month_end', 'this_month_end', 'last_quarter_end', 'last_fy_end', 'custom'];
+export const AS_AT_PRESET_LABELS: Record<AsAtPresetKey, string> = {
+  today: 'Today', last_month_end: 'Last month end', this_month_end: 'This month end',
+  last_quarter_end: 'Last quarter end', last_fy_end: 'Last year end', custom: 'Custom',
+};
+
+/** The single date an as-at report takes for a preset, or null for Custom. */
+export function asAtPresetDate(key: AsAtPresetKey, today: string, fyStartMonth: number): string | null {
+  switch (key) {
+    case 'today': return today;
+    case 'last_month_end': return presetRange('last_month', today, fyStartMonth)?.to ?? null;
+    case 'this_month_end': return presetRange('this_month', today, fyStartMonth)?.to ?? null;
+    case 'last_quarter_end': return presetRange('last_quarter', today, fyStartMonth)?.to ?? null;
+    case 'last_fy_end': return presetRange('last_fy', today, fyStartMonth)?.to ?? null;
+    case 'custom': return null;
+  }
+}
