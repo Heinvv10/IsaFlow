@@ -19,6 +19,8 @@ export interface Send {
   /** The Sage ids of this batch's rows that are not in `after` (none for a category). */
   absent: (after: Snapshot) => string[];
   runTag?: string;
+  /** The items of an item batch, in order (`index` of the tool's answer): for the ownership check of the dry run. */
+  itemRows?: Array<{ sageId: string; code: string }>;
 }
 
 export interface PlannedBatches { categories: Send[]; items: Send[]; purchaseOrders: Send[] }
@@ -27,12 +29,14 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
   const itemSize = Math.min(opts.itemBatchSize ?? MAX_ITEM_BATCH, MAX_ITEM_BATCH);
   const poSize = Math.min(opts.poBatchSize ?? MAX_PO_BATCH, MAX_PO_BATCH);
   const categories = plan.categories.map((args, i): Send => ({
-    entity: 'category', n: i + 1, tool: 'upsert_item_category', args, size: 1, present: () => false, absent: () => [], runTag: opts.runTag,
+    entity: 'category', n: i + 1, tool: 'upsert_item_category', args, size: 1, present: () => false, runTag: opts.runTag,
+    absent: (after) => (after.categories.some((c) => c.system === 'sage' && c.ref === String(args.external_ref)) ? [] : [String(args.external_ref)]),
   }));
   const items = chunk(plan.items, itemSize).map((rows, i): Send => ({
     entity: 'item', n: i + 1, tool: 'bulk_upsert_items', args: { items: rows.map((r) => r.row) }, size: rows.length,
     present: (before) => rows.every((r) => before.itemRefs.has(r.sageId)),
     absent: (after) => rows.map((r) => r.sageId).filter((id) => !after.itemRefs.has(id)), runTag: opts.runTag,
+    itemRows: rows.map((r) => ({ sageId: r.sageId, code: String(r.row.code) })),
   }));
   const purchaseOrders = chunk(plan.purchaseOrders, poSize).map((rows, i): Send => ({
     entity: 'purchase_order', n: i + 1, tool: 'bulk_create_purchase_orders', size: rows.length,

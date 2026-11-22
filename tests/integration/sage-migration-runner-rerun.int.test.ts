@@ -24,7 +24,7 @@ beforeEach(async () => { s = await sageWorld(pool); }, 120_000);
 afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool, s.w); }, 120_000);
 
 const run = (over: Record<string, unknown> = {}, file = exportFile(), p: Pool = pool) =>
-  runSageMigration(p, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, ...over });
+  runSageMigration(p, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
 type Row = Record<string, unknown>;
 const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: Row[] }).$resources;
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
@@ -161,15 +161,20 @@ describe('rows refused before sending', () => {
     for (let i = 0; i < 2; i++) await pool.query('INSERT INTO suppliers (company_id, name) VALUES ($1, $2)', [s.companyId, 'Dup Co']);
     const parsed = parsedExport(file);
 
-    // What the export holds is not what was booked: asked to expect the export's own figures, the run says it missed them.
-    const r = await run({ expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: parsed.exportPoTotalCents } }, file);
-    expect(r.status).toBe('completed');
-    expect(r.reconciliation.expected).toMatchObject({
-      items: { expected: 20, actual: 19, basis: 'booked', ok: false }, purchaseOrders: { expected: 10, actual: 7, ok: false },
-      purchaseOrderTotalCents: { ok: false },
+    // What the export holds is not what would be sent: asked to expect the export's own figures, the dry run says it misses them and
+    // live is NOT started (#3): nothing is committed and then reported as a failure.
+    const blocked = await run({ expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: parsed.exportPoTotalCents } }, file);
+    expect(blocked.status).toBe('live_blocked');
+    expect(blocked.live).toBeNull();
+    expect(blocked.liveBlockedBy).toHaveLength(3);
+    expect(blocked.reconciliation.expected).toMatchObject({
+      items: { expected: 20, actual: 19, basis: 'sent', ok: false }, purchaseOrders: { expected: 10, actual: 7, ok: false }, purchaseOrderTotalCents: { ok: false },
     });
-    expect(exitCodeFor(r, true)).toBe(1); // allowed refusals do not excuse a missed expectation
-    expect(summaryLines(r).filter((l) => l.startsWith('MISMATCH'))).toHaveLength(3);
+    expect(exitCodeFor(blocked, true)).toBe(1); // allowed refusals do not excuse a missed expectation
+    expect(summaryLines(blocked).filter((l) => l.startsWith('MISMATCH'))).toHaveLength(3);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, pos: 0, categories: 0 });
+    const r = await run({}, file);
+    expect(r.status).toBe('completed');
     expect(r.refused.map((x) => [x.entity, x.label, x.code]).sort()).toEqual([
       ['item', 'FIB-0003', 'invalid_row'],
       ['purchase_order', 'PO0000198', 'supplier_unresolved'],

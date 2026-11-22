@@ -35,7 +35,7 @@ describe('exit code and summary with differences', () => {
   const base = (): MigrationReport => ({
     companyId: 'c', status: 'completed', refused: [], budgetWouldHaveFailed: [], live: null,
     dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-    differences: { purchaseOrders: [], items: [] },
+    differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [],
     reconciliation: {
       items: { presentBefore: 3 }, purchaseOrders: { exportTotalCents: 0, sentTotalCents: 0, notSentTotalCents: 0, bookedTotalCents: 0, differenceCents: 0, exportRowsWithoutTotal: 0 },
       expected: { items: null, purchaseOrders: null, purchaseOrderTotalCents: null }, stock: { written: 0, itemsWithQuantityOnHandIgnored: 0 },
@@ -73,5 +73,25 @@ describe('exit code and summary with differences', () => {
     const none = base();
     (none.reconciliation.items as { presentBefore: number }).presentBefore = 0;
     expect(summaryLines(none).join('\n')).not.toMatch(/overwritten/);
+  });
+
+  it('the summary warns loudly when rows were refused and nothing at all is sent or booked', () => {
+    const none = base();
+    (none.reconciliation.items as Record<string, number>).sent = 0;
+    (none.reconciliation.purchaseOrders as unknown as Record<string, number>).sent = 0;
+    const r: MigrationReport = { ...none, reconciliation: { ...none.reconciliation, nothingRefused: false } };
+    expect(summaryLines(r).join('\n')).toMatch(/^WARNING: every row was refused: nothing is imported/m);
+    expect(summaryLines(none).join('\n')).not.toMatch(/every row was refused/);
+    const some = base();
+    (some.reconciliation.items as Record<string, number>).sent = 4;
+    expect(summaryLines({ ...some, reconciliation: { ...some.reconciliation, nothingRefused: false } }).join('\n')).not.toMatch(/every row was refused/);
+  });
+
+  it('a run whose live phase was blocked says why, exits 1, and lists the reasons', () => {
+    const r: MigrationReport = { ...base(), status: 'live_blocked', liveBlockedBy: ['--expect-pos 3, but the dry run would send 10'] };
+    expect(exitCodeFor(r, true, true)).toBe(1);
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain('company c: live_blocked');
+    expect(t).toContain('LIVE NOT STARTED: --expect-pos 3, but the dry run would send 10');
   });
 });

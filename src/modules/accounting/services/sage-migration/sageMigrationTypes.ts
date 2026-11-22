@@ -68,7 +68,9 @@ export interface Reconciliation {
 
 export interface MigrationReport {
   companyId: string;
-  status: 'dry_run_ok' | 'dry_run_failed' | 'completed' | 'failed';
+  status: 'dry_run_ok' | 'dry_run_failed' | 'live_blocked' | 'completed' | 'failed';
+  /** Why --live did not start although the dry run was clean (expectations missed by what would be sent, refusals or differences not allowed). */
+  liveBlockedBy: string[];
   refused: RowRefusal[];
   dryRun: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport; clean: boolean };
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
@@ -88,6 +90,9 @@ export interface MigrationOptions {
   /** false (default): the dry run only. true: the dry run, then the live run when the dry run is clean. */
   live?: boolean;
   skipBudgetCheck?: boolean;
+  /** Go live although rows are refused / although POs or owned items differ from the books: otherwise a live run is NOT started on a dry run that shows them. */
+  allowRefusals?: boolean;
+  allowDifferences?: boolean;
   /** An expense account (UUID) for every PO line, so the budget check judges the line; none: lines are "No budget". */
   poGlAccountId?: string;
   /** Salts every batch key: a deliberate fresh import after the rows of an earlier run were deleted. */

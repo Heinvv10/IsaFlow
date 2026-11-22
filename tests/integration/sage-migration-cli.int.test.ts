@@ -61,10 +61,11 @@ describe('scripts/sage-migration/run.ts', () => {
   it('a second --live run adds nothing; a wrong expectation is a MISMATCH and exit 1', async () => {
     const before = await booked(pool, s.companyId);
     const r = cli([...base(), '--live', '--expect-items', '20', '--expect-pos', '757']);
-    expect(r.code).toBe(1); // the export has 10 POs, not the 757 asked for
-    expect(r.out).toContain('items: 20 in export, 0 refused, 20 sent, 20 already there, 20 there after (+0)');
-    expect(r.out).toContain('MISMATCH purchaseOrders: expected 757, booked 10');
-    expect({ ...(await booked(pool, s.companyId)), toolCalls: 0 }).toEqual({ ...before, toolCalls: 0 });
+    expect(r.code).toBe(1); // the export has 10 POs, not the 757 asked for: the dry run shows it and live is NOT started
+    expect(r.out).toContain('company ' + s.companyId + ': live_blocked');
+    expect(r.out).toContain('MISMATCH purchaseOrders: expected 757, sent 10');
+    expect(r.out).toContain('LIVE NOT STARTED: --expect-pos 757, but the dry run would send 10');
+    expect(await booked(pool, s.companyId)).toEqual(before);
   }, 180_000);
 
   it('a refused row is exit 1, dry run or live, unless --allow-refusals; the rest of the file is still booked', async () => {
@@ -79,11 +80,15 @@ describe('scripts/sage-migration/run.ts', () => {
     expect(dry.out).toContain('refused item FIB-0003 [invalid_row]');
     expect(cli([...args, '--allow-refusals']).code).toBe(0);
     expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 0, pos: 0 });
+    // #3: without --allow-refusals live is NOT started, so nothing is committed and then reported as a failure.
     const live = cli([...args, '--live', '--expect-items', '19', '--expect-pos', '10']);
     expect(live.code).toBe(1);
-    expect(live.out).toContain('all sent rows booked: true; nothing refused: false');
-    expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 19 });
-    expect(cli([...args, '--live', '--allow-refusals', '--expect-items', '19', '--expect-pos', '10']).code).toBe(0);
+    expect(live.out).toContain('LIVE NOT STARTED: rows are refused');
+    expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 0, pos: 0, categories: 0 });
+    const allowed = cli([...args, '--live', '--allow-refusals', '--expect-items', '19', '--expect-pos', '10']);
+    expect(allowed.code, allowed.out + allowed.err).toBe(0);
+    expect(allowed.out).toContain('all sent rows booked: true; nothing refused: false');
+    expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 19, pos: 10 });
   }, 180_000);
 
   it('M2: a re-run whose Sage data changed is exit 1 with the difference listed, and 0 with --allow-differences', async () => {
@@ -95,7 +100,48 @@ describe('scripts/sage-migration/run.ts', () => {
     const r = cli(args);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/DIFFERS: PO0000197 .*status approved -> closed/);
-    expect(cli([...args, '--allow-differences']).code).toBe(0);
+    expect(r.out).toContain('LIVE NOT STARTED');
+    const okd = cli([...args, '--allow-differences']);
+    expect(okd.code, okd.out + okd.err).toBe(0);
+  }, 180_000);
+
+  it('#3: --expect-pos 3 on a good file, and a partly refused file without --allow-refusals: both exit 1 with nothing written', async () => {
+    const world = await sageWorld(pool);
+    try {
+      const good = ['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live'];
+      const r = cli([...good, '--expect-items', '20', '--expect-pos', '3']);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('LIVE NOT STARTED: --expect-pos 3, but the dry run would send 10');
+      expect(await booked(pool, world.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0, toolCalls: 0 });
+      const file = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'));
+      file.PurchaseOrders[1].SupplierId = 999;
+      file.PurchaseOrders[1].SupplierName = 'Nobody Ltd';
+      const part = join(dir, 'part.json');
+      writeFileSync(part, JSON.stringify(file));
+      const p = cli(['--company', world.companyId, '--user', world.userId, '--file', part, '--live', '--expect-items', '20', '--expect-pos', '9']);
+      expect(p.code).toBe(1);
+      expect(p.out).toContain('LIVE NOT STARTED: rows are refused');
+      expect(await booked(pool, world.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0, toolCalls: 0 });
+    } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
+  }, 180_000);
+
+  it('#4: a --report that cannot be written after a committed run: the summary is still printed, exit 3 (not 2), the books are as the run left them', async () => {
+    const world = await sageWorld(pool);
+    try {
+      const r = cli(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live',
+        '--expect-items', '20', '--expect-pos', '10', '--report', join(dir, 'no-such-dir', 'report.json')]);
+      expect(r.code).toBe(3);
+      expect(r.out).toContain(`company ${world.companyId}: completed`);
+      expect(r.out).toContain('all sent rows booked: true; nothing refused: true');
+      expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report could not be written to .*no-such-dir.*ENOENT/);
+      expect(await booked(pool, world.companyId)).toMatchObject({ items: 20, pos: 10 });
+    } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
   }, 180_000);
 
   it('F4: --live needs --expect-items and --expect-pos, so a file that lost a container cannot pass unnoticed', () => {

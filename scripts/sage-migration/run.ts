@@ -10,7 +10,7 @@
  * deliberate fresh import after the rows of an earlier run were deleted (the registry would otherwise replay that run's answers). With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
  * run or a live run that booked every row it sent, whose --expect-* figures match what was sent (dry run) or booked (live) and
- * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start.
+ * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start, 3 when the run finished but --report could not be written (the summary is printed first).
  * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -62,15 +62,25 @@ async function main(): Promise<void> {
   pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
     const report = await runSageMigration(pool, parsed, {
-      companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'],
+      companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
       expect: {
         items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
         purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
       },
     });
-    if (values.report) writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
+    // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     for (const line of summaryLines(report)) out(line);
-    process.exitCode = exitCodeFor(report, values['allow-refusals'] === true, values['allow-differences'] === true);
+    const code = exitCodeFor(report, values['allow-refusals'] === true, values['allow-differences'] === true);
+    process.exitCode = code;
+    if (values.report) {
+      try {
+        writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
+      } catch (err) {
+        // Its own exit code (3), not 2 ("refused to start"): the run happened, and the summary above says what it did.
+        process.stderr.write(`the run finished (exit ${code} without this) but the report could not be written to ${values.report}: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exitCode = 3;
+      }
+    }
   } finally {
     await pool.end();
   }

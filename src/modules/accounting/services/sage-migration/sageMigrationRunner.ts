@@ -17,7 +17,9 @@ import { log } from '@/lib/logger';
 import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
 import { batchKey, RUN_TAG } from './sageBatches';
+import { assertPoGlAccount } from './sageAccountCheck';
 import { checkRowsPresent, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
+import { ownershipProblem } from './sageOwnership';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
@@ -29,11 +31,31 @@ import { withToolSession, type ToolSession } from './sageToolSession';
 
 const emptyPhase = (): PhaseReport => ({ batches: [], failed: 0 });
 
+/** Why a live run must not start on this (clean) dry run; empty when it may. */
+function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationReport['differences'], o: MigrationOptions): string[] {
+  const why: string[] = [];
+  const names: Record<string, string> = { items: '--expect-items', purchaseOrders: '--expect-pos', purchaseOrderTotalCents: '--expect-po-total' };
+  for (const [key, e] of Object.entries(rec.expected)) {
+    if (e && !e.ok) why.push(`${names[key] ?? key} ${e.expected}, but the dry run would send ${e.actual}`);
+  }
+  if (!rec.nothingRefused && !o.allowRefusals) why.push('rows are refused (see the refused list); --allow-refusals imports the rest');
+  const differs = diff.purchaseOrders.length + diff.items.length;
+  if (differs > 0 && !o.allowDifferences) why.push(`${differs} PO(s) or owned item(s) differ from the books (see the differences list); --allow-differences goes on anyway`);
+  return why;
+}
+
 async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, before: Snapshot) {
   return withToolSession(pool, o.companyId, o.userId, false, async (session) => {
     const run = async (list: Send[]): Promise<PhaseReport> => {
       const p = emptyPhase();
-      for (const s of list) { const b = await sendBatch(session, s, before, true); p.batches.push(b); if (b.status === 'failed') p.failed++; }
+      for (const s of list) {
+        let b = await sendBatch(session, s, before, true);
+        // The dry run's item outcomes say what the live call would do: they must agree with what the plan was made from.
+        const problem = b.status === 'ok' && s.itemRows ? ownershipProblem(b, s.itemRows, before) : null;
+        if (problem) b = { ...b, status: 'failed', error: problem };
+        p.batches.push(b);
+        if (b.status === 'failed') p.failed++;
+      }
       return p;
     };
     const categories = await run(all.categories);
@@ -68,6 +90,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   assertLocalPool(pool);
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
+    if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
     const snapshot = await readSnapshot(opts.companyId);
     const resolved = await resolveSuppliers(session, parsed.purchaseOrders, snapshot.supplierSageRefs);
     return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId, skipBudgetCheck: opts.skipBudgetCheck }) };
@@ -76,12 +99,17 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const dry = await dryRun(pool, opts, all, before);
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
-  const noLive = (status: MigrationReport['status']): MigrationReport => ({
-    ...base, status, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders),
-    differences: differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches]), reconciliation: buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false }),
+  const dryDifferences = differencesFrom([...dry.items.batches, ...dry.purchaseOrders.batches]);
+  const dryReconciliation = buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false });
+  const noLive = (status: MigrationReport['status'], liveBlockedBy: string[] = []): MigrationReport => ({
+    ...base, status, liveBlockedBy, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders), differences: dryDifferences, reconciliation: dryReconciliation,
   });
   if (!dry.clean) return noLive('dry_run_failed');
   if (!opts.live) return noLive('dry_run_ok');
+  // Live starts only on a dry run whose result the person would accept: what would be sent matches --expect-*, and no refusal or
+  // difference is there that they did not allow. Otherwise a live run would commit and then exit 1.
+  const blockers = liveBlockers(dryReconciliation, dryDifferences, opts);
+  if (blockers.length > 0) return noLive('live_blocked', blockers);
 
   const categories = await livePhase(pool, opts, all.categories, before);
   const liveItems = categories.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
@@ -92,12 +120,13 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
     const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, after));
     return { batches, failed: batches.filter((b) => b.status === 'failed').length };
   };
+  const categoriesVerified = verified(categories, all.categories);
   const items = verified(liveItems, all.items);
   const purchaseOrders = verified(livePos, all.purchaseOrders);
-  const failed = categories.failed + items.failed + purchaseOrders.failed;
+  const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
   const phaseSkipped = categories.failed > 0 || liveItems.failed > 0;
   return {
-    ...base, status: failed > 0 ? 'failed' : 'completed', live: { categories, items, purchaseOrders },
+    ...base, status: failed > 0 ? 'failed' : 'completed', liveBlockedBy: [], live: { categories: categoriesVerified, items, purchaseOrders },
     budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
     differences: differencesFrom([...items.batches, ...purchaseOrders.batches]),
     reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),

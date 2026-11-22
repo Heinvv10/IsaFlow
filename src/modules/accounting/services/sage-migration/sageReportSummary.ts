@@ -24,6 +24,8 @@ export function summaryLines(r: MigrationReport): string[] {
     `dry run: ${phase('categories', r.dryRun.categories)}; ${phase('items', r.dryRun.items)}; ${phase('purchase orders', r.dryRun.purchaseOrders)}`,
   ];
   if (r.live) lines.push(`live: ${phase('categories', r.live.categories)}; ${phase('items', r.live.items)}; ${phase('purchase orders', r.live.purchaseOrders)}`);
+  if (!rec.nothingRefused && rec.items.sent + po.sent === 0) lines.push('WARNING: every row was refused: nothing is imported');
+  for (const why of r.liveBlockedBy) lines.push(`LIVE NOT STARTED: ${why}`);
   if (r.budgetWouldHaveFailed.length > 0) {
     lines.push(`BUDGET: ${r.budgetWouldHaveFailed.length} purchase order(s) would have failed the budget check (skipped by --skip-budget-check):`);
     for (const x of r.budgetWouldHaveFailed) lines.push(`  ${x.poNumber}: ${x.reasons.join('; ') || 'no reason given'}`);

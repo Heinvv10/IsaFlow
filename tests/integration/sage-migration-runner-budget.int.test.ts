@@ -54,8 +54,41 @@ const left = async () => ({
   counters: await n(pool, `SELECT count(*) AS n FROM company_document_numbers WHERE company_id = $1 AND document_type = 'purchase_order'`, [f.co]),
 });
 
+describe('#5: --po-gl-account must be an active, postable expense account of this company', () => {
+  const account = async (code: string, type: string, over: { active?: boolean; co?: string } = {}) => String((await pool.query(
+    `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+     VALUES ($1, $2, $2, $3, 'debit', 3, $4) RETURNING id`, [over.co ?? f.co, `S5-${code}`, type, over.active ?? true])).rows[0].id);
+  const attempt = (poGlAccountId: string) => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poGlAccountId });
+
+  it('revenue, asset, AP (liability), equity, a header, an inactive, another company\'s and an unknown account are refused before anything runs', async () => {
+    const header = await account('HDR', 'expense');
+    await pool.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active, parent_account_id) VALUES ($1, 'S5-CHILD', 'child', 'expense', 'debit', 4, true, $2)`, [f.co, header]);
+    const other = await seedBillFixture(pool, 'sage-budget-other');
+    try {
+      const cases: Array<[string, string, RegExp]> = [
+        ['revenue', await account('REV', 'revenue'), /is of type revenue/],
+        ['asset (the fixture VAT input)', f.acc.vat, /is of type asset/],
+        ['AP (the fixture payable)', f.acc.ap, /is of type liability/],
+        ['equity', await account('EQ', 'equity'), /is of type equity/],
+        ['a header', header, /is a header account/],
+        ['inactive', await account('OFF', 'expense', { active: false }), /is inactive/],
+        ['another company\'s', other.acc.travel, /is not a GL account of this company/],
+        ['unknown', crypto.randomUUID(), /is not a GL account of this company/],
+      ];
+      for (const [name, id, why] of cases) await expect(attempt(id), name).rejects.toThrow(why);
+      expect(await left()).toEqual(base);
+      // The fixture's expense accounts, and the new child (postable), are accepted.
+      for (const id of [f.acc.travel, f.acc.opex]) expect((await attempt(id)).status, id).toBe('dry_run_ok');
+    } finally {
+      await dropBillFixture(pool, other);
+      await pool.query('DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE $2 AND parent_account_id IS NOT NULL', [f.co, 'S5-%']);
+      await pool.query('DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE $2', [f.co, 'S5-%']);
+    }
+  });
+});
+
 describe('M1: the block policy and POs with no GL account', () => {
-  const bare = () => ({ companyId: f.co, userId: f.owner, poBatchSize: 2 }); // no poGlAccountId: the lines have no account
+  const bare = () => ({ companyId: f.co, userId: f.owner, poBatchSize: 2, allowRefusals: true }); // no poGlAccountId: the lines have no account
 
   it('each open PO is refused per row BEFORE any batch: the dry run is clean, nothing is written, the reason names the remedies', async () => {
     await setPolicy(pool, f, 'block');

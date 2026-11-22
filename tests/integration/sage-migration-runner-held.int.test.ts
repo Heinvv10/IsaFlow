@@ -22,7 +22,7 @@ beforeEach(async () => { s = await sageWorld(pool); }, 120_000);
 afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool, s.w); }, 120_000);
 
 const run = (over: Record<string, unknown> = {}, file = exportFile(), p: Pool = pool) =>
-  runSageMigration(p, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, ...over });
+  runSageMigration(p, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
 type Row = Record<string, unknown>;
 const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: Row[] }).$resources;
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
@@ -177,6 +177,54 @@ describe('#11: an owned item with stock movements keeps its type and tracking', 
     expect((await pool.query('SELECT inventory_tracked, item_type FROM items WHERE id = $1', [item])).rows[0]).toEqual({ inventory_tracked: true, item_type: 'physical' });
     await pool.query('DELETE FROM stock_movements WHERE company_id = $1', [s.companyId]);
     await pool.query('DELETE FROM products WHERE company_id = $1', [s.companyId]);
+  });
+});
+
+describe('#1: an owned-ness the snapshot got wrong is caught by the dry run, before anything is written', () => {
+  /** A pool whose Nth connect() first runs `hook` (a writer landing between the runner's reads). */
+  const hooked = (nth: number, hook: () => Promise<void>): Pool => {
+    let n = 0;
+    return { options: pool.options, connect: async () => { n++; if (n === nth) await hook(); return pool.connect(); } } as unknown as Pool;
+  };
+
+  it('a human-made item with an export code appears AFTER the snapshot: the dry run fails naming the row, the item is untouched, live writes nothing', async () => {
+    // connect 1 = the snapshot's read session, connect 2 = the dry run: the item lands between them.
+    const p2 = hooked(2, async () => {
+      await pool.query(`INSERT INTO items (company_id, code, description, item_type, inventory_tracked, selling_price_excl) VALUES ($1, 'FIB-0001', 'HUMAN MADE', 'physical', true, 500)`, [s.companyId]);
+    });
+    const r = await run({}, exportFile(), p2);
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.live).toBeNull();
+    expect(r.dryRun.items.batches[0]!.error).toMatch(/row 0 \(FIB-0001, Sage id 50001\) came back updated, but it is not an item this migration owns/);
+    expect((await pool.query(`SELECT description, item_type, inventory_tracked, selling_price_excl FROM items WHERE company_id = $1`, [s.companyId])).rows)
+      .toEqual([{ description: 'HUMAN MADE', item_type: 'physical', inventory_tracked: true, selling_price_excl: '500.00' }]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 1, categories: 0, pos: 0, toolCalls: 0 });
+  });
+
+  it('with nothing landing in between, the same run is clean (the check is not a false alarm on a re-run of owned items)', async () => {
+    await run();
+    const r = await run({ live: false });
+    expect(r.status).toBe('dry_run_ok');
+  });
+});
+
+describe('#8: replayed categories whose rows are gone', () => {
+  it('after the rows were deleted, the categories batches say "replayed, rows absent" like items and POs do; --run-tag imports afresh', async () => {
+    await run();
+    await pool.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)', [s.companyId]);
+    await pool.query('DELETE FROM purchase_orders WHERE company_id = $1', [s.companyId]);
+    await pool.query('DELETE FROM items WHERE company_id = $1', [s.companyId]);
+    await pool.query('DELETE FROM item_categories WHERE company_id = $1', [s.companyId]);
+    const stale = await run();
+    expect(stale.status).toBe('failed');
+    const cats = stale.live!.categories.batches;
+    expect(cats).toHaveLength(4);
+    expect(cats.every((b) => b.status === 'failed' && b.rowsAbsent === 1)).toBe(true);
+    expect(cats[0]!.error).toMatch(/replayed, rows absent: 1 of 1 rows/);
+    expect(cats[0]!.error).toMatch(/--run-tag/);
+    const fresh = await run({ runTag: 'again2' });
+    expect(fresh.status).toBe('completed');
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: 4, items: 20, pos: 10 });
   });
 });
 
