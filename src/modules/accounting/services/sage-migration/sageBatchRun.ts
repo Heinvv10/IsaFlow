@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
 import type { BatchEntity, BatchReport, MigrationOptions } from './sageMigrationTypes';
 import { MAX_ITEM_BATCH, MAX_PO_BATCH, batchKey, chunk } from './sageBatches';
 import type { MigrationPlan } from './sageMigrationPlan';
-import type { SentItem } from './sageOwnership';
-import type { ExistingItem, Snapshot } from './sageSnapshot';
+import type { SentCategory, SentItem } from './sageOwnership';
+import type { ExistingCategory, ExistingItem, Snapshot } from './sageSnapshot';
 import type { ToolSession } from './sageToolSession';
 
 export interface Send {
@@ -25,6 +25,9 @@ export interface Send {
   itemRows?: Array<{ sageId: string; code: string }>;
   /** What the batch sends for each item, to check the books after the items phase. */
   itemSent?: SentItem[];
+  /** The Sage id of the category of a category send: its key follows the owned category's state, and the books are checked against `categorySent`. */
+  categoryRef?: string;
+  categorySent?: SentCategory;
 }
 
 /**
@@ -41,9 +44,15 @@ export function itemBatchSalt(rows: ReadonlyArray<{ sageId: string }>, existing:
   return mine.length === 0 ? undefined : createHash('sha256').update(mine.join('|')).digest('hex').slice(0, 16);
 }
 
+/** The salt of a category send's key: the state hash of the owned category (system sage, this Sage id), as for an item batch. */
+export function categoryBatchSalt(sageId: string, existing: readonly ExistingCategory[]): string | undefined {
+  const c = existing.find((x) => x.system === 'sage' && x.ref === sageId);
+  return c ? createHash('sha256').update(`${sageId}:${c.stateHash}`).digest('hex').slice(0, 16) : undefined;
+}
+
 /** The idempotency key a batch is sent under (a dry run's carries "-dry"). */
 export function keyFor(s: Send, before: Snapshot, dry: boolean): string {
-  const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : undefined;
+  const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : s.categoryRef ? categoryBatchSalt(s.categoryRef, before.categories) : undefined;
   return batchKey(s.entity, s.n, s.args, s.runTag, salt) + (dry ? '-dry' : '');
 }
 
@@ -55,6 +64,7 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
   const categories = plan.categories.map((args, i): Send => ({
     entity: 'category', n: i + 1, tool: 'upsert_item_category', args, size: 1, present: () => false, runTag: opts.runTag,
     absent: (after) => (after.categories.some((c) => c.system === 'sage' && c.ref === String(args.external_ref)) ? [] : [String(args.external_ref)]),
+    categoryRef: String(args.external_ref), categorySent: { sageId: String(args.external_ref), name: String(args.name), isActive: args.is_active !== false },
   }));
   const items = chunk(plan.items, itemSize).map((rows, i): Send => ({
     entity: 'item', n: i + 1, tool: 'bulk_upsert_items', args: { items: rows.map((r) => r.row) }, size: rows.length,

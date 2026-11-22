@@ -1,17 +1,39 @@
-/** L12 (round 3): an error after a live run may have committed says so. */
+/** L3 (round 4): the stop message follows whether the live phase actually started, not the command line. */
 import { describe, expect, it } from 'vitest';
 import { stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
+import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+
+const batch = (entity: BatchReport['entity'], n: number, status: BatchReport['status'] = 'ok'): BatchReport =>
+  ({ entity, n, size: 1, key: `key-${entity}-${n}`, status, allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: null });
 
 describe('stopMessage', () => {
-  it('a dry run that stops says only why', () => {
-    expect(stopMessage(new Error('boom'), false)).toBe('sage migration stopped: boom');
+  it('a plain error says only why, whatever the command line was', () => {
+    expect(stopMessage(new Error('boom'))).toBe('sage migration stopped: boom');
+    expect(stopMessage('plain')).toBe('sage migration stopped: plain');
   });
-  it('a live run that stops says the run may have committed, and what to do', () => {
-    const m = stopMessage(new Error('boom'), true);
+  it('a stop BEFORE the live phase started claims no commit', () => {
+    expect(stopMessage(new MigrationStopped(new Error('boom'), false, []))).toBe('sage migration stopped: boom');
+  });
+  it('a stop after the live phase started says the run may have committed, and lists the batches that did', () => {
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [batch('category', 1), batch('item', 1), batch('item', 2, 'failed')]));
     expect(m).toContain('sage migration stopped: boom');
     expect(m).toMatch(/the live run may already have committed.*check the books.*dry run/s);
+    expect(m).toContain('committed: category batch 1 (key-category-1)');
+    expect(m).toContain('committed: item batch 1 (key-item-1)');
+    expect(m).not.toContain('item batch 2'); // a failed batch is not listed as committed
   });
-  it('a non-Error is stringified', () => {
-    expect(stopMessage('plain', false)).toBe('sage migration stopped: plain');
+  it('a live stop with nothing committed yet still says it may have', () => {
+    expect(stopMessage(new MigrationStopped(new Error('x'), true, []))).toMatch(/may already have committed/);
+  });
+});
+
+describe('MigrationStopped', () => {
+  it('keeps the cause\'s message and the batches, and is an Error', () => {
+    const e = new MigrationStopped(new Error('inner'), true, [batch('item', 1)]);
+    expect(e).toBeInstanceOf(Error);
+    expect(e.message).toBe('inner');
+    expect(e.committed).toHaveLength(1);
+    expect(new MigrationStopped('text', false, []).message).toBe('text');
   });
 });

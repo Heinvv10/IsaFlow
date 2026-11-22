@@ -43,7 +43,7 @@ describe('a re-run', () => {
     // B3 (round 3): an item batch's key follows the state of the owned rows, so it is NOT replayed from the first run's answer: it runs and finds every row unchanged.
     expect(again.live!.items.batches[0]!.key).not.toBe(first.live!.items.batches[0]!.key);
     expect(again.live!.items.batches[0]!.toolReported).toMatchObject({ written: false, counts: { created: 0, updated: 0, unchanged: 20 } });
-    expect(again.differences).toEqual({ purchaseOrders: [], items: [] });
+    expect(again.differences).toEqual({ purchaseOrders: [], items: [], categories: [] });
     expect(exitCodeFor(again, false)).toBe(0);
     // Nothing is written: not one row touched (the unchanged item call leaves an audit row of its own, nothing else).
     expect({ ...(await booked(pool, s.companyId)), toolCalls: 0 }).toEqual({ ...afterFirst.counts, toolCalls: 0 });
@@ -96,7 +96,7 @@ describe('M2: a re-run that finds the books different from Sage', () => {
     expect(r.differences.purchaseOrders).toEqual([]);
     expect(exitCodeFor(r, false)).toBe(1);
     expect(exitCodeFor(r, false, true)).toBe(0);
-    expect(summaryLines(r).join('\n')).toMatch(/NOTE: a re-run sets the items and categories this migration owns back to Sage's values/);
+    expect(summaryLines(r).join('\n')).toMatch(/NOTE: a re-run sets the items and categories this migration owns back to the values it sends/);
   });
 
   it('a dry-run-only re-run lists the same differences', async () => {

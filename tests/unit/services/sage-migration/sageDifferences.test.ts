@@ -16,12 +16,20 @@ describe('differencesFrom', () => {
     ] })]);
     expect(d.purchaseOrders).toEqual([{ poNumber: 'PO2', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }]);
     expect(d.items).toEqual([]);
+    expect(d.categories).toEqual([]);
   });
   it('lists the items a batch answered updated, with the fields that change; created and unchanged are not differences', () => {
     const d = differencesFrom([batch('item', { rows: [
       { index: 0, outcome: 'created', code: 'A' }, { index: 1, outcome: 'unchanged', code: 'B' }, { index: 2, outcome: 'updated', code: 'C', changed: ['sales_price', 'is_active'] },
     ] })]);
     expect(d.items).toEqual([{ code: 'C', changed: ['sales_price', 'is_active'] }]);
+  });
+  it('lists the categories a batch answered updated, with the fields that change; created and unchanged are not differences', () => {
+    const d = differencesFrom([
+      batch('category', { outcome: 'created', name: 'A' }), batch('category', { outcome: 'unchanged', name: 'B' }),
+      batch('category', { outcome: 'updated', name: 'C', changed: ['name', 'is_active'] }), batch('category', null),
+    ]);
+    expect(d.categories).toEqual([{ name: 'C', changed: ['name', 'is_active'] }]);
   });
   it('the same PO or item named by two batches (dry run and live) is listed once', () => {
     const po = batch('purchase_order', { purchase_orders: [{ po_number: 'PO1', payload_differs: true, differences: [{ field: 'status', existing: 'a', requested: 'b' }] }] });
@@ -42,15 +50,15 @@ describe('exit code and summary with differences', () => {
   const base = (): MigrationReport => ({
     companyId: 'c', status: 'completed', refused: [], budgetWouldHaveFailed: [], live: null,
     dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-    differences: { purchaseOrders: [], items: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] },
+    differences: { purchaseOrders: [], items: [], categories: [] }, liveBlockedBy: [], lineLinks: { linked: 0, basis: 'booked', alreadyThere: [], notLinked: [] },
     reconciliation: {
       items: { presentBefore: 3 }, purchaseOrders: { exportTotalCents: 0, sentTotalCents: 0, notSentTotalCents: 0, bookedTotalCents: 0, differenceCents: 0, exportRowsWithoutTotal: 0 },
       expected: { items: null, purchaseOrders: null, purchaseOrderTotalCents: null }, stock: { written: 0, itemsWithQuantityOnHandIgnored: 0 },
       attachments: { posWithPdf: 0, files: [] }, allSentBooked: true, nothingRefused: true,
     } as never,
   });
-  const withPoDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [{ poNumber: 'PO9', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }], items: [] } });
-  const withItemDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [], items: [{ code: 'FIB-1', changed: ['sales_price'] }] } });
+  const withPoDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [{ poNumber: 'PO9', differences: [{ field: 'status', existing: 'approved', requested: 'closed' }] }], items: [], categories: [] } });
+  const withItemDiff = (): MigrationReport => ({ ...base(), differences: { purchaseOrders: [], items: [{ code: 'FIB-1', changed: ['sales_price'] }], categories: [] } });
 
   it('exit 0 with none; 1 with a PO difference or an item update, unless differences are allowed', () => {
     expect(exitCodeFor(base(), false, false)).toBe(0);
@@ -60,6 +68,13 @@ describe('exit code and summary with differences', () => {
       expect(exitCodeFor(r, false, true)).toBe(0);
     }
     expect(exitCodeFor(base(), false)).toBe(0);
+  });
+  it('a category difference changes the exit code and is listed, like the others', () => {
+    const r: MigrationReport = { ...base(), differences: { purchaseOrders: [], items: [], categories: [{ name: 'Optics', changed: ['name'] }] } };
+    expect(exitCodeFor(r, false, false)).toBe(1);
+    expect(exitCodeFor(r, true, false)).toBe(1);
+    expect(exitCodeFor(r, false, true)).toBe(0);
+    expect(summaryLines(r).join('\n')).toContain("DIFFERS: category Optics would be updated to Sage's values: name");
   });
   it('allowing differences does not allow refusals, and allowing refusals does not allow differences', () => {
     const refused = { ...base(), reconciliation: { ...base().reconciliation, nothingRefused: false } };
@@ -75,8 +90,8 @@ describe('exit code and summary with differences', () => {
     const i = summaryLines(withItemDiff()).join('\n');
     expect(i).toContain('FIB-1 would be updated to Sage\'s values: sales_price');
   });
-  it('L2: when items are already there, the summary says a re-run sets them back to Sage\'s values (IsaFlow edits are overwritten)', () => {
-    expect(summaryLines(base()).join('\n')).toMatch(/re-run sets .*items and categories .* back to Sage's values.*overwritten/s);
+  it('L2: when items are already there, the summary says a re-run sets them back to the values it sends (IsaFlow edits are overwritten)', () => {
+    expect(summaryLines(base()).join('\n')).toMatch(/re-run sets .*items and categories .* back to the values it sends.*overwritten.*a value Sage dropped stays: the tools never clear a field/s);
     const none = base();
     (none.reconciliation.items as { presentBefore: number }).presentBefore = 0;
     expect(summaryLines(none).join('\n')).not.toMatch(/overwritten/);

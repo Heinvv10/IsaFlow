@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_UPSERT_ROWS } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { MAX_PURCHASE_ORDERS } from '@/lib/mcp/tools/purchaseOrderImportArgs';
-import { itemBatchSalt } from '@/modules/accounting/services/sage-migration/sageBatchRun';
+import { categoryBatchSalt, keyFor, itemBatchSalt } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { batchKey, MAX_ITEM_BATCH, MAX_PO_BATCH, RUN_TAG } from '@/modules/accounting/services/sage-migration/sageBatches';
 import { checkRowsPresent, planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { budgetWouldHaveFailed } from '@/modules/accounting/services/sage-migration/sageBudgetReport';
@@ -186,5 +186,26 @@ describe('B3 (round 3): an item batch key follows the state of the owned rows it
     const k0 = (await sendBatch(s, batches.items[0]!, empty(), false)).key;
     expect(new Set([k0, k1, k2]).size).toBe(3);
     expect(k0).toMatch(/^sage-mig-item-0001-[0-9a-f]{16}$/);
+  });
+});
+
+describe('M1 (round 4): a category batch key follows the state of the owned category it touches', () => {
+  const cat = (ref: string, stateHash: string, system = 'sage') => ({ id: `c${ref}`, name: `N${ref}`, system, ref, isActive: true, stateHash });
+  it('no owned category (first run, or deleted): no salt; another system\'s category is not owned', () => {
+    expect(categoryBatchSalt('10', [])).toBeUndefined();
+    expect(categoryBatchSalt('10', [cat('10', 'h', 'Sage'), cat('99', 'h')])).toBeUndefined();
+  });
+  it('the salt follows the owned category\'s state', () => {
+    const a = categoryBatchSalt('10', [cat('10', 'h1')]);
+    expect(a).toBeDefined();
+    expect(categoryBatchSalt('10', [cat('10', 'h1')])).toBe(a);
+    expect(categoryBatchSalt('10', [cat('10', 'h2')])).not.toBe(a);
+  });
+  it('keyFor salts a category send by its category, an item send by its rows, a PO send by neither', () => {
+    const b = planBatches({ ...plan(1, 1, 1), categories: [{ name: 'C', external_system: 'sage', external_ref: '10', is_active: true }] }, {});
+    const snap = (h: string) => ({ ...empty(), categories: [cat('10', h)] });
+    expect(keyFor(b.categories[0]!, snap('h1'), false)).not.toBe(keyFor(b.categories[0]!, snap('h2'), false));
+    expect(keyFor(b.categories[0]!, empty(), false)).toMatch(/^sage-mig-category-0001-[0-9a-f]{16}$/);
+    expect(keyFor(b.purchaseOrders[0]!, snap('h1'), false)).toBe(keyFor(b.purchaseOrders[0]!, snap('h2'), false));
   });
 });

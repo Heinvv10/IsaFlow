@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { booked, cleanupSageWorld, exportFile, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { afterCommitOf, booked, cleanupSageWorld, exportFile, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 
 assertDisposable();
@@ -123,13 +123,10 @@ describe('B3: a re-run does what its dry run said after an owned item was change
 
 describe('the books are checked against what the items phase sent, before any PO is written', () => {
   it('an item changed after its batch committed: the items batch is failed naming it, and the PO phase is not started', async () => {
-    // connects: 1 snapshot, 2 dry run, 3-6 the four categories, 7 their check, 8 the item batch, 9 the check that follows it.
-    let n = 0;
-    const hooked = { options: pool.options, connect: async () => {
-      n++;
-      if (n === 9) await pool.query(`UPDATE items SET is_active = false WHERE company_id = $1 AND external_ref = '50002'`, [s.companyId]);
-      return pool.connect();
-    } } as unknown as Pool;
+    // The writer lands right after the live item batch COMMITs (hooked on that batch, not on a connection count).
+    const hooked = afterCommitOf(pool, 'bulk_upsert_items', {
+      after: async () => { await pool.query(`UPDATE items SET is_active = false WHERE company_id = $1 AND external_ref = '50002'`, [s.companyId]); },
+    });
     const r = await runSageMigration(hooked, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true });
     expect(r.status).toBe('failed');
     expect(r.live!.items.batches[0]).toMatchObject({ status: 'failed' });

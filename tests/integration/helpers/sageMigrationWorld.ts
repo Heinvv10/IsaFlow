@@ -102,3 +102,41 @@ export async function stamps(pool: Pool, company: string): Promise<Record<string
      UNION ALL SELECT 'cat:' || id, xmin::TEXT FROM item_categories WHERE company_id = $1`, [company])).rows;
   return Object.fromEntries(rows.map((r) => [r.k, r.x]));
 }
+
+/**
+ * A pool that reacts to a BATCH, not to a connection count: after the COMMIT of the transaction that ran `tool` (the dry run rolls back, so
+ * only a live batch counts), `after` runs once on the real pool; with `failNextConnect` the next connect() then rejects (a lost connection).
+ * It finds the tool from the registry's own `mcp_tool_calls` audit insert in that transaction.
+ */
+export function afterCommitOf(pool: Pool, tool: string, opts: { after?: () => Promise<void>; failNextConnect?: boolean }): Pool {
+  let fired = false;
+  let failNext = false;
+  return {
+    options: pool.options,
+    connect: async () => {
+      if (failNext) { failNext = false; throw new Error('injected: connection lost'); }
+      const client = await pool.connect();
+      let last: string | null = null;
+      return new Proxy(client, {
+        get(target, prop) {
+          if (prop === 'query') {
+            return async (...args: unknown[]) => {
+              const [text, params] = args as [unknown, unknown];
+              if (text === 'BEGIN') last = null;
+              if (typeof text === 'string' && text.includes('INSERT INTO mcp_tool_calls') && Array.isArray(params) && params.includes(tool)) last = tool;
+              const out = await (target.query as (...a: unknown[]) => Promise<unknown>)(...args);
+              if (text === 'COMMIT' && last === tool && !fired) {
+                fired = true;
+                if (opts.after) await opts.after();
+                if (opts.failNextConnect) failNext = true;
+              }
+              return out;
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    },
+  } as unknown as Pool;
+}

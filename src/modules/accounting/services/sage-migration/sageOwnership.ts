@@ -9,7 +9,7 @@
  * the row named. What remains is the window between the dry run and the live batch: a named limit.
  */
 import type { BatchReport } from './sageMigrationTypes';
-import type { ExistingItem } from './sageSnapshot';
+import type { ExistingCategory, ExistingItem } from './sageSnapshot';
 
 export interface PlannedItemRef { sageId: string; code: string }
 
@@ -49,6 +49,22 @@ export function itemsMismatch(sent: readonly SentItem[], after: { items: readonl
     if (item.itemType !== row.itemType) diffs.push(`item_type is ${item.itemType}, sent ${row.itemType}`);
     if (item.inventoryTracked !== row.inventoryTracked) diffs.push(`inventory_tracked is ${item.inventoryTracked}, sent ${row.inventoryTracked}`);
     if (diffs.length > 0) out.push(`${row.code} (Sage id ${row.sageId}): ${diffs.join('; ')}`);
+  }
+  return out;
+}
+
+export interface SentCategory { sageId: string; name: string; isActive: boolean }
+
+/** After the categories phase, as itemsMismatch is after the items phase: the books hold the name and the active flag that were sent. */
+export function categoriesMismatch(sent: readonly SentCategory[], after: { categories: readonly ExistingCategory[] }): string[] {
+  const out: string[] = [];
+  for (const row of sent) {
+    const c = after.categories.find((x) => x.system === 'sage' && x.ref === row.sageId);
+    if (!c) continue;
+    const diffs: string[] = [];
+    if (c.name !== row.name) diffs.push(`name is ${JSON.stringify(c.name)}, sent ${JSON.stringify(row.name)}`);
+    if (c.isActive !== row.isActive) diffs.push(`is_active is ${c.isActive}, sent ${row.isActive}`);
+    if (diffs.length > 0) out.push(`${row.name} (Sage id ${row.sageId}): ${diffs.join('; ')}`);
   }
   return out;
 }

@@ -88,6 +88,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`${stopMessage(err, process.argv.includes('--live'))}\n`);
+  process.stderr.write(`${stopMessage(err)}\n`);
   process.exit(2);
 });

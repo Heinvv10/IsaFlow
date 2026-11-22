@@ -16,7 +16,10 @@ export interface ExistingItem {
   itemType: string;
   inventoryTracked: boolean;
   isActive: boolean;
-  /** A hash of every column the item tool compares and of updated_at: it changes whenever the row is written, even back to an earlier state. */
+  /**
+   * A hash of every column the item tool compares and of updated_at: it changes whenever the row is written, even back to an earlier state.
+   * Timestamps go in as epoch seconds, so the hash does not depend on the session's TimeZone or DateStyle.
+   */
   stateHash: string;
   /** The item has stock_movements rows: its type and tracking are no longer free to change. */
   hasMovements: boolean;
@@ -28,6 +31,9 @@ export interface ExistingCategory {
   name: string;
   system: string | null;
   ref: string | null;
+  isActive: boolean;
+  /** Like an item's: every column the category tool compares plus updated_at (epoch seconds). */
+  stateHash: string;
 }
 
 export interface Snapshot {
@@ -55,7 +61,7 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     SELECT i.id::TEXT AS id, i.code, i.external_system, i.external_ref, (i.deleted_at IS NOT NULL) AS deleted, i.item_type, i.inventory_tracked, i.is_active,
            md5(row(i.code, i.description, i.item_type, i.unit, i.category_id, i.cost_price, i.selling_price_excl, i.vat_on_sales, i.vat_on_purchases,
                    i.sales_account_id, i.purchases_account_id, i.inventory_tracked, i.is_active, i.notes, i.external_system, i.external_ref,
-                   i.external_document_number, i.deleted_at, i.updated_at)::TEXT) AS state_hash,
+                   i.external_document_number, extract(epoch FROM i.deleted_at), extract(epoch FROM i.updated_at))::TEXT) AS state_hash,
            EXISTS (SELECT 1 FROM stock_movements m WHERE m.company_id = i.company_id AND m.item_id = i.id) AS has_movements
       FROM items i WHERE i.company_id = ${companyId}::UUID
   `) as Array<{ id: string; code: string; external_system: string | null; external_ref: string | null; deleted: boolean; item_type: string; inventory_tracked: boolean; is_active: boolean; state_hash: string; has_movements: boolean }>;
@@ -65,8 +71,10 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     WHERE company_id = ${companyId}::UUID
   `) as Array<{ po_number: string; external_system: string | null; external_ref: string | null; cents: string | number }>;
   const categories = (await sql`
-    SELECT id::TEXT AS id, name, external_system, external_ref FROM item_categories WHERE company_id = ${companyId}::UUID
-  `) as Array<{ id: string; name: string; external_system: string | null; external_ref: string | null }>;
+    SELECT id::TEXT AS id, name, external_system, external_ref, is_active,
+           md5(row(name, description, code, is_active, external_system, external_ref, extract(epoch FROM updated_at))::TEXT) AS state_hash
+      FROM item_categories WHERE company_id = ${companyId}::UUID
+  `) as Array<{ id: string; name: string; external_system: string | null; external_ref: string | null; is_active: boolean; state_hash: string }>;
   const suppliers = (await sql`
     SELECT id::TEXT AS id, external_ref FROM suppliers
     WHERE company_id = ${companyId}::UUID AND lower(external_system) = 'sage' AND external_ref IS NOT NULL AND deleted_at IS NULL
@@ -92,7 +100,8 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     items: existing,
     budgetPolicy: await readCheckPolicy(companyId),
     inactiveSuppliers: new Set(inactive.map((r) => String(r.id))),
-    categories: categories.map((c) => ({ id: String(c.id), name: c.name, system: c.external_system, ref: c.external_ref === null ? null : String(c.external_ref) })),
+    categories: categories.map((c) => ({ id: String(c.id), name: c.name, system: c.external_system, ref: c.external_ref === null ? null : String(c.external_ref),
+      isActive: c.is_active !== false, stateHash: String(c.state_hash) })),
     supplierSageRefs: new Map(suppliers.map((r) => [String(r.id), String(r.external_ref)])),
     poNumbers: new Map(pos.map((r) => [String(r.po_number), { system: r.external_system, ref: r.external_ref === null ? null : String(r.external_ref) }])),
   };

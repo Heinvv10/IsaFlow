@@ -16,7 +16,7 @@ export interface BatchReport {
   allRowsAlreadyPresent: boolean;
   /** Rows of this batch that are NOT in the books although the tool answered (a replayed answer of rows since deleted); 0 when all are there. */
   rowsAbsent: number;
-  /** What the tool answered (counts, outcomes). On a replay this is the stored answer of the run that wrote it. */
+  /** What the tool answered (counts, outcomes). PO batches are replayed from the stored answer of the run that wrote them; item and category batches are keyed by their owned rows' state, so only a batch whose rows are absent or unchanged since it was sent is. */
   toolReported: Record<string, unknown> | null;
   /** The tool's refusal text when the batch failed: nothing in it was written. */
   error: string | null;
@@ -87,6 +87,8 @@ export interface MigrationReport {
   differences: {
     purchaseOrders: Array<{ poNumber: string; differences: Array<{ field: string; existing: unknown; requested: unknown }> }>;
     items: Array<{ code: string; changed: string[] }>;
+    /** Owned categories the tool would change (name, is_active ...): put back to the values the migration sends. */
+    categories: Array<{ name: string; changed: string[] }>;
   };
   reconciliation: Reconciliation;
 }

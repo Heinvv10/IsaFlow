@@ -1,6 +1,6 @@
 /** #1: the dry run's item outcomes are checked against what the snapshot said the migration owns (the plan was made from that snapshot). */
 import { describe, expect, it } from 'vitest';
-import { itemsMismatch, ownershipProblem } from '@/modules/accounting/services/sage-migration/sageOwnership';
+import { categoriesMismatch, itemsMismatch, ownershipProblem } from '@/modules/accounting/services/sage-migration/sageOwnership';
 import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 
 const owned = (ref: string) => ({ id: `i${ref}`, code: `C${ref}`, system: 'sage', ref, deleted: false, itemType: 'physical', inventoryTracked: false, hasMovements: false });
@@ -50,5 +50,21 @@ describe('itemsMismatch: after the items phase, the books hold what was sent', (
     expect(itemsMismatch(sent, { items: [have('1', { code: 'OTHER' }), have('2', { itemType: 'physical' })] })).toHaveLength(2);
     expect(itemsMismatch(sent, { items: [have('1', { inventoryTracked: true }), have('2')] })).toHaveLength(1);
     expect(itemsMismatch(sent, { items: [have('2')] })).toEqual([]);
+  });
+});
+
+describe('categoriesMismatch: after the categories phase, the books hold what was sent', () => {
+  const sent = [{ sageId: '10', name: 'Optics', isActive: true }, { sageId: '11', name: 'Tools', isActive: true }];
+  const have = (ref: string, over: Record<string, unknown> = {}) => ({ id: `c${ref}`, name: ref === '10' ? 'Optics' : 'Tools', system: 'sage', ref, isActive: true, stateHash: 'h', ...over });
+  it('every sent category present with the sent name and active: no mismatch', () => {
+    expect(categoriesMismatch(sent, { categories: [have('10'), have('11')] })).toEqual([]);
+  });
+  it('a renamed or deactivated category is named with what differs', () => {
+    expect(categoriesMismatch(sent, { categories: [have('10', { name: 'Optics X' }), have('11')] })).toEqual([expect.stringMatching(/Optics \(Sage id 10\): name is "Optics X", sent "Optics"/)]);
+    expect(categoriesMismatch(sent, { categories: [have('10'), have('11', { isActive: false })] })).toEqual([expect.stringMatching(/Tools \(Sage id 11\): is_active is false, sent true/)]);
+  });
+  it('a missing category is the rows-absent check\'s business; a category of another system is not the migration\'s', () => {
+    expect(categoriesMismatch(sent, { categories: [have('11')] })).toEqual([]);
+    expect(categoriesMismatch(sent, { categories: [have('10', { system: 'Sage', name: 'Zzz' })] })).toEqual([]);
   });
 });
