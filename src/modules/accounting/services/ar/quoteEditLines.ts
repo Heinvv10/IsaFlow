@@ -17,7 +17,9 @@
  *     400 asking for its `vatType` or the saved line's `id`). Nothing is guessed across types, identical twins of
  *     different types included.
  * A legacy `taxRate` is compatible with a stored line only at that line's rate on the quote date (a legacy line: its
- * own rate), so a rate the caller changed is never "unchanged". Ids compare case-insensitively. The caller skips the
+ * own rate), so a rate the caller changed is never "unchanged", however the line matched (an id match keeps the line's
+ * identity, and the rate sent then types it by the legacy header rule). Ids compare case-insensitively. Policy: the
+ * one change in place that keeps its description but names another item is the same line, and keeps its type. The caller skips the
  * refusal for a company not registered for VAT, whose lines carry no type at all.
  *
  * Pure.
@@ -104,7 +106,12 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   const out: (LineMatch | null)[] = sent.map(() => null);
   const compatible = (l: SentQuoteLine, s: StoredQuoteVatLine) => !given(l.taxRate) || Number(l.taxRate) === rateOn(s, date);
   const free = (j: number) => j >= 0 && j < stored.length && !used.has(j);
-  const take = (i: number, j: number) => { used.add(j); out[i] = { stored: stored[j]!, identical: identical(sent[i]!, stored[j]!) }; };
+  // The ONE place a match is made, by every path (id, positional, the passes): `identical` (what "unchanged" reads) also
+  // needs a compatible rate, so a line sent by id at another legacy rate keeps its identity but is never unchanged.
+  const take = (i: number, j: number) => {
+    used.add(j);
+    out[i] = { stored: stored[j]!, identical: identical(sent[i]!, stored[j]!) && compatible(sent[i]!, stored[j]!) };
+  };
   sent.forEach((l, i) => {
     const j = idOf(l.id) !== null ? stored.findIndex((s, k) => free(k) && idOf(s.id) === idOf(l.id)) : -1;
     if (j >= 0) take(i, j);
@@ -162,7 +169,7 @@ export function legacyLinesUnchanged(
   if (sent.length !== stored.length || amountsAre === 'inclusive') return false;
   return sent.every((l, i) => {
     const m = matches[i];
-    // A match is of a compatible rate already: a legacy line's own (matchQuoteLines.rateOn).
+    // `identical` includes a compatible rate (matchQuoteLines.take), whatever matched the line: id, place or content.
     return !!m && m.identical && !given(l.vatType);
   });
 }

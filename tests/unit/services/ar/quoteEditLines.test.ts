@@ -126,6 +126,30 @@ describe('review round 5: the positional resend checks the rate, the one change 
   });
 });
 
+describe('review round 6: a line matched by id is never "unchanged" at another rate', () => {
+  const legacy = (id: string, description: string, rate: number) => stored(id, { description, vatType: null, taxAmount: null, taxRate: rate });
+  const unchanged = (sent: SentQuoteLine[], st: StoredQuoteVatLine[]) => legacyLinesUnchanged(sent, st, matchQuoteLines(sent, st, D).matches, undefined);
+
+  it('legacy 15% line sent by id at rate 0, a 0% line by id (any case) at 15, a standard-only line by id at 14: none unchanged', () => {
+    expect(unchanged([line({ id: 'a', description: 'Svc', taxRate: 0 })], [legacy('a', 'Svc', 15)])).toBe(false);
+    expect(unchanged([line({ id: 'A', description: 'Svc', taxRate: 15 })], [legacy('a', 'Svc', 0)])).toBe(false);
+    expect(unchanged([line({ id: 'a', description: 'Svc', taxRate: 14 })], [legacy('a', 'Svc', 15)])).toBe(false);
+  });
+
+  it('legacy [Export 0%, Local 15%] both by id at rate 15: not unchanged, and each keeps its identity', () => {
+    const st = [legacy('e', 'Export', 0), legacy('l', 'Local', 15)];
+    const sent = [line({ id: 'e', description: 'Export', taxRate: 15 }), line({ id: 'l', description: 'Local', taxRate: 15 })];
+    const m = matchQuoteLines(sent, st, D);
+    expect(m.matches.map((x) => [x?.stored.id, x?.identical])).toEqual([['e', false], ['l', true]]);
+    expect(legacyLinesUnchanged(sent, st, m.matches, undefined)).toBe(false);
+  });
+
+  it('the same lines by id at their own rates are unchanged', () => {
+    expect(unchanged([line({ id: 'e', description: 'Export', taxRate: 0 }), line({ id: 'l', description: 'Local', taxRate: 15 })],
+      [legacy('e', 'Export', 0), legacy('l', 'Local', 15)])).toBe(true);
+  });
+});
+
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
   it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {
