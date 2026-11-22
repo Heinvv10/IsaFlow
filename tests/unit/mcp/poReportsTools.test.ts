@@ -11,6 +11,8 @@ vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(async (..._a: unknown[]) => [] as unknown[]), { transaction: vi.fn() });
   return { sql: sqlFn, withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()), withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)) };
 });
+// token_info lists by scope and role (synchronous); the module fence (#1656) reads per-user permissions from the database and is not part of that rule.
+vi.mock('@/lib/mcp/moduleFence', () => ({ moduleFenceRefusal: vi.fn(async () => null) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/mcp/audit', async (orig) => ({
   ...(await orig<typeof import('@/lib/mcp/audit')>()),
