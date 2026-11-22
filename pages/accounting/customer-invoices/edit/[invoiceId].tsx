@@ -62,7 +62,8 @@ export default function EditCustomerInvoicePage() {
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
   const waitsForCustomer = customer.pending && (form.clientId !== loadedClient || lines.some((l) => l.vatType === undefined));
   // Such lines are typed by the answer: the body is what the server holds only once this load's customer is read, so
-  // the answer arriving is not an edit (no PUT on opening a legacy no-VAT draft of an exempt customer).
+  // the answer arriving is not an edit (no PUT on opening a legacy no-VAT draft of an exempt customer). Until then the
+  // form is read-only: an edit made then would be in the first body, taken as the server's, and never autosaved.
   const [customerReadFor, setCustomerReadFor] = useState(0);
   const { load: loadDueTerms, touch: touchDue, hint: dueHint, sendDue } = useDueDateFollowsTerms(form, setForm, customer.defaults); // a terms-sourced due date follows a new date or customer
   const [approved, setApproved] = useState(false);
@@ -85,6 +86,7 @@ export default function EditCustomerInvoicePage() {
   const [loadedKey, setLoadedKey] = useState(0);
   const [pricedAtLoad, setPricedAtLoad] = useState<{ key: number; pricing: string; stale: boolean } | null>(null);
   useEffect(() => { if (!loading && !customer.pending) setCustomerReadFor(loadedKey); }, [loading, customer.pending, loadedKey]);
+  const baselineWaits = customerReadFor !== loadedKey && waitsForCustomer;
   const wip = useWipLines(lines, setLines); // removing a time-entry line: asked, and saved by Save Changes only
   const wipLoaded = wip.loaded;
 
@@ -211,7 +213,7 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id && (customerReadFor === loadedKey || !waitsForCustomer) ? invoicePutBody(id, draft, { omitDueDate: !sendDue, markClearedDue: storedDates.dueDate }) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id && !baselineWaits ? invoicePutBody(id, draft, { omitDueDate: !sendDue, markClearedDue: storedDates.dueDate }) : null,
     releaseTimeEntryIds: wip.releasing, onStale: reloadStale,
     // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line;
     // the customer a line or the due date follows, still being read.
@@ -258,7 +260,7 @@ export default function EditCustomerInvoicePage() {
           <div className="max-w-screen-2xl mx-auto min-w-0 space-y-5">
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
-              <fieldset disabled={approve.busy || approved} className="min-w-0 space-y-5">
+              <fieldset disabled={approve.busy || approved || baselineWaits} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} options={codingOptions}
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} />
 

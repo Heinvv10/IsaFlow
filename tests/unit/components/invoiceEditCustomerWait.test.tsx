@@ -90,4 +90,23 @@ describe('the edit page waits for the customer a line follows', () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(putBody(0).items[0]).toMatchObject({ description: 'Legacy edited', vatType: 'exempt' });
   }, 15_000);
+
+  it('while that customer is read the form takes no edit (it would be lost unsaved); an edit after the answer autosaves', async () => {
+    const stored = gate();
+    serve(LEGACY_NO_VAT, { 'c-1': stored.promise });
+    render(<EditPage />);
+    const field = await screen.findByDisplayValue('Legacy') as HTMLInputElement;
+    const form = () => field.closest('fieldset')!;
+    await waitFor(() => expect(lookups('c-1')).toBe(1));
+    // The server's baseline is the first body: an edit typed now would be in it, and never autosaved.
+    expect(form().disabled).toBe(true);
+    await act(async () => { stored.release(); await stored.promise; });
+    await waitFor(() => expect(form().disabled).toBe(false));
+    await pastDebounce();
+    expect(puts()).toHaveLength(0);
+    fireEvent.change(field, { target: { value: 'After the answer' } });
+    await pastDebounce();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(putBody(0).items[0]).toMatchObject({ description: 'After the answer', vatType: 'exempt' });
+  }, 15_000);
 });
