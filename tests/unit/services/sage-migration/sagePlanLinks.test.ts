@@ -156,3 +156,16 @@ describe('B1 (round 3): an owned item that is not sent is linked by id; codes ar
     expect(p.items.find((i) => i.sageId === '50001')).toBeTruthy();
   });
 });
+
+describe('L4 (round 4): a deleted row and a live row with the same Sage reference: the LIVE one is the migration\'s, whatever order the snapshot has them in', () => {
+  const row = (id: string, deleted: boolean, code: string) => ({ id, code, system: 'sage', ref: '50001', deleted, itemType: 'physical', inventoryTracked: false, hasMovements: false, isActive: true, stateHash: 'h' });
+  const dead = row('11111111-1111-4111-8111-111111111111', true, 'OLD-CODE');
+  const live = row('22222222-1111-4111-8111-111111111111', false, 'FIB-0001');
+  it('both orders give the same plan: the item is sent (an update of the live row), not refused item_deleted', () => {
+    for (const items of [[dead, live], [live, dead]]) {
+      const p = plan(file(), { ...NONE, items });
+      expect(p.refusals, JSON.stringify(items.map((i) => i.deleted))).toEqual([]);
+      expect(p.items.map((i) => i.sageId)).toContain('50001');
+    }
+  });
+});

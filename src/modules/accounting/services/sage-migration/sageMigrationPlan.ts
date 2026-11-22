@@ -49,7 +49,9 @@ function indexItems(items: readonly ExistingItem[]): ItemIndex {
   // whitespace is the same code to a person and to the PO tool. Several items can share one trimmed code ('FIB-0001' and 'FIB-0001 ').
   const byCode = new Map<string, ExistingItem[]>();
   for (const i of items) {
-    if (i.system === SAGE_SYSTEM && i.ref !== null && !byRef.has(i.ref)) byRef.set(i.ref, i);
+    // A live row wins over a deleted one with the same reference (the snapshot has no order): the same rule itemBatchSalt, the ownership
+    // check and linkFor apply.
+    if (i.system === SAGE_SYSTEM && i.ref !== null && (!byRef.has(i.ref) || (byRef.get(i.ref)!.deleted && !i.deleted))) byRef.set(i.ref, i);
     const key = i.code.trim();
     byCode.set(key, [...(byCode.get(key) ?? []), i]);
   }
