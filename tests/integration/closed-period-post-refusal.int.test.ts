@@ -23,6 +23,9 @@
  * rollback and what it pins is the refusal itself. (Path 4's route also answered 500 until it mapped
  * ClosedFiscalPeriodError to 400; see tests/unit/api/supplierCreditNotePostClosedPeriod.test.ts.)
  *
+ * Locally with storage configured, the invoice approve's PDF snapshot (snapshotInvoicePdf) uploads `<company>/<invoice>.pdf`,
+ * which cleanup does not remove; in CI there is no storage and the upload failure is swallowed.
+ * `assertNotProductionDb` refuses production only, so it still accepts a dev database: point DATABASE_URL at a disposable one.
  * The fixture company's cleanup deletes closed and locked periods, which fiscal_periods_guard_delete allows only to a
  * superuser: the integration gate's `postgres` is one; run this against a disposable database, never a dev tenant.
  *

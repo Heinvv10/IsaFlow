@@ -22,8 +22,13 @@ vi.mock('@/modules/accounting/services/ar/creditNoteApproveService', async (orig
   ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteApproveService')>()),
   approveCreditNote: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/ar/creditNoteCancelService', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/creditNoteCancelService')>()),
+  cancelCreditNote: vi.fn(),
+}));
 
 import { getCreditNoteById } from '@/modules/accounting/services/ar/creditNoteService';
+import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import handler from '../../../pages/api/accounting/supplier-credit-notes';
@@ -38,6 +43,7 @@ function patch(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.mocked(getCreditNoteById).mockResolvedValue({ id: NOTE, type: 'supplier', status: 'draft' } as never);
   vi.mocked(approveCreditNote).mockReset();
+  vi.mocked(cancelCreditNote).mockReset();
 });
 
 describe('supplier-credit-notes PATCH post into a period that is not open', () => {
@@ -46,5 +52,15 @@ describe('supplier-credit-notes PATCH post into a period that is not open', () =
     const res = await patch({ id: NOTE, action: 'post' });
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.body)).toContain(`Cannot post to ${status} fiscal period`);
+  });
+});
+
+describe('supplier-credit-notes PATCH reverse into a period that is not open', () => {
+  it('answers 400 with the reason (the same mapping, inside the same savepoint)', async () => {
+    vi.mocked(getCreditNoteById).mockResolvedValue({ id: NOTE, type: 'supplier', status: 'approved' } as never);
+    vi.mocked(cancelCreditNote).mockRejectedValue(new ClosedFiscalPeriodError('closed'));
+    const res = await patch({ id: NOTE, action: 'reverse' });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.body)).toContain('Cannot post to closed fiscal period');
   });
 });

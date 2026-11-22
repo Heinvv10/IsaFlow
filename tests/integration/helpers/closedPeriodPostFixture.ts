@@ -21,7 +21,8 @@ export async function seedWorld(state: PeriodState, databaseUrl: string): Promis
   try {
     return await buildWorld(fx, state);
   } catch (e) {
-    await dropWorld(fx); // a half-built world must not leak its company or pool
+    // A half-built world must not leak its company or pool; a cleanup failure must not replace the real error.
+    await dropWorld(fx).catch((cleanup: unknown) => { throw new Error(`world build failed and cleanup failed too: ${String(cleanup)}`, { cause: e }); });
     throw e;
   }
 }
@@ -53,13 +54,23 @@ async function buildWorld(fx: Fixture, state: PeriodState): Promise<Fixture> {
 export async function commitingTx<T>(fx: Fixture, fn: () => Promise<T>): Promise<T> {
   const c = await fx.pool.connect();
   await c.query('BEGIN');
+  let failure: unknown = null;
   try {
     return await als.run({ client: c, userId: fx.userId, companyId: fx.companyId, claims: {} } as never, fn);
+  } catch (e) {
+    failure = e;
+    throw e;
   } finally {
     // On an aborted transaction Postgres rolls back and answers ROLLBACK: then a zero-count assertion would prove nothing.
-    const ended = await c.query('COMMIT');
-    c.release();
-    if (ended.command !== 'COMMIT') throw new Error(`the request transaction did not commit (${ended.command}); a refusal from a failed statement cannot prove "writes nothing"`);
+    // The call's own error stays the one reported; a not-committed note is raised only when the call itself passed.
+    try {
+      const ended = await c.query('COMMIT');
+      if (ended.command !== 'COMMIT' && failure === null) {
+        throw new Error(`the request transaction did not commit (${ended.command}); a refusal from a failed statement cannot prove "writes nothing"`);
+      }
+    } finally {
+      c.release();
+    }
   }
 }
 
