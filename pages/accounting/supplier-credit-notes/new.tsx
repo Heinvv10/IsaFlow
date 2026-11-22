@@ -144,7 +144,7 @@ export default function NewSupplierCreditNotePage() {
                     <SupplierSelect companyFirst required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                   </div>
                   <div>
-                    <DateField label="Credit Note Date" required postingDate name="creditDate" value={form.creditDate || null}
+                    <DateField label="Credit Note Date" required postingDate="draft" name="creditDate" value={form.creditDate || null}
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>

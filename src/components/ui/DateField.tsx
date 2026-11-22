@@ -82,8 +82,10 @@ export interface DateFieldProps {
    * period is refused here (code 'closed-period'), before save, and a date outside the current financial year shows an
    * amber warning but is accepted. Needs the company's fiscal periods (one shared request); until they load, or if that
    * fails, nothing is blocked (the server still judges the save). Leave it off for report and filter dates.
+   * `'draft'`: the form only saves a draft, and the server refuses to post one into a closed period, so a closed,
+   * locked or closing date is accepted with a warning instead of refused.
    */
-  postingDate?: boolean;
+  postingDate?: boolean | 'draft';
 }
 
 export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(function DateField(
@@ -100,6 +102,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   if (maxDate !== undefined) assertISODate(maxDate, 'maxDate');
   const show = (iso: string): string => formatDisplayDate(localDateFromISO(iso), '');
   const cal = useFiscalCalendar(Boolean(postingDate));
+  const draftOnly = postingDate === 'draft';
   const todayIso = (): string => todayInSast(now());
 
   const parse = (text: string): ParseOutcome<string, DateFieldCode> => {
@@ -109,7 +112,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
     if (!r.ok) return { ok: false, code: 'unreadable', reason: r.reason };
     if (minDate && r.iso < minDate) return { ok: false, code: 'before-min', reason: minMessage ?? `The date must be on or after ${show(minDate)}.` };
     if (maxDate && r.iso > maxDate) return { ok: false, code: 'after-max', reason: maxMessage ?? `The date must be on or before ${show(maxDate)}.` };
-    const posting = postingDate ? cal.check(r.iso, todayIso()) : null;
+    const posting = postingDate ? cal.check(r.iso, todayIso(), draftOnly) : null;
     if (posting?.level === 'block') return { ok: false, code: 'closed-period', reason: posting.message };
     return { ok: true, value: r.iso };
   };
@@ -117,7 +120,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const field = useParsedField<string, DateFieldCode>({ value, format: show, parse, onChange, resetKey });
   const fyOfText = fiscalYearShortcut(field.text, cal.fiscalYear(todayIso()));
   const understood = field.text.trim() === '' ? null : fyOfText ? { ok: true as const, iso: fyOfText } : parseSaDate(field.text, now(), anchorDate);
-  const heldCheck = postingDate && understood?.ok ? cal.check(understood.iso, todayIso()) : null;
+  const heldCheck = postingDate && understood?.ok ? cal.check(understood.iso, todayIso(), draftOnly) : null;
   const warning = heldCheck?.level === 'warn' ? heldCheck.message : null;
   // A value that arrived pre-filled (a draft, a copy, today's default) is judged too, not only on blur.
   const error = externalError ?? field.error ?? (heldCheck?.level === 'block' ? heldCheck.message : null);
@@ -210,7 +213,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
           today={todayInSast(now())}
           minDate={minDate}
           maxDate={maxDate}
-          blockedReason={postingDate ? (iso) => { const c = cal.check(iso, todayIso()); return c.level === 'block' ? c.message : null; } : undefined}
+          blockedReason={postingDate ? (iso) => { const c = cal.check(iso, todayIso(), draftOnly); return c.level === 'block' ? c.message : null; } : undefined}
           onPick={(iso) => { refocus.current = 'input'; field.commit(show(iso)); setCalendarOpen(false); }}
           onClose={(restoreFocus) => { if (restoreFocus) refocus.current = openedFrom.current; setCalendarOpen(false); }}
         />

@@ -31,10 +31,25 @@ describe('checkPostingDate', () => {
       expect(r.message).toContain(state);
     }
   });
-  it('allows open periods and a period that is only closing', () => {
+  it('allows open periods', () => {
     expect(check('2026-04-10').level).toBeNull();
-    expect(check('2026-05-10').level).toBeNull();
     expect(check('2026-11-22').level).toBeNull();
+  });
+  it('a closing period is treated like a closed one: the server refuses to post into it', () => {
+    const r = check('2026-05-10');
+    expect(r.level).toBe('block');
+    expect(r.message).toContain('May 2026');
+    expect(r.message).toContain('closing');
+  });
+  it('draftOnly: closed, locked and closing dates warn instead of blocking, and say a draft can still be saved', () => {
+    for (const iso of ['2026-03-15', '2026-01-31', '2026-05-10']) {
+      const r = checkPostingDate(iso, PERIODS, TODAY, 3, true);
+      expect(r.level, iso).toBe('warn');
+      expect(r.code).toBe('closed-period');
+      expect(r.message).toMatch(/draft/i);
+      expect(r.message).toMatch(/not.*posted|cannot be posted|can't be posted/i);
+    }
+    expect(checkPostingDate('2026-04-10', PERIODS, TODAY, 3, true).level).toBeNull();
   });
   it('period boundaries are inclusive', () => {
     expect(check('2026-03-01').level).toBe('block');

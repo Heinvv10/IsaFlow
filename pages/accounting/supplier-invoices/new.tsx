@@ -230,7 +230,7 @@ export default function NewSupplierInvoicePage() {
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
                       })); }} />
                   </div>
-                  <DateField label="Invoice Date" name="invoiceDate" required postingDate value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
+                  <DateField label="Invoice Date" name="invoiceDate" required postingDate="draft" value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
                   <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setDueFromScan(false); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
                   <div>
                     <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment terms</label>
