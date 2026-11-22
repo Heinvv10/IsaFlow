@@ -91,7 +91,7 @@ DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-fi
   [--expect-items 383] [--expect-pos 757] [--expect-po-total 80950000.00]
 ```
 
-Without `--live` it is a dry run and writes nothing. `--live` is NOT started when the dry run shows what the person did not allow: `--expect-*` figures that miss what would be sent, rows refused without `--allow-refusals`, differences without `--allow-differences` (status `live_blocked`, exit 1, nothing written). `--po-gl-account` must name an active, non-header expense account of the company (checked before the dry run). With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. A re-run replays finished batches under their keys; if the rows of an earlier run were deleted since, the replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
+Without `--live` it is a dry run and writes nothing. `--live` is NOT started when the dry run shows what the person did not allow: `--expect-*` figures that miss what would be sent, rows refused without `--allow-refusals`, differences without `--allow-differences` (status `live_blocked`, exit 1, nothing written). `--po-gl-account` must name an active, non-header expense account of the company (checked before the dry run). With `--live` (which needs `--expect-items` and `--expect-pos`, 0 if none, so a file that lost a container cannot pass unnoticed) it dry-runs first and goes live only if the dry run is clean. A re-run replays finished PO batches under their keys; item and category batches are keyed by the state of the owned rows they touch, so the first re-run after a run is a fresh call that answers unchanged (it writes nothing). If the rows of an earlier run were deleted since, a replayed batch is reported "replayed, rows absent" and fails, and `--run-tag <text>` imports afresh under new keys.
 The runner refuses unless `DATABASE_URL` is a local throwaway database (`localGuard.ts`): host 127.0.0.1 or localhost, an
 explicit port that is not the IsaFlow Supabase stack's (7770-7776), no query parameters but `sslmode`, and a database named
 `isaflow_schema_fixture`, `isaflow_test` or `isaflow_sagemig_*`; `SERVICE_DATABASE_URL`, `PLATFORM_ADMIN_DATABASE_URL` and
@@ -104,8 +104,10 @@ transaction: categories, items and POs are all written live inside it, so each P
 `--po-gl-account` puts one expense account on every PO line so the budget check judges the lines. `--skip-budget-check` lists the POs
 the check would have blocked.
 
-A re-run sets the items and categories the migration owns back to Sage's values: **edits made to them in IsaFlow after the import are
-overwritten** (the report lists each owned item that would change, and the summary says so).
+A re-run sets the items and categories the migration owns back to the values it SENDS: **edits made to those fields in IsaFlow after the import
+are overwritten** (the report lists each owned item and category that would change, with the fields, and the summary says so). Limit: the
+tools never clear a field (a field left out keeps its value), so a value Sage has since DROPPED (a price emptied, a category removed) stays
+in IsaFlow, and is not listed: the migration cannot see what it does not send.
 
 Budget policy: a PO line with no GL account is "No budget" and is not judged, EXCEPT under the company's `block` policy, where the PO
 tool refuses a whole batch for any approved (open) PO with an account-less line. The plan reads the policy and refuses each such PO

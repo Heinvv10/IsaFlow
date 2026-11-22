@@ -11,8 +11,10 @@
  *   Exclusive / Tax / Total                expected_totals subtotal / tax_amount / total (checked to the cent by the tool)
  *   SupplierId / SupplierName              supplier_id (resolved by the runner: external ref, else exact name)
  *   Lines[].Description                    description; when the line names an item that is imported and active (or present, owned and
- *                                          active): item_id (an item already in the books) or item_code (one this run sends), no suffix. When the item is inactive or refused: " [item <Code>]" appended
- *                                          and no item_code (the PO tool refuses a whole batch for an inactive or unknown item)
+ *                                          active): item_code for an item this run sends, item_id for an owned item already in the books
+ *                                          that is not sent (never its stored code: it can carry whitespace the PO tool trims); no suffix.
+ *                                          When the item is inactive or refused: " [item <Code>]" appended and no link (the PO tool
+ *                                          refuses a whole batch for an inactive or unknown item)
  *   Lines[].Quantity / UnitPriceExclusive  quantity / unit_price
  *   Lines[].TaxPercentage or TaxTypeId     tax_rate
  *   Lines[].Exclusive / Tax                line_total / tax_amount (the source's own figures)
@@ -27,7 +29,7 @@ import { SAGE_SYSTEM } from './sageItemMapping';
 /** The PO tool's description limit. */
 export const MAX_LINE_DESCRIPTION = 500;
 
-/** What the plan decided for the item a line names: its code, and whether the line is LINKED (item_code) or only carries it as text. */
+/** What the plan decided for the item a line names: its code, and whether the line is LINKED (item_id or item_code) or only carries it as text. */
 export interface ItemLink { code: string; link: boolean; /** The item's id, for an item already in the books (linked by id); absent for an item this run sends (linked by its code). */ id?: string }
 
 /** The text of an UNLINKED line that names an item: its description and " [item CODE]". Never cut: over the limit is an error (the plan refuses first). */
