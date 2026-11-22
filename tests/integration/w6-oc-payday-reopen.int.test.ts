@@ -28,7 +28,7 @@ const moveTo = async (at: Date) => {
   vi.setSystemTime(at);
   for (const u of Object.keys(a.tokens)) a.tokens[u] = await a.mint(u);
 };
-const forecast = async () => (await getOwnerCashPosition(a.company, 10_000_000, NEXT_DAY)).payroll!;
+const forecast = async () => (await getOwnerCashPosition(a.company, 10_000_000, NEXT_DAY, { payroll: true })).payroll!;
 
 beforeAll(async () => {
   a = await rig('w6-oc-payday-reopen');

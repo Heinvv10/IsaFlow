@@ -41,7 +41,7 @@ async function readers() {
   const emp201 = await generateEMP201(a.company, '2026-11-01', '2026-11-30');
   const ytd = (await loadPayeYearToDate(a.company, crypto.randomUUID(), { year: 2026, month: 12 }, [p.mid!])).get(p.mid!);
   const cash13 = await readPayroll(a.company);
-  const owner = await getOwnerCashPosition(a.company, 1_000_000, new Date('2026-11-20T10:00:00Z'));
+  const owner = await getOwnerCashPosition(a.company, 1_000_000, new Date('2026-11-20T10:00:00Z'), { payroll: true });
   return {
     emp201: { paye: emp201.totalPAYE, uif: emp201.totalUIF, sdl: emp201.totalSDL, eti: emp201.totalETI },
     ytd: { periods: ytd?.periods, periodic: ytd?.periodicTaxable, annual: ytd?.annualPayments },
