@@ -22,6 +22,7 @@ import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
+import { stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 const fail = (s: string): never => { process.stderr.write(`${s}\n`); process.exit(2); };
@@ -87,6 +88,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`sage migration stopped: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(`${stopMessage(err, process.argv.includes('--live'))}\n`);
   process.exit(2);
 });
