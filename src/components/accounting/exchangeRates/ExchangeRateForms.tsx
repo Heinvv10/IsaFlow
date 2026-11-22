@@ -25,10 +25,10 @@ interface ConvertResult {
 }
 
 const INPUT_CLS =
-  'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';
+  'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500 max-lg:min-h-11';
 
 const SELECT_CLS =
-  'px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';
+  'px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500 max-lg:min-h-11';
 
 // ── Add Rate Form ─────────────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
         <button
           onClick={handleAdd}
           disabled={saving || dateGate.blocked}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm transition-colors"
+          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm transition-colors max-lg:min-h-11"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Add Rate
@@ -170,7 +170,7 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
           <input
             type="number" step="any" min="0" placeholder="1000" value={amount}
             onChange={e => { setAmount(e.target.value); setResult(null); }}
-            className="w-32 px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500"
+            className="w-32 px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500 max-lg:min-h-11"
           />
         </div>
         <div>
@@ -180,7 +180,7 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
             {currencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
           </select>
         </div>
-        <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] mb-2" />
+        <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] mb-2 max-lg:hidden" />
         <div>
           <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">To</label>
           <select value={to} onChange={e => { setTo(e.target.value); setResult(null); }} className={SELECT_CLS}>
@@ -194,7 +194,7 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
         <button
           onClick={handleConvert}
           disabled={converting || dateGate.blocked}
-          className="px-4 py-2 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] hover:border-teal-500 text-[var(--ff-text-primary)] rounded-lg flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
+          className="px-4 py-2 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] hover:border-teal-500 text-[var(--ff-text-primary)] rounded-lg flex items-center gap-2 text-sm transition-colors disabled:opacity-50 max-lg:min-h-11"
         >
           {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Convert'}
         </button>
