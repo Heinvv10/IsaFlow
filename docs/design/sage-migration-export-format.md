@@ -82,3 +82,13 @@ booked (live); and no row refused unless `--allow-refusals`. 1 = anything else; 
 POs inside its rolled-back transaction so each PO batch's budget check sees the batches before it. `--po-gl-account` puts one expense
 account on every PO line so the budget check judges the lines (with none a line is "No budget" and never blocked).
 `--skip-budget-check` lists the POs the check would have blocked.
+
+## Named limits
+
+- **The snapshot race.** What the company already holds (item codes, PO numbers, supplier references) is read once, before the dry
+  run, and the plan refuses rows against it. A writer that adds a clashing row between that read and the live batch can still make a
+  tool refuse a batch. The dry run reports such a refusal and writes nothing; a live batch that hits it is reported failed with the
+  tool's whole message, nothing of it written, and running again resumes.
+- **`--po-gl-account` posts every PO line to that one account.** It is opt-in; the default is no account, and a line with none is
+  "No budget" (never blocked). With the flag the budget check, and so what a PO commits, is only as right as that one choice: a line
+  that Sage would have coded elsewhere is judged against this account's budget.
