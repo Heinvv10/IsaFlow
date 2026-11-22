@@ -89,7 +89,7 @@ export default function CurrenciesPage() {
               </div>
               <button
                 onClick={loadData}
-                className="p-2 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] transition-colors"
+                className="p-2 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
                 title="Refresh"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -102,7 +102,7 @@ export default function CurrenciesPage() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors max-lg:min-h-11 ${
                     activeTab === tab.id
                       ? 'border-violet-500 text-violet-400'
                       : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
