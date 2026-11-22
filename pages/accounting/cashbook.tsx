@@ -112,7 +112,7 @@ export default function CashbookPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <BookOpen className="h-6 w-6 text-teal-500" />
@@ -138,7 +138,7 @@ export default function CashbookPage() {
             <select
               value={selectedBank}
               onChange={e => setSelectedBank(e.target.value)}
-              className="ff-select text-sm"
+              className="ff-select text-sm max-lg:min-h-11"
             >
               {bankAccounts.map(b => (
                 <option key={b.id} value={b.id}>
@@ -166,7 +166,7 @@ export default function CashbookPage() {
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
@@ -180,16 +180,16 @@ export default function CashbookPage() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04] transition-colors">
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDisplayDate(r.transactionDate)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.reference || '—'}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.description || r.matchedEntity || '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-green-400">
+                      <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDisplayDate(r.transactionDate)}</td>
+                      <td data-label="Reference" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.reference || '—'}</td>
+                      <td data-label="Description" className="px-4 py-3 text-[var(--ff-text-primary)]">{r.description || r.matchedEntity || '—'}</td>
+                      <td data-label="Deposits" className="px-4 py-3 text-right tabular-nums text-green-400">
                         {r.deposit > 0 ? fmt(r.deposit) : ''}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-red-400">
+                      <td data-label="Withdrawals" className="px-4 py-3 text-right tabular-nums text-red-400">
                         {r.withdrawal > 0 ? fmt(r.withdrawal) : ''}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+                      <td data-label="Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmt(r.balance)}
                       </td>
                     </tr>
@@ -198,9 +198,9 @@ export default function CashbookPage() {
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                     <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTALS</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-green-400">{fmt(totals.deposits)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{fmt(totals.withdrawals)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+                    <td data-label="Deposits" className="px-4 py-3 text-right tabular-nums text-green-400">{fmt(totals.deposits)}</td>
+                    <td data-label="Withdrawals" className="px-4 py-3 text-right tabular-nums text-red-400">{fmt(totals.withdrawals)}</td>
+                    <td data-label="Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                       {rows.length > 0 ? fmt(rows[rows.length - 1]?.balance ?? 0) : fmt(0)}
                     </td>
                   </tr>
