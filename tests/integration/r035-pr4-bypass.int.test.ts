@@ -5,9 +5,10 @@
  *    straight to paid / partially_paid with no status guard, so on a DRAFT
  *    invoice they skip approval. Under enforcement the backstop refuses them
  *    (a raised error the caller rolls back: a 500 through a route), and with
- *    enforcement off they behave as they always did. approveWriteOff no longer
- *    reaches the backstop for a draft: it refuses an invoice with no posted AR
- *    itself (AR audit C2), enforcement or not; the backstop is the second line.
+ *    enforcement off they behave as they always did. Neither reaches the
+ *    backstop for a draft any more: approveWriteOff refuses an invoice with no
+ *    posted AR itself (AR audit C2), and so does confirmCustomerPayment (#1728
+ *    review M1), enforcement or not; the backstop is the second line.
  *  - The request INSERT guard (862) now binds customer_invoice requests: an
  *    app_user session can neither plant an already-approved request nor one
  *    raised in someone else's name; a pending request of its own still goes in.
@@ -86,11 +87,12 @@ const journalsOf = async (c: string) => Number((await pool.query(
   'SELECT count(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1', [c])).rows[0].n);
 
 describe('services that move a DRAFT invoice into the population without approving it', () => {
-  it('confirmCustomerPayment on a gated draft is refused by the backstop: nothing posts, the invoice stays a draft', async () => {
+  // #1728 review M1: confirm refuses a draft invoice itself, under its lock and before the journal — the backstop is the line behind
+  it('confirmCustomerPayment on a gated draft is refused: nothing posts, the invoice stays a draft', async () => {
     const c = await company();
     const inv = await plantInvoice(pool, c, u.a);
     const payment = await draftPayment(c, inv.id, inv.customerId, 1150);
-    await expect(inTx(c, () => confirmCustomerPayment(c, payment, u.a))).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
+    await expect(inTx(c, () => confirmCustomerPayment(c, payment, u.a))).rejects.toThrow(/is draft and cannot take this receipt/);
     expect((await invoiceState(pool, inv.id)).status).toBe('draft');
     expect(await journalsOf(c)).toBe(0);
     expect((await pool.query('SELECT status FROM customer_payments WHERE id = $1', [payment])).rows[0].status).toBe('draft');
@@ -100,7 +102,7 @@ describe('services that move a DRAFT invoice into the population without approvi
     const c = await company();
     const inv = await plantInvoice(pool, c, u.a);
     const payment = await draftPayment(c, inv.id, inv.customerId, 100);
-    await expect(inTx(c, () => confirmCustomerPayment(c, payment, u.a))).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
+    await expect(inTx(c, () => confirmCustomerPayment(c, payment, u.a))).rejects.toThrow(/is draft and cannot take this receipt/);
     expect((await invoiceState(pool, inv.id)).status).toBe('draft');
   });
 
@@ -114,12 +116,12 @@ describe('services that move a DRAFT invoice into the population without approvi
     expect((await pool.query('SELECT status FROM customer_write_offs WHERE id = $1', [writeOff])).rows[0].status).toBe('draft');
   });
 
-  it('enforcement off: both behave as they always did', async () => {
+  it('enforcement off: a draft invoice takes neither (no receivable posted to settle)', async () => {
     const c = await company({ enforced: false });
     const paid = await plantInvoice(pool, c, u.a);
     const payment = await draftPayment(c, paid.id, paid.customerId, 1150);
-    await inTx(c, () => confirmCustomerPayment(c, payment, u.a));
-    expect((await invoiceState(pool, paid.id)).status).toBe('paid');
+    await expect(inTx(c, () => confirmCustomerPayment(c, payment, u.a))).rejects.toThrow(/is draft and cannot take this receipt/);
+    expect((await invoiceState(pool, paid.id)).status).toBe('draft');
     // A write-off needs an issued invoice (C2): a draft is refused whatever the enforcement setting.
     const draft = await plantInvoice(pool, c, u.a);
     const draftWo = await draftWriteOff(c, draft.id, draft.customerId, 1150);
