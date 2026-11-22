@@ -42,6 +42,9 @@ async function forge(q: PoolClient, company: string, user: string, lines: [strin
   for (const [a, d, c] of lines) await q.query('INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, $3, $4, $5)', [id, a, d, c, company]);
   await q.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [id]);
   if (reversalOf) {
+    // 1018 first asks that the link is made in the transaction that claimed the reversed journal (the stamp a writer may write) and created the
+    // contra; claim it here so the refusal judged is the one these cases are about (the lines are no negation), not the born-here one
+    await q.query('UPDATE gl_journal_entries SET reversed_by = $2, reversed_at = now() WHERE id = $1', [reversalOf, user]);
     const link = await outcome(q, 'UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [id, reversalOf]);
     expect(link).toMatch(/^(ok|23514: gl_journal_entries: )/);
     process.stderr.write(`[parity] forged link: ${link === 'ok' ? 'set (no 1018)' : `refused (1018): ${link}`}\n`);
@@ -113,6 +116,9 @@ describe('sender: a forged re-reversal revives nothing (R1, R1b, R3)', () => {
     let old = '';
     await asAppUser(pool, U.a, co.A, async (q) => {
       old = await forge(q, co.A, U.a, [[ar, 5, 0], [ar, 0, 5]], null);
+      // 1018 first asks that the link is made in the transaction that claimed the reversed journal and created the contra; claim r1 here (a stamp a writer
+      // may write) so the refusal that is judged is the one this case is about: the lines are no negation
+      await q.query('UPDATE gl_journal_entries SET reversed_by = $2, reversed_at = now() WHERE id = $1', [r1, U.a]);
       const link = await outcome(q, 'UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [old, r1]);   // a writer can (without 1018), or 1018 refuses it
       expect(link).toMatch(/^(ok|23514: gl_journal_entries: a reversal's lines must be the exact negation)/);
       process.stderr.write(`[parity R1b] re-point: ${link === 'ok' ? 'set (no 1018)' : `refused (1018): ${link}`}\n`);
@@ -196,9 +202,10 @@ describe('receiver: forged links, true revivals, and an insider\'s forged "rever
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'variance' });
     const je = m.message.source_journal_entry_id as string;
-    await asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, m.inv.id, U.a, { allowReversal: true }));
+    // The sender's journal is reversed by the service with the invoice NOT cancelled: 1018 refuses the service a re-reversal of a cancelled document's
+    // reversal, but a plain reversal and its reversal are allowed, and the mirror hears both the same way (the chain's parity, not the document's status).
+    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, je, U.a));
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', variance_reason: null });
-    await pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [m.inv.id, je]);
     await asService(pool, U.a, co.A, async () => reverseJournalEntry(co.A, (await reversalOf(pool, je))!, U.a));
     expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/not the sender's amount/) });
     expect(await derived()).toHaveLength(0);

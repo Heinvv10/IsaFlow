@@ -175,13 +175,15 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
   /** A writer's reversal of the invoice's journal (the lines swapped, posted by app_user) and the status / link of a cancel: no service, no hook. */
   async function handCancel(inv: string) {
     const je = await journalOf(inv);
-    const lines = (await pool.query('SELECT gl_account_id AS a, debit::float8 AS d, credit::float8 AS c FROM gl_journal_lines WHERE journal_entry_id = $1', [je])).rows;
+    const lines = (await pool.query('SELECT gl_account_id AS a, vat_type AS v, debit::float8 AS d, credit::float8 AS c FROM gl_journal_lines WHERE journal_entry_id = $1', [je])).rows;
     let rev = '';
     await asAppUser(pool, U.a, co.A, async (q) => {
+      // the claim the reversal service makes first (1018 links a contra only in the transaction that claimed the journal and created the contra)
+      await q.query('UPDATE gl_journal_entries SET reversed_by = $2, reversed_at = now() WHERE id = $1 AND reversed_at IS NULL', [je, U.a]);
       rev = (await q.query(
         `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', 'hand reversal', 'manual', 'draft', $1, $2) RETURNING id`,
         [U.a, co.A])).rows[0].id as string;
-      for (const l of lines) await q.query('INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, $3, $4, $5)', [rev, l.a, l.c, l.d, co.A]);
+      for (const l of lines) await q.query('INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, vat_type) VALUES ($1, $2, $3, $4, $5, $6)', [rev, l.a, l.c, l.d, co.A, l.v]);
       await q.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [rev]);
       await q.query('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [rev, je]);   // linked once posted, as the reversal service does (1018)
       await q.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = $1", [inv]);
@@ -190,6 +192,12 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
   }
   const withdraw = (inv: string) => asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [inv])).rows[0].n), true);
   const msg = async (id: string) => (await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [id])).rows[0];
+  /** 1018 refuses the reversal service a reversal of a cancelled document's reversal (JournalReinstatesCancelledDocumentError), so the ledger's undo
+   *  is a fixture's (a superuser's re-reversal: no hook runs) followed by the hook call the service makes after any reversal of the company's journal. */
+  const reReverse = async (rev: string) => {
+    const rev2 = await rawReverseJournal(pool, rev, 'raw re-reversal');
+    await asAppUser(pool, U.a, co.A, async (q) => { await q.query('SELECT public.intercompany_journal_chain_changed($1)', [rev2]); }, true);
+  };
   const restoreInvoice = (inv: string, je: string) => pool.query("UPDATE customer_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [inv, je]);
 
   it('a pending message: cancelled by hand and withdrawn, then the reversal itself reversed (the invoice is live again): the message is pending again', async () => {
@@ -198,7 +206,7 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     expect(await withdraw(m.inv.id)).toBe(1);
     expect(await msg(m.id)).toMatchObject({ status: 'withdrawn' });
     await restoreInvoice(m.inv.id, m.message.source_journal_entry_id);                  // the invoice is approved on its journal again ...
-    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));      // ... and the ledger's parity says LIVE again; the mirror hears it
+    await reReverse(rev);                                                              // ... and the ledger's parity says LIVE again; the mirror hears it
     expect(await msg(m.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
   });
 
@@ -210,7 +218,7 @@ describe('B6: a cancel the ledger undoes is undone in the mirror', () => {
     expect(await withdraw(m.inv.id)).toBe(1);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
     await restoreInvoice(m.inv.id, m.message.source_journal_entry_id);
-    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, rev, U.a));
+    await reReverse(rev);
     expect(await msg(m.id)).toMatchObject({ status: 'accepted', source_cancelled_at: null });
     expect(await groupRow()).toMatchObject({ match_status: 'matched' });
     expect(await derived()).toHaveLength(1);
@@ -246,5 +254,28 @@ describe('Ledger 4d: a DIRECT reversal of the sender\'s journal (the reversal se
     expect((await pool.query('SELECT source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0].source_cancelled_at).not.toBeNull();
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null });
     expect(await derived()).toHaveLength(0);
+  });
+
+  // The service path 1018 leaves open: no document was cancelled, so the reversal of the reversal is allowed and the mirror hears both reversals.
+  it('a pending message: the journal reversed and the reversal reversed, both by the service (the invoice never cancelled): withdrawn, then pending again', async () => {
+    const m = await sentInvoice(pool);
+    const je = m.message.source_journal_entry_id as string;
+    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, je, U.a));
+    expect((await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0]).toMatchObject({ status: 'withdrawn' });
+    await asService(pool, U.a, co.A, async () => reverseJournalEntry(co.A, (await reversalOf(pool, je))!, U.a));
+    expect((await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0]).toMatchObject({ status: 'pending', source_cancelled_at: null });
+  });
+
+  it('an accepted and approved row: the journal reversed and the reversal reversed, both by the service: released and unmatched, then matched and eliminated again', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    const je = m.message.source_journal_entry_id as string;
+    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, je, U.a));
+    expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
+    expect(await derived()).toHaveLength(0);
+    await asService(pool, U.a, co.A, async () => reverseJournalEntry(co.A, (await reversalOf(pool, je))!, U.a));
+    expect((await pool.query('SELECT status, source_cancelled_at FROM intercompany_messages WHERE id = $1', [m.id])).rows[0]).toMatchObject({ status: 'accepted', source_cancelled_at: null });
+    expect(await groupRow()).toMatchObject({ match_status: 'matched' });
+    expect(await derived()).toHaveLength(1);
   });
 });
