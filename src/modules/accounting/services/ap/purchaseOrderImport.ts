@@ -39,7 +39,7 @@ import type { PoCents } from './purchaseOrderImportAmounts';
 
 export type ImportPoStatus = 'draft' | 'approved' | 'closed' | 'cancelled';
 
-/** An import line is a priced PO line (`purchaseOrderLinesWrite`); the import never names an item. */
+/** An import line is a priced PO line (`purchaseOrderLinesWrite`); `itemId` is its resolved, company-checked catalogue link (null for a free-text line). */
 export type ImportPoLine = PoLineRow;
 
 export interface ImportPo {

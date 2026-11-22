@@ -37,6 +37,9 @@ export interface ParsedPoLine {
   glAccountId: string | null;
   dims: DimensionRefs | undefined;
   cents: LineCents;
+  /** The catalogue item the line links to, by id or by code (never both); resolved company-scoped in `purchaseOrderImportItems`. */
+  itemId: string | null;
+  itemCode: string | null;
 }
 
 export interface ParsedPo {
@@ -55,11 +58,12 @@ export interface ParsedPo {
 
 export type Obj = Record<string, unknown>;
 
-/** The keys each object may carry: anything else (a misspelt line_total, an item_id) is refused, never ignored. */
+/** The keys each object may carry: anything else (a misspelt line_total, an itemId) is refused, never ignored. */
 const PO_KEYS = new Set(['po_number', 'supplier_id', 'order_date', 'delivery_date', 'reference', 'notes', 'status', 'inclusive',
   'external_ref', 'external_system', 'external_document_number', 'expected_totals', 'lines']);
 const TOTAL_KEYS = new Set(['subtotal', 'tax_amount', 'total']);
-const LINE_KEYS = new Set(['description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'gl_account_id', 'cc1', 'cc2', 'bu']);
+const LINE_KEYS = new Set(['description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'gl_account_id', 'cc1', 'cc2', 'bu',
+  'item_id', 'item_code']);
 
 export function unknownKey(o: Obj, allowed: ReadonlySet<string>, label: string): string | null {
   const extra = Object.keys(o).find((k) => !allowed.has(k));
@@ -134,12 +138,23 @@ function parseLine(o: unknown, label: string, inclusive: boolean): ParsedPoLine 
   }
   const dims = parseDimensionRefs(o, label);
   if (typeof dims === 'string') return dims;
+  let itemId: string | null = null;
+  if (o.item_id !== undefined && o.item_id !== null && o.item_id !== '') {
+    if (typeof o.item_id !== 'string' || !UUID_RE.test(o.item_id)) return `${label}.item_id must be an item UUID`;
+    itemId = o.item_id.toLowerCase();
+  }
+  const itemCode = text(o, 'item_code', 100, label, false);
+  if (err(itemCode)) return itemCode.error;
+  if (itemId && itemCode) return `${label}: give item_id or item_code, not both`;
   const rate = taxRate ?? 15;
   const money = lineCents({ quantity, unitPrice, taxRate: rate, lineTotal, taxAmount }, inclusive);
   if (typeof money === 'string') return `${label}: ${money}`;
   if (money.net + money.tax > MAX_CENTS) return `${label}: the line amount is more than the largest amount a document holds`;
   const stored = storedUnitPrice(quantity, money.net);
-  return { description: description as string, quantity, unitPrice: stored, taxRate: rate, glAccountId, dims, cents: money };
+  return {
+    description: description as string, quantity, unitPrice: stored, taxRate: rate, glAccountId, dims, cents: money,
+    itemId, itemCode: itemCode as string | null,
+  };
 }
 
 function parseExpected(o: Obj, label: string): ExpectedTotals | undefined | string {

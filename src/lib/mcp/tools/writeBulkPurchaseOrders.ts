@@ -10,6 +10,8 @@
  *     and is not written again, so re-sending a Sage page under a new idempotency_key is safe.
  *   - Totals: each PO's subtotal / VAT / total are the sums of its lines; expected_totals, when sent, must equal them
  *     to the cent. Lines may carry the source's own line_total / tax_amount (purchaseOrderImportAmounts).
+ *   - Lines may link to a catalogue item (item_id | item_code, design docs/design/mcp-po-line-items.md): checked company-scoped and
+ *     active before any write, dry run too; the item is only linked (po_items.item_id), nothing is derived from it.
  *   - Status: draft | open (= approved) | billed (= closed) | cancelled. Approved POs pass the Approve action's budget
  *     check (they then count as committed); closed and cancelled commit nothing.
  *   - The purchase_order number counter ends at least one past the highest imported number of its own form.
@@ -72,7 +74,9 @@ const LINE_SCHEMA = {
     tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15.' },
     line_total: { ...money, description: "The source's own ex-VAT line amount (Sage Exclusive, after any discount). Stored as sent; never more than quantity x unit_price." },
     tax_amount: { ...money, description: "The source's own VAT on the line (Sage Tax). Only with line_total; must agree with it at tax_rate within 2 cents." },
-    gl_account_id: { type: 'string', description: 'Expense GL account UUID (list_gl_accounts). A line without one is "No budget".' },
+    gl_account_id: { type: 'string', description: 'Expense GL account UUID (list_gl_accounts). A line without one is "No budget". An item does not supply one.' },
+    item_id: { type: 'string', description: 'Catalogue item UUID (list_items): links the line to the item. Not with item_code.' },
+    item_code: { type: 'string', maxLength: 100, description: 'Catalogue item code, instead of item_id (e.g. the Sage item code of an imported item).' },
     ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'quantity', 'unit_price'],
@@ -89,6 +93,7 @@ export const bulkCreatePurchaseOrdersTool: McpTool = {
     + 'An open (approved) PO is budget-checked as the Approve action does and then counts as committed spend; billed (closed) and cancelled POs commit nothing. '
     + 'Each PO\'s totals are the sums of its lines; send expected_totals (the source\'s subtotal / tax_amount / total) to have them checked to the cent. '
     + 'Send each line\'s line_total and tax_amount from the source to store its exact figures; otherwise they are computed from quantity x unit_price (inclusive: true computes VAT the way an inclusive document does). '
+    + 'A line may link to its catalogue item with item_id OR item_code (not both): the item must be this company\'s and active, else the batch is refused naming the PO and the line (an unknown, deleted or another company\'s item is refused alike). The item is only linked: the line\'s own account, VAT rate and amounts are stored as sent. A line with neither is free text. '
     + 'Afterwards the purchase_order number counter is at least one past the highest imported number, so the next PO made in the app does not collide. '
     + 'Attach each PO\'s PDF with create_upload_urls / finalize_uploads or attach_entity_document (entity_type purchase_order). '
     + 'dry_run reports the outcome and writes nothing: per PO its budget_check (outcome ok / warn / block with the reasons, as the live check will decide) and dimension_warnings; a PO the live call would refuse on a block makes it would_succeed: false. '
