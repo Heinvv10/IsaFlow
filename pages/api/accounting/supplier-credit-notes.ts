@@ -32,6 +32,7 @@ import {
   listCreditNoteAllocations,
   parseCreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
@@ -253,7 +254,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // R-035: 'post' refused by the approval gate, under the row lock and before any write.
       if (respondIfApprovalRequired(res, err)) return;
       if (respondIfApprovePermissionRefused(res, err)) return; // #1656: no Suppliers & AP Approve, pre-write
-      if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
+      // A period that is not open refuses the post (assertCreditNoteCanPost / postJournalEntry): the user's fix, not a 500.
+      if (err instanceof ClosedFiscalPeriodError || err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
       // 892: 'post' re-checks the note's own account and its header tags under the row lock, before any write;

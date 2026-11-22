@@ -103,7 +103,7 @@ export default function OpeningBalancesPage() {
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link href="/accounting/migration" className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-6 text-sm">
+        <Link href="/accounting/migration" className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-6 text-sm max-lg:min-h-11">
           <ArrowLeft className="h-4 w-4" /> Back to Migration Hub
         </Link>
         <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-2">Opening Balances</h1>
@@ -133,7 +133,7 @@ export default function OpeningBalancesPage() {
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(() => setError('Could not read the CSV file - try again')); }} />
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors"
+              className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors max-lg:min-h-11"
             >
               <Upload className="h-4 w-4" /> Choose CSV file
             </button>
@@ -151,7 +151,7 @@ export default function OpeningBalancesPage() {
             <>
               {/* Balance summary */}
               <div className={`rounded-lg border p-4 ${isBalanced ? 'border-teal-500/30 bg-teal-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-3 gap-4 text-center max-lg:grid-cols-1">
                   <div>
                     <p className="text-xs text-[var(--ff-text-secondary)]">Total Debit</p>
                     <p className="font-semibold text-[var(--ff-text-primary)]">{totalDebit.toFixed(2)}</p>
@@ -172,7 +172,7 @@ export default function OpeningBalancesPage() {
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
                 <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">4. Preview ({rows.length} rows{rows.length > 15 ? ', first 15 shown' : ''})</h2>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full text-xs divide-y divide-gray-200 dark:divide-gray-700">
+                  <table className="table-cards min-w-full text-xs divide-y divide-gray-200 dark:divide-gray-700">
                     <thead>
                       <tr className="bg-[var(--ff-bg-primary)]">
                         <th className="px-3 py-2 text-left text-[var(--ff-text-secondary)] font-medium">Code</th>
@@ -184,22 +184,22 @@ export default function OpeningBalancesPage() {
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                       {rows.slice(0, 15).map((r, i) => (
                         <tr key={i}>
-                          <td className="px-3 py-1.5 font-mono text-[var(--ff-text-primary)]">{r.accountCode}</td>
-                          <td className="px-3 py-1.5 text-[var(--ff-text-primary)]">{r.accountName}</td>
-                          <td className="px-3 py-1.5 text-right text-[var(--ff-text-primary)]">
+                          <td data-label="Code" className="px-3 py-1.5 font-mono text-[var(--ff-text-primary)]">{r.accountCode}</td>
+                          <td data-label="Name" className="px-3 py-1.5 text-[var(--ff-text-primary)]">{r.accountName}</td>
+                          <td data-label="Debit" className="px-3 py-1.5 text-right text-[var(--ff-text-primary)] max-lg:items-center">
                             <input
                               type="number"
                               value={r.debit}
                               onChange={e => updateRow(i, 'debit', e.target.value)}
-                              className="w-24 text-right border border-[var(--ff-border-light)] rounded px-1 bg-[var(--ff-bg-primary)]"
+                              className="w-24 text-right border border-[var(--ff-border-light)] rounded px-1 bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1"
                             />
                           </td>
-                          <td className="px-3 py-1.5 text-right text-[var(--ff-text-primary)]">
+                          <td data-label="Credit" className="px-3 py-1.5 text-right text-[var(--ff-text-primary)] max-lg:items-center">
                             <input
                               type="number"
                               value={r.credit}
                               onChange={e => updateRow(i, 'credit', e.target.value)}
-                              className="w-24 text-right border border-[var(--ff-border-light)] rounded px-1 bg-[var(--ff-bg-primary)]"
+                              className="w-24 text-right border border-[var(--ff-border-light)] rounded px-1 bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1"
                             />
                           </td>
                         </tr>
@@ -213,7 +213,7 @@ export default function OpeningBalancesPage() {
                 <button
                   onClick={handleImport}
                   disabled={isImporting || !isBalanced || rowErrors.length > 0 || dateGate.blocked}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 max-lg:min-h-11"
                 >
                   {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Set Opening Balances
