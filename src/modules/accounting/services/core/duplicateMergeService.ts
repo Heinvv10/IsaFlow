@@ -14,6 +14,8 @@ import { mergeCustomers } from '../ar/customerMergeService';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
+import { lockMovablePurchaseOrders, movePurchaseOrders } from './supplierMergePurchaseOrders';
+import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from './supplierMergeOpenWork';
 
 export interface MergeResult {
   reassignedTransactions: number;
@@ -68,6 +70,9 @@ export async function assertSupplierMergeKeepsDrcFlag(
   }
 }
 
+/** Shown when a supplier merge is refused because the source has purchase-order <-> bill links (mig 1006). */
+export { PO_BILL_LINKS_REFUSAL } from './supplierMergePurchaseOrders';
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function mergeEntities(
@@ -76,6 +81,8 @@ export async function mergeEntities(
   primaryId: string,
   duplicateId: string,
   userId: string,
+  /** The caller's company role: a supplier merge moves approved purchase orders only for one that may edit them (owner, admin). */
+  companyRole?: string | null,
 ): Promise<MergeResult> {
   log.info('Merging entities', { companyId, entityType, primaryId, duplicateId, userId }, 'duplicate-merge');
 
@@ -91,20 +98,29 @@ export async function mergeEntities(
       revokedPortalLogins: merged.revokedPortalLogins,
     };
   }
-  if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId, userId);
+  if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId, userId, companyRole);
   return mergeItems(companyId, primaryId, duplicateId);
 }
 
 // ── Supplier merge ────────────────────────────────────────────────────────────
 
-async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
+async function mergeSuppliers(
+  companyId: string, primaryId: string, duplicateId: string, userId: string, companyRole: string | null | undefined,
+): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
   await assertSupplierMergeMovesNoNotedBill(companyId, duplicateId);
 
-  // One savepoint for the moves: the bill UPDATE's RETURNING can still refuse (refuseIfMovedNotedBills), and a 4xx answer is
-  // committed by withAuth, so the refusal must take back what was moved before it.
+  // The POs locked, then the link and approved-PO refusals (lockMovablePurchaseOrders), and the intercompany side's.
+  const pos = await lockMovablePurchaseOrders(companyId, duplicateId, companyRole);
+  const sideBlock = await sideRefusal(companyId, duplicateId, primaryId);
+  if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
+
+  // One savepoint for the moves: the side's guard and the bill UPDATE's RETURNING (refuseIfMovedNotedBills) can still refuse, and a
+  // 4xx answer is committed by withAuth, so the refusal must take back what was moved before it.
   return withSavepoint('merge_suppliers_moves', async () => {
+  const side = await moveIntercompanySide(companyId, duplicateId, primaryId);
+  if (side.refusal) throw new SupplierMergeRefusal(side.refusal);
   let count = 0;
 
   // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
@@ -140,8 +156,27 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   `;
   count += r3.length;
 
+  // purchase_orders is the canonical PO table (mig 246b; supplier_purchase_orders above is the older one): moved under the
+  // supplier-change controls of updatePurchaseOrder (supplierMergePurchaseOrders). Supplier credit notes live in credit_notes
+  // (mig 202); supplier_id is approval content on one, as on a bill. The supplier_id tables that stay on the merged-away row
+  // on purpose are listed in supplierMergeOpenWork.
+  count += await movePurchaseOrders(companyId, pos, duplicateId, primaryId, { userId, role: companyRole, via: 'supplier-merge' });
+
+  const r5 = await sql`
+    UPDATE credit_notes SET supplier_id = ${primaryId}::UUID,
+      content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
+    RETURNING id
+  `;
+  count += r5.length;
+
+  // Not moved transactions, so not counted: the side and the expectation / alert / opt-out work.
+  await moveExpectationsAndAlerts(companyId, duplicateId, primaryId, { userId, via: 'supplier-merge' });
+
+  // merged_into_id (migration 1020): the Sage import follows a merged-away supplier to its survivor, so a
+  // re-sync does not re-create it as a live supplier and split its new bills from the survivor (#1655).
   await sql`
-    UPDATE suppliers SET deleted_at = NOW()
+    UPDATE suppliers SET deleted_at = NOW(), merged_into_id = ${primaryId}::UUID
     WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
   `;
 

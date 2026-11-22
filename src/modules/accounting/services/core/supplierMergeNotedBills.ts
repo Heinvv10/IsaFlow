@@ -1,7 +1,8 @@
 /**
  * Supplier merge and the source's bills that carry a goods received note (#1708; docs/design/mcp-goods-received.md "A bill's GRN").
- * A bill's `grn_id` ties it to the note's PO as a link row does, and a merge moves bills but never `purchase_orders`, so a moved noted
- * bill would name a note on another supplier's PO. Both merge paths (core/duplicateMergeService.ts, pages/api/accounting/supplier-merge.ts)
+ * A bill's `grn_id` ties it to the note's PO as a link row does. The rule was set when a merge moved bills but no `purchase_orders`
+ * (a moved noted bill would have named a note on another supplier's PO); since #1655 the merge moves the source's POs too, and the
+ * refusal is kept, fail-closed. Both merge paths (core/duplicateMergeService.ts, pages/api/accounting/supplier-merge.ts)
  * refuse, twice:
  *   - `assertSupplierMergeMovesNoNotedBill`, before anything moves, after the merge holds both supplier rows FOR UPDATE;
  *   - `refuseIfMovedNotedBills`, on the RETURNING rows of the merge's own bill UPDATE (review of 3010bf7e, M1): a write that makes a bill
@@ -32,8 +33,8 @@ function exits(statuses: readonly string[]): string {
 function refusal(numbers: readonly string[], total: number, statuses: readonly string[]): SupplierMergeRefusal {
   const named = numbers.join(', ') + (total > numbers.length ? ` and ${total - numbers.length} more` : '');
   return new SupplierMergeRefusal(
-    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}) whose purchase order stays with this supplier, `
-    + `so merging would leave ${total === 1 ? 'it' : 'them'} naming another supplier's note. Before merging, ${exits(statuses)}.`,
+    `This supplier has ${total === 1 ? 'a bill' : `${total} bills`} carrying a goods received note (${named}), and a merge does not move a live `
+    + `bill tied to a note. Before merging, ${exits(statuses)}.`,
   );
 }
 

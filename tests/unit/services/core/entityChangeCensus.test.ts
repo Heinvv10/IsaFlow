@@ -42,7 +42,8 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-seed/reset.ts', 'scripts/seed-prd05-qa-data.ts', `${S}ap/supplierPaymentAuthors.ts`,
     `${S}capture/supplierGraphService.ts`, `${S}core/duplicateMergeService.ts`, `${S}core/migrationContactService.ts`,
     `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
-    `${S}core/supplierWriteService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
+    `${S}core/supplierMergeOpenWork.ts`, `${S}core/supplierWriteService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
+    'src/modules/admin/services/sagePartyMatch.ts',
   ],
   customers: [
     'pages/api/accounting/customers-bulk.ts', 'scripts/import-sage-britech.ts', 'scripts/qa-seed/parties.ts',
@@ -50,6 +51,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}ar/customerMergeService.ts`, `${S}core/customerWriteService.ts`, `${S}core/migrationContactService.ts`,
     `${S}core/migrationExecuteContacts.ts`, `${S}core/softDeleteRowOps.ts`, `${S}core/softDeleteService.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, 'src/modules/admin/services/sageMigrationCommitService.ts',
+    'src/modules/admin/services/sagePartyMatch.ts',
   ],
   gl_accounts: [
     'pages/api/accounting/bank-accounts.ts', 'scripts/cleanup-demo-data.ts', 'scripts/import-sage-britech.ts',

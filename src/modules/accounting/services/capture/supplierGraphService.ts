@@ -314,6 +314,7 @@ export async function scanCompanyForFraud(companyId: string): Promise<{ created:
     WHERE s.company_id = ${companyId}::uuid
       AND s.platform_template_id IS NOT NULL
       AND s.is_active = true
+      AND s.deleted_at IS NULL
   `) as Row[];
 
   if (suppliers.length === 0) return { created: 0, refreshed: 0 };
