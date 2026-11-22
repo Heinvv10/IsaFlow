@@ -3,6 +3,13 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
 
+// The pay run links show only to a user with Payroll read (`useNavFlags`); tests/unit/components/payrollDeepLinks.test.tsx pins the other side.
+vi.mock('@/hooks/useNavFlags', async () => {
+  const { MODULE_READ_NAV_FLAGS } = await import('@/components/accounting/navSections/flagNav');
+  const readable: ReadonlySet<string> = new Set(MODULE_READ_NAV_FLAGS);
+  return { useNavFlags: () => readable };
+});
+
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch }));
 

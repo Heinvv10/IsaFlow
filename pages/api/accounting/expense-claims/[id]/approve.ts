@@ -9,6 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { approveClaim, rejectClaim } from '@/modules/accounting/services/expense/expenseClaimService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,9 +24,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const body = (req.body ?? {}) as { decision?: 'approve' | 'reject'; reason?: string };
 
   try {
-    const claim = body.decision === 'reject'
-      ? await rejectClaim(id, companyId, userId, body.reason ?? 'Rejected')
-      : await approveClaim(id, companyId, userId);
+    let claim;
+    if (body.decision === 'reject') {
+      claim = await rejectClaim(id, companyId, userId, body.reason ?? 'Rejected'); // posts nothing: not gated
+    } else {
+      if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense claims')) return; // #1656 (Hein: gate everything), before any write
+      claim = await approveClaim(id, companyId, userId);
+    }
     if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
     // The approver is the last person who sees the claim before `postClaim`
     // debits VAT Input with the sum of the line vatAmounts. Read the advice

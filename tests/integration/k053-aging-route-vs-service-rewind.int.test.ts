@@ -213,8 +213,8 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
       .setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arDeleted, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apDeleted, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arDeleted, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apDeleted, USER, { allowReversal: true }));
   }, 180000);
 
   afterAll(async () => {

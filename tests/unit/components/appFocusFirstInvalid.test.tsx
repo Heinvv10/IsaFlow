@@ -7,7 +7,10 @@ vi.mock('next/router', () => ({
   useRouter: () => ({ pathname: '/accounting/customer-invoices', asPath: '/accounting/customer-invoices', query: {}, isReady: true, events: { on: () => {}, off: () => {} }, push: vi.fn(), replace: vi.fn() }),
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
-vi.mock('@/contexts/AuthContext', () => ({ AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/contexts/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useAuth: () => ({ user: null, loading: true }), // _app's ShellTitle reads it (useNavFlags), as it reads useCompany
+}));
 vi.mock('@/contexts/CompanyContext', () => ({
   CompanyProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useCompany: () => ({ activeCompany: null, loading: true }),

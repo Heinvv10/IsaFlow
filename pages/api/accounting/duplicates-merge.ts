@@ -15,6 +15,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateDetectionService';
 import { SupplierMergeRefusal } from '@/modules/accounting/services/core/duplicateMergeService';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
@@ -69,6 +72,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       primaryId,
       duplicateId,
       userId,
+      // A customer merge re-points bank rules naming the duplicate: one that posts money needs Banking Approve.
+      autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking')),
       companyRole,
     );
 
@@ -79,7 +84,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
-    // An auto-posting bank rule names the merged-away customer under `bank_rule` (409, nothing merged).
+    // A posting bank rule names the merged-away customer: no Banking Approve is 403, `bank_rule` enforcement 409; nothing merged either way.
+    if (respondIfApprovePermissionRefused(res, err)) return;
     if (respondIfBankControlRefused(res, err)) return;
     // A held row or a deadlock victim: 503 + Retry-After (the supplier lock helper's own timeout included).
     if (respondIfLockTimeout(res, err)) return;

@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const { closeFiscalYear } = vi.hoisted(() => ({ closeFiscalYear: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/yearEndService', () => ({ closeFiscalYear, listFiscalYears: vi.fn() }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withRole: () => (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));

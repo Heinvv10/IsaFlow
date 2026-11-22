@@ -1,25 +1,22 @@
 /**
- * InvoiceHeaderFields — the "Client & Settings" and "Dates & Period" cards shared by the new and edit invoice pages,
- * on the form kit: ContactPicker, Select, Input and DateField (typed dates: "1 Oct 2026", "t", and "+30" from the invoice date).
- * The page owns the form; this reports each change as a patch. The job picker stays the line editor's CodingPicker.
+ * InvoiceHeaderFields — the "Client & Job" and "Dates & Period" cards shared by the new and edit invoice pages, on the
+ * form kit: ContactPicker and DateField (typed dates: "1 Oct 2026", "t", and "+30" from the invoice date). The page owns
+ * the form; this reports each change as a patch. The job picker stays the line editor's CodingPicker. "Amounts are" and
+ * the currency are the line grid's settings row (InvoiceSettingsRow); VAT is per line (formVat).
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContactPicker } from '@/components/ui/pickers/ContactPicker';
-import { Select } from '@/components/ui/Select';
-import { Input } from '@/components/ui/Input';
 import { DateField } from '@/components/ui/DateField';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { CodingPicker } from './InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
 import { dueBeforeInvoice, isoOrEmpty, type InvoiceDateKey, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
-import { effectiveTaxRate, TAX_MODE_OPTIONS, type TaxMode } from './taxMode';
 
 export interface InvoiceCurrency { code: string; name: string }
 
 interface Props {
   form: InvoiceHeaderForm;
   onChange: (patch: Partial<InvoiceHeaderForm>) => void;
-  currencies: InvoiceCurrency[];
   options: InvoiceLineCodingOptions;
   onProjectChange: (projectId: string) => void;
   onDateValidity: (key: InvoiceDateKey, v: FieldValidity) => void;
@@ -29,25 +26,14 @@ interface Props {
   clientLabel?: string;
   /** Bumped by the page when it resets the form, to clear refused date text. */
   resetKey?: number;
-  taxMode: TaxMode;
-  /** The "Amounts are" options offered (taxModeSwitch.taxModesFor: No VAT only for a company not registered for VAT). */
-  taxModes?: typeof TAX_MODE_OPTIONS;
-  /** Why the last "Amounts are" change was refused (taxModeSwitch), shown by the selector and announced; null when none. */
-  taxModeProblem?: string | null;
-  onTaxModeChange: (mode: TaxMode) => void;
   /** Muted notes saying where a default came from (useContactDefaults). */
-  hints?: { dueDate?: string; taxMode?: string };
-  /** The customer's VAT type conflicts with the invoice's rate (vatTypeWarning). */
-  vatWarning?: string;
+  hints?: { dueDate?: string };
   /** The user committed something in Due date, even text it refused. */
   onDueDateEdited?: () => void;
-  /** The VAT rate field gained (true) or lost (false) focus: autosave waits out a rate edit (PR S). */
-  onRateEditing?: (editing: boolean) => void;
 }
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 const lbl = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5';
-const hint = 'mt-1 text-xs text-gray-600 dark:text-gray-400';
 
 export function InvoiceCard({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
@@ -58,14 +44,7 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, taxModes = TAX_MODE_OPTIONS, taxModeProblem, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
-  const vatNoteId = useId();
-  const modeProblemId = useId();
-  const modeProblem = useRef<HTMLParagraphElement>(null);
-  // A refused switch is said where the user is looking: scrolled into view (a small screen may have the summary on top).
-  useEffect(() => { if (taxModeProblem) modeProblem.current?.scrollIntoView?.({ block: 'nearest' }); }, [taxModeProblem]);
-  const isFx = form.currencyCode !== 'ZAR';
-  const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
+export function InvoiceHeaderFields({ form, onChange, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, hints, onDueDateEdited }: Props) {
   // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
   // drop it and show the last accepted due date again (the page's value) instead of leaving it red and blocking save.
   const [dueRevalidate, setDueRevalidate] = useState(0);
@@ -82,32 +61,15 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
   );
   return (
     <>
-      <InvoiceCard n={1} title="Client & Settings">
+      <InvoiceCard n={1} title="Client & Job">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ContactPicker kind="customer" label="Client" value={form.clientId || null} valueLabel={clientLabel}
             onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…"
             labelClassName="after:ml-0.5 after:text-red-600 dark:after:text-red-400 after:content-['*']" />
           <div>
-            <Select label="Amounts are" options={taxModes} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
-              describedBy={[taxModeProblem ? modeProblemId : '', hints?.taxMode || vatWarning ? vatNoteId : ''].filter(Boolean).join(' ') || undefined} />
-            {taxModeProblem && <p id={modeProblemId} ref={modeProblem} role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">{taxModeProblem}</p>}
-            <div id={vatNoteId} role="status">
-              {hints?.taxMode && <p className={hint}>{hints.taxMode}</p>}
-              {vatWarning && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vatWarning}</p>}
-            </div>
-          </div>
-          <Input label="VAT rate %" type="number" name="taxRate" min={0} value={effectiveTaxRate(taxMode, form.taxRate)} disabled={taxMode === 'none'}
-            onFocus={() => onRateEditing?.(true)} onBlur={() => onRateEditing?.(false)} onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
-          <Select label="Currency" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
-            onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />
-          <div>
             <label className={lbl} htmlFor="invoice-job" onClick={() => document.getElementById('invoice-job')?.focus()}>Job <span className="font-normal text-gray-600 dark:text-gray-400">(display; new lines start on it)</span></label>
             <CodingPicker id="invoice-job" label="Invoice job" value={form.projectId} options={options.projects} all={options} empty="No job" onChange={onProjectChange} />
           </div>
-          {isFx && (
-            <Input label={`Exchange rate (${form.currencyCode} → ZAR)`} type="number" name="exchangeRate" min={0.000001} step={0.000001}
-              value={form.exchangeRate} placeholder="e.g. 18.5" onChange={(e) => onChange({ exchangeRate: Number(e.target.value) })} />
-          )}
         </div>
       </InvoiceCard>
       <InvoiceCard n={2} title="Dates & Period">

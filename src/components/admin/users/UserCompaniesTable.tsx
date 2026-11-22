@@ -1,7 +1,9 @@
 /**
  * UserCompaniesTable
  * Displays and manages company memberships for a user in the admin panel:
- * link a company, change a linked company's role inline, remove a link.
+ * link a company, change a linked company's role inline, remove a link, and
+ * (#1656) edit the user's per-module permissions there — the app's roles and
+ * permission grid, on the admin route /api/admin/users/[id]/permissions.
  *
  * Remove asks for an explicit Confirm that stays until answered. It used to be
  * a click-twice button whose armed "Sure?" state reverted after 3 s, so a
@@ -9,8 +11,11 @@
  * ISAFlow Demo link "would not remove" and no request reached the server).
  */
 
-import { useState } from 'react';
-import { Plus, Check, X, Trash2, Loader2 } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Plus, Check, X, Trash2, Loader2, Shield } from 'lucide-react';
+import { COMPANY_ROLES as ALL_COMPANY_ROLES, NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
+import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 export interface UserCompany {
   company_id: string;
@@ -24,10 +29,12 @@ export interface CompanyOption {
   name: string;
 }
 
-/** The roles the portal may grant (ALLOWED_COMPANY_ROLES; migration 883 refuses `owner`). */
-const COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
+/** The roles the portal may grant: the app's company roles but owner (#1656; migrations 883/1010 refuse `owner`). */
+const COMPANY_ROLES: readonly string[] = NON_OWNER_COMPANY_ROLES;
 
 interface Props {
+  /** The user whose links these are (the permissions route's path id). */
+  userId: string;
   companies: UserCompany[];
   allCompanies: CompanyOption[];
   actionLoading: boolean;
@@ -37,6 +44,7 @@ interface Props {
 }
 
 export function UserCompaniesTable({
+  userId,
   companies,
   allCompanies,
   actionLoading,
@@ -46,16 +54,18 @@ export function UserCompaniesTable({
 }: Props) {
   const [showLinkForm, setShowLinkForm]   = useState(false);
   const [linkCompanyId, setLinkCompanyId] = useState('');
-  const [linkRole, setLinkRole]           = useState('bookkeeper');
+  const [linkRole, setLinkRole]           = useState('viewer');
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [roleDraft, setRoleDraft]         = useState<Record<string, string>>({});
+  const [permsFor, setPermsFor]           = useState<string | null>(null);
+  const [permsNote, setPermsNote]         = useState<string | null>(null);
 
   async function handleLink() {
     if (!linkCompanyId || !linkRole) return;
     await onLink(linkCompanyId, linkRole);
     setShowLinkForm(false);
     setLinkCompanyId('');
-    setLinkRole('bookkeeper');
+    setLinkRole('viewer');
   }
 
   const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500';
@@ -119,15 +129,17 @@ export function UserCompaniesTable({
               const changed = draft !== c.role;
               const confirming = confirmRemove === c.company_id;
               return (
-              <tr key={c.company_id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+              <Fragment key={c.company_id}>
+              <tr className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                 <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.company_name}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <select aria-label={`Role in ${c.company_name}`} value={draft} disabled={actionLoading}
                       onChange={e => setRoleDraft(d => ({ ...d, [c.company_id]: e.target.value }))}
                       className="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white capitalize disabled:opacity-50">
-                      {!COMPANY_ROLES.includes(c.role) && <option value={c.role} disabled>{c.role}</option>}
-                      {COMPANY_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      {!(ALL_COMPANY_ROLES as readonly string[]).includes(c.role) && <option value={c.role} disabled>{c.role}</option>}
+                      {/* The app's four roles; owner only as the current value (an owner grants owner in the app). */}
+                      {ALL_COMPANY_ROLES.map(r => <option key={r} value={r} disabled={!COMPANY_ROLES.includes(r)}>{r}</option>)}
                     </select>
                     {changed && (
                       <button disabled={actionLoading}
@@ -140,6 +152,11 @@ export function UserCompaniesTable({
                 </td>
                 <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.is_default ? 'Yes' : '\u2014'}</td>
                 <td className="px-4 py-3 text-right">
+                  <button onClick={() => { setPermsNote(null); setPermsFor(p => (p === c.company_id ? null : c.company_id)); }}
+                    aria-expanded={permsFor === c.company_id} aria-label={`Permissions in ${c.company_name}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 mr-2 text-xs font-medium rounded-lg text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
+                    <Shield className="w-3.5 h-3.5" /> Permissions
+                  </button>
                   {confirming ? (
                     <span className="inline-flex items-center gap-2">
                       <span className="text-xs text-gray-600 dark:text-gray-300">Remove this link?</span>
@@ -161,6 +178,17 @@ export function UserCompaniesTable({
                   )}
                 </td>
               </tr>
+              {permsFor === c.company_id && (
+                <tr className="border-b border-gray-100 dark:border-gray-800">
+                  <td colSpan={4} className="bg-gray-50 dark:bg-gray-950/60">
+                    {permsNote && <p role="status" className="px-4 pt-3 text-xs text-gray-600 dark:text-gray-300">{permsNote}</p>}
+                    <PermissionsGrid userId={userId} userRole={c.role} onFeedback={setPermsNote} fetcher={adminFetch}
+                      permissionsUrl={`/api/admin/users/${encodeURIComponent(userId)}/permissions?company_id=${encodeURIComponent(c.company_id)}`}
+                      saveFields={{ company_id: c.company_id }} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
               );
             })}
           </tbody>

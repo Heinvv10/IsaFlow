@@ -60,9 +60,12 @@ export async function preparePayRunApprovalRequest(companyId: string, runId: str
   await assertRunKindSupported(companyId, runId, 'approve'); // wave 6 FQa: no request for a run this release cannot approve
   const gate = await judgePayrollApproval(companyId, runId);
   if (!gate) throw new PayrollRunNotFoundError();
+  // Never onto a cancelled run (review L-f of 87708dc593): a decision queued behind cancel's header lock reads the run
+  // only after cancel committed, and its 404 still commits (withAuth commits a 4xx), so the predicate is what keeps
+  // the cancelled run's hash cleared.
   await sql`
     UPDATE payroll_run_headers SET approval_plan_hash = ${gate.planHash}
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status <> 'cancelled'
   `;
   return gate.planHash;
 }

@@ -15,7 +15,8 @@ const CODES = ['HOURS_MISSING', 'HOURS_UNIT_MISMATCH', 'HOURS_DUPLICATE', 'HOURS
  * Every hourly or daily line (employee employed in the period) carries a quantity on some item or one of the HOURS_* results:
  * this calculator cannot produce one without. A line with neither was costed by a build without the hours rules, whatever
  * calculation version it is stamped with (two PRs bumping to the same number), so the run must be recalculated.
- * Severance-only leavers (ended before the period) are exempt.
+ * Severance-only leavers (ended before the period) are exempt, and so is an off-cycle run: its lines pay a supplement
+ * and are not judged on hours (the month's hours are on its regular line).
  */
 async function lineWithoutHoursRules(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const rows = (await sql`
@@ -25,6 +26,7 @@ async function lineWithoutHoursRules(companyId: string, runId: string): Promise<
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
       AND e.pay_basis <> 'monthly'
+      AND h.run_kind <> 'off_cycle'
       AND (e.end_date IS NULL OR e.end_date >= h.period_start) -- employed in the run's period (wave 6 FQc)
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.component_breakdown) i WHERE i ? 'quantity')
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.validation_results) v WHERE v->>'code' = ANY(${CODES}::text[]))

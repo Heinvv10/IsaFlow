@@ -29,6 +29,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { listRetiredMemberWith4001, retiredMember4001Message } from '@/modules/accounting/services/payroll/definedBenefitReadiness';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
@@ -240,4 +241,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, summary);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler)))));

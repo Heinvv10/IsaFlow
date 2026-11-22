@@ -237,3 +237,20 @@ describe('withBearerAuth — strict Bearer only', () => {
     );
   });
 });
+
+// #1656: a legacy company_users.role reads as its mapped role on the bearer path too (normalizeCompanyRole),
+// so an MCP token of a former bookkeeper writes as a manager and a former storeman stays read-only.
+describe('withBearerAuth — legacy roles read as the app model (#1656)', () => {
+  it.each([['bookkeeper', 'manager'], ['accountant', 'manager'], ['storeman', 'viewer'], ['user', 'viewer'], ['owner', 'owner']])(
+    'a stored %s reaches the handler as %s', async (stored, expected) => {
+      membershipRows = [{ role: stored, account_user_id: USER_ID, is_active: true, status: 'active', suspended_at: null }];
+      vi.mocked(validatePat).mockResolvedValue({
+        patId: PAT_ID, userId: USER_ID, companyId: COMPANY_ID, scopes: ['read:reports'], expiresAt: '2027-01-01T00:00:00.000Z',
+      });
+      const handler = vi.fn(async (_req: unknown, res: FakeRes) => { res.status(200).json({ ok: true } as never); });
+      const req = makeReq({ authorization: `Bearer ${RAW}` });
+      await withBearerAuth(handler)(req as never, makeRes());
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(req.companyRole).toBe(expected);
+    });
+});

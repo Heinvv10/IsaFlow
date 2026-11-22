@@ -208,7 +208,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }
   ariaLabel?: string;
 }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer py-1">
+    <label className="flex items-center gap-3 cursor-pointer py-1 max-lg:py-3">
       <button
         type="button"
         role="switch"

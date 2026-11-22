@@ -16,6 +16,7 @@ import {
   isPeriodLocked,
 } from '@/modules/accounting/services/loans/loanPeriodCloseService';
 import { postPeriodJournals } from '@/modules/accounting/services/loans/loanGlPostingService';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 interface PostBody {
   loanIds: string[];
@@ -51,6 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ── POST ─────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
     const body = req.body as PostBody;
+    if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'loan journals')) return; // #1656 (Hein: gate everything), before any write
 
     if (!Array.isArray(body.loanIds) || body.loanIds.length === 0) {
       return apiResponse.badRequest(res, 'loanIds must be a non-empty array');

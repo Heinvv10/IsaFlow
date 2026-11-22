@@ -14,6 +14,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { PayrollRunLockedError, PayrollRunNotFoundError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
@@ -23,6 +24,7 @@ import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/t
 import { PayrollRunDirectiveUseError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,6 +70,8 @@ async function handler(
     // An ever-approved run that would lose a directive it was approved with (DR round 3): before anything is written.
     if (err instanceof PayrollRunDirectiveUseError) return apiResponse.conflict(res, err.message, { code: err.code });
     // Raised before anything is written; the message says what is missing.
+    // Wave 6 OC: an off-cycle run paid on or after its month's closing regular run; raised before any write.
+    if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code, ...(err.refusal ? { refusal: err.refusal } : {}) });
     if (err instanceof UnsupportedTaxYearError) {
       return apiResponse.badRequest(res, err.message, { code: 'UNSUPPORTED_TAX_YEAR', taxYear: err.taxYear });
     }
@@ -76,4 +80,4 @@ async function handler(
 }
 
 // A viewer must not recalculate a run (W3-01 review): the same roles as approve.
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

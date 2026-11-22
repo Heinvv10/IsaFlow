@@ -23,12 +23,12 @@ import NewInvoicePage from '../../../pages/accounting/customer-invoices/new';
 useApiJsonOverMock();
 afterEach(() => cleanup());
 
-async function preview(unitPrice: string, taxRate: string, rate: string): Promise<string | null | undefined> {
+async function preview(unitPrice: string, vatType: RegExp, rate: string): Promise<string | null | undefined> {
   script((u) => (u.endsWith('/customers') ? ok([{ id: 'c-1', name: 'FX Client' }])
     : u.includes('currencies') ? ok([{ code: 'USD', name: 'US Dollar', symbol: '$' }]) : undefined));
   render(<NewInvoicePage />);
   await pickOption('Currency', /USD/);
-  fireEvent.change(document.querySelector('input[name="taxRate"]')!, { target: { value: taxRate } });
+  await pickOption('VAT type', vatType);
   fireEvent.change(document.querySelector('input[name="exchangeRate"]')!, { target: { value: rate } });
   fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: unitPrice } });
   return screen.getByText('ZAR equivalent').nextElementSibling?.textContent;
@@ -36,10 +36,10 @@ async function preview(unitPrice: string, taxRate: string, rate: string): Promis
 
 describe('new invoice: the ZAR equivalent', () => {
   it('USD 1 000 + 15% at 18.333 shows R\xa021 082.95', async () => {
-    expect(await preview('1000', '15', '18.333')).toBe('R\xa021\xa0082.95');
+    expect(await preview('1000', /Standard/, '18.333')).toBe('R\xa021\xa0082.95');
   });
 
   it('rounds a half cent away from zero (USD 1.15 at 0.5 is R0.575, which float shows as R0.57)', async () => {
-    expect(await preview('1.15', '0', '0.5')).toBe('R\xa00.58');
+    expect(await preview('1.15', /Zero-rated/, '0.5')).toBe('R\xa00.58');
   });
 });

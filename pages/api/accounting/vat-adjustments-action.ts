@@ -20,6 +20,7 @@ import { isLockContention } from '@/modules/accounting/services/core/lockContent
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,6 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'vat', 'VAT adjustments')) return; // #1656 (Hein: gate everything), before any write
         const item = await withJournalDateRefusal(res, () => approveVATAdjustment(companyId, id, userId));
         if (item === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, item);

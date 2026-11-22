@@ -147,6 +147,8 @@ describe('payroll/employees/[id] (routes: employees/:id -> Employee, payroll/com
     (u, m) => (m === 'GET' && u.endsWith('/api/payroll/employees/e1') ? empRes() : undefined),
     on('GET', 'employees/e1/components', () => ok([asg])),
     on('GET', 'api/payroll/components', () => ok([{ id: 'c1', name: 'D2 Bonus Comp', componentType: 'earning', sarsSourceCode: '3605' }])),
+    // No bank details on file: the route answers data null. The catch-all ok([]) would hand the bank card an array.
+    on('GET', 'employees/e1/bank-details', () => ok(null)),
   ];
   beforeEach(() => { route.query = { id: 'e1' }; });
   it('success: the heading names the employee and the assignment list shows the component and amount', async () => {

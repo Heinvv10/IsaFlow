@@ -21,6 +21,8 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// #1656: the module Approve is the subject of tests/unit/api/approveGateEverything; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
   return {

@@ -212,9 +212,9 @@ describeIfDb('K-053 the as-at statement surfaces are dated to the reversal', () 
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 
     // Delete both. The reversal lands TODAY because the document period closed.
-    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
-    await inTx(() => softDelete(COMPANY, 'supplier_invoice', creditBill, USER));
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER, { allowReversal: true }));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', creditBill, USER, { allowReversal: true }));
 
     // A processed payment ALREADY allocated to the deleted bill. The delete
     // guard refuses to create this shape today, so it is written directly:

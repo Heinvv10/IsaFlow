@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
@@ -25,12 +26,17 @@ vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({ 
 vi.mock('@/modules/accounting/services/capture/pettyCashJournalService', async (orig) => ({
   ...(await orig<object>()), postReceiptAsPettyCashJournal: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/capture/postExpenseClaim', () => ({
+  postExpenseAsClaim: vi.fn(async (res: { status: (c: number) => { json: (p: unknown) => unknown } }) => res.status(200).json({ success: true })),
+}));
 
 import { lockCaptureEventForPosting, lockCapturedDocumentForUpdate, lockPostableCaptureEventIds } from '@/modules/accounting/services/capture/captureRowLock';
 import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { CaptureEventLockedError } from '@/modules/accounting/services/capture/captureEventLock';
 import { postReceiptAsPettyCashJournal } from '@/modules/accounting/services/capture/pettyCashJournalService';
 import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+import { checkPermission } from '@/lib/auth/permissionService';
+import { postExpenseAsClaim } from '@/modules/accounting/services/capture/postExpenseClaim';
 import postExpense from '../../../pages/api/accounting/capture/[id]/post-expense';
 import pipeline from '../../../pages/api/accounting/ai-invoice-pipeline';
 
@@ -78,6 +84,40 @@ describe('capture/[id]/post-expense: the duplicate guard', () => {
     expect(JSON.stringify(r.sent)).toContain('CC1 must name an active CC1 cost centre in this company');
     vi.mocked(postReceiptAsPettyCashJournal).mockRejectedValueOnce(new Error('db down'));
     await expect(call(postExpense, { costCentreId: ID }, { id: ID })).rejects.toThrow('db down');
+  });
+});
+
+// #1670 Codex: Suppliers Approve gates the direct-posting branch only; an employee claim is submitted for approval, not approved.
+describe('capture/[id]/post-expense: who needs Suppliers Approve', () => {
+  beforeEach(() => {
+    vi.mocked(lockCaptureEventForPosting).mockResolvedValue({
+      eventStatus: 'extracted', documentId: ID, documentStatus: 'pending', documentPostedAt: null, extractedData: { vendorName: 'v' },
+    } as never);
+    vi.mocked(checkReceiptDuplicate).mockResolvedValue({ kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null } } as never);
+    vi.mocked(checkPermission).mockResolvedValue(false); // no Suppliers & AP Approve
+  });
+
+  it('a person without it may still submit an employee reimbursement claim (it only queues for approval)', async () => {
+    const r = await call(postExpense, { employeeId: ID }, { id: ID });
+    expect(r.statusCode, JSON.stringify(r.sent)).toBe(200);
+    expect(postExpenseAsClaim).toHaveBeenCalledTimes(1);
+    expect(checkPermission).not.toHaveBeenCalledWith('c', 'u', 'suppliers', 'approve');
+  });
+
+  it('the direct journal (no employee) is refused 403 before any lock, read or duplicate check (#1670 breaker L2)', async () => {
+    const r = await call(postExpense, {}, { id: ID });
+    expect(r.statusCode, JSON.stringify(r.sent)).toBe(403);
+    expect(checkPermission).toHaveBeenCalledWith('c', 'u', 'suppliers', 'approve');
+    expect(lockCaptureEventForPosting).not.toHaveBeenCalled();
+    expect(checkReceiptDuplicate).not.toHaveBeenCalled(); // no DUPLICATE_RECEIPT for a person without Approve
+    expect(postReceiptAsPettyCashJournal).not.toHaveBeenCalled();
+    vi.mocked(checkReceiptDuplicate).mockResolvedValueOnce(dup('duplicate') as never);
+    expect((await call(postExpense, {}, { id: ID })).statusCode, 'a duplicate, refused first by the gate').toBe(403);
+    vi.mocked(checkReceiptDuplicate).mockReset();
+    vi.mocked(checkReceiptDuplicate).mockResolvedValue({ kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null } } as never);
+    vi.mocked(checkPermission).mockResolvedValue(true);
+    vi.mocked(postReceiptAsPettyCashJournal).mockResolvedValueOnce({ journalEntryId: 'je' } as never);
+    expect((await call(postExpense, {}, { id: ID })).statusCode).toBe(200);
   });
 });
 

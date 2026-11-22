@@ -61,15 +61,18 @@ interface RunHeaderTotals {
   totalUif: number;
   totalSdl: number;
   totalNet: number;
+  lines: ReadonlyArray<{ uifEmployee: number }>;
 }
 
 /**
  * The run's stat cards — the header's totals, split by the same
  * splitRunTotals the payroll journal books them with, so "Other deductions"
- * is the 2175 credit and the UIF halves are the journal's.
+ * is the 2175 credit and the UIF sides are the journal's (the employee side is the lines' own).
  */
 export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
-  const split = splitRunTotals({ gross: run.totalGross, paye: run.totalPaye, uif: run.totalUif, net: run.totalNet });
+  const split = splitRunTotals({ gross: run.totalGross, paye: run.totalPaye, uif: run.totalUif, net: run.totalNet,
+    // No line (a header-only run): undefined, so the split halves the total as the journal does.
+    uifEmployee: run.lines.length > 0 ? run.lines.reduce((s, l) => s + l.uifEmployee, 0) : undefined });
   const stats = [
     { label: 'Employees', value: String(run.employeeCount), mono: false, accent: false },
     { label: 'Total Gross', value: formatCurrency(run.totalGross), mono: true, accent: false },

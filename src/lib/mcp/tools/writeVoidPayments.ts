@@ -44,6 +44,7 @@ function voidTool(
 ): McpTool {
   return {
     name,
+    approveModule: kind === 'supplier' ? 'suppliers' : 'customers', // #1656: moduleFence asks this Approve before the handler
     description,
     scope: 'write:invoices',
     write: true,

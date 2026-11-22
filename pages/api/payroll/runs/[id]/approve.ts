@@ -27,6 +27,8 @@ import {
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,6 +48,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (typeof expectedPlanHash !== 'string' || expectedPlanHash === '') {
     return apiResponse.badRequest(res, 'expectedPlanHash is required: preview the run (GET journal-plan) and send its planHash');
   }
+  // #1656 (Hein: gate everything): Payroll Approve, before the run is read or locked.
+  if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'pay runs')) return;
 
   try {
     const result = await withJournalDateRefusal(res, () => approvePayrollRun(companyId, id, user.id, { expectedPlanHash }));
@@ -68,4 +72,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

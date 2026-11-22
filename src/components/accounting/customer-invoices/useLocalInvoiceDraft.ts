@@ -9,9 +9,8 @@
  *   until the user answers; the page says so beside the offer.
  * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back. A clear
  *   in ANOTHER tab says so on this page ("no longer kept"), and leaving still asks: what is on screen is the only copy.
- * - Left before the 800 ms are up (Back, a link), the page writes what was typed as it goes, even while a VAT rate is
- *   being typed; not while a kept draft is unanswered, and not after the user chose "Leave without them".
- * - Never while `paused` (a VAT rate edit under way), as on the edit page.
+ * - Left before the 800 ms are up (Back, a link), the page writes what was typed as it goes; not while a kept draft is
+ *   unanswered, and not after the user chose "Leave without them".
  * - A storage that throws is shown, never raised; the next change tries again.
  * - `clear` after a successful create; sign-out and a company switch clear every draft (AuthContext, CompanyContext).
  */
@@ -35,7 +34,6 @@ export interface LocalDraftOptions {
   userId: string | null;
   /** This render's form, lines and mode. */
   snapshot: LocalDraftData;
-  paused: boolean;
   /** Puts a kept draft back on the form, all three together. */
   onRestore: (draft: LocalDraftData) => void;
 }
@@ -120,7 +118,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const armed = Boolean(key && !offer && !opts?.paused);
+  const armed = Boolean(key && !offer);
   const writer = useRef({ key, armed, offered: Boolean(offer) });
   useCommitEffect(() => { writer.current = { key, armed, offered: Boolean(offer) }; });
   /** Keeps the form now. Never past a clear; back to how the page opened, there is nothing to keep. */
@@ -140,8 +138,8 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     setWrittenJson(now.json);
     setSavedAt(blank ? null : Date.now());
   }, []);
-  // Declared before the timer's effect, so on unmount it runs first. Unarmed by a VAT rate being typed still writes:
-  // the draft keeps the typed values, so it restores what was on screen.
+  // Declared before the timer's effect, so on unmount it runs first: the draft keeps the typed values, so it restores
+  // what was on screen.
   useEffect(() => () => {
     const { key: k, offered } = writer.current;
     if (k && !offered && discarded.current === null && latest.current.json !== written.current) writeNow();

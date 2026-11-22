@@ -96,7 +96,7 @@ describe('cancelCustomerInvoice', () => {
       .mockResolvedValueOnce([]); // 4. UPDATE customer_invoices
     mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
 
-    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
 
     expect(mockReverse).toHaveBeenCalledTimes(1);
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JE_ID, USER_ID);
@@ -126,7 +126,7 @@ describe('cancelCustomerInvoice', () => {
       .mockResolvedValueOnce([{ id: JE_ID }]);
     mockReverse.mockRejectedValue(new Error('Cannot post to closed fiscal period') as never);
 
-    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true })).rejects.toThrow(
       /closed fiscal period/i,
     );
     // Status is never flipped when the reversal fails — the route/outer tx rolls back.
@@ -136,7 +136,7 @@ describe('cancelCustomerInvoice', () => {
   it('rejects cancellation when amount_paid > 0 and mutates nothing', async () => {
     mockSql.mockResolvedValueOnce([invoiceRow({ amount_paid: '500.00' })]);
 
-    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toBeInstanceOf(
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true })).rejects.toBeInstanceOf(
       InvoiceHasPaymentsError,
     );
 
@@ -149,7 +149,7 @@ describe('cancelCustomerInvoice', () => {
       .mockResolvedValueOnce([invoiceRow({ amount_paid: '0', gl_journal_entry_id: null })])
       .mockResolvedValueOnce([{ allocated: '250.00' }]);
 
-    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toBeInstanceOf(
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true })).rejects.toBeInstanceOf(
       InvoiceHasPaymentsError,
     );
 
@@ -163,7 +163,7 @@ describe('cancelCustomerInvoice', () => {
       .mockResolvedValueOnce([{ allocated: '0' }])
       .mockResolvedValueOnce([]);
 
-    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(result.reversedJournalEntryId).toBeNull();
@@ -183,7 +183,7 @@ describe('cancelCustomerInvoice', () => {
       .mockResolvedValueOnce([]);
     vi.mocked(lockStandingChainHead).mockResolvedValueOnce(null);
 
-    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(result.reversedJournalEntryId).toBeNull();
@@ -199,7 +199,7 @@ describe('cancelCustomerInvoice', () => {
     vi.mocked(lockStandingChainHead).mockResolvedValueOnce('head-r2');
     mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
 
-    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
 
     expect(lockStandingChainHead).toHaveBeenCalledWith(COMPANY_ID, JE_ID);
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, 'head-r2', USER_ID);
@@ -208,7 +208,7 @@ describe('cancelCustomerInvoice', () => {
   it('throws InvoiceNotFoundError for an unknown invoice and mutates nothing', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toBeInstanceOf(
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true })).rejects.toBeInstanceOf(
       InvoiceNotFoundError,
     );
 
@@ -219,18 +219,85 @@ describe('cancelCustomerInvoice', () => {
   it('runs inside a savepoint so 400-path failures cannot orphan-commit partial writes', async () => {
     const { withSavepoint } = await import('@/lib/neon');
     mockSql.mockResolvedValueOnce([]); // not found → throws, but wrapper must be used
-    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID).catch(() => undefined);
+    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true }).catch(() => undefined);
     expect(withSavepoint).toHaveBeenCalledWith('cancel_customer_invoice', expect.any(Function));
   });
 
   it('is a no-op when the invoice is already cancelled', async () => {
     mockSql.mockResolvedValueOnce([invoiceRow({ status: 'cancelled' })]);
 
-    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(updateInvoiceCalls()).toHaveLength(0);
     expect(result.id).toBe(INVOICE_ID);
     expect(result.reversedJournalEntryId).toBeNull();
+  });
+});
+
+// #1656 security fix: whether a cancel needs Approve is decided under the row lock, from the locked row's
+// gl_journal_entry_id (a journal is what a cancel reverses), never from a status read taken before the lock. The route
+// passes allowReversal (the person's Customers Approve); the service refuses a journalled invoice without it.
+describe('cancelCustomerInvoice allowReversal (decided under the row lock)', () => {
+  it('allowReversal=false refuses a journalled invoice, whatever its status text says; nothing is written', async () => {
+    // The route saw a draft; by the lock the invoice is approved (journal posted). The service sees only the locked row.
+    for (const status of ['approved', 'draft', 'sent']) {
+      vi.clearAllMocks();
+      mockSql.mockResolvedValueOnce([invoiceRow({ status })]); // the locked read: gl_journal_entry_id set
+      await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false }))
+        .rejects.toMatchObject({ name: 'ApprovePermissionError', module: 'customers' });
+      expect(mockReverse).not.toHaveBeenCalled();
+      expect(mockSql).toHaveBeenCalledTimes(1); // only the locked SELECT: no allocation read, no journal lock, no UPDATE
+      expect(updateInvoiceCalls()).toHaveLength(0);
+    }
+  });
+
+  it('allowReversal=false still cancels an invoice with no journal (a draft posts nothing)', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow({ status: 'draft', gl_journal_entry_id: null })])
+      .mockResolvedValueOnce([{ allocated: '0' }])
+      .mockResolvedValueOnce([]);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false });
+    expect(result.reversedJournalEntryId).toBeNull();
+    expect(mockReverse).not.toHaveBeenCalled();
+    expect(updateInvoiceCalls()).toHaveLength(1);
+  });
+
+  it('round 4 (B-M1): an approved-or-later invoice with NO journal (a Sage import) is an approval act too: refused without Approve', async () => {
+    for (const status of ['approved', 'sent', 'partially_paid', 'paid', 'overdue']) {
+      vi.clearAllMocks();
+      mockSql.mockResolvedValueOnce([invoiceRow({ status, gl_journal_entry_id: null })]);
+      await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false }), status)
+        .rejects.toMatchObject({ name: 'ApprovePermissionError', module: 'customers' });
+      expect(mockSql).toHaveBeenCalledTimes(1);
+      expect(updateInvoiceCalls()).toHaveLength(0);
+    }
+  });
+
+  it('round 4: the same journal-less approved invoice cancels for a person with Approve (nothing to reverse)', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow({ status: 'approved', gl_journal_entry_id: null })])
+      .mockResolvedValueOnce([{ allocated: '0' }])
+      .mockResolvedValueOnce([]);
+    const r = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
+    expect(r.reversedJournalEntryId).toBeNull();
+    expect(mockReverse).not.toHaveBeenCalled();
+  });
+
+  it('allowReversal=true reverses the journal as before', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow()])
+      .mockResolvedValueOnce([{ allocated: '0' }])
+      .mockResolvedValueOnce([{ id: JE_ID }])
+      .mockResolvedValueOnce([]);
+    mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
+    const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: true });
+    expect(result.reversedJournalEntryId).toBe(REVERSAL_ID);
+  });
+
+  it('an already-cancelled invoice stays an idempotent no-op for a person without Approve', async () => {
+    mockSql.mockResolvedValueOnce([invoiceRow({ status: 'cancelled' })]);
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID, { allowReversal: false }))
+      .resolves.toEqual({ id: INVOICE_ID, reversedJournalEntryId: null });
   });
 });

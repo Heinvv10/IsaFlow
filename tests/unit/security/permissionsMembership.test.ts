@@ -29,8 +29,12 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/auth/permissionService', () => ({
   getPermissionModules: vi.fn(),
   getUserPermissions: vi.fn(),
-  setUserModulePermission: vi.fn(),
-  resetUserPermissions: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/core/memberWrites', async (orig) => ({
+  ...(await orig<object>()),
+  setMemberModulePermission: vi.fn(),
+  resetMemberPermissions: vi.fn(),
+  setMemberApproveWithheld: vi.fn(),
 }));
 
 vi.mock('@/lib/apiResponse', () => ({
@@ -41,7 +45,8 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 import { apiResponse } from '@/lib/apiResponse';
-import { getPermissionModules, setUserModulePermission } from '@/lib/auth/permissionService';
+import { getPermissionModules } from '@/lib/auth/permissionService';
+import { setMemberModulePermission } from '@/modules/accounting/services/core/memberWrites';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
 import handler from '../../../pages/api/accounting/permissions';
@@ -76,7 +81,7 @@ describe('permissions H4 — target-user membership guard', () => {
   it('rejects when the target userId is NOT a member of the company', async () => {
     sqlMock.mockResolvedValue([]); // company_users membership lookup → empty
     await (handler as Handler)(makeReq(), makeRes());
-    expect(setUserModulePermission).not.toHaveBeenCalled();
+    expect(setMemberModulePermission).not.toHaveBeenCalled();
     expect(
       (apiResponse.notFound as ReturnType<typeof vi.fn>).mock.calls.length +
         (apiResponse.forbidden as ReturnType<typeof vi.fn>).mock.calls.length,
@@ -86,6 +91,7 @@ describe('permissions H4 — target-user membership guard', () => {
   it('allows when the target userId IS a member of the company', async () => {
     sqlMock.mockResolvedValue([{ ok: 1 }]); // company_users membership lookup → found
     await (handler as Handler)(makeReq(), makeRes());
-    expect(setUserModulePermission).toHaveBeenCalledTimes(1);
+    expect(setMemberModulePermission).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(setMemberModulePermission).mock.calls[0]![4]).toBe('caller'); // the actor the owner / admin check judges
   });
 });

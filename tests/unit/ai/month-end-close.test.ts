@@ -90,3 +90,14 @@ describe('Close Progress Summary', () => {
     expect(buildCloseProgressSummary(0, 10, '2026-03').status).toBe('not_started');
   });
 });
+
+describe('checkCompleteness without Payroll read', () => {
+  const none = { hasPayrollPosted: true, hasDepreciationRun: false, hasBankRecon: false, hasVATRecon: false, hasAccruals: false };
+  it('"Payroll posted" is not a check, whatever the flag says, and the percentage is over the rest', async () => {
+    const { checkCompleteness } = await import('@/modules/accounting/services/gl/monthEndCloseService');
+    const r = checkCompleteness(none, { payroll: false });
+    expect(r.missing).toEqual(['Depreciation run', 'Bank reconciliation', 'VAT reconciliation', 'Accruals reviewed']);
+    expect(r.percentComplete).toBe(0);
+    expect(checkCompleteness(none).percentComplete).toBe(20); // default: unchanged
+  });
+});

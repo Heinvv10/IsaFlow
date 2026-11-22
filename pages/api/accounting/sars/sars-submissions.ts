@@ -29,6 +29,8 @@ import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -60,6 +62,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       try {
         const existing = await getSubmission(companyId, id);
         if (!existing) return apiResponse.notFound(res, 'Submission', id);
+        // Marking a return submitted takes the form's module Approve (Hein's gate-everything ruling, 2026-11-21), before any write.
+        const module = returnApproveModule(existing.formType);
+        if (!module) return apiResponse.forbidden(res, `No Approve permission governs marking a ${existing.formType} return submitted, so it is refused.`);
+        if (await refuseWithoutApprove(res, companyId, (req as AuthenticatedNextApiRequest).user.id, module, `${existing.formType} returns`)) return;
 
         // Blocking VAT exceptions gate — VAT201 only, and only when the ISV
         // channel was not used to file it (this route is the manual path).

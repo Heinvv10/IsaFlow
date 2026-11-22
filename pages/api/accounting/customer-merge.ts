@@ -17,6 +17,9 @@ import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,11 +35,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const result = await mergeCustomers(companyId, source_id, target_id, user.id);
+    // A bank rule that posts money and names the merged-away customer is re-pointed by the merge: Banking Approve, as editing its customer is.
+    const ruleGuard = autoPostApprovalGuard(await mayApprove(companyId, user.id, 'banking'));
+    const result = await mergeCustomers(companyId, source_id, target_id, user.id, ruleGuard);
     log.info('Customer merge completed', { source_id, companyId, ...result, module: 'accounting' });
     return apiResponse.success(res, result);
   } catch (err: unknown) {
     // An auto-posting bank rule names the merged-away customer under `bank_rule` (409, nothing merged).
+    if (respondIfApprovePermissionRefused(res, err)) return;
     if (respondIfBankControlRefused(res, err)) return;
     if (err instanceof ArRequestError) {
       if (err.status === 409) return apiResponse.conflict(res, err.message);

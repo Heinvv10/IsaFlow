@@ -12,6 +12,8 @@ import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
+import { payrollReadByCompany } from '@/modules/accounting/services/workbench/portfolioPayrollAccess';
 import { listBureausForUser } from '@/modules/bureau/services/bureauService';
 import {
   aggregateBureauWork,
@@ -51,7 +53,12 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   const companyIds = companyRows.map((r) => r.company_id);
   const meta = new Map<string, CompanyMeta>(companyRows.map((r) => [r.company_id, r]));
 
-  const { items, monthEnd } = await aggregateBureauWork(companyIds, meta, new Date());
+  // Payroll signals (open pay runs with their /payroll links, IRP5, directives, leave) only for the clients where this user has Payroll
+  // read: decided per company, in one query, as the portfolio does; no payroll query for the others.
+  const payrollRead = await payrollReadByCompany(getPlatformAdminPool(), userId, companyIds);
+  const payrollCompanyIds = companyIds.filter((id) => payrollRead.get(id) === true);
+  // census-exempt(aggregateBureauWork, payroll-read): payroll signals are read only for payrollCompanyIds, the clients where the caller has Payroll read; every other signal is company-level status, no one person's pay
+  const { items, monthEnd } = await aggregateBureauWork(companyIds, meta, new Date(), { payrollCompanyIds });
 
   const stats = {
     overdue: items.filter((i) => i.severity === 'overdue').length,

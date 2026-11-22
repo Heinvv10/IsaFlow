@@ -22,6 +22,7 @@ import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges
 import { auditBankDuplicatesRead } from '@/modules/accounting/services/payroll/payrollBankReadAudit';
 import { findDuplicates } from '@/modules/accounting/services/payroll/payrollDuplicateDetectionService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -45,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(withPayrollDetailAccess(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(withPayrollDetailAccess(handler))));

@@ -61,7 +61,7 @@ const createBill = async (input: ReturnType<typeof billInput>): Promise<{ id?: s
 };
 const undo = async (id: string): Promise<string> => {
   const req = await openRequest(pool, f, f.owner);
-  try { const r = await req.run(() => undoDelete(f.co, 'supplier_invoice', id, f.owner)); await req.commit(); return String(r); } catch (e) { await req.rollback(); return (e as Error).message; }
+  try { const r = await req.run(() => undoDelete(f.co, 'supplier_invoice', id, f.owner, { allowReversal: true })); await req.commit(); return String(r); } catch (e) { await req.rollback(); return (e as Error).message; }
 };
 const deletedBill = async (grn: string, over: { supplier?: string; po?: string } = {}) => {
   const bill = await seedBill(pool, f, { status: 'draft', lines: [40], ...(over.supplier ? { supplier: over.supplier } : {}) });

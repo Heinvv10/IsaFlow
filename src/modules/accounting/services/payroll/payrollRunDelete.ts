@@ -2,7 +2,7 @@
  * Deleting a draft pay run (wave 6 FQd; coordinator r3 ruling on #1575: cancel/delete for draft runs is FQd's). A run
  * created for the wrong week, or left behind when the pay week changed, would otherwise hold its period for good.
  *
- * Only a run that has paid nobody is deleted: status 'draft', never approved, never calculated (no line), and no
+ * Only a run that has paid nobody is deleted: status 'draft', never approved, never calculated (no line, no calculated_at), and no
  * approval request on it. Anything else is RunNotDeletableError (409, nothing written): a calculated run has written
  * loan payments, directive uses and inputs keyed to it, and a once-approved run is history. Judged under the company's
  * payroll-approval lock and the run's row lock (calculate and approve take both, in this order), so no calculation or
@@ -35,7 +35,9 @@ export async function deleteDraftPayrollRun(companyId: string, runId: string, ac
     SELECT EXISTS (SELECT 1 FROM payroll_run_lines WHERE run_id = ${runId}::uuid) AS lines,
            EXISTS (SELECT 1 FROM approval_requests WHERE company_id = ${companyId}::uuid AND document_id = ${runId}::uuid) AS approval
   `) as DbRow[];
-  if (used[0]?.lines === true) throw new RunNotDeletableError('it has been calculated');
+  // calculated_at too (review #1679 Codex M): a bonus amount edit removes a calculated run's lines and returns it to
+  // draft, and what its calculation wrote stays keyed to it.
+  if (used[0]?.lines === true || run.calculated_at != null) throw new RunNotDeletableError('it has been calculated');
   if (used[0]?.approval === true) throw new RunNotDeletableError('approval has been requested for it');
   await sql`
     DELETE FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'

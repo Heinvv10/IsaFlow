@@ -23,6 +23,7 @@ import { ApprovalDocumentNotDraftError, ApprovalDocumentNotFoundError, ApprovalR
 import { shareLockCreditNoteStatus } from '../ar/creditNoteLock';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
+import { lockPayRunApprovers } from '../core/payRunApproverGuard';
 
 /**
  * The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError,
@@ -160,7 +161,10 @@ async function findDocument(
     case 'pay_run':
       return first((await sql`
         SELECT COALESCE(total_gross, 0) AS amount,
-               lpad(period_month::text, 2, '0') || '/' || period_year::text AS reference,
+               lpad(period_month::text, 2, '0') || '/' || period_year::text
+                 -- An off-cycle run names its kind (wave 6 OC; the same string as approval_request_document_facts, mig 999x).
+                 || CASE WHEN run_kind = 'off_cycle' THEN ' ' || COALESCE(off_cycle_reason, 'off-cycle') || ' run, pay date '
+                      || to_char(COALESCE(run_date, period_end), 'YYYY-MM-DD') ELSE '' END AS reference,
                approval_document_digest(company_id, 'pay_run', id) AS digest
         FROM payroll_run_headers
         WHERE id = ${documentId}::UUID AND company_id = ${companyId}
@@ -223,6 +227,8 @@ export async function requestApproval(companyId: string, input: {
   // R-035 PR2-must (4): under Login-as the requester would be recorded as the
   // TARGET, and the real one pushed into past_requesters. Raising is refused.
   await assertNotImpersonating();
+  // A pay run's raise takes the approver lock a member write judging it takes (#1670 breaker L5), before its roster snapshot.
+  if (input.documentType === 'pay_run') await lockPayRunApprovers(companyId);
   // A stricter rule (or a new amount) between the read below and the write is
   // refused by the definer (RA010) with nothing written; re-reading once binds
   // the rule that governs now. A second race is the 409 the route answers.

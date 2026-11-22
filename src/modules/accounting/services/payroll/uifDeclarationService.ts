@@ -14,6 +14,7 @@ import {
   loadComponentTypes,
   parseBreakdown,
   rebuildUifLeviable,
+  recordedOffCycleUifBase,
   uifLineBase,
 } from './uifLeviableBase';
 
@@ -141,7 +142,8 @@ export async function getUifDeclaration(
       prl.gross_pay,
       prl.uif_employee,
       prl.uif_employer,
-      prl.component_breakdown
+      prl.component_breakdown,
+      prl.explanation->'uif'->'steps' AS uif_steps
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
@@ -167,7 +169,8 @@ export async function getUifDeclaration(
     const grossPay = Number(r.gross_pay);
     const employeeContribution = Number(r.uif_employee);
     const items = breakdowns[i];
-    const { leviableSalary, isCapped } = uifLineBase(
+    // An off-cycle line's base is the room its month's earlier lines left, as its calculation recorded it.
+    const { leviableSalary, isCapped } = recordedOffCycleUifBase(r.uif_steps) ?? uifLineBase(
       grossPay,
       employeeContribution,
       items ? rebuildUifLeviable(items, types) : null,
@@ -242,15 +245,15 @@ export async function generateUifDeclaration(
       total_leviable_salary       = EXCLUDED.total_leviable_salary,
       total_employee_contribution = EXCLUDED.total_employee_contribution,
       total_employer_contribution = EXCLUDED.total_employer_contribution,
-      status = CASE
-        WHEN uif_declarations.status = 'draft' THEN 'draft'
-        ELSE uif_declarations.status
-      END,
       updated_at = NOW()
+    WHERE uif_declarations.status = 'draft' -- #1670 r13 L5: a submitted / accepted / paid declaration's totals are what was filed
     RETURNING *
   `) as Row[];
-
-  if (!upsertRows[0]) throw new Error('Upsert returned no row');
+  if (!upsertRows[0]) { // the period's declaration exists and is no draft: unchanged (409), never re-totalled
+    const [current] = (await sql`SELECT status FROM uif_declarations WHERE company_id = ${companyId}::uuid
+      AND period_year = ${year} AND period_month = ${month}`) as Row[];
+    throw current ? new UifDeclarationNotDraftError(String(current.status), 'regenerated') : new Error('Upsert returned no row');
+  }
 
   log.info(
     'UIF declaration generated',
@@ -261,6 +264,19 @@ export async function generateUifDeclaration(
   return { ...mapUifDeclaration(upsertRows[0]), runWarnings: await uifRunWarnings(companyId, year, month) };
 }
 
+/** A declaration that is not a draft any more (submitted, accepted or paid) is not marked submitted again. Routes answer 409. */
+export class UifDeclarationNotDraftError extends Error {
+  readonly code = 'UIF_DECLARATION_NOT_DRAFT';
+  constructor(readonly status: string, what: 'marked submitted' | 'regenerated' = 'marked submitted') {
+    super(`Only a draft UIF declaration can be ${what} (current: ${status})`);
+    this.name = 'UifDeclarationNotDraftError';
+  }
+}
+
+/**
+ * Draft -> submitted only (#1670 breaker M2): flipping a PAID declaration back to submitted re-armed markUifDeclarationPaid, so
+ * the same declaration could be paid (and its journal posted) twice. null when this company has no such declaration.
+ */
 export async function markUifSubmitted(
   companyId: string,
   id: string,
@@ -272,10 +288,16 @@ export async function markUifSubmitted(
       submitted_at = NOW(),
       submitted_by = ${submittedByUserId},
       updated_at   = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
     RETURNING *
   `) as Row[];
-  if (rows.length === 0 || !rows[0]) return null;
+  if (rows.length === 0 || !rows[0]) {
+    const current = (await sql`
+      SELECT status FROM uif_declarations WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    `) as Row[];
+    if (current[0]) throw new UifDeclarationNotDraftError(String(current[0].status));
+    return null;
+  }
   log.info('UIF declaration marked submitted', { companyId, id }, 'uifDeclarationService');
   return mapUifDeclaration(rows[0]);
 }

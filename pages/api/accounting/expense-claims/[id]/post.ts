@@ -9,6 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,6 +24,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const id = req.query.id as string;
   const { companyId } = req;
   const userId = req.user?.id ?? '';
+  if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'expense claims')) return; // #1656 (Hein: gate everything), before any write
   if (!id || !UUID_RE.test(id)) return apiResponse.notFound(res, 'Expense claim', id);
   if (!userId) return apiResponse.unauthorized(res);
 

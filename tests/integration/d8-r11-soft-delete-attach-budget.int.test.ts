@@ -60,7 +60,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 11: soft delete and the aut
     const inv = await postedInvoice(c);
     const errors = vi.spyOn(log, 'error');
     const r = await whileHeld(HOLD_INVOICE, inv.id,
-      () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
+      () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId, { allowReversal: true }));
     expect(r.ok, JSON.stringify(r)).toBe(false);
     expect((r as { e: unknown }).e).toBeInstanceOf(RowLockTimeoutError);
     expect(r.ms).toBeLessThan(9000);
@@ -71,11 +71,11 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 11: soft delete and the aut
 
   it('F7 the undo of a delete on an invoice a peer holds refuses within the budget; it stays deleted', async () => {
     const inv = await postedInvoice(c);
-    await inTx(c.fx, () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
+    await inTx(c.fx, () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId, { allowReversal: true }));
     expect(await invoiceState(inv.id)).toEqual({ deleted: true, reversals: 1 });
     const errors = vi.spyOn(log, 'error');
     const r = await whileHeld(HOLD_INVOICE, inv.id,
-      () => undoDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
+      () => undoDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId, { allowReversal: true }));
     expect(r.ok, JSON.stringify(r)).toBe(false);
     expect((r as { e: unknown }).e).toBeInstanceOf(RowLockTimeoutError);
     expect(r.ms).toBeLessThan(9000);

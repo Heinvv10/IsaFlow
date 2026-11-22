@@ -6,11 +6,12 @@
 import {
   User, ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, RotateCcw, UserCog, LogIn, Briefcase, Loader2,
 } from 'lucide-react';
+import type { BureauRole } from '@/lib/auth/companyRoles';
 
 export interface UserBureau {
   bureau_id: string;
   bureau_name: string;
-  role: 'owner' | 'accountant' | 'viewer';
+  role: BureauRole;
 }
 
 export interface UserActionBarUser {

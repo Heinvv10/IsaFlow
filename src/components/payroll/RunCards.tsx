@@ -5,6 +5,7 @@
  */
 import Link from 'next/link';
 import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatPeriodRange } from '@/modules/accounting/services/payroll/payrollPayWeek';
 
 export interface RunRow {
@@ -17,20 +18,32 @@ export interface RunRow {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  /** Migration 999a / wave 6 OC: an off-cycle run names its reason beside the month. */
+  runKind?: string;
+  offCycleReason?: string | null;
   /** Wave 6 FQd: a weekly or fortnightly run is labelled by its dates, a monthly one by its month. */
   payFrequency?: string;
   periodStart?: string | null;
   periodEnd?: string | null;
 }
 
+/** ' · bonus run' for an off-cycle run (wave 6 OC); '' for a regular one. */
+export const runKindSuffix = (r: { runKind?: string; offCycleReason?: string | null }): string =>
+  (r.runKind === 'off_cycle' ? ` · ${r.offCycleReason ?? 'off-cycle'} run` : '');
+
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const FREQUENCY_WORD: Record<string, string> = { weekly: 'Week', fortnightly: 'Fortnight' };
 export const periodLabel = (r: RunRow) => {
   const word = FREQUENCY_WORD[r.payFrequency ?? ''];
-  return word && r.periodStart && r.periodEnd
+  return (word && r.periodStart && r.periodEnd
     ? `${word} ${formatPeriodRange(r.periodStart, r.periodEnd)}`
-    : `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`;
+    : `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`) + runKindSuffix(r);
 };
+
+/** The run page's title: its period, and an off-cycle run's scheduled date as its PAY date (review #1679 N9: a draft or
+ * cancelled run has paid nothing, so never "paid"). */
+export const runPeriodTitle = (r: RunRow & { runDate?: string | null }): string =>
+  `${periodLabel(r)}${r.runKind === 'off_cycle' && r.runDate ? `, pay date ${formatDisplayDate(r.runDate)}` : ''}`;
 
 export function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {

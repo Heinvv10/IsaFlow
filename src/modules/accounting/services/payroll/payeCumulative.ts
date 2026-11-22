@@ -178,8 +178,10 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // What can come off the annual equivalent: itself, plus the periodic donations a year the deduction's base added back.
   const offPeriodicCeiling = annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0);
   const offPeriodic = Math.min(deduction, offPeriodicCeiling);
+  // FQc: a part period counts its share. An off-cycle line paying only an annual payment adds none: its month's
+  // regular run counted the month (review #1679 M2), and the year to date counts such lines none either.
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
-    + (hasPeriodic ? share : input.annualPaymentRemuneration > 0 ? 1 : 0); // FQc: a part period counts its share
+    + (hasPeriodic ? share : input.annualPaymentRemuneration > 0 && input.offCycleLine !== true ? 1 : 0);
   // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
   // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
   // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").
@@ -248,8 +250,12 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const due = Math.max(0, round2(liability - ytd.tablePaye));
   const annualDue = Math.max(0, taxAll - atEarlier.annualTax);
   const annualPaymentPaye = round2(Math.min(due, annualDue));
+  // An OFF-CYCLE line that pays no periodic remuneration takes no PAYE on regular pay (wave 6 OC, review #1620 L2 as
+  // revised in its delta): its month's final regular run already took the cumulative catch-up on regular pay (the
+  // to-date liability less the tables' PAYE, beyond the annual payment's tax). A regular line keeps the full cumulative
+  // method, so the year's last line (February) still withholds a deferred shortfall even when it pays no regular pay.
   return {
-    regular: { ...regularInfo, monthlyPaye: round2(due - annualPaymentPaye) },
+    regular: { ...regularInfo, monthlyPaye: !hasPeriodic && input.offCycleLine === true ? 0 : round2(due - annualPaymentPaye) },
     annualPaymentPaye,
     periods,
     annualEquivalent: round2(annualEquivalent),
@@ -257,6 +263,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     additionalMedicalCredit: round2(amtcToDate - ytd.additionalMedicalCredit),
     retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
     retirementOffPeriodicToDate: periodicToDate,
-    trace: traceOf(true, liability, due, annualDue),
+    trace: { ...traceOf(true, liability, due, annualDue), noRegularPay: !hasPeriodic && input.offCycleLine === true },
   };
 }

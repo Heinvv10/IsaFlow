@@ -21,7 +21,8 @@ import {
   VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
-import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { returnApproveModule, returnFormOf } from '@/modules/accounting/services/returns/returnForm';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
 const Body = z.object({
@@ -46,8 +47,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const { companyId, companyRole } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  // #1656 (Hein: gate everything): finalising a return approves it, so it asks VAT (VAT201) or Payroll (EMP201) Approve.
+  const module = returnApproveModule(form); // the form's module (r12 L1: the census reads the gate through this mapping)
+  if (!module) return apiResponse.forbidden(res, `No Approve permission governs finalising a ${form} return, so it is refused.`);
+  if (await refuseWithoutApprove(res, companyId, userId, module, `${form} returns`)) return;
   const { periodStart, periodEnd, overrideReason, force, acknowledgeVatReturnMismatch, mismatchReason } = parsed.data;
   try {
+    // census-exempt(finaliseReturn, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
     const { version, vatReturn } = await finaliseReturn(companyId, form, periodStart, periodEnd,
       { userId, role: companyRole },
       {

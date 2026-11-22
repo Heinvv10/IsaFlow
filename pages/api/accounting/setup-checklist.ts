@@ -7,6 +7,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
+import type { UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -14,7 +16,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
   const { companyId } = req as CompanyAuthedRequest;
-  return apiResponse.success(res, await getSetupProgress(companyId));
+  const userId = (req as UserAuthedRequest).user?.id;
+  if (!companyId || !userId) return apiResponse.forbidden(res, 'Company context or user identity missing.');
+  const payrollRead = await mayReadPayroll(companyId, userId);
+  // census-exempt(getSetupProgress, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
+  return apiResponse.success(res, await getSetupProgress(companyId, { payrollRead }));
 }
 
 export default withAuth(withErrorHandler(handler as any));

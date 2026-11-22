@@ -40,6 +40,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
 } from '@/modules/accounting/services/core/contactDirectoryService';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
@@ -75,6 +76,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId: string = req.user?.id ?? 'system';
+  if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank allocations')) return; // #1656 (Hein: gate everything), before any write
 
   const parsed = ManualTxSchema.safeParse(req.body);
   if (!parsed.success) {

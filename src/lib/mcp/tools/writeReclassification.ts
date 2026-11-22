@@ -46,6 +46,7 @@ const DESCRIPTION = [
 
 export const postReclassificationBatchTool: McpTool = {
   name: RECLASS_TOOL,
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description: DESCRIPTION,
   scope: 'write:journals',
   write: true,

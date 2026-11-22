@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 import {
   apSubledger, billWithJournal, dropStepExtras, ledger, postedJournal, seedStepAccounts, type StepAccounts,
 } from './helpers/shareUndoFixture';
@@ -37,6 +37,7 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
   beforeAll(async () => {
     assertNotProductionDb('This test posts journals and voids payments.');
     fx = await seedFixture('UNDO', DATABASE_URL!);
+    await seedFixtureMember(fx); // #1656: settle_by_contra asks the token owner's Suppliers & AP Approve
     a = await seedStepAccounts(fx);
     billA = await billWithJournal(fx, a, 'SIVA', '2026-05-10', [
       { account: a.expense, debit: 5000, cc1Id: a.cc1, costCenterId: a.cc1 }, { account: a.expense2, debit: 1956.52 },
@@ -52,7 +53,7 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
 
   afterAll(async () => {
     await dropStepExtras(fx);
-    await dropFixture(fx);
+    await dropFixtureMember(fx); await dropFixture(fx);
   }, 120000);
 
   it('dry run writes nothing; the live call on the same key voids and posts the mirror of the bill', async () => {

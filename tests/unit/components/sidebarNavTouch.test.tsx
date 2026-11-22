@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
+// Payroll is hidden until the user is known to have Payroll read (`useNavFlags`); these cases are about its menus.
+vi.mock('@/hooks/useNavFlags', async () => {
+  const { MODULE_READ_NAV_FLAGS } = await import('@/components/accounting/navSections/flagNav');
+  const readable: ReadonlySet<string> = new Set(MODULE_READ_NAV_FLAGS);
+  return { useNavFlags: () => readable };
+});
 vi.mock('next/router', () => ({
   useRouter: () => ({ pathname: '/accounting', asPath: '/accounting', query: {} }),
 }));

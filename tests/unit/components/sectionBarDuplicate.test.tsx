@@ -22,7 +22,7 @@ import { panelItems } from '@/components/layout/ModuleNavMenus';
 import { TABS, getActiveModuleId, getActiveTabId } from '@/components/accounting/accountingNavConfig';
 import { MODULE_BY_ID, hasSectionBar } from '@/components/accounting/navSections/secondaryNav';
 import { stripVatNav } from '@/components/accounting/navSections/vatNav';
-import { stripFlagNav, NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
+import { stripFlagNav, NAV_FLAGS, MODULE_READ_NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 import { isFlyout, type NavItem, type Tab } from '@/components/accounting/navSections/types';
 
 afterEach(cleanup);
@@ -118,7 +118,7 @@ describe.each([
 ] as const)('%s', (_vatName, vat) => {
   describe.each([
     ['flags on', new Set(NAV_FLAGS) as ReadonlySet<string>],
-    ['flags off', new Set<string>() as ReadonlySet<string>],
+    ['flags off', new Set(MODULE_READ_NAV_FLAGS) as ReadonlySet<string>],
   ] as const)('%s', (_flagName, flags) => {
     it.each(ON_MAIN_ROW)('%s: every link of its section bar is reachable from the main-row menu and the sidebar', (id) => {
       h.vat = vat;

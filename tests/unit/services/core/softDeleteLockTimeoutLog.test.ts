@@ -30,8 +30,8 @@ const pgLockTimeout = () => Object.assign(new Error('canceling statement due to 
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe.each([
-  ['softDelete', 'Soft delete failed', () => prepareInvoiceDelete, () => softDelete('co', 'customer_invoice', ID, 'u')],
-  ['undoDelete', 'Undo delete failed', () => reinstateInvoiceJournal, () => undoDelete('co', 'customer_invoice', ID, 'u')],
+  ['softDelete', 'Soft delete failed', () => prepareInvoiceDelete, () => softDelete('co', 'customer_invoice', ID, 'u', { allowReversal: true })],
+  ['undoDelete', 'Undo delete failed', () => reinstateInvoiceJournal, () => undoDelete('co', 'customer_invoice', ID, 'u', { allowReversal: true })],
 ] as const)('%s', (_name, message, step, run) => {
   it.each([
     ['the raw 55P03 inside the flow budget', pgLockTimeout],
