@@ -76,3 +76,35 @@ describe('bulk_upsert_items against a legacy untrimmed code', () => {
     expect((await pool.query('SELECT 1 FROM items WHERE company_id = $1 AND code = $2', [company, 'FIB-7777'])).rowCount).toBe(1);
   });
 });
+
+describe('bulk_upsert_items by external_ref against a legacy untrimmed code', () => {
+  const run = async (items: Array<Record<string, unknown>>) => JSON.parse(text(await as(pool, w.a).run('bulk_upsert_items', { items, dry_run: false })));
+  const codeOf = async (id: string): Promise<string> => String((await pool.query('SELECT code FROM items WHERE id = $1', [id])).rows[0].code);
+
+  it('the legacy item\'s own reference renames it to the trimmed code; a clean twin keeps updating', async () => {
+    const own = String((await pool.query(
+      `INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'RN-1 ', 'own', 'sage', 'RN-REF') RETURNING id`, [company])).rows[0].id);
+    const out = await run([{ code: 'RN-1', description: 'own', external_system: 'sage', external_ref: 'RN-REF' }]);
+    expect(out.refusals ?? []).toEqual([]);
+    expect(await codeOf(own)).toBe('RN-1');
+  });
+
+  it('another item\'s reference cannot take the code a legacy row holds', async () => {
+    const legacyRow = String((await pool.query(`INSERT INTO items (company_id, code, description) VALUES ($1, 'RN-2 ', 'held') RETURNING id`, [company])).rows[0].id);
+    const other = String((await pool.query(
+      `INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'RN-OTHER', 'other', 'sage', 'RN-REF2') RETURNING id`, [company])).rows[0].id);
+    const out = await run([{ code: 'RN-2', external_system: 'sage', external_ref: 'RN-REF2' }]) as { refusals?: Array<{ code: string }> };
+    expect(out.refusals?.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    expect(await codeOf(other)).toBe('RN-OTHER');
+    expect(await codeOf(legacyRow)).toBe('RN-2 ');
+  });
+
+  it('a clean item beside a legacy twin still takes a price update and an unchanged row', async () => {
+    await legacy('twin', 'TW-1 ');
+    await pool.query(`INSERT INTO items (company_id, code, description, selling_price_excl) VALUES ($1, 'TW-1', 'clean twin', 10)`, [company]);
+    const out = await run([{ code: 'TW-1', sales_price: 12 }]);
+    expect(out.refusals ?? []).toEqual([]);
+    expect(Number((await pool.query(`SELECT selling_price_excl AS p FROM items WHERE company_id = $1 AND code = 'TW-1'`, [company])).rows[0].p)).toBe(12);
+  });
+});
+
