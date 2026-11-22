@@ -95,19 +95,20 @@ const flips = (tables: string, statuses: string, module: string, exemptIn?: read
 /**
  * The invoice payment recompute's un-payment writers: a CASE that puts an invoice back to 'approved' when what was paid is taken
  * off (WHEN status IN ('partially_paid', 'paid') / amount_paid falls to 0). No approval, so these NAMED statements are exempt from
- * the invoice flips, pinned by file and a line-identifying snippet of their static text (binds read as ?, whitespace collapsed).
- * Any other CASE setting an invoice to 'approved' is a finding; a pin whose snippet is gone fails as stale (#1720 fix-verify).
+ * the invoice flips, pinned by file and their WHOLE static text (binds read as ?, whitespace collapsed; `line`: the THEN 'approved'
+ * arm). Any other CASE setting an invoice to 'approved', a pinned one with anything added included, is a finding; a pin whose
+ * statement is no longer in its file, word for word, fails as stale (#1720 fix-verify).
  */
 const AR = 'src/modules/accounting/services/ar/';
 export const INVOICE_UNPAYMENT_WRITERS: readonly PinnedStatement[] = [
-  { file: `${AR}invoiceStatusRecompute.ts`, line: 108, why: 'recomputeInvoiceStatus, customer: the recompute after a payment moves',
-    snippet: "UPDATE customer_invoices SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END" },
-  { file: `${AR}invoiceStatusRecompute.ts`, line: 127, why: 'recomputeInvoiceStatus, supplier: the same, one-cent tolerance',
-    snippet: "UPDATE supplier_invoices SET status = CASE WHEN amount_paid >= total_amount - 0.01 THEN 'paid' WHEN amount_paid > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END" },
-  { file: `${AR}invoiceStatusRecompute.ts`, line: 167, why: 'moveSupplierBillPaid: the bill paid figure and its status in one write',
-    snippet: "WHEN COALESCE(amount_paid, 0) + ? > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status" },
-  { file: `${AR}customerPaymentAllocationService.ts`, line: 208, why: 'cancelCustomerPayment: an allocation reversed off the invoice',
-    snippet: "SET amount_paid = GREATEST(0, amount_paid - ?), status = CASE WHEN GREATEST(0, amount_paid - ?) <= 0 THEN 'approved' WHEN GREATEST(0, amount_paid - ?) < total_amount THEN 'partially_paid'" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 111, why: 'recomputeInvoiceStatus, customer: the recompute after a payment moves',
+    statement: "UPDATE customer_invoices SET status = CASE WHEN amount_paid >= total_amount THEN 'paid' WHEN amount_paid > 0 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN amount_paid >= total_amount THEN COALESCE(paid_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND status = ANY(?)" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 130, why: 'recomputeInvoiceStatus, supplier: the same, one-cent tolerance',
+    statement: "UPDATE supplier_invoices SET status = CASE WHEN amount_paid >= total_amount - 0.01 THEN 'paid' WHEN amount_paid > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(paid_at, NOW()) ELSE NULL END, payment_matched = (amount_paid >= total_amount - 0.01), payment_matched_at = CASE WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(payment_matched_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND status = ANY(?)" },
+  { file: `${AR}invoiceStatusRecompute.ts`, line: 174, why: 'moveSupplierBillPaid: the bill paid figure and its status in one write',
+    statement: "UPDATE supplier_invoices SET amount_paid = COALESCE(amount_paid, 0) + ?, updated_at = NOW(), status = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN status WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN 'paid' WHEN COALESCE(amount_paid, 0) + ? > 0.01 THEN 'partially_paid' WHEN status IN ('partially_paid', 'paid') THEN 'approved' ELSE status END, paid_at = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN paid_at WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN COALESCE(paid_at, NOW()) ELSE NULL END, payment_matched = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN payment_matched ELSE (COALESCE(amount_paid, 0) + ? >= total_amount - 0.01) END, payment_matched_at = CASE WHEN (status = ANY(?)) IS NOT TRUE THEN payment_matched_at WHEN COALESCE(amount_paid, 0) + ? >= total_amount - 0.01 THEN COALESCE(payment_matched_at, NOW()) ELSE NULL END WHERE id = ?::UUID AND company_id = ?::UUID AND (?::NUMERIC IS NULL OR amount_paid >= ?::NUMERIC) RETURNING id" },
+  { file: `${AR}customerPaymentAllocationService.ts`, line: 211, why: 'cancelCustomerPayment: an allocation reversed off the invoice',
+    statement: "UPDATE customer_invoices SET amount_paid = GREATEST(0, amount_paid - ?), status = CASE WHEN GREATEST(0, amount_paid - ?) <= 0 THEN 'approved' WHEN GREATEST(0, amount_paid - ?) < total_amount THEN 'partially_paid' ELSE status END, paid_at = CASE WHEN GREATEST(0, amount_paid - ?) < total_amount THEN NULL ELSE paid_at END WHERE id = ?::UUID AND company_id = ?" },
 ];
 
 export const SQL_PRIMITIVES: readonly SqlPrimitive[] = [

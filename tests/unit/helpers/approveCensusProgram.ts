@@ -211,10 +211,11 @@ export function gatesCover(gates: ReadonlySet<string>, needs: Iterable<string>, 
 export type SqlPrimitive = RegExp | { re: RegExp; module: string; exemptIn?: readonly PinnedStatement[] };
 
 /**
- * A NAMED statement a primitive pattern exempts: the statement in `file` whose static text (whitespace collapsed) contains
- * `snippet` (#1720 fix-verify: the invoice un-payment writers are pinned by file and text, not recognised by a shape regex).
+ * A NAMED statement a primitive pattern exempts: the statement in `file` whose WHOLE static text (whitespace collapsed) EQUALS
+ * `statement` (#1720 fix-verify: pinned by file and text, not a shape regex; equality, so a second approving arm or write added to
+ * a pinned statement makes it another statement, and a finding). `line`: the line of its THEN 'approved' arm, for a reader.
  */
-export interface PinnedStatement { file: string; line: number; snippet: string; why: string }
+export interface PinnedStatement { file: string; line: number; statement: string; why: string }
 
 /** Whitespace collapsed to one space: how a pin's snippet is compared with a statement's static text. */
 export const collapse = (t: string): string => t.replace(/\s+/g, ' ').trim();
@@ -223,10 +224,19 @@ export const collapse = (t: string): string => t.replace(/\s+/g, ' ').trim();
 export function primitiveModule(prims: readonly SqlPrimitive[], text: string, file?: string): string | null {
   for (const p of prims) {
     if (!(p instanceof RegExp ? p : p.re).test(text)) continue;
-    if (!(p instanceof RegExp) && p.exemptIn?.some((pin) => pin.file === file && collapse(text).includes(pin.snippet))) continue;
+    if (!(p instanceof RegExp) && p.exemptIn?.some((pin) => pin.file === file && collapse(text) === pin.statement)) continue;
     return p instanceof RegExp ? '*' : p.module;
   }
   return null;
+}
+
+/** Every static SQL text in a source file, as the census reads it (whitespace collapsed): what a pinned statement must still equal. */
+export function staticSqlTexts(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const visit = (n: ts.Node) => { const t = sqlTextOf(n, true); if (t !== null) out.push(collapse(t)); ts.forEachChild(n, visit); };
+  visit(sf);
+  return out;
 }
 
 /** The calls that enclose `node` inside its own statement (a call nested in another call's arguments). */

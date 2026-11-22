@@ -155,9 +155,16 @@ describe('posting census fixtures (#1670)', () => {
       // The real recompute's text is a finding anywhere but where it is pinned ...
       expect(flip(recompute), `${table} recompute, unpinned`).toHaveLength(1);
       // ... and exempt where it is: a pin names the file and the statement's text.
-      const pin = { file: '/fx/route.ts', line: 1, why: 'fixture', snippet: collapse(recompute.replace('TBL', table)).replace('${id}', '?') };
+      const pin = { file: '/fx/route.ts', line: 1, why: 'fixture', statement: collapse(recompute.replace('TBL', table)).replace('${id}', '?') };
       const pinned = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [...(p.exemptIn ?? []), pin] }));
       expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: pinned }), `${table} recompute, pinned`).toEqual([]);
+      // A pin is the WHOLE statement (#1720 last Low): the pinned text with a second approving arm, or a second approving write, flags.
+      for (const grown of [
+        recompute.replace('ELSE status END', "WHEN status = 'draft' THEN 'approved' ELSE status END"),
+        recompute.replace(' WHERE id', ", approved_at = NOW(), status = CASE WHEN status = 'draft' THEN 'approved' ELSE status END WHERE id"),
+        // the whole pinned text, unchanged, inside a statement that also approves: equality, not containment
+        `WITH bump AS (UPDATE TBL SET status = CASE WHEN status = 'draft' THEN 'approved' ELSE status END WHERE id = \${id}) ${recompute}`,
+      ]) expect(fixture(handler(`await sql\`${grown.replaceAll('TBL', table)}\`;`), { sqlPrimitives: pinned }), `${table} pinned + ${grown.slice(-80)}`).toHaveLength(1);
       // A pin is by FILE: the same statement in another file is not exempt.
       const elsewhere = POSTING_RULES.sqlPrimitives.map((p) => (p instanceof RegExp ? p : { ...p, exemptIn: [{ ...pin, file: '/fx/lib.ts' }] }));
       expect(fixture(handler(`await sql\`${recompute.replace('TBL', table)}\`;`), { sqlPrimitives: elsewhere }), `${table} recompute, pinned elsewhere`).toHaveLength(1);
