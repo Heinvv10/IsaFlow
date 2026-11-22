@@ -15,21 +15,12 @@
  */
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
+import type { Subledger } from '@/modules/accounting/services/core/contraSettlementService';
 import {
-  assertContraAccountUsable,
-  loadContraDocument,
-  type Subledger,
-} from '@/modules/accounting/services/core/contraSettlementService';
-import {
-  createCustomerPayment,
-  confirmCustomerPayment,
-} from '@/modules/accounting/services/ar/customerPaymentService';
-import {
-  createSupplierPayment,
-  approveSupplierPayment,
-  processSupplierPayment,
-} from '@/modules/accounting/services/ap/supplierPaymentService';
-import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
+  loadContraSettlementContext,
+  settleDocumentByContra,
+  type ContraSettlementContext,
+} from '@/modules/accounting/services/core/contraSettlementPosting';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
@@ -135,18 +126,13 @@ export const settleByContraTool: McpTool = {
     // be a toolError. Once createCustomerPayment / createSupplierPayment has
     // run, nothing below is caught: a returned refusal after a write frees the
     // idempotency key for a retry that settles the document twice.
-    let contra;
-    let document;
-    let control;
+    let context: ContraSettlementContext;
     try {
-      [contra, document, control] = await Promise.all([
-        assertContraAccountUsable(ctx.companyId, subledger, contraAccountId),
-        loadContraDocument(ctx.companyId, subledger, documentId, amount),
-        getSystemAccount(subledger === 'ar' ? 'receivable' : 'payable', ctx.companyId),
-      ]);
+      context = await loadContraSettlementContext(ctx.companyId, subledger, documentId, contraAccountId, amount);
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not settle this document by contra.'));
     }
+    const { contra, document, debit, credit } = context;
     // R-035 PR5 (Q6): a payable settles through a supplier payment created,
     // approved and processed in this one call. Refused here, before the first
     // write, when an enforced rule would govern that payment.
@@ -154,14 +140,6 @@ export const settleByContraTool: McpTool = {
       const refusal = await agentNewSupplierPaymentRefusal(ctx.companyId, amount);
       if (refusal) return toolError(refusal);
     }
-
-    // DR contra / CR AR for a receivable; DR AP / CR contra for a payable.
-    const debit = subledger === 'ar'
-      ? { id: contra.accountId, code: contra.accountCode, name: contra.accountName }
-      : { id: control.id, code: control.accountCode ?? '', name: control.accountName ?? '' };
-    const credit = subledger === 'ar'
-      ? { id: control.id, code: control.accountCode ?? '', name: control.accountName ?? '' }
-      : { id: contra.accountId, code: contra.accountCode, name: contra.accountName };
 
     if (args.dry_run === true) {
       const result: DryRunResult = {
@@ -193,15 +171,14 @@ export const settleByContraTool: McpTool = {
       return { ...ok(result), wroteNothing: true };
     }
 
-    const postingAgent = mcpPostingAgent(TOOL);
-    const description = `Contra settlement — ${reason}`;
-    const settled = subledger === 'ar'
-      ? await settleReceivable(ctx, {
-        document, contraAccountId, amount, settlementDate, description, postingAgent,
-      })
-      : await settlePayable(ctx, {
-        document, contraAccountId, amount, settlementDate, description, postingAgent,
-      });
+    const settled = await settleDocumentByContra({
+      companyId: ctx.companyId,
+      actor: { userId: ctx.userId, approverUserId: ctx.userId, postingAgent: mcpPostingAgent(TOOL) },
+      context,
+      amount,
+      date: settlementDate,
+      reason,
+    });
 
     return ok({
       subledger,
@@ -222,68 +199,3 @@ export const settleByContraTool: McpTool = {
     });
   },
 };
-
-interface SettleParams {
-  document: Awaited<ReturnType<typeof loadContraDocument>>;
-  contraAccountId: string;
-  amount: number;
-  settlementDate: string;
-  description: string;
-  postingAgent: string;
-}
-
-/**
- * DR contra / CR Accounts Receivable, via the same two service calls the UI
- * makes. `bankAccountId` is the contra account: `confirmCustomerPayment`
- * resolves its debit leg from that column with no subtype check, which is why
- * this composes rather than reimplements.
- */
-async function settleReceivable(
-  ctx: { companyId: string; userId: string },
-  p: SettleParams,
-) {
-  const payment = await createCustomerPayment(ctx.companyId, {
-    clientId: p.document.counterpartyId,
-    paymentDate: p.settlementDate,
-    totalAmount: p.amount,
-    paymentMethod: 'contra',
-    bankAccountId: p.contraAccountId,
-    description: p.description,
-    allocations: [{ invoiceId: p.document.documentId, amount: p.amount }],
-  }, ctx.userId);
-
-  const confirmed = await confirmCustomerPayment(ctx.companyId, payment.id, ctx.userId, {
-    postingAgent: p.postingAgent,
-  });
-  return {
-    paymentId: confirmed.id,
-    paymentNumber: confirmed.paymentNumber,
-    journalEntryId: confirmed.glJournalEntryId ?? null,
-  };
-}
-
-/** DR Accounts Payable / CR contra, via createSupplierPayment → approve → process. */
-async function settlePayable(
-  ctx: { companyId: string; userId: string },
-  p: SettleParams,
-) {
-  const payment = await createSupplierPayment(ctx.companyId, {
-    supplierId: p.document.counterpartyId,
-    paymentDate: p.settlementDate,
-    totalAmount: p.amount,
-    paymentMethod: 'contra',
-    bankAccountId: p.contraAccountId,
-    description: p.description,
-    allocations: [{ invoiceId: p.document.documentId, amount: p.amount }],
-  }, ctx.userId);
-
-  await approveSupplierPayment(ctx.companyId, payment.id, ctx.userId);
-  const processed = await processSupplierPayment(ctx.companyId, payment.id, ctx.userId, {
-    postingAgent: p.postingAgent,
-  });
-  return {
-    paymentId: processed.id,
-    paymentNumber: processed.paymentNumber,
-    journalEntryId: processed.glJournalEntryId ?? null,
-  };
-}
