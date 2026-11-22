@@ -99,7 +99,7 @@ export default function NewCustomerInvoicePage() {
     setForm(d.form); setLines(d.lines); setTaxMode(d.taxMode); dates.clear(); setResetKey(k => k + 1);
   };
   const owner = useInvoiceDraftOwner();
-  const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, paused: false, onRestore: restoreDraft });
+  const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, onRestore: restoreDraft });
 
   function handleExtracted(data: ExtractedDocument) {
     if (inert) return; // a scan landing while the invoice is created or approved, or after, changes nothing

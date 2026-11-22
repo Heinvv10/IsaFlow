@@ -68,7 +68,7 @@ describe('new invoice: the draft on this device', () => {
   ])('keeps a draft whose only edit is %s', async (_name, change) => {
     const onRestore = vi.fn();
     const { result, rerender } = renderHook(({ snapshot }: { snapshot: LocalDraftData }) => useLocalInvoiceDraft({
-      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, paused: false, onRestore,
+      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, onRestore,
     }), { initialProps: { snapshot: structuredClone(blankDraft) } });
     await advance(0);
     const changed = structuredClone(blankDraft);
