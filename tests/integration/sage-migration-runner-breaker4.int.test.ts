@@ -67,6 +67,21 @@ describe('R1: a PO batch does not replay an answer from an earlier state of its 
   });
 });
 
+describe('R1 (live variant): a line linked by hand since a live run stored its answer', () => {
+  it('the stored difference is not replayed: the PO batch key follows the lines, not only the header', async () => {
+    const inactive = exportFile();
+    (inactive.Items as { $resources: Row[] }).$resources[0] = { ...(inactive.Items as { $resources: Row[] }).$resources[0], Active: false };
+    await run({}, inactive); // PO197 and PO202 go in with their FIB-0001 lines unlinked
+    const r2 = await run(); // live, item active now: the plan would link them, the stored POs are unchanged: differences stored under the PO batch key
+    expect(r2.differences.purchaseOrders.map((x) => x.poNumber).sort()).toEqual(['PO0000197', 'PO0000202']);
+    const item = (await pool.query(`SELECT id FROM items WHERE company_id = $1 AND external_ref = '50001'`, [s.companyId])).rows[0].id;
+    await pool.query(`UPDATE po_items SET item_id = $2 WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1 AND po_number IN ('PO0000197', 'PO0000202')) AND description LIKE 'Fibre cable drum%'`, [s.companyId, item]);
+    const r3 = await run({ allowDifferences: false });
+    expect(r3.status).toBe('completed');
+    expect(r3.differences.purchaseOrders).toEqual([]);
+  });
+});
+
 describe('R2: one run per company at a time', () => {
   const holdLock = async () => {
     const client = await pool.connect();
