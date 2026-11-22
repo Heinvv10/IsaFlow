@@ -113,6 +113,7 @@ const DESCRIPTION = [
 
 export const mergeGlAccountsTool: McpTool = {
   name: TOOL,
+  approveModule: 'accounts', // #1656: moduleFence asks this Approve before the handler
   description: DESCRIPTION,
   scope: 'write:accounts',
   write: true,

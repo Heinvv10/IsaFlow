@@ -61,7 +61,7 @@ export class PayrollRunBusyError extends Error {
   }
 }
 
-/** The description applyTaxDirective gives its journal ("SARS directive <number> — <employee>"). */
+/** The description applyTaxDirective gives its journal ("SARS directive <number>"; journals posted before round 7 of #1656 also carry " — <employee>"). */
 const DIRECTIVE_JOURNAL = /^SARS directive /;
 
 /** The refusal for reversing a reversed directive payment's chain back into force, or null. */

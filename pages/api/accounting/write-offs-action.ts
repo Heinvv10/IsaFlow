@@ -20,6 +20,7 @@ import {
   WriteOffNotApprovableError,
 } from '@/modules/accounting/services/ar/writeOffService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 const WriteOffActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), id: UUID }),
@@ -43,6 +44,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (parsed.data.action) {
       case 'approve': {
+        if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'write-offs')) return; // #1656 (Hein: gate everything), before any write
         const item = await withJournalDateRefusal(res, () => approveWriteOff(companyId, parsed.data.id, userId));
         if (item === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, item);

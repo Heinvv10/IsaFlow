@@ -20,7 +20,9 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
-export type AuthRole = 'super_admin' | 'owner' | 'admin' | 'manager' | 'storeman' | 'technician' | 'viewer' | 'system';
+// users.role / the session's role: defined with the company roles (#1656).
+import type { AuthRole } from './companyRoles';
+export type { AuthRole };
 
 export interface JWTPayload {
   sub: string; // user id
@@ -70,8 +72,6 @@ export const ROLE_HIERARCHY: Record<AuthRole, number> = {
   system: 5,
   admin: 4,
   manager: 3,
-  storeman: 2,
-  technician: 2,
   viewer: 1,
 };
 

@@ -266,6 +266,7 @@ export default function AdminUserDetailPage() {
           )}
           {activeTab === 'companies' && (
             <UserCompaniesTable
+              userId={user.id}
               companies={user.companies}
               allCompanies={allCompanies}
               actionLoading={actionLoading}

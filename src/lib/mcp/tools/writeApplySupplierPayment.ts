@@ -39,6 +39,7 @@ const TOOL = 'apply_payment_to_supplier_invoice';
 
 export const applyPaymentToSupplierInvoiceTool: McpTool = {
   name: TOOL,
+  approveModule: 'suppliers', // #1656: moduleFence asks this Approve before the handler
   description:
     'Apply a supplier payment to the bills it settles: writes the allocation, raises each '
     + "invoice's amount_paid, moves it to partially_paid or paid, and sets payment_matched when "

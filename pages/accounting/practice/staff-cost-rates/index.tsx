@@ -12,6 +12,7 @@ import type { StaffCostRate } from '@/modules/accounting/services/practice/pract
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { AmountInput } from '@/components/ui/AmountInput';
 import { useAmountGuard } from '@/components/ui/useAmountGuard';
 
@@ -53,6 +54,8 @@ export default function StaffCostRatesPage() {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // The server answered 403 to the rate list: a person's cost per hour is Payroll's, so without Payroll read the page offers nothing (round 10).
+  const [noAccess, setNoAccess] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -62,6 +65,8 @@ export default function StaffCostRatesPage() {
         apiFetch('/api/accounting/practice/users'),
         apiFetch('/api/accounting/practice/staff-cost-rates'),
       ]);
+      setNoAccess(ratesRes.status === 403);
+      if (ratesRes.status === 403) { setUsers([]); setRates([]); return; }
       await assertOk(usersRes, 'Could not load the staff list - try again');
       await assertOk(ratesRes, 'Could not load the cost rates - try again');
 
@@ -155,8 +160,17 @@ export default function StaffCostRatesPage() {
         </div>
 
         <div className="px-6 py-6 max-w-5xl space-y-6">
+          {noAccess && !loading && (
+            <div role="alert" className="flex items-start gap-2 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium">Staff cost rates need Payroll access.</p>
+                <p className="text-xs opacity-80">{NO_PAYROLL_DETAIL_ACCESS} An owner or admin can grant Payroll in User Access.</p>
+              </div>
+            </div>
+          )}
           {/* Add form */}
-          <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] space-y-4">
+          {!noAccess && <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Add cost rate</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               <div className="flex flex-col gap-1 lg:col-span-2">
@@ -206,7 +220,7 @@ export default function StaffCostRatesPage() {
                 <AlertCircle className="h-4 w-4 shrink-0" />{addError}
               </p>
             )}
-          </div>
+          </div>}
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -218,7 +232,7 @@ export default function StaffCostRatesPage() {
             <div className="flex items-center justify-center py-12 gap-2 text-[var(--ff-text-tertiary)] text-sm">
               <Loader2 className="h-5 w-5 animate-spin" />Loading…
             </div>
-          ) : (
+          ) : noAccess ? null : (
             <div className="rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] overflow-x-auto">
               <table className="table-auto w-full">
                 <thead>

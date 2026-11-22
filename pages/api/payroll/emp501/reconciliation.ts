@@ -18,6 +18,7 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
 import {
   listPspFilingTotals, pspFilingWarning,
@@ -167,4 +168,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, summary);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(handler))));

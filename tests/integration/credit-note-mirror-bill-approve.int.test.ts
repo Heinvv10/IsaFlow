@@ -21,7 +21,7 @@ import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCred
 import { thrownToolErrorText } from '@/lib/mcp/thrownToolErrorText';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { dropFixture, inTx, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 type Row = Record<string, unknown>;
@@ -67,6 +67,7 @@ const reverseVatByHand = (num: string, amount: number) => inTx(fx, async () => {
 describeIfDisposable('mirror_bill notes are re-checked at approve (988)', () => {
   beforeAll(async () => {
     fx = await seedFixture('mapr', process.env.DATABASE_URL!);
+    await seedFixtureMember(fx); // #1656: the MCP approve tools ask the token owner's module Approve
     acct.cos = String(((await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, is_active)
       VALUES (${fx.companyId}::UUID, '5010', ${`COS ${fx.tag}`}, 'expense', 'debit', true) RETURNING id`) as Row[])[0]!.id);
@@ -81,6 +82,7 @@ describeIfDisposable('mirror_bill notes are re-checked at approve (988)', () => 
     await sql`DELETE FROM credit_notes WHERE company_id = ${c}::UUID`;
     await sql`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ${c}::UUID)`;
     await sql`DELETE FROM company_document_numbers WHERE company_id = ${c}::UUID`;
+    await dropFixtureMember(fx);
     await dropFixture(fx);
   }, 120000);
 

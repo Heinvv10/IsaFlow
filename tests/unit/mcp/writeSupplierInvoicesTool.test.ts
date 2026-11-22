@@ -19,6 +19,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // The supplier's default CC/BU (migration 890) are read from the database; this file does not, so the supplier
 // has none. Their effect on the cost-of-sales check is pinned by tests/integration/supplier-default-dimensions-checks.int.test.ts.
+// #1656: the approver's module Approve is the subject of tests/unit/api/*ApprovePermission*; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults', () => ({
   loadSupplierDefaultDimensions: vi.fn(async () => ({})),
   applySupplierDefaultDimensions: vi.fn((lines: unknown[]) => [...lines]),
@@ -83,6 +85,7 @@ function ctx(): McpToolContext {
   return {
     userId: '44444444-4444-4444-8444-444444444444',
     companyId: COMPANY,
+    companyRole: 'owner', // #1656: an owner approves without a permission read
     scopes: ['write:invoices', 'write:post'],
     tokenJti: 'jti',
     oauthAppId: null,

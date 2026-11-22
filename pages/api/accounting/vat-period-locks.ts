@@ -13,7 +13,7 @@
  *          — see below). The response's `filingRateCheck` is that verdict
  *          (null for a period already locked: nothing judged, nothing read);
  *          `rateCheck` is the report's per-box diagnostic, unmodified.
- *          Idempotent on the period.
+ *          Idempotent on the period. Takes VAT & Tax Approve (#1656: it records a filing).
  *          Separately, refuses when getVatExceptions reports blocking
  *          exceptions, UNLESS the caller is owner/admin and supplies a
  *          non-empty overrideReason — recorded (migration 704) and never
@@ -34,6 +34,8 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { returnApproveModule } from '@/modules/accounting/services/returns/returnForm';
 import { UUID } from '@/lib/schemas/common';
 import {
   VatPeriodLockRefusal, VatPeriodUnlockRefusal, getVatPeriodLock, listVatPeriodLocks, lockVatPeriod, unlockVatPeriod,
@@ -72,6 +74,8 @@ type UnlockBody = Extract<z.infer<typeof BodySchema>, { action: 'unlock' }>;
 async function lock(req: NextApiRequest, res: NextApiResponse, body: LockBody) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  // Recording the filed return takes VAT & Tax Approve (#1656, filing ruled 2026-11-21), before anything is read or written.
+  if (await refuseWithoutApprove(res, companyId, userId, returnApproveModule('VAT201'), 'VAT201 returns')) return;
   if (body.periodEnd < body.periodStart) {
     return apiResponse.badRequest(res, 'periodEnd must not be before periodStart');
   }

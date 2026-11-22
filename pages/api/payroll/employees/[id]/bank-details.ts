@@ -24,6 +24,7 @@ import {
   employeeExists, getEmployeeBankDetails, parseBankDetailsInput, PayrollBankDetailsRefusal, setEmployeeBankDetails,
 } from '@/modules/accounting/services/payroll/payrollBankDetailsService';
 import { auditBankDetailsRead } from '@/modules/accounting/services/payroll/payrollBankReadAudit';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 function respondIfRefused(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof PayrollBankDetailsRefusal)) return false;
@@ -59,4 +60,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['branchCode', 'accountHolder'] }));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(handler))), { maskBodyKeys: ['branchCode', 'accountHolder'] }));

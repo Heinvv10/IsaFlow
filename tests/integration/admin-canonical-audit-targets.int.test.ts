@@ -103,7 +103,7 @@ afterAll(async () => {
 describe('H1: a user target is the stored users.id', () => {
   it('company-role then remove-from-company, addressed in lower case: audited under the stored mixed-case id', async () => {
     const lower = mixedUser.toLowerCase();
-    expect((await call(companyRoleRoute, 'PATCH', { id: lower }, { company_id: company, role: 'accountant' })).status).toBe(200);
+    expect((await call(companyRoleRoute, 'PATCH', { id: lower }, { company_id: company, role: 'manager' })).status).toBe(200); // #1656: the portal grants the app's roles
     expect((await call(removeFromCompanyRoute, 'DELETE', { id: lower }, { company_id: company })).status).toBe(200);
     expect((await rows(mixedUser, 'user.change_company_role')).map((r) => r.target_id)).toEqual([mixedUser]);
     expect((await rows(mixedUser, 'user.remove_from_company')).map((r) => r.target_id)).toEqual([mixedUser]);

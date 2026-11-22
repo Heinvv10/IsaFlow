@@ -15,9 +15,10 @@ import type { NextApiRequest } from 'next';
 import { employeePortalAccessHandler } from '@/lib/employeePortalApi';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
 /** One invitation email per request; kept whatever happens (an invite is cheap and rare). */
 export const admitPortalInvite = (req: NextApiRequest, companyId: string) =>
   checkSendRateLimit(req, companyId, 'employee-portal-invite', { ipMax: 30, companyMax: 60, dailyMax: 200 });
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(employeePortalAccessHandler(sendEmail, admitPortalInvite))))));
+export default withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(employeePortalAccessHandler(sendEmail, admitPortalInvite)))))));

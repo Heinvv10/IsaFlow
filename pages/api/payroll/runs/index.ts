@@ -22,6 +22,7 @@ import {
   createPayrollRun,
   PayrollRunDuplicateError,
 } from '@/modules/accounting/services/payroll/payrollRunService';
+import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { createPeriodRun, PayrollRunOverlapError } from '@/modules/accounting/services/payroll/payrollRunCreatePeriod';
 import { RunPeriodRefused } from '@/modules/accounting/services/payroll/payrollPayWeek';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
@@ -93,4 +94,4 @@ async function createForPeriod(
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withPayrollModule(withCsrf(withWriteAccess(handler)))));

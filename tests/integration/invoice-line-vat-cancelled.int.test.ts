@@ -52,7 +52,7 @@ const MIXED_ITEMS = [
 ];
 const MIXED_TYPES: Record<string, [string, number]> = { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] };
 
-const cancel = (id: string) => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+const cancel = (id: string) => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId, { allowReversal: true }));
 /** An approved customer note against `invoiceId`; returns its id and journal id. */
 async function approvedNote(invoiceId: string, date: string, subtotal: number, taxAmount?: number) {
   const cn = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {

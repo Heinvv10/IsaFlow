@@ -124,7 +124,7 @@ describe('R-086 review round 1, MEDIUM-1: a soft-deleted invoice must not count 
     // but leaves `status` as it was ('sent') — exactly the shape the review
     // measured as a regression: the status half of the population rule alone
     // still counts this invoice's balance while the GL no longer carries it.
-    await softDelete(COMPANY_AR_SOFTDEL, 'customer_invoice', invoice.id, USER_ID);
+    await softDelete(COMPANY_AR_SOFTDEL, 'customer_invoice', invoice.id, USER_ID, { allowReversal: true });
 
     const results = await validateMigration(COMPANY_AR_SOFTDEL, 'r086-softdel-ar');
     const arCheck = results.find(r => r.check === 'AR vs GL');
@@ -154,7 +154,7 @@ describe('R-086 review round 1, MEDIUM-1: a soft-deleted invoice must not count 
       ) RETURNING id
     `) as Array<{ id: string }>;
 
-    await softDelete(COMPANY_AP_SOFTDEL, 'supplier_invoice', invoice.id, USER_ID);
+    await softDelete(COMPANY_AP_SOFTDEL, 'supplier_invoice', invoice.id, USER_ID, { allowReversal: true });
 
     const results = await validateMigration(COMPANY_AP_SOFTDEL, 'r086-softdel-ap');
     const apCheck = results.find(r => r.check === 'AP vs GL');

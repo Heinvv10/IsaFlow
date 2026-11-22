@@ -9,6 +9,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -72,12 +73,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'import_ledger': {
+      // #1656 (round 3): the import posts the ledger's journals: Chart of Accounts & GL Approve (the role gate admits only owner/admin, who hold it).
+      if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'Sage ledger imports')) return;
       const run = await withJournalDateRefusal(res, () => importLedgerTransactions(companyId, userId));
       if (run === JOURNAL_DATE_REFUSED) return;
       return apiResponse.success(res, run);
     }
 
     case 'import_invoices': {
+      if (await refuseWithoutApprove(res, companyId, userId, 'suppliers', 'Sage supplier invoice imports')) return; // #1656 (round 3)
       try {
         const run = await importSupplierInvoices(companyId, userId);
         return apiResponse.success(res, run);
@@ -89,6 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'import_customer_invoices': {
+      if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'Sage customer invoice imports')) return; // #1656 (round 3)
       try {
         const run = await importCustomerInvoices(companyId, userId);
         return apiResponse.success(res, run);

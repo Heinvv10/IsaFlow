@@ -6,15 +6,18 @@
  * only one left. Such a demotion or removal by a company or platform admin is refused (409) until the request is
  * decided or withdrawn.
  *
- * Eligible = exactly who approval_request_decide (migration 872) would let approve it: in good standing (an active,
+ * Eligible = exactly who the decide path would let approve it: EFFECTIVE Payroll Approve (memberMay: role default, the
+ * member's approve_withheld, their payroll permission row; #1670 Codex) and, as approval_request_decide (migration 872)
+ * asks: in good standing (an active,
  * unsuspended account), ranked at or above what the request demands (the ratchet: the higher of the role it was raised
  * under and the bound rule's role today), not the request's requester, and not an author of the content (the run's
  * `prepared_by` and the request's `content_authors` snapshot; RA001). A pay run always has a header, so the
  * "earlier requester" branch of RA001, which applies only to a type with no author tracking, never applies.
  * Ranks come from gl/approvalRank, the ladder assertMayDecide uses.
  *
- * ONE judgement (`strandedPayRunRequests`) serves every path. Callers: memberWrites (company role change, removal),
- * companyMembershipService (platform-admin role change, removal) and adminUserActionsService (onboarding reset).
+ * ONE judgement (`strandedPayRunRequests`) serves every path. Callers: memberWrites (company role change, removal,
+ * withheld Approve, a payroll permission row, a permission reset), companyMembershipService (the same, platform admin)
+ * and adminUserActionsService (onboarding reset).
  * Suspension and user deletion are NEVER refused (emergency revocation must always land): they only report what
  * they strand (`findStrandedPayRunRequests`, logged and put on the admin audit row). The stranded request itself
  * cannot be self-approved as it stands: the sole-approver fallback also requires the roster to be unchanged since the
@@ -42,6 +45,9 @@
  * done: platform_admin's access to these tables is not what the member writes already rely on, and a request it could
  * not see would read as "no pending request", failing open; migration_admin (BYPASSRLS) is the known reader.
  *
+ * A pay_run raise takes the same lock (lockPayRunApprovers) on its own transaction, after the run header it stamps and
+ * before anything of the request: nothing waits on a member row or the owner lock while holding it, so it stays a leaf.
+ *
  * Limit, by design (the sole-approver fallback is kept and logged): this guards the window while a request is
  * pending. A demotion made BEFORE a request is raised is in the request's roster snapshot, and a requester can
  * withdraw their own request and then demote; neither is stopped here. They are made visible instead (the audit
@@ -50,6 +56,7 @@
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { memberMay } from '@/lib/auth/permissionService';
 import { actorRank, requiredRank } from '../gl/approvalRank';
 
 /** The member write would leave a pending pay-run approval with no approver but its requester. Routes answer 409. */
@@ -67,13 +74,28 @@ export interface StrandedPayRunRequest { companyId: string; requestId: string }
 
 const lockKey = (companyId: string): string => `pay_run_approvers:${companyId}`;
 
-type Member = { user_id: string; role: string; in_good_standing: boolean };
+// A member and the inputs of their EFFECTIVE Payroll Approve (memberMay), which the decide path also asks (#1670 Codex).
+type Member = { user_id: string; role: string; in_good_standing: boolean; approve_withheld: boolean; has_row: boolean; can_approve: boolean | null };
+
+/**
+ * What a member write does to the target: a new role (string), removal (null), or a change of their Payroll Approve inputs
+ * (approve_withheld, their payroll permission row set to `canApprove`, or 'reset': every row deleted).
+ */
+export type MemberChange = string | null | { approveWithheld?: boolean; payrollRow?: { canApprove: boolean } | 'reset' };
+
+function applyChange(m: Member, change: MemberChange): Member | null {
+  if (change === null) return null;
+  if (typeof change === 'string') return { ...m, role: change };
+  const row = change.payrollRow === 'reset' ? { has_row: false, can_approve: null }
+    : change.payrollRow ? { has_row: true, can_approve: change.payrollRow.canApprove } : {};
+  return { ...m, ...(change.approveWithheld === undefined ? {} : { approve_withheld: change.approveWithheld }), ...row };
+}
 
 /**
  * The ids of `companyId`'s pending pay_run requests that would be left with no eligible approver other than their
- * requester if `userId` became `newRole` (null: left the company). Reads only; no lock.
+ * requester if `change` were made to `userId`. Reads only; no lock.
  */
-async function strandedRequestIds(client: PoolClient, companyId: string, userId: string, newRole: string | null): Promise<string[]> {
+async function strandedRequestIds(client: PoolClient, companyId: string, userId: string, change: MemberChange): Promise<string[]> {
   const pending = (await client.query<{
     id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];
   }>(
@@ -91,8 +113,10 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
   // The rank helpers the approval definers use are not executable by this pool; the TypeScript ladder is the same one.
   const members = (await client.query<Member>(
     `SELECT cu.user_id::TEXT AS user_id, cu.role,
-            (u.is_active IS TRUE AND u.suspended_at IS NULL AND (u.status IS NULL OR lower(u.status) = 'active')) AS in_good_standing
+            (u.is_active IS TRUE AND u.suspended_at IS NULL AND (u.status IS NULL OR lower(u.status) = 'active')) AS in_good_standing,
+            cu.approve_withheld, (p.module_key IS NOT NULL) AS has_row, p.can_approve
        FROM company_users cu LEFT JOIN users u ON u.id::TEXT = cu.user_id::TEXT
+       LEFT JOIN company_user_permissions p ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = 'payroll'
       WHERE cu.company_id = $1::UUID`,
     [companyId],
   )).rows;
@@ -101,7 +125,7 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
   const person = userId.toLowerCase();
   const targetRows = members.filter((m) => m.user_id.toLowerCase() === person);
   if (targetRows.length === 0) return [];
-  const after = newRole === null ? -1 : actorRank(newRole);
+  const targetAfter = targetRows.map((m) => applyChange(m, change)).filter((m): m is Member => m !== null);
   const stranded: string[] = [];
   for (const request of pending) {
     // assertMayDecide's ratchet: the higher of the role the request was raised under and the bound rule's role today.
@@ -110,35 +134,46 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
     const authors = new Set(request.authors.map((a) => a.toLowerCase()));
     const eligible = (m: Member): boolean => {
       const id = m.user_id.toLowerCase();
-      return m.in_good_standing && id !== requester && !authors.has(id) && actorRank(m.role) >= demand;
+      return m.in_good_standing && id !== requester && !authors.has(id) && actorRank(m.role) >= demand
+        && memberMay(m, 'approve', 'payroll'); // the decide path asks Payroll Approve too: a role alone does not decide a pay run
     };
-    if (!targetRows.some(eligible) || after >= demand) continue;
+    if (!targetRows.some(eligible) || targetAfter.some(eligible)) continue;
     if (!members.some((m) => m.user_id.toLowerCase() !== person && eligible(m))) stranded.push(request.id);
   }
   return stranded;
 }
 
-async function judge(client: PoolClient, companyId: string, userId: string, newRole: string | null): Promise<void> {
-  if ((await strandedRequestIds(client, companyId, userId, newRole)).length > 0) throw new PayRunApproverProtectedError();
+async function judge(client: PoolClient, companyId: string, userId: string, change: MemberChange): Promise<void> {
+  if ((await strandedRequestIds(client, companyId, userId, change)).length > 0) throw new PayRunApproverProtectedError();
 }
 
 /**
  * For a caller already in a migration_admin transaction that makes the write (memberWrites): takes the company's
- * approver lock on that transaction, then throws PayRunApproverProtectedError when changing `userId` to `newRole`
- * (null: removing them) would leave a pending pay_run request without an eligible approver other than its requester.
+ * approver lock on that transaction, then throws PayRunApproverProtectedError when `change` to `userId` (a new role,
+ * removal, or a change of their Payroll Approve) would leave a pending pay_run request without an eligible approver
+ * other than its requester.
  */
 export async function refuseLastPayRunApprover(
   client: PoolClient,
   companyId: string,
   userId: string,
-  newRole: string | null,
+  change: MemberChange,
 ): Promise<void> {
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey(companyId)]);
-  await judge(client, companyId, userId, newRole);
+  await judge(client, companyId, userId, change);
+}
+
+/**
+ * For the raise (or re-request) of a pay_run approval (approvalDocuments.requestApproval): the same approver lock, on the
+ * request's own transaction, before its roster snapshot is taken (#1670 breaker L5). A member write that judges pending
+ * requests and a raise then serialise: the write sees the request, or the raise's snapshot sees the write.
+ */
+export async function lockPayRunApprovers(companyId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(companyId)}, 0))`;
 }
 
 /** Judges on a migration_admin connection of its own, for a caller whose write is on the platform pool. */
-async function judgeOnMigrationAdmin(checks: Array<[string, string | null]>, userId: string): Promise<void> {
+async function judgeOnMigrationAdmin(checks: Array<[string, MemberChange]>, userId: string): Promise<void> {
   await migrationAdminTx('check pay-run approver', async (client) => {
     for (const [companyId, role] of checks) await judge(client, companyId, userId, role);
   });
@@ -148,9 +183,9 @@ async function judgeOnMigrationAdmin(checks: Array<[string, string | null]>, use
  * For a write on the platform_admin pool (platform-admin role change, link removal): takes the approver lock on the
  * request's own transaction, the one that makes the write, then judges.
  */
-export async function assertPayRunApproverRetained(companyId: string, userId: string, newRole: string | null): Promise<void> {
+export async function assertPayRunApproverRetained(companyId: string, userId: string, change: MemberChange): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(companyId)}, 0))`;
-  await judgeOnMigrationAdmin([[companyId, newRole]], userId);
+  await judgeOnMigrationAdmin([[companyId, change]], userId);
 }
 
 /** Companies where `userId` is a member and a pay_run request is pending, in company-id order. Read only. */
@@ -188,7 +223,7 @@ export async function assertPayRunApproverRetainedEverywhere(userId: string): Pr
     if (owned.has(companyId)) await sql`SELECT pg_advisory_xact_lock(hashtextextended('company_owners:' || ${companyId}::uuid::text, 0))`;
   }
   for (const companyId of companies) await sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(companyId)}, 0))`;
-  await judgeOnMigrationAdmin(companies.map((c): [string, string | null] => [c, null]), userId);
+  await judgeOnMigrationAdmin(companies.map((c): [string, MemberChange] => [c, null]), userId);
 }
 
 /**

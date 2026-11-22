@@ -16,6 +16,7 @@ import type {
   PaginatedResult,
 } from '../types/admin.types';
 import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
+import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 
 type Row = DbRow;
 
@@ -212,7 +213,7 @@ export async function getCompanyUsers(
     id: r.id as string,
     name: r.name as string,
     email: r.email as string,
-    role: r.role as string,
+    role: normalizeCompanyRole(r.role as string),
     last_login: r.last_login != null
       ? (r.last_login instanceof Date ? r.last_login.toISOString() : r.last_login as string)
       : null,

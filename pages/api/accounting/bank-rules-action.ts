@@ -14,6 +14,9 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove, respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
+import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { autoPostApprovalGuard, autoPostDeleteGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -67,30 +70,38 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     switch (body.action) {
       case 'delete':
-        await deleteRule(companyId, body.id);
+        // #1656 (round 6): deleting a rule that posts (or would, company auto-post being on) changes which journals get posted: Banking Approve.
+        await deleteRule(companyId, body.id, autoPostDeleteGuard(await mayApprove(companyId, userId, 'banking')));
         return apiResponse.success(res, { deleted: true, status: 'applied' });
 
       case 'deleteMany': {
-        const count = await deleteRules(companyId, body.ids);
+        const count = await deleteRules(companyId, body.ids, autoPostDeleteGuard(await mayApprove(companyId, userId, 'banking')));
         return apiResponse.success(res, { deleted: count, status: 'applied' });
       }
 
       case 'toggle': {
-        const toggled = await toggleRule(companyId, body.id, body.isActive !== false, userId);
+        // #1656 (round 5): turning an auto-posting rule back on is an approval act, decided under the rule lock (autoPostApprovalGuard).
+        const guard = autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking'));
+        const toggled = await toggleRule(companyId, body.id, body.isActive !== false, userId, guard);
         return apiResponse.success(res, toggled.status === 'applied' ? { toggled: true, status: 'applied' } : { toggled: false, ...toggled });
       }
 
       case 'update': {
+        // #1656 (round 5): an edit that leaves an AUTO-POSTING rule auto-posting but changes where it posts or what it matches, or turns it
+        // on, needs Banking Approve whether or not the body names autoCreateEntry: decided under the rule lock from the rule as it stands.
+        const guard = autoPostApprovalGuard(await mayApprove(companyId, userId, 'banking'));
         const updateInput = Object.fromEntries(
           Object.entries(body).filter(([k, v]) =>
             k !== 'action' && k !== 'id' && v !== null && v !== undefined,
           ),
         );
-        const updated = await updateRule(companyId, body.id, updateInput, userId);
+        const updated = await updateRule(companyId, body.id, updateInput, userId, guard);
         return apiResponse.success(res, updated);
       }
 
       case 'apply': {
+        // #1656 (round 3): applying rules allocates (posts) the lines they match: Banking Approve, before any write.
+        if (await refuseWithoutApprove(res, companyId, userId, 'banking', 'bank rules')) return;
         const result = await withJournalDateRefusal(res, () => applyRules(companyId, body.bankAccountId, userId));
         if (result === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, result);
@@ -98,6 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
+    if (respondIfApprovePermissionRefused(res, err)) return; // auto-posting rule, no Banking Approve: 403 before any write
     if (respondIfBankControlRefused(res, err)) return;
     // R-067 / R-068: both fences run before any write, so the 4xx commits
     // nothing; surface the typed message rather than the generic fallback.

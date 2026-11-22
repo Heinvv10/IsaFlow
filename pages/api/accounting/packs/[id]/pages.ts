@@ -69,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many report requests. Please try again shortly.');
   }
 
+  // census-exempt(buildBoardPackDocument, payroll-read): company-level headcount, status or payroll totals; no one person's pay (the aggregate-totals limit in the PR body)
   const document = await buildBoardPackDocument({
     companyId,
     from,

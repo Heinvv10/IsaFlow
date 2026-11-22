@@ -17,8 +17,9 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: pass }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: pass }));
 vi.mock('@/lib/auth/withNoStore', () => ({ withNoStore: pass }));
 vi.mock('@/lib/auth/withPayrollDetailAccess', () => ({ withPayrollDetailAccess: pass }));
+vi.mock('@/lib/auth/withPayrollModule', () => ({ withPayrollModule: pass }));
 
-const WRAP = 'withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(';
+const WRAP = 'withAuth(withNoStore(withErrorHandler(withPayrollModule(withCsrf(withPayrollDetailAccess(payslipEmailHandler(';
 
 describe('POST /api/payroll/runs/[id]/payslips/email', () => {
   it('is payslipEmailHandler(sendEmail)', async () => {
@@ -27,8 +28,8 @@ describe('POST /api/payroll/runs/[id]/payslips/email', () => {
   });
 
   it('the integration suite wraps the handler in exactly the page\'s middleware', () => {
-    expect(readFileSync('pages/api/payroll/runs/[id]/payslips/email.ts', 'utf8')).toContain(`export default ${WRAP}sendEmail, admitPayslipEmails))))));`);
-    expect(readFileSync('tests/integration/pe-payslip-email.helpers.ts', 'utf8')).toContain(`= ${WRAP}capture, admitPayslipEmails))))))`);
+    expect(readFileSync('pages/api/payroll/runs/[id]/payslips/email.ts', 'utf8')).toContain(`export default ${WRAP}sendEmail, admitPayslipEmails)))))));`);
+    expect(readFileSync('tests/integration/pe-payslip-email.helpers.ts', 'utf8')).toContain(`= ${WRAP}capture, admitPayslipEmails)))))))`);
   });
 
   it('no production file of the feature reads the environment to pick a mailer', () => {

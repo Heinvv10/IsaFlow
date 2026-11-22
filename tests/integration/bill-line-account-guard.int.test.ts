@@ -21,7 +21,7 @@ import { updateSupplierInvoiceTool } from '@/lib/mcp/tools/writeUpdateSupplierIn
 import { bulkApproveSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -91,6 +91,7 @@ describeIfDb('supplier-bill line accounts', () => {
     assertNotProductionDb('This test creates supplier bills and GL accounts.');
     fx = await seedFixture('BLA', DATABASE_URL!);
     other = await seedFixture('BLX', DATABASE_URL!);
+    await seedFixtureMember(fx); // #1656: the MCP approve tools ask the token owner's Suppliers & AP Approve
     acc.expense = await accountBySubtype(fx.companyId, 'default_expense');
     acc.payable = await accountBySubtype(fx.companyId, 'payable');
     acc.receivable = await accountBySubtype(fx.companyId, 'receivable');
@@ -118,6 +119,7 @@ describeIfDb('supplier-bill line accounts', () => {
       await sql`DELETE FROM approval_requests WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM supplier_coding_history WHERE company_id = ${f.companyId}::UUID`;
       await sql`UPDATE gl_accounts SET parent_account_id = NULL WHERE company_id = ${f.companyId}::UUID`;
+      if (f === fx) await dropFixtureMember(f);
       await dropFixture(f);
     }
   }, 120000);

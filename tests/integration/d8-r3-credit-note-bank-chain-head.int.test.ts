@@ -17,7 +17,7 @@ import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCan
 import { cancelCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotes';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, seedBankTx, seedFixture, seedFixtureMember, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -60,6 +60,7 @@ describeIfDb('D8 round 3: credit-note cancel and bank reversal take a re-reverse
   beforeAll(async () => {
     assertNotProductionDb('This test posts, reverses and cancels journals.');
     fx = await seedFixture('D8R3', DATABASE_URL!);
+    await seedFixtureMember(fx); // an owner: cancel_credit_note on a non-draft asks Approve from company_users (#1656)
     const acct = async (sub: string) => String(((await sql`
       SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_subtype = ${sub}`) as Row[])[0]!.id);
     ar = await acct('receivable');
@@ -75,6 +76,7 @@ describeIfDb('D8 round 3: credit-note cancel and bank reversal take a re-reverse
     await sql`DELETE FROM credit_notes WHERE company_id = ${fx.companyId}::UUID`;
     await sql`UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
     await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
+    await dropFixtureMember(fx);
     await dropFixture(fx);
   }, 120000);
 

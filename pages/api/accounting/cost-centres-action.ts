@@ -54,7 +54,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { toggled: true });
       }
       case 'delete': {
+        // census-exempt(planDeleteDimensionCostCentre, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         const target = await planDeleteDimensionCostCentre(companyId, String(id));
+        // census-exempt(applyDeleteDimensionCostCentre, payroll-read): a ledger or return action: the payroll tables its chain reads feed a refusal or the month's ETI carry; the answer names no employee and no one person's pay
         await applyDeleteDimensionCostCentre(companyId, target, userId);
         return apiResponse.success(res, { deleted: true });
       }

@@ -19,6 +19,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import {
   withAuth,
@@ -74,6 +75,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `ledgerGapReason is at most ${LEDGER_GAP_REASON_MAX} characters`);
     }
     const { companyRole } = req as CompanyAuthedRequest;
+    // #1656 (round 3): submitting a VAT return posts its settlement journal: VAT & Tax Approve, before any write.
+    if (await refuseWithoutApprove(res, companyId, userId, 'vat', 'VAT returns')) return;
 
     try {
       const record = await withJournalDateRefusal(res, () => submitVATReturn(

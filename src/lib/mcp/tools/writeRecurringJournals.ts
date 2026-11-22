@@ -9,6 +9,7 @@
  * than on every run. An auto-posting template needs write:post, as an auto-posting bank rule does.
  */
 import type { McpTool, McpToolContext } from '../types';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import {
   createRecurringJournal, getRecurringJournalById, updateRecurringJournalStatus,
@@ -95,6 +96,8 @@ export const createRecurringJournalTool: McpTool = {
     if (args.auto_post !== undefined && typeof args.auto_post !== 'boolean') return toolError('auto_post must be true or false');
     const autoPost = args.auto_post === true;
     if (autoPost && !mayPost(ctx)) return toolError(POSTS_NEED_WRITE_POST);
+    // #1656 (round 3): an auto-posting template approves every journal it generates: Chart of Accounts & GL Approve, as the AP / AR templates ask it of the runner.
+    if (autoPost && !(await mayApprove(ctx.companyId, ctx.userId, 'accounts'))) return toolError(approveRefusedMessage('accounts', 'auto-posting recurring journals'));
 
     const checked = await checkJournalLines(ctx, args.lines, 'create_recurring_journal');
     if (typeof checked === 'string') return toolError(checked);
@@ -156,6 +159,7 @@ export const deactivateRecurringJournalTool: McpTool = {
       return toolError(`A ${rj.status} recurring journal cannot be resumed. Create a new one with create_recurring_journal.`);
     }
     if (enable && rj.autoPost && !mayPost(ctx)) return toolError(POSTS_NEED_WRITE_POST);
+    if (enable && rj.autoPost && !(await mayApprove(ctx.companyId, ctx.userId, 'accounts'))) return toolError(approveRefusedMessage('accounts', 'auto-posting recurring journals'));
 
     const answer = { ...base, previous_status: rj.status, status: target };
     if (args.dry_run === true) return { ...ok({ dry_run: true, ...answer }), wroteNothing: true };

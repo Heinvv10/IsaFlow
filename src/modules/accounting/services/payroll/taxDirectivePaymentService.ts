@@ -194,9 +194,10 @@ export async function applyTaxDirective(
   await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 4. Describe the journal; its labour lines are built after the claim wait.
-  const employeeName = String(dir.employee_name);
+  // The directive, never the person: a journal is read by anyone with Accounting, and its amounts are one employee's pay (#1656 round 7).
+  // payrollJournalReversalGuard recognises the journal by the "SARS directive " prefix alone.
   const directiveNum = dir.directive_number != null ? String(dir.directive_number) : directiveId.slice(0, 8);
-  const narrative = `SARS directive ${directiveNum} — ${employeeName}`;
+  const narrative = `SARS directive ${directiveNum}`;
 
   // 5. CLAIM before posting. UNIQUE (company_id, tax_directive_id) makes
   // ON CONFLICT matching zero rows the refusal. This replaced a decorative

@@ -4,6 +4,7 @@
  * month, and emails configured recipients.
  */
 
+import { mayReadPayroll } from '@/lib/auth/payrollReadGate';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
@@ -116,6 +117,8 @@ export async function runMonthlyReports(
     // matches none of them is skipped and counted.
     let recipients: ReportRecipient[];
     let users: CompanyUserSummary[] = [];
+    // Margins (from per-person cost rates) go out only when EVERY opted-in address is a member holding Payroll read (#1656 round 9).
+    let marginsOk = false;
     try {
       const all = await listReportRecipients(company.id, true);
       const optedIn = all.filter((r) => r.reportTypes.includes('monthly_summary'));
@@ -123,6 +126,9 @@ export async function runMonthlyReports(
       const memberEmails = new Set(users.map((u) => normaliseEmail(u.email)));
       recipients = optedIn.filter((r) => memberEmails.has(normaliseEmail(r.email)));
       const skipped = optedIn.length - recipients.length;
+      const idByEmail = new Map(users.map((u) => [normaliseEmail(u.email), u.id]));
+      const reads = await Promise.all(recipients.map((r) => mayReadPayroll(company.id, idByEmail.get(normaliseEmail(r.email))!)));
+      marginsOk = skipped === 0 && reads.every(Boolean);
       if (skipped > 0) {
         result.recipientsSkipped += skipped;
         log.warn('Skipped report recipients who are not members in good standing',
@@ -149,7 +155,9 @@ export async function runMonthlyReports(
     try {
       [utilisationRows, clientRows, wipRows] = await Promise.all([
         getStaffUtilisation(company.id, { dateFrom: periodStart, dateTo: periodEnd }),
-        getClientProfitability(company.id, { dateFrom: periodStart, dateTo: periodEnd }),
+        // The e-mail has margins only when marginsOk (above): every recipient a member with Payroll read; one who is not, or an address that
+        // is no member, takes them out for everyone (timeCost, margin and marginPct come back null and the template prints a dash).
+        getClientProfitability(company.id, { dateFrom: periodStart, dateTo: periodEnd }, marginsOk),
         getWipAging(company.id, { asOfDate: periodEnd }),
       ]);
 

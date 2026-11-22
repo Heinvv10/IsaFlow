@@ -120,7 +120,7 @@ describe('paths without a user JWT, as the role they write as', () => {
     const portal = (sql: string, params: unknown[]) => outcome(asRole(pool, 'platform_admin', c, { sub: p.o }, (cl) => cl.query(sql, params), true));
     const add = `INSERT INTO company_users (user_id, company_id, role, created_at) VALUES ($1, $2, $3, NOW())
                  ON CONFLICT (user_id, company_id) DO UPDATE SET role = EXCLUDED.role`;
-    expect(await portal(add, [p.x, c, 'accountant'])).toBe('ok');
+    expect(await portal(add, [p.x, c, 'manager'])).toBe('ok'); // #1656 (1010): the portal grants admin, manager, viewer
     expect(await portal(add, [p.o2, c, 'admin'])).toBe('ok');
     expect(await portal('DELETE FROM company_users WHERE user_id = $1 AND company_id = $2', [p.m, c])).toBe('ok');
     expect(await portal('DELETE FROM company_users WHERE user_id = $1 AND company_id = $2::UUID', [p.x, c])).toBe('ok');

@@ -144,32 +144,38 @@ describe('onboarding reset against a role change of the same user (lock order)',
   }, 60000);
 });
 
-describe('onboarding reset judges a request raised while it waited for the approver lock', () => {
-  it('lists the user\'s companies, locks them, THEN judges: a request raised meanwhile refuses the reset', async () => {
+describe('onboarding reset and a pay_run raise queue on the approver lock (#1670 L5)', () => {
+  it('the reset, which asked first, judges with nothing pending and lands; the raise waits for it, then is raised', async () => {
     await r.pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND role = 'manager'", [r.company]);
     await r.pool.query("UPDATE approval_requests SET status = 'rejected' WHERE company_id = $1 AND status = 'pending'", [r.company]);
     const x = await r.addUser('manager'); // the only other member who can approve
     const made = await r.api.createRun(9);
     const run = String(made.body.data!.id);
     await r.api.calculate(run);
+    const waiting = async (n: number) => {
+      for (let i = 0; i < 400; i += 1) {
+        const w = await r.pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted");
+        if ((w.rowCount ?? 0) >= n) return true;
+        await new Promise((res) => setTimeout(res, 25));
+      }
+      return false;
+    };
 
-    // A session holds the company's approver lock, so the reset waits for it; no request is pending yet.
+    // A session holds the company's approver lock, so the reset waits for it; no request is pending yet. Before #1670 L5 a
+    // raise went through meanwhile (and the reset had to re-judge after its wait); now the raise queues behind the reset.
     const holder = await r.pool.connect();
     await holder.query('BEGIN');
     await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('pay_run_approvers:' || $1, 0))", [r.company]);
     try {
       const reset = withAlsTransaction({ companyId: r.company, userId: r.admin }, () => resetOnboarding(x)).then(() => 'ok', (e: Error) => e);
-      for (let i = 0; i < 200; i += 1) {
-        const w = await r.pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted");
-        if (w.rowCount) break;
-        await new Promise((res) => setTimeout(res, 25));
-      }
-      const raised = await r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
+      expect(await waiting(1)).toBe(true);
+      const raised = r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
         { user: r.admin, body: { action: 'request', documentType: 'pay_run', documentId: run } });
-      expect(raised.statusCode).toBe(200);
+      expect(await waiting(2)).toBe(true); // the raise waits on the approver lock too
       await holder.query('COMMIT');
-      expect(await reset).toBeInstanceOf(PayRunApproverProtectedError);
-      expect(await roleOf(x)).toBe('manager'); // nothing was removed
+      expect(await reset).toBe('ok');
+      expect(await roleOf(x)).toBeUndefined(); // the reset removed the user from the company
+      expect((await raised).statusCode).toBe(200); // raised after it, on the roster without x
     } finally {
       await holder.query('ROLLBACK').catch(() => undefined);
       holder.release();

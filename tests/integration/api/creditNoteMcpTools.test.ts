@@ -23,7 +23,7 @@ import { sql } from '@/lib/neon';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import { createCreditNoteTool, approveCreditNoteTool, cancelCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotes';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { dropFixture, seedFixture, type Fixture } from '../helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, seedFixture, seedFixtureMember, type Fixture } from '../helpers/l1FifoFixture';
 
 // Two companies of this suite's own (l1FifoFixture: chart of accounts, an open
 // 2026 period, a customer and a supplier each), so it runs on a schema-only
@@ -82,6 +82,7 @@ beforeAll(async () => {
   fx = await seedFixture('CNMCP', process.env.DATABASE_URL!);
   fxOther = await seedFixture('CNMCPB', process.env.DATABASE_URL!);
   COMPANY = fx.companyId; OTHER = fxOther.companyId; USER = fx.userId;
+  await seedFixtureMember(fx); // #1656: the MCP approve tool asks the token owner's module Approve, as a member
   pool = fx.pool;
   // approve posts through default_revenue too; the shared fixture has no revenue account.
   await sql`
@@ -110,6 +111,7 @@ afterAll(async () => {
     if (!f) continue;
     await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
     await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
+    if (f === fx) await dropFixtureMember(f);
     await dropFixture(f);
   }
 }, 60_000);
