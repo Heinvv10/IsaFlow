@@ -94,7 +94,7 @@ export default function ItemOpeningBalancesPage() {
     <AppLayout>
       <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10"><PackageOpen className="h-6 w-6 text-teal-500" /></div>
               <div>
@@ -102,13 +102,13 @@ export default function ItemOpeningBalancesPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Set initial stock quantities and unit costs</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 max-lg:flex-wrap">
               <div className="text-right">
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Total Value</p>
                 <p className="text-lg font-bold text-[var(--ff-text-primary)]">{fmt(totalValue)}</p>
               </div>
               <button onClick={save} disabled={saving || !changedCount}
-                className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save {changedCount > 0 ? `(${changedCount})` : ''}
               </button>
@@ -116,7 +116,7 @@ export default function ItemOpeningBalancesPage() {
           </div>
           <div className="relative mt-4 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <input name="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9" />
+            <input name="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9 max-lg:min-h-11" />
           </div>
         </div>
 
@@ -128,7 +128,7 @@ export default function ItemOpeningBalancesPage() {
             {loading ? (
               <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
@@ -145,20 +145,20 @@ export default function ItemOpeningBalancesPage() {
                     const changed = Boolean(e);
                     return (
                       <tr key={item.id} className={`hover:bg-teal-500/[0.04] ${changed ? 'bg-teal-500/5' : ''}`}>
-                        <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{item.uom}</td>
-                        <td className="px-4 py-2 text-right">
+                        <td data-label="Code" className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
+                        <td data-label="Item" className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
+                        <td data-label="UOM" className="px-4 py-2 text-[var(--ff-text-tertiary)]">{item.uom}</td>
+                        <td data-label="Quantity" className="px-4 py-2 text-right max-lg:items-center">
                           <AmountInput min={0} decimals={4} value={e?.quantity ?? (item.quantity_on_hand ?? '')}
                             onValueChange={(_n, t) => setField(item.id, 'quantity', t)}
-                            className={`w-28 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
+                            className={`w-28 px-2 py-1 max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
-                        <td className="px-4 py-2 text-right">
+                        <td data-label="Unit Cost" className="px-4 py-2 text-right max-lg:items-center">
                           <AmountInput min={0} value={e?.unitCost ?? (item.cost_price ?? '')}
                             onValueChange={(_n, t) => setField(item.id, 'unitCost', t)}
-                            className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
+                            className={`w-32 px-2 py-1 max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(qty * cost)}</td>
+                        <td data-label="Total Value" className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(qty * cost)}</td>
                       </tr>
                     );
                   })}
