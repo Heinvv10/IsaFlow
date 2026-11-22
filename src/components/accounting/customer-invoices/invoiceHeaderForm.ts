@@ -1,5 +1,5 @@
 /**
- * The header of a customer invoice (client, currency, rate, job, notes, four dates) as the new and edit pages hold it,
+ * The header of a customer invoice (client, currency, job, notes, four dates; VAT is per line, formVat) as the new and edit pages hold it,
  * and the date validity the kit's DateField reports. A refused date is null to the page, which cannot tell it from an
  * empty one, so submit is blocked on the reported validity (and on due-before-invoice, which a later edit of the invoice
  * date can create after the Due date field was accepted).
@@ -14,7 +14,6 @@ export interface InvoiceHeaderForm {
   dueDate: string;
   billingPeriodStart: string;
   billingPeriodEnd: string;
-  taxRate: number;
   notes: string;
   currencyCode: string;
   exchangeRate: number;
