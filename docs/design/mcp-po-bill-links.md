@@ -162,7 +162,7 @@ raised before anything is written. Orders, first lock first:
 | `cancel_purchase_order` / `close_purchase_order` | PO row `FOR UPDATE` (no gate: releasing a commitment); reads links, no bill row |
 | `set_purchase_order_status` | budget gate (-> approved, block only) -> PO row `FOR UPDATE`; no bill row |
 
-No cycle among these ROW locks: every writer that takes the budget gate takes it FIRST (the link tool takes none: it never raises committed spend,
+No cycle among these ROW locks, except the two supplier-merge cycles accepted below: every writer that takes the budget gate takes it FIRST (the link tool takes none: it never raises committed spend,
 closing releases it; the PO maintenance tools above take the PO row and never a bill row, so they cannot meet the bill-row order); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
 touches a PO row is the app writer (a draft edit), whose lock is `KEY SHARE`, compatible with link / unlink's `NO KEY UPDATE`
 (it conflicts only with `FOR UPDATE` holders: PO cancel / approve / goods receipt, which take no bill row, so no cycle either);
@@ -175,6 +175,13 @@ are taken only by the link tool, always before its PO rows, always sorted. Prove
 block policy, ten rounds, with a draft edit leg, no 40P01 / 55P03 and a consistent end state; a deterministic draft edit vs
 link / unlink case (the reproduced deadlock); opposite-order reference lists; held PO / bill / "another link's bill" rows end in
 the typed timeout with nothing written.
+
+Two supplier-merge cycles, ACCEPTED (liveness only, from #1699's PO move; `core/supplierMergePurchaseOrders.ts`): (1) a draft bill
+edit holds its bill row and then takes the PO `FOR KEY SHARE` (`refreshAppBillLinks`) while the merge holds that PO `FOR UPDATE` and
+then updates the bills; (2) a bill create on the source that names a PO holds the PO's `KEY SHARE` (first in its transaction) and
+then waits at its INSERT's supplier FK on the merge, which holds both supplier rows `FOR UPDATE` and waits on that PO (isaflow-c8's
+review of #1699; `spo-retire-merge-lock-order.int.test.ts` pins it). Each ends in 40P01: the retryable 503 on both merge routes
+(`respondIfLockTimeout`), or on the bill write, with nothing written and no cross-supplier row.
 
 One cycle outside the rows (named limit, older than PR #1703; breaker r14 zz-b14-numlock): a bill cancel's reversal takes the
 company + year journal-number advisory lock while it holds its bill row. A bulk cancel [B1, B2] whose item 1 has reversed (holding

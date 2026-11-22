@@ -5,7 +5,9 @@
  *   - a bill create in flight naming a PO of the source holds the supplier (FK KEY SHARE): both merge paths wait for it, then see
  *     its app link and refuse (a 400 class); nothing moves;
  *   - a bill tied to a source PO by its HEADER or a LINE only (no link row), set before the merge or by an edit racing it, ends on
- *     the survivor together with that PO: no bill names another supplier's PO.
+ *     the survivor together with that PO: no bill names another supplier's PO;
+ *   - the accepted liveness cycle (isaflow-c8's review of #1699): a bill create holding the PO's KEY SHARE before its INSERT,
+ *     against a merge holding both supplier rows FOR UPDATE and waiting on that PO, ends in a 40P01 for one side, nothing written.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -127,4 +129,37 @@ describe('a header tie set while the merge runs', () => {
       }
     }, 60_000);
   }
+});
+
+describe('accepted cycle: a bill create holding the PO KEY SHARE before its INSERT vs a merge holding the suppliers', () => {
+  it('one side gets 40P01; nothing is written', async () => {
+    const own = await seedBillFixture(pool, 'spo-merge-cycle');
+    const a = await pool.connect();
+    const b = await pool.connect();
+    try {
+      const target = await seedSupplier(pool, own, 'Cycle target');
+      const po = await seedPo(pool, own, { lines: [100] });
+      await a.query('BEGIN'); await b.query('BEGIN');
+      // A, the bill create's order: the named PO FOR KEY SHARE first (assertBillPoLinks / lockNotePo).
+      await a.query('SELECT id FROM purchase_orders WHERE id = $1 FOR KEY SHARE', [po.po]);
+      // B, the merge's order: both suppliers FOR UPDATE (assertSupplierMergeKeepsDrcFlag), then the source's POs FOR UPDATE.
+      await b.query('SELECT id FROM suppliers WHERE id = ANY($1::UUID[]) ORDER BY id FOR UPDATE', [[own.supplier, target]]);
+      const bWait = b.query('SELECT id FROM purchase_orders WHERE supplier_id = $1 ORDER BY id FOR UPDATE', [own.supplier])
+        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
+      expect(await waitsOnLock('FROM purchase_orders WHERE supplier_id')).toBe(true);
+      // A: the INSERT's supplier FK takes KEY SHARE on the source, held by B: the cycle.
+      const number = `CYCLE-${crypto.randomUUID().slice(0, 8)}`;
+      const aWait = a.query(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status)
+          VALUES ($1, $2, $3, '2026-06-15', 1, 0, 0, 1, $4, 'draft')`, [own.co, number, own.supplier, own.owner])
+        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
+      const results = await Promise.all([aWait, bWait]);
+      expect(results).toContain('40P01');
+      await a.query('ROLLBACK'); await b.query('ROLLBACK');
+      expect((await pool.query('SELECT count(*)::INT AS n FROM supplier_invoices WHERE invoice_number = $1', [number])).rows[0].n).toBe(0);
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined); a.release();
+      await b.query('ROLLBACK').catch(() => undefined); b.release();
+      await dropBillFixture(pool, own);
+    }
+  }, 60_000);
 });

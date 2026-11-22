@@ -74,8 +74,9 @@ describe('supplier merge refuses a source whose live bills carry a goods receive
     const text = JSON.stringify(out.body);
     expect(text).toContain('goods received note');
     expect(text).toContain(number);
-    expect(text).toContain('delete it and enter it again without the note');
-    expect(text).toContain('the deleted draft still moves with the merge and cannot be restored afterwards');
+    // Adapted with PR #1703 (#1699 moves the note's PO with the bills): the deleted draft can be restored after the merge.
+    expect(text).toContain('a draft bill: delete it, merge, then restore it on the surviving supplier');
+    expect(text).toContain('its note\'s purchase order moves with it');
     expect(await supplierOf(bill)).toBe(f.supplier);
     expect(await sourceLive()).toBe(true);
   });
