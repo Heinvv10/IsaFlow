@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { useState } from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
 
@@ -307,7 +307,19 @@ describe('DateField calendar: phone bottom sheet', () => {
 describe('DateField calendar: placement and scroll lock', () => {
   const stubSheet = (matches: boolean) => vi.stubGlobal('matchMedia', (q: string) => ({ matches, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() }));
   afterEach(() => { vi.unstubAllGlobals(); document.body.style.overflow = ''; });
-  it('the popover follows a scroll: it repositions on the next frame, and stops listening on close', async () => {
+  it('the popover moves with the field after a scroll, and stops listening on close', async () => {
+    stubSheet(false);
+    let top = 100;
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top, bottom: top + 36, left: 10, right: 200, width: 190, height: 36, x: 10, y: top, toJSON: () => ({}) }));
+    render(<Harness />);
+    fireEvent.click(openBtn());
+    expect(popup()!.style.top).toBe('140px');
+    top = 300;
+    fireEvent.scroll(window);
+    await waitFor(() => expect(popup()!.style.top).toBe('340px'));
+    rect.mockRestore();
+  });
+  it('adds a capture-phase scroll listener on open and removes it on close', () => {
     stubSheet(false);
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
