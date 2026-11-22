@@ -3,7 +3,7 @@
  * and writes nothing when it refuses — proved on the real service functions,
  * against a real ledger, for the four posting paths:
  *
- *   1a. customer invoice approve        approveCustomerInvoice (its 500 rolls the request back)
+ *   1a. customer invoice approve        approveCustomerInvoice (the route answers 400 and its savepoint rolls it back)
  *   1b. customer invoice Post to GL     postCustomerInvoiceToGL (customer-invoices-gl.ts answers 400: COMMITS)
  *   2.  customer credit note approve    approveCreditNote (credit-notes-action)
  *   3.  supplier invoice approve        approveSupplierInvoice (supplier-invoices-action)
@@ -19,7 +19,7 @@
  * (customerInvoiceGlPosting, assertCreditNoteCanPost) are a second layer, not the only one. Path 3 has no pre-write
  * guard: its refusal comes after createJournalEntry, and nothing is left because approveSupplierInvoice runs inside its
  * own savepoint ('approve_supplier_invoice').
- * 1a runs as its route does, rolled back (a plain Error answers 500), so its journal count is guaranteed by the
+ * 1a runs as its route does, rolled back (the route answers 400 for InvoicePeriodClosedError), so its journal count is guaranteed by the
  * rollback and what it pins is the refusal itself. (Path 4's route also answered 500 until it mapped
  * ClosedFiscalPeriodError to 400; see tests/unit/api/supplierCreditNotePostClosedPeriod.test.ts.)
  *
@@ -65,7 +65,7 @@ interface PostingPath {
 }
 
 // The invoice path's own check (customerInvoiceGlPosting) names 'closed' for every non-open status.
-const INVOICE_REFUSAL = () => /^Error: Cannot post invoice INV-CPP-\S+ to GL — its fiscal period is closed\. Reopen the period, or date the invoice in an open one\.$/;
+const INVOICE_REFUSAL = () => /^InvoicePeriodClosedError: Cannot post invoice INV-CPP-\S+ to GL — its fiscal period is closed\. Reopen the period, or date the invoice in an open one\.$/;
 // assertCreditNoteCanPost: the same mapping, always 'closed'.
 const NOTE_REFUSAL = () => /^ClosedFiscalPeriodError: Cannot post to closed fiscal period$/;
 // postJournalEntry (the only guard on the bill path) names the period's real status.

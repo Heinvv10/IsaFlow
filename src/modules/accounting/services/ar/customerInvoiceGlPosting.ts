@@ -36,8 +36,7 @@ type Row = DbRow;
  *   reverseJournalEntry / reverseReconciledTransaction opts pattern.
  */
 /**
- * The invoice's period is not open: refused before any write, so a route may answer it with a 400. (The name is left
- * as a plain Error's so the message still reads "Error: Cannot post invoice ...".)
+ * The invoice's period is not open: refused before any write, so a route may answer it with a 400.
  */
 export class InvoicePeriodClosedError extends Error {}
 
