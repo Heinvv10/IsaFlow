@@ -25,10 +25,11 @@ export async function refusedApproval(r: Rig, runId: string): Promise<string> {
 }
 
 /**
- * The run's current approval as the app's (fake) clock made it: at the start of its payday less an hour, SAST (gate item
- * 1 on 06c106a94d). These suites fake the app's Date only; the database stamps approved_at from its own clock (today), so
- * without this an approval "on the pay date" would read as one after it, and a later reopen would not cover payday.
- * Written as the trusted fixture role, which the 999x triggers leave as written.
+ * The run's current approval moved to before its payday: 23:00 SAST on the day before its pay date (gate item 1 on
+ * 06c106a94d). These suites fake the app's Date only and approve on (by their clock) or before the pay date; the
+ * database stamps approved_at from its own clock (today, after that payday), so without this the approval would read as
+ * one given after payday, and a later reopen would not overlap it. Written as the trusted fixture role, which the 999x
+ * triggers leave as written.
  */
 export async function approvedOverPayday(r: Rig, runId: string): Promise<void> {
   await r.pool.query(`UPDATE payroll_run_headers
