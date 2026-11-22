@@ -78,7 +78,7 @@ export function Irp5Section() {
         <article key={c.versionId} aria-labelledby={`irp5-${c.versionId}`} className="mb-4 rounded border border-gray-200 p-3 dark:border-gray-800">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 id={`irp5-${c.versionId}`} className="font-semibold">Tax year {c.taxYear}: {kindLabel(c.kind)}</h3>
-            <a className="font-medium text-teal-700 underline dark:text-teal-400" href={`/api/employee-portal/irp5/${c.versionId}`}>
+            <a className="font-medium text-teal-700 underline dark:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11" href={`/api/employee-portal/irp5/${c.versionId}`}>
               Download PDF<span className="sr-only"> IRP5 copy for tax year {c.taxYear}, {c.kind}</span>
             </a>
           </div>
