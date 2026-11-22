@@ -12,7 +12,7 @@ import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiResponse } from 'next';
 import { SignJWT } from 'jose';
 
-const TEST_SECRET = 'b'.repeat(40);
+const JWT_TEST = 'b'.repeat(40);
 const COMPANY_ID = '00000000-0000-0000-0000-000000001656';
 const USER_ID = '16561656-1656-4656-8656-165616561656';
 
@@ -57,14 +57,14 @@ function makeRes() {
 async function token() {
   return new SignJWT({ sub: USER_ID, email: 'x@y.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
-    .sign(new TextEncoder().encode(TEST_SECRET));
+    .sign(new TextEncoder().encode(JWT_TEST));
 }
 
 beforeEach(() => {
   vi.resetModules();
-  process.env.JWT_SECRET = TEST_SECRET;
+  process.env.JWT_SECRET = JWT_TEST;
   process.env.GOTRUE_URL = 'http://example.test/auth/v1';
-  process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
+  process.env.DATABASE_URL = 'postgresql://dummy@dummy/test';
   process.env.SENTRY_ENABLED = 'false';
 });
 

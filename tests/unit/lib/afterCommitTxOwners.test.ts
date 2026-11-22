@@ -75,7 +75,7 @@ const settle = () => new Promise((r) => setTimeout(r, 5));
 
 beforeEach(() => {
   h.events.length = 0; h.commitThrows = false;
-  vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
+  vi.stubEnv('DATABASE_URL', 'postgresql://dummy@dummy/test');
 });
 
 describe.each(owners)('%s', (_name, run) => {

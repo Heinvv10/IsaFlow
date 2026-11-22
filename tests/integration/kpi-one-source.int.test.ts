@@ -276,7 +276,7 @@ describeIfDb('headline figures: one definition across the dashboard, the bureau 
   });
 
   it('Month-End, current period: the Sales, Supplier and Exceptions cards say the headline figures', async () => {
-    const wb = await getMonthEndWorkbench(C, PERIOD);
+    const wb = await getMonthEndWorkbench(C, PERIOD, { payrollRead: true });
     const card = (cardId: string) => wb.cards.find((c) => c.id === cardId)!;
     const asAt = formatDisplayDate(T);
     expect(card('sales').secondary).toBe(`${formatMoney(EXPECTED.receivables.total)} outstanding · 1 customers · as at ${asAt}`);

@@ -10,6 +10,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Tab } from '@/components/accounting/navSections/types';
 
 const h = vi.hoisted(() => ({ tabs: null as Tab[] | null }));
+// Payroll is hidden until the user is known to have Payroll read (`useNavFlags`); these cases are about its menus.
+vi.mock('@/hooks/useNavFlags', async () => {
+  const { MODULE_READ_NAV_FLAGS } = await import('@/components/accounting/navSections/flagNav');
+  const readable: ReadonlySet<string> = new Set(MODULE_READ_NAV_FLAGS);
+  return { useNavFlags: () => readable };
+});
 vi.mock('next/router', () => ({ useRouter: () => ({ pathname: '/accounting', asPath: '/accounting', query: {} }) }));
 vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true, known: true }) }));
 vi.mock('@/components/accounting/accountingNavConfig', async (orig) => {

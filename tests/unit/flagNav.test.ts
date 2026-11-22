@@ -4,7 +4,7 @@
  * The five call sites are pinned in tests/unit/components/flagNavCallSites.test.tsx.
  */
 import { describe, it, expect } from 'vitest';
-import { flagOfHref, NAV_FLAGS, stripFlagNav, THREE_WAY_HREF } from '@/components/accounting/navSections/flagNav';
+import { flagOfHref, MODULE_READ_NAV_FLAGS, moduleReadFlag, NAV_FLAGS, stripFlagNav, THREE_WAY_HREF } from '@/components/accounting/navSections/flagNav';
 import { TABS, settingsTab } from '@/components/accounting/accountingNavConfig';
 import { accountingTab } from '@/components/accounting/navSections/accounting';
 import { accountantsTab } from '@/components/accounting/navSections/accountants';
@@ -12,7 +12,10 @@ import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
 import { isFlyout, type NavItem, type Tab } from '@/components/accounting/navSections/types';
 
 const ON = new Set(NAV_FLAGS);
-const OFF: ReadonlySet<string> = new Set();
+/** Feature flags off, every module readable: what a user with all module permissions sees of a company without the flag. */
+const OFF: ReadonlySet<string> = new Set(MODULE_READ_NAV_FLAGS);
+const NOTHING: ReadonlySet<string> = new Set();
+const PAYROLL_READ = moduleReadFlag('payroll');
 
 function hrefs(items: NavItem[] | undefined): string[] {
   if (!items) return [];
@@ -30,6 +33,54 @@ describe('flagOfHref', () => {
     expect(flagOfHref('/accounting/budgets')).toBeNull();
     expect(flagOfHref('/accounting/budgets/controls')).toBeNull();
     expect(flagOfHref('/accounting/budgets/three-way-other')).toBeNull();
+  });
+});
+
+describe('flagOfHref: module pages', () => {
+  it('names the Payroll read marker for every page under /payroll, query strings ignored', () => {
+    expect(flagOfHref('/payroll/runs')).toBe(PAYROLL_READ);
+    expect(flagOfHref('/payroll/employees/new?x=1')).toBe(PAYROLL_READ);
+    expect(flagOfHref('/payroll')).toBe(PAYROLL_READ);
+  });
+  it('leaves look-alike paths alone', () => {
+    expect(flagOfHref('/payroll-other')).toBeNull();
+    expect(flagOfHref('/accounting/sars/emp201')).toBeNull();
+  });
+});
+
+describe('stripFlagNav: Payroll read', () => {
+  const payrollHrefs = (tabs: Tab[]) => allHrefs(tabs).filter((h) => h.startsWith('/payroll'));
+  const FEATURES_ON = new Set(NAV_FLAGS.filter((f) => f !== PAYROLL_READ));
+
+  it('no Payroll read (also the default, before the answer arrives): no /payroll link in any tab, the Payroll tab is gone', () => {
+    for (const flags of [NOTHING, FEATURES_ON]) {
+      const out = stripFlagNav(TABS, flags);
+      expect(payrollHrefs(out)).toEqual([]);
+      expect(out.some((t) => t.id === 'payroll')).toBe(false);
+    }
+  });
+
+  it('no Payroll read: every non-payroll link is kept', () => {
+    const before = allHrefs(TABS).filter((h) => !h.startsWith('/payroll'));
+    expect(allHrefs(stripFlagNav(TABS, FEATURES_ON)).filter((h) => h !== THREE_WAY_HREF)).toEqual(before.filter((h) => h !== THREE_WAY_HREF));
+  });
+
+  it('Payroll read: the Payroll tab and its links stay', () => {
+    const out = stripFlagNav(TABS, new Set([...NAV_FLAGS]));
+    expect(out).toBe(TABS);
+    expect(payrollHrefs(out).length).toBeGreaterThan(5);
+  });
+
+  it('the Library flyout Payroll links are hidden with it', () => {
+    const library = (tabs: Tab[]) => tabs.find((t) => t.id === 'library');
+    expect(payrollHrefs([library(TABS)!]).length).toBeGreaterThan(0);
+    const stripped = library(stripFlagNav(TABS, FEATURES_ON));
+    expect(payrollHrefs(stripped ? [stripped] : [])).toEqual([]);
+  });
+
+  it('the command palette index and page titles drop payroll pages too', () => {
+    expect(buildNavIndex(TABS, true, FEATURES_ON).map((e) => e.href).filter((h) => h.startsWith('/payroll'))).toEqual([]);
+    expect(buildNavIndex(TABS, true, new Set(NAV_FLAGS)).map((e) => e.href)).toContain('/payroll/runs');
   });
 });
 

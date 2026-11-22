@@ -1,16 +1,19 @@
 /**
  * Library — the demoted-module directory. A calm grid of the 8 modules that
- * used to be top-level tabs. Pure presentational: no API, no company scoping.
+ * used to be top-level tabs. A tile the nav hides (Payroll without Payroll read) is not shown.
  */
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { libraryModulesFor } from '@/components/accounting/navSections/library';
+import { hidden } from '@/components/accounting/navSections/flagNav';
+import { useNavFlags } from '@/hooks/useNavFlags';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export default function LibraryPage() {
   const { isRegistered } = useVatRegistration();
-  const modules = libraryModulesFor(isRegistered);
+  const flags = useNavFlags();
+  const modules = libraryModulesFor(isRegistered).filter((m) => !hidden(m.href, flags));
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto">

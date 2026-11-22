@@ -156,6 +156,21 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabe
             'aria-expanded': isOpen,
             'aria-controls': isOpen ? panelId : undefined,
           };
+          // A slot held while the nav's answers load: the tab as it will be, invisible and inert, so the tabs after it hold still.
+          if (t.pending) {
+            return (
+              <div key={t.id} aria-hidden="true" className="relative invisible" data-testid={`nav-pending-${t.id}`}>
+                {t.href && !menu && <span className={`block px-4 py-2 leading-6 ${borderCls(t)} ${textCls(t)}`}>{t.label}</span>}
+                {t.href && menu && (
+                  <div className={`flex items-center ${borderCls(t)}`}>
+                    <span className={`py-2 pl-4 pr-1 leading-6 ${textCls(t)}`}>{t.label}</span>
+                    <span className={`inline-flex items-center h-10 pl-1 pr-3 ${textCls(t)}`}><ChevronDown className="h-3 w-3" /></span>
+                  </div>
+                )}
+                {!t.href && menu && <span className={`px-4 py-2 leading-6 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}>{t.label}<ChevronDown className="h-3 w-3" /></span>}
+              </div>
+            );
+          }
           return (
             <div
               key={t.id}
