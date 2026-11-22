@@ -158,27 +158,38 @@ describe('reconciliation and its lines', () => {
     return { b, after: snap(b.plan.items.map((i) => i.sageId), b.plan.purchaseOrders.map((p) => [p.sageId, p.totalCents])) };
   };
 
-  it('is complete when every sent row is booked at its total and no stock moved', () => {
+  it('is all booked when every sent row is booked at its total and no stock moved', () => {
     const { b, after } = all();
-    expect(buildReconciliation({ ...b, before: snap([], []), after }).complete).toBe(true);
+    const r = buildReconciliation({ ...b, before: snap([], []), after });
+    expect([r.allSentBooked, r.nothingRefused]).toEqual([true, true]);
   });
-  it('is not complete when one PO is missing, one total differs, a stock movement appeared, or a batch failed', () => {
+  it('nothingRefused follows the plan\'s refusals, whatever happened to the rows that were sent', () => {
+    const { b, after } = all();
+    const refused = { ...b, plan: { ...b.plan, refusals: [{ entity: 'item' as const, sageId: '1', label: 'X', code: 'c', reasons: ['r'] }] } };
+    expect(buildReconciliation({ ...refused, before: snap([], []), after })).toMatchObject({ allSentBooked: true, nothingRefused: false });
+  });
+  it('is not all booked when one PO is missing, one total differs, a stock movement appeared, or a batch failed', () => {
     const { b, after } = all();
     const before = snap([], []);
     const missing = snap([...after.itemRefs], [...after.poTotals].slice(1));
-    expect(buildReconciliation({ ...b, before, after: missing })).toMatchObject({ complete: false, purchaseOrders: { presentAfter: 9 } });
+    expect(buildReconciliation({ ...b, before, after: missing })).toMatchObject({ allSentBooked: false, purchaseOrders: { presentAfter: 9 } });
     const off = snap([...after.itemRefs], [...after.poTotals].map(([k, v], i) => [k, i === 0 ? v + 1 : v] as [string, number]));
-    expect(buildReconciliation({ ...b, before, after: off })).toMatchObject({ complete: false, purchaseOrders: { differenceCents: -1 } });
-    expect(buildReconciliation({ ...b, before, after: snap([...after.itemRefs], [...after.poTotals], 1) })).toMatchObject({ complete: false, stock: { written: 1 } });
-    expect(buildReconciliation({ ...b, before, after, failedBatches: 1 }).complete).toBe(false);
-    expect(buildReconciliation({ ...b, before, after, live: false }).complete).toBe(false);
+    expect(buildReconciliation({ ...b, before, after: off })).toMatchObject({ allSentBooked: false, purchaseOrders: { differenceCents: -1 } });
+    expect(buildReconciliation({ ...b, before, after: snap([...after.itemRefs], [...after.poTotals], 1) })).toMatchObject({ allSentBooked: false, stock: { written: 1 } });
+    expect(buildReconciliation({ ...b, before, after, failedBatches: 1 }).allSentBooked).toBe(false);
+    expect(buildReconciliation({ ...b, before, after, live: false }).allSentBooked).toBe(false);
   });
-  it('compares the expected figures with the export\'s', () => {
+  it('compares the expected figures with what was sent or booked, not with the export', () => {
     const { b, after } = all();
     const r = buildReconciliation({ ...b, before: snap([], []), after, expect: { items: 20, purchaseOrders: 757, purchaseOrderTotalCents: 1 } });
-    expect(r.expected.items).toEqual({ expected: 20, actual: 20, ok: true });
-    expect(r.expected.purchaseOrders).toEqual({ expected: 757, actual: 10, ok: false });
+    expect(r.expected.items).toEqual({ expected: 20, actual: 20, basis: 'booked', ok: true });
+    expect(r.expected.purchaseOrders).toEqual({ expected: 757, actual: 10, basis: 'booked', ok: false });
     expect(r.expected.purchaseOrderTotalCents).toMatchObject({ ok: false });
+    // A dry run compares with what would be SENT, a refused row counting in neither.
+    const dry = buildReconciliation({ ...b, live: false, before: snap([], []), after: snap([], []), expect: { items: 20 } });
+    expect(dry.expected.items).toEqual({ expected: 20, actual: 20, basis: 'sent', ok: true });
+    const refusing = { ...b, plan: { ...b.plan, items: b.plan.items.slice(1) } };
+    expect(buildReconciliation({ ...refusing, live: false, before: snap([], []), after: snap([], []), expect: { items: 20 } }).expected.items).toMatchObject({ actual: 19, ok: false });
   });
   it('summaryLines names a mismatch, a refusal and a failed batch', () => {
     const { b, after } = all();
@@ -187,12 +198,12 @@ describe('reconciliation and its lines', () => {
     const failedBatch = { entity: 'purchase_order' as const, n: 2, size: 3, key: 'k', status: 'failed' as const, allRowsAlreadyPresent: false, toolReported: null, error: 'boom' };
     const report: MigrationReport = {
       companyId: 'c1', status: 'failed', dryRun: { categories: phase, items: phase, purchaseOrders: phase, clean: true },
-      live: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 } }, reconciliation,
+      live: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 } }, reconciliation, budgetWouldHaveFailed: [],
       refused: [{ entity: 'item', sageId: '5', label: 'FIB-9', code: 'invalid_row', reasons: ['a', 'b'] }],
     };
     const text = summaryLines(report).join('\n');
     expect(text).toContain('company c1: failed');
-    expect(text).toContain('MISMATCH purchaseOrders: expected 757, export has 10');
+    expect(text).toContain('MISMATCH purchaseOrders: expected 757, booked 10');
     expect(text).toContain('refused item FIB-9 [invalid_row]: a; b');
     expect(text).toContain('FAILED purchase_order batch 2: boom');
     expect(text).toMatch(/PO total: export R[\d\u00a0 ]+\.\d\d,/);
@@ -205,7 +216,7 @@ describe('reconciliation and its lines', () => {
     const failedBatch = { entity: 'purchase_order' as const, n: 1, size: 3, key: 'k', status: 'failed' as const, allRowsAlreadyPresent: false, toolReported: null, error: long };
     const report: MigrationReport = {
       companyId: 'c1', status: 'failed', dryRun: { categories: phase, items: phase, purchaseOrders: { batches: [failedBatch], failed: 1 }, clean: false },
-      live: null, reconciliation, refused: [],
+      live: null, reconciliation, refused: [], budgetWouldHaveFailed: [],
     };
     const line = summaryLines(report).find((l) => l.startsWith('FAILED'))!;
     expect(line.length).toBeLessThan(CONSOLE_ERROR_CHARS + 200);

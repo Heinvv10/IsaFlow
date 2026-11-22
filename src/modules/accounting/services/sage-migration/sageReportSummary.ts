@@ -23,7 +23,11 @@ export function summaryLines(r: MigrationReport): string[] {
     `dry run: ${phase('categories', r.dryRun.categories)}; ${phase('items', r.dryRun.items)}; ${phase('purchase orders', r.dryRun.purchaseOrders)}`,
   ];
   if (r.live) lines.push(`live: ${phase('categories', r.live.categories)}; ${phase('items', r.live.items)}; ${phase('purchase orders', r.live.purchaseOrders)}`);
-  for (const [name, e] of Object.entries(rec.expected)) if (e && !e.ok) lines.push(`MISMATCH ${name}: expected ${e.expected}, export has ${e.actual}`);
+  if (r.budgetWouldHaveFailed.length > 0) {
+    lines.push(`BUDGET: ${r.budgetWouldHaveFailed.length} purchase order(s) would have failed the budget check (skipped by --skip-budget-check):`);
+    for (const x of r.budgetWouldHaveFailed) lines.push(`  ${x.poNumber}: ${x.reasons.join('; ') || 'no reason given'}`);
+  }
+  for (const [name, e] of Object.entries(rec.expected)) if (e && !e.ok) lines.push(`MISMATCH ${name}: expected ${e.expected}, ${e.basis} ${e.actual}`);
   for (const x of r.refused.slice(0, 20)) lines.push(`refused ${x.entity} ${x.label} [${x.code}]: ${x.reasons.join('; ')}`);
   if (r.refused.length > 20) lines.push(`... and ${r.refused.length - 20} more refused rows (see the report file)`);
   for (const p of [r.live, r.dryRun]) {
@@ -31,6 +35,17 @@ export function summaryLines(r: MigrationReport): string[] {
       if (b.status === 'failed') lines.push(`FAILED ${b.entity} batch ${b.n}${p === r.dryRun ? ' (dry run)' : ''}: ${shown(b.error)}`);
     }
   }
-  if (r.live) lines.push(`complete: ${rec.complete}`);
+  lines.push(`all sent rows booked: ${rec.allSentBooked}; nothing refused: ${rec.nothingRefused}`);
   return lines;
+}
+
+/**
+ * 0: a clean dry run, or a live run that booked every row it sent, and every --expect-* figure matched what was sent / booked, and
+ * no row was refused (unless `allowRefusals`). 1: anything else.
+ */
+export function exitCodeFor(r: MigrationReport, allowRefusals: boolean): 0 | 1 {
+  const rec = r.reconciliation;
+  const finished = r.status === 'dry_run_ok' || (r.status === 'completed' && rec.allSentBooked);
+  const expectationsMet = Object.values(rec.expected).every((e) => e === null || e.ok);
+  return finished && expectationsMet && (rec.nothingRefused || allowRefusals) ? 0 : 1;
 }

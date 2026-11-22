@@ -14,6 +14,8 @@
  *   Lines[].Quantity / UnitPriceExclusive  quantity / unit_price
  *   Lines[].TaxPercentage or TaxTypeId     tax_rate
  *   Lines[].Exclusive / Tax                line_total / tax_amount (the source's own figures)
+ *   (option --po-gl-account)               gl_account_id on every line: the expense account the budget check judges them on; with none a
+ *                                          line is "No budget" and is never blocked
  *
  * The PO tool has no item_id on a line (its line keys refuse one), so the item link is the code in the description.
  */
@@ -31,7 +33,7 @@ function lineDescription(line: SagePoLine, itemCodes: Readonly<Record<string, st
 }
 
 export function mapSagePurchaseOrder(
-  po: SagePurchaseOrder, supplierId: string, itemCodes: Readonly<Record<string, string>>,
+  po: SagePurchaseOrder, supplierId: string, itemCodes: Readonly<Record<string, string>>, glAccountId?: string,
 ): Record<string, unknown> {
   const status = importStatusFor(po.status);
   if (!status) throw new Error(`purchase order ${po.documentNumber}: status ${po.status} has no mapping`);
@@ -53,6 +55,7 @@ export function mapSagePurchaseOrder(
       quantity: l.quantity,
       unit_price: l.unitPriceExclusive,
       tax_rate: l.taxRate,
+      ...(glAccountId ? { gl_account_id: glAccountId } : {}),
       ...(l.exclusive !== null ? { line_total: l.exclusive, ...(l.tax !== null ? { tax_amount: l.tax } : {}) } : {}),
     })),
   };

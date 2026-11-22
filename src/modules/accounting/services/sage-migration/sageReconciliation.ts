@@ -3,7 +3,7 @@
  * to attach. PURE over two snapshots (before, after) read from the database, the plan, and the parsed export.
  */
 import type { ParsedExport } from './sageExportTypes';
-import type { MigrationOptions, Reconciliation } from './sageMigrationTypes';
+import type { Expectation, MigrationOptions, Reconciliation } from './sageMigrationTypes';
 import type { MigrationPlan } from './sageMigrationPlan';
 import type { Snapshot } from './sageSnapshot';
 
@@ -18,7 +18,8 @@ interface Input {
   live: boolean;
 }
 
-const check = (expected: number | undefined, actual: number) => (expected === undefined ? null : { expected, actual, ok: expected === actual });
+const check = (expected: number | undefined, actual: number, basis: 'sent' | 'booked'): Expectation | null =>
+  (expected === undefined ? null : { expected, actual, basis, ok: expected === actual });
 
 export function buildReconciliation(i: Input): Reconciliation {
   const { parsed, plan, before, after } = i;
@@ -30,6 +31,7 @@ export function buildReconciliation(i: Input): Reconciliation {
   const itemsAfter = itemIds.filter((id) => after.itemRefs.has(id)).length;
   const posAfter = poIds.filter((id) => after.poTotals.has(id)).length;
   const differenceCents = sentTotalCents - bookedTotalCents;
+  const basis = i.live ? 'booked' : 'sent';
   const stockWritten = after.stockMovements - before.stockMovements;
   return {
     items: {
@@ -45,9 +47,9 @@ export function buildReconciliation(i: Input): Reconciliation {
       bookedTotalCents, differenceCents,
     },
     expected: {
-      items: check(i.expect?.items, parsed.rowsIn.items),
-      purchaseOrders: check(i.expect?.purchaseOrders, parsed.rowsIn.purchaseOrders),
-      purchaseOrderTotalCents: check(i.expect?.purchaseOrderTotalCents, parsed.exportPoTotalCents),
+      items: check(i.expect?.items, i.live ? itemsAfter : itemIds.length, basis),
+      purchaseOrders: check(i.expect?.purchaseOrders, i.live ? posAfter : poIds.length, basis),
+      purchaseOrderTotalCents: check(i.expect?.purchaseOrderTotalCents, i.live ? bookedTotalCents : sentTotalCents, basis),
     },
     stock: {
       movementsBefore: before.stockMovements, movementsAfter: after.stockMovements, written: stockWritten,
@@ -57,7 +59,8 @@ export function buildReconciliation(i: Input): Reconciliation {
       posWithPdf: plan.purchaseOrders.filter((p) => p.pdfFile).length, uploadedByRunner: 0,
       files: plan.purchaseOrders.flatMap((p) => (p.pdfFile ? [{ poNumber: p.documentNumber, pdfFile: p.pdfFile }] : [])),
     },
-    complete: i.live && i.failedBatches === 0 && itemsAfter === itemIds.length && posAfter === poIds.length
+    allSentBooked: i.live && i.failedBatches === 0 && itemsAfter === itemIds.length && posAfter === poIds.length
       && differenceCents === 0 && stockWritten === 0,
+    nothingRefused: plan.refusals.length === 0,
   };
 }

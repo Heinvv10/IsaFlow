@@ -74,6 +74,7 @@ export async function cleanupSageWorld(pool: Pool, s: SageWorld): Promise<void> 
 export function failingCommitPool(pool: Pool, failOn: readonly number[]): Pool {
   let commits = 0;
   return {
+    options: pool.options, // the runner checks the pool's connection string
     connect: async () => {
       const client = await pool.connect();
       return new Proxy(client, {

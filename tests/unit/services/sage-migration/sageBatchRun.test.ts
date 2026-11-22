@@ -4,6 +4,7 @@ import { MAX_UPSERT_ROWS } from '@/modules/accounting/services/items/itemCatalog
 import { MAX_PURCHASE_ORDERS } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 import { MAX_ITEM_BATCH, MAX_PO_BATCH } from '@/modules/accounting/services/sage-migration/sageBatches';
 import { planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
+import { budgetWouldHaveFailed } from '@/modules/accounting/services/sage-migration/sageBudgetReport';
 import type { MigrationPlan } from '@/modules/accounting/services/sage-migration/sageMigrationPlan';
 import type { Snapshot } from '@/modules/accounting/services/sage-migration/sageSnapshot';
 import type { ToolOutcome, ToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
@@ -86,5 +87,17 @@ describe('sendBatch', () => {
     const before = { ...empty(), itemRefs: new Set(['1', '2']) };
     expect((await sendBatch(fake().s, batches.items[0]!, before, false)).allRowsAlreadyPresent).toBe(true);
     expect((await sendBatch(fake().s, batches.items[0]!, empty(), false)).allRowsAlreadyPresent).toBe(false);
+  });
+});
+
+describe('budgetWouldHaveFailed', () => {
+  const batch = (toolReported: Record<string, unknown> | null) => ({ entity: 'purchase_order' as const, n: 1, size: 1, key: 'k', status: 'ok' as const, allRowsAlreadyPresent: false, toolReported, error: null });
+  it('lists the POs each batch answered would_have_failed, with their reasons, across batches', () => {
+    const r = budgetWouldHaveFailed([
+      batch({ would_have_failed: [{ index: 0, po_number: 'PO1', reasons: ['over by 10'] }] }),
+      batch(null), batch({ created: 2 }),
+      batch({ would_have_failed: [{ index: 1, po_number: 'PO4', reasons: [] }, { index: 2, po_number: 'PO5', reasons: ['a', 'b'] }] }),
+    ]);
+    expect(r).toEqual([{ poNumber: 'PO1', reasons: ['over by 10'] }, { poNumber: 'PO4', reasons: [] }, { poNumber: 'PO5', reasons: ['a', 'b'] }]);
   });
 });

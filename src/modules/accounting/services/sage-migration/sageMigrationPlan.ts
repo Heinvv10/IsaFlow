@@ -47,7 +47,7 @@ function itemConflict(sageId: string, code: string, items: readonly ExistingItem
   return null;
 }
 
-export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing): MigrationPlan {
+export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<string, SupplierResolution>, existing: Existing, opts: { poGlAccountId?: string } = {}): MigrationPlan {
   const refusals: RowRefusal[] = [...parsed.refusals];
 
   const items: PlannedItem[] = [];
@@ -83,7 +83,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       refuse('po_number_taken', `${po.documentNumber} already belongs to a purchase order (${holder.ref ? `${holder.system} ${holder.ref}` : 'no external reference'}); the tool would refuse the whole batch`);
       continue;
     }
-    const element = mapSagePurchaseOrder(po, supplier.id, sentCodes);
+    const element = mapSagePurchaseOrder(po, supplier.id, sentCodes, opts.poGlAccountId);
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile });

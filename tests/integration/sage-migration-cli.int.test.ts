@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Pool } from 'pg';
@@ -51,11 +51,11 @@ describe('scripts/sage-migration/run.ts', () => {
     expect(r.err).toBe('');
     expect(r.code).toBe(0);
     expect(r.out).toContain('completed');
-    expect(r.out).toContain('complete: true');
+    expect(r.out).toContain('all sent rows booked: true; nothing refused: true');
     expect(r.out).not.toContain('MISMATCH');
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, categories: 4, pos: 10, movements: 0 });
     const json = JSON.parse(readFileSync(report, 'utf8'));
-    expect(json).toMatchObject({ status: 'completed', reconciliation: { complete: true, purchaseOrders: { differenceCents: 0 } } });
+    expect(json).toMatchObject({ status: 'completed', reconciliation: { allSentBooked: true, nothingRefused: true, purchaseOrders: { differenceCents: 0 } } });
   }, 180_000);
 
   it('a second --live run adds nothing; a wrong expectation is a MISMATCH and exit 1', async () => {
@@ -63,8 +63,27 @@ describe('scripts/sage-migration/run.ts', () => {
     const r = cli([...base(), '--live', '--expect-pos', '757']);
     expect(r.code).toBe(1); // the export has 10 POs, not the 757 asked for
     expect(r.out).toContain('items: 20 in export, 0 refused, 20 sent, 20 already there, 20 there after (+0)');
-    expect(r.out).toContain('MISMATCH purchaseOrders: expected 757, export has 10');
+    expect(r.out).toContain('MISMATCH purchaseOrders: expected 757, booked 10');
     expect({ ...(await booked(pool, s.companyId)), toolCalls: 0 }).toEqual({ ...before, toolCalls: 0 });
+  }, 180_000);
+
+  it('a refused row is exit 1, dry run or live, unless --allow-refusals; the rest of the file is still booked', async () => {
+    const file = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'));
+    file.Items.$resources[2].TaxTypeIdSales = 9; // FIB-0003 cannot be read
+    const bad = join(dir, 'refused.json');
+    writeFileSync(bad, JSON.stringify(file));
+    for (const name of ['Alpha Optics (Pty) Ltd', 'Bravo Poles CC', 'Charlie Tools']) await pool.query('INSERT INTO suppliers (company_id, name) VALUES ($1, $2)', [s.otherCompanyId, name]);
+    const args = ['--company', s.otherCompanyId, '--user', s.otherUserId, '--file', bad];
+    const dry = cli(args);
+    expect(dry.code).toBe(1);
+    expect(dry.out).toContain('refused item FIB-0003 [invalid_row]');
+    expect(cli([...args, '--allow-refusals']).code).toBe(0);
+    expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 0, pos: 0 });
+    const live = cli([...args, '--live']);
+    expect(live.code).toBe(1);
+    expect(live.out).toContain('all sent rows booked: true; nothing refused: false');
+    expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 19 });
+    expect(cli([...args, '--live', '--allow-refusals']).code).toBe(0);
   }, 180_000);
 
   it('refuses to start (exit 2) on a database that is not a local throwaway one, before touching it', () => {

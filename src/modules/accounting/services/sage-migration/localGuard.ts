@@ -41,3 +41,9 @@ export function assertLocalDatabase(env: NodeJS.ProcessEnv = process.env): void 
     if (problem) throw new Error(`Refusing to run the Sage migration: ${name} ${problem}. It runs against a local throwaway database only.`);
   }
 }
+
+/** The runner's pool: the connection string it was built with must be a local throwaway database too (no string, no proof). */
+export function assertLocalPool(pool: { options?: { connectionString?: string } }): void {
+  const problem = localDbProblem(pool.options?.connectionString);
+  if (problem) throw new Error(`Refusing to run the Sage migration: the database pool's connection string ${problem}. It runs against a local throwaway database only.`);
+}

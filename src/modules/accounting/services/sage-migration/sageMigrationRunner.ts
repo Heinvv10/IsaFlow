@@ -2,9 +2,10 @@
  * The Sage migration runner (Phase D): one company, one export, categories -> items -> purchase orders.
  *
  *   1. Parse the export and resolve each PO's supplier (read tools); refuse what no tool could take (sageMigrationPlan).
- *   2. DRY RUN, always: one request transaction that is rolled back. Categories are created inside it (so the items' dry run
- *      finds them), items and POs run with dry_run: true. Nothing it did survives. A batch a tool refuses, or a PO the live
- *      budget check would block, makes the dry run not clean and the run stops there.
+ *   2. DRY RUN, always: one request transaction that is rolled back. Categories and purchase orders are written LIVE inside it
+ *      (the items' preview needs the categories; PO batch k's budget check needs the POs of batches 1..k-1, as the live run's has),
+ *      items run with dry_run: true. Nothing it did survives, idempotency and audit rows included. A batch a tool refuses (a
+ *      budget block among them) makes the dry run not clean and the run stops there.
  *   3. LIVE (opts.live and a clean dry run): each category, then each item batch (<= 500), then each PO batch (<= 100) is ONE
  *      committed request through the real registry, under a key derived from its rows, so a re-run replays instead of repeating
  *      and a run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
@@ -17,6 +18,8 @@ import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
 import { batchKey } from './sageBatches';
 import { planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
+import { budgetWouldHaveFailed } from './sageBudgetReport';
+import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
 import { buildReconciliation } from './sageReconciliation';
 import { readSnapshot, type Snapshot } from './sageSnapshot';
@@ -59,16 +62,20 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
 }
 
 export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
+  // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing.
+  assertLocalDatabase();
+  assertLocalPool(pool);
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     const resolved = await resolveSuppliers(session, parsed.purchaseOrders);
     const snapshot = await readSnapshot(opts.companyId);
-    return { before: snapshot, plan: planMigration(parsed, resolved, snapshot) };
+    return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId }) };
   });
   const all = planBatches(plan, opts);
   const dry = await dryRun(pool, opts, all, before);
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
+  const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   const noLive = (status: MigrationReport['status']): MigrationReport => ({
-    ...base, status, live: null, reconciliation: buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false }),
+    ...base, status, live: null, budgetWouldHaveFailed: skipped(dry.purchaseOrders), reconciliation: buildReconciliation({ parsed, plan, before, after: before, failedBatches: dry.clean ? 0 : 1, expect: opts.expect, live: false }),
   });
   if (!dry.clean) return noLive('dry_run_failed');
   if (!opts.live) return noLive('dry_run_ok');
@@ -78,9 +85,10 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const purchaseOrders = categories.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
   const after = await withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
   const failed = categories.failed + items.failed + purchaseOrders.failed;
-  const skipped = categories.failed > 0 || items.failed > 0;
+  const phaseSkipped = categories.failed > 0 || items.failed > 0;
   return {
     ...base, status: failed > 0 ? 'failed' : 'completed', live: { categories, items, purchaseOrders },
-    reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (skipped ? 1 : 0), expect: opts.expect, live: true }),
+    budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
+    reconciliation: buildReconciliation({ parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true }),
   };
 }

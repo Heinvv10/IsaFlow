@@ -30,24 +30,29 @@ const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, 
 describe('the dry run', () => {
   it('previews everything and writes nothing: no item, category, PO, movement or audit row', async () => {
     const before = await booked(pool, s.companyId);
+    const audits = () => pool.query('SELECT count(*)::INT AS n FROM audit_log WHERE company_id = $1', [s.companyId]);
+    const auditsBefore = (await audits()).rows[0].n;
     const report = await runSageMigration(pool, parsedExport(), opts());
+    expect((await audits()).rows[0].n).toBe(auditsBefore); // the dry run's PO audit rows went with its transaction
     expect(report.status).toBe('dry_run_ok');
     expect(report.live).toBeNull();
     expect(report.dryRun).toMatchObject({ clean: true, categories: { failed: 0 }, items: { failed: 0 }, purchaseOrders: { failed: 0 } });
     expect(report.dryRun.categories.batches).toHaveLength(4);
     expect(report.dryRun.items.batches[0]!.toolReported).toMatchObject({ dry_run: true, counts: { created: 20, total: 20 } });
-    expect(report.dryRun.purchaseOrders.batches[0]!.toolReported).toMatchObject({ dry_run: true, would_succeed: true, would_create: 10 });
+    // POs run LIVE inside the rolled-back dry-run transaction (so a batch sees the ones before it): created, then rolled back.
+    expect(report.dryRun.purchaseOrders.batches[0]!.toolReported).toMatchObject({ created: 10, already_existed: 0 });
     expect(await booked(pool, s.companyId)).toEqual(before);
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0, movements: 0, toolCalls: 0 });
   });
 
-  it('reports what it would do: counts in and out, the PO total, the PDFs, and complete false', async () => {
+  it('reports what it would do: counts in and out, the PO total, the PDFs, and nothing booked', async () => {
     const r = (await runSageMigration(pool, parsedExport(), opts())).reconciliation;
     expect(r.items).toMatchObject({ inExport: 20, refused: 0, sent: 20, presentBefore: 0, presentAfter: 0, addedByRun: 0 });
     expect(r.purchaseOrders).toMatchObject({ inExport: 10, refused: 0, sent: 10, notSentTotalCents: 0, bookedTotalCents: 0 });
     expect(r.purchaseOrders.sentTotalCents).toBe(r.purchaseOrders.exportTotalCents);
     expect(r.attachments).toMatchObject({ posWithPdf: 10, uploadedByRunner: 0 });
-    expect(r.complete).toBe(false);
+    expect(r.allSentBooked).toBe(false); // a dry run books nothing
+    expect(r.nothingRefused).toBe(true);
   });
 });
 
@@ -66,14 +71,14 @@ describe('the live run', () => {
     expect(b).toMatchObject({ items: 20, categories: 4, pos: 10, movements: 0 });
     expect(b.poLines).toBeGreaterThanOrEqual(10);
     const rec = report.reconciliation;
-    expect(rec.complete).toBe(true);
+    expect([rec.allSentBooked, rec.nothingRefused]).toEqual([true, true]);
     expect(rec.items).toMatchObject({ sent: 20, presentBefore: 0, presentAfter: 20, addedByRun: 20 });
     expect(rec.purchaseOrders).toMatchObject({ sent: 10, presentAfter: 10, addedByRun: 10, differenceCents: 0, notSentTotalCents: 0 });
     expect(rec.purchaseOrders.bookedTotalCents).toBe(total);
     expect(b.poTotalCents).toBe(total);
     expect(rec.expected).toEqual({
-      items: { expected: 20, actual: 20, ok: true }, purchaseOrders: { expected: 10, actual: 10, ok: true },
-      purchaseOrderTotalCents: { expected: total, actual: total, ok: true },
+      items: { expected: 20, actual: 20, basis: 'booked', ok: true }, purchaseOrders: { expected: 10, actual: 10, basis: 'booked', ok: true },
+      purchaseOrderTotalCents: { expected: total, actual: total, basis: 'booked', ok: true },
     });
   });
 

@@ -31,6 +31,8 @@ export interface EntityReconciliation {
   addedByRun: number;
 }
 
+export interface Expectation { expected: number; actual: number; basis: 'sent' | 'booked'; ok: boolean }
+
 export interface Reconciliation {
   items: EntityReconciliation;
   purchaseOrders: EntityReconciliation & {
@@ -43,15 +45,21 @@ export interface Reconciliation {
     /** sent - booked: 0 when every sent PO is in the books at the export's own total. */
     differenceCents: number;
   };
+  /**
+   * What the person said to expect (--expect-*) against what was SENT (a dry run) or BOOKED (a live run) in this run: a refused row is
+   * not in either, so a file with a refused row misses its expectation. `basis` says which.
+   */
   expected: {
-    items: { expected: number; actual: number; ok: boolean } | null;
-    purchaseOrders: { expected: number; actual: number; ok: boolean } | null;
-    purchaseOrderTotalCents: { expected: number; actual: number; ok: boolean } | null;
+    items: Expectation | null;
+    purchaseOrders: Expectation | null;
+    purchaseOrderTotalCents: Expectation | null;
   };
   stock: { movementsBefore: number; movementsAfter: number; written: number; itemsWithQuantityOnHandIgnored: number };
   attachments: { posWithPdf: number; uploadedByRunner: 0; files: Array<{ poNumber: string; pdfFile: string }> };
-  /** Every sent row is in the books, the PO totals agree and no batch failed. Refused rows are listed separately. */
-  complete: boolean;
+  /** A live run: every sent row is in the books at its total, no stock moved and no batch failed. Always false for a dry run. */
+  allSentBooked: boolean;
+  /** No row of the export was refused (the report's `refused` list is empty). */
+  nothingRefused: boolean;
 }
 
 export interface MigrationReport {
@@ -60,6 +68,8 @@ export interface MigrationReport {
   refused: RowRefusal[];
   dryRun: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport; clean: boolean };
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
+  /** With skip_budget_check_for_import: the POs the budget check would have blocked, with its reasons (live run, else dry run). */
+  budgetWouldHaveFailed: Array<{ poNumber: string; reasons: string[] }>;
   reconciliation: Reconciliation;
 }
 
@@ -69,6 +79,8 @@ export interface MigrationOptions {
   /** false (default): the dry run only. true: the dry run, then the live run when the dry run is clean. */
   live?: boolean;
   skipBudgetCheck?: boolean;
+  /** An expense account (UUID) for every PO line, so the budget check judges the line; none: lines are "No budget". */
+  poGlAccountId?: string;
   itemBatchSize?: number;
   poBatchSize?: number;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };

@@ -1,6 +1,6 @@
 /** The runner's database guard: only a local throwaway database passes, whatever the URL's spelling. */
 import { describe, expect, it } from 'vitest';
-import { assertLocalDatabase, localDbProblem } from '@/modules/accounting/services/sage-migration/localGuard';
+import { assertLocalDatabase, assertLocalPool, localDbProblem } from '@/modules/accounting/services/sage-migration/localGuard';
 
 const ok = (u: string) => expect(localDbProblem(u), u).toBeNull();
 const no = (u: string, why?: RegExp) => {
@@ -24,6 +24,13 @@ describe('localDbProblem', () => {
   });
   it('refuses the IsaFlow Supabase stack ports on localhost, even for a throwaway name', () => {
     for (const port of [7770, 7772, 7776]) no(`postgresql://postgres@127.0.0.1:${port}/isaflow_test`, /Supabase/);
+  });
+  it('refuses every other spelling of "this machine": 127.0.0.2, 0.0.0.0, [::1], the machine\'s own name', () => {
+    no('postgresql://postgres@127.0.0.2:5433/isaflow_test', /must connect to localhost/);
+    no('postgresql://postgres@0.0.0.0:5433/isaflow_test', /must connect to localhost/);
+    no('postgresql://postgres@[::1]:5433/isaflow_test', /must connect to localhost/);
+    no('postgresql://postgres@velo-server:5433/isaflow_test', /must connect to localhost/);
+    no('postgresql://postgres@127.0.0.1.nip.io:5433/isaflow_test', /must connect to localhost/);
   });
   it('refuses a URL with no port (pg would take PGPORT)', () => {
     no('postgresql://postgres@127.0.0.1/isaflow_test', /port/);
@@ -60,5 +67,18 @@ describe('assertLocalDatabase', () => {
       expect(() => assertLocalDatabase({ DATABASE_URL: local, [name]: 'postgresql://svc@100.96.203.105:7772/isaflow' })).toThrow(new RegExp(name));
       expect(() => assertLocalDatabase({ DATABASE_URL: local, [name]: local })).not.toThrow();
     }
+  });
+});
+
+describe('assertLocalPool', () => {
+  const pool = (connectionString: string | undefined) => ({ options: { connectionString } });
+  it('passes a pool built from a local throwaway URL', () => {
+    expect(() => assertLocalPool(pool('postgresql://postgres@127.0.0.1:5433/isaflow_test'))).not.toThrow();
+  });
+  it('refuses a pool aimed at the dev server, a remote host, or built with no connection string to check', () => {
+    expect(() => assertLocalPool(pool('postgresql://postgres@127.0.0.1:7772/isaflow_dev'))).toThrow(/pool's connection string/);
+    expect(() => assertLocalPool(pool('postgresql://postgres@100.96.203.105:5432/isaflow_test'))).toThrow(/must connect to localhost/);
+    expect(() => assertLocalPool(pool(undefined))).toThrow(/is not set/);
+    expect(() => assertLocalPool({})).toThrow(/is not set/);
   });
 });

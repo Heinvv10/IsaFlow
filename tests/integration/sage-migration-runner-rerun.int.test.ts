@@ -15,7 +15,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
 import { booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, stamps, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
-import { summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -37,7 +37,7 @@ describe('a re-run', () => {
     const afterFirst = { counts: await booked(pool, s.companyId), stamps: await stamps(pool, s.companyId) };
     const again = await run();
     expect(again.status).toBe('completed');
-    expect(again.reconciliation).toMatchObject({ items: { presentBefore: 20, addedByRun: 0 }, purchaseOrders: { presentBefore: 10, addedByRun: 0 }, complete: true });
+    expect(again.reconciliation).toMatchObject({ items: { presentBefore: 20, addedByRun: 0 }, purchaseOrders: { presentBefore: 10, addedByRun: 0 }, allSentBooked: true, nothingRefused: true });
     const batches = [...again.live!.items.batches, ...again.live!.purchaseOrders.batches];
     expect(batches.every((b) => b.allRowsAlreadyPresent && b.status === 'ok')).toBe(true);
     expect(batches.map((b) => b.key)).toEqual([...first.live!.items.batches, ...first.live!.purchaseOrders.batches].map((b) => b.key));
@@ -55,7 +55,7 @@ describe('a re-run', () => {
     expect(again.live!.purchaseOrders.batches).toHaveLength(4);
     expect(again.live!.items.batches[0]!.toolReported).toMatchObject({ counts: { created: 0, updated: 0, unchanged: 7 }, written: false });
     expect(again.live!.purchaseOrders.batches[0]!.toolReported).toMatchObject({ created: 0, already_existed: 3 });
-    expect(again.reconciliation).toMatchObject({ items: { addedByRun: 0 }, purchaseOrders: { addedByRun: 0, differenceCents: 0 }, complete: true });
+    expect(again.reconciliation).toMatchObject({ items: { addedByRun: 0 }, purchaseOrders: { addedByRun: 0, differenceCents: 0 }, allSentBooked: true, nothingRefused: true });
     const now = await booked(pool, s.companyId);
     expect({ ...now, toolCalls: 0 }).toEqual({ ...before.counts, toolCalls: 0 });
     expect(await stamps(pool, s.companyId)).toEqual(before.stamps);
@@ -77,7 +77,7 @@ describe('a failed batch', () => {
     expect(first.live!.purchaseOrders.batches[1]!.error).toMatch(/injected: COMMIT 7 failed/);
     const poNumbers = (await pool.query('SELECT po_number FROM purchase_orders WHERE company_id = $1 ORDER BY po_number', [s.companyId])).rows.map((r) => r.po_number);
     expect(poNumbers).toEqual(['PO0000197', 'PO0000198', 'PO0000199', 'PO0000203', 'PO0000204', 'PO0000205', 'PO0000206']);
-    expect(first.reconciliation).toMatchObject({ complete: false, purchaseOrders: { presentAfter: 7, addedByRun: 7 } });
+    expect(first.reconciliation).toMatchObject({ allSentBooked: false, purchaseOrders: { presentAfter: 7, addedByRun: 7 } });
     expect(first.reconciliation.purchaseOrders.differenceCents).toBeGreaterThan(0);
     expect(summaryLines(first).some((l) => l.startsWith('FAILED purchase_order batch 2'))).toBe(true);
 
@@ -85,7 +85,7 @@ describe('a failed batch', () => {
     expect(resumed.status).toBe('completed');
     expect(resumed.live!.purchaseOrders.batches.map((b) => b.allRowsAlreadyPresent)).toEqual([true, false, true, true]);
     expect(resumed.live!.purchaseOrders.batches.map((b) => b.key)).toEqual(first.live!.purchaseOrders.batches.map((b) => b.key));
-    expect(resumed.reconciliation).toMatchObject({ complete: true, purchaseOrders: { presentBefore: 7, presentAfter: 10, addedByRun: 3, differenceCents: 0 } });
+    expect(resumed.reconciliation).toMatchObject({ allSentBooked: true, purchaseOrders: { presentBefore: 7, presentAfter: 10, addedByRun: 3, differenceCents: 0 } });
     expect((await booked(pool, s.companyId)).pos).toBe(10);
   });
 
@@ -122,8 +122,15 @@ describe('rows refused before sending', () => {
     for (let i = 0; i < 2; i++) await pool.query('INSERT INTO suppliers (company_id, name) VALUES ($1, $2)', [s.companyId, 'Dup Co']);
     const parsed = parsedExport(file);
 
+    // What the export holds is not what was booked: asked to expect the export's own figures, the run says it missed them.
     const r = await run({ expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: parsed.exportPoTotalCents } }, file);
     expect(r.status).toBe('completed');
+    expect(r.reconciliation.expected).toMatchObject({
+      items: { expected: 20, actual: 19, basis: 'booked', ok: false }, purchaseOrders: { expected: 10, actual: 7, ok: false },
+      purchaseOrderTotalCents: { ok: false },
+    });
+    expect(exitCodeFor(r, true)).toBe(1); // allowed refusals do not excuse a missed expectation
+    expect(summaryLines(r).filter((l) => l.startsWith('MISMATCH'))).toHaveLength(3);
     expect(r.refused.map((x) => [x.entity, x.label, x.code]).sort()).toEqual([
       ['item', 'FIB-0003', 'invalid_row'],
       ['purchase_order', 'PO0000198', 'supplier_unresolved'],
@@ -138,32 +145,50 @@ describe('rows refused before sending', () => {
     expect(rec.purchaseOrders).toMatchObject({ inExport: 10, refused: 3, sent: 7, presentAfter: 7, differenceCents: 0 });
     expect(rec.purchaseOrders.sentTotalCents + rec.purchaseOrders.notSentTotalCents).toBe(rec.purchaseOrders.exportTotalCents);
     expect(rec.purchaseOrders.notSentTotalCents).toBeGreaterThan(0);
-    expect(rec.complete).toBe(true);
+    expect([rec.allSentBooked, rec.nothingRefused]).toEqual([true, false]); // everything sent is booked; four rows were not sent
     expect(summaryLines(r).filter((l) => l.startsWith('refused '))).toHaveLength(4);
+    expect(exitCodeFor(r, false)).toBe(1);
   });
 });
 
-describe('a refusal only the database can give', () => {
-  it('a PO number already taken fails the dry run: nothing is written, not even the categories, even with live asked', async () => {
+describe('what the company already holds', () => {
+  it('with the figures that were sent and booked, and refusals allowed, the exit is 0; without the allowance it is 1', async () => {
+    const file = exportFile();
+    rowsOf(file)[2] = { ...rowsOf(file)[2], TaxTypeIdSales: 9 };
+    const r = await run({ expect: { items: 19, purchaseOrders: 10 } }, file);
+    expect(r.reconciliation.expected).toMatchObject({ items: { actual: 19, ok: true }, purchaseOrders: { actual: 10, ok: true } });
+    expect(exitCodeFor(r, true)).toBe(0);
+    expect(exitCodeFor(r, false)).toBe(1);
+  });
+
+  it('a PO number another PO carries is refused for that PO alone, with its reason; the rest is booked', async () => {
     await pool.query(
       `INSERT INTO purchase_orders (company_id, supplier_id, po_number, order_date, status, subtotal, tax_amount, total)
        VALUES ($1, $2, 'PO0000203', '2026-01-01', 'draft', 0, 0, 0)`, [s.companyId, s.suppliers.alpha]);
     const r = await run();
-    expect(r.status).toBe('dry_run_failed');
-    expect(r.live).toBeNull();
-    expect(r.dryRun.clean).toBe(false);
-    expect(r.dryRun.purchaseOrders.batches[0]).toMatchObject({ status: 'failed' });
-    expect(r.dryRun.purchaseOrders.batches[0]!.error).toMatch(/PO0000203/);
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, categories: 0, pos: 1, toolCalls: 0 });
-    expect(summaryLines(r).some((l) => l.startsWith('FAILED purchase_order batch 1 (dry run)'))).toBe(true);
+    expect(r.status).toBe('completed');
+    expect(r.refused).toEqual([expect.objectContaining({ entity: 'purchase_order', label: 'PO0000203', code: 'po_number_taken' })]);
+    expect(r.refused[0]!.reasons[0]).toMatch(/PO0000203 already belongs to a purchase order \(no external reference\)/);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 }); // 9 imported + the one that was there
+    expect(r.reconciliation).toMatchObject({ allSentBooked: true, nothingRefused: false, purchaseOrders: { refused: 1, sent: 9, presentAfter: 9 } });
+    expect(exitCodeFor(r, false)).toBe(1);
   });
 
-  it('a code held by an item with another Sage reference fails the dry run, naming the row', async () => {
-    await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'FIB-0002', 'someone else', 'sage', '1')`, [s.companyId]);
+  it('a code held by an item with another Sage reference is refused for that item, and so are the POs naming it', async () => {
+    await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'FIB-0001', 'someone else', 'sage', '1')`, [s.companyId]);
     const r = await run();
-    expect(r.status).toBe('dry_run_failed');
-    expect(r.dryRun.items.batches[0]!.error).toMatch(/refused/);
-    expect(r.dryRun.items.batches[0]!.error).toMatch(/FIB-0002|index/);
-    expect(await booked(pool, s.companyId)).toMatchObject({ items: 1, pos: 0, categories: 0 });
+    expect(r.status).toBe('completed');
+    expect(r.refused.filter((x) => x.entity === 'item').map((x) => [x.label, x.code])).toEqual([['FIB-0001', 'code_in_use_by_other_ref']]);
+    expect(r.refused.filter((x) => x.entity === 'purchase_order').map((x) => [x.label, x.code])).toEqual([['PO0000197', 'line_item_refused'], ['PO0000202', 'line_item_refused']]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 8 }); // 19 imported + the one that was there
+  });
+
+  it('nothing is sent for a row the company\'s data would make a tool refuse: the whole file still goes through the dry run clean', async () => {
+    await pool.query(`INSERT INTO items (company_id, code, description, external_system, external_ref) VALUES ($1, 'FIB-0002', 'someone else', 'pastel', '77')`, [s.companyId]);
+    const r = await run({ live: false });
+    expect(r.status).toBe('dry_run_ok');
+    expect(r.dryRun.clean).toBe(true);
+    expect(r.refused.map((x) => x.code)).toContain('code_in_use_by_other_ref');
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 1, pos: 0, categories: 0, toolCalls: 0 });
   });
 });
