@@ -172,6 +172,7 @@ export const setThreeWayAssumptionsTool: McpTool = {
 
 export const deriveThreeWayTool: McpTool = {
   name: 'derive_three_way',
+  admits: canWrite,
   description:
     'Propose three-way assumptions for a budget version from the company\'s history (the app\'s Derive): debtor and creditor days from the trailing turnover and purchases and the opening balances, VAT from the company\'s settings and VAT201s, the payroll statutory share from EMP201s, the income-tax and dividends payable accounts by name, with the evidence. '
     + 'TRAPS: It saves nothing: get_three_way uses only saved assumptions, so save the proposal (edited or not) with set_three_way_assumptions first. Too little history gives defaults (insufficientHistory). '

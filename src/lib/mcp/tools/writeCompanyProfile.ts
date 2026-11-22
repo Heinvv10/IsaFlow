@@ -27,6 +27,7 @@ function wroteNothing(data: Record<string, unknown>): McpToolResult {
 
 export const updateCompanyProfileTool: McpTool = {
   name: NAME,
+  admits: (role) => (WITH_ROLE_ADMITS.admin as readonly string[]).includes(role ?? ''),
   description:
     "Change the connected company's VAT number, income tax number and/or SARS VAT category, as Settings > Company does. "
     + 'vat_number: 10 digits starting with 4. income_tax_number: 10 digits starting with 0, 1, 2, 3 or 9. '

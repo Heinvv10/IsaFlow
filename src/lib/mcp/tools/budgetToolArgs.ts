@@ -105,7 +105,8 @@ export async function ownVersion(ctx: McpToolContext, value: unknown, arg = 'ver
 export const isResult = (v: unknown): v is McpToolResult => typeof v === 'object' && v !== null && 'content' in v && Array.isArray((v as McpToolResult).content);
 
 /** Ruling 2: checked from the token user's role BEFORE any service is called. */
-export const ownerGate = (ctx: McpToolContext): McpToolResult | null => (ctx.companyRole === 'owner' ? null : toolError(PERSON_MUST_APPROVE));
+export const isCompanyOwner = (role: string | null | undefined): boolean => role === 'owner';
+export const ownerGate = (ctx: McpToolContext): McpToolResult | null => (isCompanyOwner(ctx.companyRole) ? null : toolError(PERSON_MUST_APPROVE));
 
 /** A version as the tools answer it: totals as decimal text (`total`: the sum of every amount cell of the version). */
 export function versionView(v: BudgetVersion) {
