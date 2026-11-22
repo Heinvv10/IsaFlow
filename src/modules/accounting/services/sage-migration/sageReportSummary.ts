@@ -3,6 +3,10 @@ import { formatCents } from '@/lib/money/formatMoney';
 import type { MigrationReport, PhaseReport } from './sageMigrationTypes';
 
 const money = formatCents;
+/** The console shows the start of a tool's refusal; the JSON report keeps all of it. */
+export const CONSOLE_ERROR_CHARS = 600;
+const shown = (text: string | null): string =>
+  text === null || text.length <= CONSOLE_ERROR_CHARS ? String(text) : `${text.slice(0, CONSOLE_ERROR_CHARS)} ... (${text.length} characters; the whole text is in the report file)`;
 const phase = (name: string, p: PhaseReport | undefined): string =>
   p ? `${name}: ${p.batches.length} batches, ${p.failed} failed` : `${name}: not run`;
 
@@ -24,7 +28,7 @@ export function summaryLines(r: MigrationReport): string[] {
   if (r.refused.length > 20) lines.push(`... and ${r.refused.length - 20} more refused rows (see the report file)`);
   for (const p of [r.live, r.dryRun]) {
     for (const b of p ? [...p.categories.batches, ...p.items.batches, ...p.purchaseOrders.batches] : []) {
-      if (b.status === 'failed') lines.push(`FAILED ${b.entity} batch ${b.n}${p === r.dryRun ? ' (dry run)' : ''}: ${b.error}`);
+      if (b.status === 'failed') lines.push(`FAILED ${b.entity} batch ${b.n}${p === r.dryRun ? ' (dry run)' : ''}: ${shown(b.error)}`);
     }
   }
   if (r.live) lines.push(`complete: ${rec.complete}`);
