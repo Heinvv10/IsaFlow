@@ -16,8 +16,8 @@ import type { Pool } from 'pg';
 import { log } from '@/lib/logger';
 import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
-import { batchKey } from './sageBatches';
-import { planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
+import { batchKey, RUN_TAG } from './sageBatches';
+import { checkRowsPresent, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
@@ -53,7 +53,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       // The request transaction failed as a whole (a lost connection, a failed COMMIT): nothing of the batch is in the books.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
-      b = { entity: s.entity, n: s.n, size: s.size, key: batchKey(s.entity, s.n, s.args), status: 'failed', allRowsAlreadyPresent: false, toolReported: null, error: message };
+      b = { entity: s.entity, n: s.n, size: s.size, key: batchKey(s.entity, s.n, s.args, s.runTag), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -65,6 +65,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing.
   assertLocalDatabase();
   assertLocalPool(pool);
+  if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     const snapshot = await readSnapshot(opts.companyId);
     const resolved = await resolveSuppliers(session, parsed.purchaseOrders, snapshot.supplierSageRefs);
@@ -81,11 +82,18 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   if (!opts.live) return noLive('dry_run_ok');
 
   const categories = await livePhase(pool, opts, all.categories, before);
-  const items = categories.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
-  const purchaseOrders = categories.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
+  const liveItems = categories.failed === 0 ? await livePhase(pool, opts, all.items, before) : emptyPhase();
+  const livePos = categories.failed + liveItems.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before) : emptyPhase();
   const after = await withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
+  // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy.
+  const verified = (phase: PhaseReport, sends: Send[]): PhaseReport => {
+    const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, after));
+    return { batches, failed: batches.filter((b) => b.status === 'failed').length };
+  };
+  const items = verified(liveItems, all.items);
+  const purchaseOrders = verified(livePos, all.purchaseOrders);
   const failed = categories.failed + items.failed + purchaseOrders.failed;
-  const phaseSkipped = categories.failed > 0 || items.failed > 0;
+  const phaseSkipped = categories.failed > 0 || liveItems.failed > 0;
   return {
     ...base, status: failed > 0 ? 'failed' : 'completed', live: { categories, items, purchaseOrders },
     budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),

@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_UPSERT_ROWS } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { MAX_PURCHASE_ORDERS } from '@/lib/mcp/tools/purchaseOrderImportArgs';
-import { MAX_ITEM_BATCH, MAX_PO_BATCH } from '@/modules/accounting/services/sage-migration/sageBatches';
-import { planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
+import { batchKey, MAX_ITEM_BATCH, MAX_PO_BATCH, RUN_TAG } from '@/modules/accounting/services/sage-migration/sageBatches';
+import { checkRowsPresent, planBatches, sendBatch } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import { budgetWouldHaveFailed } from '@/modules/accounting/services/sage-migration/sageBudgetReport';
 import type { MigrationPlan } from '@/modules/accounting/services/sage-migration/sageMigrationPlan';
 import type { Snapshot } from '@/modules/accounting/services/sage-migration/sageSnapshot';
@@ -99,5 +99,52 @@ describe('budgetWouldHaveFailed', () => {
       batch({ would_have_failed: [{ index: 1, po_number: 'PO4', reasons: [] }, { index: 2, po_number: 'PO5', reasons: ['a', 'b'] }] }),
     ]);
     expect(r).toEqual([{ poNumber: 'PO1', reasons: ['over by 10'] }, { poNumber: 'PO4', reasons: [] }, { poNumber: 'PO5', reasons: ['a', 'b'] }]);
+  });
+});
+
+describe('F5: --run-tag and rows absent after a replay', () => {
+  const rows = [{ a: 1 }];
+  it('a tag changes the key; the same tag gives the same key; no tag is the key it always was', () => {
+    expect(batchKey('item', 1, rows, 'r2')).not.toBe(batchKey('item', 1, rows));
+    expect(batchKey('item', 1, rows, 'r2')).toBe(batchKey('item', 1, rows, 'r2'));
+    expect(batchKey('item', 1, rows, 'r2')).not.toBe(batchKey('item', 1, rows, 'r3'));
+    expect(batchKey('item', 1, rows, undefined)).toBe(batchKey('item', 1, rows));
+    expect(batchKey('item', 1, rows, 'r2')).toMatch(/^sage-mig-item-0001-[0-9a-f]{16}$/);
+  });
+  it('the tag is on every batch key the plan makes, dry run included', async () => {
+    const b = planBatches(plan(2, 2, 1), { runTag: 'r2' });
+    const { s } = (() => { const sent: string[] = []; return { s: { companyId: 'c', call: async (_n: string, a: Record<string, unknown>) => { sent.push(String(a.idempotency_key)); return { isError: false, text: '{}', body: {} }; } } as ToolSession, sent }; })();
+    const keys = [];
+    for (const x of [b.categories[0]!, b.items[0]!, b.purchaseOrders[0]!]) keys.push((await sendBatch(s, x, empty(), true)).key, (await sendBatch(s, x, empty(), false)).key);
+    const plain = planBatches(plan(2, 2, 1), {});
+    for (const [i, x] of [plain.categories[0]!, plain.items[0]!, plain.purchaseOrders[0]!].entries()) {
+      expect(keys[2 * i + 1]).not.toBe((await sendBatch(s, x, empty(), false)).key);
+      expect(keys[2 * i]).toBe(`${keys[2 * i + 1]}-dry`);
+    }
+  });
+  it('the tag is letters, digits, - and _ up to 32', () => {
+    for (const ok of ['a', 'again-1', 'A_b', 'x'.repeat(32)]) expect(RUN_TAG.test(ok), ok).toBe(true);
+    for (const bad of ['', 'a b', 'x'.repeat(33), 'a;b', '../x']) expect(RUN_TAG.test(bad), bad).toBe(false);
+  });
+  const batch = (size: number) => planBatches(plan(size, size), {});
+  const ok = (size: number) => ({ entity: 'item' as const, n: 1, size, key: 'k', status: 'ok' as const, allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: {}, error: null });
+  it('a batch whose rows are all there stays ok', () => {
+    const after = { ...empty(), itemRefs: new Set(['1', '2']) };
+    expect(checkRowsPresent(ok(2), batch(2).items[0]!, after)).toEqual(ok(2));
+  });
+  it('a batch the tool answered whose rows are gone fails, counts them, and names the remedy', () => {
+    const after = { ...empty(), itemRefs: new Set(['1']) };
+    const r = checkRowsPresent(ok(2), batch(2).items[0]!, after);
+    expect(r).toMatchObject({ status: 'failed', rowsAbsent: 1 });
+    expect(r.error).toMatch(/replayed, rows absent: 1 of 2 rows/);
+    expect(r.error).toMatch(/--run-tag/);
+    expect(r.error).toContain('k');
+  });
+  it('a batch that already failed is left as it was, and a PO batch is read by PO reference', () => {
+    const failed = { ...ok(2), status: 'failed' as const, error: 'the tool said no' };
+    expect(checkRowsPresent(failed, batch(2).items[0]!, empty())).toEqual(failed);
+    const po = { ...ok(2), entity: 'purchase_order' as const };
+    expect(checkRowsPresent(po, batch(2).purchaseOrders[0]!, { ...empty(), poTotals: new Map([['1', 1], ['2', 1]]) })).toEqual(po);
+    expect(checkRowsPresent(po, batch(2).purchaseOrders[0]!, empty())).toMatchObject({ status: 'failed', rowsAbsent: 2 });
   });
 });

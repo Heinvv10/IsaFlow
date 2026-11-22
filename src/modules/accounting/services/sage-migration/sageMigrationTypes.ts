@@ -13,6 +13,8 @@ export interface BatchReport {
   status: 'ok' | 'failed';
   /** Every row of the batch was in the books before this run: a re-run sends it again and it changes nothing. */
   allRowsAlreadyPresent: boolean;
+  /** Rows of this batch that are NOT in the books although the tool answered (a replayed answer of rows since deleted); 0 when all are there. */
+  rowsAbsent: number;
   /** What the tool answered (counts, outcomes). On a replay this is the stored answer of the run that wrote it. */
   toolReported: Record<string, unknown> | null;
   /** The tool's refusal text when the batch failed: nothing in it was written. */
@@ -83,6 +85,8 @@ export interface MigrationOptions {
   skipBudgetCheck?: boolean;
   /** An expense account (UUID) for every PO line, so the budget check judges the line; none: lines are "No budget". */
   poGlAccountId?: string;
+  /** Salts every batch key: a deliberate fresh import after the rows of an earlier run were deleted. */
+  runTag?: string;
   itemBatchSize?: number;
   poBatchSize?: number;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };

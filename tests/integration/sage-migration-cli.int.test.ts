@@ -60,7 +60,7 @@ describe('scripts/sage-migration/run.ts', () => {
 
   it('a second --live run adds nothing; a wrong expectation is a MISMATCH and exit 1', async () => {
     const before = await booked(pool, s.companyId);
-    const r = cli([...base(), '--live', '--expect-pos', '757']);
+    const r = cli([...base(), '--live', '--expect-items', '20', '--expect-pos', '757']);
     expect(r.code).toBe(1); // the export has 10 POs, not the 757 asked for
     expect(r.out).toContain('items: 20 in export, 0 refused, 20 sent, 20 already there, 20 there after (+0)');
     expect(r.out).toContain('MISMATCH purchaseOrders: expected 757, booked 10');
@@ -79,11 +79,29 @@ describe('scripts/sage-migration/run.ts', () => {
     expect(dry.out).toContain('refused item FIB-0003 [invalid_row]');
     expect(cli([...args, '--allow-refusals']).code).toBe(0);
     expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 0, pos: 0 });
-    const live = cli([...args, '--live']);
+    const live = cli([...args, '--live', '--expect-items', '19', '--expect-pos', '10']);
     expect(live.code).toBe(1);
     expect(live.out).toContain('all sent rows booked: true; nothing refused: false');
     expect(await booked(pool, s.otherCompanyId)).toMatchObject({ items: 19 });
-    expect(cli([...args, '--live', '--allow-refusals']).code).toBe(0);
+    expect(cli([...args, '--live', '--allow-refusals', '--expect-items', '19', '--expect-pos', '10']).code).toBe(0);
+  }, 180_000);
+
+  it('F4: --live needs --expect-items and --expect-pos, so a file that lost a container cannot pass unnoticed', () => {
+    const live = [...base(), '--live'];
+    expect(cli(live).code).toBe(2);
+    expect(cli(live).err).toMatch(/--live needs --expect-items and --expect-pos/);
+    expect(cli([...live, '--expect-items', '20']).code).toBe(2);
+    expect(cli([...live, '--expect-pos', '10']).code).toBe(2);
+  }, 180_000);
+
+  it('F4: an export with a misspelt container or no container is refused (exit 2) before anything runs', () => {
+    const a = join(dir, 'misspelt.json');
+    writeFileSync(a, JSON.stringify({ Items: [], Purchase_Orders: [] }));
+    expect(cli(['--company', s.companyId, '--user', s.userId, '--file', a])).toMatchObject({ code: 2 });
+    expect(cli(['--company', s.companyId, '--user', s.userId, '--file', a]).err).toMatch(/unknown key "Purchase_Orders"/);
+    const b = join(dir, 'empty.json');
+    writeFileSync(b, '{}');
+    expect(cli(['--company', s.companyId, '--user', s.userId, '--file', b]).err).toMatch(/neither Items nor PurchaseOrders/);
   }, 180_000);
 
   it('refuses to start (exit 2) on a database that is not a local throwaway one, before touching it', () => {

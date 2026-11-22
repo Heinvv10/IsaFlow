@@ -3,10 +3,11 @@
  * the environment) is a local throwaway database (src/modules/accounting/services/sage-migration/localGuard.ts).
  *
  *   DATABASE_URL=postgresql://postgres@127.0.0.1:<port>/isaflow_test bun --no-env-file scripts/sage-migration/run.ts \
- *     --company <uuid> --user <uuid> --file <export.json> [--live] [--report <file>] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] \
+ *     --company <uuid> --user <uuid> --file <export.json> [--live] [--report <file>] [--skip-budget-check] [--po-gl-account <uuid>] [--allow-refusals] [--run-tag <text>] \
  *     [--expect-items N] [--expect-pos N] [--expect-po-total 80950000.00]
  *
- * Without --live: the dry run only, nothing written. With --live: the dry run, then categories -> items -> purchase orders when
+ * Without --live: the dry run only, nothing written. --live needs --expect-items and --expect-pos. --run-tag salts the batch keys, for a
+ * deliberate fresh import after the rows of an earlier run were deleted (the registry would otherwise replay that run's answers). With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
  * run or a live run that booked every row it sent, whose --expect-* figures match what was sent (dry run) or booked (live) and
  * which refused no row (unless --allow-refusals); 1 for anything else; 2 for a refused start.
@@ -16,6 +17,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import pg from 'pg';
 import { UUID_RE } from '../../src/lib/validation';
+import { RUN_TAG } from '../../src/modules/accounting/services/sage-migration/sageBatches';
 import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-migration/localGuard';
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
@@ -40,7 +42,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       company: { type: 'string' }, user: { type: 'string' }, file: { type: 'string' }, report: { type: 'string' },
-      live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false },
+      live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false }, 'run-tag': { type: 'string' },
       'expect-items': { type: 'string' }, 'expect-pos': { type: 'string' }, 'expect-po-total': { type: 'string' },
     },
     strict: true,
@@ -49,6 +51,10 @@ async function main(): Promise<void> {
   if (!values.company || !UUID_RE.test(values.company)) fail('--company <uuid> is required');
   if (!values.user || !UUID_RE.test(values.user)) fail('--user <uuid> is required');
   if (!values.file) fail('--file <export.json> is required');
+  if (values['run-tag'] !== undefined && !RUN_TAG.test(values['run-tag'])) fail('--run-tag must be 1-32 letters, digits, - or _');
+  if (values.live && (values['expect-items'] === undefined || values['expect-pos'] === undefined)) {
+    fail('--live needs --expect-items and --expect-pos (the counts you expect to be booked, 0 if none), so an export that lost a container cannot pass unnoticed');
+  }
   if (values['po-gl-account'] !== undefined && !UUID_RE.test(values['po-gl-account'])) fail('--po-gl-account must be an expense account uuid');
 
   const parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
@@ -56,7 +62,7 @@ async function main(): Promise<void> {
   pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
     const report = await runSageMigration(pool, parsed, {
-      companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(),
+      companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'],
       expect: {
         items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
         purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
