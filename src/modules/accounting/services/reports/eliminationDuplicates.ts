@@ -62,7 +62,8 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
        WHERE s.source_intercompany_id IS NOT NULL AND s.status IN ('draft', 'posted')
     ), fa AS (
       SELECT f.adj_id, json_agg(json_build_object('label', f.label, 'is_sum', f.is_sum, 'ord', f.ord, 'mirror_ref', f.mirror_ref, 'amount', f.amount,
-                                                  'stands', f.stands, 'link', f.link) ORDER BY f.ord) AS mirror_facts,
+                                                  'stands', f.stands, 'link', f.link, 'by_total', f.by_total, 'elim_date', f.elim_date::TEXT,
+                                                  'other_role', f.other_role) ORDER BY f.ord) AS mirror_facts,
              array_agg(f.mirror_row ORDER BY f.mirror_row) AS mset
         FROM f GROUP BY f.adj_id
     )

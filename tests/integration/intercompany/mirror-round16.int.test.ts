@@ -129,7 +129,7 @@ describe('H2: judged as at the period being generated', () => {
     await reverseBillOn(m.bill, '2026-03-25');
     const after = await gen('2026-03-01', '2026-03-31');
     expect([after.skipped, after.drafted.includes(s.id)]).toEqual([[], true]);
-    expect(after.flagged.find((f) => f.transactionId === s.id)?.reason).toMatch(/no longer eliminates this row for the period to 2026-03-31/);
+    expect(after.flagged.find((f) => f.transactionId === s.id)?.reason).toMatch(/that mirror did not eliminate this row for the period to 2026-03-31/);
     expect(await activeLinks()).toEqual([]);
   });
 

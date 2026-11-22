@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  duplicateBadgeText, generatorReason, mirrorFactsSentence, parseMirrorFacts, possibleDuplicateMessage,
+  duplicateBadgeText, generatorReason, mirrorFactsSentence, NO_MIRROR_MATCH, parseMirrorFacts, possibleDuplicateMessage,
   type MirrorFact, type MirrorFacts, type MirrorLinkState,
 } from '@/modules/accounting/services/reports/mirrorFacts';
 import { formatMoney as R } from '@/lib/money/formatMoney';
@@ -14,65 +14,91 @@ import { formatMoney as R } from '@/lib/money/formatMoney';
 const END = '2026-03-31';
 const LINKS: MirrorLinkState[] = ['here', 'elsewhere', 'none'];
 type Standing = 'stands' | 'partly' | 'none';
+/** Round 20: plain; a credit note in the sum (negative); matched by totals with VAT; eliminated after the period; held by the other role. */
+type Variant = 'plain' | 'creditNote' | 'byTotal' | 'late' | 'otherRole';
+const VARIANTS: Variant[] = ['plain', 'creditNote', 'byTotal', 'late', 'otherRole'];
 
-function factsFor(kind: 'single' | 'sum', standing: Standing, link: MirrorLinkState): MirrorFacts | null {
+function factsFor(kind: 'single' | 'sum', standing: Standing, link: MirrorLinkState, v: Variant): MirrorFacts | null {
+  if (v === 'otherRole' && link !== 'none') return null;          // (the other role's link is said only where no link of this role holds it)
+  const extra = (m: MirrorFact): MirrorFact => ({ ...m, byTotal: m.byTotal ?? false, elimDate: v === 'late' ? '2026-04-03' : '2026-03-10', otherRole: v === 'otherRole' ? 'purchase' : null });
   if (kind === 'single') {
-    if (standing === 'partly') return null;   // (one mirror stands or not)
-    return { label: 'INV-1 (mirrored)', sum: false, periodEnd: END, mirrors: [{ ref: 'INV-1 (mirrored)', amount: 1000, stands: standing === 'stands', link }] };
+    if (standing === 'partly' || v === 'creditNote' || v === 'byTotal') return null;   // (one mirror stands or not; the sum-only variants)
+    return { label: 'INV-1 (mirrored)', sum: false, periodEnd: END, mirrors: [extra({ ref: 'INV-1 (mirrored)', amount: 1000, stands: standing === 'stands', link })] };
   }
   const stands = standing === 'stands' ? [true, true] : standing === 'partly' ? [true, false] : [false, false];
   // the link state is the FIRST member's (the second is unlinked), so each member's own wording is checked against its own facts
-  const mirrors: MirrorFact[] = [{ ref: 'INV-A (mirrored)', amount: 600, stands: stands[0]!, link }, { ref: 'INV-B (mirrored)', amount: 400, stands: stands[1]!, link: 'none' }];
+  const amounts = v === 'creditNote' ? [1000, -200] : v === 'byTotal' ? [690, 460] : [600, 400];
+  const mirrors: MirrorFact[] = [
+    extra({ ref: 'INV-A (mirrored)', amount: amounts[0]!, stands: stands[0]!, link, byTotal: v === 'byTotal' }),
+    { ...extra({ ref: 'INV-B (mirrored)', amount: amounts[1]!, stands: stands[1]!, link: 'none', byTotal: v === 'byTotal' }), otherRole: null },
+  ];
   return { label: '2 mirrored documents of March 2026', sum: true, periodEnd: END, mirrors };
 }
 
 /** The claims a text makes, read back from it. */
 function claims(text: string) {
+  const without = text.replace(/NOT eliminated automatically for the period to 2026-03-31/g, '');
   return {
     notEliminated: /NOT eliminated automatically for the period to 2026-03-31/.test(text),
-    eliminated: /\beliminated automatically(?!\s+for the period)/.test(text.replace(/NOT eliminated automatically for the period to 2026-03-31/g, '')),
+    eliminated: /\beliminated automatically(?!\s+for the period)/.test(without.replace(/None of them is eliminated automatically/g, '')),
     elsewhere: /matched to a different row/.test(text),
     here: /matched to this row/.test(text),
     unmatched: /not matched to any row yet/.test(text),
+    otherRole: /matched to a purchase row \(the other side of a sale\), not to any sale row yet/.test(text),
     onlyElimination: /may be the sale's only elimination/.test(text),
     twice: /twice/.test(text),
     cutover: /mirrors from 2026-03-01/.test(text),
-    stale: /at the moment|already eliminates another row|post it if it is correct|mirrored document \d+ mirrored documents/.test(text),
+    late: /on 2026-04-03, after the period to 2026-03-31/.test(text),
+    vat: /with VAT/.test(text),
+    netOfVat: /net of their VAT/.test(text),
+    stale: /at the moment|already eliminates another row|post it if it is correct|mirrored document \d+ mirrored documents|in full:|no longer eliminates/.test(text),
   };
 }
 
 function expectTrue(text: string, f: MirrorFacts, cutover: string | null) {
   const c = claims(text);
-  const P = f.mirrors.filter((m) => m.stands).reduce((s, m) => s + m.amount, 0);
+  const standing = f.mirrors.filter((m) => m.stands);
+  const P = standing.reduce((s, m) => s + m.amount, 0);
   const T = f.mirrors.reduce((s, m) => s + m.amount, 0);
+  const byTotal = f.mirrors.some((m) => m.byTotal);
   expect(c.stale).toBe(false);
   expect(c.cutover).toBe(cutover !== null);
   expect(c.notEliminated).toBe(f.mirrors.some((m) => !m.stands));
-  expect(c.eliminated).toBe(P > 0);
-  expect(c.elsewhere).toBe(f.mirrors.some((m) => m.stands && m.link === 'elsewhere'));
-  expect(c.here).toBe(f.mirrors.some((m) => m.stands && m.link === 'here'));
-  expect(c.unmatched).toBe(f.mirrors.some((m) => m.stands && m.link === 'none'));
-  expect(c.onlyElimination).toBe(P === 0);
-  expect(c.twice).toBe(P > 0);
+  expect(c.eliminated).toBe(standing.length > 0);
+  expect(c.elsewhere).toBe(standing.some((m) => m.link === 'elsewhere'));
+  expect(c.here).toBe(standing.some((m) => m.link === 'here'));
+  expect(c.unmatched).toBe(standing.some((m) => m.link === 'none' && !m.otherRole));
+  expect(c.otherRole).toBe(standing.some((m) => m.link === 'none' && m.otherRole === 'purchase'));
+  expect(c.late).toBe(standing.some((m) => (m.elimDate ?? '') > END));
+  expect(c.onlyElimination).toBe(standing.length === 0);
+  expect(c.twice).toBe(standing.length > 0);
   for (const m of f.mirrors) expect(text).toContain(m.ref);
   if (f.sum) {
-    for (const m of f.mirrors) expect(text).toContain(`${m.ref} (${R(m.amount)}: ${m.stands ? 'eliminated automatically' : 'NOT eliminated'}`);
-    if (P > 0) expect(text).toContain(`${R(P)} of ${R(T)} is eliminated automatically by mirroring`);
-    expect(/by mirroring, in full/.test(text)).toBe(P > 0 && P === T);
-    expect(/that part/.test(text)).toBe(P > 0 && P < T);
+    expect(c.vat).toBe(byTotal);
+    expect(c.netOfVat).toBe(byTotal && standing.length > 0);
+    for (const m of f.mirrors) expect(text).toContain(`${m.ref} (${R(m.amount)}${byTotal ? ' with VAT' : ''}: ${m.stands ? 'eliminated automatically' : 'NOT eliminated'}`);
+    const partial = standing.length > 0 && standing.length < f.mirrors.length;
+    const sameSign = f.mirrors.every((m) => Math.sign(m.amount) === Math.sign(T));
+    // "R P of R T" only where it is a true part of the row: never more than the row, never a credit note's sign, never a total with VAT
+    expect(text.includes(`${R(P)} of ${R(T)} is eliminated automatically by mirroring`)).toBe(partial && sameSign && !byTotal);
+    if (text.includes(' of R')) expect(Math.abs(P)).toBeLessThan(Math.abs(T));
+    expect(/All of them are eliminated automatically/.test(text)).toBe(standing.length === f.mirrors.length);
+    expect(/Only some of them/.test(text)).toBe(partial && (!sameSign || byTotal));
+    expect(/that part/.test(text)).toBe(partial);
   }
 }
 
 const cases = (['single', 'sum'] as const).flatMap((kind) => (['stands', 'partly', 'none'] as const).flatMap((standing) =>
-  LINKS.flatMap((link) => [null, '2026-03-01'].map((cutover) => ({ kind, standing, link, cutover, f: factsFor(kind, standing, link) })))))
+  LINKS.flatMap((link) => VARIANTS.flatMap((variant) => [null, '2026-03-01'].map((cutover) => ({ kind, standing, link, variant, cutover, f: factsFor(kind, standing, link, variant) }))))))
   .filter((c): c is typeof c & { f: MirrorFacts } => c.f !== null);
 
 describe('every surface states exactly what the facts show (table of fact combinations)', () => {
-  it('enumerates every combination (2 single standings and 3 sum standings, x 3 link states x before / after the cutover)', () => {
-    expect(cases.length).toBe((2 + 3) * 3 * 2);
+  it('enumerates every combination (standings x link states x variants x before / after the cutover)', () => {
+    // single: 2 standings x (3 links x [plain, late] + the unlinked otherRole); sum: 3 standings x (3 links x 4 variants + otherRole)
+    expect(cases.length).toBe((2 * (3 * 2 + 1) + 3 * (3 * 4 + 1)) * 2);
   });
 
-  it.each(cases.map((c) => [`${c.kind} ${c.standing} linked:${c.link} ${c.cutover ? 'post' : 'pre'}-cutover`, c] as const))('%s', (_name, c) => {
+  it.each(cases.map((c) => [`${c.kind} ${c.standing} linked:${c.link} ${c.variant} ${c.cutover ? 'post' : 'pre'}-cutover`, c] as const))('%s', (_name, c) => {
     const { f, cutover } = c;
     const confirm = possibleDuplicateMessage(f, cutover);
     expectTrue(confirm, f, cutover);
@@ -92,12 +118,12 @@ describe('every surface states exactly what the facts show (table of fact combin
 });
 
 describe('the link\'s own answers after the cutover', () => {
-  const f = factsFor('single', 'none', 'none')!;
+  const f = factsFor('single', 'none', 'none', 'plain')!;
   it('released: names the released mirror and why; closer: names the mirror kept for the closer row; no facts: says no mirror matches', () => {
     expect(generatorReason(f, '2026-03-01', { state: 'released', ref: 'OLD' }, END))
-      .toBe(`The pair mirrors from 2026-03-01. Its link to mirrored document OLD was released: that mirror no longer eliminates this row for the period to ${END}. ${mirrorFactsSentence(f)}`);
+      .toBe(`The pair mirrors from 2026-03-01. Its link to mirrored document OLD was released: that mirror did not eliminate this row for the period to ${END} when this run was made. ${mirrorFactsSentence(f)}`);
     expect(generatorReason(f, '2026-03-01', { state: 'closer', ref: 'NEAR' }, END)).toContain('Mirrored document NEAR belongs to a closer row');
-    expect(generatorReason(null, '2026-03-01', { state: 'none', ref: '' }, END)).toBe('The pair mirrors from 2026-03-01. No mirrored document matches this row.');
+    expect(generatorReason(null, '2026-03-01', { state: 'none', ref: '' }, END)).toBe(`The pair mirrors from 2026-03-01. ${NO_MIRROR_MATCH}`);
     expect(generatorReason(null, null, null, END)).toBe('');
   });
 

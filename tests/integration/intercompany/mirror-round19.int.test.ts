@@ -62,6 +62,7 @@ const total = async () => {
   return rows.filter((a) => a.automatic || a.status === 'posted').reduce((x, a) => x + a.lines.reduce((y, l) => y + Number(l.debit), 0), 0);
 };
 const activeLinks = async () => (await pool.query('SELECT row_id FROM intercompany_mirror_links WHERE group_id = $1 AND released_at IS NULL', [co.G])).rows.map((r) => r.row_id as string);
+const jhbToday = async () => (await pool.query("SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::text AS d")).rows[0].d as string;
 const facts = (a: Awaited<ReturnType<typeof listed>>) => a.mirrorFacts!.mirrors.map((m) => [m.ref, m.amount, m.stands, m.link]);
 
 describe('M1: a month sum of which only part stands', () => {
@@ -78,7 +79,7 @@ describe('M1: a month sum of which only part stands', () => {
       + 'if it is the same sale, posting this in full would eliminate that part twice.';
     expect(g.flagged.map((f) => [f.transactionId, f.mirroredRef, f.reason])).toEqual([[r.id, '2 mirrored documents of March 2026', sentence]]);
     const row = await listed(r.id);
-    expect(row.description).toContain(`CHECK BEFORE POSTING: ${sentence} - `);
+    expect(row.description).toContain(`CHECK BEFORE POSTING (as found by the run of ${await jhbToday()}): ${sentence} - `);
     expect(facts(row)).toEqual([[a, 600, true, 'none'], [b, 400, false, 'none']]);
     expect(duplicateBadgeText(row.mirrorFacts!, row.status, row.pairCutover ?? null)).toBe(`${sentence} Check before posting.`);
     const refused = await post(row.id);
@@ -88,7 +89,7 @@ describe('M1: a month sum of which only part stands', () => {
 });
 
 describe('M2: after the cutover, a month sum that stands in full', () => {
-  it('is drafted (no set link: the stated limit) saying R1 000 of R1 000 is eliminated automatically, in full, and posting would eliminate it twice', async () => {
+  it('is drafted (no set link: the stated limit) saying all of them are eliminated automatically and posting would eliminate it twice', async () => {
     await turnOn('2026-03-01');
     const a = await mirror('2026-03-02', 600);
     const b = await mirror('2026-03-03', 400);
@@ -97,7 +98,7 @@ describe('M2: after the cutover, a month sum that stands in full', () => {
     const g = await gen('2026-03-01', '2026-03-31');
     expect([g.drafted, g.skipped, await activeLinks()]).toEqual([[r.id], [], []]);
     const list = `2 mirrored documents of March 2026: ${a} (${R(600)}: eliminated automatically, not matched to any row yet) and ${b} (${R(400)}: eliminated automatically, not matched to any row yet)`;
-    const tail = `${R(1000)} of ${R(1000)} is eliminated automatically by mirroring, in full: if it is the same sale, posting this would eliminate it twice.`;
+    const tail = 'All of them are eliminated automatically by mirroring: if it is the same sale, posting this would eliminate it twice.';
     expect(g.flagged[0]!.reason).toBe(`The pair mirrors from 2026-03-01. Possibly the same sale as ${list}. ${tail}`);
     expect(g.flagged[0]!.reason).not.toMatch(/is not eliminated automatically|mirrored document 2 mirrored documents/);
     const row = await listed(r.id);
@@ -144,7 +145,7 @@ describe('L1: before the cutover the flag never names another row\'s mirror over
     const sentence = `Possibly the same sale as mirrored document ${theirs}, which is eliminated automatically, but is matched to a different row. If it is the same sale, posting this would eliminate it twice.`;
     expect(g.flagged.map((f) => f.reason)).toEqual([sentence]);
     const row = await listed(r.id);
-    expect(row.description).toContain(`CHECK BEFORE POSTING: ${sentence} - `);
+    expect(row.description).toContain(`CHECK BEFORE POSTING (as found by the run of ${await jhbToday()}): ${sentence} - `);
     expect(facts(row)).toEqual([[theirs, 1000, true, 'elsewhere']]);
     expect(await post(row.id)).toBe(`REFUSED: ${sentence} Confirm to post it.`);
   });

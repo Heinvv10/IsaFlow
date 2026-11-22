@@ -67,7 +67,7 @@ export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
 /** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. */
 async function factsOf(rowId: string, periodEnd: string): Promise<MirrorFacts | null> {
-  return factsFromRows((await sql`SELECT * FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE)`) as DbRow[], periodEnd);
+  return factsFromRows((await sql`SELECT f.*, f.elim_date::TEXT AS elim_date FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE) f`) as DbRow[], periodEnd);
 }
 const label = (tx: DbRow): EliminationRowLabel => ({ description: String(tx.description ?? ''), date: String(tx.td), amount: Number(tx.amount) });
 
@@ -166,10 +166,12 @@ export async function autoGenerateEliminations(
     // Pass 2: the flags. A row that may be the same sale as a mirrored document (before the cutover: drafted, never skipped, as a skip judged
     // once could not follow the mirror accepted, withdrawn or booked in another month later; on or after it: no standing mirror was left to it)
     // is marked CHECK BEFORE POSTING with what is TRUE of its mirror(s) for the period: the facts' one wording (mirrorFacts.ts).
+    // the note is stored with the draft, so it says when it was true (the list's badge is the live answer)
+    const runDate = String(((await sql`SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::TEXT AS d`) as DbRow[])[0]?.d ?? '');
     for (const p of pending) {
       const facts = await factsOf(String(p.tx.id), periodEnd);
       const reason = p.cutover || facts ? generatorReason(facts, p.cutover, p.link, periodEnd) : '';
-      const note = reason ? `CHECK BEFORE POSTING: ${reason} - ` : '';
+      const note = reason ? `CHECK BEFORE POSTING (as found by the run of ${runDate}): ${reason} - ` : '';
       let made = p.made;
       if (made === undefined) made = await draft(groupId, p.tx, note, periodStart, periodEnd, created);
       else if (made && note) {

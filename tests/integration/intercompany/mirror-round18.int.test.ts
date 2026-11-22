@@ -104,7 +104,7 @@ describe('M1: a cancel and re-issue inside the period', () => {
     await L.cancelSender(m1.inv.id);
     const again = await gen('2026-03-01', '2026-03-31');
     expect([again.skipped, again.drafted]).toEqual([[], [s.id]]);
-    expect(again.flagged.find((f) => f.transactionId === s.id)?.reason).toMatch(/no longer eliminates this row for the period to 2026-03-31/);
+    expect(again.flagged.find((f) => f.transactionId === s.id)?.reason).toMatch(/that mirror did not eliminate this row for the period to 2026-03-31/);
     expect(await activeLinks()).toEqual([]);
   });
 
@@ -119,10 +119,11 @@ describe('M1: a cancel and re-issue inside the period', () => {
     const want = (await mirrorOf(m3)).description;
     expect(want).not.toBe((await mirrorOf(m1)).description);
     expect(g.flagged.map((f) => [f.transactionId, f.mirroredRef])).toEqual([[pre.id, want]]);
-    expect(g.flagged[0]!.reason).toMatch(/, which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice\.$/);
+    // (round 20, M3: the re-issue of 3 March is eliminated on its own date, after the February period, and the wording says so)
+    expect(g.flagged[0]!.reason).toMatch(/, which is eliminated automatically on 2026-03-03, after the period to 2026-02-28, and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice\.$/);
     const row = await listed(pre.id, '2026-02-01', '2026-02-28');
     expect([row.mirroredDuplicateOf, row.mirrorStands, row.pairCutover]).toEqual([want, true, null]);
-    expect(await post(row.id)).toMatch(new RegExp(`REFUSED: Possibly the same sale as mirrored document ${want.replace(/[()]/g, '\\$&')}, which is eliminated automatically and is not matched to any row yet\\. If it is the same sale, posting this would eliminate it twice`));
+    expect(await post(row.id)).toMatch(new RegExp(`REFUSED: Possibly the same sale as mirrored document ${want.replace(/[()]/g, '\\$&')}, which is eliminated automatically on 2026-03-03, after the period to 2026-02-28, and is not matched to any row yet\\. If it is the same sale, posting this would eliminate it twice`));
   });
 });
 

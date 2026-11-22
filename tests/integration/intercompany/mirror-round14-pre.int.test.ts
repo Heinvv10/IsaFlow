@@ -53,7 +53,8 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     await gen();
     const d = await draftOf(r1);
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
-    expect(await post(d)).toMatch(/which is eliminated automatically and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice/);
+    // (round 20, M3: the elimination falls on the later document date, 5 Feb, and the wording says so)
+    expect(await post(d)).toMatch(/which is eliminated automatically on 2026-02-05, after the period to 2026-01-31, and is not matched to any row yet\. If it is the same sale, posting this would eliminate it twice/);
     expect(await post(d, true)).toBe('posted');
     expect((await list()).find((a) => a.id === d)!.mirrorStands).toBe(true);
   });

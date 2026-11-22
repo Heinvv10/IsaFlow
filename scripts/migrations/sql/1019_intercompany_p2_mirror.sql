@@ -1571,13 +1571,14 @@ DROP FUNCTION IF EXISTS public.intercompany_mirror_pick(uuid, date);   -- (round
 -- of the same group whose sale runs the way the manual row's elimination does: the same source and target for a sale or mgmt_fee, the REVERSE
 -- for a purchase (a purchase B -> A is A's sale to B: the P1 generator eliminates the same group accounts). Matched by amount: (1) the SINGLE
 -- mirrors that match (intercompany_mirror_candidates: a cancelled sender kept, judged as at the period by the facts), closest first; else (2) the
--- mirrors of that direction whose sender's date is in the row's calendar month, accepted with a target document and NOT cancelled, when their
+-- mirrors of that direction whose sender's date is in the row's calendar month, accepted with a target document and carried by the period (a
+-- cancelled one counts while its sent-with journal's reversal chain is odd as at p_asat), when their
 -- subtotals (or totals) SUM to the row's amount (a monthly total, an invoice net of its credit note). mirror_rows: the mirror(s) in that order;
 -- mirror_ref: the closest one's description (else '(no description)') or "N mirrored documents of <month>"; is_sum: (2). A plain match: it walks
 -- no ledger (the post refusal's EXISTS and the list's join use it as is). WHAT IS TRUE of the match (which mirror the wording names, whether it
 -- is eliminated automatically for the period, whose link holds it) is intercompany_mirror_facts, the one source of every sentence about it. A
--- definer (the caller may not read the messages); it answers only for a row of a group the caller is a current member of. (p_asat is not read:
--- the match is the same for every period; the signature is kept so every caller passes the period it judges the facts for.)
+-- definer (the caller may not read the messages); it answers only for a row of a group the caller is a current member of. p_asat (NULL:
+-- today) is read only for a month-sum member whose sender cancelled it: it counts while the period still carries it (round 20, M1).
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid, date);
 DROP FUNCTION IF EXISTS public.intercompany_mirrored_duplicate(uuid);
@@ -1601,7 +1602,12 @@ AS $$
       FROM r
       JOIN public.intercompany_transactions o ON o.group_id = r.group_id AND o.id <> r.id AND o.source_company_id = r.seller AND o.target_company_id = r.buyer
       JOIN public.intercompany_messages x ON x.group_transaction_id = o.id AND x.kind IN ('invoice', 'credit_note')
-     WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL AND x.source_cancelled_at IS NULL   -- (the month sum names live documents only)
+     WHERE x.status = 'accepted' AND x.target_doc_id IS NOT NULL
+       -- a member the sender cancelled counts while the period still carries it: its cancel judged AS AT THE PERIOD by the sent-with journal's
+       -- reversal chain (a cancel rolled past a locked VAT period or a closed fiscal period is dated later), never by today's stamp
+       AND CASE WHEN x.source_cancelled_at IS NULL THEN true
+                ELSE public.intercompany_journal_chain_length(x.source_journal_entry_id, o.source_company_id,
+                       COALESCE(p_asat, (now() AT TIME ZONE 'Africa/Johannesburg')::date)) % 2 = 1 END
   ), one AS (
     SELECT array_agg(c.mirror_row ORDER BY c.rank) AS rows, (array_agg(c.mirror_ref ORDER BY c.rank))[1] AS ref
       FROM r CROSS JOIN LATERAL public.intercompany_mirror_candidates(r.id) c HAVING count(*) > 0
@@ -1622,7 +1628,9 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 -- per mirror the wording names, each with its description (else '(no description)'), the amount it accounts for (the row's amount for one mirror;
 -- its subtotal, or signed total, for a member of a month sum), whether it is eliminated automatically for that period
 -- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
--- different row"), 'none'. Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
+-- different row"), 'none'; other_role: the role of another row's active link of the OTHER role (the sale's other side); by_total: matched by
+-- its total with VAT (mirroring eliminates net of VAT); elim_date: the date its elimination falls on (the later document date, which can be
+-- after the period: "stands" judges the pair, not that date). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
 -- closest that stands and no other row's link holds (stopping there); else the closest no other row's link holds (none of those stands: it is
 -- named NOT eliminated, never a mirror that is another row's sale); else the closest. A month sum names every member. The ONE source of the
 -- generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded from anything else. label: the
@@ -1630,7 +1638,8 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 -- current member of (through intercompany_mirrored_duplicate); nothing otherwise.
 DROP FUNCTION IF EXISTS public.intercompany_mirror_facts(uuid, date);
 CREATE OR REPLACE FUNCTION public.intercompany_mirror_facts(p_row uuid, p_asat date DEFAULT NULL)
-RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text)
+RETURNS TABLE (label text, is_sum boolean, ord integer, mirror_row uuid, mirror_ref text, amount numeric, stands boolean, link text,
+               by_total boolean, elim_date date, other_role text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -1686,10 +1695,19 @@ BEGIN
            v_st[u.n],
            CASE WHEN EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.row_id = p_row AND l.mirror_row = o.id AND l.released_at IS NULL) THEN 'here'
                 WHEN EXISTS (SELECT 1 FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role = v_role AND l.released_at IS NULL AND l.row_id <> p_row) THEN 'elsewhere'
-                ELSE 'none' END
+                ELSE 'none' END,
+           -- matched by its total with VAT (mirroring eliminates the subtotal, net of VAT)
+           CASE WHEN d.is_sum THEN NOT v_by_sub ELSE v_amount IS DISTINCT FROM o.amount END,
+           -- the date its elimination falls on: the later of the sender's and the receiver's document dates (may be after the period)
+           GREATEST(o.transaction_date, COALESCE(x.bd, o.transaction_date)),
+           -- the role of an active link of the OTHER role (the purchase side of the sale for a sale row, and the reverse)
+           (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1)
       FROM unnest(v_ids) WITH ORDINALITY AS u(id, n)
       JOIN public.intercompany_transactions o ON o.id = u.id
-      LEFT JOIN LATERAL (SELECT m.payload FROM public.intercompany_messages m WHERE m.group_transaction_id = o.id AND m.kind IN ('invoice', 'credit_note') LIMIT 1) x ON true
+      LEFT JOIN LATERAL (SELECT m.payload,
+                                COALESCE((SELECT si.invoice_date FROM public.supplier_invoices si WHERE m.target_doc_type = 'supplier_invoice' AND si.id = m.target_doc_id),
+                                         (SELECT cn.credit_date FROM public.credit_notes cn WHERE m.target_doc_type = 'credit_note' AND cn.id = m.target_doc_id)) AS bd
+                           FROM public.intercompany_messages m WHERE m.group_transaction_id = o.id AND m.kind IN ('invoice', 'credit_note') LIMIT 1) x ON true
      ORDER BY u.n;
 END;
 $$;
@@ -2245,9 +2263,9 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_auto_accept_exhausted()', 'public.intercompany_auto_accept_exhausted()',
      'nothing: a count of pending invoice / credit-note messages whose every auto-accept attempt is used; executable by app_service and migration_admin only'),
     ('intercompany_mirrored_duplicate(uuid,date)', 'public.intercompany_mirrored_duplicate(uuid, date)',
-     'nothing: for a manual sale-class group row of a group the caller is a current member of, the mirrored sale(s) it may duplicate (the same group, the sale running the way the row''s elimination does, the single mirrors whose subtotal or total is the row''s amount near its date, closest first, or the sum of that month''s live mirrors): a plain match, no ledger walk; a flag for the elimination generator, the eliminations list and posting, never a skip'),
+     'nothing: for a manual sale-class group row of a group the caller is a current member of, the mirrored sale(s) it may duplicate (the same group, the sale running the way the row''s elimination does, the single mirrors whose subtotal or total is the row''s amount near its date, closest first, or the sum of that month''s mirrors, a cancelled one counted while the period still carries it by its reversal chain): a plain match, no ledger walk but that chain for a cancelled sum member; a flag for the elimination generator, the eliminations list and posting, never a skip'),
     ('intercompany_mirror_facts(uuid,date)', 'public.intercompany_mirror_facts(uuid, date)',
-     'nothing: for a manual sale-class group row of a group the caller is a current member of (through intercompany_mirrored_duplicate), the facts of the mirror(s) the duplicate wording names for a period: each one''s description, the amount it accounts for, whether it is eliminated automatically for that period (intercompany_mirror_stands) and whether an active link of this row or of another row of the same role holds it (a read of intercompany_mirror_links); the one source of the generator note, the list badge, the 409 and the confirm'),
+     'nothing: for a manual sale-class group row of a group the caller is a current member of (through intercompany_mirrored_duplicate), the facts of the mirror(s) the duplicate wording names for a period: each one''s description, the amount it accounts for, whether it is eliminated automatically for that period (intercompany_mirror_stands) and whether an active link of this row, of another row of the same role or of a row of the other role holds it (a read of intercompany_mirror_links), whether it matched by its total with VAT, and the date its elimination falls on; the one source of the generator note, the list badge, the 409 and the confirm'),
     ('intercompany_mirror_stands(uuid,date)', 'public.intercompany_mirror_stands(uuid, date)',
      'nothing: for a mirrored row of a group the caller is a current member of, whether it is eliminated automatically for a period: its pair stands as at the later of its two document dates and as at the later of that and the period end (or today), and its revenue and expense lines are mapped to group accounts'),
     ('intercompany_mirror_link(uuid,date)', 'public.intercompany_mirror_link(uuid, date)',
