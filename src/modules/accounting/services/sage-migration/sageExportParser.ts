@@ -55,24 +55,28 @@ export function rowsOf(value: unknown, key: string): unknown[] {
 }
 
 function refuseAll<T>(rows: T[], idOf: (r: T) => string, entity: RowRefusal['entity'], labelOf: (r: T) => string,
-  code: string, reason: (key: string) => string, keyOf: (r: T) => string): { kept: T[]; refusals: RowRefusal[] } {
-  const count = new Map<string, number>();
+  code: string, reason: (key: string) => string, keyOf: (r: T) => string, invalid: ReadonlyMap<string, number>): { kept: T[]; refusals: RowRefusal[] } {
+  // A row that is itself invalid and carries the key counts as a row using it: Sage said two things about it, and neither is imported.
+  const count = new Map<string, number>(invalid);
   for (const r of rows) count.set(keyOf(r), (count.get(keyOf(r)) ?? 0) + 1);
   const kept: T[] = [];
   const refusals: RowRefusal[] = [];
   for (const r of rows) {
-    if ((count.get(keyOf(r)) ?? 0) > 1) refusals.push({ entity, sageId: idOf(r), label: labelOf(r), code, reasons: [reason(keyOf(r))] });
+    if ((count.get(keyOf(r)) ?? 0) > 1) {
+      const why = reason(keyOf(r));
+      refusals.push({ entity, sageId: idOf(r), label: labelOf(r), code, reasons: [(invalid.get(keyOf(r)) ?? 0) > 0 ? `${why} (another row with it is invalid)` : why] });
+    }
     else kept.push(r);
   }
   return { kept, refusals };
 }
 
 function dedupe<T>(rows: T[], idOf: (r: T) => string, labelOf: (r: T) => string, entity: RowRefusal['entity'],
-  checks: Array<{ code: string; key: (r: T) => string; reason: (k: string) => string }>): { kept: T[]; refusals: RowRefusal[] } {
+  checks: Array<{ code: string; key: (r: T) => string; reason: (k: string) => string; invalid: ReadonlyMap<string, number> }>): { kept: T[]; refusals: RowRefusal[] } {
   let kept = rows;
   const refusals: RowRefusal[] = [];
   for (const c of checks) {
-    const out = refuseAll(kept, idOf, entity, labelOf, c.code, c.reason, c.key);
+    const out = refuseAll(kept, idOf, entity, labelOf, c.code, c.reason, c.key, c.invalid);
     kept = out.kept;
     refusals.push(...out.refusals);
   }
@@ -118,6 +122,16 @@ export function parseSageExport(file: unknown): ParsedExport {
   /** Every item row with a readable ID and Code, refused or not: what a PO line's suffix names. For a duplicated Sage id, the FIRST code seen. */
   const itemCodes: Record<string, string> = {};
   let itemsWithQuantityOnHand = 0;
+  /** The ID and the readable Code or DocumentNumber of every row that is INVALID: a valid row sharing one of them is refused too. */
+  const badItemIds = new Map<string, number>();
+  const badItemCodes = new Map<string, number>();
+  const badPoIds = new Map<string, number>();
+  const badPoNumbers = new Map<string, number>();
+  const note = (m: Map<string, number>, key: string | null | undefined) => { if (key) m.set(key, (m.get(key) ?? 0) + 1); };
+  const readable = (raw: unknown, key: string): string | null => {
+    const v = isRaw(raw) && typeof raw[key] === 'string' ? (raw[key] as string).trim() : '';
+    return v !== '' && v.length <= 50 && invalidTextProblem(v) === null ? v : null;
+  };
 
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
@@ -125,6 +139,8 @@ export function parseSageExport(file: unknown): ParsedExport {
     if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] ??= r.value.code; if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
     else {
       refusals.push(r.refusal);
+      note(badItemIds, r.refusal.sageId);
+      note(badItemCodes, readable(raw, 'Code'));
       if (r.refusal.sageId) {
         knownIds.add(r.refusal.sageId);
         const code = isRaw(raw) && typeof raw.Code === 'string' ? raw.Code.trim() : '';
@@ -133,8 +149,8 @@ export function parseSageExport(file: unknown): ParsedExport {
     }
   });
   const uniqueItems = dedupe(items, (i) => i.id, (i) => i.code, 'item', [
-    { code: 'duplicate_id', key: (i) => i.id, reason: (k) => `Sage ID ${k} is used by more than one item row` },
-    { code: 'duplicate_code', key: (i) => i.code, reason: (k) => `Code ${k} is used by more than one item row` },
+    { code: 'duplicate_id', key: (i) => i.id, reason: (k) => `Sage ID ${k} is used by more than one item row`, invalid: badItemIds },
+    { code: 'duplicate_code', key: (i) => i.code, reason: (k) => `Code ${k} is used by more than one item row`, invalid: badItemCodes },
   ]);
   refusals.push(...uniqueItems.refusals);
   const cats = itemCategories(uniqueItems.kept);
@@ -147,11 +163,12 @@ export function parseSageExport(file: unknown): ParsedExport {
     if (isRaw(raw) && typeof raw.Total === 'number' && Number.isFinite(raw.Total)) exportPoTotalCents += Math.round(raw.Total * 100);
     else exportRowsWithoutTotal++;
     const r = parseSagePurchaseOrder(raw, i);
-    if (r.ok) pos.push(r.value); else refusals.push(r.refusal);
+    if (r.ok) pos.push(r.value);
+    else { refusals.push(r.refusal); note(badPoIds, r.refusal.sageId); note(badPoNumbers, readable(raw, 'DocumentNumber')); }
   });
   const uniquePos = dedupe(pos, (p) => p.id, (p) => p.documentNumber, 'purchase_order', [
-    { code: 'duplicate_id', key: (p) => p.id, reason: (k) => `Sage ID ${k} is used by more than one purchase order row` },
-    { code: 'duplicate_number', key: (p) => p.documentNumber, reason: (k) => `DocumentNumber ${k} is used by more than one purchase order row` },
+    { code: 'duplicate_id', key: (p) => p.id, reason: (k) => `Sage ID ${k} is used by more than one purchase order row`, invalid: badPoIds },
+    { code: 'duplicate_number', key: (p) => p.documentNumber, reason: (k) => `DocumentNumber ${k} is used by more than one purchase order row`, invalid: badPoNumbers },
   ]);
   refusals.push(...uniquePos.refusals);
   const purchaseOrders: SagePurchaseOrder[] = [];

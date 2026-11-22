@@ -148,6 +148,32 @@ describe('item rows', () => {
     expect(p.items).toHaveLength(16);
     expect(p.refusals.filter((r) => r.entity === 'item').map((r) => r.code).sort()).toEqual(['duplicate_code', 'duplicate_code', 'duplicate_id', 'duplicate_id']);
   });
+  it('B5-F (round 5): a second row with the same ID or Code that is itself INVALID refuses the valid row too', () => {
+    const f = fixture();
+    f.Items.$resources.push({ ID: 50001, Code: 'OTHER-1', Description: 'Something else', Active: 'yes', Physical: true, PriceExclusive: 999 }); // same ID, bad Active
+    f.Items.$resources.push({ ID: 60000, Code: f.Items.$resources[1]!.Code, Description: 'Same code', Active: 'yes', Physical: true }); // same Code, bad Active
+    const p = parseSageExport(f);
+    expect(p.items.map((i) => i.id)).not.toContain('50001');
+    expect(p.items.map((i) => i.id)).not.toContain(String(f.Items.$resources[1]!.ID));
+    expect(p.items).toHaveLength(18);
+    expect(p.refusals.filter((r) => r.code === 'duplicate_id' || r.code === 'duplicate_code').map((r) => r.code).sort()).toEqual(['duplicate_code', 'duplicate_id']);
+    expect(p.refusals.filter((r) => r.code === 'duplicate_id')[0]!.reasons[0]).toMatch(/another row with it is invalid/);
+  });
+  it('B5-F (round 5): the same for a purchase order: its twin by ID or DocumentNumber is invalid, both are refused', () => {
+    const f = fixture();
+    f.PurchaseOrders.push({ ...f.PurchaseOrders[0]!, ID: 999999, Total: 1, Date: 'not a date' }); // same DocumentNumber
+    f.PurchaseOrders.push({ ...f.PurchaseOrders[1]!, DocumentNumber: 'PO-OTHER', Date: 'not a date' }); // same ID
+    const p = parseSageExport(f);
+    expect(p.purchaseOrders.map((x) => x.documentNumber)).not.toContain(String(f.PurchaseOrders[0]!.DocumentNumber));
+    expect(p.purchaseOrders.map((x) => x.id)).not.toContain(String(f.PurchaseOrders[1]!.ID));
+    expect(p.purchaseOrders).toHaveLength(8);
+    expect(p.refusals.filter((r) => r.code === 'duplicate_number' || r.code === 'duplicate_id').map((r) => r.code).sort()).toEqual(['duplicate_id', 'duplicate_number']);
+  });
+  it('B5-F (round 5): an invalid row whose ID or Code is unreadable makes no claim on a valid one', () => {
+    const f = fixture();
+    f.Items.$resources.push({ ID: 'abc', Code: '', Description: 'x' }, { Code: 12, Description: 'y' });
+    expect(parseSageExport(f).items).toHaveLength(20);
+  });
   it('refuses a later item that describes a category ID differently, or reuses a category name under another ID', () => {
     const f = fixture();
     const cat = (i: number, ID: number, Description: string) => { f.Items.$resources[i] = { ...f.Items.$resources[i], Category: { ID, Description } }; };
