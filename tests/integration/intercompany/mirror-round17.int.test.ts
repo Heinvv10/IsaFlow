@@ -2,7 +2,7 @@
  * Intercompany P2, round 17: the round-16 breaker's probes as asserting tests.
  *  H1  a sender cancel whose reversal is dated AFTER the period (VAT-locked, rolled to May) leaves the period eliminated by the mirror: a re-run
  *      keeps the link, a first run makes it; the period is eliminated once. A cancel reversed inside the period drafts the row, and the draft
- *      is still flagged (the cancelled mirror is judged for the period, so the confirm says it is NOT eliminated);
+ *      is still flagged (the cancelled mirror is judged for the period, so the confirm says the sender cancelled it and, if it is the same sale, nothing is left to eliminate);
  *  M1  two equal sales, two mirrors: each row takes its own free mirror; a pre-cutover row never starves a post-cutover one ('closer');
  *  L1  a direct call cannot link a row before its pair's cutover;
  *  L2  a draft posted before the receiver approved: once the mirror stands the posted row is warned on the list (reverse this one).
@@ -91,7 +91,7 @@ describe('H1: a cancel reversed after the period leaves the period eliminated by
     expect((await total('2026-03-01', '2026-03-31')).sum).toBe(1000);
   });
 
-  it('a cancel reversed INSIDE March: the row is NOT drafted (round 26, M2: the sender cancelled the sale, no revenue is left to eliminate); it is reported as cancelled and nothing is stored', async () => {
+  it('a cancel reversed INSIDE March: the row is drafted, still flagged, and posting it asks for a confirm that says the sender cancelled the mirror: if it is the same sale there is nothing to eliminate (round 27, M1)', async () => {
     await turnOn();
     const m = await booked('2026-03-15');
     const s = await manual(co.A, co.B, 'sale', '2026-03-15'); await matchRows([s.id]);
@@ -100,9 +100,10 @@ describe('H1: a cancel reversed after the period leaves the period eliminated by
     expect((await pool.query("SELECT entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [m.message.source_journal_entry_id])).rows.map((r) => r.d)).toEqual(['2026-03-15']);
     const end = '2026-03-31';
     const g = await gen('2026-03-01', end);
-    expect([g.skipped, g.drafted.includes(s.id), g.flagged]).toEqual([[s.id], false, []]);
-    expect(await adjOf(s.id)).toBeUndefined();
-    expect(await activeLinks()).toEqual([]);   // (the link was released: the mirror no longer eliminates the row)
+    expect([g.skipped, g.drafted.includes(s.id)]).toEqual([[], true]);
+    const row = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-03-01', end))).find((a) => a.sourceIntercompanyId === s.id)!;
+    expect([row.mirroredDuplicateOf ? 'warned' : 'none', row.mirrorStands]).toEqual(['warned', false]);
+    expect(await post(row.id)).toMatch(/REFUSED: .*which the sender cancelled \(its journal is reversed as at 2026-03-31\).*If it is the same sale there is no revenue left to eliminate: do not post this.*If it is another sale, it still needs this elimination/);
   });
 });
 

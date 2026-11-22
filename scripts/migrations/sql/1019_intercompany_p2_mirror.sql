@@ -105,23 +105,28 @@ ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS mirroring_sin
 ALTER TABLE consolidation_adjustments ADD COLUMN IF NOT EXISTS manual_reason TEXT;
 
 -- One standing (draft or posted) elimination per intercompany row, enforced by a partial unique index. THIS MIGRATION DOES NOT CHANGE EXISTING
--- CONSOLIDATION DATA: if duplicates already exist the index is skipped (a NOTICE with their number), and the generator's per-row skip still
--- stops new ones (two runs for one group are serialised by an advisory lock, eliminationGenerator.ts). Clean the duplicates by hand and
--- re-run the CREATE INDEX below to enforce it.
+-- CONSOLIDATION DATA: if duplicates already exist the strict index is NOT created (a NOTICE names the rows, and how many), and the generator's
+-- per-row skip still stops new ones (two runs for one group are serialised by an advisory lock, eliminationGenerator.ts). Clean the duplicates by
+-- hand and re-run the CREATE INDEX below to enforce it.
+-- An EARLIER shape of this index (one per row AND per has-a-reason, which lets two stand) is dropped EITHER WAY, with or without duplicates: a
+-- database that used the descoped manual elimination of a mirrored row has duplicates of exactly that kind, and keeping the old index would keep
+-- permitting them. So after this migration the database has the strict index, or (duplicates) NO unique index on the row until they are cleaned.
 DO $$
 DECLARE
   v_dups integer;
+  v_rows text;
 BEGIN
-  SELECT count(*) INTO v_dups FROM (SELECT source_intercompany_id FROM consolidation_adjustments
-                                      WHERE source_intercompany_id IS NOT NULL AND status IN ('draft', 'posted')
-                                      GROUP BY source_intercompany_id HAVING count(*) > 1) d;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uq_consolidation_adjustments_standing_source'
+               AND indexdef LIKE '%manual_reason IS NOT NULL%') THEN
+    DROP INDEX public.uq_consolidation_adjustments_standing_source;
+  END IF;
+  SELECT count(*), array_to_string((array_agg(d.source_intercompany_id ORDER BY d.source_intercompany_id))[1:20], ', ') INTO v_dups, v_rows
+    FROM (SELECT source_intercompany_id FROM consolidation_adjustments
+           WHERE source_intercompany_id IS NOT NULL AND status IN ('draft', 'posted')
+           GROUP BY source_intercompany_id HAVING count(*) > 1) d;
   IF v_dups > 0 THEN
-    RAISE NOTICE '1019: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created', v_dups;
+    RAISE NOTICE '1019: % intercompany row(s) have more than one standing elimination; uq_consolidation_adjustments_standing_source NOT created (rows, first 20: %)', v_dups, v_rows;
   ELSE
-    IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uq_consolidation_adjustments_standing_source'
-                 AND indexdef LIKE '%manual_reason IS NOT NULL%') THEN
-      DROP INDEX public.uq_consolidation_adjustments_standing_source;   -- (an earlier shape: one per row AND has-a-reason, which lets two stand)
-    END IF;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id)
       WHERE status IN ('draft', 'posted');   -- (NULLs never collide: a manual adjustment has no source row)
   END IF;
@@ -1173,7 +1178,7 @@ BEGIN
        OR NEW.handled_at IS DISTINCT FROM OLD.handled_at OR NEW.handled_via IS DISTINCT FROM OLD.handled_via
        OR NEW.manual_only IS DISTINCT FROM OLD.manual_only
        OR (NEW.source_journal_entry_id IS DISTINCT FROM OLD.source_journal_entry_id AND NOT (v_system = 'backfill' AND OLD.source_journal_entry_id IS NULL))
-       OR (NEW.group_transaction_id IS DISTINCT FROM OLD.group_transaction_id AND NOT (v_system = 'backfill' AND OLD.group_transaction_id IS NULL)) THEN
+       OR (NEW.group_transaction_id IS DISTINCT FROM OLD.group_transaction_id AND NOT (v_system = 'backfill' AND (OLD.group_transaction_id IS NULL OR NEW.group_transaction_id IS NULL))) THEN
       RAISE EXCEPTION 'a system update of a message changes only its withdrawal and its attempt counters' USING ERRCODE = '23514';
     END IF;
     IF v_system = 'withdraw' THEN
@@ -1192,7 +1197,7 @@ BEGIN
         RAISE EXCEPTION 'a revival lifts a withdrawal or a stamp only' USING ERRCODE = '23514';
       END IF;
     ELSIF v_system = 'backfill' THEN
-      -- (section 6b) the migration records a journal / group row a message was written without: nothing else moves
+      -- (section 6b) the migration records a journal / group row a message was written without, or clears a group row it bound unproved: nothing else moves
       IF NEW.status IS DISTINCT FROM OLD.status OR NEW.source_cancelled_at IS DISTINCT FROM OLD.source_cancelled_at
          OR NEW.auto_attempts IS DISTINCT FROM OLD.auto_attempts OR NEW.auto_next_attempt_at IS DISTINCT FROM OLD.auto_next_attempt_at THEN
         RAISE EXCEPTION 'a backfill records a journal and a group row only' USING ERRCODE = '23514';
@@ -1705,7 +1710,10 @@ GRANT EXECUTE ON FUNCTION public.intercompany_mirrored_duplicate(uuid, date) TO 
 -- (intercompany_mirror_stands), and whose ACTIVE link of the row's role holds it: 'here' (this row), 'elsewhere' (another row: "matched to a
 -- different row"), 'none'; other_role: the role of another row's active link of the OTHER role (the sale's other side); by_total: matched by
 -- its total with VAT (mirroring eliminates net of VAT); elim_date: the date its elimination falls on (the later document date, which can be
--- after the period: "stands" judges the pair, not that date); sender_cancelled: the sender's sent-with journal is reversed as at the period end (no revenue is left to eliminate). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
+-- after the period: "stands" judges the pair, not that date); sender_cancelled: the journal the message was sent with is REVERSED as at that date (its chain has an even number, above 0, of journals counting as at it: reversed and not
+-- reinstated; whoever reversed it, cancelling the document being what does). It is a fact for WORDING only (mirrorFacts.ts: "possibly the same sale as X, which the sender
+-- cancelled (its journal is reversed as at <date>): if it is the same sale there is no revenue left to eliminate, if another sale it still needs this elimination"); the
+-- generator never skips a row for it (RULING 2026-11-21: a row is left to mirroring only through the stored link). Of several single candidates (closest first) it names, in this order: the one this row's active link holds; else the
 -- closest that stands and no other row's link holds (stopping there); else the closest no other row's link holds (none of those stands: it is
 -- named NOT eliminated, never a mirror that is another row's sale); else the closest. A month sum names every member. The ONE source of the
 -- generator's note, the list's badge, the 409 and the confirm (mirrorFacts.ts): no sentence is worded from anything else. label: the
@@ -2300,7 +2308,10 @@ GRANT EXECUTE ON FUNCTION public.intercompany_auto_accept_exhausted() TO app_ser
 -- no other document's, on no other message); the group row is the payload's reference only when it is the sender's to this receiver for that
 
 -- journal (intercompany_group_row_ok). Anything else stays NULL, and the definers fail closed on NULL. It runs as migration_admin through the
--- guard's own 'backfill' system update (the guard stays on; only these two NULL columns may be set).
+-- guard's own 'backfill' system update (the guard stays on; only these two columns may move: a NULL may be set, and a group row may be cleared).
+-- A database that applied an EARLIER shape of this backfill converges here: that one matched a NULL journal to a row's NULL journal (a P1 manual
+-- row with none), so it bound a message to a manual row. A message that has no proved journal and still names a group row is unbound below
+-- (idempotent: nothing is left to clear the second time), and re-bound by the statement after it only where the journal and the row are proved.
 DO $$
 DECLARE
   r RECORD;
@@ -2332,6 +2343,8 @@ BEGIN
       UPDATE public.intercompany_messages SET source_journal_entry_id = v_je WHERE id = r.id;
     END IF;
   END LOOP;
+  UPDATE public.intercompany_messages m SET group_transaction_id = NULL
+   WHERE m.group_transaction_id IS NOT NULL AND m.source_journal_entry_id IS NULL AND m.kind IN ('invoice', 'credit_note');
   UPDATE public.intercompany_messages m SET group_transaction_id = (m.payload->>'groupTransactionId')::uuid
    WHERE m.group_transaction_id IS NULL AND m.source_journal_entry_id IS NOT NULL AND m.kind IN ('invoice', 'credit_note') AND m.payload->>'groupTransactionId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      AND public.intercompany_group_row_ok((m.payload->>'groupTransactionId')::uuid, m.from_company_id, m.to_company_id, m.source_journal_entry_id);

@@ -96,15 +96,15 @@ describe('M1: a cancel and re-issue inside the period', () => {
     expect(await total('2026-03-01', '2026-03-31')).toBe(1000);
   });
 
-  it('a re-run after a cancel with NO re-issue: the link is released and the row is NOT drafted (round 26, M2: the sender cancelled the sale, no revenue is left to eliminate)', async () => {
+  it('a re-run after a cancel with NO re-issue: the link is released and the row drafted, saying the mirror no longer eliminates it', async () => {
     await turnOn();
     const m1 = await booked('2026-03-15');
     const s = await manual(co.A, co.B, 'sale', '2026-03-15'); await matchRows([s.id]);
     expect((await gen('2026-03-01', '2026-03-31')).skipped).toEqual([s.id]);
     await L.cancelSender(m1.inv.id);
     const again = await gen('2026-03-01', '2026-03-31');
-    expect([again.skipped, again.drafted]).toEqual([[s.id], []]);
-    expect(again.flagged).toEqual([]);
+    expect([again.skipped, again.drafted]).toEqual([[], [s.id]]);
+    expect(again.flagged.find((f) => f.transactionId === s.id)?.reason).toMatch(/that mirror did not eliminate this row for the period to 2026-03-31/);
     expect(await activeLinks()).toEqual([]);
   });
 

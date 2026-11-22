@@ -1,10 +1,9 @@
 /**
- * Intercompany P2, round 26, M2: after the SENDER cancels, nothing invites an elimination of revenue that no longer exists.
- * A manual (P1) row R after the pair's cutover, linked to mirror M; M's bill approved in April (+E); the sender cancels M with a reversal dated
- * June (-E in June; the sender's revenue nets 0, the derived +E / -E net 0). A Jan-Jun run judges the link at 30 June, finds it no longer holds
- * and used to DRAFT R for Jan-Jun with "NOT eliminated automatically ... this may be the sale's only elimination": posting it took revenue out
- * twice. The facts now carry "the sender cancelled it" (intercompany_mirror_facts.sender_cancelled): the generator does not draft R (it reports
- * it), and every sentence says there is no revenue left to eliminate. A row BEFORE its pair's cutover is still drafted (it may be another sale).
+ * Intercompany P2, round 27 (blind review of 5f202605c9), H1 + M1 + L3 + L4: the RULING 2026-11-21 holds after the sender cancels. A manual (P1) row
+ * is left to mirroring ONLY through the stored, exclusive link; with none it is DRAFTED and flagged CHECK BEFORE POSTING. Round 26 skipped any row
+ * whose closest free candidate was a cancelled mirror, which stranded a genuine row whose own revenue stands: it is drafted again. What stays of
+ * round 26 is the WORDING: a single mirror whose sent-with journal is reversed as at the date (intercompany_mirror_facts.sender_cancelled) is
+ * described conditionally ("if it is the same sale there is no revenue left to eliminate: do not post this; if another sale, it still needs this").
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -52,68 +51,91 @@ async function cancelInJune(inv: string) {
 }
 const adjustments = async (s: string, e: string) => asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, s, e));
 const stored = async () => (await pool.query('SELECT id, status, description FROM consolidation_adjustments WHERE group_id = $1', [co.G])).rows;
-const net = (adj: Awaited<ReturnType<typeof adjustments>>) => adj.filter((a) => a.automatic || a.status === 'posted')
-  .reduce((n, a) => n + a.lines.reduce((x, l) => x + Number(l.debit) - Number(l.credit), 0), 0);
+const CANCELLED = (ref: string, end: string, cut = '') => `Possibly the same sale as mirrored document ${ref}, which the sender cancelled (its journal is reversed as at ${end})${cut}. `
+  + 'If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). '
+  + 'If it is another sale, it still needs this elimination.';
+const refOf = async (m: { message: { group_transaction_id: string } }) =>
+  (await pool.query('SELECT description FROM intercompany_transactions WHERE id = $1', [m.message.group_transaction_id])).rows[0].description as string;
+const reversalOf = async (je: string) => (await pool.query("SELECT id, entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [je])).rows[0] as { id: string; d: string };
+/** The sender revives the cancelled sale: its reversal journal is reversed on `date` (the chain's third journal). */
+async function reviveOn(je: string, date: string) {
+  const rev = (await pool.query(`INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id)
+    SELECT $2::date, 'reversal', source, 'draft', created_by, company_id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [je, date])).rows[0].id as string;
+  await pool.query(`INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description)
+    SELECT $2, gl_account_id, credit, debit, company_id, 'reversal' FROM gl_journal_lines WHERE journal_entry_id = $1`, [je, rev]);
+  await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now(), reversal_of_id = $2 WHERE id = $1", [rev, je]);
+}
 
-describe('M2: the sender cancelled the sale, so no elimination of its revenue is invited', () => {
-  async function scenario() {
+describe('H1: a post-cutover row with no stored link is DRAFTED and flagged, whatever the closest free candidate is', () => {
+  it('a genuine row R (10 Apr) and a separate mirrored invoice M (12 Apr, same amount) the sender cancelled: the April run drafts R, flagged CHECK BEFORE POSTING with the conditional wording; nothing is skipped', async () => {
+    await turnOn('2026-03-01');
+    const m = await booked('2026-04-12');
+    await L.cancelSender(m.inv.id);
+    expect((await reversalOf(m.message.source_journal_entry_id)).d, 'the cancel is dated inside April').toMatch(/^2026-04-/);
+    const r = await matched((await manual('2026-04-10')).id);
+    const ref = await refOf(m);
+    const g = await gen('2026-04-01', '2026-04-30');
+    expect([g.drafted, g.skipped]).toEqual([[r], []]);
+    expect(g.flagged.map((f) => [f.transactionId, f.mirroredRef])).toEqual([[r, ref]]);
+    expect(g.flagged[0]!.reason).toBe(`The pair mirrors from 2026-03-01. ${CANCELLED(ref, '2026-04-30')}`);
+    const [row] = await stored();
+    expect(row.status).toBe('draft');
+    expect(row.description).toMatch(/CHECK BEFORE POSTING \(as found by the run of \d{4}-\d{2}-\d{2}\): The pair mirrors from 2026-03-01\. Possibly the same sale as mirrored document .*which the sender cancelled/);
+    expect(await adjustments('2026-04-01', '2026-04-30').then((a) => a.filter((x) => x.sourceIntercompanyId === r).length), 'R is on the list for the period').toBe(1);
+  });
+
+  it('a cancel dated INSIDE the period and revived (re-reversed) AFTER it: the period\'s run drafts R, it is not stranded', async () => {
+    await turnOn('2026-03-01');
+    const m = await booked('2026-04-12');
+    await L.cancelSender(m.inv.id);
+    await reviveOn((await reversalOf(m.message.source_journal_entry_id)).id, '2026-05-05');
+    const r = await matched((await manual('2026-04-10')).id);
+    const g = await gen('2026-04-01', '2026-04-30');
+    expect([g.drafted, g.skipped]).toEqual([[r], []]);
+    expect(g.flagged.map((f) => f.transactionId)).toEqual([r]);
+    expect((await stored()).map((x) => x.status)).toEqual(['draft']);
+  });
+
+  it('a row after a cancel dated after the period is still left to mirroring, as before (the link holds as at the period)', async () => {
     await turnOn('2026-03-01');
     const m = await booked('2026-04-10');
     const r = await matched((await manual('2026-04-10')).id);
-    // April: the row is left to mirroring (linked); then the sender cancels, the reversal dated 1 June
     expect((await gen('2026-04-01', '2026-04-30')).skipped.map((s) => s.transactionId)).toEqual([r]);
     await cancelInJune(m.inv.id);
-    expect((await pool.query("SELECT entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [m.message.source_journal_entry_id])).rows.map((x) => x.d)).toEqual(['2026-06-01']);
-    return { m, r };
-  }
-
-  it('a Jan-Jun run does not draft R: it is reported as cancelled by the sender, nothing is stored, and the group figure carries no elimination of the cancelled sale', async () => {
-    const { r } = await scenario();
-    const g = await gen('2026-01-01', '2026-06-30');
-    expect(g.drafted).toEqual([]);
-    expect(g.flagged).toEqual([]);
-    expect(g.skipped).toHaveLength(1);
-    expect(g.skipped[0]).toMatchObject({ transactionId: r, senderCancelled: true });
-    expect(g.skipped[0]!.detail).toMatch(/the sender cancelled it; there is no revenue left to eliminate/);
-    expect(await stored()).toEqual([]);
-    expect(net(await adjustments('2026-01-01', '2026-06-30')), 'derived +E and -E net to zero, no stored elimination').toBe(0);
-  });
-
-  it('a re-run says the same (nothing drafted, still reported)', async () => {
-    const { r } = await scenario();
-    await gen('2026-01-01', '2026-06-30');
-    const again = await gen('2026-01-01', '2026-06-30');
-    expect([again.drafted, again.skipped.map((s) => [s.transactionId, s.senderCancelled])]).toEqual([[], [[r, true]]]);
-    expect(await stored()).toEqual([]);
-  });
-
-  it('a cancel reversed AFTER the period still leaves the period eliminated by the mirror (not reported as cancelled)', async () => {
-    const { r } = await scenario();
     const g = await gen('2026-04-01', '2026-04-30');
-    expect([g.drafted, g.skipped.map((s) => [s.transactionId, s.senderCancelled === true])]).toEqual([[], [[r, false]]]);
+    expect([g.drafted, g.skipped.map((s) => s.transactionId)]).toEqual([[], [r]]);
   });
 
-  it('a stored draft of R made before (an older run) is worded from the same fact: the confirm says there is no revenue left to eliminate', async () => {
-    const { r } = await scenario();
-    await pool.query(
-      `INSERT INTO consolidation_adjustments(group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id)
-       VALUES ($1, 'interco_revenue', 'older run', '2026-01-01', '2026-06-30', '[]'::jsonb, $2)`, [co.G, r]);
-    const row = (await adjustments('2026-01-01', '2026-06-30')).find((a) => a.sourceIntercompanyId === r)!;
-    expect(row.mirrorFacts?.mirrors[0]).toMatchObject({ stands: false, senderCancelled: true });
-    const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G, false)).then(() => 'posted', (e: Error) => e.message);
-    expect(refused).toMatch(/the sender cancelled .*there is no revenue left to eliminate/);
-    expect(refused).not.toMatch(/only elimination/);
-  });
-
-  it('BEFORE the pair\'s cutover the row is still drafted (it may be another sale), flagged with the cancelled wording and never "the only elimination"', async () => {
-    await turnOn('2026-03-01', '2026-05-01 00:00+02');   // (the connection's cut-over is March, both sides mirror from May: the pair's cutover is May)
+  it('Jan-Jun after the sender cancelled in June: R, linked in April, is drafted for the half-year and flagged', async () => {
+    await turnOn('2026-03-01');
     const m = await booked('2026-04-10');
     const r = await matched((await manual('2026-04-10')).id);
+    await gen('2026-04-01', '2026-04-30');
     await cancelInJune(m.inv.id);
     const g = await gen('2026-01-01', '2026-06-30');
     expect([g.drafted, g.skipped]).toEqual([[r], []]);
-    const note = g.flagged.find((f) => f.transactionId === r)!.reason;
-    expect(note).toMatch(/the sender cancelled .*there is no revenue left to eliminate/);
-    expect(note).not.toMatch(/only elimination/);
+    expect(g.flagged[0]!.reason).toContain(CANCELLED(await refOf(m), '2026-06-30'));
+  });
+});
+
+describe('M1: the wording of a draft / a stored draft / a posted row comes from the one fact', () => {
+  async function stale() {
+    await turnOn('2026-03-01');
+    const m = await booked('2026-04-10');
+    const r = await matched((await manual('2026-04-10')).id);
+    await gen('2026-04-01', '2026-04-30');
+    await cancelInJune(m.inv.id);
+    await pool.query(
+      `INSERT INTO consolidation_adjustments(group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id)
+       VALUES ($1, 'interco_revenue', 'older run', '2026-01-01', '2026-06-30', '[]'::jsonb, $2)`, [co.G, r]);
+    return { m, row: (await adjustments('2026-01-01', '2026-06-30')).find((a) => a.sourceIntercompanyId === r)! };
+  }
+
+  it('the confirm of a stored draft says: possibly the same sale, no revenue left if it is, do not post; if another sale it still needs this', async () => {
+    const { m, row } = await stale();
+    expect(row.mirrorFacts?.mirrors[0]).toMatchObject({ stands: false, senderCancelled: true });
+    const refused = await asService(pool, U.ab, co.A, () => postEliminationAdjustment(row.id, co.G, false)).then(() => 'posted', (e: Error) => e.message);
+    expect(refused).toContain(CANCELLED(await refOf(m), '2026-06-30', ' (the pair mirrors from 2026-03-01)'));
+    expect(refused).not.toMatch(/only elimination|NOT eliminated/);
   });
 });

@@ -1,19 +1,21 @@
 /**
- * Round 26, M2: a mirror the SENDER cancelled (as at the period end) eliminates nothing and there is no revenue left to eliminate, so no sentence
- * calls it "the sale's only elimination" or "NOT eliminated automatically" (which invites the person to eliminate revenue that is gone).
+ * Round 27 (M1, L2, L3): a single mirror whose sent-with journal is reversed as at the period end (the sender cancelled it) eliminates nothing for the
+ * period. The row may still be ANOTHER sale, so the sentence is conditional: if it is the same sale there is no revenue left to eliminate (do not post
+ * this); if it is another sale, it still needs this elimination. No sentence calls it "NOT eliminated automatically" or "the sale's only elimination".
  */
 import { describe, expect, it } from 'vitest';
 import {
-  duplicateBadgeText, factsFromRows, generatorReason, isSenderCancelled, mirrorFactsSentence, parseMirrorFacts, possibleDuplicateMessage, SENDER_CANCELLED,
+  duplicateBadgeText, factsFromRows, generatorReason, isSenderCancelled, mirrorFactsSentence, parseMirrorFacts, possibleDuplicateMessage,
   type MirrorFact, type MirrorFacts,
 } from '@/modules/accounting/services/reports/mirrorFacts';
 
 const END = '2026-06-30';
 const mirror = (over: Partial<MirrorFact> = {}): MirrorFact => ({ ref: 'INV-1 (mirrored)', amount: 1000, stands: false, link: 'none', byTotal: false, elimDate: '2026-04-10', otherRole: null, senderCancelled: true, ...over });
 const single = (over: Partial<MirrorFact> = {}): MirrorFacts => ({ label: 'INV-1 (mirrored)', sum: false, periodEnd: END, mirrors: [mirror(over)] });
-const WORDS = /the sender cancelled .*there is no revenue left to eliminate/;
+const HEAD = 'Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at 2026-06-30)';
+const CONDITIONAL = 'If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). If it is another sale, it still needs this elimination.';
 
-describe('a single mirror the sender cancelled', () => {
+describe('a single mirror whose sent-with journal is reversed as at the period end', () => {
   const f = single();
   it('is recognised only when nothing eliminates it for the period', () => {
     expect(isSenderCancelled(f)).toBe(true);
@@ -22,40 +24,32 @@ describe('a single mirror the sender cancelled', () => {
     expect(isSenderCancelled({ ...f, sum: true })).toBe(false);
   });
 
-  it.each([
-    ['the sentence', mirrorFactsSentence(f)],
-    ['the sentence with a pair cutover', mirrorFactsSentence(f, '2026-03-01')],
-    ['the 409 and the confirm', possibleDuplicateMessage(f)],
-    ['a draft\'s badge', duplicateBadgeText(f, 'draft')],
-    ['a posted badge', duplicateBadgeText(f, 'posted')],
-    ['the generator\'s note, before the cutover', generatorReason(f, null, null, END)],
-    ['the generator\'s note, after the cutover', generatorReason(f, '2026-03-01', { state: 'released', ref: 'INV-1 (mirrored)' }, END)],
-  ])('%s says the sender cancelled it and never "the only elimination" or "NOT eliminated"', (_n, text) => {
-    expect(text).toMatch(WORDS);
-    expect(text).not.toMatch(/only elimination|NOT eliminated|twice/);
+  it('the sentence is the exact conditional wording (and the pair cutover goes in brackets after the cancel)', () => {
+    expect(mirrorFactsSentence(f)).toBe(`${HEAD}. ${CONDITIONAL}`);
+    expect(mirrorFactsSentence(f, '2026-03-01')).toBe(`${HEAD} (the pair mirrors from 2026-03-01). ${CONDITIONAL}`);
   });
 
-  it('the generator\'s skip detail is the same words', () => {
-    expect(SENDER_CANCELLED).toBe('the sender cancelled it; there is no revenue left to eliminate');
+  it('the 409 / confirm, a draft\'s badge and the generator\'s notes carry it word for word', () => {
+    expect(possibleDuplicateMessage(f)).toBe(`${HEAD}. ${CONDITIONAL} Confirm to post it.`);
+    expect(duplicateBadgeText(f, 'draft')).toBe(`${HEAD}. ${CONDITIONAL} Check before posting.`);
+    expect(generatorReason(f, null, null, END)).toBe(`${HEAD}. ${CONDITIONAL}`);
+    expect(generatorReason(f, '2026-03-01', { state: 'released', ref: 'INV-1 (mirrored)' }, END)).toBe(
+      `The pair mirrors from 2026-03-01. Its link to mirrored document INV-1 (mirrored) was released: that mirror did not eliminate this row for the period to ${END} when this run was made. ${HEAD}. ${CONDITIONAL}`);
+  });
+
+  it('a posted elimination is told it is an over-elimination to reverse if it is the same sale', () => {
+    expect(duplicateBadgeText(f, 'posted')).toBe(`Posted. ${HEAD}. If it is the same sale there is no revenue left to eliminate: this elimination is an over-elimination, reverse it. If it is another sale, it still needs this elimination.`);
+  });
+
+  it('never says "NOT eliminated" or "only elimination", and does not claim more than the fact shows (the journal is reversed as at the date)', () => {
+    for (const text of [mirrorFactsSentence(f), duplicateBadgeText(f, 'draft'), duplicateBadgeText(f, 'posted')]) {
+      expect(text).not.toMatch(/only elimination|NOT eliminated|twice/);
+      expect(text).toContain('its journal is reversed as at 2026-06-30');
+    }
   });
 
   it('a mirror that is NOT cancelled and not eliminated still says it may be the only elimination', () => {
     expect(mirrorFactsSentence(single({ senderCancelled: false }))).toMatch(/NOT eliminated automatically for the period to 2026-06-30: this may be the sale's only elimination\./);
-  });
-});
-
-describe('a month sum', () => {
-  const sum = (a: Partial<MirrorFact>, b: Partial<MirrorFact>): MirrorFacts => ({ label: '2 mirrored documents of April 2026', sum: true, periodEnd: END,
-    mirrors: [mirror({ ref: 'A', amount: 600, ...a }), mirror({ ref: 'B', amount: 400, ...b })] });
-
-  it('of mirrors the sender cancelled says so, not "the only elimination"', () => {
-    const text = mirrorFactsSentence(sum({}, {}));
-    expect(text).toMatch(/The sender cancelled them: there is no revenue left to eliminate\./);
-    expect(text).not.toMatch(/only elimination/);
-  });
-
-  it('with one cancelled member names it in the list', () => {
-    expect(mirrorFactsSentence(sum({ senderCancelled: false, stands: true }, {}))).toMatch(/B \(R\s?400\.00: cancelled by the sender as at 2026-06-30\)/);
   });
 });
 

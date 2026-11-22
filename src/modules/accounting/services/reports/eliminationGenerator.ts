@@ -11,7 +11,7 @@ import { createEliminationAdjustment } from './consolidatedReportingService';
 import type { ConsolidationAdjustment, CreateEliminationInput, EliminationLine } from './consolidatedReportingService';
 import { EliminationAlreadyStandsError } from './eliminationErrors';
 import { getPairCutovers, pairCutover } from './eliminationDuplicates';
-import { factsFromRows, generatorReason, isSenderCancelled, linkedMirrorState, SENDER_CANCELLED, type LinkAnswer, type MirrorFacts } from './mirrorFacts';
+import { factsFromRows, generatorReason, linkedMirrorState, type LinkAnswer, type MirrorFacts } from './mirrorFacts';
 
 async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
   const rows = (await sql`
@@ -60,18 +60,16 @@ export interface FlaggedEliminationRow extends EliminationRowLabel { transaction
  * A row this run did NOT draft (RULING 2026-11-21): a sale-class row of a mirroring pair dated on or after the pair's cutover whose sale a
  * mirrored document of THIS group eliminates for the period: the stored, exclusive link intercompany_mirror_link makes (one mirror, one
  * sale row and one purchase row, across every run and period). A run for a period whose mirror stopped eliminating the row in it (judged as
- * at that period, so a stop after it is the mirror's own counter-elimination later) releases the link and drafts the row, UNLESS the sender
- * cancelled that sale (senderCancelled): its revenue nets to nothing, so a draft would eliminate revenue that no longer exists and the row is left out.
+ * at that period, so a stop after it is the mirror's own counter-elimination later) releases the link and drafts the row. A row with NO stored link
+ * is drafted and flagged whatever its closest candidate is, a cancelled mirror included: the candidate is only a possible duplicate (the row's own
+ * revenue may stand), so the person is told what is true of it and decides (round 27, H1).
  */
 export interface SkippedEliminationRow extends EliminationRowLabel {
   transactionId: string; reason: string; cutover: string; mirroredRef: string;
   /** What is true of the mirror for the period (mirrorFacts.ts): whether its elimination falls after the period, and on which date. */
   detail: string;
-  /** Not drafted because the SENDER cancelled the sale (there is no revenue left to eliminate), not because a mirror eliminates it. */
-  senderCancelled?: boolean;
 }
 export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
-export const CANCELLED_BY_SENDER = 'cancelled by the sender';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
 /** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. */
 async function factsOf(rowId: string, periodEnd: string): Promise<MirrorFacts | null> {
@@ -168,12 +166,6 @@ export async function autoGenerateEliminations(
         const facts = await factsOf(String(tx.id), periodEnd);
         skipped.push({ transactionId: String(tx.id), reason: `${ELIMINATED_BY_MIRRORING} (${answer.ref})`, cutover, mirroredRef: answer.ref,
           detail: facts ? linkedMirrorState(facts, answer.ref) : '', ...label(tx) });
-        continue;
-      }
-      // the sender cancelled this sale (its reversal dated on or before the period end): nothing is left to eliminate, so no draft invites it
-      const cancelled = await factsOf(String(tx.id), periodEnd);
-      if (cancelled && isSenderCancelled(cancelled)) {
-        skipped.push({ transactionId: String(tx.id), reason: CANCELLED_BY_SENDER, cutover, mirroredRef: cancelled.label, detail: SENDER_CANCELLED, senderCancelled: true, ...label(tx) });
         continue;
       }
       pending.push({ tx, cutover, link: answer, made: await draft(groupId, tx, '', periodStart, periodEnd, created) });

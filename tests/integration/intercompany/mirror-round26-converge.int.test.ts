@@ -1,21 +1,27 @@
 /**
- * Intercompany P2, round 26, INFO3: the descoped manual elimination of a mirrored row (docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md)
+ * Intercompany P2, round 26, INFO3 + round 27, L1: the descoped manual elimination of a mirrored row (docs/plans/2026-11-22-intercompany-manual-elimination-of-mirrored-rows.md)
  * left objects in 1019's earlier shapes. A database that applied one converges on the current 1019: its two functions, the discarded_by /
  * discarded_at columns, the per-row index and the (row, has-a-reason) shape of the unique index are gone / replaced, and applying it twice changes nothing more.
+ * Round 27 (L1): the same holds for a database that USED that feature (duplicate standing eliminations: the old index is dropped all the same, the strict
+ * index stays absent and the NOTICE names the rows) and for a message an older backfill bound to a P1 manual row by matching NULL to NULL (it is unbound).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
+import { withoutTrigger } from './intercompany.helpers';
+import { clearMirrorRows, co, connect, mirrorCleanup, mirrorSetup, sentInvoice } from './mirror.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const MIGRATION_1019 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1019_intercompany_p2_mirror.sql'), 'utf8');
-afterAll(() => pool.end());
+beforeAll(() => mirrorSetup(pool), 60000);
+afterAll(() => mirrorCleanup(pool), 60000);
 
-const apply = async () => {
+const apply = async (notices: string[] = []) => {
   const client = await pool.connect();
+  client.on('notice', (n) => notices.push(n.message));
   try {
     await client.query('BEGIN');
     await client.query(MIGRATION_1019);
@@ -23,7 +29,7 @@ const apply = async () => {
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
-  } finally { client.release(); }
+  } finally { client.removeAllListeners('notice'); client.release(); }
 };
 const exists = async (sqlText: string) => (await pool.query(sqlText)).rowCount === 1;
 const fn = (name: string) => exists(`SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = '${name}'`);
@@ -71,6 +77,66 @@ describe('INFO3: a database that applied an earlier 1019 converges on this one',
       expect(def).not.toContain('manual_reason');
       expect(def).toMatch(/\(source_intercompany_id\)/);
       expect((await pool.query("SELECT count(*)::int AS n FROM app_definer_reviews WHERE signature IN ('intercompany_row_manually_eliminated(uuid,date,date)', 'intercompany_manual_cover(uuid)')")).rows[0].n).toBe(0);
+    }
+  }, 120000);
+});
+
+/** The old unique index (one per row AND per has-a-reason) and the plain index the descoped feature made, planted by hand. */
+const plantOldIndex = () => pool.query(`
+  DROP INDEX IF EXISTS uq_consolidation_adjustments_standing_source;
+  CREATE UNIQUE INDEX uq_consolidation_adjustments_standing_source ON consolidation_adjustments (source_intercompany_id, (manual_reason IS NOT NULL))
+    WHERE status IN ('draft', 'posted')`);
+const manualRow = async () => (await pool.query(
+  `INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, transaction_type, amount, transaction_date, description, source_journal_entry_id)
+   VALUES ($1, $2, $3, 'sale', 1000, '2026-12-05', 'manual P1 sale', NULL) RETURNING id`, [co.G, co.A, co.B])).rows[0].id as string;
+const adjust = (row: string, reason: string | null) => pool.query(
+  `INSERT INTO consolidation_adjustments(group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id, manual_reason)
+   VALUES ($1, 'interco_revenue', 'dup', '2026-12-01', '2026-12-31', '[]'::jsonb, $2, $3) RETURNING id`, [co.G, row, reason]);
+
+describe('L1: a database that USED the descoped feature converges too', () => {
+  beforeEach(async () => { await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]); await clearMirrorRows(pool); await connect(pool); });
+  afterAll(() => pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]));
+
+  it('duplicates of the old shape: the old index is dropped all the same, the strict index stays absent, and the NOTICE names the rows; once cleaned a re-run builds it', async () => {
+    await plantOldIndex();
+    const row = await manualRow();
+    await adjust(row, null);
+    await adjust(row, 'a manual elimination of a mirrored row');   // (allowed by the old shape: one per row AND has-a-reason)
+    expect(await indexDef()).toContain('manual_reason IS NOT NULL');
+    const notices: string[] = [];
+    await apply(notices);
+    expect(await indexDef(), 'the old index no longer permits two standing eliminations, and the strict one cannot be built over them').toBeUndefined();
+    const notice = notices.find((n) => n.includes('uq_consolidation_adjustments_standing_source NOT created'));
+    expect(notice).toContain('1 intercompany row(s) have more than one standing elimination');
+    expect(notice).toContain(row);
+    // the same again: nothing changes
+    const again: string[] = [];
+    await apply(again);
+    expect(await indexDef()).toBeUndefined();
+    expect(again.join(' ')).toContain(row);
+    // cleaned by hand: the next application builds the strict index
+    await pool.query("DELETE FROM consolidation_adjustments WHERE source_intercompany_id = $1 AND manual_reason IS NOT NULL", [row]);
+    await apply();
+    expect(await indexDef()).toMatch(/\(source_intercompany_id\)/);
+    expect(await indexDef()).not.toContain('manual_reason');
+  }, 120000);
+
+  it('a message an older backfill bound to a P1 manual row (NULL matched to NULL) is unbound; a properly bound message keeps its row', async () => {
+    const manual = await manualRow();
+    const planted = await sentInvoice(pool);
+    const good = await sentInvoice(pool);
+    const goodRow = (await pool.query('SELECT group_transaction_id AS g FROM intercompany_messages WHERE id = $1', [good.id])).rows[0].g as string;
+    // the older backfill's result: no provable journal, and the manual row (whose own journal is NULL too) bound
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
+      "UPDATE intercompany_messages SET source_journal_entry_id = NULL, group_transaction_id = $2::uuid, payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text)) WHERE id = $1", [planted.id, manual]));
+    await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE id = $1', [planted.inv.id]);
+    expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m, 'the plant is real: the manual row reads as mirrored').toBe(true);
+    for (const again of [false, true]) {
+      await apply();
+      const bound = async (id: string) => (await pool.query('SELECT group_transaction_id AS g FROM intercompany_messages WHERE id = $1', [id])).rows[0].g as string | null;
+      expect(await bound(planted.id), again ? 'a second application changes nothing' : 'unbound').toBeNull();
+      expect(await bound(good.id)).toBe(goodRow);
+      expect((await pool.query('SELECT public.intercompany_is_mirrored_row($1) AS m', [manual])).rows[0].m).toBe(false);
     }
   }, 120000);
 });

@@ -74,18 +74,19 @@ describe('B-M1: a rejected mirror or a loan never touches a manual elimination; 
     }
   });
 
-  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: drafted (before any cutover), flagged with that mirror, and its confirm says the sender cancelled it', async () => {
+  it('A3: a mirrored invoice A CANCELLED, then a separate sale of the same amount the same day captured by hand: drafted, flagged with that mirror, and its confirm says it may be the same sale, which the sender cancelled', async () => {
     const m = await bookedOn('2026-01-15');
     await L.cancelSender(m.inv.id);
     expect(await derived('2026-01-01', '2026-01-31')).toHaveLength(0);
     const { made, flagged } = await manualPair('sale', 'purchase');
     // round 17 (R16 breaker H1): a cancelled mirror stays a candidate, judged as at the period, never by today's cancel stamp; so the draft
-    // is flagged with it. Round 26 (M2): the SENDER cancelled it, so the note and the confirm say there is no revenue left to eliminate, never that this
-    // draft is "the sale's only elimination" (a row before any cutover is still drafted: it may be another sale)
+    // is flagged with it. Round 27 (M1): a mirror whose sent-with journal is reversed is worded conditionally (if it is the same sale there is no
+    // revenue left to eliminate; if another sale, this draft is still its elimination), never "NOT eliminated" nor "the sale's only elimination"
     const ref = (await pool.query('SELECT description FROM intercompany_transactions WHERE id = $1', [m.message.group_transaction_id])).rows[0].description as string;
     expect(made.length).toBe(1);   // (the matched pair is one elimination)
     expect(flagged.map((f) => [f.adjustmentId, f.mirroredRef])).toEqual([[made[0]!.id, ref]]);
-    expect(flagged[0]!.reason).toBe(`Possibly the same sale as mirrored document ${ref}, which the sender cancelled (as at 2026-01-31): there is no revenue left to eliminate.`);
+    expect(flagged[0]!.reason).toBe(`Possibly the same sale as mirrored document ${ref}, which the sender cancelled (its journal is reversed as at 2026-01-31). `
+      + 'If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). If it is another sale, it still needs this elimination.');
     const sale = made.find((a) => flagged[0]!.adjustmentId === a.id)!;
     const listed = (await asService(pool, U.ab, co.A, () => getEliminationAdjustments(co.G, '2026-01-01', '2026-01-31'))).find((a) => a.id === sale.id)!;
     expect([listed.mirroredDuplicateOf, listed.mirrorStands]).toEqual([ref, false]);

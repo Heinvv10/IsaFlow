@@ -29,7 +29,7 @@ export interface MirrorFact {
   elimDate?: string;
   /** Another row's active link of the OTHER role holds it (the other side of a sale). */
   otherRole?: MirrorRole | null;
-  /** The SENDER cancelled it as at the period end: no revenue is left to eliminate, whatever else is true of it. */
+  /** The mirror's sent-with journal is reversed as at the period end (the sender cancelled it): if the row is the same sale, no revenue is left to eliminate. */
   senderCancelled?: boolean;
 }
 
@@ -77,7 +77,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** What is true of one mirror. `short`: the form inside a month sum's list ("eliminated automatically, not matched to any row yet"). */
 function state(m: MirrorFact, periodEnd: string, short = false): string {
-  if (!m.stands) return m.senderCancelled ? `cancelled by the sender as at ${periodEnd}` : `NOT eliminated automatically for the period to ${periodEnd}`;
+  if (!m.stands) return `NOT eliminated automatically for the period to ${periodEnd}`;
   const when = m.elimDate && m.elimDate > periodEnd ? ` on ${m.elimDate}, after the period to ${periodEnd}` : '';
   const and = short ? ',' : when ? ', and' : ' and';
   const is = short ? '' : 'is ';
@@ -99,9 +99,10 @@ export function linkedMirrorState(f: MirrorFacts, ref: string): string {
 
 const joinAnd = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
-/** What the generator says of a row it does not draft because the sender cancelled its sale (and what the facts' sentences say of it). */
-export const SENDER_CANCELLED = 'the sender cancelled it; there is no revenue left to eliminate';
-/** The single mirror the sender cancelled and nothing eliminates for the period: there is no sale left, so no sentence may call this its "only elimination". */
+/**
+ * A single mirror that eliminates nothing for the period because its sent-with journal is reversed as at the period end (the sender cancelled it). Its state
+ * is worded conditionally (the row may be another sale), so no sentence calls it "the sale's only elimination" or "NOT eliminated automatically".
+ */
 export const isSenderCancelled = (f: MirrorFacts): boolean => !f.sum && f.mirrors.length === 1 && !f.mirrors[0]!.stands && f.mirrors[0]!.senderCancelled === true;
 
 /** Whether the row is still to be posted (a draft: "posting this would ...") or already posted ("it is ..."). */
@@ -116,7 +117,12 @@ export function mirrorFactsSentence(f: MirrorFacts, pairCutover: string | null =
   const twice = (what: string) => (ctx === 'draft' ? `posting this would eliminate ${what} twice` : `${what} is eliminated twice`);
   if (!f.sum) {
     const m = f.mirrors[0]!;
-    if (isSenderCancelled(f)) return `Possibly the same sale as mirrored document ${m.ref}${cut}, which the sender cancelled (as at ${f.periodEnd}): there is no revenue left to eliminate.`;
+    if (isSenderCancelled(f)) {
+      const head = `Possibly the same sale as mirrored document ${m.ref}, which the sender cancelled (its journal is reversed as at ${f.periodEnd})${cut}.`;
+      return ctx === 'draft'
+        ? `${head} If it is the same sale there is no revenue left to eliminate: do not post this (a posted elimination would be an over-elimination to reverse). If it is another sale, it still needs this elimination.`
+        : `${head} If it is the same sale there is no revenue left to eliminate: this elimination is an over-elimination, reverse it. If it is another sale, it still needs this elimination.`;
+    }
     const head = `Possibly the same sale as mirrored document ${m.ref}, which is ${state(m, f.periodEnd)}${cut}`;
     return m.stands ? `${head}. If it is the same sale, ${twice('it')}.` : `${head}: this may be the sale's only elimination.`;
   }
@@ -126,7 +132,6 @@ export function mirrorFactsSentence(f: MirrorFacts, pairCutover: string | null =
   const head = `Possibly the same sale as ${f.label}: ${list}${cut}.`;
   const standingN = f.mirrors.filter((m) => m.stands).length;
   const netOfVat = byTotal ? ', net of their VAT' : '';
-  if (f.mirrors.every((m) => m.senderCancelled)) return `${head} The sender cancelled them: there is no revenue left to eliminate.`;
   if (standingN === 0) return `${head} None of them is eliminated automatically for the period to ${f.periodEnd}: this may be the sale's only elimination.`;
   if (standingN === f.mirrors.length) return `${head} All of them are eliminated automatically by mirroring${netOfVat}: if it is the same sale, ${twice('it')}.`;
   const part = ctx === 'draft' ? 'posting this in full would eliminate that part twice' : 'that part is eliminated twice';

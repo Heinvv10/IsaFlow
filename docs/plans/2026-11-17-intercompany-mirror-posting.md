@@ -53,7 +53,7 @@ mirror whose lines are not all mapped to group accounts does not take a row. A s
 the date of its reversal, like any stop (a cancel rolled past a VAT-locked period leaves that period
 eliminated by the mirror). A row no mirror accounts
 for (rejected, pending, not approved, never sent) is drafted with a CHECK BEFORE POSTING note saying
-why, so the mirror is the only elimination when one exists and no sale goes uneliminated. (Exception, round 26: a row whose single mirror the SENDER cancelled as at the period end is not drafted but reported: the sender's revenue nets to nothing, so there is no sale left to eliminate and a draft would eliminate revenue that no longer exists.) A hand-made (`create-elimination`) adjustment
+why, so the mirror is the only elimination when one exists and no sale goes uneliminated. (Round 27: no exception for a cancelled mirror. A row with no stored link is drafted and flagged even when its closest candidate is a mirror the sender cancelled: the candidate is only a POSSIBLE duplicate, and skipping on it would leave a genuine row, whose own revenue stands, uneliminated. The flag says so conditionally: if it is the same sale there is no revenue left to eliminate, do not post; if another sale it still needs this elimination.) A hand-made (`create-elimination`) adjustment
 dated on or after a cutover of the group needs a typed reason, enforced by the API and the dialog and
 stored (`consolidation_adjustments.manual_reason`); it names no companies, so any cutover of the group
 on or before its date counts. Before the cutover nothing changes: a manual row can still overlap a
