@@ -17,7 +17,7 @@ import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from 
 import { lockReceiptBankLeg } from './receiptBankLeg';
 import { ReceiptRefusal } from './receiptRefusal';
 import { assertReceiptVoidKeepsCredit } from './customerVoidCredit';
-import { assertWithinOutstanding, cents, lockInvoicesOfReceipts, lockReceiptInvoices } from './receiptInvoiceLock';
+import { assertInvoiceTakesReceipts, assertWithinOutstanding, cents, lockInvoicesOfReceipts, lockReceiptInvoices } from './receiptInvoiceLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -80,14 +80,14 @@ async function confirmCustomerPaymentInner(
     // AR audit B1: the draft's allocations were stored when it was created; the invoices have moved since
     // (a bank-line match, an unapplied receipt or FIFO all ignore drafts). Lock them (ascending id, payment
     // already held: payment-then-invoice) and refuse the WHOLE confirm if any allocation no longer fits what
-    // is outstanding NOW — before the journal or any balance is written. A cancelled or deleted invoice takes nothing.
+    // is outstanding NOW — before the journal or any balance is written. An invoice the ledger does not carry (deleted,
+    // cancelled, or draft / pending approval: no AR posted) takes nothing — the create path's rule, re-checked here
+    // because a draft receipt stored before that rule, or one whose invoice has since gone back, skips it (#1728 review M1).
     const locked = await lockReceiptInvoices(companyId, payment.allocations.map((a) => a.invoiceId));
     for (const alloc of payment.allocations) {
       const invoice = locked.get(alloc.invoiceId);
       if (!invoice) throw new ReceiptRefusal(`Invoice ${alloc.invoiceId} not found`);
-      if (invoice.deleted || invoice.status === 'cancelled') {
-        throw new ReceiptRefusal(`Invoice ${invoice.invoiceNumber} is ${invoice.deleted ? 'deleted' : 'cancelled'} and cannot take this receipt`);
-      }
+      assertInvoiceTakesReceipts(invoice);
       assertWithinOutstanding(invoice, cents(alloc.amountAllocated), 0,
         '. The invoice was paid or changed since this receipt was drafted — cancel the draft and re-apply the receipt.');
     }
@@ -125,6 +125,7 @@ async function confirmCustomerPaymentInner(
         UPDATE customer_invoices
         SET amount_paid = COALESCE(amount_paid, 0) + ${newPaid},
             status = CASE
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status -- second line behind the refusal above
               WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0 THEN 'paid'
               WHEN (COALESCE(amount_paid, 0) + ${newPaid}) > 0 THEN 'partially_paid'
               ELSE status

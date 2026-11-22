@@ -23,7 +23,7 @@ import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { underFlowLockBudget } from '../core/rowLockBudget';
-import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
+import { BALANCE_DERIVED, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 import { assertVoidKeepsCredit } from './supplierVoidCredit';
 type Row = DbRow;
@@ -137,6 +137,7 @@ export async function processSupplierPayment(
         UPDATE supplier_invoices
         SET amount_paid = amount_paid + ${newPaid},
             status = CASE
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status -- behind the under-lock assertBillAllocatable
               WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN 'paid'
               WHEN (amount_paid + ${newPaid}) > 0 THEN 'partially_paid'
               ELSE status
@@ -230,21 +231,14 @@ async function voidSupplierPaymentInner(
     // `bankAllocationUnwind.ts` argues for on its own merits — reversing first
     // returns the credit to AP control while the bill still reads as settled.
     for (const alloc of byInvoiceId(payment.allocations)) {
-      // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
-      // amount against total_amount so an invoice still fully covered by
-      // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
-      // Only a balance-derived status moves (#1720 review): a disputed or pending bill keeps its status as the money comes off.
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = GREATEST(amount_paid - ${alloc.amountAllocated}, 0),
-            status = CASE
-              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status
-              WHEN (total_amount - GREATEST(amount_paid - ${alloc.amountAllocated}, 0)) <= 0.01 THEN 'paid'
-              WHEN GREATEST(amount_paid - ${alloc.amountAllocated}, 0) > 0.01 THEN 'partially_paid'
-              ELSE 'approved'
-            END
-        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
+      // The unapply's one write (#1728 review L1): money, status, paid_at and payment_matched(_at) together, judged on
+      // the REMAINING paid amount, so a bill still fully covered by OTHER payments stays 'paid' (PR #203 review MEDIUM)
+      // and a disputed or pending bill keeps all four as the money comes off. The floor replaces the old silent clamp
+      // at 0: a bill holding less than this allocation is a defect, thrown (500, rolled back) as unapply throws it.
+      const done = await moveSupplierBillPaid(companyId, alloc.invoiceId, -alloc.amountAllocated, alloc.amountAllocated);
+      if (!done) {
+        throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} holds less than the ${alloc.amountAllocated} allocated`);
+      }
     }
 
     // (4) Free the bank line, then reverse the payment journal — its chain head
