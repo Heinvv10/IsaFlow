@@ -119,8 +119,12 @@ describe('round 28 M1: a month sum with members the sender cancelled (conditiona
 describe('round 29 L1: a cancel is judged at LEAST(period end, today): the sentence says that date, and that a journal up to the period end may change it', () => {
   const PE = '2026-12-31'; const JA = '2026-11-22';
   const CANC = `cancelled by the sender (its journal is reversed as at ${JA})`;
-  const NOTE = ` A journal dated up to ${PE} may change this: a mirror it revives is eliminated automatically for the period, and posting this would eliminate it twice.`;
+  const BASE = ` Judged as at ${JA} because the period ends after today; a journal dated up to ${PE} can change this in either direction: `;
+  const NOTE = `${BASE}a mirror it revives is eliminated automatically for the period and, if it is the same sale, posting this would eliminate it twice.`;
   const mk = (ms: MirrorFact[], sum: boolean, judgedAt: string | undefined = JA): MirrorFacts => ({ label: sum ? '2 mirrored documents of April 2026' : 'INV-1 (mirrored)', sum, periodEnd: PE, ...(judgedAt ? { judgedAt } : {}), mirrors: ms });
+  const REVIVES = 'a mirror it revives is eliminated automatically for the period and, if it is the same sale, posting this would eliminate it twice';
+  const REVERSES = "a mirror it reverses is no longer eliminated automatically and, if it is the same sale, this may be the sale's only elimination";
+  const ALREADY_A = ` INV-A is already revived by a journal dated after ${JA} (that is why it is in this sum), so as at ${PE} it is eliminated automatically; what follows about a cancelled mirror holds as at ${JA} only.`;
   const single = mk([mirror()], false);
   const all = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500 })], true);
 
@@ -128,19 +132,21 @@ describe('round 29 L1: a cancel is judged at LEAST(period end, today): the sente
     expect(mirrorFactsSentence(single)).toBe(`Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at ${JA}).${NOTE} ${CONDITIONAL}`);
     expect(mirrorFactsSentence(single, '2026-03-01')).toBe(`Possibly the same sale as mirrored document INV-1 (mirrored), which the sender cancelled (its journal is reversed as at ${JA}) (the pair mirrors from 2026-03-01).${NOTE} ${CONDITIONAL}`);
     expect(duplicateBadgeText(single, 'posted')).toContain(`${NOTE.replace('posting this would eliminate it twice', 'this elimination eliminates it twice')} If it is the same sale there is no revenue left to eliminate: this elimination is an over-elimination, reverse it.`);
+    expect(NOTE).toContain('if it is the same sale');   // (conditional: the row may be another sale)
   });
 
   it('an all-cancelled sum: every member and the head say <today>, and the note follows', () => {
-    expect(mirrorFactsSentence(all)).toBe(`Possibly the same sale as 2 mirrored documents of April 2026: INV-A (${R(1000)}: ${CANC}) and INV-B (${R(500)}: ${CANC}).${NOTE} ${CONDITIONAL}`);
+    const already = ` INV-A and INV-B are already revived by a journal dated after ${JA} (that is why they are in this sum), so as at ${PE} they are eliminated automatically; what follows about a cancelled mirror holds as at ${JA} only.`;
+    expect(mirrorFactsSentence(all)).toBe(`Possibly the same sale as 2 mirrored documents of April 2026: INV-A (${R(1000)}: ${CANC}) and INV-B (${R(500)}: ${CANC}).${NOTE}${already} ${CONDITIONAL}`);
     expect(generatorReason(all, null, null, PE)).toBe(mirrorFactsSentence(all));
     expect(mirrorFactsSentence(all)).not.toContain(`reversed as at ${PE}`);
   });
 
   it('a partly cancelled sum (the rest not eliminated, or standing) carries the date and the note too', () => {
     const rest = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500, senderCancelled: false })], true);
-    expect(mirrorFactsSentence(rest)).toContain(`(${R(1000)}: ${CANC}) and INV-B (${R(500)}: NOT eliminated automatically for the period to ${PE}).${NOTE}`);
+    expect(mirrorFactsSentence(rest)).toContain(`(${R(1000)}: ${CANC}) and INV-B (${R(500)}: NOT eliminated automatically for the period to ${PE}).${NOTE}${ALREADY_A} None of them`);
     const stand = mk([mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500, stands: true, senderCancelled: false })], true);
-    expect(mirrorFactsSentence(stand)).toContain(`${NOTE} ${R(500)} of ${R(1500)} is eliminated`);
+    expect(mirrorFactsSentence(stand)).toContain(`${BASE}${REVIVES}; ${REVERSES}.${ALREADY_A} ${R(500)} of ${R(1500)} is eliminated`);
   });
 
   it('no note where nothing is cancelled, and none when the period does not end after today (judged_at = period end, or absent)', () => {
@@ -155,5 +161,56 @@ describe('round 29 L1: a cancel is judged at LEAST(period end, today): the sente
     expect(f.judgedAt).toBe(JA);
     expect(parseMirrorFacts(JSON.parse(JSON.stringify(f)))!.judgedAt).toBe(JA);
     expect(factsFromRows([{ ...row, judged_at: undefined }], PE)!.judgedAt).toBeUndefined();
+  });
+});
+
+describe('round 30 L1: the judged-date note is said of ANY mirror judged as at today, in both directions, conditionally', () => {
+  const PE = '2026-12-31'; const JA = '2026-11-22';
+  const BASE = ` Judged as at ${JA} because the period ends after today; a journal dated up to ${PE} can change this in either direction: `;
+  const REVIVES = 'a mirror it revives is eliminated automatically for the period and, if it is the same sale, posting this would eliminate it twice';
+  const REVERSES = "a mirror it reverses is no longer eliminated automatically and, if it is the same sale, this may be the sale's only elimination";
+  const one = (over: Partial<MirrorFact>, judgedAt: string | undefined = JA): MirrorFacts => ({ label: 'INV-1 (mirrored)', sum: false, periodEnd: PE, ...(judgedAt ? { judgedAt } : {}), mirrors: [mirror(over)] });
+  const HEAD = 'Possibly the same sale as mirrored document INV-1 (mirrored), which is ';
+
+  it('Scenario A: a mirror NOT eliminated as at today (not cancelled by the sender) gets the note: a later journal may revive it, and then posting eliminates it twice', () => {
+    expect(mirrorFactsSentence(one({ senderCancelled: false }))).toBe(
+      `${HEAD}NOT eliminated automatically for the period to ${PE}: this may be the sale's only elimination.${BASE}${REVIVES}.`);
+  });
+
+  it('Scenario B: a STANDING mirror gets the note: a later journal may reverse it, and then this may be the sale\'s only elimination', () => {
+    expect(mirrorFactsSentence(one({ stands: true, senderCancelled: false }))).toBe(
+      `${HEAD}eliminated automatically and is not matched to any row yet. If it is the same sale, posting this would eliminate it twice.${BASE}${REVERSES}.`);
+  });
+
+  it('a posted elimination: the same, in the posted tense', () => {
+    expect(duplicateBadgeText(one({ senderCancelled: false }), 'posted')).toBe(
+      `Posted. ${HEAD}NOT eliminated automatically for the period to ${PE}: this may be the sale's only elimination.${BASE}${REVIVES.replace('posting this would eliminate it twice', 'this elimination eliminates it twice')}.`);
+    expect(duplicateBadgeText(one({ stands: true, senderCancelled: false }), 'posted')).toContain(
+      `${BASE}${REVERSES.replace("this may be the sale's only elimination", "this elimination may be the sale's only one")}. Check, and reverse this one if so.`);
+  });
+
+  it('a sum of standing members, and a sum with none standing, carry the note too (and no "already revived" clause: nothing in it is cancelled)', () => {
+    const sum = (a: Partial<MirrorFact>, b: Partial<MirrorFact>): MirrorFacts => ({ label: '2 mirrored documents of April 2026', sum: true, periodEnd: PE, judgedAt: JA,
+      mirrors: [mirror({ ref: 'INV-A', senderCancelled: false, ...a }), mirror({ ref: 'INV-B', amount: 500, senderCancelled: false, ...b })] });
+    expect(mirrorFactsSentence(sum({ stands: true }, { stands: true }))).toMatch(new RegExp(`\\.${BASE.replace(/[.()]/g, '\\$&')}${REVERSES.replace(/[.()']/g, '\\$&')}\\. All of them are eliminated automatically`));
+    expect(mirrorFactsSentence(sum({}, {}))).toContain(`${BASE}${REVIVES}. None of them is eliminated automatically`);
+    expect(mirrorFactsSentence(sum({ stands: true }, {}))).toContain(`${BASE}${REVIVES}; ${REVERSES}. `);
+    expect(mirrorFactsSentence(sum({}, {}))).not.toContain('already revived');
+  });
+
+  it('no note when the period does not end after today (judged_at = the period end, or absent)', () => {
+    for (const over of [{ senderCancelled: false }, { stands: true, senderCancelled: false }]) {
+      expect(mirrorFactsSentence(one(over, PE))).not.toContain('Judged as at');
+      expect(mirrorFactsSentence({ ...one(over), judgedAt: undefined })).not.toContain('Judged as at');
+    }
+  });
+
+  it('L2: the cancelled note is conditional ("if it is the same sale"), and says so where a reviving journal is already counted (a month sum)', () => {
+    const f = one({});
+    expect(mirrorFactsSentence(f)).toContain('a mirror it revives is eliminated automatically for the period and, if it is the same sale, posting this would eliminate it twice');
+    expect(mirrorFactsSentence(f)).not.toContain('already revived');
+    const sum: MirrorFacts = { label: '2 mirrored documents of April 2026', sum: true, periodEnd: PE, judgedAt: JA, mirrors: [mirror({ ref: 'INV-A' }), mirror({ ref: 'INV-B', amount: 500 })] };
+    expect(mirrorFactsSentence(sum)).toContain(`INV-A and INV-B are already revived by a journal dated after ${JA} (that is why they are in this sum), so as at ${PE} they are eliminated automatically; what follows about a cancelled mirror holds as at ${JA} only.`);
+    expect(mirrorFactsSentence(sum)).toContain('If it is the same sale there is no revenue left to eliminate: do not post this');   // the advice branch is kept
   });
 });

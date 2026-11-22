@@ -18,7 +18,7 @@ import { factsFromRows } from './mirrorFacts';
 
 /** The group's mirroring pairs and their cutover dates (YYYY-MM-DD), keyed by `${low}|${high}` (lowercase uuids). */
 export async function getPairCutovers(groupId: string): Promise<Map<string, string>> {
-  const rows = (await sql`SELECT company_low_id, company_high_id, cutover::TEXT AS cutover FROM public.intercompany_pair_cutovers(${groupId}::UUID)`) as DbRow[];
+  const rows = (await sql`SELECT company_low_id, company_high_id, to_char(cutover, 'YYYY-MM-DD') AS cutover FROM public.intercompany_pair_cutovers(${groupId}::UUID)`) as DbRow[];
   return new Map(rows.map((r) => [`${String(r.company_low_id).toLowerCase()}|${String(r.company_high_id).toLowerCase()}`, String(r.cutover)]));
 }
 
@@ -46,9 +46,9 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
   return (await sql`
     WITH pc AS MATERIALIZED (SELECT * FROM public.intercompany_pair_cutovers(${groupId}::UUID)
     ), s AS MATERIALIZED (
-      SELECT ca.*, ca.period_end::TEXT AS facts_period_end,
+      SELECT ca.*, to_char(ca.period_end, 'YYYY-MM-DD') AS facts_period_end,
              -- the row is on or after its pair's cutover (sale class): it was drafted because no standing mirror is left to it
-             (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN pc
+             (SELECT to_char(pc.cutover, 'YYYY-MM-DD') FROM intercompany_transactions t JOIN pc
                 ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
                WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
         FROM consolidation_adjustments ca
@@ -63,8 +63,8 @@ export async function storedEliminationRows(groupId: string, pStart: string | nu
        WHERE s.source_intercompany_id IS NOT NULL AND s.status IN ('draft', 'posted')
     ), fa AS (
       SELECT f.adj_id, json_agg(json_build_object('label', f.label, 'is_sum', f.is_sum, 'ord', f.ord, 'mirror_ref', f.mirror_ref, 'amount', f.amount,
-                                                  'stands', f.stands, 'link', f.link, 'by_total', f.by_total, 'elim_date', f.elim_date::TEXT,
-                                                  'other_role', f.other_role, 'sender_cancelled', f.sender_cancelled, 'judged_at', f.judged_at::TEXT) ORDER BY f.ord) AS mirror_facts,
+                                                  'stands', f.stands, 'link', f.link, 'by_total', f.by_total, 'elim_date', to_char(f.elim_date, 'YYYY-MM-DD'),
+                                                  'other_role', f.other_role, 'sender_cancelled', f.sender_cancelled, 'judged_at', to_char(f.judged_at, 'YYYY-MM-DD')) ORDER BY f.ord) AS mirror_facts,
              array_agg(f.mirror_row ORDER BY f.mirror_row) AS mset
         FROM f GROUP BY f.adj_id
     )
@@ -90,9 +90,9 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
     `) as DbRow[];
     if (result.length === 0) {
       const dup = (await sql`
-        SELECT ca.period_end::TEXT AS pe, ca.source_intercompany_id AS row_id, COALESCE(public.intercompany_is_mirrored_row(ca.source_intercompany_id), false) AS mirrored,
+        SELECT to_char(ca.period_end, 'YYYY-MM-DD') AS pe, ca.source_intercompany_id AS row_id, COALESCE(public.intercompany_is_mirrored_row(ca.source_intercompany_id), false) AS mirrored,
                (SELECT json_agg(to_jsonb(f) ORDER BY f.ord) FROM public.intercompany_mirror_facts(ca.source_intercompany_id, ca.period_end::DATE) f) AS facts,
-               (SELECT pc.cutover::TEXT FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
+               (SELECT to_char(pc.cutover, 'YYYY-MM-DD') FROM intercompany_transactions t JOIN public.intercompany_pair_cutovers(${groupId}::UUID) pc
                   ON pc.company_low_id = LEAST(t.source_company_id, t.target_company_id) AND pc.company_high_id = GREATEST(t.source_company_id, t.target_company_id)
                  WHERE t.id = ca.source_intercompany_id AND t.transaction_type IN ('sale', 'purchase', 'mgmt_fee') AND t.transaction_date >= pc.cutover) AS pair_cutover
           FROM consolidation_adjustments ca

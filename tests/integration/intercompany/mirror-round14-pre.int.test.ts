@@ -98,7 +98,11 @@ describe('R13-M1 / M2: eliminated automatically, judged at the later document da
     expect((await list('2026-12-01', '2026-12-31')).find((a) => a.id === d)!.mirrorStands).toBe(false);
     const msg = await post(d);
     expect(msg).toMatch(/NOT eliminated automatically for the period to 2026-12-31: this may be the sale's only elimination/);
-    expect(msg).not.toMatch(/twice/);
+    // (the sentence itself never says "twice"; while the period ends after today the round 30 note follows it, and its "twice" is conditional on a later journal reviving a mirror)
+    expect(msg.split(' Judged as at ')[0]).not.toMatch(/twice/);
+    const endsAfterToday = (await pool.query("SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date < '2026-12-31'::date AS a")).rows[0].a as boolean;
+    expect(msg.includes(' Judged as at ')).toBe(endsAfterToday);
+    if (endsAfterToday) expect(msg).toMatch(/can change this in either direction: a mirror it revives is eliminated automatically for the period and, if it is the same sale, posting this would eliminate it twice\. Confirm to post it\.$/);
     expect(msg).not.toMatch(/eliminate the sale twice\. Confirm to post it anyway/);
   });
 });

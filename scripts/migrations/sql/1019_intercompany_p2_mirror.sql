@@ -1793,7 +1793,7 @@ BEGIN
            GREATEST(o.transaction_date, COALESCE(x.bd, o.transaction_date)),
            -- the role of an active link of the OTHER role (the purchase side of the sale for a sale row, and the reverse)
            (SELECT l.role FROM public.intercompany_mirror_links l WHERE l.mirror_row = o.id AND l.role <> v_role AND l.released_at IS NULL AND l.row_id <> p_row LIMIT 1),
-           -- the SENDER cancelled it as at the period end (the same date "stands" judges the pair at): its sent-with journal's chain is out, having been in
+           -- the SENDER cancelled it as at v_judged = LEAST(the period end, today) (`stands` judges the pair at GREATEST(the later document date, v_judged)): its sent-with journal's chain is out, having been in
            COALESCE(x.chain > 0 AND x.chain % 2 = 0, false),
            -- the date sender_cancelled was judged at: LEAST(the period end, today); the wording says it, and that a journal up to the period end may change it
            v_judged

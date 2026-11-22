@@ -71,9 +71,9 @@ export interface SkippedEliminationRow extends EliminationRowLabel {
 }
 export const ELIMINATED_BY_MIRRORING = 'eliminated by mirroring';
 const SALE_TYPES = new Set(['sale', 'purchase', 'mgmt_fee']);
-/** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. */
+/** What is true of the row's possible mirrored duplicate for the period (intercompany_mirror_facts), or null when it matches no mirror. Its dates are read as ISO text (to_char), whatever the session's DateStyle: mirrorFacts.ts parses `YYYY-MM-DD` only. */
 async function factsOf(rowId: string, periodEnd: string): Promise<MirrorFacts | null> {
-  return factsFromRows((await sql`SELECT f.*, f.elim_date::TEXT AS elim_date, f.judged_at::TEXT AS judged_at FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE) f`) as DbRow[], periodEnd);
+  return factsFromRows((await sql`SELECT f.*, to_char(f.elim_date, 'YYYY-MM-DD') AS elim_date, to_char(f.judged_at, 'YYYY-MM-DD') AS judged_at FROM public.intercompany_mirror_facts(${rowId}::UUID, ${periodEnd}::DATE) f`) as DbRow[], periodEnd);
 }
 const label = (tx: DbRow): EliminationRowLabel => ({ description: String(tx.description ?? ''), date: String(tx.td), amount: Number(tx.amount) });
 
