@@ -81,12 +81,12 @@ export function LoanComplianceTab({ loanId }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
         <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Compliance Assessment</h2>
         <button
           onClick={runAssessment}
           disabled={running}
-          className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 max-lg:min-h-11"
         >
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           Run Assessment
@@ -149,7 +149,7 @@ export function LoanComplianceTab({ loanId }: Props) {
         <div>
           <h3 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-2">History</h3>
           <div className="rounded-xl border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs table-cards">
               <thead className="bg-[var(--ff-bg-primary)]">
                 <tr className="text-left text-[var(--ff-text-tertiary)]">
                   <th className="px-3 py-2 font-medium">Date</th>
@@ -163,16 +163,16 @@ export function LoanComplianceTab({ loanId }: Props) {
               <tbody className="divide-y divide-[var(--ff-border-light)]">
                 {history.map(a => (
                   <tr key={a.id} className="hover:bg-[var(--ff-bg-primary)]">
-                    <td className="px-3 py-2 text-[var(--ff-text-primary)]">{fmtDate(a.assessmentDate)}</td>
-                    <td className="px-3 py-2">
+                    <td data-label="Date" className="px-3 py-2 text-[var(--ff-text-primary)]">{fmtDate(a.assessmentDate)}</td>
+                    <td data-label="Stage" className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${STAGE_COLOURS[String(a.stage ?? 1)]}`}>
                         {a.stage ?? '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[var(--ff-text-primary)] font-mono">{a.daysPastDue}</td>
-                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(a.eclAmount)}</td>
-                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{a.outstanding != null ? fmt(a.outstanding) : '—'}</td>
-                    <td className="px-3 py-2">
+                    <td data-label="DPD" className="px-3 py-2 text-[var(--ff-text-primary)] font-mono">{a.daysPastDue}</td>
+                    <td data-label="ECL" className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(a.eclAmount)}</td>
+                    <td data-label="Outstanding" className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{a.outstanding != null ? fmt(a.outstanding) : '—'}</td>
+                    <td data-label="NCA" className="px-3 py-2">
                       {a.ncaFlagged
                         ? <span className="text-red-400 text-xs">⚠ Breach</span>
                         : <span className="text-teal-400 text-xs">OK</span>
