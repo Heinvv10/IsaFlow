@@ -80,6 +80,30 @@ describe('container shapes', () => {
     expect(rowsOf([{ $resources: rows.slice(0, 5) }, { $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
     expect(rowsOf(undefined, 'Items')).toEqual([]);
   });
+  it('B9-D (round 9): an array mixing a page and plain rows is refused as a whole (the page must not be read as one bad row)', () => {
+    const rows = fixture().Items.$resources;
+    expect(() => rowsOf([{ $resources: rows.slice(0, 5), $totalResults: 20 }, rows[5]], 'Items')).toThrow(SageExportShapeError);
+    expect(() => rowsOf([rows[0], { $resources: rows.slice(1) }], 'Items')).toThrow(/mixes pages .* and plain rows/);
+    const f = fixture();
+    (f as Record<string, unknown>).PurchaseOrders = [{ $resources: f.PurchaseOrders.slice(0, 9), $totalResults: 9, $startIndex: 0 }, f.PurchaseOrders[9]];
+    expect(() => parseSageExport(f)).toThrow(SageExportShapeError);
+    // a plain array of rows, and an array of pages, still read
+    expect(rowsOf(rows, 'Items')).toHaveLength(20);
+    expect(rowsOf([{ $resources: rows.slice(0, 5) }, { $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
+  });
+  it('B9 (round 9): a Sage "none" id of 0 or an empty Category is refused (fail closed), the reason says it is unknown whether Sage means none', () => {
+    const item = { ID: 1, Code: 'A', Description: 'a', Active: true, Physical: true };
+    const po = (line: Record<string, unknown>) => ({ ID: 9, DocumentNumber: 'P1', Date: '2026-02-01', Status: 'Pending', SupplierId: 3, Exclusive: 100, Tax: 15, Total: 115,
+      Lines: [{ Description: 'x', Quantity: 1, UnitPriceExclusive: 100, TaxTypeId: 1, ...line }] });
+    const reasons = (file: Record<string, unknown>) => parseSageExport(file).refusals.flatMap((r) => r.reasons).join(' | ');
+    for (const file of [
+      { Items: [item], PurchaseOrders: [po({ ItemId: 0 })] }, { Items: [item], PurchaseOrders: [po({ SelectionId: '0' })] },
+      { Items: [{ ...item, TaxTypeIdSales: 0 }] }, { Items: [{ ...item, Category: {} }] }, { Items: [{ ...item, Category: { ID: 0, Description: '' } }] },
+    ]) expect(reasons(file)).toMatch(/id 0 \/ empty object: unknown whether Sage means none/);
+    // still refused, never read as "no item" / "no category"
+    expect(parseSageExport({ Items: [item], PurchaseOrders: [po({ ItemId: 0 })] }).purchaseOrders).toHaveLength(0);
+    expect(parseSageExport({ Items: [{ ...item, Category: {} }] }).items).toHaveLength(0);
+  });
   it('refuses a file that is not an object, and a key that is not rows', () => {
     expect(() => parseSageExport([])).toThrow(SageExportShapeError);
     expect(() => parseSageExport({ Items: 'x' })).toThrow(SageExportShapeError);

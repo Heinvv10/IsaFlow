@@ -27,6 +27,11 @@ const TOP_KEYS = ['Items', 'PurchaseOrders'];
 export function rowsOf(value: unknown, key: string): unknown[] {
   if (value === undefined || value === null) return [];
   const isPage = (p: unknown): p is Record<string, unknown> & { $resources: unknown[] } => isRaw(p) && Array.isArray(p.$resources);
+  // A container with a page among plain rows cannot be read honestly: the page would be taken for one (bad) row, its rows dropped and its
+  // partial-export markers never looked at.
+  if (Array.isArray(value) && value.some(isPage) && !value.every(isPage)) {
+    throw new SageExportShapeError(`${key} mixes pages ({ "$resources": [...] }) and plain rows: give either rows or pages, not both, so the export can be checked whole`);
+  }
   const pages: Array<Record<string, unknown> & { $resources: unknown[] }> = Array.isArray(value)
     ? (value.length > 0 && value.every(isPage) ? value as never : [])
     : isPage(value) ? [value] : [];
