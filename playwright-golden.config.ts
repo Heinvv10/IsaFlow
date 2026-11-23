@@ -17,6 +17,7 @@ import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { devOnlySpecPattern } from './tests/e2e/golden-paths/helpers/devOnlySpecs';
 import { quarantineGrepInvert } from './tests/e2e/golden-paths/helpers/quarantine';
+import { goldenEvidence } from './tests/e2e/golden-paths/helpers/goldenEvidence';
 
 export default defineConfig({
   testDir: './tests/e2e/golden-paths',
@@ -38,5 +39,6 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || 'http://localhost:3200',
     headless: true,
     storageState: 'tests/e2e/.auth/golden-session.json',
+    ...goldenEvidence(), // traces and screenshots of red specs, hosted CI only (GOLDEN_EVIDENCE=1)
   },
 });
