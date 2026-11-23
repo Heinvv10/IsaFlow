@@ -56,7 +56,7 @@ describe('Capture inbox on touch', () => {
 
   it('empty state: the copy-address button is a 44px square', async () => {
     state.events = [];
-    const { container } = render(<Page />);
+    render(<Page />);
     await screen.findByText('No pending captures');
     const copy = screen.getByRole('button', { name: 'Copy address' });
     expect(cls(copy)).toEqual(expect.arrayContaining(SQUARE));
