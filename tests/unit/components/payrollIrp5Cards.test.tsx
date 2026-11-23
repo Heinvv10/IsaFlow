@@ -29,7 +29,12 @@ describe('Payroll IRP5 readiness on touch', () => {
     const table = container.querySelector('table')!;
     expect(cls(table)).toContain('table-cards');
     expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(HEADS);
-    expect([...table.querySelectorAll('tbody tr:first-child td')].map((td) => td.getAttribute('data-label'))).toEqual(HEADS);
+    const rows = [...table.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(2);
+    for (const tr of rows) expect([...tr.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual(HEADS);
+    // the second employee has no ID or tax number: the red "missing" markers sit inside their labelled cells
+    expect(rows[1].querySelector('td[data-label="ID / Passport"]')!.textContent).toBe('missing');
+    expect(rows[1].querySelector('td[data-label="Tax Number"]')!.textContent).toBe('missing');
   });
 
   it('makes the tax-year select and both export buttons 44px; the header and its control group wrap', async () => {
