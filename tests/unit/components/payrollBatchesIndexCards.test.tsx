@@ -39,6 +39,7 @@ describe('Payroll batches list on touch', () => {
     const again = render(<Page />);
     await screen.findByText('Nov bonuses');
     expect(cls(again.container.querySelector('tbody tr')!.lastElementChild!)).toContain('max-lg:!hidden');
+    expect(screen.queryByRole('link', { name: 'Open' })).toBeNull(); // the cell is hidden because it is empty
   });
 
   it('makes Open, New Batch and the status filter 44px; the header wraps', async () => {
