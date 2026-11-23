@@ -50,7 +50,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder }, { role: companyRole, userId: user.id });
       return apiResponse.success(res, account);
     } catch (err) {
-      log.error('Failed to update account', { id, error: err }, 'accounting-api');
+      // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
+      if (isServiceRefusal(err)) log.warn('Failed to update account', { id, error: err }, 'accounting-api');
+      else log.error('Failed to update account', { id, error: err }, 'accounting-api');
       // Only a refusal is a 400: a 4xx COMMITS, so anything else goes to withErrorHandler
       // (500, rolled back; a role-lock timeout is 503 + Retry-After there).
       if (!isServiceRefusal(err)) throw err;
@@ -70,7 +72,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       const code = (err as Error & { code?: string }).code;
       const message = err instanceof Error ? err.message : 'Failed to rename account code';
-      log.error('Failed to rename account code', { id, error: err }, 'accounting-api');
+      // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
+      if (isServiceRefusal(err)) log.warn('Failed to rename account code', { id, error: err }, 'accounting-api');
+      else log.error('Failed to rename account code', { id, error: err }, 'accounting-api');
       if (code === 'HAS_TRANSACTIONS') {
         return apiResponse.error(res, ErrorCode.CONFLICT, message, { reason: 'HAS_TRANSACTIONS' });
       }
@@ -85,7 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await deleteAccount(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      log.error('Failed to delete account', { id, error: err }, 'accounting-api');
+      // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
+      if (isServiceRefusal(err)) log.warn('Failed to delete account', { id, error: err }, 'accounting-api');
+      else log.error('Failed to delete account', { id, error: err }, 'accounting-api');
       if (!isServiceRefusal(err)) throw err;
       return apiResponse.badRequest(res, err.message);
     }
