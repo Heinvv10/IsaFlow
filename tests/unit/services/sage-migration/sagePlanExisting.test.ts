@@ -106,6 +106,13 @@ describe('a category name an IsaFlow category the migration does not own holds',
   it('a different Sage category holding the name is not the migration\'s own for THIS id: refused', () => {
     expect(plan(cats({ id: 'c1', name: 'Optics', system: 'sage', ref: '99' })).refusals.find((x) => x.entity === 'category')).toMatchObject({ code: 'category_name_in_use' });
   });
+  it('B9-C (round 9): a category name held by an owned category under a DIFFERENT Sage id is worded as that, not as "does not own"', () => {
+    const own = plan(cats({ id: 'c1', name: 'Optics', system: 'sage', ref: '99' })).refusals.find((x) => x.entity === 'category')!;
+    expect(own.reasons[0]).toMatch(/under a different Sage id \(this category is Sage id 10\)/);
+    expect(own.reasons[0]).not.toMatch(/does not own/);
+    const foreign = plan(cats({ id: 'c1', name: 'Optics', system: null, ref: null })).refusals.find((x) => x.entity === 'category')!;
+    expect(foreign.reasons[0]).toMatch(/which this migration does not own/);
+  });
   it('names compare case-insensitively (the tool does), and an unrelated name is no conflict', () => {
     expect(plan(cats({ id: 'c1', name: 'OPTICS', system: null, ref: null })).refusals.some((x) => x.entity === 'category')).toBe(true);
     expect(plan(cats({ id: 'c1', name: 'Optics and more', system: null, ref: null })).refusals).toEqual([]);

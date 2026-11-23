@@ -112,7 +112,11 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     if (!holder) continue;
     const who = `category ${holder.name} (id ${holder.id}, ${holder.ref ? `${holder.system ?? 'no system'} ${holder.ref}` : 'no external reference'})`;
     refusedCategories.set(c.id, c.description);
-    refusals.push({ entity: 'category', sageId: c.id, label: c.description, code: 'category_name_in_use', reasons: [`the name is held by ${who}, which this migration does not own: it is never renamed or adopted`] });
+    // Another Sage category (a different Sage id) is the migration's own, only under another id; anything else is not the migration's.
+    const why = holder.system === SAGE_SYSTEM && holder.ref !== null
+      ? `under a different Sage id (this category is Sage id ${c.id}): the migration does not rename or merge one Sage category into another`
+      : 'which this migration does not own: it is never renamed or adopted';
+    refusals.push({ entity: 'category', sageId: c.id, label: c.description, code: 'category_name_in_use', reasons: [`the name is held by ${who}, ${why}`] });
   }
 
   const items: PlannedItem[] = [];
