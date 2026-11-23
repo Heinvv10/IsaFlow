@@ -1,11 +1,10 @@
 /**
  * Intercompany P4-D, the pure rules of the receiver's clearing: the Accept body (the preview's keys only), "what is approved is what posts", what
- * an error under the savepoint counts as (a receipt refusal is busy only when it is retryable), the loan-account classes (never a system
- * account), and the sentence table (fixed, generic: no figure, no id, never database text). The caps are the definer's (round 1, F2).
+ * an error under the savepoint counts as (a receipt refusal is busy only when it is retryable), and the sentence table (fixed, generic: no figure, no id, never database text). The caps are the definer's (round 1, F2).
  */
 import { describe, expect, it } from 'vitest';
 import {
-  CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, expectedMismatch, isLoanClass, isRealDate, parseAcceptBody, refusalOfCode,
+  CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, expectedMismatch, isRealDate, parseAcceptBody, refusalOfCode,
 } from '@/modules/accounting/services/intercompany/allocationClearRefusals';
 import type { ClearRefusalCode } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 
@@ -64,26 +63,6 @@ describe('refusalOfCode (an error under the savepoint)', () => {
   });
   it('anything else is not a refusal: a codeless error, a driver code, a constraint, a statement timeout', () => {
     for (const code of [null, '23514', '23505', '57014', 'XX000']) expect(refusalOfCode(code)).toBeNull();
-  });
-});
-
-describe('isLoanClass (by type and subtype, never by name)', () => {
-  it('a loan or intercompany balance-sheet position', () => {
-    for (const [t, s] of [['asset', 'other_current_asset'], ['asset', 'other'], ['liability', 'other_current_liability'], ['liability', 'long_term_liability'], ['liability', 'current_liability'], ['liability', 'other']]) {
-      expect([t, s, isLoanClass(t!, s!, false)]).toEqual([t, s, true]);
-      expect([t, s, 'system', isLoanClass(t!, s!, true)]).toEqual([t, s, 'system', false]);
-    }
-  });
-  it('an account type that is no own key of the class table (constructor, __proto__, toString) is no loan class, and never throws', () => {
-    for (const t of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) expect([t, isLoanClass(t, 'other', false)]).toEqual([t, false]);
-  });
-
-  it('never a control, bank, cash, VAT, tax, payroll, stock, fixed asset, equity or P&L account, nor one without a subtype', () => {
-    for (const [t, s] of [['asset', 'receivable'], ['asset', 'bank'], ['asset', 'cash'], ['asset', 'vat_input'], ['asset', 'inventory'], ['asset', 'fixed_asset'],
-      ['liability', 'payable'], ['liability', 'vat_output'], ['liability', 'tax'], ['liability', 'payroll_liability'], ['equity', 'equity'], ['equity', 'other'],
-      ['revenue', 'other'], ['expense', 'other'], ['asset', null], [null, 'other']]) {
-      expect([t, s, isLoanClass(t, s, false)]).toEqual([t, s, false]);
-    }
   });
 });
 

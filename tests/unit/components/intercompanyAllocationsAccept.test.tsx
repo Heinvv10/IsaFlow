@@ -17,7 +17,7 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import { envelope, failure } from './intercompanyFixtures';
 import { alloc, detailOf, posts, previewOf, serve } from './intercompanyInboxFixtures';
 
@@ -82,9 +82,13 @@ describe('Accept a payment from the group', () => {
     const before = allocationsLoads();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(sentence);
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent(sentence);
     await waitFor(() => expect(allocationsLoads()).toBeGreaterThan(before));
     expect(screen.getByRole('dialog', { name: `Clear ${LABEL}` })).toBeInTheDocument();
+    // (L4) said once (in the dialog, no page banner as well), and the focus is on it
+    expect(screen.getAllByText(sentence)).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(alert));
   });
 
   it('a 409 (the books changed since the preview) closes the dialog with its sentence and reloads', async () => {
@@ -116,6 +120,34 @@ describe('Accept a payment from the group', () => {
     const drawer = await screen.findByRole('dialog');
     await within(drawer).findByTestId('allocation-failed-error');
     expect(within(drawer).queryByRole('button', { name: /accept/i })).toBeNull();
+  });
+});
+
+describe('round 2: the invoice date, the confirm sentence, Back', () => {
+  it('(M1) an invoice dated after the payment: the preview shows it, proposes it, and a date before it is refused in the dialog', async () => {
+    const item = alloc({ issuerInvoice: { ...alloc().issuerInvoice!, date: '2026-09-05' } });
+    serve({ items: [], allocations: [item], allocationDetail: detailOf(item, previewOf(item, { invoiceDate: '2026-09-05', defaultPostingDate: '2026-09-05' })) });
+    const dialog = await openAccept();
+    expect(within(dialog).getByTestId('allocation-accept-preview').textContent).toContain(formatDate('2026-09-05'));
+    const date = within(dialog).getByLabelText('Posting date') as HTMLInputElement;
+    expect(date.value).toMatch(/^0?5 Sep 2026$/);
+    fireEvent.change(date, { target: { value: '2026-09-03' } });
+    fireEvent.blur(date);
+    expect(await within(dialog).findByText("The posting date must be on or after the payment date and your invoice's date.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    expect(within(dialog).queryByTestId('allocation-accept-confirm')).toBeNull();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('(L4) the confirm sentence describes the Post button; Back returns the focus to the date', async () => {
+    serve({ items: [], allocations: [alloc()] });
+    const dialog = await openAccept();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    const post = within(dialog).getByRole('button', { name: 'Post clearing' });
+    const sentence = within(dialog).getByTestId('allocation-accept-confirm');
+    expect(post.getAttribute('aria-describedby')).toBe(sentence.id);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('Posting date')));
   });
 });
 

@@ -38,7 +38,8 @@ export const alloc = (over: Partial<AllocationItem> = {}): AllocationItem => ({
 /** P4-D: what Accept would post for an open payment (loan 1400 debit, receivable 1200 credit, the payment's amount and invoice). */
 export const previewOf = (item: AllocationItem, over: Partial<AllocationClearingPreview> = {}): AllocationClearingPreview => ({
   loanAccountId: 'loan-1', loanAccountLabel: '1400 Loan to Velocity', receivableLabel: '1200 Accounts Receivable', amount: item.amount,
-  invoiceId: item.issuerInvoice?.id ?? null, invoiceNumber: item.issuerInvoice?.number ?? null, paymentDate: item.paymentDate, defaultPostingDate: item.paymentDate, ...over,
+  invoiceId: item.issuerInvoice?.id ?? null, invoiceNumber: item.issuerInvoice?.number ?? null, paymentDate: item.paymentDate,
+  invoiceDate: item.issuerInvoice?.date ?? null, defaultPostingDate: item.paymentDate, ...over,
 });
 export const detailOf = (item: AllocationItem, preview: AllocationClearingPreview | null = OPEN.includes(item.status) ? previewOf(item) : null): AllocationDetail =>
   ({ item, allocationId: 'pa-1', linkId: 'l-1', linkOrigin: 'manual_pairing', cutoverDate: '2026-01-01', preview });

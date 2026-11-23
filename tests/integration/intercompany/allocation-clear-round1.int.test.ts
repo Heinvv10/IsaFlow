@@ -34,7 +34,7 @@ beforeEach(async () => {
 });
 
 const failed = (code: keyof typeof CLEAR_REFUSAL_SENTENCES) => ({ accepted: false, status: 'failed', code, error: CLEAR_REFUSAL_SENTENCES[code] });
-const live = (m: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.query('SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live($1)', [m])).rows[0]);
+const live = (m: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.query('SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_clearable($1)', [m])).rows[0]);
 
 describe("F1: the payer's loan account must be a loan class", () => {
   it('the payer re-points its side at a bank account after paying: nothing counts as loan-funded, the clearing is refused', async () => {

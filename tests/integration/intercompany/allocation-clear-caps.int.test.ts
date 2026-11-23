@@ -30,14 +30,14 @@ beforeEach(async () => {
 
 const already = { accepted: false, status: 'failed', code: 'already_cleared', error: CLEAR_REFUSAL_SENTENCES.already_cleared };
 const clearable = async (message: string) => (await pool.query(
-  'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live($1)', [message])).rows[0];
+  'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_clearable($1)', [message])).rows[0];
 
 describe('what the payer\'s books let be cleared', () => {
   it('the definer answers the cap, never a figure: none through its loan account; cash_not_through_loan through a bank; nothing once not live', async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     expect(await liveFor(pool, sent.message)).toMatchObject({ live: true, reason: 'ok' });
     const asA = (m: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.query(
-      'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live($1)', [m])).rows[0]);
+      'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_clearable($1)', [m])).rows[0]);
     expect(await asA(sent.message)).toEqual({ live: true, reason: 'ok', cap: null, payer_loan_type: 'liability' });
     const viaBank = await sentClearable(pool, conn, { leg: bank.b });
     expect(await asA(viaBank.message)).toEqual({ live: true, reason: 'ok', cap: 'cash_not_through_loan', payer_loan_type: 'liability' });

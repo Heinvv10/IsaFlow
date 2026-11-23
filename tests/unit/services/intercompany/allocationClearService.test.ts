@@ -10,13 +10,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   events: [] as string[],
   store: { client: {}, userId: 'u-1', companyId: 'co-1' } as Record<string, unknown> | undefined,
+  zero: null as string | null,
 }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     if (text.includes("set_config('lock_timeout'")) { m.events.push('bound'); return [{ prev: '0' }]; }
-    if (text.includes('UPDATE customer_payments')) { m.events.push('stamp'); return [{ id: 'p-1' }]; }
-    if (text.includes("SET status = 'accepted'")) { m.events.push('accepted'); return [{ id: 'm-1' }]; }
+    if (text.includes('UPDATE customer_payments')) { m.events.push('stamp'); return m.zero === 'stamp' ? [] : [{ id: 'p-1' }]; }
+    if (text.includes("SET status = 'accepted'")) { m.events.push('accepted'); return m.zero === 'accepted' ? [] : [{ id: 'm-1' }]; }
     if (text.includes("SET status = 'failed'")) { m.events.push('failed'); return [{ id: 'm-1' }]; }
     return [];
   }),
@@ -65,6 +66,7 @@ const record = <T>(name: string, value: T) => async () => { m.events.push(name);
 beforeEach(() => {
   vi.clearAllMocks();
   m.events = [];
+  m.zero = null;
   m.store = { client: {}, userId: 'u-1', companyId: 'co-1' };
   guard.currentSessionActor.mockImplementation(record('impersonation', 'self'));
   reads.userCanWrite.mockImplementation(record('canWrite', true));
@@ -78,7 +80,7 @@ beforeEach(() => {
   lock.lockReceiptInvoices.mockImplementation(record('lock:invoice', new Map([[INV, { id: INV, invoiceNumber: 'INV-1', status: 'approved', deleted: false, totalCents: 115000, paidCents: 0, currencyCode: 'ZAR' }]])));
   reads.invoiceFacts.mockImplementation(record('invoice', { date: '2026-09-01', customerId: 'cust-1', currency: 'ZAR' }));
   reads.pairCutover.mockImplementation(record('cutover', '2026-01-01'));
-  reads.lockLoanAccount.mockImplementation(record('lock:account', { accountType: 'asset', accountSubtype: 'other_current_asset', isActive: true, isParent: false, isSystem: false }));
+  reads.lockLoanAccount.mockImplementation(record('lock:account', { accountType: 'asset', isActive: true, isParent: false, loanClass: true }));
   reads.pendingDraftAmount.mockImplementation(record('pending', 0));
   dates.todaySast.mockResolvedValue('2026-11-23');
   dates.postingDateRefusal.mockImplementation(record('period', null));
@@ -140,10 +142,9 @@ describe('the clearing', () => {
     ['an unknown cap answer', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'something', payerLoanType: 'liability' })), 'refused'],
     ['the loan types alike', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: null, payerLoanType: 'asset' })), 'loan_class_mismatch'],
     ['an external connection', () => reads.lockConnection.mockImplementationOnce(record('lock:connection', { id: 'c-1', status: 'active', kind: 'external', cutoverDate: '2026-01-01', lowId: 'co-1', highId: 'co-2' })), 'not_group'],
-    ['a system loan account', () => reads.lockLoanAccount.mockImplementationOnce(record('lock:account', { accountType: 'asset', accountSubtype: 'other_current_asset', isActive: true, isParent: false, isSystem: true })), 'loan_account_unusable'],
     ['the open amount with draft receipts', () => reads.pendingDraftAmount.mockImplementationOnce(record('pending', 750.01)), 'exceeds_open'],
     ['the cut-over (none for the pair)', () => reads.pairCutover.mockImplementationOnce(record('cutover', null)), 'pre_cutover_invoice'],
-    ['the loan class', () => reads.lockLoanAccount.mockImplementationOnce(record('lock:account', { accountType: 'asset', accountSubtype: 'bank', isActive: true, isParent: false, isSystem: false })), 'loan_account_unusable'],
+    ['the loan class (the database\'s rule: type, subtype, system flag, bank lines)', () => reads.lockLoanAccount.mockImplementationOnce(record('lock:account', { accountType: 'asset', isActive: true, isParent: false, loanClass: false })), 'loan_account_unusable'],
     ['the period', () => dates.postingDateRefusal.mockImplementationOnce(record('period', 'vat_locked')), 'vat_locked'],
     ['the customer', () => reads.invoiceFacts.mockImplementationOnce(record('invoice', { date: '2026-09-01', customerId: 'other', currency: 'ZAR' })), 'wrong_customer'],
   ])('%s refuses before the posting', async (_name, arrange, code) => {
@@ -162,6 +163,17 @@ describe('the clearing', () => {
     expect(await call()).toMatchObject({ accepted: false, code: 'refused' });
     settle.settleDocumentByContra.mockImplementationOnce(async () => { throw Object.assign(new Error('x'), { code: 'RECEIPT_REFUSED', held: true }); });
     expect(await call()).toMatchObject({ accepted: false, code: 'busy' });
+  });
+
+  it('(L6) a posting with no journal, a stamp or an accept that touched no row: a throw (5xx), nothing stored', async () => {
+    settle.settleDocumentByContra.mockImplementationOnce(record('settle', { paymentId: 'p-1', paymentNumber: 'CP-1', journalEntryId: null }));
+    await expect(call()).rejects.toThrow(/posted no journal/);
+    for (const [needle, msg] of [['stamp', /could not be stamped/], ['accepted', /could not be accepted/]] as const) {
+      m.zero = needle;
+      await expect(call()).rejects.toThrow(msg);
+      m.zero = null;
+    }
+    expect(m.events).not.toContain('failed');
   });
 
   it('anything else propagates, nothing stored: a codeless error, a constraint (the guard), a statement timeout', async () => {

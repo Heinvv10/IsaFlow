@@ -152,7 +152,7 @@ describe("the person: their own session, Approve to reject, the preview's keys o
   });
 
   const NEW_FUNCTIONS = ['public.intercompany_allocation_message_live(uuid)', 'public.intercompany_allocation_cap_lock(uuid)',
-    'public.intercompany_is_loan_class(text, text, boolean)', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)'];
+    'public.intercompany_is_loan_class(uuid, uuid)', 'public.intercompany_allocation_clearable(uuid)', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)'];
   const reaches = async (q: PoolClient, role: string) => (await q.query(
     "SELECT f AS fn, has_function_privilege($1, f, 'EXECUTE') AS can FROM unnest($2::text[]) f ORDER BY f", [role, NEW_FUNCTIONS])).rows as Array<{ fn: string; can: boolean }>;
 

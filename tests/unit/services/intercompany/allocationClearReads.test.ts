@@ -15,6 +15,7 @@ describe('askLive', () => {
   it('one row: the answer as the definer gave it', async () => {
     m.rows = [{ live: true, reason: 'ok', cap: null, payer_loan_type: 'liability' }];
     expect(await askLive('m-1')).toEqual({ live: true, reason: 'ok', cap: null, payerLoanType: 'liability' });
+    expect(m.texts.at(-1)).toMatch(/intercompany_allocation_clearable\(/);   // the full definer (M4), never the inbox's light one
     m.rows = [{ live: true, reason: 'ok', cap: 'already_cleared', payer_loan_type: null }];
     expect(await askLive('m-1')).toEqual({ live: true, reason: 'ok', cap: 'already_cleared', payerLoanType: null });
   });
