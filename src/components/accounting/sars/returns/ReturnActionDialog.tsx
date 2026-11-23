@@ -165,13 +165,13 @@ export function ReturnActionDialog(p: Props) {
       <Modal.Footer>
         {stale ? (
           <>
-            <Button variant="ghost" onClick={p.onClose}>Close</Button>
-            {offerAmendInstead && <Button ref={amendInstead} variant="secondary" onClick={p.onAmendInstead}>Amend instead</Button>}
+            <Button variant="ghost" className="max-lg:min-h-11" onClick={p.onClose}>Close</Button>
+            {offerAmendInstead && <Button ref={amendInstead} variant="secondary" className="max-lg:min-h-11" onClick={p.onAmendInstead}>Amend instead</Button>}
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={p.onClose}>Cancel</Button>
-            <Button ref={primary} variant={p.action === 'amend' ? 'danger' : 'primary'} className={DISABLED} loading={busy}
+            <Button variant="ghost" className="max-lg:min-h-11" onClick={p.onClose}>Cancel</Button>
+            <Button ref={primary} variant={p.action === 'amend' ? 'danger' : 'primary'} className={`${DISABLED} max-lg:min-h-11`} loading={busy}
               disabled={busy || missing !== null} onClick={() => void submit()}>
               {blocked && p.isOwnerOrAdmin ? `Override and ${cta.toLowerCase()}` : cta}
             </Button>
