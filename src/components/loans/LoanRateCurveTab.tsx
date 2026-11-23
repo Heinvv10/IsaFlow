@@ -33,14 +33,14 @@ export function LoanRateCurveTab({ curve, points, loading }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
         <div>
           <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">{curve.name}</h3>
           <p className="text-sm text-[var(--ff-text-secondary)]">{sorted.length} rate point{sorted.length !== 1 ? 's' : ''}</p>
         </div>
         <Link
           href="/accounting/loans/rate-curves"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:text-[var(--ff-text-primary)] text-xs"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:text-[var(--ff-text-primary)] text-xs max-lg:min-h-11"
         >
           <ExternalLink className="h-3.5 w-3.5" /> Manage Curves
         </Link>
