@@ -149,17 +149,17 @@ export default function TrainingPage() {
   return (
     <AppLayout>
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
             <GraduationCap className="h-6 w-6 text-sky-500" />
             <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Training Events — WSP / ATR</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-lg:flex-wrap">
             <input type="number" value={year} onChange={e => setYear(Number(e.target.value))}
-              className="w-24 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]" />
+              className="w-24 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11" />
             <WriteOnly>
               <button onClick={() => setShowForm(!showForm)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium max-lg:min-h-11">
                 <Plus className="h-4 w-4" /> New event
               </button>
             </WriteOnly>
@@ -170,38 +170,38 @@ export default function TrainingPage() {
           <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Capture training</h2>
-              <button onClick={() => setShowForm(false)} className="text-[var(--ff-text-secondary)] hover:text-red-400">
+              <button onClick={() => setShowForm(false)} className="text-[var(--ff-text-secondary)] hover:text-red-400 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
               <select value={form.employeeId} onChange={e => setForm({ ...form, employeeId: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]">
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11">
                 <option value="">Employee...</option>
                 {employees.map(e => <option key={e.id} value={e.id}>{e.employeeNumber} — {e.firstName} {e.lastName}</option>)}
               </select>
               <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]">
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11">
                 {CATEGORIES.map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
               </select>
               <input type="number" placeholder="NQF level (1-10)" value={form.nqfLevel}
                 onChange={e => setForm({ ...form, nqfLevel: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input type="text" placeholder="Description" value={form.description}
                 onChange={e => setForm({ ...form, description: e.target.value })}
-                className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="md:col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input type="text" placeholder="Provider" value={form.provider}
                 onChange={e => setForm({ ...form, provider: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <GatedDateField gate={dateGate} gateKey="planned-start" label="Planned start" value={form.plannedStart || null} onValue={iso => setForm({ ...form, plannedStart: iso })} />
               <GatedDateField gate={dateGate} gateKey="planned-end" label="Planned end" value={form.plannedEnd || null} onValue={iso => setForm({ ...form, plannedEnd: iso })} />
               <input type="number" step="0.01" placeholder="Cost planned" value={form.costPlanned}
                 onChange={e => setForm({ ...form, costPlanned: Number(e.target.value) })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
             </div>
             <div className="flex justify-end">
               <button onClick={handleCreate} disabled={saving || !form.employeeId || !form.description.trim() || dateGate.blocked}
-                className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
@@ -216,7 +216,7 @@ export default function TrainingPage() {
 
         <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-sm table-cards">
               <thead className="text-left text-[var(--ff-text-secondary)] bg-[var(--ff-surface-secondary)]">
                 <tr>
                   <th className="px-3 py-2">Employee</th>
@@ -231,26 +231,26 @@ export default function TrainingPage() {
               </thead>
               <tbody className="divide-y divide-[var(--ff-border-primary)] text-[var(--ff-text-primary)]">
                 {loading ? (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-[var(--ff-text-secondary)]">
+                  <tr><td colSpan={8} className="px-4 py-6 text-center text-[var(--ff-text-secondary)] max-lg:!py-8 max-lg:!text-center">
                     <Loader2 className="h-4 w-4 animate-spin inline mr-2" />Loading...
                   </td></tr>
                 ) : events.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-[var(--ff-text-secondary)]">
+                  <tr><td colSpan={8} className="px-4 py-6 text-center text-[var(--ff-text-secondary)] max-lg:!py-8 max-lg:!text-center">
                     No training events recorded for {year}.
                   </td></tr>
                 ) : (
                   events.map(e => (
                     <tr key={e.id}>
-                      <td className="px-3 py-2">{employeeName(e.employeeId)}</td>
-                      <td className="px-3 py-2 text-xs uppercase text-[var(--ff-text-secondary)]">{e.category.replace(/_/g, ' ')}</td>
-                      <td className="px-3 py-2">{e.description}</td>
-                      <td className="px-3 py-2 text-[var(--ff-text-secondary)]">{e.provider ?? '·'}</td>
-                      <td className="px-3 py-2">{e.nqfLevel ?? '·'}</td>
-                      <td className="px-3 py-2 text-xs">{e.plannedStart ?? ''}{e.plannedEnd ? ` → ${e.plannedEnd}` : ''}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{zar(e.costPlanned)}</td>
-                      <td className="px-3 py-2">
+                      <td data-label="Employee" className="px-3 py-2">{employeeName(e.employeeId)}</td>
+                      <td data-label="Category" className="px-3 py-2 text-xs uppercase text-[var(--ff-text-secondary)]">{e.category.replace(/_/g, ' ')}</td>
+                      <td data-label="Description" className="px-3 py-2">{e.description}</td>
+                      <td data-label="Provider" className="px-3 py-2 text-[var(--ff-text-secondary)]">{e.provider ?? '·'}</td>
+                      <td data-label="NQF" className="px-3 py-2">{e.nqfLevel ?? '·'}</td>
+                      <td data-label="Planned" className="px-3 py-2 text-xs">{e.plannedStart ?? ''}{e.plannedEnd ? ` → ${e.plannedEnd}` : ''}</td>
+                      <td data-label="Cost" className="px-3 py-2 text-right tabular-nums">{zar(e.costPlanned)}</td>
+                      <td data-label="Status" className="px-3 py-2">
                         <select value={e.status} onChange={ev => setStatus(e.id, ev.target.value)}
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUSES.find(s => s.v === e.status)?.cls ?? ''}`}>
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium max-lg:min-h-11 max-lg:px-3 ${STATUSES.find(s => s.v === e.status)?.cls ?? ''}`}>
                           {STATUSES.map(s => <option key={s.v} value={s.v}>{s.v}</option>)}
                         </select>
                       </td>
