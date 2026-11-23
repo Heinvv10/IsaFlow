@@ -95,7 +95,8 @@ describe('M2: a re-run that finds the books different from Sage', () => {
     rowsOf(file)[0] = { ...rowsOf(file)[0], PriceExclusive: 555.5, Active: false };
     const r = await run({}, file);
     expect(r.differences.items).toEqual([{ code: 'FIB-0001', changed: expect.arrayContaining(['sales_price', 'is_active']) }]);
-    expect(r.differences.purchaseOrders).toEqual([]);
+    // the item is inactive now, so its PO lines would be sent unlinked: the books keep the link, which is listed as a PO difference (B7-F)
+    expect(r.differences.purchaseOrders.map((p) => [p.poNumber, p.differences.map((d) => d.field)])).toEqual([['PO0000197', ['line 1 item_id']], ['PO0000202', ['line 1 item_id']]]);
     expect(exitCodeFor(r, false)).toBe(1);
     expect(exitCodeFor(r, false, true)).toBe(0);
     expect(summaryLines(r).join('\n')).toMatch(/NOTE: a re-run sets the items and categories this migration owns back to the values it sends/);

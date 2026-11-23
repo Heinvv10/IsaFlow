@@ -83,7 +83,7 @@ describe('B5-C2: a re-run compares what the PO tool does not', () => {
     expect((await run()).status).toBe('completed');
     const r = await run(moved(), { allowDifferences: false, allowRefusals: false });
     const fields = r.differences.purchaseOrders.find((x) => x.poNumber === 'PO0000197')?.differences.map((d) => d.field) ?? [];
-    expect(fields).toEqual(expect.arrayContaining(['supplier', 'delivery_date', 'reference', 'line 2 description', 'line 2 quantity', 'line 2 unit_price']));
+    expect(fields).toEqual(expect.arrayContaining(['supplier_id', 'expected_delivery_date', 'reference', 'line 2 description', 'line 2 quantity', 'line 2 unit_price']));
     expect(r.status).toBe('live_blocked');
     expect(exitCodeFor(r, false, false)).toBe(1);
   });

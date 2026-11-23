@@ -43,7 +43,7 @@ describe('M2: a re-run after the suppliers changed in IsaFlow', () => {
     const blocked = await run({ expect: { items: 20, purchaseOrders: 10 } });
     expect(blocked.refused).toEqual([]);
     expect(blocked.status).toBe('live_blocked');
-    const supplierDiffs = blocked.differences.purchaseOrders.flatMap((p) => p.differences.filter((d) => d.field === 'supplier').map((d) => ({ po: p.poNumber, text: String(d.requested) })));
+    const supplierDiffs = blocked.differences.purchaseOrders.flatMap((p) => p.differences.filter((d) => d.field === 'supplier_id').map((d) => ({ po: p.poNumber, text: String(d.requested) })));
     expect(supplierDiffs.length).toBeGreaterThan(0);
     for (const d of supplierDiffs) expect(d.text).toMatch(/not found in IsaFlow.*PO is booked to/s);
     // allowed: the run goes on, the books keep their suppliers, --expect-pos 10 holds, exit 0
@@ -58,7 +58,7 @@ describe('M2: a re-run after the suppliers changed in IsaFlow', () => {
     await pool.query(`UPDATE suppliers SET name = 'Alpha Renamed', external_system = NULL, external_ref = NULL WHERE id = $1`, [s.suppliers.alpha]);
     const r = await run({ allowDifferences: true, live: false });
     expect(r.refused).toEqual([]);
-    expect(r.differences.purchaseOrders.some((p) => p.differences.some((d) => d.field === 'supplier' && /Alpha Renamed/.test(String(d.requested))))).toBe(true);
+    expect(r.differences.purchaseOrders.some((p) => p.differences.some((d) => d.field === 'supplier_id' && /Alpha Renamed/.test(String(d.requested))))).toBe(true);
   });
   it('a supplier DELETED in IsaFlow (a hard delete is impossible: the PO references it): the POs booked to it are refused with the remedy, the others go on', async () => {
     expect((await run()).status).toBe('completed');
