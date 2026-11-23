@@ -384,7 +384,7 @@ export default function BatchGridPage() {
                       className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11" />
                   )}
                   <button type="button" onClick={() => removeDraft(i)} disabled={drafts.length === 1}
-                    className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
+                    className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center max-lg:justify-self-start">
                     <Trash2 className="h-4 w-4 text-red-400" />
                   </button>
                 </div>

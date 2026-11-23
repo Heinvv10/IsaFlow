@@ -69,7 +69,9 @@ describe('Payroll batch detail on touch', () => {
     await screen.findByText(/November travel/);
     expect(cls(container.querySelector('a[href="/payroll/batches"]')!)).toEqual(expect.arrayContaining(SQUARE));
     expect(cls(screen.getByRole('button', { name: /Validate/ }))).toContain('max-lg:min-h-11');
-    for (const b of container.querySelectorAll('tbody td:last-child button')) expect(cls(b)).toEqual(expect.arrayContaining(SQUARE));
+    const removes = container.querySelectorAll('tbody td:last-child button');
+    expect(removes.length).toBeGreaterThan(0);
+    for (const b of removes) expect(cls(b)).toEqual(expect.arrayContaining(SQUARE));
     const header = screen.getByRole('heading', { level: 1 }).parentElement!.parentElement!.parentElement!;
     expect(cls(header)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
@@ -90,8 +92,13 @@ describe('Payroll batch detail on touch', () => {
     const draft = screen.getAllByRole('combobox')[0].parentElement!;
     expect(cls(draft)).toEqual(expect.arrayContaining(['max-lg:grid-cols-1', 'grid-cols-[2fr_1fr_1fr_auto]']));
     expect(draft.getAttribute('style')).toBeNull();
-    for (const f of container.querySelectorAll('[class*="grid-cols-["] select, [class*="grid-cols-["] input')) expect(cls(f), f.getAttribute('placeholder') ?? 'select').toContain('max-lg:min-h-11');
-    for (const b of container.querySelectorAll('[class*="grid-cols-["] button')) expect(cls(b)).toEqual(expect.arrayContaining(SQUARE));
+    expect(cls(draft)).not.toContain('grid-cols-[2fr_1fr_auto]');
+    const fields = container.querySelectorAll('[class*="grid-cols-["] select, [class*="grid-cols-["] input');
+    expect(fields.length).toBe(6); // two draft rows (one added above) of employee, km and R/km
+    for (const f of fields) expect(cls(f), f.getAttribute('placeholder') ?? 'select').toContain('max-lg:min-h-11');
+    const drops = container.querySelectorAll('[class*="grid-cols-["] button');
+    expect(drops.length).toBeGreaterThan(0);
+    for (const b of drops) expect(cls(b)).toEqual(expect.arrayContaining([...SQUARE, 'max-lg:justify-self-start']));
     expect(cls(screen.getByRole('button', { name: /Add to batch/ }))).toContain('max-lg:min-h-11');
   });
 
@@ -99,7 +106,9 @@ describe('Payroll batch detail on touch', () => {
     state.type = 'component_values';
     render(<Page />);
     await screen.findByText(/November travel/);
-    expect(cls(screen.getAllByRole('combobox')[0].parentElement!)).toEqual(expect.arrayContaining(['max-lg:grid-cols-1', 'grid-cols-[2fr_1fr_auto]']));
+    const grid = screen.getAllByRole('combobox')[0].parentElement!;
+    expect(cls(grid)).toEqual(expect.arrayContaining(['max-lg:grid-cols-1', 'grid-cols-[2fr_1fr_auto]']));
+    expect(cls(grid)).not.toContain('grid-cols-[2fr_1fr_1fr_auto]');
     expect(cls(screen.getByPlaceholderText('Amount'))).toContain('max-lg:min-h-11');
   });
 });
