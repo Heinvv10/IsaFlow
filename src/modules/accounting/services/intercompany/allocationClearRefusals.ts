@@ -116,5 +116,6 @@ const LOAN_CLASSES: Readonly<Record<string, readonly string[]>> = Object.freeze(
 
 export function isLoanClass(accountType: string | null, accountSubtype: string | null, isSystem: boolean): boolean {
   if (!accountType || !accountSubtype || isSystem) return false;
+  if (!Object.prototype.hasOwnProperty.call(LOAN_CLASSES, accountType)) return false;
   return (LOAN_CLASSES[accountType] ?? []).includes(accountSubtype);
 }

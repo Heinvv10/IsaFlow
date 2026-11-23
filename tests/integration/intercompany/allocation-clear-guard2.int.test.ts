@@ -69,9 +69,16 @@ describe('the guard, one condition at a time', () => {
       'UPDATE gl_journal_lines SET gl_account_id = $2 WHERE journal_entry_id = $1 AND credit > 0', [await journalOf(p), loan.a2]))],
     ['debit and credit swapped', async (p) => withLedgerUnfrozen(pool, async (q) => q.query(
       'UPDATE gl_journal_lines SET debit = credit, credit = debit WHERE journal_entry_id = $1', [await journalOf(p)]))],
+    ['the loan line a credit (the receivable credit kept)', async (p) => withLedgerUnfrozen(pool, async (q) => {
+      await q.query('SET LOCAL session_replication_role = replica');   // (the deferred balance check would refuse the unbalanced journal at commit)
+      await q.query('UPDATE gl_journal_lines SET credit = debit, debit = 0 WHERE journal_entry_id = $1 AND gl_account_id = $2', [await journalOf(p), acct.aLoan]);
+    })],
     ['confirmed by another user', (p) => pool.query('UPDATE customer_payments SET confirmed_by = $2 WHERE id = $1', [p, U.ab])],
     ['created by another user', (p) => pool.query('UPDATE customer_payments SET created_by = $2 WHERE id = $1', [p, U.ab])],
-    ['dated before the payment', (p) => pool.query("UPDATE customer_payments SET payment_date = DATE '2026-08-31' WHERE id = $1", [p])],
+    ['dated before the payment (the invoice earlier still)', async (p, s) => {
+      await pool.query("UPDATE customer_invoices SET invoice_date = DATE '2026-08-15' WHERE id = $1", [s.invoice]);
+      await pool.query("UPDATE customer_payments SET payment_date = DATE '2026-08-31' WHERE id = $1", [p]);
+    }],
     ['dated before the invoice', (_p, s) => pool.query("UPDATE customer_invoices SET invoice_date = DATE '2026-09-02' WHERE id = $1", [s.invoice])],
     ["the receiver's loan account no loan class", () => pool.query("UPDATE gl_accounts SET account_type = 'equity', account_subtype = 'equity' WHERE id = $1", [acct.aLoan])],
     ["the payer's loan account of the receiver's type", async () => {

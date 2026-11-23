@@ -53,10 +53,17 @@ describe("F1: the payer's loan account must be a loan class", () => {
     }
   });
 
-  it('the side form refuses a loan account that is not a loan class, and takes one that is', async () => {
+  it('the side form refuses a loan account that is not a loan class (a bank; a SYSTEM account of an otherwise allowed subtype), and takes one that is', async () => {
     const res = await api.edit(U.b, co.B, conn, { loanAccountId: bank.b });
     expect(res.state.statusCode).toBe(400);
     expect(JSON.stringify(res.state.body)).toMatch(/loan or intercompany balance-sheet account/);
+    const system = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, normal_balance, is_active, is_system_account, account_subtype)
+       VALUES ($1, $2, $3, 'IC B system liability', 'liability', 'credit', true, true, 'other_current_liability')`, [system, co.B, `ISY${system.slice(0, 6)}`]);
+    const sys = await api.edit(U.b, co.B, conn, { loanAccountId: system });
+    expect(sys.state.statusCode).toBe(400);
+    expect(JSON.stringify(sys.state.body)).toMatch(/loan or intercompany balance-sheet account/);
     expect((await api.edit(U.b, co.B, conn, { loanAccountId: acct.bLoan })).state.statusCode).toBe(200);
   });
 });

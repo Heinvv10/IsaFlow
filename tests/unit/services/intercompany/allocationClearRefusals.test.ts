@@ -74,6 +74,10 @@ describe('isLoanClass (by type and subtype, never by name)', () => {
       expect([t, s, 'system', isLoanClass(t!, s!, true)]).toEqual([t, s, 'system', false]);
     }
   });
+  it('an account type that is no own key of the class table (constructor, __proto__, toString) is no loan class, and never throws', () => {
+    for (const t of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) expect([t, isLoanClass(t, 'other', false)]).toEqual([t, false]);
+  });
+
   it('never a control, bank, cash, VAT, tax, payroll, stock, fixed asset, equity or P&L account, nor one without a subtype', () => {
     for (const [t, s] of [['asset', 'receivable'], ['asset', 'bank'], ['asset', 'cash'], ['asset', 'vat_input'], ['asset', 'inventory'], ['asset', 'fixed_asset'],
       ['liability', 'payable'], ['liability', 'vat_output'], ['liability', 'tax'], ['liability', 'payroll_liability'], ['equity', 'equity'], ['equity', 'other'],
