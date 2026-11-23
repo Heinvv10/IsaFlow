@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
+import { log } from '@/lib/logger';
 
 export class RunInProgressError extends Error {}
 
@@ -18,6 +19,8 @@ export function migrationLockKey(companyId: string): [number, number] {
 
 /** How often the idle lock connection is pinged: a proxy or firewall that drops idle sessions would otherwise take the lock without a word. */
 export const KEEPALIVE_MS = 15_000;
+/** A probe of the lock connection that has not answered in this long counts as lost: a half-open connection never errors. */
+export const CHECK_TIMEOUT_MS = 10_000;
 
 export class LockLostError extends Error {}
 
@@ -55,7 +58,7 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   }
   if (!held) {
     client.removeListener('error', onError);
-    client.release(failure);
+    client.release();
     throw new RunInProgressError(`another Sage migration is running for this company (${companyId}): wait for it to finish, then run again; nothing was written`);
   }
   // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
@@ -70,10 +73,16 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   }
   const check = async (): Promise<void> => {
     if (!lost) {
+      let timer: NodeJS.Timeout | undefined;
       try {
-        await client.query('SELECT 1');
+        await Promise.race([
+          client.query('SELECT 1'),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer within ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); }),
+        ]);
       } catch (err) {
         lost = err instanceof Error ? err : new Error(String(err));
+      } finally {
+        clearTimeout(timer);
       }
     }
     if (lost) throw new LockLostError(`lock lost (${lost.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
@@ -85,7 +94,8 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     let unlockFailure: Error | undefined = lost;
     if (!lost) {
       try {
-        await client.query('SELECT pg_advisory_unlock($1::int, $2::int)', [k1, k2]);
+        const unlocked = await client.query<{ ok: boolean }>('SELECT pg_advisory_unlock($1::int, $2::int) AS ok', [k1, k2]);
+        if (unlocked.rows[0]?.ok !== true) log.error('sage migration: the run lock was not held at unlock', { companyId }, 'sage-migration');
         await client.query('RESET idle_session_timeout'); // the connection goes back to the pool as the server configured it
       } catch (err) {
         unlockFailure = err instanceof Error ? err : new Error(String(err));

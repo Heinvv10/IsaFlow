@@ -1,7 +1,8 @@
 /** R2 (round 4): one Sage migration per company at a time. */
 import { describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
 import { EventEmitter } from 'node:events';
-import { acquireRunLock, KEEPALIVE_MS, LockLostError, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
+import { acquireRunLock, CHECK_TIMEOUT_MS, KEEPALIVE_MS, LockLostError, migrationLockKey, RunInProgressError } from '@/modules/accounting/services/sage-migration/sageRunLock';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -31,6 +32,8 @@ describe('migrationLockKey', () => {
   });
 });
 
+vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+
 describe('acquireRunLock', () => {
   it('takes the lock on a connection of its own, and the release function unlocks and returns the connection', async () => {
     const { pool, client, calls } = fakePool();
@@ -45,7 +48,7 @@ describe('acquireRunLock', () => {
     const { pool, client } = fakePool({ ok: false });
     await expect(acquireRunLock(pool, A)).rejects.toThrow(RunInProgressError);
     await expect(acquireRunLock(pool, A)).rejects.toThrow(/another Sage migration is running for this company \(11111111/);
-    expect(client.release).toHaveBeenCalledWith(undefined);
+    expect(client.release).toHaveBeenCalledWith();
   });
   it('a failed lock query destroys the connection and throws that error', async () => {
     const { pool, client } = fakePool({ lockThrows: true });
@@ -122,5 +125,42 @@ describe('the lock connection is kept from idling out (round 5, B5-B2)', () => {
       await vi.advanceTimersByTimeAsync(KEEPALIVE_MS + 10);
       await expect(check()).rejects.toThrow(/lock lost/);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('a half-open lock connection does not hang the run (round 6 L3)', () => {
+  it('a probe that never answers is a lost lock after CHECK_TIMEOUT_MS', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool, client } = fakePool();
+      const { check } = await acquireRunLock(pool, A);
+      client.query.mockImplementation(() => new Promise(() => undefined)); // the network has gone: no answer, no error
+      const outcome = check().then(() => 'ok', (e: Error) => e);
+      await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS + 10);
+      const e = await outcome;
+      expect(e).toBeInstanceOf(LockLostError);
+      expect((e as Error).message).toMatch(/lock lost.*no answer within/);
+    } finally { vi.useRealTimers(); }
+  });
+  it('a probe that answers in time clears its timer (no timer is left behind)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool } = fakePool();
+      const { check, unlock } = await acquireRunLock(pool, A);
+      await check();
+      await unlock();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('unlock says when the lock was not held (round 6 L4)', () => {
+  it('pg_advisory_unlock answering false is logged', async () => {
+    const { pool, client } = fakePool();
+    const { unlock } = await acquireRunLock(pool, A);
+    const orig = client.query.getMockImplementation()!;
+    client.query.mockImplementation(async (text: string) => (text.includes('pg_advisory_unlock') ? { rows: [{ ok: false }] } : orig(text)));
+    await unlock();
+    expect(log.error).toHaveBeenCalledWith(expect.stringMatching(/run lock was not held/), expect.anything(), 'sage-migration');
   });
 });
