@@ -39,8 +39,11 @@ export function summaryLines(r: MigrationReport): string[] {
   for (const p of r.differences.purchaseOrders) {
     lines.push(`DIFFERS: ${p.poNumber} is already in IsaFlow with other figures than Sage (the stored PO is not changed): ${p.differences.map((d) => `${d.field} ${String(d.existing)} -> ${String(d.requested)}`).join('; ') || 'no detail given'}`);
   }
-  for (const c of r.differences.categories) lines.push(`DIFFERS: category ${c.name} would be updated to Sage's values: ${c.changed.join(', ') || 'no detail given'}`);
-  for (const i of r.differences.items) lines.push(`DIFFERS: item ${i.code} would be updated to Sage's values: ${i.changed.join(', ') || 'no detail given'}`);
+  // Before a live run an owned item or category WOULD be put back to Sage's values; after one, it WAS (the IsaFlow edit is overwritten).
+  const was = r.live !== null;
+  const said = (kind: string, name: string, changed: string[]) => `DIFFERS: ${kind} ${name} ${was ? "was updated to Sage's values (an IsaFlow edit of these fields was overwritten)" : "would be updated to Sage's values"}: ${changed.join(', ') || 'no detail given'}`;
+  for (const c of r.differences.categories) lines.push(said('category', c.name, c.changed));
+  for (const i of r.differences.items) lines.push(said('item', i.code, i.changed));
   if (rec.items.presentBefore > 0) {
     lines.push('NOTE: a re-run sets the items and categories this migration owns back to the values it sends; edits to those fields in IsaFlow since the import are overwritten (a value Sage dropped stays: the tools never clear a field).');
   }

@@ -91,6 +91,17 @@ describe('exit code and summary with differences', () => {
     const i = summaryLines(withItemDiff()).join('\n');
     expect(i).toContain('FIB-1 would be updated to Sage\'s values: sales_price');
   });
+  it('B9-I (round 9): after a LIVE run an owned item or category "was updated", not "would be updated"', () => {
+    const live = (r: MigrationReport): MigrationReport => ({ ...r, live: { categories: phase, items: phase, purchaseOrders: phase } });
+    const both: MigrationReport = { ...base(), differences: { purchaseOrders: [], items: [{ code: 'FIB-1', changed: ['sales_price'] }], categories: [{ name: 'Optics', changed: ['name'] }] } };
+    const dry = summaryLines(both).join('\n');
+    expect(dry).toContain("item FIB-1 would be updated to Sage's values: sales_price");
+    expect(dry).toContain("category Optics would be updated to Sage's values: name");
+    const done = summaryLines(live(both)).join('\n');
+    expect(done).toContain("item FIB-1 was updated to Sage's values (an IsaFlow edit of these fields was overwritten): sales_price");
+    expect(done).toContain("category Optics was updated to Sage's values (an IsaFlow edit of these fields was overwritten): name");
+    expect(done).not.toMatch(/would be updated/);
+  });
   it('L2: when items are already there, the summary says a re-run sets them back to the values it sends (IsaFlow edits are overwritten)', () => {
     expect(summaryLines(base()).join('\n')).toMatch(/re-run sets .*items and categories .* back to the values it sends.*overwritten.*a value Sage dropped stays: the tools never clear a field/s);
     const none = base();
