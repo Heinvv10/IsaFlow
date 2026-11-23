@@ -48,6 +48,16 @@ describe('L4 (round 7): an "ok" batch that wrote nothing is not called committed
   });
 });
 
+describe('B7-E (round 7): a replayed batch whose rows are absent is not "committed"', () => {
+  it('is named with the remedy', () => {
+    const replayed: BatchReport = { ...batch('item', 1, 'failed'), rowsAbsent: 20, error: 'replayed, rows absent' };
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [batch('category', 1), replayed]));
+    expect(m).toContain('replayed: rows absent, nothing written (use --run-tag for a fresh import): item batch 1 (key-item-1)');
+    expect(m).not.toContain('committed: item batch 1');
+    expect(m).toContain('committed: category batch 1');
+  });
+});
+
 describe('MigrationStopped', () => {
   it('keeps the cause\'s message and the batches, and is an Error', () => {
     const e = new MigrationStopped(new Error('inner'), true, [batch('item', 1)]);
