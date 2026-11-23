@@ -50,9 +50,14 @@ const probeNoSession = async (timeout: string, allocation: string, over: { compa
 };
 const setConnection = (set: string) => asAppUser(pool, U.ab, co.A, (q) => q.query(`UPDATE intercompany_connections SET ${set} WHERE id = $1`, [conn]), true);
 
-/** Deterministic barrier: resolves once a backend of THIS database is waiting on a lock inside the definer (a poll on pg_stat_activity, bounded; not a sleep the outcome depends on). */
-const waitUntilDefinerBlocked = async (): Promise<void> => {
-  for (let i = 0; i < 600; i += 1) {
+/** Deterministic barrier: resolves once a backend of THIS database is waiting on a lock inside the definer (a poll on pg_stat_activity, bounded by elapsed time; not a sleep the outcome depends on).
+ *  `settled` is the probe's own promise: if it settles first (an error, or an answer without any wait) the barrier fails with THAT, not with a misleading "never blocked". */
+const waitUntilDefinerBlocked = async (settled: Promise<unknown>): Promise<void> => {
+  let early: { error?: unknown } | null = null;
+  void settled.then(() => { early = {}; }, (error: unknown) => { early = { error }; });
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (early) throw (early as { error?: unknown }).error ?? new Error('the definer answered without ever waiting on the held row');
     const r = await pool.query(
       `SELECT 1 FROM pg_stat_activity
         WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'
@@ -170,14 +175,15 @@ describe('the link and the connection are held FOR SHARE while the definer decid
     const { allocation, link } = await early();
     const held = await hold(table, table === 'intercompany_connections' ? conn : link);
     let released = false;
-    const release = async () => { if (!released) { released = true; await held.release(); } };
+    const release = async () => { if (!released) { try { await held.release(); released = true; } catch { /* retried once in finally */ } } };
+    const probing = probe('10s', allocation);
     try {
-      const probing = probe('10s', allocation);
-      await waitUntilDefinerBlocked();                 // SEEN waiting on the held row: no timing, and an answer before this point cannot happen
+      await waitUntilDefinerBlocked(probing);          // SEEN waiting on the held row: no timing, and an answer before this point cannot happen
       await release();
       expect((await probing).answer.reason).toBe('before_cutover');
     } finally {
       await release();
+      await probing.catch(() => undefined);
     }
   }, 30000);
 
@@ -203,21 +209,23 @@ describe('a change that COMMITS while the definer waits is judged as it then sta
     let go!: () => void;
     const goOn = new Promise<void>((res) => { go = res; });
     const done = asAppUser(pool, user, company, async (q) => {
-      await q.query(statement, [id]);
+      const changed = await q.query(statement, [id]);
+      expect(changed.rowCount, 'the change must hit exactly one row').toBe(1);
       made();
       await goOn;
     }, true);
-    await madeIt;
+    await Promise.race([madeIt, done]);                 // a failed setup rejects here with its own error instead of hanging
     return { commit: async () => { go(); await done; }, abandon: () => { go(); return done.catch(() => undefined); } };
   };
   const judgedAfterCommit = async (change: Awaited<ReturnType<typeof changeUncommitted>>, allocation: string) => {
+    const probing = probe('10s', allocation);
     try {
-      const probing = probe('10s', allocation);
-      await waitUntilDefinerBlocked();
+      await waitUntilDefinerBlocked(probing);
       await change.commit();
       return (await probing).answer;
     } finally {
       await change.abandon();
+      await probing.catch(() => undefined);
     }
   };
 
