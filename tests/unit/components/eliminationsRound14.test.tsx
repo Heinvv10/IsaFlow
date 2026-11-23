@@ -147,6 +147,8 @@ describe('round 14: the Eliminations page', () => {
   it('a double submit (two submits in one batch) sends ONE create-elimination', async () => {
     const posts = serve({ list: { reasonRequiredFrom: null } });
     render(<EliminationsPage />);
+    // (a submit with no group selected returns early and sends nothing: wait for the groups to load, which enables Auto-Generate)
+    await waitFor(() => expect((screen.getByRole('button', { name: /auto-generate/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(await screen.findByRole('button', { name: /manual elimination/i }));
     const desc = await screen.findByPlaceholderText(/Describe the elimination/);
     fireEvent.change(desc, { target: { value: 'by hand' } });
