@@ -72,6 +72,16 @@ describe('the lock connection is watched (M2, round 5)', () => {
     await expect(check()).rejects.toThrow(LockLostError);
     await expect(check()).rejects.toThrow(/lock lost.*terminating connection/s);
   });
+  it('B6-B (round 6): held() answers from what the error event recorded, without a query (cheap before every batch)', async () => {
+    const { pool, client } = fakePool();
+    const { held } = await acquireRunLock(pool, A);
+    const before = client.query.mock.calls.length;
+    expect(() => held()).not.toThrow();
+    client.emit('error', new Error('terminating connection due to administrator command'));
+    expect(() => held()).toThrow(LockLostError);
+    expect(() => held()).toThrow(/lock lost.*terminating connection/s);
+    expect(client.query.mock.calls.length).toBe(before); // no query
+  });
   it('a connection whose probe query fails is a lost lock too', async () => {
     const { pool } = fakePool({ checkFails: true });
     const { check } = await acquireRunLock(pool, A);

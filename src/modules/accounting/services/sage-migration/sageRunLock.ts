@@ -27,8 +27,10 @@ export class LockLostError extends Error {}
 export interface RunLock {
   /** Gives the lock up (call it in a `finally`). */
   unlock: () => Promise<void>;
-  /** Throws LockLostError when the lock's connection is gone: the run is no longer the only one for this company. */
+  /** Throws LockLostError when the lock's connection is gone: the run is no longer the only one for this company. Probes the connection. */
   check: () => Promise<void>;
+  /** The same, from what the connection's 'error' event and the pings already recorded (no query): cheap enough to ask before every batch. */
+  held: () => void;
 }
 
 /**
@@ -45,13 +47,13 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   const onError = (err: Error) => { lost = err; };
   client.on('error', onError);
   let failure: Error | undefined;
-  let held = false;
+  let gotLock = false;
   try {
-    held = (await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [k1, k2])).rows[0]?.ok === true;
+    gotLock = (await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [k1, k2])).rows[0]?.ok === true;
   } catch (err) {
     failure = err instanceof Error ? err : new Error(String(err));
   }
-  if (failure || !held) {
+  if (failure || !gotLock) {
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
     client.release(failure);
@@ -67,6 +69,8 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     client.release(failure);
     throw failure;
   }
+  const lostError = (): LockLostError => new LockLostError(`lock lost (${lost?.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
+  const held = (): void => { if (lost) throw lostError(); };
   const check = async (): Promise<void> => {
     if (!lost) {
       let timer: NodeJS.Timeout | undefined;
@@ -81,7 +85,7 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
         clearTimeout(timer);
       }
     }
-    if (lost) throw new LockLostError(`lock lost (${lost.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
+    held();
   };
   const keepalive = setInterval(() => { check().catch(() => undefined); }, KEEPALIVE_MS); // a failed ping records the loss (check() sets it)
   keepalive.unref();
@@ -100,5 +104,5 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     client.removeListener('error', onError);
     client.release(unlockFailure);
   };
-  return { unlock, check };
+  return { unlock, check, held };
 }
