@@ -1,4 +1,4 @@
-/** Reject an intercompany message: a reason is required, and the sender reads it. */
+/** Reject an intercompany message (an invoice / credit note, or a payment allocation: `path`): a reason is required, and the sender reads it. */
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
@@ -6,12 +6,14 @@ import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { InboxItem } from '@/modules/accounting/services/intercompany/inboxTypes';
 
 interface Props {
-  item: InboxItem | null;
+  item: Pick<InboxItem, 'id' | 'number' | 'senderName'> | null;
   onClose: () => void;
   onDone: (message: string) => void;
+  /** The route family the message is rejected through: `inbox` (invoices and credit notes) or `allocations` (payments). */
+  path?: 'inbox' | 'allocations';
 }
 
-export function InboxRejectModal({ item, onClose, onDone }: Props) {
+export function InboxRejectModal({ item, onClose, onDone, path = 'inbox' }: Props) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   // `busy` is state: a second submit in the same event batch still sees the enabled button. The ref is read at once.
@@ -28,7 +30,7 @@ export function InboxRejectModal({ item, onClose, onDone }: Props) {
     setBusy(true);
     setError('');
     try {
-      await apiJson(`/api/accounting/intercompany/inbox/${item.id}/reject`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) },
+      await apiJson(`/api/accounting/intercompany/${path}/${item.id}/reject`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) },
         'Could not reject this message - try again');
       setReason('');
       onDone(`Rejected ${item.number}. ${item.senderName} will see your reason.`);

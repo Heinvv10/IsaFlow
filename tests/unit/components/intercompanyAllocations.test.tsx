@@ -15,7 +15,7 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import { envelope } from './intercompanyFixtures';
 import { posts, serve } from './intercompanyInboxFixtures';
 import type { AllocationDetail, AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
@@ -89,7 +89,7 @@ describe('Payments from your group', () => {
     fireEvent.click(within(await section()).getByRole('button', { name: 'Details' }));
     const drawer = await screen.findByRole('dialog');
     await within(drawer).findByText('SP-00012');
-    for (const text of ['BILL-7', 'INV-900', 'IC alloc ref', 'Paid through the intercompany loan account', 'Manual pairing', '2026-01-01']) {
+    for (const text of ['BILL-7', 'INV-900', 'IC alloc ref', 'Paid through the intercompany loan account', 'Manual pairing', formatDate('2026-01-01')]) {
       expect(drawer.textContent).toContain(text);
     }
     expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u) === '/api/accounting/intercompany/allocations/a-1')).toBe(true);

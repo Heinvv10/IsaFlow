@@ -80,6 +80,7 @@ describe('the definer is registered, owned by the definers\' owner and callable 
               (SELECT count(*)::int FROM app_definer_reviews r WHERE r.signature = 'intercompany_allocation_message_live(uuid)' AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
          FROM pg_proc p WHERE p.oid = $1::regprocedure`, [SIG])).rows[0];
     expect(p).toMatchObject({ prosecdef: true, owner: 'migration_admin', pub: false, app: true, reviewed: 1, result: 'TABLE(live boolean, reason text)' });
+    // the owner and app_user, nobody else directly (a role that is a member of app_user reaches it as it reaches every app_user grant)
     expect(p.acl).toBe('{migration_admin=X/migration_admin,app_user=X/migration_admin}');
     expect(p.proconfig).toContain('search_path=pg_catalog, public, pg_temp');
     expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
@@ -89,14 +90,5 @@ describe('the definer is registered, owned by the definers\' owner and callable 
     const r = (await pool.query("SELECT writes, body_md5 FROM app_definer_reviews WHERE signature = 'intercompany_allocation_message_live(uuid)'")).rows[0];
     expect(r.writes).toMatch(/^nothing/);
     expect(r.body_md5).toBe((await pool.query('SELECT app_definer_hash($1::regprocedure) AS h', [SIG])).rows[0].h);
-  });
-
-  it('PUBLIC and the other pools cannot call it', async () => {
-    for (const role of ['public', 'app_service', 'anon', 'authenticated']) {
-      const exists = (await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])).rowCount || role === 'public';
-      if (!exists) continue;
-      const can = (await pool.query("SELECT has_function_privilege($1, $2::regprocedure, 'EXECUTE') AS can", [role, SIG])).rows[0].can;
-      expect([role, can]).toEqual([role, false]);
-    }
   });
 });

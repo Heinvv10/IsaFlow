@@ -3,6 +3,8 @@
  * The invoices and credit notes other companies sent THIS company through an intercompany connection. A person reviews each one and
  * accepts it (a DRAFT supplier invoice / credit note is created, nothing is approved or posted), rejects it (a reason is required and
  * goes back to the sender) or dismisses it. Messages from a connection set to accept automatically arrive already accepted.
+ * Below the invoices, "Payments from your group" (P4-C) lists the payments a payer applied to bills linked to this company's invoices: read
+ * only, reject or dismiss (clearing comes later).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
@@ -17,6 +19,7 @@ import type { SupplierInvoiceTab } from '@/components/accounting/supplier-invoic
 import { InboxTable } from '@/components/accounting/intercompany/InboxTable';
 import { InboxReviewModal } from '@/components/accounting/intercompany/InboxReviewModal';
 import { InboxRejectModal } from '@/components/accounting/intercompany/InboxRejectModal';
+import { AllocationInboxSection } from '@/components/accounting/intercompany/AllocationInboxSection';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -152,6 +155,8 @@ export default function IntercompanyInboxPage() {
               </div>
             )}
           </div>
+
+          <AllocationInboxSection filter={filter} canWrite={mayWrite} onNotice={say} />
         </div>
       </div>
 

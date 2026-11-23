@@ -6,6 +6,7 @@
 import type { AcceptResult, InboxDetail, InboxPage } from '@/modules/accounting/services/intercompany/inboxTypes';
 import type { ConnectionView, GroupCandidate, SideOptions } from '@/modules/accounting/services/intercompany/connectionTypes';
 import type { PairingResult, PairingView } from '@/modules/accounting/services/intercompany/pairingTypes';
+import type { AllocationDetail, AllocationPage } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
 
 export interface IntercompanyStaticRoutes {
   // GET the list (`items`), POST the new connection: the list and the item of one resource, disjoint on `items`.
@@ -15,6 +16,8 @@ export interface IntercompanyStaticRoutes {
   // P2: the messages other companies sent this one, and the count behind the Bills tab badge.
   '/api/accounting/intercompany/inbox': InboxPage;
   '/api/accounting/intercompany/inbox-count': { openCount: number; enabled: boolean };
+  // P4-C: the payments a payer in the group applied to bills linked to this company's invoices (read only).
+  '/api/accounting/intercompany/allocations': AllocationPage;
 }
 
 export interface IntercompanyDynamicRoutes {
@@ -27,6 +30,9 @@ export interface IntercompanyDynamicRoutes {
   '/api/accounting/intercompany/inbox/{}/reject': { id: string; status: string };
   '/api/accounting/intercompany/inbox/{}/dismiss': { id: string; status: string };
   '/api/accounting/intercompany/inbox/{}/restore': { id: string; status: string };
+  '/api/accounting/intercompany/allocations/{}': AllocationDetail;
+  '/api/accounting/intercompany/allocations/{}/reject': { id: string; status: string };
+  '/api/accounting/intercompany/allocations/{}/dismiss': { id: string; status: string };
   // GET the pairing screen's data; POST records pairs (answers with the counts).
   '/api/accounting/intercompany/connections/{}/pairing': PairingView | PairingResult;
   // PUT confirms the partner's proposal, DELETE unlinks: both answer with the link's new status.
