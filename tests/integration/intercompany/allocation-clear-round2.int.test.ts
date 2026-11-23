@@ -1,6 +1,6 @@
 /**
  * Intercompany P4-D, fix round 2. A1: a loan account that holds bank-statement lines is real money, not a loan: refused on the payer side
- * (definer: cash_not_through_loan), the receiver side (service, guard), in the side form and its picker. A2: the clearing receipt's journal is
+ * (definer: payer_loan_unset since round 3), the receiver side (service, guard), in the side form and its picker. A2: the clearing receipt's journal is
  * reversed only by the receipt's own cancel; a GL reversal of it, or of its reversal, is refused. A3: the cap lock is the receiver's only. A4:
  * a Login-as session cannot reject a payment. M1: the posting date floor is the later of the payment and the invoice dates. M2: the side form
  * validates the loan account only when it changes. M4: the inbox asks the light definer; accept and the guard the full one. L6: a malformed
@@ -47,11 +47,11 @@ const failed = (code: keyof typeof CLEAR_REFUSAL_SENTENCES) => ({ accepted: fals
 const REFUSED = /^23514: an allocation message is accepted with the clearing posted for it/;
 
 describe('A1: an account holding bank-statement lines is money, not a loan', () => {
-  it("the payer's: nothing counts as loan-funded (cash_not_through_loan), the clearing is refused", async () => {
+  it("the payer's: not set up for clearing (payer_loan_not_set_up, round 3), the clearing is refused", async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     await bankLine(co.B, acct.bLoan);
-    expect(await clearable(sent.message)).toEqual({ live: true, reason: 'ok', cap: 'cash_not_through_loan', payer_loan_type: null });
-    expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject(failed('cash_not_through_loan'));
+    expect(await clearable(sent.message)).toEqual({ live: true, reason: 'ok', cap: 'payer_loan_unset', payer_loan_type: null });
+    expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject(failed('payer_loan_not_set_up'));
   });
 
   it("the receiver's: the service refuses it (loan_account_unusable) and the guard refuses the exact clearing", async () => {

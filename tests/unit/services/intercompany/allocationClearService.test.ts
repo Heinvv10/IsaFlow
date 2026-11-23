@@ -139,6 +139,7 @@ describe('the clearing', () => {
   it.each([
     ['the cap', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'already_cleared', payerLoanType: 'liability' })), 'already_cleared'],
     ['the cash leg', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'cash_not_through_loan', payerLoanType: null })), 'cash_not_through_loan'],
+    ['the payer not set up (round 3, C)', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'payer_loan_unset', payerLoanType: null })), 'payer_loan_not_set_up'],
     ['an unknown cap answer', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'something', payerLoanType: 'liability' })), 'refused'],
     ['the loan types alike', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: null, payerLoanType: 'asset' })), 'loan_class_mismatch'],
     ['an external connection', () => reads.lockConnection.mockImplementationOnce(record('lock:connection', { id: 'c-1', status: 'active', kind: 'external', cutoverDate: '2026-01-01', lowId: 'co-1', highId: 'co-2' })), 'not_group'],

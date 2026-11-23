@@ -69,7 +69,7 @@ describe('refusalOfCode (an error under the savepoint)', () => {
 describe('the sentence table', () => {
   const codes: ClearRefusalCode[] = ['malformed', 'not_live', 'no_loan_account', 'loan_account_unusable', 'invoice_gone', 'invoice_not_open', 'wrong_customer', 'currency',
     'pre_cutover_invoice', 'pre_cutover_payment', 'exceeds_open', 'cash_not_through_loan', 'already_cleared', 'no_period', 'period_locked', 'vat_locked', 'busy', 'refused',
-    'not_group', 'loan_class_mismatch'];
+    'not_group', 'loan_class_mismatch', 'payer_loan_not_set_up'];
   it('one fixed sentence per refusal, each saying nothing was posted, with no figure, id or database word', () => {
     expect(Object.keys(CLEAR_REFUSAL_SENTENCES).sort()).toEqual([...codes].sort());
     for (const c of codes) {

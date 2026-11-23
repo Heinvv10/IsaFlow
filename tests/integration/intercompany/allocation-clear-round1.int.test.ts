@@ -40,15 +40,15 @@ describe("F1: the payer's loan account must be a loan class", () => {
   it('the payer re-points its side at a bank account after paying: nothing counts as loan-funded, the clearing is refused', async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET loan_account_id = $3 WHERE connection_id = $1 AND company_id = $2', [conn, co.B, bank.b]), true);
-    expect(await live(sent.message)).toEqual({ live: true, reason: 'ok', cap: 'cash_not_through_loan', payer_loan_type: null });
-    expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject(failed('cash_not_through_loan'));
+    expect(await live(sent.message)).toEqual({ live: true, reason: 'ok', cap: 'payer_loan_unset', payer_loan_type: null });
+    expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject(failed('payer_loan_not_set_up'));
   });
 
   it('a payer loan account that is a system account, or of a control subtype, counts for nothing', async () => {
     for (const set of ["is_system_account = true", "account_subtype = 'payable'", "account_type = 'equity', account_subtype = 'other'"]) {
       const sent = await sentClearable(pool, conn, { amount: 400 });
       await pool.query(`UPDATE gl_accounts SET ${set} WHERE id = $1`, [acct.bLoan]);
-      expect([set, (await live(sent.message)).cap]).toEqual([set, 'cash_not_through_loan']);
+      expect([set, (await live(sent.message)).cap]).toEqual([set, 'payer_loan_unset']);
       await pool.query("UPDATE gl_accounts SET account_type = 'liability', account_subtype = 'other_current_liability', is_system_account = false WHERE id = $1", [acct.bLoan]);
     }
   });

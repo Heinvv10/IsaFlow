@@ -38,6 +38,9 @@ describe('cancelling an intercompany clearing receipt', () => {
     expect(text).toMatch(/clears an intercompany payment from your group/);
     expect(text).toMatch(/Clearing voided/);
     expect(text).toMatch(/the payer must unapply the payment and apply it again/);
+    // (round 3, I) the payer is not told, and the invoice is collectible again
+    expect(text).toMatch(/The payer is NOT notified/);
+    expect(text).toMatch(/your invoice becomes collectible again/);
     expect(text).toMatch(/Reason for cancellation:$/);
   });
 
