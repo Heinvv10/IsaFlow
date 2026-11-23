@@ -36,12 +36,18 @@ export class CommitUnconfirmedError extends Error {}
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
 
-function outcome(text: string, isError: boolean): ToolOutcome {
-  let body: Record<string, unknown> | null = null;
-  if (!isError) {
-    try { body = JSON.parse(text) as Record<string, unknown>; } catch { body = null; }
+/**
+ * What a tool call answered. A SUCCESS whose text is not a JSON object (a proxy's HTML page, an empty answer, a list) is a failure here,
+ * never an "ok" with nothing reported: a batch must not pass on an answer nobody can read.
+ */
+export function toolOutcome(text: string, isError: boolean): ToolOutcome {
+  if (isError) return { isError: true, text, body: null };
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(text); } catch { parsed = null; }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { isError: true, text: `the tool answered something that is not JSON (a success must be a JSON object): ${text.slice(0, 200)}`, body: null };
   }
-  return { isError, text, body };
+  return { isError: false, text, body: parsed as Record<string, unknown> };
 }
 
 /**
@@ -79,7 +85,7 @@ export async function withToolSession<T>(
         // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
         const r = await mcpRegistry.call(name, sent, ctx);
-        return outcome(r.content[0]?.text ?? '', r.isError === true);
+        return toolOutcome(r.content[0]?.text ?? '', r.isError === true);
       },
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
