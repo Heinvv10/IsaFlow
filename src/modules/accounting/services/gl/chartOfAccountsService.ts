@@ -280,7 +280,9 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     `);
     return mapRow((rows as { [key: string]: unknown }[])[0]);
   } catch (err) {
-    log.error('Failed to create account', { error: err }, 'accounting');
+    // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
+    if (err instanceof ChartRefusal) log.warn('Failed to create account', { error: err }, 'accounting');
+    else log.error('Failed to create account', { error: err }, 'accounting');
     throw err;
   }
 }
