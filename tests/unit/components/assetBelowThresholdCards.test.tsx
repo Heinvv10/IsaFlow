@@ -35,7 +35,7 @@ describe('Below-threshold assets on touch', () => {
     await screen.findByText('FA-0001');
     expect(cls(screen.getByRole('button', { name: /Post to GL/ }))).toEqual(expect.arrayContaining(['max-lg:min-h-11']));
     const [pending, expensed] = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td:last-child')!);
-    expect(cls(pending)).not.toContain('max-lg:!hidden');
+    expect(pending.className).toBe('px-4 py-3'); // desktop classes exactly as before for a pending asset
     expect(cls(expensed)).toContain('max-lg:!hidden');
     expect(expensed.childNodes).toHaveLength(0);
   });
