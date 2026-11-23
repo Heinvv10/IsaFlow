@@ -109,7 +109,8 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
   // The WHOLE rows (to_jsonb): sagePoContent compares the columns it lists, and its list is checked against information_schema.
   const contents = (await sql`
     SELECT o.external_ref, to_jsonb(o) AS header,
-           (SELECT x.name FROM suppliers x WHERE x.id = o.supplier_id) AS supplier_name, (SELECT x.deleted_at IS NOT NULL FROM suppliers x WHERE x.id = o.supplier_id) AS supplier_deleted,
+           (SELECT x.name FROM suppliers x WHERE x.id = o.supplier_id AND x.company_id = o.company_id) AS supplier_name,
+           (SELECT x.deleted_at IS NOT NULL FROM suppliers x WHERE x.id = o.supplier_id AND x.company_id = o.company_id) AS supplier_deleted,
            coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.sort_order, p.id) FROM po_items p WHERE p.purchase_order_id = o.id), '[]'::jsonb) AS lines
       FROM purchase_orders o
      WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL

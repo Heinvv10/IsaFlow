@@ -218,7 +218,9 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
         const link = itemId === null ? undefined : links[itemId];
         if (!link) return { itemId: null, itemCode: null };
         // Linked by id, or by the code of an item this run sends (its id is in the books on a re-run; "item:CODE" when it is not there yet).
-        const id = !link.link ? null : link.id ?? index.byCode.get(link.code.trim())?.find((x) => !x.deleted)?.id ?? `item:${link.code}`;
+        // By the item's Sage reference first (an owned item renamed in IsaFlow is still the one), then by the code, else "item:CODE" (not in the books yet).
+        const owned = index.byRef.get(itemId!);
+        const id = !link.link ? null : link.id ?? (owned && !owned.deleted ? owned.id : undefined) ?? index.byCode.get(link.code.trim())?.find((x) => !x.deleted)?.id ?? `item:${link.code}`;
         return { itemId: id, itemCode: link.code };
       }) });
     lineLinks.linked += linked;
