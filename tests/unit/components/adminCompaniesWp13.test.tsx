@@ -18,6 +18,7 @@ vi.mock('@/hooks/useAdminPrefix', () => ({ useAdminHref: () => (p: string) => p 
 
 import { apiFetch } from '@/lib/apiFetch';
 import CompaniesPage from '../../../pages/admin/companies/index';
+import { companiesListSettled } from '../helpers/companiesListSettled';
 
 useApiJsonOverMock();
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -46,7 +47,9 @@ afterEach(() => { cleanup(); });
 describe('row selection', () => {
   it('one click on a row checkbox selects that company', async () => {
     render(<CompaniesPage />);
-    fireEvent.click(await screen.findByLabelText('Select Alpha Ltd'));
+    await screen.findByLabelText('Select Alpha Ltd');
+    await companiesListSettled(apiFetch); // the page's second load clears ticked rows
+    fireEvent.click(screen.getByLabelText('Select Alpha Ltd'));
     expect(await screen.findByText('1 company selected')).toBeTruthy();
     expect((screen.getByLabelText('Select Alpha Ltd') as HTMLInputElement).checked).toBe(true);
   });
@@ -69,7 +72,11 @@ describe('Suspend asks first and sends the typed reason', () => {
   it('bulk Suspend confirms, sends the reason and shows the errors the API returned', async () => {
     serve({ processed: 1, errors: ['c-2: not found or deleted', '0000dead-0000-4000-8000-000000000000: not found or deleted'] });
     render(<CompaniesPage />);
-    fireEvent.click(await screen.findByLabelText('Select all'));
+    // The select-all box is in the table head from the first render, and the page reloads (clearing ticked rows) 300 ms after mount:
+    // tick only once the rows are on screen and both list loads have been made.
+    await screen.findByText('Alpha Ltd');
+    await companiesListSettled(apiFetch);
+    fireEvent.click(screen.getByLabelText('Select all'));
     fireEvent.click(await screen.findByRole('button', { name: /bulk suspend/i }));
     const dialog = await screen.findByRole('dialog');
     expect(posts('/api/admin/companies/bulk-action')).toHaveLength(0);
