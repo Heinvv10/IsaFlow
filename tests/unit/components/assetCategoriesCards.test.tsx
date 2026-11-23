@@ -44,6 +44,7 @@ describe('Asset categories on touch', () => {
     await screen.findByText('Motor vehicles');
     const input = screen.getByPlaceholderText(/Filter by name/);
     expect(cls(input)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:w-full']));
+    expect(cls(input)).toContain('w-60'); // desktop width untouched
     expect(cls(input.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
 });
