@@ -26,7 +26,7 @@ import { CommitUnconfirmedError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
-import { acquireRunLock } from './sageRunLock';
+import { acquireRunLock, type RunLock } from './sageRunLock';
 import { assertLocalDatabase, assertLocalPool } from './localGuard';
 import { planMigration } from './sageMigrationPlan';
 import { poContentDifferences, withContentDifferences } from './sagePoContent';
@@ -42,7 +42,7 @@ function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationRep
   const why: string[] = [];
   const names: Record<string, string> = { items: '--expect-items', purchaseOrders: '--expect-pos', purchaseOrderTotalCents: '--expect-po-total' };
   for (const [key, e] of Object.entries(rec.expected)) {
-    if (e && !e.ok) why.push(`${names[key] ?? key} ${e.expected}, but the dry run would send ${e.actual}`);
+    if (e && !e.ok) why.push(`${names[key] ?? key} ${e.expected}, but the dry run would ${e.basis === 'projected' ? 'leave the books at' : 'send'} ${e.actual}`);
   }
   if (!rec.nothingRefused && !o.allowRefusals) why.push('rows are refused (see the refused list); --allow-refusals imports the rest');
   const differs = diff.purchaseOrders.length + diff.items.length + diff.categories.length;
@@ -72,9 +72,12 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
   });
 }
 
-async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, committed: BatchReport[]): Promise<PhaseReport> {
+async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, committed: BatchReport[], lockHeld: () => void): Promise<PhaseReport> {
   const p = emptyPhase();
   for (const s of list) {
+    // The lock's connection reports its own loss at once: no batch is committed while another run may hold the lock (thrown outside the batch's
+    // own try, so it stops the run, listing what was committed).
+    lockHeld();
     let b: BatchReport;
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
@@ -101,13 +104,14 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId);
   try {
-    return await runLocked(pool, parsed, opts, lock.check);
+    return await runLocked(pool, parsed, opts, lock);
   } finally {
     await lock.unlock();
   }
 }
 
-async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lockHeld: () => Promise<void>): Promise<MigrationReport> {
+async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lock: RunLock): Promise<MigrationReport> {
+  const lockHeld = lock.check;
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
@@ -167,13 +171,13 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       });
       return { batches, failed: batches.filter((b) => b.status === 'failed').length };
     };
-    const liveCategories = await livePhase(pool, opts, all.categories, before, committed);
+    const liveCategories = await livePhase(pool, opts, all.categories, before, committed, lock.held);
     const categoriesVerified = liveCategories.failed === 0 ? verifiedCategories(liveCategories, await readAfter()) : liveCategories;
     await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed) : emptyPhase();
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.held) : emptyPhase();
     const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
     await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed) : emptyPhase();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.held) : emptyPhase();
     await lockHeld();
     const after = await readAfter();
     const purchaseOrders = verified(livePos, all.purchaseOrders, after);
