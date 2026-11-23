@@ -30,6 +30,34 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-23 — Intercompany P4a Contra-Settlement Service, Mobile Payroll Wave
+
+**Intercompany — P4a**
+
+- Contra-settlement posting extracted into `contraSettlementPosting.ts` (284-line service); `writeSettleByContra` MCP tool slimmed by ~125 lines; `boundRequestTx` test helper added; 659 new test lines across three suites (#1776)
+- Two new MCP refusal codes registered for contra-settlement path
+
+**Mobile — Payroll**
+
+- Payroll loans: loan list, detail (schedule + payments), new-loan form and compliance history as cards below `lg`; 44 px touch targets (#1778, #1784, #1785)
+- Payroll leave, pay scales, components, tax directives, training events, UIF declarations, IRP5 readiness and EMP501 reconciliation as cards below `lg`; header, filter and row-action controls phone-sized (#1792–#1800)
+- Payroll batch detail lines and batches list as cards below `lg` (#1809, batch in #1791 queue merge)
+- Payroll parallel-run imports, action group and report drill-down tables as cards below `lg` (#1806, #1810)
+- Payroll cost centres list, add form, row actions and GL mapping select phone-sized (#1802)
+- SARS return lifecycle bar, filing-file download buttons and Mark-filed dialog 44 px below `lg` (#1801)
+- Shared `Drawer` close X is a 44 px square below `lg`; title can shrink/wrap so it is never pushed off a phone (#1807)
+
+**Accounting**
+
+- `ChartRefusal` on account create logged at `warn` instead of `error` (#1811)
+
+**CI / Tests**
+
+- Admin bulk Suspend/Enable golden-path flake fixed: list ticks only after page settles (#1792)
+- Eliminations-notes test flake fixed: waits for Auto-Generate to be enabled before clicking (#1786)
+
+---
+
 ## 2026-11-20 — Payroll Wave 6 (FQd/RI/DBF/PSP-H/EZF), VAT201 Nil Pair, Mobile Cards
 
 **Payroll — Wave 6**
