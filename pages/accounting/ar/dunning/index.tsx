@@ -158,7 +158,7 @@ export default function DunningTemplatesPage() {
   return (
     <AppLayout>
       <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <header className="flex items-start justify-between gap-4">
+        <header className="flex items-start justify-between gap-4 max-lg:flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Mail className="w-6 h-6" /> Dunning Templates
@@ -170,7 +170,7 @@ export default function DunningTemplatesPage() {
           </div>
           <Link
             href="/accounting/ar/dunning/runs"
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md"
+            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md max-lg:min-h-11"
           >
             View send history <ArrowRight className="w-4 h-4" />
           </Link>
@@ -183,7 +183,7 @@ export default function DunningTemplatesPage() {
         )}
 
         {settings && (
-          <section className="border rounded-lg p-4 bg-gray-50 flex items-center gap-4">
+          <section className="border rounded-lg p-4 bg-gray-50 flex items-center gap-4 max-lg:flex-wrap">
             <Settings className="w-5 h-5 text-gray-700" />
             <div className="flex-1">
               <div className="font-medium text-gray-900">
@@ -205,7 +205,7 @@ export default function DunningTemplatesPage() {
                 settings.auto_send_enabled
                   ? 'bg-gray-600 hover:bg-gray-700'
                   : 'bg-success-700 hover:bg-success-800'
-              } disabled:opacity-50`}
+              } disabled:opacity-50 max-lg:min-h-11`}
             >
               {updatingSettings ? 'Saving…' : settings.auto_send_enabled ? 'Disable' : 'Enable'}
             </button>
@@ -218,9 +218,9 @@ export default function DunningTemplatesPage() {
               key={t.id}
               className={`border rounded-lg p-4 ${TONE_STYLES[t.tone]} ${!t.active ? 'opacity-50' : ''}`}
             >
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center justify-between gap-4 max-lg:flex-wrap">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 max-lg:flex-wrap">
                     <span className="font-semibold">{t.name}</span>
                     <span className="text-xs uppercase tracking-wide px-2 py-0.5 bg-white/60 rounded">
                       {t.tone}
@@ -245,7 +245,7 @@ export default function DunningTemplatesPage() {
                     <button
                       type="button"
                       onClick={() => startEdit(t)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-white rounded border border-current"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-white rounded border border-current max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                       aria-label={`Edit ${t.name}`}
                     >
                       <Pencil className="w-3 h-3" /> Edit
@@ -254,7 +254,7 @@ export default function DunningTemplatesPage() {
                       <button
                         type="button"
                         onClick={() => deactivateTemplate(t.id, t.name)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-red-50 rounded border border-current text-red-800"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-red-50 rounded border border-current text-red-800 max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                         aria-label={`Deactivate ${t.name}`}
                       >
                         <Trash2 className="w-3 h-3" /> Deactivate
@@ -270,17 +270,17 @@ export default function DunningTemplatesPage() {
                     <span className="font-medium">Name</span>
                     <input
                       type="text"
-                      className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                      className="mt-1 w-full border rounded px-2 py-1 text-sm max-lg:min-h-11"
                       value={draft.name}
                       onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                     />
                   </label>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="grid grid-cols-3 gap-2 text-xs max-lg:grid-cols-1">
                     <label>
                       <span className="font-medium">Days min</span>
                       <input
                         type="number" min={0}
-                        className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                        className="mt-1 w-full border rounded px-2 py-1 text-sm max-lg:min-h-11"
                         value={draft.days_overdue_min}
                         onChange={(e) => setDraft({ ...draft, days_overdue_min: Number(e.target.value) })}
                       />
@@ -289,7 +289,7 @@ export default function DunningTemplatesPage() {
                       <span className="font-medium">Days max (blank = ∞)</span>
                       <input
                         type="number" min={0}
-                        className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                        className="mt-1 w-full border rounded px-2 py-1 text-sm max-lg:min-h-11"
                         value={draft.days_overdue_max ?? ''}
                         onChange={(e) => setDraft({
                           ...draft,
@@ -297,7 +297,7 @@ export default function DunningTemplatesPage() {
                         })}
                       />
                     </label>
-                    <label className="flex items-end gap-1">
+                    <label className="flex items-end gap-1 max-lg:min-h-11">
                       <input
                         type="checkbox"
                         checked={draft.send_weekdays_only}
@@ -310,7 +310,7 @@ export default function DunningTemplatesPage() {
                     <span className="font-medium">Subject</span>
                     <input
                       type="text"
-                      className="mt-1 w-full border rounded px-2 py-1 font-mono text-xs"
+                      className="mt-1 w-full border rounded px-2 py-1 font-mono text-xs max-lg:min-h-11"
                       value={draft.subject_template}
                       onChange={(e) => setDraft({ ...draft, subject_template: e.target.value })}
                     />
@@ -329,7 +329,7 @@ export default function DunningTemplatesPage() {
                       type="button"
                       onClick={cancelEdit}
                       disabled={saving}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded max-lg:min-h-11"
                     >
                       <X className="w-3 h-3" /> Cancel
                     </button>
@@ -337,7 +337,7 @@ export default function DunningTemplatesPage() {
                       type="button"
                       onClick={saveEdit}
                       disabled={saving}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50 max-lg:min-h-11"
                     >
                       <Save className="w-3 h-3" /> {saving ? 'Saving…' : 'Save'}
                     </button>
@@ -352,7 +352,7 @@ export default function DunningTemplatesPage() {
                     </div>
                   </div>
                   <details className="mt-2 text-sm">
-                    <summary className="cursor-pointer text-gray-800">Body template</summary>
+                    <summary className="cursor-pointer text-gray-800 max-lg:flex max-lg:items-center max-lg:min-h-11">Body template</summary>
                     <pre className="mt-2 whitespace-pre-wrap text-xs bg-white/70 rounded p-2">
                       {t.body_template}
                     </pre>
