@@ -20,6 +20,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { assertBatchUnchangedSinceApproval } from './batchApprovedDigest';
 import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
+import { mirrorBatchAllocations } from '../intercompany/allocationOutbox';
 
 type Row = DbRow;
 
@@ -191,8 +192,6 @@ export async function processBatch(companyId: string, id: string, userId: string
     throw new BatchNotProcessableError(now?.status ?? 'missing');
   }
 
-  const totalAmount = batch.totalAmount;
-
   // GL: DR AP, CR Bank
   const apAccount = await getSystemAccount('payable', companyId);
   const bankAccount = batch.bankAccountId
@@ -200,9 +199,9 @@ export async function processBatch(companyId: string, id: string, userId: string
     : await getSystemAccount('bank', companyId);
 
   const lines: JournalLineInput[] = [
-    { glAccountId: apAccount.id, debit: totalAmount, credit: 0,
+    { glAccountId: apAccount.id, debit: batch.totalAmount, credit: 0,
       description: `Batch payment ${batch.batchNumber}` },
-    { glAccountId: bankAccount.id, debit: 0, credit: totalAmount,
+    { glAccountId: bankAccount.id, debit: 0, credit: batch.totalAmount,
       description: `Batch payment ${batch.batchNumber}` },
   ];
 
@@ -250,6 +249,7 @@ export async function processBatch(companyId: string, id: string, userId: string
     `;
   });
 
+  await mirrorBatchAllocations(companyId, id); // the payer's allocation messages (intercompany P4-B), best effort
   log.info('Processed batch', { id, journalEntryId: je.id }, 'accounting');
 }
 

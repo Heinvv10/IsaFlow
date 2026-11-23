@@ -70,6 +70,9 @@ export async function cleanup(pool: Pool): Promise<void> {
     try { await pool.query(text, params); } catch (err) { process.stderr.write(`cleanup: ${text}: ${String(err)}\n`); }
   };
   await wipeConnections(pool).catch((err: unknown) => process.stderr.write(`cleanup wipe: ${String(err)}\n`));
+  await del('UPDATE supplier_payments SET gl_journal_entry_id = NULL WHERE company_id = ANY($1)', [companies]);
+  await del('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [companies]);
+  await del('DELETE FROM supplier_payments WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM customer_invoices WHERE id = ANY($1)', [invoices.cust]);
   await del('DELETE FROM supplier_invoices WHERE id = ANY($1)', [invoices.supp]);
   await del('DELETE FROM credit_notes WHERE id = ANY($1)', [invoices.credit]);
