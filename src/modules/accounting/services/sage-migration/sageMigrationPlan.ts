@@ -9,6 +9,7 @@
  * race with another writer, can still fail a batch, and the report says so.
  * Code and number uniqueness are case-SENSITIVE (the unique indexes are on the plain columns), so the match is exact.
  */
+import type { StoredPo } from './sagePoContent';
 import type { ParsedExport, RowRefusal } from './sageExportTypes';
 import { mapSageCategory, mapSageItem, SAGE_SYSTEM } from './sageItemMapping';
 import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder, type ItemLink } from './sagePurchaseOrderMapping';
@@ -21,6 +22,8 @@ import { parsePurchaseOrder } from '@/lib/mcp/tools/purchaseOrderImportArgs';
 export interface PlannedItem { sageId: string; row: Record<string, unknown> }
 export interface PlannedPo {
   sageId: string; documentNumber: string; totalCents: number; element: Record<string, unknown>; pdfFile: string | null;
+  /** What the PO tool would STORE for it (its own parse of `element`: the unit price of a line is net / quantity to 6 dp, not the Sage price). */
+  stored: StoredPo;
   /** What the plan sends for this PO's lines: how many are linked by item_code, which are not (and why). What the books end with is measured (sageLineLinks). */
   lineLinks: { linked: number; notLinked: NotLinkedLine[] };
 }
@@ -151,9 +154,12 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const refuse = (code: string, reason: string) => refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code, reasons: [reason] });
     if (!supplier) { refuse('supplier_unresolved', `supplier ${po.supplierId} was not looked up`); continue; }
     if (!('id' in supplier)) { refuse(supplier.code, supplier.reason); continue; }
-    if (existing.inactiveSuppliers.has(supplier.id)) { refuse('supplier_inactive', `supplier ${supplier.id} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
     const holder = existing.poNumbers.get(po.documentNumber);
-    if (holder && !(holder.system === SAGE_SYSTEM && holder.ref === po.id)) {
+    // A PO this migration already booked is sent again on a re-run (the tool replays it): a supplier deactivated or a budget policy
+    // turned to block since then must not drop it from what is sent (--expect-pos would miss, and it would escape the differences).
+    const alreadyBooked = holder !== undefined && holder.system === SAGE_SYSTEM && holder.ref === po.id;
+    if (!alreadyBooked && existing.inactiveSuppliers.has(supplier.id)) { refuse('supplier_inactive', `supplier ${supplier.id} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
+    if (holder && !alreadyBooked) {
       refuse('po_number_taken', `${po.documentNumber} already belongs to a purchase order (${holder.ref ? `${holder.system} ${holder.ref}` : 'no external reference'}); the tool would refuse the whole batch`);
       continue;
     }
@@ -176,13 +182,14 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const element = mapSagePurchaseOrder(po, supplier.id, links, opts.poGlAccountId);
     // Under the block policy the PO tool refuses the WHOLE batch for any approved PO with an account-less line (unless the budget check
     // is skipped): refused here, per row, so the dry run does not fail on it.
-    if (existing.budgetPolicy === 'block' && !opts.skipBudgetCheck && !opts.poGlAccountId && element.status === 'open') {
+    if (!alreadyBooked && existing.budgetPolicy === 'block' && !opts.skipBudgetCheck && !opts.poGlAccountId && element.status === 'open') {
       refuse('accountless_under_block_policy', 'the company\'s budget policy is block, and an approved (open) PO whose lines have no GL account is refused by the PO tool for the whole batch. Run with --skip-budget-check (owner or admin), or --po-gl-account <uuid> (every line posts to that one account), or import open POs as drafts (OPEN_SAGE_PO_IMPORTED_AS in sagePoStatus.ts)');
       continue;
     }
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
-    purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked } });
+    purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked },
+      stored: { supplierId: checked.supplierId, deliveryDate: checked.deliveryDate, reference: checked.reference, lines: checked.lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })) } });
     lineLinks.linked += linked;
     lineLinks.notLinked.push(...notLinked);
   }

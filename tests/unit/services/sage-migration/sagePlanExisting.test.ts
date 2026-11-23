@@ -180,3 +180,29 @@ describe('a PO of an inactive supplier is refused supplier_inactive', () => {
     expect(plan.purchaseOrders).toHaveLength(7);
   });
 });
+
+describe('M1 (round 6): a PO already booked by this migration is not refused for what changed since', () => {
+  const booked = { system: 'sage', ref: '900197' }; // PO0000197 is Sage id 900197
+  const planWith = (over: Record<string, unknown>) => planMigration(parsed(), allResolved(), { ...NONE, ...over });
+  const refusalsOf = (plan: ReturnType<typeof planMigration>) => plan.refusals.filter((r) => r.label === 'PO0000197').map((r) => r.code);
+
+  it('its supplier deactivated since: a new PO to that supplier is refused, the booked one is sent (the tool replays it)', () => {
+    const inactive = new Set([SUPPLIER]);
+    const fresh = planWith({ inactiveSuppliers: inactive });
+    expect(refusalsOf(fresh)).toEqual(['supplier_inactive']);
+    const rerun = planWith({ inactiveSuppliers: inactive, poNumbers: new Map([['PO0000197', booked]]) });
+    expect(refusalsOf(rerun)).toEqual([]);
+    expect(rerun.purchaseOrders.map((p) => p.documentNumber)).toContain('PO0000197');
+    // the other POs of that supplier are still refused
+    expect(rerun.refusals.filter((r) => r.code === 'supplier_inactive').length).toBeGreaterThan(0);
+  });
+  it('the budget policy block since: an account-less approved PO is refused when new, sent when already booked', () => {
+    const fresh = planWith({ budgetPolicy: 'block' });
+    expect(refusalsOf(fresh)).toEqual(['accountless_under_block_policy']);
+    const rerun = planWith({ budgetPolicy: 'block', poNumbers: new Map([['PO0000197', booked]]) });
+    expect(refusalsOf(rerun)).toEqual([]);
+  });
+  it('a PO number held by something else is still refused (the exemption is for this migration\'s own PO only)', () => {
+    expect(refusalsOf(planWith({ inactiveSuppliers: new Set([SUPPLIER]), poNumbers: new Map([['PO0000197', { system: 'sage', ref: '555' }]]) }))).toEqual(['supplier_inactive']);
+  });
+});

@@ -28,6 +28,21 @@ describe('planMigration', () => {
     expect(plan.purchaseOrders.reduce((s, p) => s + p.totalCents, 0)).toBe(parsed().exportPoTotalCents);
   });
 
+  it('H1 (round 6): the plan holds what the PO tool STORES per line (net / quantity to 6 dp), not the Sage unit price: a discount line, a 3-dp price, a repeating price', () => {
+    const f = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'));
+    const po = f.PurchaseOrders[0];
+    po.Lines[0] = { ...po.Lines[0], Quantity: 2, UnitPriceExclusive: 100, Exclusive: 180, Tax: 27, Total: 207 }; // a 10% discount line
+    po.Lines[1] = { ...po.Lines[1], Quantity: 1, UnitPriceExclusive: 1.234, Exclusive: 1.23, Tax: 0.18, Total: 1.41 }; // a per-metre price of 3 dp
+    po.Lines[2] = { ...po.Lines[2], Quantity: 7, UnitPriceExclusive: 1.4285, Exclusive: 10, Tax: 1.5, Total: 11.5 }; // 10.00 / 7
+    Object.assign(po, { Exclusive: 191.23, Tax: 28.68, Total: 219.91 });
+    const plan = planMigration(parseSageExport(f), allResolved(), NONE);
+    expect(plan.refusals).toEqual([]);
+    const stored = plan.purchaseOrders.find((x) => x.documentNumber === 'PO0000197')!.stored;
+    expect(stored.lines.map((l) => l.unitPrice)).toEqual([90, 1.23, 1.428571]);
+    expect(stored.lines.map((l) => l.quantity)).toEqual([2, 1, 7]);
+    expect(stored).toMatchObject({ supplierId: SUPPLIER, deliveryDate: '2026-01-25', reference: 'JOB-400' });
+  });
+
   it('sends only the categories a SENT item uses', () => {
     const p = parsed();
     const onlyOptics = { ...p, items: p.items.filter((i) => i.category?.description === 'Optics') };
