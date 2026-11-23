@@ -92,7 +92,7 @@ describe('M1: the block policy and POs with no GL account', () => {
 
   it('each open PO is refused per row BEFORE any batch: the dry run is clean, nothing is written, the reason names the remedies', async () => {
     await setPolicy(pool, f, 'block');
-    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true });
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true });
     expect(r.status).toBe('completed');
     expect(r.refused.map((x) => [x.label, x.code])).toEqual([1, 2, 3, 4].map((i) => [`PO000900${i}`, 'accountless_under_block_policy']));
     expect(r.refused[0]!.reasons[0]).toMatch(/--skip-budget-check.*--po-gl-account/);
@@ -102,11 +102,11 @@ describe('M1: the block policy and POs with no GL account', () => {
   });
   it('under warn the same POs go in without an account; with the check skipped they go in under block', async () => {
     await setPolicy(pool, f, 'warn');
-    expect((await runSageMigration(pool, exportFile(), { ...bare(), live: true })).refused).toEqual([]);
+    expect((await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true })).refused).toEqual([]);
     expect((await left()).pos).toBe(4);
     await afterEachClean();
     await setPolicy(pool, f, 'block');
-    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, skipBudgetCheck: true });
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true, skipBudgetCheck: true });
     expect(r.refused).toEqual([]);
     expect((await left()).pos).toBe(4);
   });
@@ -115,7 +115,7 @@ describe('M1: the block policy and POs with no GL account', () => {
 describe('a budget that two PO batches overrun together', () => {
   it('the dry run fails on batch 2 (it sees batch 1), so a --live run writes nothing at all', async () => {
     await setPolicy(pool, f, 'block');
-    const r = await run({ live: true });
+    const r = await run({ live: true, liveWithoutCounts: true });
     expect(r.status).toBe('dry_run_failed');
     expect(r.live).toBeNull();
     expect(r.dryRun.purchaseOrders.batches.map((b) => b.status)).toEqual(['ok', 'failed']);
@@ -134,7 +134,7 @@ describe('a budget that two PO batches overrun together', () => {
   it('a live run after a dry run creates every PO: nothing of the dry run is replayed', async () => {
     await setPolicy(pool, f, 'off');
     await run();
-    const live = await run({ live: true });
+    const live = await run({ live: true, liveWithoutCounts: true });
     expect(live.status).toBe('completed');
     expect(live.live!.purchaseOrders.batches.map((b) => b.toolReported?.created)).toEqual([2, 2]);
     expect(live.live!.purchaseOrders.batches.every((b) => !b.key.endsWith('-dry'))).toBe(true);
@@ -144,7 +144,7 @@ describe('a budget that two PO batches overrun together', () => {
 
   it('with skip_budget_check_for_import the run completes and the report names the POs that would have failed', async () => {
     await setPolicy(pool, f, 'block');
-    const r = await run({ live: true, skipBudgetCheck: true });
+    const r = await run({ live: true, liveWithoutCounts: true, skipBudgetCheck: true });
     expect(r.status).toBe('completed');
     expect((await left()).pos).toBe(4);
     expect(r.budgetWouldHaveFailed.length).toBeGreaterThan(0);
@@ -156,7 +156,7 @@ describe('a budget that two PO batches overrun together', () => {
 
   it('without the skip, a run whose POs all fit reports no budget exception', async () => {
     await setPolicy(pool, f, 'off');
-    const r = await run({ live: true });
+    const r = await run({ live: true, liveWithoutCounts: true });
     expect(r.budgetWouldHaveFailed).toEqual([]);
     expect(summaryLines(r).join('\n')).not.toContain('would have failed the budget check');
   });
@@ -165,7 +165,7 @@ describe('a budget that two PO batches overrun together', () => {
 describe('R1b (round 4): a re-run that adds nothing does not report POs it "let past" the budget check', () => {
   it('the second identical skip-budget run creates nothing and lists nothing as would-have-failed', async () => {
     await setPolicy(pool, f, 'block');
-    const once = () => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poBatchSize: 2, poGlAccountId: f.acc.travel, live: true, skipBudgetCheck: true });
+    const once = () => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poBatchSize: 2, poGlAccountId: f.acc.travel, live: true, liveWithoutCounts: true, skipBudgetCheck: true });
     const r1 = await once();
     expect(r1.budgetWouldHaveFailed.length).toBeGreaterThan(0); // the first run did let POs past a block
     const r2 = await once();

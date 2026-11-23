@@ -26,7 +26,7 @@ beforeEach(async () => { s = await sageWorld(pool); }, 120_000);
 afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool, s.w); }, 120_000);
 
 type Row = Record<string, unknown>;
-const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
+const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, ...over });
 const run = (file: Row = exportFile(), over: Record<string, unknown> = {}, p: Pool = pool) => runSageMigration(p, parsedExport(file), opts(over));
 const posOf = (file: Row) => file.PurchaseOrders as Row[];
 

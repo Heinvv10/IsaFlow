@@ -23,7 +23,7 @@ afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool
 
 type Row = Record<string, unknown>;
 const run = (over: Record<string, unknown> = {}, file = exportFile()) =>
-  runSageMigration(pool, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
+  runSageMigration(pool, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, ...over });
 const rowsOf = (file: Record<string, unknown>) => (file.Items as { $resources: Row[] }).$resources;
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
 const lines = async (po: string) => (await pool.query(
@@ -127,7 +127,7 @@ describe('the books are checked against what the items phase sent, before any PO
     const hooked = afterCommitOf(pool, 'bulk_upsert_items', {
       after: async () => { await pool.query(`UPDATE items SET is_active = false WHERE company_id = $1 AND external_ref = '50002'`, [s.companyId]); },
     });
-    const r = await runSageMigration(hooked, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true });
+    const r = await runSageMigration(hooked, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true });
     expect(r.status).toBe('failed');
     expect(r.live!.items.batches[0]).toMatchObject({ status: 'failed' });
     expect(r.live!.items.batches[0]!.error).toMatch(/not what this batch sent.*FIB-0002 \(Sage id 50002\): is_active is false, sent true.*PO phase is not started/);

@@ -23,7 +23,7 @@ afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool
 
 type Row = Record<string, unknown>;
 const run = (over: Record<string, unknown> = {}, file = exportFile()) =>
-  runSageMigration(pool, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
+  runSageMigration(pool, parsedExport(file), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, ...over });
 const posOf = (file: Record<string, unknown>) => file.PurchaseOrders as Row[];
 
 describe('R1: a PO batch does not replay an answer from an earlier state of its POs', () => {

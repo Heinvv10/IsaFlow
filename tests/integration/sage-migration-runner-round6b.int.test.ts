@@ -30,7 +30,7 @@ type Row = Record<string, unknown>;
 const pos = (f: Row) => (Array.isArray(f.PurchaseOrders) ? f.PurchaseOrders : (f.PurchaseOrders as { $resources: Row[] }).$resources) as Row[];
 const items = (f: Row) => (f.Items as { $resources: Row[] }).$resources;
 const run = (f: Row = exportFile(), over: Record<string, unknown> = {}, p: Pool = pool) =>
-  runSageMigration(p, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
+  runSageMigration(p, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
 const killLock = async () => {
   const [k1, k2] = migrationLockKey(s.companyId);
   await pool.query(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,

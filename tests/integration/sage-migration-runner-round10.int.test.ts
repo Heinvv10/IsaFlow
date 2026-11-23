@@ -28,7 +28,7 @@ afterEach(async () => {
 
 type Row = Record<string, unknown>;
 const items = (f: Row) => (f.Items as { $resources: Row[] }).$resources;
-const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
+const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
 const run = (f: Row = exportFile(), over: Record<string, unknown> = {}, p: Pool = pool) => runSageMigration(p, parsedExport(f), opts(over));
 
 describe('B8-A: an item code renamed in Sage', () => {

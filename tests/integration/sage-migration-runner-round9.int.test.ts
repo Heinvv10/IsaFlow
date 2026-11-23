@@ -24,7 +24,7 @@ afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool
 type Row = Record<string, unknown>;
 const items = (f: Row) => (f.Items as { $resources: Row[] }).$resources;
 const run = (f: Row = exportFile(), over: Record<string, unknown> = {}) =>
-  runSageMigration(pool, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: false, allowDifferences: false, ...over });
+  runSageMigration(pool, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: false, allowDifferences: false, ...over });
 
 describe('L3: the supplier look-ups of the snapshot are company-scoped', () => {
   it('a PO of this company naming another company\'s supplier shows no supplier name or deletion', async () => {

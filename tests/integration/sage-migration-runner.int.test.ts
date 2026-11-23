@@ -66,7 +66,7 @@ describe('the live run', () => {
     const file = exportFile();
     const total = parsedExport(file).exportPoTotalCents;
     report = await runSageMigration(pool, parsedExport(file), opts({
-      live: true, expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: total },
+      live: true, liveWithoutCounts: true, expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: total },
     }));
     expect(report.status).toBe('completed');
     expect(report.live!.categories.batches.map((b) => b.status)).toEqual(['ok', 'ok', 'ok', 'ok']);
@@ -156,8 +156,8 @@ describe('the live run', () => {
 describe('the company', () => {
   it('a user who is not a member of the named company is refused before anything runs', async () => {
     const before = await booked(pool, s.otherCompanyId);
-    await expect(runSageMigration(pool, parsedExport(), { companyId: s.otherCompanyId, userId: s.userId, live: true })).rejects.toBeInstanceOf(NotAMemberError);
-    await expect(runSageMigration(pool, parsedExport(), { companyId: s.companyId, userId: s.otherUserId, live: true })).rejects.toBeInstanceOf(NotAMemberError);
+    await expect(runSageMigration(pool, parsedExport(), { companyId: s.otherCompanyId, userId: s.userId, live: true, liveWithoutCounts: true })).rejects.toBeInstanceOf(NotAMemberError);
+    await expect(runSageMigration(pool, parsedExport(), { companyId: s.companyId, userId: s.otherUserId, live: true, liveWithoutCounts: true })).rejects.toBeInstanceOf(NotAMemberError);
     expect(await booked(pool, s.otherCompanyId)).toEqual(before);
     expect(before).toMatchObject({ items: 0, pos: 0 });
   });

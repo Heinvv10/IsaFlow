@@ -24,7 +24,7 @@ afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool
 
 type Row = Record<string, unknown>;
 const run = (over: Record<string, unknown> = {}, p: Pool = pool) =>
-  runSageMigration(p, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: false, allowDifferences: false, ...over });
+  runSageMigration(p, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: false, allowDifferences: false, ...over });
 
 describe('M1: a COMMIT that did not answer, in a run that otherwise finishes', () => {
   it('the summary names the batch and the exit code is 4, not 1', async () => {

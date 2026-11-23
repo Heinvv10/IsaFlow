@@ -27,7 +27,7 @@ beforeEach(async () => { s = await sageWorld(pool); }, 120_000);
 afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool, s.w); }, 120_000);
 
 const run = (over: Record<string, unknown> = {}, p: Pool = pool) =>
-  runSageMigration(p, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, ...over });
+  runSageMigration(p, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, ...over });
 const category = async (ref: string) => (await pool.query('SELECT name, is_active FROM item_categories WHERE company_id = $1 AND external_ref = $2', [s.companyId, ref])).rows[0] as { name: string; is_active: boolean };
 
 describe('M1: an owned category changed in IsaFlow', () => {

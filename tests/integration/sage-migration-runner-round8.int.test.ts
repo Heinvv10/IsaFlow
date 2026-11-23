@@ -25,7 +25,7 @@ afterEach(async () => { await cleanupSageWorld(pool, s); await cleanupWorld(pool
 type Row = Record<string, unknown>;
 const pos = (f: Row) => (Array.isArray(f.PurchaseOrders) ? f.PurchaseOrders : (f.PurchaseOrders as { $resources: Row[] }).$resources) as Row[];
 const run = (f: Row = exportFile(), over: Record<string, unknown> = {}, p: Pool = pool) =>
-  runSageMigration(p, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
+  runSageMigration(p, parsedExport(f), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: true, allowDifferences: true, expect: {}, ...over });
 
 describe('B7-A: a booked PO renumbered in Sage', () => {
   const renumbered = (): Row => { const f = exportFile(); for (const p of pos(f)) if (p.ID === 900198) p.DocumentNumber = 'PO0000198-R'; return f; };

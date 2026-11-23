@@ -27,7 +27,7 @@ afterEach(async () => {
 }, 120_000);
 
 type Row = Record<string, unknown>;
-const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, ...over });
+const opts = (over: Record<string, unknown> = {}) => ({ companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, ...over });
 const run = (file: Row = exportFile(), over: Record<string, unknown> = {}, p: Pool = pool) => runSageMigration(p, parsedExport(file), opts(over));
 
 /** PO0000197 with a 10% discount line, a per-metre price of 3 dp and a price that repeats (10.00 / 7); header totals follow the lines. */
