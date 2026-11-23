@@ -87,7 +87,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
       </div>
 
       <div className="rounded-xl border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-cards">
           <thead>
             <tr className="text-left text-xs text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border)]">
               <th className="px-4 py-2">Component totals</th>
@@ -100,9 +100,9 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
             {s.componentTotals.map((c) => (
               <tr key={c.component} className="border-b border-[var(--ff-border)] last:border-0">
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{COMPONENT_LABELS[c.component]}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{rand(c.isaflowCents)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{rand(c.externalCents)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${diffClass(c.diffCents)}`}>{rand(c.diffCents)}</td>
+                <td data-label="IsaFlow" className="px-4 py-2 text-right tabular-nums">{rand(c.isaflowCents)}</td>
+                <td data-label="External" className="px-4 py-2 text-right tabular-nums">{rand(c.externalCents)}</td>
+                <td data-label="Diff" className={`px-4 py-2 text-right tabular-nums ${diffClass(c.diffCents)}`}>{rand(c.diffCents)}</td>
               </tr>
             ))}
           </tbody>
@@ -110,7 +110,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
       </div>
 
       <div className="rounded-xl border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-cards">
           <thead>
             <tr className="text-left text-xs text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border)]">
               <th className="px-4 py-2 w-8" />
@@ -135,20 +135,20 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
                     <span className="font-medium text-[var(--ff-text-primary)]">{emp.employeeNumber}</span>
                     <span className="ml-2 text-[var(--ff-text-tertiary)]">{emp.employeeName}</span>
                   </td>
-                  <td className="px-4 py-2">
+                  <td data-label="Status" className="px-4 py-2">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[emp.status]}`}>
                       {STATUS_LABELS[emp.status]}
                     </span>
                   </td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${emp.maxAbsDiffCents > 0 ? 'text-red-400' : 'text-teal-400'}`}>
+                  <td data-label="Largest diff" className={`px-4 py-2 text-right tabular-nums ${emp.maxAbsDiffCents > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                     {rand(emp.maxAbsDiffCents)}
                   </td>
                 </tr>
                 {isOpen && (
                   <tr className="border-b border-[var(--ff-border)] bg-[var(--ff-bg-primary)]">
-                    <td />
+                    <td className="max-lg:!hidden" />
                     <td colSpan={3} className="px-4 py-2">
-                      <table className="w-full text-xs">
+                      <table className="w-full text-xs table-cards">
                         <thead>
                           <tr className="text-left text-[var(--ff-text-tertiary)]">
                             <th className="py-1 pr-4">Component</th>
@@ -161,9 +161,9 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
                           {emp.components.map((c) => (
                             <tr key={c.component}>
                               <td className="py-1 pr-4 text-[var(--ff-text-secondary)]">{COMPONENT_LABELS[c.component]}</td>
-                              <td className="py-1 pr-4 text-right tabular-nums">{rand(c.isaflowCents)}</td>
-                              <td className="py-1 pr-4 text-right tabular-nums">{rand(c.externalCents)}</td>
-                              <td className={`py-1 text-right tabular-nums ${diffClass(c.diffCents)}`}>{rand(c.diffCents)}</td>
+                              <td data-label="IsaFlow" className="py-1 pr-4 text-right tabular-nums">{rand(c.isaflowCents)}</td>
+                              <td data-label="External" className="py-1 pr-4 text-right tabular-nums">{rand(c.externalCents)}</td>
+                              <td data-label="Diff" className={`py-1 text-right tabular-nums ${diffClass(c.diffCents)}`}>{rand(c.diffCents)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -176,7 +176,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
             })}
             {report.employees.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)]">
+                <td colSpan={4} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                   Nothing to compare — both sides are empty.
                 </td>
               </tr>
