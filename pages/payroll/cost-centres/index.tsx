@@ -168,7 +168,7 @@ export default function CostCentresPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-sky-500/10"><Building2 className="h-6 w-6 text-sky-500" /></div>
             <div>
@@ -176,7 +176,7 @@ export default function CostCentresPage() {
               <p className="text-sm text-[var(--ff-text-secondary)]">Group employees for cross-run reporting</p>
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
+          <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] max-lg:min-h-11">
             <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
@@ -188,13 +188,13 @@ export default function CostCentresPage() {
           <WriteOnly>
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
               <div className="text-sm font-medium text-[var(--ff-text-primary)] mb-3">Add a cost centre</div>
-              <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 2fr auto' }}>
+              <div className="grid gap-2 grid-cols-[1fr_2fr_auto] max-lg:grid-cols-1">
                 <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Code (e.g. ADMIN)"
-                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-id" />
+                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-id max-lg:min-h-11" />
                 <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name"
-                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
                 <button onClick={create} disabled={busy}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
                 </button>
               </div>
@@ -210,7 +210,7 @@ export default function CostCentresPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Code</th>
@@ -225,24 +225,24 @@ export default function CostCentresPage() {
                     const editing = editingId === cc.id;
                     return (
                       <tr key={cc.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                        <td className="py-2 px-3 font-id text-[var(--ff-text-primary)]">
+                        <td data-label="Code" className="py-2 px-3 font-id text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
                           {editing ? (
                             <input value={editCode} onChange={e => setEditCode(e.target.value)}
-                              className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-28" />
+                              className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-28 max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto" />
                           ) : cc.code}
                         </td>
-                        <td className="py-2 px-3 text-[var(--ff-text-primary)]">
+                        <td data-label="Name" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
                           {editing ? (
                             <input value={editName} onChange={e => setEditName(e.target.value)}
-                              className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-full" />
+                              className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-full max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto" />
                           ) : cc.name}
                         </td>
-                        <td className="py-2 px-3 text-[var(--ff-text-primary)]">
+                        <td data-label="GL expense account" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
                           <select
                             value={mappings.find(m => m.costCentreId === cc.id)?.expenseAccountId ?? ''}
                             onChange={e => setMapping(cc.id, e.target.value)}
                             disabled={busy || accounts.length === 0}
-                            className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-xs px-2 py-1 text-[var(--ff-text-primary)] min-w-[14rem]"
+                            className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-xs px-2 py-1 text-[var(--ff-text-primary)] min-w-[14rem] max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem]"
                           >
                             <option value="">(fallback — default)</option>
                             {accounts.map(a => (
@@ -250,24 +250,24 @@ export default function CostCentresPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="py-2 px-3">
+                        <td data-label="Status" className="py-2 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cc.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
                             {cc.isActive ? 'active' : 'inactive'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-right">
+                        <td className="py-2 px-3 text-right max-lg:empty:!hidden">
                           {editing ? (
                             <div className="inline-flex gap-1">
                               <button onClick={() => saveEdit(cc.id)} disabled={busy}
-                                className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><Check className="h-4 w-4 text-emerald-500" /></button>
+                                className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><Check className="h-4 w-4 text-emerald-500" /></button>
                               <button onClick={() => setEditingId(null)} disabled={busy}
-                                className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-4 w-4 text-red-500" /></button>
+                                className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-4 w-4 text-red-500" /></button>
                             </div>
                           ) : (
                             <WriteOnly>
                               <div className="inline-flex gap-3">
-                                <button onClick={() => startEdit(cc)} className="text-xs text-sky-400 hover:text-sky-300">Edit</button>
-                                <button onClick={() => toggleActive(cc)} className="text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+                                <button onClick={() => startEdit(cc)} className="text-xs text-sky-400 hover:text-sky-300 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Edit</button>
+                                <button onClick={() => toggleActive(cc)} className="text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                                   {cc.isActive ? 'Deactivate' : 'Reactivate'}
                                 </button>
                               </div>
