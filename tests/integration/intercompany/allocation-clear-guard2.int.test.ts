@@ -5,7 +5,7 @@
  * of another accepted clearing, confirmed by someone else than the acting user, dated before the payment or the invoice, the receiver's loan
  * account not a loan class, the journal cap; and the guard waits on the payer's advisory locks. The clearing needs a person's own session
  * (breaker M2), a payment's Reject needs Approve (breaker M3), the Accept body takes no other key (L2), and no role but the intended ones may
- * execute a 1027 function (m5).
+ * execute a 1027 function: any other role found is revoked (deploy-safe, a WARNING when it cannot be), PUBLIC stops it (m5).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -151,13 +151,49 @@ describe("the person: their own session, Approve to reject, the preview's keys o
     expect((await accept(s.message, { ...bodyFor(s), approverUserId: U.ab })).state.statusCode).toBe(400);
   });
 
-  it("the migration refuses to finish while any role but the intended ones can execute a 1027 function", async () => {
+  const NEW_FUNCTIONS = ['public.intercompany_allocation_message_live(uuid)', 'public.intercompany_allocation_cap_lock(uuid)',
+    'public.intercompany_is_loan_class(text, text, boolean)', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)'];
+  const reaches = async (q: PoolClient, role: string) => (await q.query(
+    "SELECT f AS fn, has_function_privilege($1, f, 'EXECUTE') AS can FROM unnest($2::text[]) f ORDER BY f", [role, NEW_FUNCTIONS])).rows as Array<{ fn: string; can: boolean }>;
+
+  it('deploy-safe: a default privilege granting EXECUTE to anon (as Supabase can carry) is revoked by the migration, which still finishes', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const exists = (await client.query("SELECT 1 FROM pg_roles WHERE rolname = 'anon'")).rows.length > 0;
+      if (!exists) await client.query('CREATE ROLE anon NOLOGIN');
+      await client.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon');
+      await client.query(MIGRATION_1027);
+      expect((await reaches(client, 'anon')).filter((r) => r.can)).toEqual([]);
+      expect((await reaches(client, 'app_user')).every((r) => r.can)).toBe(true);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('a direct grant to another role is revoked too, and the migration finishes', async () => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('CREATE ROLE ic_p4d_probe NOLOGIN');
       await client.query('GRANT EXECUTE ON FUNCTION public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid) TO ic_p4d_probe');
-      await expect(client.query(MIGRATION_1027)).rejects.toThrow(/1027: .*ic_p4d_probe/);
+      await client.query(MIGRATION_1027);
+      expect((await reaches(client, 'ic_p4d_probe')).filter((r) => r.can)).toEqual([]);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('PUBLIC holding EXECUTE still stops the migration (strict)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // the helpers are CREATE OR REPLACEd (their grants survive a re-apply): a PUBLIC grant the file no longer revokes reaches the check
+      await client.query('GRANT EXECUTE ON FUNCTION public.intercompany_allocation_cap_lock(uuid) TO PUBLIC');
+      const text = MIGRATION_1027.replace('REVOKE ALL ON FUNCTION public.intercompany_allocation_cap_lock(uuid) FROM PUBLIC;', '');
+      await expect(client.query(text)).rejects.toThrow(/1027: PUBLIC can execute/);
     } finally {
       await client.query('ROLLBACK');
       client.release();

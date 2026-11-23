@@ -36,6 +36,9 @@
 --   4. The messages guard (the 1025 body; only the target section changes): an `allocation` message is accepted only after the cap lock and with
 --      target_doc_type 'customer_payment' and a target intercompany_allocation_target_ok passes (23514 otherwise: closes the direct-UPDATE
 --      `accepted` hole, #1788), one accepted message per target; its target changes on no other transition (23514).
+--   5. Grants, deploy-safe: each function REVOKEs PUBLIC and GRANTs only what it needs; any other role found able to EXECUTE one (a default
+--      privilege of the creating role, e.g. Supabase's anon / authenticated / service_role) has it REVOKED, and a revoke the migration role
+--      cannot make is a WARNING naming the role, never a halt. Strict (an EXCEPTION): PUBLIC, app_user's grants, the definer's owner and hash.
 -- The auto-accept worker, its queue, loadInboxRow and the invoice inbox keep their kind IN ('invoice','credit_note') filter: automation never
 -- accepts an allocation.
 
@@ -540,29 +543,47 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 -- Every role that can EXECUTE a function of this migration is one it is meant for (m5): a superuser, the function's owner (or a member of it),
--- migration_admin or app_user (or a member of either: such a role reaches every app_user grant anyway); PUBLIC never. A direct grant to any other
--- role (a default privilege of the creating role included) stops the migration.
+-- migration_admin or app_user (or a member of either: such a role reaches every app_user grant anyway); PUBLIC never. DEPLOY-SAFE: any other
+-- role found holding EXECUTE (a default privilege of the creating role, e.g. Supabase's anon / authenticated / service_role) has it REVOKED
+-- here; a role the migration role cannot revoke from, or one that still reaches the function another way, is a WARNING (named), never a halt.
+-- What stays strict below: PUBLIC must not, app_user must, the definer's owner and its registry hash.
 DO $$
 DECLARE
-  bad text;
+  g RECORD;
 BEGIN
-  SELECT pg_catalog.string_agg(pg_catalog.format('%s on %s', r.rolname, f.sig), ', ' ORDER BY r.rolname, f.sig) INTO bad
-    FROM (VALUES ('public.intercompany_allocation_message_live(uuid)'), ('public.intercompany_allocation_cap_lock(uuid)'),
-                 ('public.intercompany_is_loan_class(text, text, boolean)'),
-                 ('public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)')) AS f(sig)
-    JOIN pg_catalog.pg_proc p ON p.oid = f.sig::regprocedure
-    CROSS JOIN pg_catalog.pg_roles r
-   WHERE pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
-     AND NOT (r.rolsuper OR r.oid = p.proowner OR pg_catalog.pg_has_role(r.oid, p.proowner, 'MEMBER')
-              OR pg_catalog.pg_has_role(r.oid, 'app_user', 'MEMBER') OR pg_catalog.pg_has_role(r.oid, 'migration_admin', 'MEMBER'));
-  IF bad IS NOT NULL THEN
-    RAISE EXCEPTION '1027: a role it is not meant for can execute an allocation clearing function: %', bad;
-  END IF;
+  FOR g IN
+    SELECT r.rolname, f.sig
+      FROM (VALUES ('public.intercompany_allocation_message_live(uuid)'), ('public.intercompany_allocation_cap_lock(uuid)'),
+                   ('public.intercompany_is_loan_class(text, text, boolean)'),
+                   ('public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)')) AS f(sig)
+      JOIN pg_catalog.pg_proc p ON p.oid = f.sig::regprocedure
+     CROSS JOIN pg_catalog.pg_roles r
+     WHERE pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
+       AND NOT (r.rolsuper OR r.oid = p.proowner OR pg_catalog.pg_has_role(r.oid, p.proowner, 'MEMBER')
+                OR pg_catalog.pg_has_role(r.oid, 'app_user', 'MEMBER') OR pg_catalog.pg_has_role(r.oid, 'migration_admin', 'MEMBER'))
+     ORDER BY r.rolname, f.sig
+  LOOP
+    BEGIN
+      EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I', g.sig, g.rolname);
+    EXCEPTION WHEN insufficient_privilege OR undefined_object THEN
+      RAISE WARNING '1027: could not revoke EXECUTE on % from % (%): revoke it by hand', g.sig, g.rolname, SQLERRM;
+    END;
+    IF pg_catalog.has_function_privilege(g.rolname, g.sig, 'EXECUTE') THEN
+      RAISE WARNING '1027: % can still execute % (through another grant or membership): revoke it by hand', g.rolname, g.sig;
+    END IF;
+  END LOOP;
+END $$;
+
+DO $$
+BEGIN
   IF pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_message_live(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_cap_lock(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'EXECUTE')
      OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_message_live(uuid)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_cap_lock(uuid)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'EXECUTE')
      OR NOT pg_catalog.has_function_privilege('migration_admin', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION '1027: PUBLIC can execute an allocation clearing function, or app_user / migration_admin cannot execute what it needs';
   END IF;
