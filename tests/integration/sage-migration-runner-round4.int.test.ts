@@ -44,7 +44,8 @@ describe('M1: an owned category changed in IsaFlow', () => {
     expect(await category('10')).toEqual({ name: 'Optics', is_active: true });
     expect(r.differences.categories).toEqual([{ name: 'Optics', changed: ['name'] }]);
     expect(r.live!.items.batches.every((b) => b.status === 'ok')).toBe(true);
-    expect(summaryLines(r).join('\n')).toMatch(/DIFFERS: category Optics would be updated to Sage's values: name/);
+    expect(summaryLines(dry).join('\n')).toMatch(/DIFFERS: category Optics would be updated to Sage's values: name/);
+    expect(summaryLines(r).join('\n')).toMatch(/DIFFERS: category Optics was updated to Sage's values \(an IsaFlow edit of these fields was overwritten\): name/); // a live run: it WAS
   });
 
   it('deactivated: live reactivates it', async () => {
