@@ -189,7 +189,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked },
-      stored: { supplierId: checked.supplierId, deliveryDate: checked.deliveryDate, reference: checked.reference, lines: checked.lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })) } });
+      stored: { supplierId: checked.supplierId, deliveryDate: checked.deliveryDate, reference: checked.reference, lines: checked.lines.map((l, n) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, itemCode: po.lines[n]!.itemId === null ? null : links[po.lines[n]!.itemId!]?.code ?? null })) } });
     lineLinks.linked += linked;
     lineLinks.notLinked.push(...notLinked);
   }

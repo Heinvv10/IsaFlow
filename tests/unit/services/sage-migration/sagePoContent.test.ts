@@ -8,8 +8,8 @@ const S2 = '1a7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f7';
 const element = (over: Record<string, unknown> = {}) => ({
   supplierId: S1, deliveryDate: '2026-03-01', reference: 'JOB-1',
   lines: [
-    { description: 'Fibre drop cable', quantity: 2, unitPrice: 1200 },
-    { description: 'Delivery charge', quantity: 1, unitPrice: 350.5 },
+    { description: 'Fibre drop cable', quantity: 2, unitPrice: 1200, itemCode: null },
+    { description: 'Delivery charge', quantity: 1, unitPrice: 350.5, itemCode: null },
   ], ...over,
 });
 const stored = (over: Partial<PoContent> = {}): PoContent => ({
@@ -45,14 +45,25 @@ describe('poContentDifferences', () => {
     ]);
   });
   it('a line added or removed is one difference, the line count', () => {
-    const el = element({ lines: [{ description: 'Fibre drop cable', quantity: 2, unitPrice: 1200 }] });
+    const el = element({ lines: [{ description: 'Fibre drop cable', quantity: 2, unitPrice: 1200, itemCode: null }] });
     expect(diff(el, stored())[0]!.differences).toEqual([{ field: 'lines', existing: 2, requested: 1 }]);
   });
   it('the " [item CODE]" suffix of an unlinked line is not a difference (the item may have been activated since)', () => {
-    const el = element({ lines: [{ description: 'Fibre drop cable', quantity: 2, unitPrice: 1200 }, { description: 'Delivery charge', quantity: 1, unitPrice: 350.5 }] });
+    const line = (description: string) => ({ description, quantity: 2, unitPrice: 1200, itemCode: 'FIB-1' });
+    const second = { description: 'Delivery charge', quantity: 1, unitPrice: 350.5, itemCode: null };
     const st = stored({ lines: [{ description: 'Fibre drop cable [item FIB-1]', quantity: 2, unitPrice: 1200 }, { description: 'Delivery charge', quantity: 1, unitPrice: 350.5 }] });
-    expect(diff(el, st)).toEqual([]);
-    expect(diff(element({ lines: [{ description: 'Fibre drop cable [item FIB-1]', quantity: 2, unitPrice: 1200 }, { description: 'Delivery charge', quantity: 1, unitPrice: 350.5 }] }), stored())).toEqual([]);
+    expect(diff(element({ lines: [line('Fibre drop cable'), second] }), st)).toEqual([]);
+    expect(diff(element({ lines: [line('Fibre drop cable [item FIB-1]'), second] }), stored())).toEqual([]);
+  });
+  it('B6-H (round 6): only the exact " [item CODE]" suffix is stripped, so a code with "]" in it is handled and a real change is not hidden', () => {
+    const line = (description: string, itemCode: string | null) => ({ description, quantity: 1, unitPrice: 10, itemCode });
+    const withCode = (d: string) => element({ lines: [line(d, 'FIB]0001')] });
+    const st = (d: string) => stored({ lines: [{ description: d, quantity: 1, unitPrice: 10 }] });
+    expect(diff(withCode('Cable'), st('Cable [item FIB]0001]'))).toEqual([]); // stored with the suffix, sent without (item activated since)
+    expect(diff(withCode('Cable [item FIB]0001]'), st('Cable'))).toEqual([]);
+    // a description that merely ends in a bracketed word is NOT a suffix: a changed description is still listed
+    expect(diff(element({ lines: [line('Cable [item X]', null)] }), st('Cable'))[0]!.differences.map((d) => d.field)).toEqual(['line 1 description']);
+    expect(diff(element({ lines: [line('Cable [item OTHER]', 'FIB-1')] }), st('Cable'))[0]!.differences.map((d) => d.field)).toEqual(['line 1 description']);
   });
   it('compares numbers as numbers: 2 and 2.00, 350.5 and 350.500000', () => {
     expect(diff(element(), stored({ lines: [{ description: 'Fibre drop cable', quantity: Number('2.00'), unitPrice: Number('1200.000000') }, { description: 'Delivery charge', quantity: 1, unitPrice: Number('350.500000') }] }))).toEqual([]);

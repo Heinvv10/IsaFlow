@@ -180,7 +180,7 @@ export function parseSageExport(file: unknown): ParsedExport {
       // An item with no readable code cannot be named on the line at all (the suffix needs it): refused, or not in the export.
       reasons.push(knownIds.has(l.itemId)
         ? `Lines[${n}] names item ${l.itemId}, which is refused and has no readable Code to name it by`
-        : `Lines[${n}] names item ${l.itemId}, which the export does not contain`);
+        : `Lines[${n}] names item ${l.itemId}, which the export does not contain (the assumed format has no line-type field: a ledger-account line, whose SelectionId is a GL account, reads the same; see the design doc, open questions)`);
     }
     if (reasons.length === 0) purchaseOrders.push(po);
     else {

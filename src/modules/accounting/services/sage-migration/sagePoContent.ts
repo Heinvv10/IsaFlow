@@ -25,13 +25,17 @@ export interface StoredPo {
   supplierId: string;
   deliveryDate: string | null;
   reference: string | null;
-  lines: Array<{ description: string; quantity: number; unitPrice: number }>;
+  /** itemCode: the code of the item the line names (linked or not): the only suffix to strip from its description is " [item <code>]". */
+  lines: Array<{ description: string; quantity: number; unitPrice: number; itemCode?: string | null }>;
 }
 
 type PoDifferences = MigrationReport['differences']['purchaseOrders'];
 
-const SUFFIX = / \[item [^\]]*\]$/;
-const bare = (description: string): string => description.replace(SUFFIX, '');
+/** The description without the " [item CODE]" the plan appends to a line it does not link: ONLY that exact suffix, for the line's own item code. */
+const bare = (description: string, itemCode: string | null | undefined): string => {
+  const suffix = itemCode ? ` [item ${itemCode}]` : null;
+  return suffix !== null && description.endsWith(suffix) ? description.slice(0, -suffix.length) : description;
+};
 /** Prices are stored to 6 decimals. */
 const micro = (n: number): number => Math.round(n * 1e6);
 
@@ -52,7 +56,8 @@ export function poContentDifferences(
     else {
       sent.lines.forEach((l, n) => {
         const h = have.lines[n]!;
-        if (bare(l.description) !== bare(h.description)) diffs.push({ field: `line ${n + 1} description`, existing: bare(h.description), requested: bare(l.description) });
+        const code = l.itemCode; // the stored line has no code of its own: it is read against the same item the plan names for it
+        if (bare(l.description, code) !== bare(h.description, code)) diffs.push({ field: `line ${n + 1} description`, existing: bare(h.description, code), requested: bare(l.description, code) });
         if (l.quantity !== h.quantity) diffs.push({ field: `line ${n + 1} quantity`, existing: h.quantity, requested: l.quantity });
         if (micro(l.unitPrice) !== micro(h.unitPrice)) diffs.push({ field: `line ${n + 1} unit_price`, existing: h.unitPrice, requested: l.unitPrice });
       });
