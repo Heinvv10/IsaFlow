@@ -1,7 +1,7 @@
 /**
  * Intercompany P4-B: the payer's allocation hook. One savepoint per allocation id, never throws, logs a failure by SQLSTATE only, and says
- * which refusals a person must find (a journal the ledger does not carry, and an id the caller just read that is not found, at ERROR; a viewer or an unposted payment at WARN) and which are
- * the common silent answers (no link, not a loan, no connection).
+ * which refusals a person must find (a journal the ledger does not carry, and an id the caller just read that is not found, at ERROR; an unposted payment at WARN) and which are
+ * silent (no link, not a loan, no connection, a user without an intercompany write role, and `no_session`: a caller outside a request, expected for the categorization sweep).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -57,7 +57,7 @@ describe('mirrorAllocations', () => {
     expect(m.log[level]).toHaveBeenCalledWith(expect.stringMatching(/allocation/i), expect.objectContaining({ companyId: CO, allocationId: A1, reason }), 'intercompany');
   });
 
-  it.each(['forbidden', 'no_link', 'not_loan', 'no_connection', 'no_cutover', 'before_cutover', 'already_sent'])('a %s answer is silent', async (reason) => {
+  it.each(['no_session', 'forbidden', 'no_link', 'not_loan', 'no_connection', 'no_cutover', 'before_cutover', 'already_sent'])('a %s answer is silent', async (reason) => {
     m.sql.mockResolvedValue([{ message_id: null, reason, detail: null }]);
     await mirrorAllocations(CO, [A1]);
     expect(m.log.error).not.toHaveBeenCalled();

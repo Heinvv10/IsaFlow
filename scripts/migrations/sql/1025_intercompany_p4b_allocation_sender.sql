@@ -7,8 +7,8 @@
 --      the PAYER (the session company) applied posted cash (payment_allocations row of its supplier_payments row) to one of its bills; the bill is
 --      one side of an ACTIVE link whose other side is the partner's customer_invoice, on an ACTIVE LOAN connection past its cut-over: the DATABASE
 --      builds the payload from the payer's own rows and writes ONE kind='allocation' message for the partner, recording the standing payment journal.
---      The app names the row id and nothing else. Otherwise (NULL, reason, NULL): not_found, no_link, no_connection, not_loan, no_cutover,
---      before_cutover, forbidden, not_posted, no_journal, already_sent.
+--      The app names the row id and nothing else. Otherwise (NULL, reason, NULL): no_session, not_found, no_link, no_connection,
+--      not_loan, no_cutover, before_cutover, forbidden, not_posted, no_journal, already_sent.
 --   2. The messages guard (the 1019 body + two names): an allocation message, or one naming a 'payment_allocation', is written by migration_admin only,
 --      and names a payment allocation of the SENDER's own payment (intercompany_message_doc_exists, new 'allocation' branch). A session's own INSERT of
 --      one is refused 42501; the update path is unchanged (an allocation creates no document: the target is cleared).
@@ -244,7 +244,9 @@ $$;
 
 -- ── 3. The definer ──────────────────────────────────────────────────────────
 
--- Session company P = app.current_company_id(); every answer but the message is (NULL, reason, NULL). The write role is asked FIRST (forbidden),
+-- Session company P = app.current_company_id(); every answer but the message is (NULL, reason, NULL). A call with no session at all (no session
+-- company, or no signed-in user: a categorization sweep or any caller outside a request) answers `no_session` BEFORE any row is looked at, so
+-- the caller can tell "expected: nothing to say" from `not_found` (a bug). The write role is asked next (forbidden),
 -- before any answer that says something about a row, a link or a connection: a user who may not send learns nothing about them. Then:
 --   1 not_found    the allocation row, its payment (company_id = P) and its bill (company_id = P, not deleted) exist
 --   2 no_link      the bill's slot (P, 'supplier_invoice', bill) is in an ACTIVE link whose other side is a customer_invoice of the connection's partner
@@ -277,7 +279,8 @@ BEGIN
   IF v_prev::interval = interval '0' OR v_prev::interval > interval '2s' THEN PERFORM pg_catalog.set_config('lock_timeout', '2s', true); END IF;
   <<main>>
   BEGIN
-    IF v_co IS NULL OR p_allocation IS NULL THEN v_reason := 'not_found'; EXIT main; END IF;
+    IF v_co IS NULL OR auth.uid() IS NULL THEN v_reason := 'no_session'; EXIT main; END IF;
+    IF p_allocation IS NULL THEN v_reason := 'not_found'; EXIT main; END IF;
     IF NOT public.intercompany_user_can_write(v_co) THEN v_reason := 'forbidden'; EXIT main; END IF;
     -- 1: the payer's own rows, the company named on the payment AND on the bill
     SELECT pa.amount_allocated AS amount, sp.id AS payment_id, sp.payment_number, sp.reference, sp.payment_date, sp.payment_method, sp.status AS payment_status,
@@ -300,7 +303,8 @@ BEGIN
              AND k.doc_b_type = 'customer_invoice' AND k.company_b_id = CASE WHEN c.company_low_id = v_co THEN c.company_high_id ELSE c.company_low_id END)
          OR (k.company_b_id = v_co AND k.doc_b_type = 'supplier_invoice' AND k.doc_b_id = a.bill_id
              AND k.doc_a_type = 'customer_invoice' AND k.company_a_id = CASE WHEN c.company_low_id = v_co THEN c.company_high_id ELSE c.company_low_id END))
-     LIMIT 1;
+     LIMIT 1
+       FOR SHARE OF k, c;   -- the link and the connection are read as they stand and held until the message is written: a revoke / unlink in flight is waited for (under the 2 s bound)
     IF NOT FOUND THEN v_reason := 'no_link'; EXIT main; END IF;
     -- 3, 4: the connection
     IF l.connection_status <> 'active' THEN v_reason := 'no_connection'; EXIT main; END IF;
@@ -353,7 +357,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_send_for_allocation(uuid)', 'public.intercompany_send_for_allocation(uuid)',
-     'intercompany_messages (one kind=''allocation'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on an active LOAN connection past its cut-over, recording that journal) for the session company (a write-role user) only; nothing else is written (no journal, no group row, no document), a read of payment_allocations, supplier_payments, supplier_invoices, supplier_payment_batches, gl_journal_entries, gl_journal_lines, intercompany_document_slots, intercompany_document_links, intercompany_connections and intercompany_connection_sides; nothing for another company''s rows')
+     'intercompany_messages (one kind=''allocation'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on an active LOAN connection past its cut-over, recording that journal) for the session company (a write-role user) only; nothing else is written (no journal, no group row, no document), a read of payment_allocations, supplier_payments, supplier_invoices, supplier_payment_batches, gl_journal_entries, gl_journal_lines, intercompany_messages (has a message been written), company_users (the write role), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE) and intercompany_connection_sides; nothing for another company''s rows')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 

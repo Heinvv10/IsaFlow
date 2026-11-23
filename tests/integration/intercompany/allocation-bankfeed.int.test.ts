@@ -41,13 +41,14 @@ const apply = (bankTxId: string, invoiceId: string, amount = 1150) => asService(
 }));
 
 describe('a bank line applied to a linked loan-mode bill', () => {
-  it('leaves a processed payment on a posted, standing journal, and the definer sends for it', async () => {
+  it('leaves a fully applied (reconciled) payment on the posted, standing journal the bank line posted, and the definer sends for it', async () => {
     const { bill, invoice } = await plantBill(pool, conn);
     const res = await apply(await bankLine(bank.b), bill);
     const pay = (await pool.query(
       `SELECT sp.status, sp.gl_journal_entry_id AS je, je.status AS je_status, je.reversal_of_id
          FROM supplier_payments sp JOIN gl_journal_entries je ON je.id = sp.gl_journal_entry_id WHERE sp.id = $1`, [res.supplierPaymentId])).rows[0];
     expect(pay).toMatchObject({ status: 'reconciled', je_status: 'posted', reversal_of_id: null });
+    expect(pay.je).toBe(res.journalEntryId);
     const rows = await allocationMessages(pool);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ from_company_id: co.B, to_company_id: co.A, source_journal_entry_id: pay.je, status: 'pending' });
@@ -64,7 +65,9 @@ describe('a bank line applied to a linked loan-mode bill', () => {
     const { bill } = await plantBill(pool, conn);
     const res = await apply(await bankLine(bank.b, -2000), bill, 1150);
     expect(res.paymentStatus).toBe('processed');
-    expect(await allocationMessages(pool)).toHaveLength(1);
+    const rows = await allocationMessages(pool);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload.amount).toBe(1150);                                                 // the allocation, not the 2 000 line
   });
 
   it('on a cash connection nothing is sent and the application is unharmed', async () => {

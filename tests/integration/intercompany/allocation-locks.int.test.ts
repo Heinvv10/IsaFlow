@@ -90,12 +90,13 @@ describe('two writers for one allocation row', () => {
     try {
       expect(((await winner.query(CALL, [allocation])).rows[0] as SendRow).message_id).toBeTruthy();
       const loser = asAppUser(pool, U.b, co.B, async (q) => (await q.query(CALL, [allocation])).rows[0] as SendRow, true);
-      // it waits on the winner's unique-index entry
-      for (let i = 0; i < 250; i += 1) {
-        const waiting = await pool.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%intercompany_send_for_allocation%'");
-        if (waiting.rowCount) break;
-        await new Promise((resolve) => setTimeout(resolve, 20));
+      // it waits on the winner's unique-index entry: SEEN waiting, or the test proves nothing (a loser that never overlapped the winner passes without ON CONFLICT)
+      let seen = false;
+      for (let i = 0; i < 250 && !seen; i += 1) {
+        seen = ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%intercompany_send_for_allocation%'")).rowCount ?? 0) > 0;
+        if (!seen) await new Promise((resolve) => setTimeout(resolve, 20));
       }
+      expect(seen).toBe(true);
       await winner.query('COMMIT');
       expect(await loser).toEqual({ message_id: null, reason: 'already_sent', detail: null });
     } finally {
@@ -103,5 +104,42 @@ describe('two writers for one allocation row', () => {
       winner.release();
     }
     expect(await allocationMessages(pool)).toHaveLength(1);
+  }, 30000);
+});
+
+describe('the link and the connection are held FOR SHARE while the definer decides', () => {
+  /** A payment dated before the cut-over: the definer answers before_cutover and never reaches its INSERT (whose guard would take the connection lock anyway). */
+  const early = async () => {
+    const { bill, link } = await plantBill(pool, conn);
+    return { allocation: (await plantPaid(pool, bill, { date: '2025-12-31' })).allocation, link: link as string };
+  };
+  const hold = async (table: 'intercompany_connections' | 'intercompany_document_links', id: string) => {
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query(`SELECT 1 FROM ${table} WHERE id = $1 FOR UPDATE`, [id]);       // what an UPDATE of the row (a revoke, an unlink) takes
+    return { release: async () => { await holder.query('ROLLBACK'); holder.release(); } };
+  };
+
+  it.each(['intercompany_connections', 'intercompany_document_links'] as const)('a change of the %s row in flight is waited for, and the answer follows once it is released', async (table) => {
+    const { allocation, link } = await early();
+    const held = await hold(table, table === 'intercompany_connections' ? conn : link);
+    const t0 = Date.now();
+    setTimeout(() => { void held.release(); }, 700);
+    const { answer } = await probe('10s', allocation);
+    expect(answer.reason).toBe('before_cutover');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(600);
+  }, 30000);
+
+  it.each(['intercompany_connections', 'intercompany_document_links'] as const)('one that is still in flight at the bound times out (55P03) with the 2 s bound, never waiting for ever (%s)', async (table) => {
+    const { allocation, link } = await early();
+    const held = await hold(table, table === 'intercompany_connections' ? conn : link);
+    try {
+      const t0 = Date.now();
+      const err = await probe('0', allocation).then(() => null, (e: { code?: string }) => e);
+      expect(err?.code).toBe('55P03');
+      expect(Date.now() - t0).toBeLessThan(3500);
+    } finally {
+      await held.release();
+    }
   }, 30000);
 });

@@ -18,7 +18,8 @@ All open questions below were decided with the recommended answer (orchestrator-
 ## (c) Payload: built by the database only
 New registered definer `intercompany_send_for_allocation(p_allocation uuid) RETURNS TABLE(message_id uuid, reason text, detail text)`, modelled on `intercompany_send_for_source` (1019). The app names the row id and nothing else; the messages guard refuses any session-written allocation message.
 Checks, session company P = `app.current_company_id()` (round 1 of review: the write role is asked FIRST, so a user who may not send learns nothing about a row, link or connection; the rest cheapest first):
-0. `intercompany_user_can_write(P)`, else `forbidden` (a NULL session company is `not_found`);
+-1. no session (a NULL session company, or no signed-in user: `auth.uid()` NULL) answers `no_session` before any row is looked at;
+0. `intercompany_user_can_write(P)`, else `forbidden`;
 1. allocation row exists, its `supplier_payments.company_id = P` and `supplier_invoices.company_id = P`, bill not deleted, else `not_found`;
 2. the bill's slot in `intercompany_document_slots` (P, 'supplier_invoice', id) has a link `status='active'`, other side `customer_invoice`, other company = the connection's partner, else `no_link`;
 3. connection active (`no_connection`) and loan mode (`not_loan`);
@@ -39,7 +40,9 @@ Payload v1 (text through `intercompany_clean_text`, money 2 dp): `{ version:1, k
 No change: the kind CHECK already allows `allocation`; inbox, auto-accept queue and `loadInboxRow` filter `kind IN ('invoice','credit_note')` so allocation messages are invisible to the receiver.
 
 ## (e) Hook (best effort)
-New `intercompany/allocationOutbox.ts`: `mirrorAllocations(companyId, allocationIds)` on the caller's transaction; each id in its own `withSavepoint('intercompany_allocation', ...)`; never throws; logs SQLSTATE only; `no_journal` and `not_found` (an id the caller just read under its own company is always a bug) log at ERROR, `forbidden` / `not_posted` at WARN (nothing re-sends; P5 lists unsent allocations); `no_link` / `not_loan` / `no_connection` and the other answers silent.
+New `intercompany/allocationOutbox.ts`: `mirrorAllocations(companyId, allocationIds)` on the caller's transaction; each id in its own `withSavepoint('intercompany_allocation', ...)`; never throws; logs SQLSTATE only; `no_journal` and `not_found` (an id the caller just read under its own company is always a bug) log at ERROR, `not_posted` at WARN (nothing re-sends; P5 lists unsent allocations); `forbidden` (a user without an intercompany write role pays bills all day), `no_session`, `no_link` / `not_loan` / `no_connection` and the other answers silent.
+
+**Payments applied outside a request send no allocation message.** A caller with no session (the categorization sweep, `llmCategorizationPass` under `withAlsTransaction`: no `app.current_company_id`, no `request.jwt.claims`) reaches `applySupplierPaymentPlan` -> the hook, the definer answers `no_session` and the hook stays silent. Nothing re-sends; P5 lists linked loan bills paid without a message.
 
 ## (f) Tests
 Integration (`tests/integration/intercompany/allocation-*.int.test.ts`, two tenants plus a third, as app_user): one message P to I with payload equal to P's rows; idempotent re-call and re-process; cash connection, unlinked bill, pending/unlinked link, revoked connection, pre-cutover payment, draft/approved payment emit nothing with the named reason; cross-tenant (P naming I's or C's allocation row gives `not_found`; a user of both in session P naming I's row refused; C sees nothing); forged: app_user INSERT of kind `allocation` refused 42501 (update `messages-documents.int.test.ts:76`, which asserts `ok` today) and a definer-planted allocation naming a made-up or foreign row refused; viewer `forbidden`; a forced definer failure leaves the application committed; apply, process and processBatch each emit; receiver inbox count/list and auto-accept never see an allocation; registry and app_pool_reach checks pass and PUBLIC cannot execute. Fixture: `plantMessage` (intercompany.plant.ts) must plant a real allocation row for kind `allocation`.
@@ -55,5 +58,6 @@ Any receiver behaviour (draft clearing, accept/reject of allocations, the pre-cu
 - Cut-over gate: `payment_date >= connection.cutover_date`; a pre-cutover paired bill paid after cut-over IS sent and the receiver refuses (ruling 5).
 - Receiver accept of an allocation message stays as is (no route reaches it); C/D decides.
 - A link confirmed later does not back-emit earlier allocations (P5 reports them).
+- A payment applied outside a request (no session) sends nothing (`no_session`, silent); P5 lists it.
 - The link alone is enough (links are authoritative); the payload carries enough for D to re-check.
 - `cashLegIsLoanAccount` is in the payload.

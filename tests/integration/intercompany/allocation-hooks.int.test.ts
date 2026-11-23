@@ -4,7 +4,8 @@
  * definer is logged by SQLSTATE and never fails or poisons the payment.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { mirrorAllocations } from '../../../src/modules/accounting/services/intercompany/allocationOutbox';
@@ -76,6 +77,39 @@ describe('mirrorAllocations never fails or poisons the caller\'s transaction', (
     expect(error).toHaveBeenCalledWith(expect.stringContaining('allocation'), { companyId: co.B, allocationId: missing, reason: 'not_found' }, 'intercompany');
   });
 
+  describe('a caller outside a request (no session company, no signed-in user: the categorization sweep)', () => {
+    const NONE = ['no company, no claims', 'a company, no claims', 'claims, no company'] as const;
+    const session = async (kind: (typeof NONE)[number], fn: (q: PoolClient) => Promise<unknown>) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE app_user');
+        if (kind !== NONE[0]) await client.query("SELECT set_config('app.current_company_id', $1, true)", [kind === NONE[1] ? co.B : '']);
+        if (kind === NONE[2]) await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: U.b })]);
+        const out = await als.run({ client, userId: U.b, companyId: co.B, claims: {} } as never, () => fn(client));
+        await client.query('COMMIT');
+        return out;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    };
+
+    it.each(NONE)('the definer answers no_session (not not_found) and the hook is silent, with %s', async (kind) => {
+      const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      const { allocation } = await plantPaid(pool, (await plantBill(pool, conn)).bill);
+      const answer = await session(kind, async (q) => (await q.query('SELECT * FROM public.intercompany_send_for_allocation($1)', [allocation])).rows[0]);
+      expect(answer).toEqual({ message_id: null, reason: 'no_session', detail: null });
+      await session(kind, () => mirrorAllocations(co.B, [allocation, crypto.randomUUID()]));
+      expect(error).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(await allocationMessages(pool)).toHaveLength(0);
+    });
+  });
+
   it('what is logged: a journal the ledger does not carry at ERROR, a viewer and an unlinked bill nowhere', async () => {
     const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
@@ -86,8 +120,11 @@ describe('mirrorAllocations never fails or poisons the caller\'s transaction', (
     expect(warn).not.toHaveBeenCalled();
     await asService(pool, U.b, co.B, () => mirrorAllocations(co.B, [noJournal.allocation]));
     expect(error).toHaveBeenCalledWith(expect.stringContaining('allocation'), expect.objectContaining({ allocationId: noJournal.allocation, reason: 'no_journal' }), 'intercompany');
+    const [errors, warns] = [error.mock.calls.length, warn.mock.calls.length];
     await asService(pool, U.avb, co.B, () => mirrorAllocations(co.B, [noJournal.allocation]));
-    expect(warn).not.toHaveBeenCalled();   // (a viewer is 'forbidden': silent, a user without an intercompany write role pays bills all day)
+    // (a viewer is 'forbidden': silent, a user without an intercompany write role pays bills all day: neither level moved)
+    expect(error.mock.calls.length).toBe(errors);
+    expect(warn.mock.calls.length).toBe(warns);
     expect(await allocationMessages(pool)).toHaveLength(0);
   });
 });
