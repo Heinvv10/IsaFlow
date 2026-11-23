@@ -5,7 +5,8 @@
  * sender's books (a rejection never changes the sender's invoice). The database enforces the same rules (guard 1002: a write
  * role in the receiving company, an active connection to reject or restore, accepted and rejected are final).
  * P4-C: an `allocation` message (the payer's cash on a linked bill) is rejected or dismissed through the same transitions
- * (`rejectAllocation`, `dismissAllocation`), found by its own loader: the invoice functions never reach one, and nothing accepts one (D).
+ * (`rejectAllocation`, `dismissAllocation`, `restoreAllocation`), found by its own loader: the invoice functions never reach one, and nothing
+ * accepts one (D).
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -72,6 +73,14 @@ export function dismissAllocation(companyId: string, messageId: string): Promise
     UPDATE intercompany_messages SET status = 'dismissed'
      WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed') RETURNING id
   `) as Row[], 'dismissed', loadAllocationRow);
+}
+
+/** A dismissed allocation message back to pending (the guard needs the connection active, and marks it a person's to handle). */
+export function restoreAllocation(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['dismissed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'pending'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status = 'dismissed' RETURNING id
+  `) as Row[], 'restored', loadAllocationRow);
 }
 
 export function restoreMessage(companyId: string, messageId: string): Promise<void> {

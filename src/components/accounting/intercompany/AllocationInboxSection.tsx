@@ -1,12 +1,13 @@
 /**
  * Bills > Intercompany, "Payments from your group" (P4-C): the payments a payer in the group applied to bills linked to this company's
  * invoices, under the invoice list, shown only when there is one. Each row says whether the payer's books still say what it says (Live /
- * Stale: <reason>) and what does not fit this company's invoice (Check: <mismatch>). Read only: Reject (a reason is required) and Dismiss;
- * there is NO Accept (clearing comes later, P4-D).
+ * Stale: <reason>) and what does not fit this company's invoice (Check: <mismatch>). Read only: Reject (a reason is required), Dismiss (asked
+ * first) and Restore of a dismissed one; there is NO Accept (clearing comes later, P4-D). Every action button names its payment.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import type { InboxFilter } from '@/modules/accounting/services/intercompany/inboxTypes';
@@ -19,6 +20,8 @@ interface Props {
   filter: InboxFilter;
   canWrite: boolean;
   onNotice: (n: { msg: string; ok: boolean }) => void;
+  /** How many payments this list shows (0 while loading, on a failure, or when there are none): the invoice list words its empty state by it. */
+  onCount?: (n: number) => void;
 }
 
 const LIMIT = 100;
@@ -26,12 +29,13 @@ const btn = 'px-2.5 py-1.5 text-xs font-medium rounded-lg border border-line tex
 const COLUMNS = ['Payer', 'Payment', 'Your invoice', 'Amount', 'Open amount', 'State'];
 const LOAD_ERROR = 'Could not load the payments from your group - try again';
 
-export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
+export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: Props) {
   const [page, setPage] = useState<AllocationPage | null>(null);
   const [error, setError] = useState('');
   const [open, setOpen] = useState<AllocationItem | null>(null);
   const [rejecting, setRejecting] = useState<AllocationItem | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<AllocationItem | null>(null);
   // Only the newest load may write state: a slow answer for the other filter must not replace this one.
   const latest = useRef(0);
 
@@ -49,19 +53,22 @@ export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
 
   useEffect(() => { setPage(null); void load(); }, [load]);
 
-  async function dismiss(item: AllocationItem) {
+  async function act(item: AllocationItem, what: 'dismiss' | 'restore', done: string) {
     setBusyId(item.id);
     try {
-      await apiJson(`/api/accounting/intercompany/allocations/${item.id}/dismiss`, { method: 'POST' }, 'Could not dismiss this payment - try again');
+      await apiJson(`/api/accounting/intercompany/allocations/${item.id}/${what}`, { method: 'POST' }, `Could not ${what} this payment - try again`);
       setOpen(null);
-      onNotice({ msg: `Dismissed payment ${paymentLabel(item)}.`, ok: true });
+      onNotice({ msg: done, ok: true });
       await load();
     } catch (err) {
-      onNotice({ msg: apiErrorMessage(err, 'Could not dismiss this payment - try again'), ok: false });
+      onNotice({ msg: apiErrorMessage(err, `Could not ${what} this payment - try again`), ok: false });
     } finally {
       setBusyId(null);
     }
   }
+
+  const shownCount = error ? 0 : page?.items.length ?? 0;
+  useEffect(() => { onCount?.(shownCount); }, [onCount, shownCount]);
 
   const items = page?.items ?? [];
   if (error) {
@@ -83,6 +90,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
         </p>
       </div>
       <table className="table-cards w-full text-sm" data-testid="allocation-table">
+        <caption className="sr-only">Payments from your group: payer, payment, your invoice, amount, open amount and state</caption>
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
           <tr>
             {COLUMNS.map((h, i) => (
@@ -106,7 +114,9 @@ export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
                 <td data-label="Amount" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
                   {i.amount === null ? '—' : formatCurrency(i.amount)}
                 </td>
-                <td data-label="Open amount" className="px-5 py-3.5 text-right tabular-nums">{i.issuerInvoice ? formatCurrency(i.issuerInvoice.openAmount) : '—'}</td>
+                <td data-label="Open amount" className="px-5 py-3.5 text-right tabular-nums">
+                  {i.issuerInvoice?.openAmount == null ? '—' : formatCurrency(i.issuerInvoice.openAmount)}
+                </td>
                 <td data-label="State" className="px-5 py-3.5 space-y-1">
                   {isOpen(i)
                     ? <span data-testid="allocation-state" className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full border max-w-xs ${STATE_CLASS[state.tone]}`}>{state.text}</span>
@@ -115,12 +125,16 @@ export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
                 </td>
                 <td className="px-5 py-3.5 text-right">
                   <div className="flex flex-wrap justify-end gap-2">
-                    <button type="button" className={btn} onClick={() => setOpen(i)}>Details</button>
+                    <button type="button" className={btn} aria-label={`Details for payment ${paymentLabel(i)}`} onClick={() => setOpen(i)}>Details</button>
                     {isOpen(i) && canWrite && (
                       <>
-                        <button type="button" className={btn} disabled={busy} onClick={() => setRejecting(i)}>Reject</button>
-                        <button type="button" className={btn} disabled={busy} onClick={() => void dismiss(i)}>Dismiss</button>
+                        <button type="button" className={btn} disabled={busy} aria-label={`Reject payment ${paymentLabel(i)}`} onClick={() => setRejecting(i)}>Reject</button>
+                        <button type="button" className={btn} disabled={busy} aria-label={`Dismiss payment ${paymentLabel(i)}`} onClick={() => setConfirming(i)}>Dismiss</button>
                       </>
+                    )}
+                    {i.status === 'dismissed' && canWrite && (
+                      <button type="button" className={btn} disabled={busy} aria-label={`Restore payment ${paymentLabel(i)}`}
+                        onClick={() => void act(i, 'restore', `Restored payment ${paymentLabel(i)}.`)}>Restore</button>
                     )}
                   </div>
                 </td>
@@ -133,7 +147,12 @@ export function AllocationInboxSection({ filter, canWrite, onNotice }: Props) {
         <p className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 text-sm text-ink-muted">Showing the latest {items.length} of {page.total}.</p>
       )}
       <AllocationDetailDrawer item={open} canWrite={canWrite} busy={busyId !== null && busyId === open?.id} onClose={() => setOpen(null)}
-        onReject={(i) => { setOpen(null); setRejecting(i); }} onDismiss={(i) => void dismiss(i)} />
+        onReject={(i) => { setOpen(null); setRejecting(i); }} onDismiss={(i) => { setOpen(null); setConfirming(i); }} />
+      <ConfirmDialog open={confirming !== null} title={confirming ? `Dismiss payment ${paymentLabel(confirming)}?` : 'Dismiss payment?'}
+        message="It is set aside under Handled and nothing changes in your books or the payer's; you can restore it later."
+        acceptLabel="Dismiss payment" loading={confirming !== null && busyId === confirming.id}
+        onCancel={() => setConfirming(null)}
+        onAccept={() => { const i = confirming; setConfirming(null); if (i) void act(i, 'dismiss', `Dismissed payment ${paymentLabel(i)}. You can restore it under Handled.`); }} />
       <InboxRejectModal path="allocations" item={rejecting ? { id: rejecting.id, number: paymentLabel(rejecting), senderName: rejecting.senderName } : null}
         onClose={() => setRejecting(null)} onDone={(msg) => { setRejecting(null); onNotice({ msg, ok: true }); void load(); }} />
     </section>

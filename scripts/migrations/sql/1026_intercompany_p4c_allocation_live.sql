@@ -9,9 +9,15 @@
 --   this answers one row and nothing more. Everyone else, and a missing or non-allocation message, gets the same (false, 'not_found'): no
 --   existence oracle. The answer is ADVISORY: it takes no row lock (a read of a settled fact needs none), so D re-calls it under its own locks,
 --   inside the transaction that acts on the message.
---   Reasons, cheapest first, the first failure wins (all (false, reason) but ok):
+--   Reasons, the first failure wins (all (false, reason) but ok). The RELATIONSHIP is judged before any payer row is read: a dead relationship
+--   answers link_gone and nothing more specific, so the receiver learns nothing more of the payer's books once the pair is no longer live.
 --     not_found           not the receiver's allocation message (or no session, or no member)
 --     not_pending         the message is handled (not pending / failed): it is not re-judged
+--     link_gone           the message's connection is not active or not loan, or the payload's link is not ACTIVE on it joining the payload's
+--                         bill of the payer (supplier_invoice) to the receiver's issuerDocument customer_invoice (all from the payload and the
+--                         link / connection rows: no payer document is read)
+--     before_cutover      the connection has no cut-over, or the payload's payment date is before it (or is no date); one answer for both:
+--                         nothing is mirrored before a cut-over the pair has set
 --     allocation_gone     its payment_allocations row is gone (unapplied, a bank unwind, the payment deleted: the row cascades)
 --     changed             the row's payment, bill or amount, or the payment's number / reference / date / method, the bill's number or currency,
 --                         differ from the payload (text through intercompany_clean_text, money at 2 dp)
@@ -19,13 +25,11 @@
 --     journal_reversed    the journal the message recorded has an even (or no) reversal chain, or the payment's standing journal (its own, else
 --                         its batch's, the batch being the payer's) is no longer the one recorded
 --     bill_gone           the bill is not the payer's, or deleted
---     link_gone           the payload's link is not ACTIVE on the message's connection, joining the payer's bill to the receiver's issuerDocument
---                         customer_invoice, or that connection is not active / not loan
---     duplicate           another pending / failed allocation message to the receiver names the same payment and bill through a standing
---                         allocation row (belt and braces: the allocation row is UNIQUE(payment, bill) and the message key includes it)
 --     ok                  (true, 'ok')
---   Unapply then re-apply makes a NEW allocation row and a new message: the old one answers allocation_gone, so only one is ever live.
--- The lock bound is tighten-only (2 s, never loosening a tighter caller's) and the caller's value is put back at the one exit.
+--   Unapply then re-apply makes a NEW allocation row and a new message: the old one answers allocation_gone, so only one is ever live (two live
+--   messages for one payment and bill cannot exist: the allocation row is UNIQUE(payment, bill) and the message key names that row).
+--   No lock setting of its own: it takes no row lock. Its relation locks can still wait on DDL; the caller (allocationInbox.ts) bounds the wait
+--   once per page (tighten-only 2 s) and stops asking after the first failure.
 
 -- DEFINER REGISTRY (930): the definer is registered in app_definer_reviews AFTER its owner is set (the hash covers the owner). OLD COLOUR: nothing in
 -- the previous release calls the function.
@@ -48,7 +52,6 @@ AS $$
 DECLARE
   v_co uuid := app.current_company_id();
   v_uuid constant text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
-  v_prev text;
   v_reason text;
   v_amount numeric;
   v_has_payment boolean;
@@ -56,13 +59,14 @@ DECLARE
   v_standing uuid;
   v_link uuid;
   v_issuer uuid;
+  v_bill uuid;
+  v_date text;
+  v_cutover date;
   m RECORD;
   pa RECORD;
   sp RECORD;
   si RECORD;
 BEGIN
-  v_prev := pg_catalog.current_setting('lock_timeout');
-  IF v_prev::interval = interval '0' OR v_prev::interval > interval '2s' THEN PERFORM pg_catalog.set_config('lock_timeout', '2s', true); END IF;
   <<main>>
   BEGIN
     -- the receiver only: a signed-in member of the session company, which is the message's to_company; anything else is the one answer
@@ -72,6 +76,27 @@ BEGIN
      WHERE x.id = p_message AND x.to_company_id = v_co AND x.kind = 'allocation' AND x.source_doc_type = 'payment_allocation';
     IF NOT FOUND THEN v_reason := 'not_found'; EXIT main; END IF;
     IF m.status NOT IN ('pending', 'failed') THEN v_reason := 'not_pending'; EXIT main; END IF;
+    -- the relationship, from the payload and the link / connection rows only (an id that is no UUID names nothing): the connection active and
+    -- loan, and the payload's link still active on it, joining the payload's bill of the payer to the receiver's issuer invoice
+    v_link := CASE WHEN (m.payload ->> 'linkId') ~ v_uuid THEN (m.payload ->> 'linkId')::uuid END;
+    v_issuer := CASE WHEN (m.payload #>> '{issuerDocument,type}') = 'customer_invoice' AND (m.payload #>> '{issuerDocument,id}') ~ v_uuid
+                     THEN (m.payload #>> '{issuerDocument,id}')::uuid END;
+    v_bill := CASE WHEN (m.payload #>> '{payerDocument,id}') ~ v_uuid THEN (m.payload #>> '{payerDocument,id}')::uuid END;
+    SELECT c.cutover_date INTO v_cutover
+      FROM public.intercompany_document_links k
+      JOIN public.intercompany_connections c ON c.id = k.connection_id AND c.status = 'active' AND c.settlement_mode = 'loan'
+     WHERE k.id = v_link AND k.status = 'active' AND k.connection_id = m.connection_id
+       AND ((k.company_a_id = m.from_company_id AND k.doc_a_type = 'supplier_invoice' AND k.doc_a_id = v_bill
+             AND k.company_b_id = v_co AND k.doc_b_type = 'customer_invoice' AND k.doc_b_id = v_issuer)
+         OR (k.company_b_id = m.from_company_id AND k.doc_b_type = 'supplier_invoice' AND k.doc_b_id = v_bill
+             AND k.company_a_id = v_co AND k.doc_a_type = 'customer_invoice' AND k.doc_a_id = v_issuer));
+    IF NOT FOUND THEN v_reason := 'link_gone'; EXIT main; END IF;
+    -- the cut-over, against the payload's payment date (ISO text compares as a date; anything else is no date)
+    v_date := m.payload #>> '{payment,date}';
+    IF v_cutover IS NULL OR v_date IS NULL OR v_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' OR v_date < pg_catalog.to_char(v_cutover, 'YYYY-MM-DD') THEN
+      v_reason := 'before_cutover'; EXIT main;
+    END IF;
+    -- only now the payer's rows
     SELECT a.payment_id, a.invoice_id, a.amount_allocated INTO pa FROM public.payment_allocations a WHERE a.id = m.source_doc_id;
     IF NOT FOUND THEN v_reason := 'allocation_gone'; EXIT main; END IF;
     -- the payer's payment and bill, each under the payer's company (the message's sender)
@@ -101,29 +126,8 @@ BEGIN
       v_reason := 'journal_reversed'; EXIT main;
     END IF;
     IF NOT v_has_bill OR si.deleted_at IS NOT NULL THEN v_reason := 'bill_gone'; EXIT main; END IF;
-    -- the link the payload names (an id that is no UUID names none): still active on this connection, joining the payer's bill and the
-    -- receiver's issuer invoice, on a connection that is active and settles by loan
-    v_link := CASE WHEN (m.payload ->> 'linkId') ~ v_uuid THEN (m.payload ->> 'linkId')::uuid END;
-    v_issuer := CASE WHEN (m.payload #>> '{issuerDocument,id}') ~ v_uuid THEN (m.payload #>> '{issuerDocument,id}')::uuid END;
-    IF (m.payload #>> '{issuerDocument,type}') IS DISTINCT FROM 'customer_invoice' OR NOT EXISTS (
-         SELECT 1 FROM public.intercompany_document_links k
-           JOIN public.intercompany_connections c ON c.id = k.connection_id AND c.status = 'active' AND c.settlement_mode = 'loan'
-          WHERE k.id = v_link AND k.status = 'active' AND k.connection_id = m.connection_id
-            AND ((k.company_a_id = m.from_company_id AND k.doc_a_type = 'supplier_invoice' AND k.doc_a_id = pa.invoice_id
-                  AND k.company_b_id = v_co AND k.doc_b_type = 'customer_invoice' AND k.doc_b_id = v_issuer)
-              OR (k.company_b_id = m.from_company_id AND k.doc_b_type = 'supplier_invoice' AND k.doc_b_id = pa.invoice_id
-                  AND k.company_a_id = v_co AND k.doc_a_type = 'customer_invoice' AND k.doc_a_id = v_issuer))) THEN
-      v_reason := 'link_gone'; EXIT main;
-    END IF;
-    IF EXISTS (SELECT 1 FROM public.intercompany_messages o JOIN public.payment_allocations oa ON oa.id = o.source_doc_id
-                WHERE o.to_company_id = v_co AND o.kind = 'allocation' AND o.source_doc_type = 'payment_allocation' AND o.id <> m.id
-                  AND o.status IN ('pending', 'failed') AND oa.payment_id = pa.payment_id AND oa.invoice_id = pa.invoice_id
-                  AND (o.payload #>> '{payment,id}') = pa.payment_id::text AND (o.payload #>> '{payerDocument,id}') = pa.invoice_id::text) THEN
-      v_reason := 'duplicate'; EXIT main;
-    END IF;
     v_reason := 'ok';
   END main;
-  PERFORM pg_catalog.set_config('lock_timeout', v_prev, true);
   RETURN QUERY SELECT v_reason = 'ok', v_reason;
 END;
 $$;
@@ -137,7 +141,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_allocation_message_live(uuid)', 'public.intercompany_allocation_message_live(uuid)',
-     'nothing (STABLE): a read, for the RECEIVER of an allocation message only (a signed-in member of the session company, which is the message''s to_company), of that message, the payer''s payment_allocations row, its supplier_payments row, supplier_payment_batches (a member''s standing journal), supplier_invoices (each under the payer''s company), gl_journal_entries (the reversal chain of the journal the message recorded), intercompany_document_links, intercompany_connections and the receiver''s other allocation messages; answers one (live, reason) row and no row data; not_found for anyone else, a missing message or another kind')
+     'nothing (STABLE): a read, for the RECEIVER of an allocation message only (a signed-in member of the session company, which is the message''s to_company), of that message, the link and connection it names (judged first: a dead relationship is link_gone, the payment before the cut-over before_cutover, and no payer row is read for either), then the payer''s payment_allocations row, its supplier_payments row, supplier_payment_batches (a member''s standing journal), supplier_invoices (each under the payer''s company) and gl_journal_entries (the reversal chain of the journal the message recorded); answers one (live, reason) row and no row data; not_found for anyone else, a missing message or another kind')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 

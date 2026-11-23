@@ -4,16 +4,18 @@ import type { AllocationItem, AllocationLiveReason, AllocationMismatch } from '@
 const STALE: Record<Exclude<AllocationLiveReason, 'ok' | 'check_failed'>, string> = {
   not_found: 'not found',
   not_pending: 'already handled',
+  link_gone: 'the invoice link or the loan connection ended',
+  before_cutover: 'the payment is dated before the cut-over',
   allocation_gone: 'the payment was unapplied',
   changed: 'the payment changed after it was sent',
   payment_not_posted: 'the payment is no longer posted',
   journal_reversed: 'the payment journal was reversed',
   bill_gone: 'the payer\'s bill was deleted',
-  link_gone: 'the invoice link or the loan connection ended',
-  duplicate: 'another message names the same payment',
 };
 
 const MISMATCH: Record<AllocationMismatch, string> = {
+  invoice_not_open: 'your invoice is not open',
+  pre_cutover_payment: 'the payment is dated before the cut-over',
   amount_exceeds_open: 'more than the invoice\'s open amount',
   currency: 'not in rand, or not in the invoice\'s currency',
   invoice_gone: 'your invoice is gone',

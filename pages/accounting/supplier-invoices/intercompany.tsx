@@ -43,6 +43,8 @@ export default function IntercompanyInboxPage() {
   const [rejecting, setRejecting] = useState<InboxItem | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  // How many payments "Payments from your group" lists below: the empty invoice list must not say nothing is waiting while there are some.
+  const [paymentCount, setPaymentCount] = useState(0);
   const afterDelay = useTimeoutOnce();
   // Only the newest load may write state: a slow earlier answer must not replace a newer one.
   const latest = useRef(0);
@@ -106,7 +108,7 @@ export default function IntercompanyInboxPage() {
       )}
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
         <PageHeader icon={Link2} title="Intercompany" className="mb-0"
-          subtitle="Invoices and credit notes other companies in your group sent you. Accepting one creates a draft; nothing is posted until you approve it."
+          subtitle="Invoices and credit notes other companies in your group sent you, and the payments they applied to your invoices. Accepting an invoice creates a draft; nothing is posted until you approve it."
           actions={<Link href="/accounting/settings/intercompany" className="px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken">Connections</Link>} />
         <div className="p-6 space-y-4">
           <StatusTabs active={null} counts={{}} onChange={tab} intercompany={{ count: openCount, active: true }} />
@@ -135,10 +137,15 @@ export default function IntercompanyInboxPage() {
             {loading && !page ? <ListSkeleton label="Loading intercompany messages" bare />
               : items.length === 0 ? (
                 error ? null : (
-                  <EmptyState icon={Link2} title={filter === 'open' ? 'Nothing waiting for you' : 'Nothing handled yet'}
-                    description={filter === 'open'
-                      ? 'When a company connected to you approves an invoice or credit note for you, it arrives here.'
-                      : 'Messages you have accepted, rejected or dismissed are listed here.'} />
+                  paymentCount > 0 ? (
+                    <EmptyState icon={Link2} title={filter === 'open' ? 'No invoices or credit notes waiting' : 'No invoices or credit notes handled yet'}
+                      description="The payments from your group are listed below." />
+                  ) : (
+                    <EmptyState icon={Link2} title={filter === 'open' ? 'Nothing waiting for you' : 'Nothing handled yet'}
+                      description={filter === 'open'
+                        ? 'When a company connected to you approves an invoice or credit note, or applies a payment to one of your invoices, it arrives here.'
+                        : 'Invoices, credit notes and payments you have accepted, rejected or dismissed are listed here.'} />
+                  )
                 )
               ) : (
                 <InboxTable items={items} canWrite={mayWrite} busyId={busyId} onReview={setReview} onReject={setRejecting}
@@ -156,7 +163,7 @@ export default function IntercompanyInboxPage() {
             )}
           </div>
 
-          <AllocationInboxSection filter={filter} canWrite={mayWrite} onNotice={say} />
+          <AllocationInboxSection filter={filter} canWrite={mayWrite} onNotice={say} onCount={setPaymentCount} />
         </div>
       </div>
 

@@ -33,6 +33,7 @@ export interface IntercompanyDynamicRoutes {
   '/api/accounting/intercompany/allocations/{}': AllocationDetail;
   '/api/accounting/intercompany/allocations/{}/reject': { id: string; status: string };
   '/api/accounting/intercompany/allocations/{}/dismiss': { id: string; status: string };
+  '/api/accounting/intercompany/allocations/{}/restore': { id: string; status: string };
   // GET the pairing screen's data; POST records pairs (answers with the counts).
   '/api/accounting/intercompany/connections/{}/pairing': PairingView | PairingResult;
   // PUT confirms the partner's proposal, DELETE unlinks: both answer with the link's new status.

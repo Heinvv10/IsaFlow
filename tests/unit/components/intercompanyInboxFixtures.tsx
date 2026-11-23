@@ -49,5 +49,7 @@ export function serve(s: Serve = {}) {
     return envelope({});
   });
 }
+/** "Payments from your group" with nothing in it: for a test's own `apiFetch` script (the page asks for it beside the invoice list). */
+export const noPayments = () => envelope({ items: [], total: 0, allocationCount: 0 });
 export const posts = () => vi.mocked(apiFetch).mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === 'POST');
 

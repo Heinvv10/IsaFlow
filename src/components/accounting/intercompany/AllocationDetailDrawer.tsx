@@ -69,7 +69,9 @@ export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject
           </Fact>
           <Fact label="Payer's bill">{shown.payerDocumentNumber ?? '—'}</Fact>
           <Fact label="Your invoice">{inv ? `${inv.number} (${inv.status})` : 'Not found in your books'}</Fact>
-          <Fact label="Open on your invoice">{inv ? `${money(inv.openAmount)}${inv.currency !== 'ZAR' ? ` (${inv.currency})` : ''}` : '—'}</Fact>
+          <Fact label="Open on your invoice">
+            {!inv ? '—' : inv.openAmount === null ? 'Not open' : `${money(inv.openAmount)}${inv.currency !== 'ZAR' ? ` (${inv.currency})` : ''}`}
+          </Fact>
           <Fact label="Linked by">{detail?.linkOrigin ? LINK_ORIGIN[detail.linkOrigin] ?? detail.linkOrigin : '—'}</Fact>
           <Fact label="Cut-over">{detail?.cutoverDate ? formatDate(detail.cutoverDate) : '—'}</Fact>
         </dl>
@@ -80,8 +82,8 @@ export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject
         </p>
         {isOpen(shown) && canWrite && (
           <div className="flex gap-2">
-            <button type="button" className={btn} disabled={busy} onClick={() => onReject(shown)}>Reject</button>
-            <button type="button" className={btn} disabled={busy} onClick={() => onDismiss(shown)}>
+            <button type="button" className={btn} disabled={busy} aria-label={`Reject payment ${paymentLabel(shown)}`} onClick={() => onReject(shown)}>Reject</button>
+            <button type="button" className={btn} disabled={busy} aria-label={`Dismiss payment ${paymentLabel(shown)}`} onClick={() => onDismiss(shown)}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Dismiss
             </button>
           </div>

@@ -3,21 +3,23 @@ import type { InboxStatus } from './inboxTypes';
 
 /** The database's answer (`intercompany_allocation_message_live`, migration 1026), or `check_failed` when it could not be asked. */
 export type AllocationLiveReason =
-  | 'ok' | 'not_found' | 'not_pending' | 'allocation_gone' | 'changed' | 'payment_not_posted' | 'journal_reversed' | 'bill_gone' | 'link_gone'
-  | 'duplicate' | 'check_failed';
+  | 'ok' | 'not_found' | 'not_pending' | 'link_gone' | 'before_cutover' | 'allocation_gone' | 'changed' | 'payment_not_posted' | 'journal_reversed'
+  | 'bill_gone' | 'check_failed';
 
 export const ALLOCATION_LIVE_REASONS: readonly AllocationLiveReason[] = [
-  'ok', 'not_found', 'not_pending', 'allocation_gone', 'changed', 'payment_not_posted', 'journal_reversed', 'bill_gone', 'link_gone', 'duplicate', 'check_failed',
+  'ok', 'not_found', 'not_pending', 'link_gone', 'before_cutover', 'allocation_gone', 'changed', 'payment_not_posted', 'journal_reversed', 'bill_gone', 'check_failed',
 ];
 
 /** What does not fit between the payment and the receiver's invoice, derived at read time and never stored (D refuses or caps on it). */
-export type AllocationMismatch = 'amount_exceeds_open' | 'currency' | 'invoice_gone' | 'pre_cutover_invoice';
+export type AllocationMismatch =
+  | 'invoice_gone' | 'invoice_not_open' | 'currency' | 'pre_cutover_payment' | 'pre_cutover_invoice' | 'amount_exceeds_open';
 
 /** The receiver's OWN customer invoice the payload names (looked up under the session company); null when it is not there (or deleted). */
 export interface AllocationIssuerInvoice {
   id: string;
   number: string;
-  openAmount: number;
+  /** What is still owed on it; null when the invoice is not open (draft, awaiting approval, paid): nothing can be cleared against it. */
+  openAmount: number | null;
   status: string;
   currency: string;
   date: string | null;
