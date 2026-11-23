@@ -37,6 +37,8 @@ import { resolveSuppliers } from './sageSuppliers';
 import { withToolSession, type ToolSession } from './sageToolSession';
 
 const emptyPhase = (): PhaseReport => ({ batches: [], failed: 0 });
+/** A phase that never started because an earlier one failed. */
+const skippedPhase = (): PhaseReport => ({ batches: [], failed: 0, skipped: true });
 
 /** Why a live run must not start on this (clean) dry run; empty when it may. */
 function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationReport['differences'], o: MigrationOptions): string[] {
@@ -70,8 +72,8 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
     };
     // The phases go in the order the live run's do, and a phase does not start behind a failed one (its refusals would only be a cascade).
     const categories = await run(all.categories);
-    const items = categories.failed === 0 ? await run(all.items) : emptyPhase();
-    const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : emptyPhase();
+    const items = categories.failed === 0 ? await run(all.items) : skippedPhase();
+    const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : skippedPhase();
     return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0 };
   });
 }
@@ -118,6 +120,10 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing, and one run per company.
   assertLocalDatabase();
   assertLocalPool(pool);
+  // A live run commits: the runner itself, not only its CLI, refuses to go live without the two counts the person expects to check against.
+  if (opts.live && opts.liveWithoutCounts !== true && (opts.expect?.items === undefined || opts.expect?.purchaseOrders === undefined)) {
+    throw new Error('a live run needs expect.items and expect.purchaseOrders (the counts the person expects to be sent): without them nothing says the export is the whole one (liveWithoutCounts: true is the explicit opt-out)');
+  }
   // The run lock holds one connection for the whole run and every tool session needs another: with one in all, the run would wait forever.
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId);
@@ -190,15 +196,16 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       return { batches, failed: batches.filter((b) => b.status === 'failed').length };
     };
     const liveCategories = await livePhase(pool, opts, all.categories, before, committed, lock.check);
-    const categoriesVerified = liveCategories.failed === 0 ? verifiedCategories(liveCategories, await readAfter()) : liveCategories;
+    // Every phase's batches are checked against the books, a failed sibling or not: a replay whose rows are gone must not read ok.
+    const categoriesVerified = verifiedCategories(liveCategories, await readAfter());
     await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.check) : emptyPhase();
-    const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.check) : skippedPhase();
+    const items = categoriesVerified.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
     await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.check) : emptyPhase();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.check) : skippedPhase();
     await lockHeld();
     const after = await readAfter();
-    const purchaseOrders = verified(livePos, all.purchaseOrders, after);
+    const purchaseOrders = livePos.skipped ? livePos : verified(livePos, all.purchaseOrders, after);
     const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
     const phaseSkipped = categoriesVerified.failed > 0 || items.failed > 0;
     // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.

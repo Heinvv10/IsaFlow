@@ -24,7 +24,8 @@ export interface BatchReport {
   commitUnconfirmed?: true;
 }
 
-export interface PhaseReport { batches: BatchReport[]; failed: number }
+/** `skipped`: the phase never started (an earlier phase failed): "not run", not an empty phase. */
+export interface PhaseReport { batches: BatchReport[]; failed: number; skipped?: true }
 
 export interface EntityReconciliation {
   inExport: number;
@@ -110,5 +111,7 @@ export interface MigrationOptions {
   runTag?: string;
   itemBatchSize?: number;
   poBatchSize?: number;
+  /** The explicit decision to go live WITHOUT expect.items and expect.purchaseOrders (the runner refuses otherwise). The CLI never sets it: it needs both flags. For tests and callers that check the counts another way. */
+  liveWithoutCounts?: boolean;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };
 }

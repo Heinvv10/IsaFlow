@@ -4,7 +4,7 @@ import { runSageMigration } from '@/modules/accounting/services/sage-migration/s
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 
 const LOCAL = 'postgresql://postgres@127.0.0.1:5433/isaflow_test';
-const opts = { companyId: '00000000-0000-4000-8000-000000000001', userId: '00000000-0000-4000-8000-000000000002', live: true };
+const opts = { companyId: '00000000-0000-4000-8000-000000000001', userId: '00000000-0000-4000-8000-000000000002', live: true, expect: { items: 0, purchaseOrders: 0 } };
 const file = () => parseSageExport({ Items: [] });
 const pool = (connectionString: string | undefined) => {
   const connect = vi.fn(async () => { throw new Error('connected'); });
