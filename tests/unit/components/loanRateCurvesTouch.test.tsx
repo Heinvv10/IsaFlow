@@ -26,9 +26,12 @@ describe('Loan rate curves on touch', () => {
     render(<Page />);
     fireEvent.click(await screen.findByRole('button', { name: /New Curve/ }));
     const input = screen.getByPlaceholderText(/Curve name/);
-    expect(cls(input)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:flex-1', 'max-lg:min-w-0']));
+    expect(cls(input)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:flex-1', 'max-lg:min-w-[10rem]']));
+    expect(cls(input)).toContain('w-72'); // desktop width untouched
+    expect(cls(input)).not.toContain('flex-1'); // the flex growth is phone-only
     expect(cls(input.parentElement!)).toContain('max-lg:flex-wrap');
     for (const name of ['Create', 'Cancel']) expect(cls(screen.getByRole('button', { name })), name).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:inline-flex', 'max-lg:items-center']));
+    expect(cls(screen.getByRole('button', { name: 'Cancel' }))).toContain('max-lg:px-2'); // a text-only button is ~45px wide without it
   });
 
   it('an expanded curve: the Upload CSV label is 44px and its row wraps', async () => {

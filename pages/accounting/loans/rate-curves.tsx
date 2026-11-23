@@ -141,7 +141,7 @@ export default function RateCurvesPage() {
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500 w-72 max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-0 max-lg:w-auto"
+                className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500 w-72 max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto"
                 autoFocus
               />
               <button
@@ -151,7 +151,7 @@ export default function RateCurvesPage() {
               >
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </button>
-              <button onClick={() => setShowNewForm(false)} className="text-sm text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Cancel</button>
+              <button onClick={() => setShowNewForm(false)} className="text-sm text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11 max-lg:px-2">Cancel</button>
             </div>
           )}
         </div>
