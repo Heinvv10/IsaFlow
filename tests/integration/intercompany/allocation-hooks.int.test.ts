@@ -76,7 +76,7 @@ describe('mirrorAllocations never fails or poisons the caller\'s transaction', (
     expect(error).toHaveBeenCalledWith(expect.stringContaining('allocation'), { companyId: co.B, allocationId: missing, reason: 'not_found' }, 'intercompany');
   });
 
-  it('what is logged: a journal the ledger does not carry at ERROR, a viewer at WARN, an unlinked bill nowhere', async () => {
+  it('what is logged: a journal the ledger does not carry at ERROR, a viewer and an unlinked bill nowhere', async () => {
     const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const noJournal = await plantPaid(pool, (await plantBill(pool, conn)).bill, { journal: false });
@@ -87,7 +87,7 @@ describe('mirrorAllocations never fails or poisons the caller\'s transaction', (
     await asService(pool, U.b, co.B, () => mirrorAllocations(co.B, [noJournal.allocation]));
     expect(error).toHaveBeenCalledWith(expect.stringContaining('allocation'), expect.objectContaining({ allocationId: noJournal.allocation, reason: 'no_journal' }), 'intercompany');
     await asService(pool, U.avb, co.B, () => mirrorAllocations(co.B, [noJournal.allocation]));
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('allocation'), expect.objectContaining({ reason: 'forbidden' }), 'intercompany');
+    expect(warn).not.toHaveBeenCalled();   // (a viewer is 'forbidden': silent, a user without an intercompany write role pays bills all day)
     expect(await allocationMessages(pool)).toHaveLength(0);
   });
 });
