@@ -68,7 +68,7 @@ export default function AssetRegisterPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
                 <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -120,7 +120,7 @@ export default function AssetRegisterPage() {
 
           {/* Table */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                   <th className="px-4 py-3">Asset #</th>
@@ -136,28 +136,28 @@ export default function AssetRegisterPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...
                     </td>
                   </tr>
                 )}
                 {!loading && !error && assets.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       No assets found for this period
                     </td>
                   </tr>
                 )}
                 {assets.map(a => (
                   <tr key={a.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{a.asset_number}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.category_name || a.category}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.purchase_date)}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(a.purchase_price))}</td>
-                    <td className="px-4 py-3 text-right text-purple-400">{fmt(Number(a.total_depreciation))}</td>
-                    <td className="px-4 py-3 text-right text-teal-400 font-medium">{fmt(Number(a.net_book_value))}</td>
-                    <td className="px-4 py-3 capitalize text-xs text-[var(--ff-text-secondary)]">{(a.status || '').replace(/_/g, ' ')}</td>
+                    <td data-label="Asset #" className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{a.asset_number}</td>
+                    <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.name}</td>
+                    <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.category_name || a.category}</td>
+                    <td data-label="Purchase Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.purchase_date)}</td>
+                    <td data-label="Cost" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(a.purchase_price))}</td>
+                    <td data-label="Accum. Dep." className="px-4 py-3 text-right text-purple-400">{fmt(Number(a.total_depreciation))}</td>
+                    <td data-label="Book Value" className="px-4 py-3 text-right text-teal-400 font-medium">{fmt(Number(a.net_book_value))}</td>
+                    <td data-label="Status" className="px-4 py-3 capitalize text-xs text-[var(--ff-text-secondary)]">{(a.status || '').replace(/_/g, ' ')}</td>
                   </tr>
                 ))}
               </tbody>
