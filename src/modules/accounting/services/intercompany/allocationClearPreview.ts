@@ -4,8 +4,8 @@
  *     amount, the invoice and the posting date proposed; the Accept request sends the loan account, invoice and amount back, and is refused if
  *     the books no longer say the same.
  *   - `clearingsOf`: for ACCEPTED messages, the contra receipt each posted and whether it was voided since (the receipt cancelled, or its
- *     journal reversed): read-only and computed, so a voided clearing is visible (nothing re-clears it; P5 will list them). Shown on the
- *     WIDE side (either one flags it), while the caps count a clearing until it is both (`intercompany_allocation_cleared`, 1027).
+ *     journal's reversal chain even: a reversal of the reversal stands again): read-only and computed, so a voided clearing is visible
+ *     (nothing re-clears it; P5 will list them). The caps (the liveness definer, 1027) judge the same chain by value, across every receiver.
  */
 import { sql } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
@@ -50,18 +50,24 @@ export async function clearingPreview(
   };
 }
 
-/** The clearing receipt of each accepted message (by its target), this company's only; voided when its journal no longer stands. */
+/** The clearing receipt of each accepted message (by its target), this company's only; voided when it is cancelled or its journal's reversal
+ *  chain (posted journals linked by reversal_of_id from it, depth-bounded) is even. */
 export async function clearingsOf(companyId: string, paymentIds: string[]): Promise<Map<string, AllocationClearedBy>> {
   if (paymentIds.length === 0) return new Map();
   const rows = (await sql`
     SELECT p.id, p.payment_number, p.gl_journal_entry_id, p.status,
-           EXISTS (SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = p.gl_journal_entry_id AND r.company_id = p.company_id AND r.status = 'posted') AS reversed
+           (WITH RECURSIVE chain(id, depth) AS (
+              SELECT je.id, 1 FROM gl_journal_entries je WHERE je.id = p.gl_journal_entry_id AND je.company_id = p.company_id AND je.status = 'posted'
+              UNION ALL
+              SELECT r.id, c.depth + 1 FROM gl_journal_entries r JOIN chain c ON r.reversal_of_id = c.id
+               WHERE r.company_id = p.company_id AND r.status = 'posted' AND c.depth < 64)
+            SELECT count(*) FROM chain)::int AS chain
       FROM customer_payments p
      WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${paymentIds}::UUID[])
   `) as Row[];
   return new Map(rows.map((r) => [String(r.id).toLowerCase(), {
     paymentId: String(r.id), paymentNumber: r.payment_number ? String(r.payment_number) : null,
     journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
-    voided: r.reversed === true || String(r.status) === 'cancelled',
+    voided: Number(r.chain) % 2 === 0 || String(r.status) === 'cancelled',
   }]));
 }

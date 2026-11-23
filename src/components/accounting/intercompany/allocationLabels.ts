@@ -13,6 +13,7 @@ const STALE: Record<Exclude<AllocationLiveReason, 'ok' | 'check_failed'>, string
   payment_not_posted: 'the payment is no longer posted',
   journal_reversed: 'the payment journal was reversed',
   bill_gone: 'the payer\'s bill was deleted',
+  future_dated: 'the payment is dated after today',
 };
 
 const MISMATCH: Record<AllocationMismatch, string> = {

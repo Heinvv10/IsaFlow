@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { ConnectionRefusal } from './connectionTypes';
 import { loadInboxRow } from './inboxRead';
 import { loadAllocationRow } from './allocationInbox';
+import { mayApprove } from '../core/approvePermission';
 
 // checkReason lives in inboxValidation (pure, no database import); re-exported so existing callers keep working.
 export { checkReason } from './inboxValidation';
@@ -60,8 +61,12 @@ export function dismissMessage(companyId: string, messageId: string): Promise<vo
   `) as Row[], 'dismissed');
 }
 
-/** An allocation message (P4-C): rejected with a reason, as an invoice message is; only an allocation message moves. */
-export function rejectAllocation(companyId: string, messageId: string, reason: string): Promise<void> {
+/** An allocation message (P4-C): rejected with a reason, as an invoice message is; only an allocation message moves. P4-D round 1 (breaker
+ *  M3): rejecting a payment is final, so it needs Approve on Customers & AR, as clearing one does (asked before anything is read). */
+export async function rejectAllocation(companyId: string, userId: string, messageId: string, reason: string): Promise<void> {
+  if (!(await mayApprove(companyId, userId, 'customers'))) {
+    throw new ConnectionRefusal(403, 'You need Approve on Customers & AR to reject a payment from your group. An owner or admin can grant it in User Access.');
+  }
   return move(companyId, messageId, ['pending', 'failed'], async () => (await sql`
     UPDATE intercompany_messages SET status = 'rejected', reason = ${reason}
      WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed') RETURNING id

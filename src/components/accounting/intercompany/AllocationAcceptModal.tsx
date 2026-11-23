@@ -38,8 +38,12 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
   const [error, setError] = useState('');
   const submitting = useRef(false);
   const field = useRef<HTMLInputElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   // another message: its own proposed date, back to the first step, no old error
   useEffect(() => { setDate(preview?.defaultPostingDate ?? ''); setDateRefused(false); setStep('review'); setError(''); }, [target?.id, preview?.defaultPostingDate]);
+
+  // (L4) the confirm step's control takes the focus the review step's button had (it is unmounted by the step change)
+  useEffect(() => { if (step === 'confirm') confirmButton.current?.focus(); }, [step]);
 
   const ready = Boolean(target && preview?.loanAccountId && preview.invoiceId && preview.amount !== null);
   const missing = !preview?.loanAccountId ? 'Set your loan account on the connection first: there is nothing to clear against.'
@@ -117,7 +121,7 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
         ) : (
           <>
             <button type="button" onClick={() => setStep('review')} disabled={busy} className={btn}>Back</button>
-            <button type="button" onClick={() => void post()} disabled={busy}
+            <button type="button" ref={confirmButton} onClick={() => void post()} disabled={busy}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Post clearing
             </button>

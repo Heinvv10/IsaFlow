@@ -48,7 +48,8 @@ export async function holdCapLock(pool: Pool, message: string): Promise<{ releas
   return { release: async () => { await client.query('COMMIT'); client.release(); } };
 }
 
-/** Run `fn` with the posted-line and posted-entry freezes off for the transaction (a superuser's DDL; each is back ON ALWAYS at COMMIT). */
+/** Run `fn` with the posted-line and posted-entry freezes off (a superuser's DDL), committed; each is back ON ALWAYS in a second transaction
+ *  (an UPDATE of a line queues the deferred balance check, and a table with pending trigger events cannot be altered in the same transaction). */
 export async function withLedgerUnfrozen(pool: Pool, fn: (q: PoolClient) => Promise<unknown>): Promise<void> {
   const off: [string, string][] = [
     ['gl_journal_lines', 'trg_gl_jl_posted_frozen'], ['gl_journal_lines', 'trg_gl_jl_posted_set_frozen'], ['gl_journal_lines', 'trg_gl_jl_posted_balanced'],
@@ -60,12 +61,12 @@ export async function withLedgerUnfrozen(pool: Pool, fn: (q: PoolClient) => Prom
     await client.query('BEGIN');
     for (const [table, t] of off) await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${t}`);
     await fn(client);
-    for (const [table, t] of off) await client.query(`ALTER TABLE ${table} ENABLE ALWAYS TRIGGER ${t}`);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
+    for (const [table, t] of off) await client.query(`ALTER TABLE ${table} ENABLE ALWAYS TRIGGER ${t}`);
     client.release();
   }
 }

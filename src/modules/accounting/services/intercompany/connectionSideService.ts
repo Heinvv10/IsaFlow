@@ -9,6 +9,7 @@ import { isHeaderSql } from '@/modules/accounting/services/budgets/headerSql';
 import { listConnections } from './connectionRead';
 import { autoAcceptRefusal } from './connectionValidation';
 import { ConnectionRefusal, type ConnectionView, type SideInput } from './connectionTypes';
+import { isLoanClass } from './allocationClearRefusals';
 
 type Row = Record<string, unknown>;
 
@@ -25,6 +26,17 @@ async function postableAccountOf(companyId: string, accountId: string): Promise<
   return rows.length > 0;
 }
 
+/** The account is a loan class (`isLoanClass`: by type, subtype and the system flag). */
+async function loanClassAccountOf(companyId: string, accountId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT ga.account_type, ga.account_subtype, ga.is_system_account FROM gl_accounts ga
+     WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID
+  `) as Row[];
+  const r = rows[0];
+  if (!r) return false;
+  return isLoanClass(r.account_type == null ? null : String(r.account_type), r.account_subtype == null ? null : String(r.account_subtype), r.is_system_account === true);
+}
+
 /** Throws the refusal for the first reference that is not this company's. Nothing is written before it. */
 async function refuseForeignRefs(companyId: string, input: SideInput): Promise<void> {
   if (input.customerId && !(await customerBelongsToCompany(companyId, input.customerId))) {
@@ -35,6 +47,11 @@ async function refuseForeignRefs(companyId: string, input: SideInput): Promise<v
   }
   if (input.loanAccountId && !(await postableAccountOf(companyId, input.loanAccountId))) {
     throw new ConnectionRefusal(400, 'The loan account must be an active, postable account of this company.');
+  }
+  // P4-D round 1 (F1): the loan account is what an intercompany clearing posts to and what the partner's clearing trusts as "paid through the
+  // loan": a loan or intercompany balance-sheet account only (never a bank, control, VAT, equity, P&L or system account)
+  if (input.loanAccountId && !(await loanClassAccountOf(companyId, input.loanAccountId))) {
+    throw new ConnectionRefusal(400, 'The loan account must be a loan or intercompany balance-sheet account (an asset or liability of subtype other current asset, current / other current / long-term liability or other; not a bank, control, VAT or system account).');
   }
   if (input.defaultExpenseAccountId && !(await postableAccountOf(companyId, input.defaultExpenseAccountId))) {
     throw new ConnectionRefusal(400, 'The default expense account must be an active, postable account of this company.');

@@ -3,6 +3,8 @@
  * every row to the session company, which each query names too). THE LOCK ORDER is the clearing's and no other exists (plan (i).8):
  *   1. the message FOR UPDATE, with every other allocation message to this company from the same payer naming the same payer payment or the
  *      same payer journal (one statement, ascending id): two accepts of messages that share a cap wait for each other instead of both passing it;
+ *   1b. the payer's advisory locks (its payment, journal and bill: `intercompany_allocation_cap_lock`, ascending key), so a clearing by ANOTHER
+ *      receiver of the same payer waits too (the guard takes them again, re-entrant);
  *   2. the connection FOR SHARE;  3. this company's side FOR SHARE;  4. the payload's link FOR SHARE;
  *   5. the invoice FOR UPDATE (`lockReceiptInvoices`, the receipts' own bounded lock);  6. the loan account FOR SHARE;
  *   then what the composed services lock themselves (the new payment, the fiscal period, the VAT advisory key).
@@ -11,7 +13,6 @@ import { sql } from '@/lib/neon';
 
 type Row = Record<string, unknown>;
 const text = (v: unknown): string | null => (v == null ? null : String(v));
-const num = (v: unknown): number | null => (v == null ? null : Number(v));
 
 export interface LockedMessage {
   id: string;
@@ -106,21 +107,22 @@ export async function lockLoanAccount(companyId: string, accountId: string): Pro
   return r ? { accountType: text(r.account_type), accountSubtype: text(r.account_subtype), isActive: r.is_active !== false, isParent: r.is_parent === true, isSystem: r.is_system_account === true } : null;
 }
 
-export interface LiveAnswer { live: boolean; reason: string; clearableTotal: number | null; journalClearable: number | null }
+export interface LiveAnswer { live: boolean; reason: string; cap: string | null; payerLoanType: string | null }
 
-/** The database's answer, asked under the locks above (1027: with what the payer's books let be cleared). */
+/** The database's answer, asked under the locks above (1027: the caps across every receiver, and the payer's loan type). Exactly one row, or a
+ *  throw: the clearing never goes on a defaulted answer. */
 export async function askLive(messageId: string): Promise<LiveAnswer> {
   const rows = (await sql`
-    SELECT live, reason, clearable_total, journal_clearable FROM public.intercompany_allocation_message_live(${messageId}::UUID)
+    SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live(${messageId}::UUID)
   `) as Row[];
-  const r = rows[0];
-  return { live: r?.live === true, reason: String(r?.reason ?? 'not_found'), clearableTotal: num(r?.clearable_total), journalClearable: num(r?.journal_clearable) };
+  if (rows.length !== 1) throw new Error('the allocation liveness check did not answer exactly one row');
+  const r = rows[0]!;
+  return { live: r.live === true, reason: String(r.reason), cap: text(r.cap), payerLoanType: text(r.payer_loan_type) };
 }
 
-/** What this company's other accepted, standing clearings from the same payer already cleared for the same payment / journal. */
-export async function clearedSoFar(messageId: string): Promise<{ byPayment: number; byJournal: number }> {
-  const rows = (await sql`SELECT by_payment, by_journal FROM public.intercompany_allocation_cleared(${messageId}::UUID)`) as Row[];
-  return { byPayment: Number(rows[0]?.by_payment ?? 0), byJournal: Number(rows[0]?.by_journal ?? 0) };
+/** Step 1b, right after the message lock: the payer's payment / journal / bill advisory locks (every receiver's clearing of them waits). */
+export async function lockPayerCaps(messageId: string): Promise<void> {
+  await sql`SELECT public.intercompany_allocation_cap_lock(${messageId}::UUID)`;
 }
 
 /** What draft receipts of this company already claim on the invoice (as `createCustomerPayment` counts them). */
@@ -156,12 +158,4 @@ export async function pairCutover(companyId: string, conn: LockedConnection): Pr
 export async function userCanWrite(companyId: string): Promise<boolean> {
   const rows = (await sql`SELECT public.intercompany_user_can_write(${companyId}::UUID) AS ok`) as Row[];
   return rows[0]?.ok === true;
-}
-
-/** The posted journal and number of a receipt this company holds, for the answer. */
-export async function receiptOf(companyId: string, paymentId: string): Promise<{ number: string; journalId: string | null } | null> {
-  const rows = (await sql`
-    SELECT payment_number, gl_journal_entry_id FROM customer_payments WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID
-  `) as Row[];
-  return rows[0] ? { number: String(rows[0].payment_number ?? ''), journalId: text(rows[0].gl_journal_entry_id) } : null;
 }

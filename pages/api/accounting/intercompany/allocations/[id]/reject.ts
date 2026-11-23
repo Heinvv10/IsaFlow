@@ -1,4 +1,4 @@
-/** POST { reason } — reject an allocation message (P4-C); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. */
+/** POST { reason } — reject an allocation message (P4-C); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. Needs Approve on Customers & AR (P4-D round 1), a 403 before anything. */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -17,7 +17,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const parsed = parseRejectBody(req.body);
   if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
   try {
-    await rejectAllocation(req.companyId, id.toLowerCase(), parsed.value.reason);
+    await rejectAllocation(req.companyId, req.user.id, id.toLowerCase(), parsed.value.reason);
     return apiResponse.success(res, { id: id.toLowerCase(), status: 'rejected' }, 'Rejected');
   } catch (err) {
     if (respondIfRefusal(res, err)) return;

@@ -87,7 +87,7 @@ export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, o
           <div className="text-sm text-ink" data-testid="allocation-cleared-by">
             Cleared by receipt {shown.clearedBy.paymentNumber ?? '—'}
             {shown.clearedBy.voided && <span className={`ml-2 inline-block px-2 py-0.5 text-xs font-medium rounded-full border ${STATE_CLASS.check}`}>{VOIDED_CHIP}</span>}
-            {shown.clearedBy.voided && <p className="mt-1 text-xs text-ink-muted">The clearing receipt was voided after it was accepted: the invoice is open again. A new payment message from the payer can clear it.</p>}
+            {shown.clearedBy.voided && <p className="mt-1 text-xs text-ink-muted">The clearing receipt was voided after it was accepted: the invoice is open again. To clear it again, the payer must unapply the payment and apply it again (that sends a new message); the same allocation is never sent twice.</p>}
           </div>
         )}
         {isOpen(shown) && (

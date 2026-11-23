@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { CLEAR_REFUSAL_SENTENCES } from '../../../src/modules/accounting/services/intercompany/allocationClearRefusals';
-import { acct, api, asAppUser, co, plantExternal, plantSide, party, U, wipeConnections } from './intercompany.helpers';
+import { acct, api, asAppUser, co, plantExternal, plantSide, party, U, wipeConnections, withoutTrigger } from './intercompany.helpers';
 import { acc, dataOf, mirrorCleanup, rawReverseJournal } from './mirror.helpers';
 import { bank, clearPayments, linkBill, plantPaid, sendFor } from './allocation.helpers';
 import { allocationsApi } from './allocation-live.helpers';
@@ -39,7 +39,7 @@ const live = (m: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.que
 describe("F1: the payer's loan account must be a loan class", () => {
   it('the payer re-points its side at a bank account after paying: nothing counts as loan-funded, the clearing is refused', async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
-    await pool.query('UPDATE intercompany_connection_sides SET loan_account_id = $3 WHERE connection_id = $1 AND company_id = $2', [conn, co.B, bank.b]);
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET loan_account_id = $3 WHERE connection_id = $1 AND company_id = $2', [conn, co.B, bank.b]), true);
     expect(await live(sent.message)).toEqual({ live: true, reason: 'ok', cap: 'cash_not_through_loan', payer_loan_type: null });
     expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject(failed('cash_not_through_loan'));
   });
@@ -144,7 +144,7 @@ describe('m3, m5', () => {
   it('an external (non-group) loan connection is refused not_group, not as a cut-over', async () => {
     await wipeConnections(pool);
     const ext = await plantExternal(pool, co.A, co.B, 'active');
-    await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET settlement_mode = 'loan', cutover_date = DATE '2026-01-01' WHERE id = $1", [ext]), true);
+    await withoutTrigger(pool, 'intercompany_connections', 'trg_intercompany_connections_guard', (q) => q.query("UPDATE intercompany_connections SET settlement_mode = 'loan', cutover_date = DATE '2026-01-01' WHERE id = $1", [ext]));
     await plantSide(pool, ext, co.A, co.B, { customer_id: party.aCustomer, supplier_id: party.aSupplier, loan_account_id: acct.aLoan });
     await plantSide(pool, ext, co.B, co.A, { customer_id: party.bCustomer, supplier_id: party.bSupplier, default_expense_account_id: acc.bExp1, loan_account_id: acct.bLoan });
     await backdateMirroring(pool, ext);

@@ -7,11 +7,14 @@
  *
  * AUTOMATION IS NOT APPROVAL. The actor is the session user (the route passes `req.user.id`; it must equal the bound transaction's user):
  * creator == approver == that person (slice A's rule until a decision record exists); `system:ic_allocation_clear` only labels the journal's
- * author. A Login-as session is refused, and so is a user without the intercompany write role or without Approve, BEFORE anything is read.
+ * author. Only a person's OWN session clears (`currentSessionActor() === 'self'`): a Login-as session is refused, and so is a session with no
+ * session id (a receiver worker, a bearer token: it fails closed), then a user without the intercompany write role or without Approve, BEFORE
+ * anything is read.
  * There is no maker-checker between the payer and the receiver: a person with write roles in both companies may do both (rulings).
  *
- * LOCK ORDER (the only one): the message and its cap siblings FOR UPDATE, the connection, this company's side and the link FOR SHARE, the
- * invoice FOR UPDATE, the loan account FOR SHARE, then the composed services' own (the receipt, the period, the VAT key). `allocationClearReads.ts`.
+ * LOCK ORDER (the only one): the message and its cap siblings FOR UPDATE, the payer's advisory locks (its payment, journal, bill: every
+ * receiver's clearing of them waits), the connection, this company's side and the link FOR SHARE, the invoice FOR UPDATE, the loan account FOR
+ * SHARE, then the composed services' own (the receipt, the period, the VAT key). `allocationClearReads.ts`.
  *
  * REFUSALS NEVER REJECT. Every refusal of a check (and a refusal code of the composed services, a lock wait or a deadlock) rolls the clearing's
  * savepoint back, THEN stores the message as `failed` with a fixed sentence (`allocationClearRefusals.ts`), answered 200 with
@@ -23,7 +26,8 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
-import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { approveRefusedMessage, mayApprove } from '../core/approvePermission';
 import { ContraSettlementRefusal, isContraPreWriteRefusal, settleDocumentByContra } from '../core/contraSettlementPosting';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
@@ -31,13 +35,11 @@ import { lockReceiptInvoices } from '../ar/receiptInvoiceLock';
 import { ConnectionRefusal } from './connectionTypes';
 import { parseMirrorPayload } from './mirrorPayload';
 import {
-  askLive, clearedSoFar, invoiceFacts, lockAllocationMessages, lockConnection, lockLink, lockLoanAccount, lockOwnSide, pairCutover,
+  askLive, invoiceFacts, lockAllocationMessages, lockConnection, lockLink, lockLoanAccount, lockOwnSide, lockPayerCaps, pairCutover,
   pendingDraftAmount, userCanWrite, type LockedMessage,
 } from './allocationClearReads';
 import { postingDateRefusal, todaySast } from './allocationClearDate';
-import {
-  CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, capRefusal, cents, expectedMismatch, isLoanClass, refusalOfCode,
-} from './allocationClearRefusals';
+import { CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, cents, expectedMismatch, isLoanClass, refusalOfCode } from './allocationClearRefusals';
 import { ClearRefusal, type AcceptAllocationInput, type AcceptAllocationOutcome, type ClearRefusalCode } from './allocationClearTypes';
 
 type Row = Record<string, unknown>;
@@ -47,6 +49,8 @@ export const IC_ALLOCATION_POSTING_AGENT = 'system:ic_allocation_clear';
 
 const OPEN = new Set(['pending', 'failed']);
 const OPEN_INVOICE: ReadonlySet<string> = new Set(AR_OPEN_STATUSES);
+/** The definer's cap answers the clearing knows; anything else it might answer is refused generically. */
+const CAPS: ReadonlySet<string> = new Set(['cash_not_through_loan', 'already_cleared']);
 const sqlstate = (err: unknown): string | null => {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
@@ -68,8 +72,10 @@ export async function acceptAllocation(p: AcceptAllocationParams): Promise<Accep
   if (store.userId !== userId || (store.companyId !== undefined && store.companyId !== companyId)) {
     throw new Error('acceptAllocation: the actor is not the session user of this company');
   }
-  // The person first, before any row of the message is read (plan (i).6).
-  await assertNotImpersonating();
+  // The person first, before any row of the message is read (plan (i).6): their OWN session (fails closed on one without a session id).
+  const actor = await currentSessionActor();
+  if (actor === 'impersonation') throw new ImpersonationForbiddenError();
+  if (actor !== 'self') throw new ConnectionRefusal(403, 'Clearing a payment needs your own signed-in session (not a token or an automated run).');
   if (!(await userCanWrite(companyId))) throw new ConnectionRefusal(403, 'You need a write role in this company to clear an intercompany payment.');
   if (!(await mayApprove(companyId, userId, 'customers'))) throw new ConnectionRefusal(403, approveRefusedMessage('customers', 'customer receipts'));
 
@@ -102,10 +108,14 @@ async function boundLockWait(): Promise<string> {
   return String(rows[0]?.prev ?? '0');
 }
 
-/** Lock step 1 in a savepoint of its own: a wait that runs out is a 409 with nothing written (the message cannot be marked: it is held). */
+/** Lock steps 1 and 1b in a savepoint of their own: a wait that runs out is a 409 with nothing written (the message cannot be marked: it is held). */
 async function lockMessage(companyId: string, messageId: string): Promise<LockedMessage | null> {
   try {
-    return await withSavepoint('ic_allocation_lock', () => lockAllocationMessages(companyId, messageId));
+    return await withSavepoint('ic_allocation_lock', async () => {
+      const message = await lockAllocationMessages(companyId, messageId);
+      if (message) await lockPayerCaps(message.id);
+      return message;
+    });
   } catch (err) {
     if (sqlstate(err) === '55P03' || sqlstate(err) === '40P01') {
       throw new ConnectionRefusal(409, 'This payment message is being handled right now. Try again in a moment.');
@@ -141,21 +151,26 @@ async function clear(companyId: string, userId: string, message: LockedMessage, 
   if (!OPEN_INVOICE.has(invoice.status)) throw new ClearRefusal('invoice_not_open');
   const facts = await invoiceFacts(companyId, invoiceId);
   if (!facts) throw new ClearRefusal('invoice_gone');
+  // (F4) the person's date, against the invoice: a mistake in the request, before anything
+  if (facts.date && input.postingDate < facts.date) throw new ConnectionRefusal(400, "The posting date must be on or after your invoice's date.");
   if (!side.customerId || facts.customerId?.toLowerCase() !== side.customerId.toLowerCase()) throw new ClearRefusal('wrong_customer');
   if (pl.currency !== 'ZAR' || facts.currency !== 'ZAR') throw new ClearRefusal('currency');
+  if (conn.kind !== 'group') throw new ClearRefusal('not_group');
   const cutover = await pairCutover(companyId, conn);
   if (!cutover || !facts.date || facts.date < cutover) throw new ClearRefusal('pre_cutover_invoice');
   if (pl.payment.date < cutover) throw new ClearRefusal('pre_cutover_payment');
 
   const account = await lockLoanAccount(companyId, side.loanAccountId);
-  if (!account || !account.isActive || account.isParent || !isLoanClass(account.accountType, account.accountSubtype)) {
+  if (!account || !account.isActive || account.isParent || !isLoanClass(account.accountType, account.accountSubtype, account.isSystem)) {
     throw new ClearRefusal('loan_account_unusable');
   }
   // the open amount, with the draft receipts already claiming it (refused, never clamped)
   const pending = await pendingDraftAmount(companyId, invoiceId);
   if (cents(pl.amount) > invoice.totalCents - invoice.paidCents - cents(pending)) throw new ClearRefusal('exceeds_open');
-  const cap = capRefusal({ amount: pl.amount, clearableTotal: live.clearableTotal, journalClearable: live.journalClearable, ...(await clearedSoFar(message.id)) });
-  if (cap) throw new ClearRefusal(cap);
+  // the caps across every receiver of this payer (the definer's answer, under the payer's advisory locks), then the two loan accounts' types
+  if (live.cap !== null) throw new ClearRefusal(CAPS.has(live.cap) ? live.cap as ClearRefusalCode : 'refused');
+  if (!live.payerLoanType) throw new ClearRefusal('cash_not_through_loan');
+  if (live.payerLoanType === account.accountType) throw new ClearRefusal('loan_class_mismatch');
   const dateRefusal = await postingDateRefusal(companyId, input.postingDate);
   if (dateRefusal) throw new ClearRefusal(dateRefusal);
 
@@ -187,7 +202,8 @@ function classify(err: unknown): ClearRefusalCode | 'forbidden' | null {
   if (err instanceof ConnectionRefusal) return null;
   if (isContraPreWriteRefusal(err)) return refusalOfCode(sqlstate(err), { contraRefusal: err instanceof ContraSettlementRefusal });
   if (err instanceof MissingSystemAccountError) return refusalOfCode(null, { missingSystemAccount: true });
-  return refusalOfCode(sqlstate(err));
+  const e = err as { retryable?: unknown; held?: unknown } | null;
+  return refusalOfCode(sqlstate(err), { retryable: e?.retryable === true || e?.held === true });
 }
 
 /** The refusal on the message, written after the savepoint was rolled back: `failed` with its fixed sentence (never `rejected`). */

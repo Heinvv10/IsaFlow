@@ -1,7 +1,8 @@
 /**
  * Pure rules of the receiver's clearing of an allocation message (P4-D): the request body, the fixed sentence each refusal stores on the
- * message, what an error raised under the clearing's savepoint counts as, the "what is approved is what posts" comparison, and the caps
- * that stop a payment being cleared twice. No database import: the service (`allocationClearService.ts`) reads, this decides.
+ * message, what an error raised under the clearing's savepoint counts as, the "what is approved is what posts" comparison and the loan classes.
+ * No database import: the service (`allocationClearService.ts`) reads, this decides. (The caps are the liveness definer's own answer since fix
+ * round 1: it counts every receiver's clearings, which no session can read.)
  */
 import type { AcceptAllocationInput, ClearRefusalCode } from './allocationClearTypes';
 
@@ -30,14 +31,20 @@ export const CLEAR_REFUSAL_SENTENCES: Readonly<Record<ClearRefusalCode, string>>
   vat_locked: 'The posting date is in a locked VAT period. Choose a date outside it. Nothing was posted.',
   busy: 'Your invoice is busy (another receipt is being recorded on it or is pending). Try again in a moment. Nothing was posted.',
   refused: 'The clearing was refused by a check on your loan account or your invoice. Nothing was posted.',
+  not_group: 'Only a payment on a group connection can be cleared here. Nothing was posted.',
+  loan_class_mismatch: "Your loan account and the payer's are of the same kind (both assets or both liabilities), so one of them is not the other's side of the loan. Fix the loan account on the connection. Nothing was posted.",
 });
 
 export type ParsedAcceptBody = { ok: true; value: AcceptAllocationInput } | { ok: false; error: string };
+
+const BODY_KEYS = new Set(['expectedLoanAccountId', 'invoiceId', 'amount', 'postingDate']);
 
 /** The Accept body: what the preview showed (loan account, invoice, amount) and the posting date the person chose. Strict: nothing else. */
 export function parseAcceptBody(body: unknown): ParsedAcceptBody {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, error: 'The body must be an object' };
   const b = body as Record<string, unknown>;
+  const extra = Object.keys(b).find((k) => !BODY_KEYS.has(k));
+  if (extra) return { ok: false, error: `Unexpected field ${extra.slice(0, 40)}` };
   if (typeof b.expectedLoanAccountId !== 'string' || !UUID.test(b.expectedLoanAccountId)) return { ok: false, error: 'expectedLoanAccountId must be a UUID' };
   if (typeof b.invoiceId !== 'string' || !UUID.test(b.invoiceId)) return { ok: false, error: 'invoiceId must be a UUID' };
   if (typeof b.amount !== 'number' || !Number.isFinite(b.amount) || b.amount <= 0 || cents(b.amount) / 100 !== b.amount) {
@@ -71,32 +78,19 @@ export const MISMATCH_SENTENCE: Readonly<Record<'loan_account' | 'invoice' | 'am
 });
 
 /**
- * The double-clear caps, judged by the payer's books (the liveness definer's two figures) and the receiver's standing clearings:
- * what the other accepted messages of the same payment, and of the same journal, already cleared, plus this amount, may not pass what the
- * payer's journal credited to its loan account (and the payment's live allocations). Nothing cleared yet and still too much: the cash did not
- * (all) go through the loan account; something cleared already: this payment is already cleared.
- */
-export function capRefusal(c: {
-  amount: number; clearableTotal: number | null; journalClearable: number | null; byPayment: number; byJournal: number;
-}): 'cash_not_through_loan' | 'already_cleared' | null {
-  const amount = cents(c.amount);
-  const overPayment = cents(c.byPayment) + amount > cents(c.clearableTotal ?? 0);
-  const overJournal = cents(c.byJournal) + amount > cents(c.journalClearable ?? 0);
-  if (!overPayment && !overJournal) return null;
-  if ((overPayment && cents(c.byPayment) > 0) || (overJournal && cents(c.byJournal) > 0)) return 'already_cleared';
-  return 'cash_not_through_loan';
-}
-
-/**
  * What an error raised under the clearing's savepoint counts as. A refusal code of the services the clearing composes (a receipt refusal,
  * a lock that ran out, a contra guard, a locked VAT period, a missing system account) and a lock wait or deadlock are `failed` with a sentence;
- * `forbidden` is the approver check (a 403, not stored); null is anything else, which propagates (a 5xx: the transaction rolls back).
+ * a receipt refusal is `busy` only when it is retryable (a held row, contention: `ReceiptRefusal.retryable` / `held`), any other one is
+ * `refused`; `forbidden` is the approver check (a 403, not stored); null is anything else, which propagates (a 5xx: the transaction rolls back).
  */
-export function refusalOfCode(code: string | null, opts: { contraRefusal?: boolean; missingSystemAccount?: boolean } = {}): ClearRefusalCode | 'forbidden' | null {
+export function refusalOfCode(
+  code: string | null, opts: { contraRefusal?: boolean; missingSystemAccount?: boolean; retryable?: boolean } = {},
+): ClearRefusalCode | 'forbidden' | null {
   if (code === 'APPROVE_PERMISSION_REFUSED') return 'forbidden';
   if (opts.contraRefusal || opts.missingSystemAccount) return 'refused';
   switch (code) {
     case 'RECEIPT_REFUSED':
+      return opts.retryable === true ? 'busy' : 'refused';
     case 'CUSTOMER_INVOICE_LOCK_TIMEOUT':
     case 'ROW_LOCK_TIMEOUT':
     case '55P03':
@@ -111,14 +105,16 @@ export function refusalOfCode(code: string | null, opts: { contraRefusal?: boole
   }
 }
 
-/** The loan account classes a clearing may debit: a balance-sheet loan or intercompany position (never a control, bank, cash, VAT, tax,
- *  payroll, inventory, fixed-asset or equity account, and never income or expense). By account_type and account_subtype, never by name. */
+/** The loan account classes a clearing may touch: a balance-sheet loan or intercompany position (never a control, bank, cash, VAT, tax,
+ *  payroll, inventory, fixed-asset or equity account, never income or expense, and never a system account: the seeded charts carry their
+ *  controls, bank, VAT, payroll and 2215 as system accounts). By type, subtype and the system flag, never by name. The database's twin is
+ *  `intercompany_is_loan_class` (1027); the side form refuses any other loan account. */
 const LOAN_CLASSES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   asset: ['other_current_asset', 'other'],
   liability: ['current_liability', 'other_current_liability', 'long_term_liability', 'other'],
 });
 
-export function isLoanClass(accountType: string | null, accountSubtype: string | null): boolean {
-  if (!accountType || !accountSubtype) return false;
+export function isLoanClass(accountType: string | null, accountSubtype: string | null, isSystem: boolean): boolean {
+  if (!accountType || !accountSubtype || isSystem) return false;
   return (LOAN_CLASSES[accountType] ?? []).includes(accountSubtype);
 }
