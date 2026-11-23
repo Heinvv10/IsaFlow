@@ -10,7 +10,8 @@
  * (`intercompany_allocation_message_live`) is asked only for an OPEN (pending / failed) message, one call per message in its own savepoint;
  * a handled one is `not_pending` without asking. The page's lock wait is bounded once (tighten-only 2 s, put back after the checks) and a
  * call that runs out of time ends the asking: the rest of the page is `check_failed`, so a page waits at most once. Never a throw, never a poisoned
- * transaction. The answer is advisory: D asks again under its own locks before acting.
+ * transaction. The answer is advisory: D asks again under its own locks before acting. The list and the detail say whether the session company
+ * has the dark flag `intercompany_loan_clearing` (`loanClearingEnabled`, one flag read each); off, the detail asks no Accept preview.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -20,6 +21,7 @@ import { ConnectionRefusal } from './connectionTypes';
 import { parseMirrorPayload, type AllocationPayload } from './mirrorPayload';
 import { INBOX_PAGE_MAX } from './inboxRead';
 import { clearingPreview, clearingsOf } from './allocationClearPreview';
+import { loanClearingEnabled } from './loanClearingGate';
 import type { InboxFilter, InboxStatus } from './inboxTypes';
 import {
   ALLOCATION_LIVE_REASONS, type AllocationDetail, type AllocationIssuerInvoice, type AllocationItem, type AllocationLiveReason,
@@ -186,7 +188,7 @@ export async function listAllocationInbox(companyId: string, filter: InboxFilter
   const built = rows.length > 0 ? await build(companyId, rows) : [];
   // counted on their own: a page past the last one still says how many there are
   const counts = await countsOf(companyId, statuses);
-  return { items: built.map((b) => b.item), total: counts.total, allocationCount: counts.open };
+  return { items: built.map((b) => b.item), total: counts.total, allocationCount: counts.open, loanClearingEnabled: await loanClearingEnabled(companyId) };
 }
 
 /** One allocation message of this company, with the payload's facts. A message that is not this company's allocation is a 404. */
@@ -195,8 +197,12 @@ export async function loadAllocationDetail(companyId: string, messageId: string)
   if (rows.length === 0) throw new ConnectionRefusal(404, 'Message not found');
   const [b] = await build(companyId, rows);
   const p = b!.payload;
-  const preview = OPEN.includes(b!.item.status) ? await clearingPreview(companyId, b!.item.connectionId, p, b!.item.issuerInvoice) : null;
-  return { item: b!.item, allocationId: p?.allocationId ?? null, linkId: p?.linkId ?? null, linkOrigin: p?.linkOrigin ?? null, cutoverDate: b!.cutover, preview };
+  const enabled = await loanClearingEnabled(companyId);
+  const preview = enabled && OPEN.includes(b!.item.status) ? await clearingPreview(companyId, b!.item.connectionId, p, b!.item.issuerInvoice) : null;
+  return {
+    item: b!.item, allocationId: p?.allocationId ?? null, linkId: p?.linkId ?? null, linkOrigin: p?.linkOrigin ?? null, cutoverDate: b!.cutover, preview,
+    loanClearingEnabled: enabled,
+  };
 }
 
 /** One allocation message of this company, raw (id, status), or null: what reject / dismiss check first. Never an invoice message. */

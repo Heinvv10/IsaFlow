@@ -4,7 +4,8 @@
  * Stale: <reason>) and what does not fit this company's invoice (Check: <mismatch>). Reject (a reason is required), Dismiss (asked first) and
  * Restore of a dismissed one; P4-D: Accept from the detail drawer (its preview, a posting date, a confirm), which clears the payment against the
  * invoice; a refusal shows its sentence and reloads. Every action button and notice names its row by payment and invoice. A failed reload keeps
- * the list (and any open dialog) with an alert above it; a 409 reloads the list.
+ * the list (and any open dialog) with an alert above it; a 409 reloads the list. Accept (and the words about it) only while the dark flag
+ * intercompany_loan_clearing is on for this company (the list's `loanClearingEnabled`; a missing answer is off).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
@@ -101,6 +102,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
     </div>
   );
   if (items.length === 0) return alert || null;
+  const clearingEnabled = page?.loanClearingEnabled === true;
 
   return (
     <>
@@ -109,7 +111,9 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 id="ic-allocations-heading" className="text-base font-semibold text-ink">Payments from your group</h2>
           <p className="text-sm text-ink-muted">
-            Payments a company in your group applied to bills linked to your invoices. Accept one to clear it against your invoice through your intercompany loan account (one journal in your books); or reject or dismiss it.
+            {clearingEnabled
+              ? 'Payments a company in your group applied to bills linked to your invoices. Accept one to clear it against your invoice through your intercompany loan account (one journal in your books); or reject or dismiss it.'
+              : 'Payments a company in your group applied to bills linked to your invoices. You can reject or dismiss one.'}
           </p>
         </div>
         <table className="table-cards w-full text-sm" data-testid="allocation-table">
@@ -133,7 +137,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
         {page && page.total > items.length && (
           <p className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 text-sm text-ink-muted">Showing the latest {items.length} of {page.total}.</p>
         )}
-        <AllocationDetailDrawer item={open} label={open ? labelOf(open) : ''} canWrite={canWrite} busy={open !== null && busy.has(open.id)} onClose={() => setOpen(null)}
+        <AllocationDetailDrawer item={open} label={open ? labelOf(open) : ''} canWrite={canWrite} clearingEnabled={clearingEnabled} busy={open !== null && busy.has(open.id)} onClose={() => setOpen(null)}
           onReject={(i) => { setOpen(null); setRejecting(i); }} onDismiss={(i) => { setOpen(null); setConfirming(i); }}
           onAccept={(i, preview) => { setOpen(null); setAccepting({ item: i, preview }); }} />
         <AllocationAcceptModal target={accepting ? { id: accepting.item.id, label: labelOf(accepting.item) } : null} preview={accepting?.preview ?? null}

@@ -21,6 +21,9 @@
  * `accepted: false`: the message stays open for a person. Only a person's Reject writes `rejected`. A stale preview (the loan account,
  * invoice or amount the person approved is not what the books say now) is a 409 and a bad posting date a 400, both before any write; the
  * person checks are 403s. Anything else propagates (a 5xx: withAuth rolls the request back). No 4xx is answered after a write.
+ *
+ * DARK FLAG (`intercompany_loan_clearing`, loanClearingGate.ts): the RECEIVER's flag is the first thing asked, before the person, a lock or a
+ * row: off (every company's default), the accept is refused `not_enabled` (403) and nothing is read or written.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
@@ -39,6 +42,7 @@ import {
   pendingDraftAmount, userCanWrite, type LockedMessage,
 } from './allocationClearReads';
 import { postingDateRefusal, todaySast } from './allocationClearDate';
+import { LoanClearingNotEnabled, loanClearingEnabled } from './loanClearingGate';
 import { CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, cents, expectedMismatch, refusalOfCode } from './allocationClearRefusals';
 import { ClearRefusal, type AcceptAllocationInput, type AcceptAllocationOutcome, type ClearRefusalCode } from './allocationClearTypes';
 
@@ -84,6 +88,8 @@ export async function acceptAllocation(p: AcceptAllocationParams): Promise<Accep
   if (store.userId !== userId || (store.companyId !== undefined && store.companyId !== companyId)) {
     throw new Error('acceptAllocation: the actor is not the session user of this company');
   }
+  // The receiver's dark flag first: off, nothing of the message, the person or the books is read.
+  if (!(await loanClearingEnabled(companyId))) throw new LoanClearingNotEnabled();
   // The person first, before any row of the message is read (plan (i).6): their OWN session (fails closed on one without a session id).
   const actor = await currentSessionActor();
   if (actor === 'impersonation') throw new ImpersonationForbiddenError();

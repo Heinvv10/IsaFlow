@@ -24,6 +24,8 @@ vi.mock('@/lib/logger', () => ({ log: m.log }));
 // P4-D's clearing reads (their own unit / integration tests): here only what the inbox asks of them
 const clear = vi.hoisted(() => ({ preview: vi.fn(), clearings: vi.fn() }));
 vi.mock('@/modules/accounting/services/intercompany/allocationClearPreview', () => ({ clearingPreview: clear.preview, clearingsOf: clear.clearings }));
+// the dark flag on (its off answer: allocationInboxFlag.test.ts)
+vi.mock('@/modules/accounting/services/intercompany/loanClearingGate', () => ({ loanClearingEnabled: async () => true }));
 
 import { allocationMismatch, listAllocationInbox, loadAllocationDetail } from '@/modules/accounting/services/intercompany/allocationInbox';
 import type { AllocationPayload } from '@/modules/accounting/services/intercompany/mirrorPayload';
@@ -105,7 +107,7 @@ describe('listAllocationInbox', () => {
 
   it('the total comes from its own count, so a page past the end still says how many there are', async () => {
     serve({ rows: [], total: 7, count: 3 });
-    expect(await listAllocationInbox(CO, 'open', 25, 50)).toEqual({ items: [], total: 7, allocationCount: 3 });
+    expect(await listAllocationInbox(CO, 'open', 25, 50)).toEqual({ items: [], total: 7, allocationCount: 3, loanClearingEnabled: true });
   });
 
   it('a handled row is not_pending without asking the database; only the open rows are checked', async () => {
@@ -210,7 +212,7 @@ describe('listAllocationInbox', () => {
 
   it('nothing to list makes no definer call and no invoice lookup', async () => {
     serve({ rows: [], count: 0 });
-    expect(await listAllocationInbox(CO, 'open', 25, 0)).toEqual({ items: [], total: 0, allocationCount: 0 });
+    expect(await listAllocationInbox(CO, 'open', 25, 0)).toEqual({ items: [], total: 0, allocationCount: 0, loanClearingEnabled: true });
     expect(callsTo('intercompany_allocation_message_live')).toHaveLength(0);
     expect(callsTo('FROM customer_invoices')).toHaveLength(0);
   });
