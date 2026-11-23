@@ -24,6 +24,8 @@ export interface PlannedPo {
   sageId: string; documentNumber: string; totalCents: number; element: Record<string, unknown>; pdfFile: string | null;
   /** What the PO tool would STORE for it (its own parse of `element`: the unit price of a line is net / quantity to 6 dp, not the Sage price). */
   stored: StoredPo;
+  /** Set for a PO already booked whose Sage supplier does not resolve: sent under its booked supplier, listed as a difference. */
+  supplierProblem?: string;
   /** What the plan sends for this PO's lines: how many are linked by item_code, which are not (and why). What the books end with is measured (sageLineLinks). */
   lineLinks: { linked: number; notLinked: NotLinkedLine[] };
 }
@@ -41,7 +43,7 @@ export interface MigrationPlan {
   lineLinks: { linked: number; notLinked: NotLinkedLine[] };
 }
 
-export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'>;
+export type Existing = Pick<Snapshot, 'items' | 'categories' | 'poNumbers' | 'budgetPolicy' | 'inactiveSuppliers'> & Partial<Pick<Snapshot, 'poContent' | 'duplicatePoRefs'>>;
 
 /** The company's items indexed ONCE by (system sage) reference and by code: the plan looks items up per item and per PO line. First one wins. */
 interface ItemIndex { byRef: ReadonlyMap<string, ExistingItem>; byCode: ReadonlyMap<string, readonly ExistingItem[]> }
@@ -152,13 +154,33 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
   for (const po of byStableKey(parsed.purchaseOrders, (p) => p.id)) {
     const supplier = suppliers.get(po.supplierId);
     const refuse = (code: string, reason: string) => refusals.push({ entity: 'purchase_order', sageId: po.id, label: po.documentNumber, code, reasons: [reason] });
-    if (!supplier) { refuse('supplier_unresolved', `supplier ${po.supplierId} was not looked up`); continue; }
-    if (!('id' in supplier)) { refuse(supplier.code, supplier.reason); continue; }
+    // More than one IsaFlow PO carries this Sage reference (nothing makes it unique): the tool and the books' reads would each pick one.
+    const heldBy = existing.duplicatePoRefs?.get(po.id);
+    if (heldBy) { refuse('po_ref_ambiguous', `Sage purchase order ${po.id} is the external reference of ${heldBy.length} IsaFlow purchase orders (${heldBy.join(', ')}): none is picked; remove the reference from all but one`); continue; }
     const holder = existing.poNumbers.get(po.documentNumber);
     // A PO this migration already booked is sent again on a re-run (the tool replays it): a supplier deactivated or a budget policy
     // turned to block since then must not drop it from what is sent (--expect-pos would miss, and it would escape the differences).
     const alreadyBooked = holder !== undefined && holder.system === SAGE_SYSTEM && holder.ref === po.id;
-    if (!alreadyBooked && existing.inactiveSuppliers.has(supplier.id)) { refuse('supplier_inactive', `supplier ${supplier.id} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
+    const unresolved = !supplier ? { code: 'supplier_unresolved', reason: `supplier ${po.supplierId} was not looked up` } : 'id' in supplier ? null : supplier;
+    let supplierId: string;
+    let supplierProblem: string | undefined;
+    if (unresolved) {
+      // A booked PO whose Sage supplier no longer resolves (renamed, merged, deactivated, deleted in IsaFlow) is still sent: the tool replays
+      // it. It goes under the supplier it is booked to (the tool does not compare it), and the problem is LISTED as a difference, so a
+      // real supplier move is not hidden by adopting the booked one as if it were the resolution.
+      const content = alreadyBooked ? existing.poContent?.get(po.id) : undefined;
+      if (!content) { refuse(unresolved.code, unresolved.reason); continue; }
+      if (content.supplierDeleted) {
+        // The tool answers Not found for the WHOLE batch of a PO naming a deleted supplier, a replay included: it cannot be sent.
+        refuse('booked_supplier_deleted', `${unresolved.reason}; the PO is booked to ${content.supplierName ?? 'a supplier'} (${content.supplierId}), which is deleted in IsaFlow: the PO tool cannot replay it. Restore that supplier (or give it Sage reference ${po.supplierId}), then run again`);
+        continue;
+      }
+      supplierId = content.supplierId;
+      supplierProblem = `Sage supplier ${po.supplierId}${po.supplierName ? ` "${po.supplierName}"` : ''} not found in IsaFlow (${unresolved.reason}); PO is booked to ${content.supplierName ?? 'a supplier'} (${content.supplierId})`;
+    } else {
+      supplierId = (supplier as { id: string }).id;
+    }
+    if (!alreadyBooked && existing.inactiveSuppliers.has(supplierId)) { refuse('supplier_inactive', `supplier ${supplierId} is inactive in IsaFlow: activate it, or the PO is not imported`); continue; }
     if (holder && !alreadyBooked) {
       refuse('po_number_taken', `${po.documentNumber} already belongs to a purchase order (${holder.ref ? `${holder.system} ${holder.ref}` : 'no external reference'}); the tool would refuse the whole batch`);
       continue;
@@ -179,7 +201,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const tooLong = po.lines.map((l, n) => ({ n, len: l.description.length + (l.itemId !== null && !links[l.itemId]?.link ? ` [item ${links[l.itemId!]!.code}]`.length : 0) }))
       .find((x) => x.len > MAX_LINE_DESCRIPTION);
     if (tooLong) { refuse('line_description_too_long', `line ${tooLong.n + 1}: the description with its item code is ${tooLong.len} characters, over the ${MAX_LINE_DESCRIPTION} a PO line takes (nothing is cut)`); continue; }
-    const element = mapSagePurchaseOrder(po, supplier.id, links, opts.poGlAccountId);
+    const element = mapSagePurchaseOrder(po, supplierId, links, opts.poGlAccountId);
     // Under the block policy the PO tool refuses the WHOLE batch for any approved PO with an account-less line (unless the budget check
     // is skipped): refused here, per row, so the dry run does not fail on it.
     if (!alreadyBooked && existing.budgetPolicy === 'block' && !opts.skipBudgetCheck && !opts.poGlAccountId && element.status === 'open') {
@@ -189,6 +211,7 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const checked = parsePurchaseOrder(element, 0);
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked },
+      ...(supplierProblem ? { supplierProblem } : {}),
       stored: { supplierId: checked.supplierId, deliveryDate: checked.deliveryDate, reference: checked.reference, lines: checked.lines.map((l, n) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, itemCode: po.lines[n]!.itemId === null ? null : links[po.lines[n]!.itemId!]?.code ?? null })) } });
     lineLinks.linked += linked;
     lineLinks.notLinked.push(...notLinked);

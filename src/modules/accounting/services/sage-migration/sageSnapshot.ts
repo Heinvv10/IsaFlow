@@ -48,6 +48,8 @@ export interface Snapshot {
   poLinkedLines: Map<string, number>;
   /** external_ref -> the supplier, delivery date, reference and lines of that Sage PO (compared by sagePoContent on a re-run). */
   poContent: Map<string, PoContent>;
+  /** Sage PO reference -> the po_numbers of the IsaFlow POs carrying it, for a reference more than one PO carries (nothing makes it unique). */
+  duplicatePoRefs: Map<string, string[]>;
   stockMovements: number;
   items: ExistingItem[];
   categories: ExistingCategory[];
@@ -59,6 +61,13 @@ export interface Snapshot {
   supplierSageRefs: Map<string, string>;
   /** po_number -> the external reference the PO carries (null: none). Numbers are unique per company, case-sensitively. */
   poNumbers: Map<string, { system: string | null; ref: string | null }>;
+}
+
+/** Sage PO references carried by more than one PO of the company (the maps keyed by reference would keep a random one of them). */
+function duplicateRefs(pos: Array<{ po_number: string; external_system: string | null; external_ref: string | null }>): Map<string, string[]> {
+  const byRef = new Map<string, string[]>();
+  for (const r of pos) if (r.external_system === 'sage' && r.external_ref !== null) byRef.set(String(r.external_ref), [...(byRef.get(String(r.external_ref)) ?? []), r.po_number]);
+  return new Map([...byRef].filter(([, numbers]) => numbers.length > 1));
 }
 
 export async function readSnapshot(companyId: string): Promise<Snapshot> {
@@ -98,12 +107,12 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
      WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL
   `) as Array<{ external_ref: string; state_hash: string }>;
   const contents = (await sql`
-    SELECT o.external_ref, o.supplier_id::TEXT AS supplier_id, to_char(o.expected_delivery_date, 'YYYY-MM-DD') AS delivery_date, o.reference,
+    SELECT o.external_ref, o.supplier_id::TEXT AS supplier_id, (SELECT x.name FROM suppliers x WHERE x.id = o.supplier_id) AS supplier_name, (SELECT x.deleted_at IS NOT NULL FROM suppliers x WHERE x.id = o.supplier_id) AS supplier_deleted, to_char(o.expected_delivery_date, 'YYYY-MM-DD') AS delivery_date, o.reference,
            coalesce((SELECT json_agg(json_build_object('description', p.description, 'quantity', p.quantity, 'unit_price', p.unit_price) ORDER BY p.sort_order, p.id)
                        FROM po_items p WHERE p.purchase_order_id = o.id), '[]'::json) AS lines
       FROM purchase_orders o
      WHERE o.company_id = ${companyId}::UUID AND lower(o.external_system) = 'sage' AND o.external_ref IS NOT NULL
-  `) as Array<{ external_ref: string; supplier_id: string; delivery_date: string | null; reference: string | null; lines: Array<{ description: string; quantity: string | number; unit_price: string | number }> }>;
+  `) as Array<{ external_ref: string; supplier_id: string; supplier_name: string | null; supplier_deleted: boolean | null; delivery_date: string | null; reference: string | null; lines: Array<{ description: string; quantity: string | number; unit_price: string | number }> }>;
   const stock = (await sql`SELECT count(*)::INT AS n FROM stock_movements WHERE company_id = ${companyId}::UUID`) as Array<{ n: number }>;
   const existing = items.map((r): ExistingItem => ({
     // The item and category tools compare external_system EXACTLY (case-sensitive 'sage'): a row stored as 'Sage' is not theirs, nor ours.
@@ -117,9 +126,10 @@ export async function readSnapshot(companyId: string): Promise<Snapshot> {
     poStates: new Map(states.map((r) => [String(r.external_ref), String(r.state_hash)])),
     poLinkedLines: new Map(linked.map((r) => [String(r.external_ref), Number(r.n)])),
     poContent: new Map(contents.map((r) => [String(r.external_ref), {
-      supplierId: String(r.supplier_id), deliveryDate: r.delivery_date, reference: r.reference,
+      supplierId: String(r.supplier_id), supplierName: r.supplier_name, supplierDeleted: r.supplier_deleted === true, deliveryDate: r.delivery_date, reference: r.reference,
       lines: r.lines.map((l) => ({ description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price) })),
     }])),
+    duplicatePoRefs: duplicateRefs(pos),
     stockMovements: Number(stock[0]?.n ?? 0),
     items: existing,
     budgetPolicy: await readCheckPolicy(companyId),

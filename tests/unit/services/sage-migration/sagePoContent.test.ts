@@ -16,7 +16,7 @@ const stored = (over: Partial<PoContent> = {}): PoContent => ({
   supplierId: S1, deliveryDate: '2026-03-01', reference: 'JOB-1',
   lines: [{ description: 'Fibre drop cable', quantity: 2, unitPrice: 1200 }, { description: 'Delivery charge', quantity: 1, unitPrice: 350.5 }], ...over,
 });
-const plan = (el: Record<string, unknown> = element()) => ({ purchaseOrders: [{ sageId: '1', documentNumber: 'PO1', stored: el as never }] });
+const plan = (el: Record<string, unknown> = element(), supplierProblem?: string) => ({ purchaseOrders: [{ sageId: '1', documentNumber: 'PO1', stored: el as never, supplierProblem }] });
 const diff = (el: Record<string, unknown>, st: PoContent | undefined) => poContentDifferences(plan(el), new Map(st ? [['1', st]] : []));
 
 describe('poContentDifferences', () => {
@@ -67,6 +67,20 @@ describe('poContentDifferences', () => {
   });
   it('compares numbers as numbers: 2 and 2.00, 350.5 and 350.500000', () => {
     expect(diff(element(), stored({ lines: [{ description: 'Fibre drop cable', quantity: Number('2.00'), unitPrice: Number('1200.000000') }, { description: 'Delivery charge', quantity: 1, unitPrice: Number('350.500000') }] }))).toEqual([]);
+  });
+});
+
+describe('M2 (round 7): a supplier the plan could not resolve for a booked PO is a difference', () => {
+  it('listed under supplier, existing = the booked supplier, requested = what the plan says; the other fields still compare', () => {
+    const problem = 'Sage supplier 301 "Alpha" not found in IsaFlow; PO is booked to Alpha Renamed (' + S1 + ')';
+    const d = poContentDifferences(plan(element({ reference: 'JOB-2' }), problem), new Map([['1', stored()]]));
+    expect(d).toEqual([{ poNumber: 'PO1', differences: [
+      { field: 'supplier', existing: S1, requested: problem },
+      { field: 'reference', existing: 'JOB-1', requested: 'JOB-2' },
+    ] }]);
+  });
+  it('no problem, no extra difference', () => {
+    expect(poContentDifferences(plan(element(), undefined), new Map([['1', stored()]]))).toEqual([]);
   });
 });
 

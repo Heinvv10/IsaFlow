@@ -15,6 +15,10 @@ import type { MigrationReport } from './sageMigrationTypes';
 /** One PO as the books hold it (read by sageSnapshot). */
 export interface PoContent {
   supplierId: string;
+  /** The booked supplier's name (null when the row is gone). */
+  supplierName?: string | null;
+  /** The booked supplier is deleted in IsaFlow: the PO tool answers Not found for the whole batch of a PO naming it, replay included. */
+  supplierDeleted?: boolean;
   deliveryDate: string | null;
   reference: string | null;
   lines: Array<{ description: string; quantity: number; unitPrice: number }>;
@@ -40,7 +44,7 @@ const bare = (description: string, itemCode: string | null | undefined): string 
 const micro = (n: number): number => Math.round(n * 1e6);
 
 export function poContentDifferences(
-  plan: { purchaseOrders: ReadonlyArray<{ sageId: string; documentNumber: string; stored: StoredPo }> },
+  plan: { purchaseOrders: ReadonlyArray<{ sageId: string; documentNumber: string; stored: StoredPo; supplierProblem?: string }> },
   stored: ReadonlyMap<string, PoContent>,
 ): PoDifferences {
   const out: PoDifferences = [];
@@ -49,7 +53,8 @@ export function poContentDifferences(
     if (!have) continue;
     const sent = po.stored;
     const diffs: PoDifferences[number]['differences'] = [];
-    if (sent.supplierId !== have.supplierId) diffs.push({ field: 'supplier', existing: have.supplierId, requested: sent.supplierId });
+    if (po.supplierProblem) diffs.push({ field: 'supplier', existing: have.supplierId, requested: po.supplierProblem });
+    else if (sent.supplierId !== have.supplierId) diffs.push({ field: 'supplier', existing: have.supplierId, requested: sent.supplierId });
     if (sent.deliveryDate !== have.deliveryDate) diffs.push({ field: 'delivery_date', existing: have.deliveryDate, requested: sent.deliveryDate });
     if (sent.reference !== have.reference) diffs.push({ field: 'reference', existing: have.reference, requested: sent.reference });
     if (sent.lines.length !== have.lines.length) diffs.push({ field: 'lines', existing: have.lines.length, requested: sent.lines.length });
