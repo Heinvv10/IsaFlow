@@ -2,6 +2,7 @@
  * The admin companies page loads its list twice on mount: once from the `[page]` effect, and again 300 ms later from the
  * search/filter debounce, which also clears the ticked rows. A test that ticks a row (or "Select all") before that second
  * load is wiped by it, so the bulk bar it waits for never appears. Wait for both list requests, then tick.
+ * Delete this (and its callers' waits) if the page is ever changed to load its list once on mount.
  */
 import { waitFor } from '@testing-library/react';
 import { expect, vi } from 'vitest';
