@@ -225,19 +225,19 @@ export default function CostCentresPage() {
                     const editing = editingId === cc.id;
                     return (
                       <tr key={cc.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                        <td data-label="Code" className="py-2 px-3 font-id text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
+                        <td data-label="Code" className="py-2 px-3 font-id text-[var(--ff-text-primary)] max-lg:flex-wrap">
                           {editing ? (
                             <input value={editCode} onChange={e => setEditCode(e.target.value)}
                               className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-28 max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto" />
                           ) : cc.code}
                         </td>
-                        <td data-label="Name" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
+                        <td data-label="Name" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap">
                           {editing ? (
                             <input value={editName} onChange={e => setEditName(e.target.value)}
                               className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-full max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto" />
                           ) : cc.name}
                         </td>
-                        <td data-label="GL expense account" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap max-lg:gap-2">
+                        <td data-label="GL expense account" className="py-2 px-3 text-[var(--ff-text-primary)] max-lg:flex-wrap">
                           <select
                             value={mappings.find(m => m.costCentreId === cc.id)?.expenseAccountId ?? ''}
                             onChange={e => setMapping(cc.id, e.target.value)}

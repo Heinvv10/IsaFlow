@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/payroll/WriteOnly', () => ({ WriteOnly: ({ children }: { children: ReactNode }) => <>{children}</> }));
+const role = vi.hoisted(() => ({ viewer: false }));
+vi.mock('@/components/payroll/WriteOnly', () => ({ WriteOnly: ({ children }: { children: ReactNode }) => (role.viewer ? null : <>{children}</>) }));
 const data = {
   cc: [{ id: 'c1', code: 'ADMIN', name: 'Administration', parentId: null, isActive: true, notes: null }],
   map: [{ costCentreId: 'c1', expenseAccountId: 'a1', accountCode: '6000', accountName: 'Salaries' }],
@@ -21,7 +22,7 @@ vi.mock('@/lib/apiFetch', async (orig) => ({
 
 import Page from '../../../pages/payroll/cost-centres/index';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); role.viewer = false; });
 const cls = (el: Element) => el.className.split(' ');
 const HEADS = ['Code', 'Name', 'GL expense account', 'Status', ''];
 const LINK = ['max-lg:inline-flex', 'max-lg:items-center', 'max-lg:min-h-11'];
@@ -38,6 +39,15 @@ describe('Payroll cost centres on touch', () => {
     expect(cls(tds[4])).toContain('max-lg:empty:!hidden'); // a viewer's actions cell renders nothing: no empty card block
   });
 
+  it('a read-only role renders nothing in the actions cell, which is the case max-lg:empty:!hidden hides', async () => {
+    role.viewer = true;
+    const { container } = render(<Page />);
+    await screen.findByText('Administration');
+    const cell = container.querySelector('tbody tr:first-child > td:last-child')!;
+    expect(cell.childNodes).toHaveLength(0);
+    expect(cls(cell)).toContain('max-lg:empty:!hidden');
+  });
+
   it('makes Edit, Deactivate and the GL mapping select phone-sized', async () => {
     render(<Page />);
     await screen.findByText('Administration');
@@ -45,7 +55,7 @@ describe('Payroll cost centres on touch', () => {
     const select = screen.getByRole('combobox');
     expect(cls(select)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:flex-1', 'max-lg:min-w-[10rem]']));
     // the label and the control share a flex row in card mode: let the control drop to its own line when it does not fit
-    expect(cls(select.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-2']));
+    expect(cls(select.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap']));
   });
 
   it('makes the edit inputs and the save/cancel icon buttons phone-sized', async () => {
@@ -57,7 +67,7 @@ describe('Payroll cost centres on touch', () => {
     expect(inputs).toHaveLength(2);
     for (const i of inputs) {
       expect(cls(i)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:flex-1', 'max-lg:min-w-[10rem]', 'max-lg:w-auto']));
-      expect(cls(i.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-2']));
+      expect(cls(i.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap']));
     }
     const icons = row.querySelectorAll('td:last-child button');
     expect(icons).toHaveLength(2);
