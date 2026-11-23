@@ -50,6 +50,24 @@ const probeNoSession = async (timeout: string, allocation: string, over: { compa
 };
 const setConnection = (set: string) => asAppUser(pool, U.ab, co.A, (q) => q.query(`UPDATE intercompany_connections SET ${set} WHERE id = $1`, [conn]), true);
 
+/** Deterministic barrier: resolves once a backend of THIS database is waiting on a lock inside the definer (a poll on pg_stat_activity, bounded by elapsed time; not a sleep the outcome depends on).
+ *  `settled` is the probe's own promise: if it settles first (an error, or an answer without any wait) the barrier fails with THAT, not with a misleading "never blocked". */
+const waitUntilDefinerBlocked = async (settled: Promise<unknown>): Promise<void> => {
+  let early: { error?: unknown } | null = null;
+  void settled.then(() => { early = {}; }, (error: unknown) => { early = { error }; });
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (early) throw (early as { error?: unknown }).error ?? new Error('the definer answered without ever waiting on the held row');
+    const r = await pool.query(
+      `SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'
+          AND query LIKE '%intercompany_send_for_allocation%'`);
+    if ((r.rowCount ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('the definer never blocked on a lock: the test setup did not overlap the writer');
+};
+
 describe('the lock bound is tighten-only and put back at every exit', () => {
   it.each(['500ms', '1s', '10s', '0'])('a caller bound of %s is what it was after EVERY exit: sent, already_sent, not_found, no_session, forbidden, no_link, not_posted, no_journal, before_cutover, no_cutover, not_loan, no_connection', async (timeout) => {
     const paid = async (over: Parameters<typeof plantPaid>[2] = {}, link = true) => (await plantPaid(pool, (await plantBill(pool, conn, { link })).bill, over)).allocation;
@@ -156,11 +174,17 @@ describe('the link and the connection are held FOR SHARE while the definer decid
   it.each(['intercompany_connections', 'intercompany_document_links'] as const)('a change of the %s row in flight is waited for, and the answer follows once it is released', async (table) => {
     const { allocation, link } = await early();
     const held = await hold(table, table === 'intercompany_connections' ? conn : link);
-    const t0 = Date.now();
-    setTimeout(() => { void held.release(); }, 700);
-    const { answer } = await probe('10s', allocation);
-    expect(answer.reason).toBe('before_cutover');
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(600);
+    let released = false;
+    const release = async () => { if (!released) { try { await held.release(); released = true; } catch { /* retried once in finally */ } } };
+    const probing = probe('10s', allocation);
+    try {
+      await waitUntilDefinerBlocked(probing);          // SEEN waiting on the held row: no timing, and an answer before this point cannot happen
+      await release();
+      expect((await probing).answer.reason).toBe('before_cutover');
+    } finally {
+      await release();
+      await probing.catch(() => undefined);
+    }
   }, 30000);
 
   it.each(['intercompany_connections', 'intercompany_document_links'] as const)('one that is still in flight at the bound times out (55P03) with the 2 s bound, never waiting for ever (%s)', async (table) => {
@@ -178,40 +202,48 @@ describe('the link and the connection are held FOR SHARE while the definer decid
 });
 
 describe('a change that COMMITS while the definer waits is judged as it then stands', () => {
-  /** The real change on its own session, committed ~700 ms after it was made; resolves once the change is made (its row lock is held). */
-  const changeThenCommit = async (user: string, company: string, statement: string, id: string) => {
+  /** The real change on its own session: made, then HELD uncommitted until `commit()` (no timer), so the definer is judged against a change that commits while it waits. */
+  const changeUncommitted = async (user: string, company: string, statement: string, id: string) => {
     let made!: () => void;
     const madeIt = new Promise<void>((res) => { made = res; });
+    let go!: () => void;
+    const goOn = new Promise<void>((res) => { go = res; });
     const done = asAppUser(pool, user, company, async (q) => {
-      await q.query(statement, [id]);
+      const changed = await q.query(statement, [id]);
+      expect(changed.rowCount, 'the change must hit exactly one row').toBe(1);
       made();
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await goOn;
     }, true);
-    await madeIt;
-    return done;
+    await Promise.race([madeIt, done]);                 // a failed setup rejects here with its own error instead of hanging
+    return { commit: async () => { go(); await done; }, abandon: () => { go(); return done.catch(() => undefined); } };
+  };
+  const judgedAfterCommit = async (change: Awaited<ReturnType<typeof changeUncommitted>>, allocation: string) => {
+    const probing = probe('10s', allocation);
+    try {
+      await waitUntilDefinerBlocked(probing);
+      await change.commit();
+      return (await probing).answer;
+    } finally {
+      await change.abandon();
+      await probing.catch(() => undefined);
+    }
   };
 
   it('a link UNLINKED meanwhile is no_link, and no message is written', async () => {
     const { bill, link } = await plantBill(pool, conn);
     const { allocation } = await plantPaid(pool, bill);
-    const change = changeThenCommit(U.b, co.B, "UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = $1", link as string);
-    const t0 = Date.now();
-    const { answer } = await probe('10s', allocation);
-    await change;
+    const change = await changeUncommitted(U.b, co.B, "UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = $1", link as string);
+    const answer = await judgedAfterCommit(change, allocation);
     expect(answer.reason).toBe('no_link');
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
     expect(await allocationMessages(pool)).toHaveLength(0);
   }, 30000);
 
   it('a connection REVOKED meanwhile is no_connection, and no message is written', async () => {
     const { bill } = await plantBill(pool, conn);
     const { allocation } = await plantPaid(pool, bill);
-    const change = changeThenCommit(U.ab, co.A, "UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", conn);
-    const t0 = Date.now();
-    const { answer } = await probe('10s', allocation);
-    await change;
+    const change = await changeUncommitted(U.ab, co.A, "UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", conn);
+    const answer = await judgedAfterCommit(change, allocation);
     expect(answer.reason).toBe('no_connection');
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
     expect(await allocationMessages(pool)).toHaveLength(0);
   }, 30000);
 });
