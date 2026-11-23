@@ -14,7 +14,7 @@ import type { AllocationItem, AllocationPage } from '@/modules/accounting/servic
 import { AllocationDetailDrawer } from './AllocationDetailDrawer';
 import { InboxRejectModal } from './InboxRejectModal';
 import { AllocationRow } from './AllocationRow';
-import { rowLabels } from './allocationLabels';
+import { isOpen, rowLabel, rowLabels } from './allocationLabels';
 
 interface Props {
   filter: InboxFilter;
@@ -28,6 +28,9 @@ const LIMIT = 100;
 const COLUMNS = ['Payer', 'Payment', 'Your invoice', 'Amount', 'Open amount', 'State'];
 const LOAD_ERROR = 'Could not load the payments from your group - try again';
 const isConflict = (err: unknown) => err instanceof ApiRequestError && err.status === 409;
+/** The message a dialog was opened on, as the newest answer lists it; closed (null) when it is not listed any more, or `still` fails. */
+const keep = (byId: Map<string, AllocationItem>, still: (i: AllocationItem) => boolean) =>
+  (cur: AllocationItem | null): AllocationItem | null => { const now = cur ? byId.get(cur.id) : undefined; return now && still(now) ? now : null; };
 
 export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: Props) {
   const [page, setPage] = useState<AllocationPage | null>(null);
@@ -47,6 +50,11 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
       if (mine !== latest.current) return;
       setPage(result);
       setError('');
+      // no drawer or dialog outlives its row: one on a message this answer no longer lists (or no longer open, for an action) is closed
+      const byId = new Map(result.items.map((i) => [i.id, i]));
+      setOpen(keep(byId, () => true));
+      setRejecting(keep(byId, isOpen));
+      setConfirming(keep(byId, isOpen));
     } catch (err) {
       // the last list stays (and so does any open dialog): the alert says the reload failed
       if (mine === latest.current) setError(apiErrorMessage(err, LOAD_ERROR));
@@ -54,7 +62,12 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
   }, [filter]);
 
   useEffect(() => { setPage(null); setError(''); void load(); }, [load]);
-  useEffect(() => { if (page) onCount?.(page.items.length); }, [onCount, page]);
+  // An action finishing after a tab switch reloads the tab now shown (the newest `load`), never the one it started on.
+  const loadNow = useRef(load);
+  useEffect(() => { loadNow.current = load; }, [load]);
+  const reload = useCallback(() => loadNow.current(), []);
+  // The count of the last answer; none listed when this tab's first load failed; nothing said while a list loads.
+  useEffect(() => { if (page) onCount?.(page.items.length); else if (error) onCount?.(0); }, [onCount, page, error]);
 
   const mark = (id: string, on: boolean) => setBusy((b) => { const n = new Set(b); if (on) n.add(id); else n.delete(id); return n; });
 
@@ -64,10 +77,10 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
       await apiJson(`/api/accounting/intercompany/allocations/${item.id}/${what}`, { method: 'POST' }, `Could not ${what} this payment - try again`);
       setOpen(null);
       onNotice({ msg: done, ok: true });
-      await load();
+      await reload();
     } catch (err) {
       onNotice({ msg: apiErrorMessage(err, `Could not ${what} this payment - try again`), ok: false });
-      if (isConflict(err)) void load();     // someone else moved it: show it as it now is
+      if (isConflict(err)) void reload();     // someone else moved it: show it as it now is
     } finally {
       mark(item.id, false);
     }
@@ -75,11 +88,11 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
 
   const items = page?.items ?? [];
   const labels = rowLabels(items);
-  const labelOf = (i: AllocationItem) => labels.get(i.id) ?? i.id;
+  const labelOf = (i: AllocationItem) => labels.get(i.id) ?? rowLabel(i);
   const alert = error && (
     <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
       <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden /><span className="flex-1">Payments from your group: {error}</span>
-      <button type="button" onClick={() => void load()} className="underline">Try again</button>
+      <button type="button" onClick={() => void reload()} className="underline">Try again</button>
     </div>
   );
   if (items.length === 0) return alert || null;
@@ -123,8 +136,8 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
           onCancel={() => setConfirming(null)}
           onAccept={() => { const i = confirming; setConfirming(null); if (i) void act(i, 'dismiss', `Dismissed ${labelOf(i)}. You can restore it under Handled.`); }} />
         <InboxRejectModal path="allocations" item={rejecting ? { id: rejecting.id, number: labelOf(rejecting), senderName: rejecting.senderName } : null}
-          onClose={() => setRejecting(null)} onDone={(msg) => { setRejecting(null); onNotice({ msg, ok: true }); void load(); }}
-          onConflict={() => void load()} />
+          onClose={() => setRejecting(null)} onDone={(msg) => { setRejecting(null); onNotice({ msg, ok: true }); void reload(); }}
+          onConflict={(msg) => { onNotice({ msg, ok: false }); void reload(); }} />
       </section>
     </>
   );

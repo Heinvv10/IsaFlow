@@ -11,8 +11,9 @@ interface Props {
   onDone: (message: string) => void;
   /** The route family the message is rejected through: `inbox` (invoices and credit notes) or `allocations` (payments). */
   path?: 'inbox' | 'allocations';
-  /** The server refused with a 409 (someone else handled it, the connection ended): the list behind the dialog should reload. */
-  onConflict?: () => void;
+  /** The server refused with a 409 (someone else handled it, the connection ended), with its sentence: the list behind the dialog should
+   *  reload (and close this dialog if the message is no longer listed, saying why). */
+  onConflict?: (message: string) => void;
 }
 
 export function InboxRejectModal({ item, onClose, onDone, path = 'inbox', onConflict }: Props) {
@@ -28,7 +29,10 @@ export function InboxRejectModal({ item, onClose, onDone, path = 'inbox', onConf
 
   async function submit() {
     if (!item || submitting.current) return;
-    if (reason.trim() === '') { setError('Say why you are rejecting it: the sender will read this.'); return; }
+    if (reason.trim() === '') {
+      setError(payment ? 'Say why you are rejecting it: the reason is recorded on the message.' : 'Say why you are rejecting it: the sender will read this.');
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -39,8 +43,9 @@ export function InboxRejectModal({ item, onClose, onDone, path = 'inbox', onConf
       // (nothing shows the payer a rejected payment yet: the reason is recorded on the message, no more is claimed)
       onDone(payment ? `Rejected ${item.number}. Your reason is recorded on the message.` : `Rejected ${item.number}. ${item.senderName} will see your reason.`);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not reject this message - try again'));
-      if (err instanceof ApiRequestError && err.status === 409) onConflict?.();
+      const message = apiErrorMessage(err, 'Could not reject this message - try again');
+      setError(message);
+      if (err instanceof ApiRequestError && err.status === 409) onConflict?.(message);
     } finally {
       submitting.current = false;
       setBusy(false);

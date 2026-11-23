@@ -41,3 +41,7 @@ Any accept/clear/draft, journal, status transition by the app, persistence of mi
 - UI: every button, dialog and notice names its row by payment and this company's invoice ("payment SP-1 on INV-900"; the payer's bill when the invoice is gone; "(1 of 2)" for a repeated pair, e.g. a stale and a live message of one payment). The reject dialog says the rejection is final and the reason is recorded on the message (nothing shows the payer a rejected allocation yet). Foreign amounts carry their currency code. A mismatch shows on a stale row too (a pre-cut-over payment's only beside a reason other than `before_cutover`). A failed reload keeps the list and any open dialog under an alert; a 409 reloads the list; busy is per row; a filter switch clears an old error; the payment count is kept while a list loads.
 - Not in this round: one definer call per open row and the 100-row page (filed separately, L3).
 
+## (i) Review round 3 (2026-11-23)
+- UI only. The payment reject dialog's empty-reason line says the reason is recorded on the message (never that the payer reads it). After every successful load, a drawer, reject dialog or dismiss confirm on a message the answer no longer lists (or, for an action, no longer open) is closed; a 409 on reject says why in a notice. A tab whose first load failed reports no payments to the invoice list. An action that finishes after a tab switch reloads the tab now shown.
+- Not in this round: the stop condition for a failure without a SQLSTATE (filed, L3).
+
