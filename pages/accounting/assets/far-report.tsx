@@ -150,7 +150,7 @@ export default function FarReportPage() {
           <button
             type="button"
             onClick={() => load(asAt)}
-            className="px-2 py-1 rounded bg-red-800/60 hover:bg-red-700 text-red-100 text-xs font-medium"
+            className="px-2 py-1 rounded bg-red-800/60 hover:bg-red-700 text-red-100 text-xs font-medium max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
           >
             Retry
           </button>
