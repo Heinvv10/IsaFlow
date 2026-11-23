@@ -35,9 +35,14 @@ async function plant(table: Table, company: string, account: string): Promise<vo
       case 'bank_statement_imports': await q('INSERT INTO bank_statement_imports(company_id, bank_account_id, source_document_id) VALUES ($1, $2, $3)', [company, account, id()]); break;
       case 'bank_import_batches': await q("INSERT INTO bank_import_batches(company_id, bank_account_id, statement_date) VALUES ($1, $2, DATE '2026-09-01')", [company, account]); break;
       case 'bank_reconciliations': await q("INSERT INTO bank_reconciliations(company_id, bank_account_id, statement_date, started_by) VALUES ($1, $2, DATE '2026-09-01', $3)", [company, account, U.ab]); break;
-      case 'bank_transfer_link_log': await q(
-        `INSERT INTO bank_transfer_link_log(company_id, link_batch_id, bank_transaction_id, bank_account_id, journal_entry_id, journal_line_id, trigger_source,
-           prev_status, linked_row_updated_at) VALUES ($1, $3, $4, $2, $5, $6, 'page_load', 'imported', now())`, [company, account, id(), id(), id(), id()]); break;
+      case 'bank_transfer_link_log':
+        // its guard is ENABLE ALWAYS (replica mode does not skip it): off for this one INSERT, back ALWAYS before COMMIT
+        await q('ALTER TABLE bank_transfer_link_log DISABLE TRIGGER trg_bank_transfer_link_log_guard', []);
+        await q(
+          `INSERT INTO bank_transfer_link_log(company_id, link_batch_id, bank_transaction_id, bank_account_id, journal_entry_id, journal_line_id, trigger_source,
+             prev_status, linked_row_updated_at) VALUES ($1, $3, $4, $2, $5, $6, 'page_load', 'imported', now())`, [company, account, id(), id(), id(), id()]);
+        await q('ALTER TABLE bank_transfer_link_log ENABLE ALWAYS TRIGGER trg_bank_transfer_link_log_guard', []);
+        break;
     }
     await client.query('COMMIT');
   } catch (err) {

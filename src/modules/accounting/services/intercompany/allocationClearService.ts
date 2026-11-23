@@ -53,6 +53,16 @@ const OPEN_INVOICE: ReadonlySet<string> = new Set(AR_OPEN_STATUSES);
 const CAPS: Readonly<Record<string, ClearRefusalCode>> = Object.freeze({
   cash_not_through_loan: 'cash_not_through_loan', already_cleared: 'already_cleared', payer_loan_unset: 'payer_loan_not_set_up',
 });
+/** What the MESSAGES GUARD raises (23514, no constraint) when it refuses an accepted allocation; any other 23514 (a CHECK constraint, another
+ *  guard sentence) is not the guard disagreeing with these checks and stays a 5xx. */
+const GUARD_REFUSALS: readonly string[] = [
+  'an allocation message is accepted with the clearing posted for it',
+  'a document is the target of one accepted message per receiving company',
+];
+const isGuardRefusal = (err: unknown): boolean => {
+  const e = err as { code?: unknown; constraint?: unknown; message?: unknown } | null;
+  return e?.code === '23514' && !e.constraint && typeof e.message === 'string' && GUARD_REFUSALS.includes(e.message);
+};
 const sqlstate = (err: unknown): string | null => {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
@@ -198,7 +208,7 @@ async function clear(companyId: string, userId: string, message: LockedMessage, 
        RETURNING id
     `) as Row[];
   } catch (err) {
-    if (sqlstate(err) === '23514') {
+    if (isGuardRefusal(err)) {
       log.error('Intercompany allocation clearing refused by the messages guard after the checks passed', { companyId, messageId: message.id }, 'intercompany');
       throw new ClearRefusal('refused');
     }

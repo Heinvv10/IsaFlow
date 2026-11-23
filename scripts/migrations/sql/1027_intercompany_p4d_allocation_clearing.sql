@@ -2,7 +2,7 @@
 -- (section (i) supersedes the earlier text; parent: docs/plans/2026-11-17-intercompany-mirror-posting.md, P4). Applies on top of 1026. Forward only:
 -- no table or column changes; one partial index (5b). The liveness definer is REPLACED, one SECURITY DEFINER is new (the full clearing check,
 -- split from it in fix round 2, M4) and three INVOKER helpers are new. Edited in place (not yet released) by fix round 1 (F1, F2, F3, F5, F6,
--- F9, M4, m3, m5), fix round 2 (A1, A3, M4, L1, L5) and fix round 3 (A, C).
+-- F9, M4, m3, m5), fix round 2 (A1, A3, M4, L1, L5), fix round 3 (A, C) and the final batch (M2).
 
 -- WHAT
 --   0. intercompany_is_loan_class(account, company), STABLE INVOKER: the loan or intercompany balance-sheet accounts a clearing may touch (asset
@@ -93,14 +93,15 @@ AS $$
              WHEN 'liability' THEN ga.account_subtype IN ('current_liability', 'other_current_liability', 'long_term_liability', 'other')
              ELSE false END
        AND NOT EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ga.company_id)
-       -- (round 3, A) nor one any bank table names: a registered bank account, a bank feed, a statement import, an import batch, a
-       -- reconciliation, a transfer-link log (each of these columns is the GL account the bank side posts to)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_accounts b WHERE b.gl_account_id = ga.id)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_feed_connections f WHERE f.bank_account_id = ga.id)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_statement_imports i WHERE i.bank_account_id = ga.id)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_import_batches ib WHERE ib.bank_account_id = ga.id)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_reconciliations r WHERE r.bank_account_id = ga.id)
-       AND NOT EXISTS (SELECT 1 FROM public.bank_transfer_link_log tl WHERE tl.bank_account_id = ga.id)
+       -- (round 3, A) nor one any bank table of ITS OWN company names: a registered bank account, a bank feed, a statement import, an import
+       -- batch, a reconciliation, a transfer-link log (each of these columns is the GL account the bank side posts to). Scoped to the
+       -- account's company like the statement-line test: a row of another company naming this id re-classes nothing (final batch, M2)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_accounts b WHERE b.gl_account_id = ga.id AND b.company_id = ga.company_id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_feed_connections f WHERE f.bank_account_id = ga.id AND f.company_id = ga.company_id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_statement_imports i WHERE i.bank_account_id = ga.id AND i.company_id = ga.company_id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_import_batches ib WHERE ib.bank_account_id = ga.id AND ib.company_id = ga.company_id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_reconciliations r WHERE r.bank_account_id = ga.id AND r.company_id = ga.company_id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_transfer_link_log tl WHERE tl.bank_account_id = ga.id AND tl.company_id = ga.company_id)
       FROM public.gl_accounts ga
      WHERE ga.id = p_account AND ga.company_id = p_company), false)
 $$;
