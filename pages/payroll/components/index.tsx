@@ -230,8 +230,10 @@ export default function PayComponentsPage() {
                       <td data-label="Name" className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
                       <td data-label="SARS" className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
                       <td data-label="Type" className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
-                        {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">paid outside payroll</span>}
+                        <span className="max-lg:text-right">
+                          <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
+                          {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] max-lg:block max-lg:ml-0">paid outside payroll</span>}
+                        </span>
                       </td>
                       <td data-label="Tax" className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isTaxable ? 'Y' : 'N'}</td>
                       <td data-label="UIF" className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isUifApplicable ? 'Y' : 'N'}</td>
