@@ -283,3 +283,15 @@ describe('L5 (round 7): a Sage PO reference held by more than one IsaFlow PO is 
     expect(plan.purchaseOrders.map((p) => p.documentNumber)).not.toContain('PO0000197');
   });
 });
+
+describe('L4 (round 8): the stored link of a sent item is found by its Sage reference', () => {
+  const owned = (code: string) => ({ ...NONE, items: [{ id: 'uuid-owned', code, system: 'sage', ref: '50001', deleted: false, isActive: true, itemType: 'physical', inventoryTracked: false, stateHash: 'h', hasMovements: false }] }) as never;
+  const link = (code: string) => planMigration(parsed(), allResolved(), owned(code)).purchaseOrders.find((p) => p.documentNumber === 'PO0000197')!.stored.lines[0]!.columns.item_id;
+  it('an owned item renamed in IsaFlow is still the one: its id, not the "item:CODE" placeholder', () => {
+    expect(link('FIB-RENAMED')).toBe('uuid-owned');
+    expect(link('FIB-0001')).toBe('uuid-owned');
+  });
+  it('an item not in the books yet is the placeholder', () => {
+    expect(planMigration(parsed(), allResolved(), NONE).purchaseOrders.find((p) => p.documentNumber === 'PO0000197')!.stored.lines[0]!.columns.item_id).toBe('item:FIB-0001');
+  });
+});
