@@ -96,7 +96,7 @@ export default function PayScalesPage() {
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
               <input placeholder="Code (G5)" value={form.code}
                 onChange={e => setForm({ ...form, code: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
+                className="col-span-2 md:col-span-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input placeholder="Name" value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })}
                 className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
@@ -157,7 +157,7 @@ export default function PayScalesPage() {
                     <td data-label="Min" className="px-4 py-2 text-right">{zar(s.minSalary)}</td>
                     <td data-label="Mid" className="px-4 py-2 text-right">{zar(s.midSalary)}</td>
                     <td data-label="Max" className="px-4 py-2 text-right">{zar(s.maxSalary)}</td>
-                    <td data-label="Status" className="px-4 py-2">
+                    <td data-label="Status" className="px-4 py-2 max-lg:items-center">
                       <button onClick={() => toggleActive(s)}
                         className={`px-2 py-0.5 rounded-full text-xs font-medium max-lg:min-h-11 max-lg:px-4 ${
                           s.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'

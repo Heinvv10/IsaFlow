@@ -29,6 +29,13 @@ describe('Payroll pay scales on touch', () => {
     expect([...table.querySelectorAll('tbody tr:first-child td')].map((td) => td.getAttribute('data-label'))).toEqual(HEADS);
   });
 
+  it('centres the Status toggle against its label, and lets Code span the row below md', async () => {
+    render(<Page />);
+    await screen.findByText('Senior clerk');
+    expect(cls(screen.getByRole('button', { name: 'Active' }).closest('td')!)).toContain('max-lg:items-center');
+    expect(cls(screen.getByPlaceholderText('Code (G5)'))).toEqual(expect.arrayContaining(['col-span-2', 'md:col-span-1']));
+  });
+
   it('centres the empty-state cell and keeps it roomy in card mode', async () => {
     state.scales = [];
     render(<Page />);
