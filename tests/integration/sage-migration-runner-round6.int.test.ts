@@ -10,10 +10,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { migrationLockKey } from '@/modules/accounting/services/sage-migration/sageRunLock';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
+import { stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
 import { exitCodeFor } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 
 assertDisposable();
@@ -142,5 +143,22 @@ describe('L2: a batch whose COMMIT failed', () => {
     (f.PurchaseOrders as Row[])[0] = { ...(f.PurchaseOrders as Row[])[0], Total: 1 }; // expected_totals the lines do not add up to: the plan refuses it first
     const r = await run(f, { allowRefusals: true });
     expect(r.live!.purchaseOrders.batches.every((b) => !b.commitUnconfirmed)).toBe(true);
+  });
+  it('a later stop lists it as "commit unconfirmed", next to the batches that did commit', async () => {
+    const [k1, k2] = migrationLockKey(s.companyId);
+    // The 1st category COMMIT fails; after the 2nd category batch commits, the lock connection is killed: the run stops at the next boundary.
+    const base = failingCommitPool(pool, [1]);
+    const hooked = afterCommitOf(base, 'upsert_item_category', {
+      after: async () => {
+        await pool.query(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,
+          [String(BigInt.asUintN(32, BigInt(k1))), String(BigInt.asUintN(32, BigInt(k2)))]);
+        await new Promise((r) => setTimeout(r, 150));
+      },
+    });
+    const err = await run(exportFile(), {}, hooked).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(MigrationStopped);
+    const message = stopMessage(err);
+    expect(message).toMatch(/commit unconfirmed: category batch 1 \(/);
+    expect(message).toMatch(/committed: category batch 2 \(/);
   });
 });
