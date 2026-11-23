@@ -76,7 +76,7 @@ export default function PayrollBatchesListPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-indigo-500/10">
                 <Layers className="h-6 w-6 text-indigo-500" />
@@ -87,7 +87,7 @@ export default function PayrollBatchesListPage() {
               </div>
             </div>
             <WriteOnly>
-              <Link href="/payroll/batches/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
+              <Link href="/payroll/batches/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium max-lg:min-h-11">
                 <Plus className="h-4 w-4" /> New Batch
               </Link>
             </WriteOnly>
@@ -100,7 +100,7 @@ export default function PayrollBatchesListPage() {
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as BatchRow['status'] | '')}
-              className="rounded-md bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]"
+              className="rounded-md bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11"
             >
               <option value="">All</option>
               <option value="draft">Draft</option>
@@ -123,14 +123,14 @@ export default function PayrollBatchesListPage() {
               <Layers className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No batches yet</p>
               <WriteOnly>
-                <Link href="/payroll/batches/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
+                <Link href="/payroll/batches/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium max-lg:min-h-11">
                   <Plus className="h-4 w-4" /> Create first batch
                 </Link>
               </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Description</th>
@@ -145,15 +145,15 @@ export default function PayrollBatchesListPage() {
                 <tbody>
                   {batches.map(b => (
                     <tr key={b.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">{b.description}</td>
-                      <td className="py-3 px-4"><TypeBadge type={b.batchType} /></td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{MONTHS[b.periodMonth - 1]} {b.periodYear}</td>
-                      <td className="py-3 px-4"><StatusBadge status={b.status} /></td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{b.lineCount}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
-                      <td className="py-3 px-4 text-right">
+                      <td data-label="Description" className="py-3 px-4 text-[var(--ff-text-primary)]">{b.description}</td>
+                      <td data-label="Type" className="py-3 px-4"><TypeBadge type={b.batchType} /></td>
+                      <td data-label="Period" className="py-3 px-4 text-[var(--ff-text-secondary)]">{MONTHS[b.periodMonth - 1]} {b.periodYear}</td>
+                      <td data-label="Status" className="py-3 px-4"><StatusBadge status={b.status} /></td>
+                      <td data-label="Lines" className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{b.lineCount}</td>
+                      <td data-label="Total" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
+                      <td className={`py-3 px-4 text-right${mayWrite ? '' : ' max-lg:!hidden'}`}>
                         {mayWrite && (
-                          <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
+                          <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Open</Link>
                         )}
                       </td>
                     </tr>

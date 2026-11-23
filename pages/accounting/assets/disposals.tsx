@@ -70,7 +70,7 @@ export default function AssetDisposalsPage() {
             <div role="alert" className="mb-4 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">{error}</div>
           )}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                   <th className="px-4 py-3">Asset</th>
@@ -85,27 +85,27 @@ export default function AssetDisposalsPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...
                     </td>
                   </tr>
                 )}
                 {!loading && !error && disposals.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       No disposals recorded yet
                     </td>
                   </tr>
                 )}
                 {disposals.map(d => (
                   <tr key={d.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{d.asset_number}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{d.asset_name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(d.disposal_date)}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{methodLabels[d.disposal_method] || d.disposal_method}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(d.disposal_amount))}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(Number(d.book_value_at_disposal))}</td>
-                    <td className={`px-4 py-3 text-right font-medium ${Number(d.gain_loss) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                    <td data-label="Asset" className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{d.asset_number}</td>
+                    <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-secondary)]">{d.asset_name}</td>
+                    <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(d.disposal_date)}</td>
+                    <td data-label="Method" className="px-4 py-3 text-[var(--ff-text-secondary)]">{methodLabels[d.disposal_method] || d.disposal_method}</td>
+                    <td data-label="Sale/Scrap Value" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(d.disposal_amount))}</td>
+                    <td data-label="Book Value" className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(Number(d.book_value_at_disposal))}</td>
+                    <td data-label="Gain / (Loss)" className={`px-4 py-3 text-right font-medium ${Number(d.gain_loss) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {fmt(Number(d.gain_loss))}
                     </td>
                   </tr>

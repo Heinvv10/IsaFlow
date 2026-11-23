@@ -68,12 +68,12 @@ export function ParallelRunUploadCard({ onImported }: Props) {
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-36">
-          <Select id="parallel-run-period-month" label="Period month" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
+          <Select id="parallel-run-period-month" touchTarget label="Period month" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
             options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))}
             value={String(periodMonth)} onChange={(v) => { if (v) setPeriodMonth(Number(v)); }} />
         </div>
         <div className="w-28">
-          <Select id="parallel-run-period-year" label="Year" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
+          <Select id="parallel-run-period-year" touchTarget label="Year" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
             options={years.map((y) => ({ value: String(y), label: String(y) }))}
             value={String(periodYear)} onChange={(v) => { if (v) setPeriodYear(Number(v)); }} />
         </div>
@@ -83,7 +83,7 @@ export function ParallelRunUploadCard({ onImported }: Props) {
             value={source}
             onChange={(e) => setSource(e.target.value)}
             placeholder="e.g. VIP Premier"
-            className="mt-1 block w-40 rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]"
+            className="mt-1 block w-40 rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
           />
         </label>
         <input
@@ -96,7 +96,7 @@ export function ParallelRunUploadCard({ onImported }: Props) {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={isUploading}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--ff-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-[var(--ff-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 max-lg:min-h-11"
         >
           {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Choose CSV…
