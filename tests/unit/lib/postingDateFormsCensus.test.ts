@@ -1,8 +1,9 @@
 /**
- * Product decision (Dev Team orchestrator for Hein, 22 Nov 2026): every document form that chooses a posting date
- * refuses a date in a closed or locked fiscal period up front, draft-saving forms included. A form may move to
- * warn-only only where a server test proves posting into that period is refused (follow-up #1757), and this list is
- * changed in that PR. A linter in test clothes: it pins the decision, the behaviour is tested in DateFieldFiscal.test.tsx.
+ * Product decision (Dev Team orchestrator for Hein, 22 Nov 2026): a form that chooses a posting date refuses a date in a
+ * closed, locked or closing fiscal period up front. The four forms that save a DRAFT (customer invoice, customer
+ * credit note, supplier invoice, supplier credit note) are `postingDate="draft"`: they warn instead, because the server
+ * refuses to post into such a period (proven in tests/integration/closed-period-post-refusal.int.test.ts, #1757).
+ * A linter in test clothes: it pins the decision, the behaviour is tested in DateFieldFiscal.test.tsx.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -12,10 +13,10 @@ const root = join(__dirname, '../../..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
 
 const FORMS: Array<[file: string, pattern: RegExp]> = [
-  ['src/components/accounting/customer-invoices/InvoiceHeaderFields.tsx', /date\('invoiceDate', 'Invoice date', \{[^}]*postingDate: true/],
-  ['pages/accounting/credit-notes/new.tsx', /<DateField[^>]*postingDate/s],
-  ['pages/accounting/supplier-credit-notes/new.tsx', /<DateField[^>]*postingDate/s],
-  ['pages/accounting/supplier-invoices/new.tsx', /<DateField[^>]*postingDate/s],
+  ['src/components/accounting/customer-invoices/InvoiceHeaderFields.tsx', /date\('invoiceDate', 'Invoice date', \{[^}]*postingDate: 'draft'/],
+  ['pages/accounting/credit-notes/new.tsx', /<DateField[^>]*postingDate="draft"/s],
+  ['pages/accounting/supplier-credit-notes/new.tsx', /<DateField[^>]*postingDate="draft"/s],
+  ['pages/accounting/supplier-invoices/new.tsx', /<DateField[^>]*postingDate="draft"/s],
   ['pages/accounting/supplier-payments/new.tsx', /<DateField[^>]*postingDate/s],
   ['pages/accounting/customer-payments/new.tsx', /<DateField[^>]*postingDate/s],
   ['pages/accounting/journal-entries/new.tsx', /<DateField[^>]*postingDate/s],
