@@ -50,6 +50,8 @@ export async function setup(pool: Pool): Promise<void> {
   await account(acct.aExpense, co.A, `ICE${tag}`, null);
   await account(acct.aInactive, co.A, `ICI${tag}`, null, false);
   await account(acct.bLoan, co.B, `ICL${co.B.slice(0, 5)}`, null);
+  // the two loan accounts are a loan class (P4-D round 1: the side form takes no other loan account)
+  await pool.query("UPDATE gl_accounts SET account_subtype = 'other_current_liability' WHERE id = ANY($1)", [[acct.aLoan, acct.bLoan]]);
   for (const k of Object.keys(party) as (keyof typeof party)[]) party[k] = crypto.randomUUID();
   await pool.query('INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3), ($4, $5, $6)',
     [party.aCustomer, co.A, 'IC A customer', party.bCustomer, co.B, 'IC B customer']);

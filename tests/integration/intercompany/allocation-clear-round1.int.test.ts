@@ -77,7 +77,20 @@ describe('F2: the caps count every receiver, and serialise on the payer', () => 
     expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject({ accepted: true });
   });
 
-  it("the service waits on the payer's advisory locks (another receiver clearing the same payment), then clears", async () => {
+  it("the service waits on the payer's advisory locks BEFORE it reads the caps: another receiver's clearing committed meanwhile is seen", async () => {
+    const sent = await sentClearable(pool, conn, { amount: 400 });
+    const held = await holdCapLock(pool, sent.message);
+    const pending = accept(sent.message, bodyFor(sent));
+    expect(await lockWaiter(pool, 'advisory')).toBe(true);
+    // (what another receiver's Accept would commit while holding the same locks)
+    await plantForeignClearing(pool, conn, sent, 400);
+    await held.release();
+    const res = await pending;
+    expect(res.state.statusCode).toBe(200);
+    expect(outcomeOf(res)).toMatchObject(failed('already_cleared'));
+  });
+
+  it('with nothing committed meanwhile, the waiting clearing goes on and clears', async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     const held = await holdCapLock(pool, sent.message);
     const pending = accept(sent.message, bodyFor(sent));

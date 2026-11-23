@@ -34,6 +34,7 @@ beforeEach(async () => {
   await clearPayments(pool);
   await wipeConnections(pool);
   await pool.query("UPDATE gl_accounts SET account_type = 'asset', normal_balance = 'debit', account_subtype = 'other_current_asset' WHERE id = $1", [acct.aLoan]);
+  await pool.query("UPDATE gl_accounts SET account_type = 'liability', normal_balance = 'credit', account_subtype = 'other_current_liability' WHERE id = $1", [acct.bLoan]);
   conn = await clearConnect(pool);
 });
 
@@ -73,6 +74,9 @@ describe('the guard, one condition at a time', () => {
     ['dated before the payment', (p) => pool.query("UPDATE customer_payments SET payment_date = DATE '2026-08-31' WHERE id = $1", [p])],
     ['dated before the invoice', (_p, s) => pool.query("UPDATE customer_invoices SET invoice_date = DATE '2026-09-02' WHERE id = $1", [s.invoice])],
     ["the receiver's loan account no loan class", () => pool.query("UPDATE gl_accounts SET account_type = 'equity', account_subtype = 'equity' WHERE id = $1", [acct.aLoan])],
+    ["the payer's loan account of the receiver's type", async () => {
+      await pool.query("UPDATE gl_accounts SET account_type = 'asset', normal_balance = 'debit', account_subtype = 'other_current_asset' WHERE id = $1", [acct.bLoan]);
+    }],
   ];
   it.each(tampers)('refused: %s', async (_what, tamper) => {
     const s = await sentClearable(pool, conn, { amount: 400 });
