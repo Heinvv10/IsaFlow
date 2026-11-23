@@ -33,6 +33,7 @@ export const CLEAR_REFUSAL_SENTENCES: Readonly<Record<ClearRefusalCode, string>>
   busy: 'Your invoice is busy (another receipt is being recorded on it or is pending). Try again in a moment. Nothing was posted.',
   refused: 'The clearing was refused by a check on your loan account or your invoice. Nothing was posted.',
   not_group: 'Only a payment on a group connection can be cleared here. Nothing was posted.',
+  payer_loan_not_set_up: "The payer's loan account is not set up for clearing: ask them to fix their intercompany connection. Nothing was posted.",
   loan_class_mismatch: "Your loan account and the payer's are of the same kind (both assets or both liabilities), so one of them is not the other's side of the loan. Fix the loan account on the connection. Nothing was posted.",
 });
 

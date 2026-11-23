@@ -49,8 +49,10 @@ export const IC_ALLOCATION_POSTING_AGENT = 'system:ic_allocation_clear';
 
 const OPEN = new Set(['pending', 'failed']);
 const OPEN_INVOICE: ReadonlySet<string> = new Set(AR_OPEN_STATUSES);
-/** The definer's cap answers the clearing knows; anything else it might answer is refused generically. */
-const CAPS: ReadonlySet<string> = new Set(['cash_not_through_loan', 'already_cleared']);
+/** The definer's cap answers the clearing knows, as refusals; anything else it might answer is refused generically. */
+const CAPS: Readonly<Record<string, ClearRefusalCode>> = Object.freeze({
+  cash_not_through_loan: 'cash_not_through_loan', already_cleared: 'already_cleared', payer_loan_unset: 'payer_loan_not_set_up',
+});
 const sqlstate = (err: unknown): string | null => {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
@@ -168,8 +170,8 @@ async function clear(companyId: string, userId: string, message: LockedMessage, 
   const pending = await pendingDraftAmount(companyId, invoiceId);
   if (cents(pl.amount) > invoice.totalCents - invoice.paidCents - cents(pending)) throw new ClearRefusal('exceeds_open');
   // the caps across every receiver of this payer (the definer's answer, under the payer's advisory locks), then the two loan accounts' types
-  if (live.cap !== null) throw new ClearRefusal(CAPS.has(live.cap) ? live.cap as ClearRefusalCode : 'refused');
-  if (!live.payerLoanType) throw new ClearRefusal('cash_not_through_loan');
+  if (live.cap !== null) throw new ClearRefusal((Object.prototype.hasOwnProperty.call(CAPS, live.cap) && CAPS[live.cap]) || 'refused');
+  if (!live.payerLoanType) throw new ClearRefusal('payer_loan_not_set_up');
   if (live.payerLoanType === account.accountType) throw new ClearRefusal('loan_class_mismatch');
   const dateRefusal = await postingDateRefusal(companyId, input.postingDate);
   if (dateRefusal) throw new ClearRefusal(dateRefusal);
@@ -186,11 +188,22 @@ async function clear(companyId: string, userId: string, message: LockedMessage, 
      RETURNING id
   `) as Row[];
   if (stamped.length !== 1) throw new Error('the allocation clearing receipt could not be stamped');
-  const accepted = (await sql`
-    UPDATE intercompany_messages SET status = 'accepted', target_doc_type = 'customer_payment', target_doc_id = ${posted.paymentId}::UUID, error = NULL
-     WHERE id = ${message.id}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed')
-     RETURNING id
-  `) as Row[];
+  // (round 3, G) the guard judges the clearing again; if it disagrees with the checks above (a refusal they do not mirror), the posting is
+  // rolled back with the savepoint and the message stored `refused`, never a 500 that would repeat on every retry
+  let accepted: Row[];
+  try {
+    accepted = (await sql`
+      UPDATE intercompany_messages SET status = 'accepted', target_doc_type = 'customer_payment', target_doc_id = ${posted.paymentId}::UUID, error = NULL
+       WHERE id = ${message.id}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed')
+       RETURNING id
+    `) as Row[];
+  } catch (err) {
+    if (sqlstate(err) === '23514') {
+      log.error('Intercompany allocation clearing refused by the messages guard after the checks passed', { companyId, messageId: message.id }, 'intercompany');
+      throw new ClearRefusal('refused');
+    }
+    throw err;
+  }
   if (accepted.length !== 1) throw new Error('the allocation message could not be accepted');
   log.info('Intercompany allocation cleared', { companyId, messageId: message.id, paymentId: posted.paymentId, journalEntryId: posted.journalEntryId }, 'intercompany');
   return { accepted: true, messageId: message.id, paymentId: posted.paymentId, paymentNumber: posted.paymentNumber, journalEntryId: posted.journalEntryId };

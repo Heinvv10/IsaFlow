@@ -137,7 +137,8 @@ describe('G, H', () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     const journals = await ledger.journals(pool);
     try {
-      await pool.query(`CREATE OR REPLACE FUNCTION public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid) RETURNS boolean
+      await pool.query(`CREATE OR REPLACE FUNCTION public.intercompany_allocation_target_ok(
+                          p_message uuid, p_payload jsonb, p_connection uuid, p_receiver uuid, p_type text, p_target uuid) RETURNS boolean
                         LANGUAGE sql STABLE AS $$ SELECT false $$`);
       const res = await accept(sent.message, bodyFor(sent));
       expect(res.state.statusCode).toBe(200);

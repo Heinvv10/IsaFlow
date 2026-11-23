@@ -2,13 +2,15 @@
 -- (section (i) supersedes the earlier text; parent: docs/plans/2026-11-17-intercompany-mirror-posting.md, P4). Applies on top of 1026. Forward only:
 -- no table or column changes; one partial index (5b). The liveness definer is REPLACED, one SECURITY DEFINER is new (the full clearing check,
 -- split from it in fix round 2, M4) and three INVOKER helpers are new. Edited in place (not yet released) by fix round 1 (F1, F2, F3, F5, F6,
--- F9, M4, m3, m5) and fix round 2 (A1, A3, M4, L1, L5).
+-- F9, M4, m3, m5), fix round 2 (A1, A3, M4, L1, L5) and fix round 3 (A, C).
 
 -- WHAT
 --   0. intercompany_is_loan_class(account, company), STABLE INVOKER: the loan or intercompany balance-sheet accounts a clearing may touch (asset
 --      other_current_asset / other; liability current_liability / other_current_liability / long_term_liability / other; never a system
 --      account: the seeded charts carry their controls, bank, VAT, payroll and 2215 as system accounts; and never an account holding a
---      bank-statement line: real money, the repo's money rule, ap/settlementKind.moneyAccountSql, round 2 A1). ONE rule: the definers, the
+--      bank-statement line (real money: ap/settlementKind.moneyAccountSql's rule, round 2 A1) or named by any bank table (bank_accounts,
+--      bank_feed_connections, bank_statement_imports, bank_import_batches, bank_reconciliations, bank_transfer_link_log: round 3 A). ONE rule:
+--      the definers, the
 --      guard, the service's loan-account lock, the side form and its picker all ask this function.
 --   1. intercompany_allocation_message_live(message) is DROPPED and CREATED again (its row type changes), the LIGHT check the inbox asks once
 --      per open row: the 1026 body, a new reason future_dated (the payload's payment date after today, Johannesburg: m3), and
@@ -16,8 +18,9 @@
 --      reversal stands again), else NULL. The inbox's "Clearing voided" chip reads it (L5: the caps' own rule).
 --   1b. intercompany_allocation_clearable(message), SECURITY DEFINER, STABLE, the FULL check Accept and the guard ask: the light answer first
 --      (one source for liveness), then, when live, two figure-free outputs:
---        cap              NULL when this message's amount fits every cap, else 'cash_not_through_loan' (nothing cleared yet and still too much)
---                         or 'already_cleared'. The caps, each net of what EVERY receiver's other accepted, standing clearings of the same payer
+--        cap              NULL when this message's amount fits every cap, else 'payer_loan_unset' (round 3, C: the payer side names no
+--                         loan-class loan account, so nothing it paid can count), 'cash_not_through_loan' (nothing cleared yet and still too
+--                         much) or 'already_cleared'. The caps, each net of what EVERY receiver's other accepted, standing clearings of the same payer
 --                         already cleared (F2; a clearing stands while its receipt's journal chain is odd: F9):
 --                           the payer payment:  LEAST(its live allocations, what its standing journal credited the payer side's loan account)
 --                           the payer journal:  that loan credit (a batch's journal is shared by its members)
@@ -90,6 +93,14 @@ AS $$
              WHEN 'liability' THEN ga.account_subtype IN ('current_liability', 'other_current_liability', 'long_term_liability', 'other')
              ELSE false END
        AND NOT EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ga.company_id)
+       -- (round 3, A) nor one any bank table names: a registered bank account, a bank feed, a statement import, an import batch, a
+       -- reconciliation, a transfer-link log (each of these columns is the GL account the bank side posts to)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_accounts b WHERE b.gl_account_id = ga.id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_feed_connections f WHERE f.bank_account_id = ga.id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_statement_imports i WHERE i.bank_account_id = ga.id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_import_batches ib WHERE ib.bank_account_id = ga.id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_reconciliations r WHERE r.bank_account_id = ga.id)
+       AND NOT EXISTS (SELECT 1 FROM public.bank_transfer_link_log tl WHERE tl.bank_account_id = ga.id)
       FROM public.gl_accounts ga
      WHERE ga.id = p_account AND ga.company_id = p_company), false)
 $$;
@@ -274,6 +285,7 @@ BEGIN
              AND x.target_doc_type = 'customer_payment'
              AND COALESCE(public.intercompany_journal_chain_length(cp.gl_journal_entry_id, cp.company_id), 0) % 2 = 1) c;
   v_cap := CASE
+    WHEN v_loan IS NULL THEN 'payer_loan_unset'
     WHEN (v_bypay + v_amount > LEAST(v_paysum, v_credit) AND v_bypay > 0) OR (v_byje + v_amount > v_credit AND v_byje > 0)
       OR (v_bybill + v_amount > v_billsum AND v_bybill > 0) THEN 'already_cleared'
     WHEN v_bypay + v_amount > LEAST(v_paysum, v_credit) OR v_byje + v_amount > v_credit OR v_bybill + v_amount > v_billsum THEN 'cash_not_through_loan'
@@ -606,7 +618,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
     ('intercompany_allocation_message_live(uuid)', 'public.intercompany_allocation_message_live(uuid)',
      'nothing (STABLE): a read, for the RECEIVER of an allocation message only (a signed-in member of the session company, which is the message''s to_company), of that message, the link and connection it names (judged first: a dead relationship is link_gone, the payment before the cut-over before_cutover, after today future_dated, and no payer row is read for any), then the payer''s payment_allocations row, its supplier_payments row, supplier_payment_batches (a member''s standing journal), supplier_invoices (each under the payer''s company) and gl_journal_entries (the reversal chain of the journal the message recorded); for an accepted message the receiver''s own clearing receipt (customer_payments) and its journal chain; answers one (live, reason, clearing_voided) row and no row data; not_found for anyone else, a missing message or another kind'),
     ('intercompany_allocation_clearable(uuid)', 'public.intercompany_allocation_clearable(uuid)',
-     'nothing (STABLE): the light check intercompany_allocation_message_live first (the receiver only), then, when live, the payer''s payment_allocations rows (its payment''s and its bill''s), supplier_payments, supplier_payment_batches, the payer''s intercompany_connection_sides row and its loan account (gl_accounts, bank_transactions through intercompany_is_loan_class), gl_journal_entries / gl_journal_lines (what the standing journal credited that loan account, reversal chains), and every receiver''s accepted allocation messages of the same payer with their customer_payments and those receipts'' journal chains (the caps); answers one (live, reason, cap, payer_loan_type) row with no figure')
+     'nothing (STABLE): the light check intercompany_allocation_message_live first (the receiver only), then, when live, the payer''s payment_allocations rows (its payment''s and its bill''s), supplier_payments, supplier_payment_batches, the payer''s intercompany_connection_sides row and its loan account (gl_accounts, and through intercompany_is_loan_class bank_transactions, bank_accounts, bank_feed_connections, bank_statement_imports, bank_import_batches, bank_reconciliations, bank_transfer_link_log), gl_journal_entries / gl_journal_lines (what the standing journal credited that loan account, reversal chains), and every receiver''s accepted allocation messages of the same payer with their customer_payments and those receipts'' journal chains (the caps); answers one (live, reason, cap, payer_loan_type) row with no figure')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 

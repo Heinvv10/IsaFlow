@@ -7,7 +7,8 @@
  *     `clearing_voided`, the receipt's journal chain judged by value exactly as the caps judge it (a reversal of the reversal stands again).
  *     Read-only, so a voided clearing is visible (nothing re-clears it; P5 will list them).
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import type { AllocationPayload } from './mirrorPayload';
@@ -70,11 +71,20 @@ export async function clearingsOf(companyId: string, targets: Map<string, string
   for (const [messageId, paymentId] of targets) {
     const r = receipts.get(paymentId.toLowerCase());
     if (!r) continue;
-    const voided = (await sql`SELECT clearing_voided FROM public.intercompany_allocation_message_live(${messageId}::UUID)`) as Row[];
+    // (round 3, E) one check per row, in a savepoint of its own: a check that fails leaves that row unflagged (logged), never the page a 500
+    let voided = false;
+    try {
+      const rows2 = (await withSavepoint('ic_clearing_voided', async () => (await sql`
+        SELECT clearing_voided FROM public.intercompany_allocation_message_live(${messageId}::UUID)
+      `) as Row[])) as Row[];
+      voided = rows2[0]?.clearing_voided === true;
+    } catch (err) {
+      log.warn('Intercompany clearing voided check failed', { companyId, messageId, code: (err as { code?: string } | null)?.code ?? null }, 'intercompany');
+    }
     out.set(messageId, {
       paymentId: String(r.id), paymentNumber: r.payment_number ? String(r.payment_number) : null,
       journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
-      voided: voided[0]?.clearing_voided === true,
+      voided,
     });
   }
   return out;

@@ -16,7 +16,7 @@ export interface AcceptAllocationInput {
 export type ClearRefusalCode =
   | 'malformed' | 'not_live' | 'no_loan_account' | 'loan_account_unusable' | 'invoice_gone' | 'invoice_not_open' | 'wrong_customer'
   | 'currency' | 'pre_cutover_invoice' | 'pre_cutover_payment' | 'exceeds_open' | 'cash_not_through_loan' | 'already_cleared'
-  | 'no_period' | 'period_locked' | 'vat_locked' | 'busy' | 'refused' | 'not_group' | 'loan_class_mismatch';
+  | 'no_period' | 'period_locked' | 'vat_locked' | 'busy' | 'refused' | 'not_group' | 'loan_class_mismatch' | 'payer_loan_not_set_up';
 
 export type AcceptAllocationOutcome =
   | { accepted: true; messageId: string; paymentId: string; paymentNumber: string; journalEntryId: string }
