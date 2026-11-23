@@ -159,7 +159,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
                         </thead>
                         <tbody>
                           {emp.components.map((c) => (
-                            <tr key={c.component}>
+                            <tr key={c.component} className="max-lg:border-b max-lg:border-[var(--ff-border)] max-lg:last:border-0">
                               <td className="py-1 pr-4 text-[var(--ff-text-secondary)]">{COMPONENT_LABELS[c.component]}</td>
                               <td data-label="IsaFlow" className="py-1 pr-4 text-right tabular-nums">{rand(c.isaflowCents)}</td>
                               <td data-label="External" className="py-1 pr-4 text-right tabular-nums">{rand(c.externalCents)}</td>

@@ -16,6 +16,8 @@ const report = {
 afterEach(cleanup);
 const cls = (el: Element) => el.className.split(' ');
 const labels = (tr: Element) => [...tr.querySelectorAll(':scope > td')].map((td) => td.getAttribute('data-label'));
+/** The th texts of a table, with the unlabelled heading cells (the card's first cells) as null. */
+const heads = (t: Element, unlabelled: number) => [...t.querySelectorAll(':scope > thead th')].map((th, i) => (i < unlabelled ? null : th.textContent));
 
 describe('Parallel-run report on touch', () => {
   it('component totals: labelled cards, the component name is the unlabelled heading cell', () => {
@@ -23,7 +25,7 @@ describe('Parallel-run report on touch', () => {
     const table = container.querySelectorAll('table')[0];
     expect(cls(table)).toContain('table-cards');
     expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Component totals', 'IsaFlow', 'External', 'Diff']);
-    for (const tr of table.querySelectorAll('tbody tr')) expect(labels(tr)).toEqual([null, 'IsaFlow', 'External', 'Diff']);
+    for (const tr of table.querySelectorAll('tbody tr')) expect(labels(tr)).toEqual(heads(table, 1));
   });
 
   it('employee table: labelled cards; the chevron cell and the employee cell carry no label', () => {
@@ -32,7 +34,8 @@ describe('Parallel-run report on touch', () => {
     expect(cls(table)).toContain('table-cards');
     const rows = table.querySelectorAll('tbody > tr');
     expect(rows).toHaveLength(2);
-    for (const tr of rows) expect(labels(tr)).toEqual([null, null, 'Status', 'Largest diff']);
+    expect([...table.querySelectorAll(':scope > thead th')].map((th) => th.textContent)).toEqual(['', 'Employee', 'Status', 'Largest diff']);
+    for (const tr of rows) expect(labels(tr)).toEqual(heads(table, 2));
   });
 
   it('empty report: the empty cell is centred in card mode', () => {
@@ -50,6 +53,11 @@ describe('Parallel-run report on touch', () => {
     expect(cls(spacer)).toContain('max-lg:!hidden');
     const nested = content.querySelector('table')!;
     expect(cls(nested)).toContain('table-cards');
-    for (const tr of nested.querySelectorAll('tbody tr')) expect(labels(tr)).toEqual([null, 'IsaFlow', 'External', 'Diff']);
+    const rows = nested.querySelectorAll('tbody tr');
+    expect(rows.length).toBeGreaterThan(1);
+    for (const tr of rows) {
+      expect(labels(tr)).toEqual(heads(nested, 1));
+      expect(cls(tr)).toEqual(expect.arrayContaining(['max-lg:border-b', 'max-lg:last:border-0'])); // components do not run into each other
+    }
   });
 });
