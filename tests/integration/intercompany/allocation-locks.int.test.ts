@@ -28,22 +28,55 @@ const probe = (timeout: string, allocation: string, user = U.b) => asAppUser(poo
   const answer = (await q.query(CALL, [allocation])).rows[0] as SendRow;
   return { answer, after: (await q.query('SHOW lock_timeout')).rows[0].lock_timeout as string };
 }, true);
+/** The same with no session: `company` false = no session company, `claims` false = no signed-in user (app_user, the request role, as withAuth opens it). */
+const probeNoSession = async (timeout: string, allocation: string, over: { company: boolean; claims: boolean }) => {
+  const q = await pool.connect();
+  try {
+    await q.query('BEGIN');
+    await q.query('SET LOCAL ROLE app_user');
+    await q.query(`SET LOCAL lock_timeout = '${timeout}'`);
+    if (over.company) await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.B]);
+    if (over.claims) await q.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: U.b })]);
+    const answer = (await q.query(CALL, [allocation])).rows[0] as SendRow;
+    const after = (await q.query('SHOW lock_timeout')).rows[0].lock_timeout as string;
+    await q.query('COMMIT');
+    return { answer, after };
+  } catch (err) {
+    await q.query('ROLLBACK');
+    throw err;
+  } finally {
+    q.release();
+  }
+};
+const setConnection = (set: string) => asAppUser(pool, U.ab, co.A, (q) => q.query(`UPDATE intercompany_connections SET ${set} WHERE id = $1`, [conn]), true);
 
 describe('the lock bound is tighten-only and put back at every exit', () => {
-  it.each(['500ms', '1s', '10s', '0'])('a caller bound of %s is what it was after a sent, an already-sent, a not-found, a no-link and a forbidden answer', async (timeout) => {
-    const fresh = (await plantPaid(pool, (await plantBill(pool, conn)).bill)).allocation;
-    const unlinked = (await plantPaid(pool, (await plantBill(pool, conn, { link: false })).bill)).allocation;
-    expect((await probe(timeout, fresh)).answer.message_id).toBeTruthy();
-    const rest = [
-      [fresh, U.b, 'already_sent'], [crypto.randomUUID(), U.b, 'not_found'], [unlinked, U.b, 'no_link'], [fresh, U.avb, 'forbidden'],
-    ] as const;
-    for (const [allocation, user, reason] of rest) {
-      const { answer, after } = await probe(timeout, allocation, user);
+  it.each(['500ms', '1s', '10s', '0'])('a caller bound of %s is what it was after EVERY exit: sent, already_sent, not_found, no_session, forbidden, no_link, not_posted, no_journal, before_cutover, no_cutover, not_loan, no_connection', async (timeout) => {
+    const paid = async (over: Parameters<typeof plantPaid>[2] = {}, link = true) => (await plantPaid(pool, (await plantBill(pool, conn, { link })).bill, over)).allocation;
+    const fresh = await paid();
+    const exits: Array<[string, string, string | null, () => Promise<{ answer: SendRow; after: string }>]> = [];
+    const as = (reason: string, allocation: string, user = U.b) => exits.push(['', reason, allocation, () => probe(timeout, allocation, user)]);
+    expect((await probe(timeout, fresh)).answer.message_id).toBeTruthy();                         // sent
+    const [draft, noJournal, early, unlinked] = [await paid({ status: 'draft' }), await paid({ journal: false }), await paid({ date: '2025-12-31' }), await paid({}, false)];
+    as('already_sent', fresh); as('not_found', crypto.randomUUID()); as('forbidden', fresh, U.avb); as('no_link', unlinked);
+    as('not_posted', draft); as('no_journal', noJournal); as('before_cutover', early);
+    for (const [name, over] of [['no company', { company: false, claims: true }], ['no claims', { company: true, claims: false }], ['neither', { company: false, claims: false }]] as const) {
+      exits.push([name, 'no_session', fresh, () => probeNoSession(timeout, fresh, over)]);
+    }
+    for (const [name, reason, , run] of exits) {
+      const { answer, after } = await run();
+      expect(answer.reason, `${name} ${reason}`).toBe(reason);
+      expect(after, `${name} ${reason}`).toBe(timeout);
+    }
+    // the connection's own answers, one change at a time (the order of the checks)
+    for (const [set, reason] of [['cutover_date = NULL', 'no_cutover'], ["cutover_date = DATE '2026-01-01', settlement_mode = 'cash'", 'not_loan'], ["status = 'revoked'", 'no_connection']] as const) {
+      await setConnection(set);
+      const { answer, after } = await probe(timeout, await paid());
       expect(answer.reason, reason).toBe(reason);
       expect(after, reason).toBe(timeout);
     }
     expect((await probe(timeout, fresh)).after).toBe(timeout);
-  });
+  }, 60000);
 
   const blocked = async (timeout: string) => {
     const { allocation } = await plantPaid(pool, (await plantBill(pool, conn)).bill);
@@ -141,5 +174,44 @@ describe('the link and the connection are held FOR SHARE while the definer decid
     } finally {
       await held.release();
     }
+  }, 30000);
+});
+
+describe('a change that COMMITS while the definer waits is judged as it then stands', () => {
+  /** The real change on its own session, committed ~700 ms after it was made; resolves once the change is made (its row lock is held). */
+  const changeThenCommit = async (user: string, company: string, statement: string, id: string) => {
+    let made!: () => void;
+    const madeIt = new Promise<void>((res) => { made = res; });
+    const done = asAppUser(pool, user, company, async (q) => {
+      await q.query(statement, [id]);
+      made();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }, true);
+    await madeIt;
+    return done;
+  };
+
+  it('a link UNLINKED meanwhile is no_link, and no message is written', async () => {
+    const { bill, link } = await plantBill(pool, conn);
+    const { allocation } = await plantPaid(pool, bill);
+    const change = changeThenCommit(U.b, co.B, "UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = $1", link as string);
+    const t0 = Date.now();
+    const { answer } = await probe('10s', allocation);
+    await change;
+    expect(answer.reason).toBe('no_link');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
+    expect(await allocationMessages(pool)).toHaveLength(0);
+  }, 30000);
+
+  it('a connection REVOKED meanwhile is no_connection, and no message is written', async () => {
+    const { bill } = await plantBill(pool, conn);
+    const { allocation } = await plantPaid(pool, bill);
+    const change = changeThenCommit(U.ab, co.A, "UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", conn);
+    const t0 = Date.now();
+    const { answer } = await probe('10s', allocation);
+    await change;
+    expect(answer.reason).toBe('no_connection');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
+    expect(await allocationMessages(pool)).toHaveLength(0);
   }, 30000);
 });

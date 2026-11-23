@@ -59,5 +59,6 @@ Any receiver behaviour (draft clearing, accept/reject of allocations, the pre-cu
 - Receiver accept of an allocation message stays as is (no route reaches it); C/D decides.
 - A link confirmed later does not back-emit earlier allocations (P5 reports them).
 - A payment applied outside a request (no session) sends nothing (`no_session`, silent); P5 lists it.
+- The definer reads the link and connection rows `FOR SHARE` (a revoke / unlink in flight is waited for under the 2 s bound, then judged as it stands). Those row locks last until the CALLER'S transaction ends (they survive the savepoint release and span every member of a processed batch), not until the definer returns. Taking them only on the path that goes on to INSERT (and re-checking) is a possible refinement; not done.
 - The link alone is enough (links are authoritative); the payload carries enough for D to re-check.
 - `cashLegIsLoanAccount` is in the payload.

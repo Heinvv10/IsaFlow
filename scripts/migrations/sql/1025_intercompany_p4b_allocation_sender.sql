@@ -304,7 +304,9 @@ BEGIN
          OR (k.company_b_id = v_co AND k.doc_b_type = 'supplier_invoice' AND k.doc_b_id = a.bill_id
              AND k.doc_a_type = 'customer_invoice' AND k.company_a_id = CASE WHEN c.company_low_id = v_co THEN c.company_high_id ELSE c.company_low_id END))
      LIMIT 1
-       FOR SHARE OF k, c;   -- the link and the connection are read as they stand and held until the message is written: a revoke / unlink in flight is waited for (under the 2 s bound)
+       FOR SHARE OF k, c;   -- a revoke / unlink in flight is waited for here (under the 2 s bound) and the row is re-read as it then stands. The two row locks last until
+                            -- the CALLER'S TRANSACTION ends (a row lock survives the savepoint release, and in processBatch spans every member's call), not just
+                            -- until this function returns: a later revoke / unlink waits for the caller's commit.
     IF NOT FOUND THEN v_reason := 'no_link'; EXIT main; END IF;
     -- 3, 4: the connection
     IF l.connection_status <> 'active' THEN v_reason := 'no_connection'; EXIT main; END IF;
