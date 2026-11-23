@@ -23,6 +23,32 @@ function session(handlers: { ref?: (id: string) => Row; suppliers?: (search: str
 const one = async (s: ToolSession, id = '9', name: string | null = 'Acme', refs: ReadonlyMap<string, string> = new Map()) =>
   (await resolveSuppliers(s, [po(id, name)], refs)).get(id)!;
 
+describe('B7-D (round 7): one Sage supplier id under two names', () => {
+  const two = (firstName: string, secondName: string) => resolveSuppliers(
+    session({ suppliers: (search) => ({ suppliers: [{ id: search === 'Bravo Poles CC' ? 'bravo-id' : 'delta-id', name: search }], next_offset: null }) }).s,
+    [po('302', firstName), po('302', secondName)], new Map(),
+  );
+  it('two names matching two different IsaFlow suppliers: supplier_ambiguous, whichever PO comes first', async () => {
+    for (const order of [['Bravo Poles CC', 'Delta Hardware'], ['Delta Hardware', 'Bravo Poles CC']] as const) {
+      const r = (await two(order[0], order[1])).get('302')!;
+      expect(r, order.join(' then ')).toMatchObject({ code: 'supplier_ambiguous', reason: expect.stringMatching(/2 IsaFlow suppliers match Sage supplier 302.*Bravo Poles CC.*Delta Hardware.*bravo-id.*delta-id|delta-id.*bravo-id/s) });
+    }
+  });
+  it('two names, only one of them an IsaFlow supplier (the other is the old name): that supplier, in either order', async () => {
+    const only = (a: string, b: string) => resolveSuppliers(
+      session({ suppliers: (search) => ({ suppliers: search === 'Bravo Poles CC' ? [{ id: 'bravo-id', name: search }] : [], next_offset: null }) }).s,
+      [po('302', a), po('302', b)], new Map(),
+    );
+    expect((await only('Bravo Poles CC', 'Old Bravo')).get('302')).toEqual({ id: 'bravo-id' });
+    expect((await only('Old Bravo', 'Bravo Poles CC')).get('302')).toEqual({ id: 'bravo-id' });
+  });
+  it('the same name written two ways is one name (one search)', async () => {
+    const { s, calls } = session({ suppliers: () => ({ suppliers: [{ id: 'x', name: 'Acme' }], next_offset: null }) });
+    expect((await resolveSuppliers(s, [po('9', 'Acme'), po('9', '  ACME ')], new Map())).get('9')).toEqual({ id: 'x' });
+    expect(calls.filter((c) => c === 'list_suppliers')).toHaveLength(1);
+  });
+});
+
 describe('resolveSuppliers', () => {
   it('a supplier carrying the Sage reference wins, whatever its name, and no name search is made', async () => {
     const { s, calls } = session({ ref: () => ({ found: true, record: { id: 'uuid-1' } }) });
@@ -41,7 +67,7 @@ describe('resolveSuppliers', () => {
   it('no match is supplier_unresolved, two matches supplier_ambiguous, no name given is unresolved', async () => {
     expect(await one(session({}).s)).toMatchObject({ code: 'supplier_unresolved' });
     const two = session({ suppliers: () => ({ suppliers: [{ id: 'a', name: 'Acme' }, { id: 'b', name: 'acme' }], next_offset: null }) });
-    expect(await one(two.s)).toMatchObject({ code: 'supplier_ambiguous', reason: expect.stringMatching(/2 IsaFlow suppliers are named "Acme"/) });
+    expect(await one(two.s)).toMatchObject({ code: 'supplier_ambiguous', reason: expect.stringMatching(/2 IsaFlow suppliers match Sage supplier 9 \("Acme"\)/) });
     const noName = await one(session({}).s, '9', null);
     expect(noName).toMatchObject({ code: 'supplier_unresolved', reason: expect.stringMatching(/gives no name/) });
   });

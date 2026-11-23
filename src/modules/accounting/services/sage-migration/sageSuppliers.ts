@@ -40,7 +40,13 @@ async function byName(session: ToolSession, name: string, sageId: string, refs: 
   return 'capped';
 }
 
-async function resolveOne(session: ToolSession, id: string, name: string | null, refs: SupplierSageRefs): Promise<SupplierResolution> {
+/** What one Sage supplier id is called across the POs naming it (distinct, case-insensitive, in file order): one id can carry several names. */
+function distinctNames(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return names.map((n) => n.trim()).filter((n) => n !== '' && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
+}
+
+async function resolveOne(session: ToolSession, id: string, names: readonly string[], refs: SupplierSageRefs): Promise<SupplierResolution> {
   const ref = await session.call('find_by_external_ref', { source: SAGE_SYSTEM, kind: 'supplier', id });
   if (ref.isError || !ref.body) return { code: 'supplier_unresolved', reason: `find_by_external_ref failed for Sage supplier ${id}: ${ref.text.slice(0, 200)}` };
   const record = ref.body.record as { id?: string } | null;
@@ -51,34 +57,42 @@ async function resolveOne(session: ToolSession, id: string, name: string | null,
     return { code: 'supplier_ambiguous', reason: `${others.length + 1} live IsaFlow suppliers carry Sage reference ${id} (${ids}): none is picked; remove the reference from all but one` };
   }
   if (ref.body.found === true && record?.id) return { id: String(record.id) };
-  if (!name) return { code: 'supplier_unresolved', reason: `Sage supplier ${id} has no IsaFlow supplier carrying that reference and the export gives no name` };
-  const found = await byName(session, name, id, refs);
-  if (found === 'capped') return { code: 'supplier_ambiguous', reason: `more than ${SEARCH_CAP} suppliers match "${name}": a second supplier of that name may be beyond the ones read, so none is picked` };
-  if (typeof found === 'string') return { code: 'supplier_unresolved', reason: found };
-  if (found.ids.length === 1) return { id: found.ids[0]! };
-  if (found.ids.length === 0 && found.otherRef.length > 0) {
-    const who = found.otherRef.map((x) => `${x.id} (Sage supplier ${x.ref})`).join(', ');
-    return { code: 'supplier_ref_conflict', reason: `the supplier(s) named "${name}" already carry another Sage reference: ${who}; Sage supplier ${id} is a different one, so none is matched by name` };
+  const named = distinctNames(names);
+  if (named.length === 0) return { code: 'supplier_unresolved', reason: `Sage supplier ${id} has no IsaFlow supplier carrying that reference and the export gives no name` };
+  // EVERY name the export gives this Sage id is searched, and what they find is pooled: whichever PO comes first in the file decides nothing.
+  const pooled: NameSearch = { ids: [], otherRef: [] };
+  for (const name of named) {
+    const found = await byName(session, name, id, refs);
+    if (found === 'capped') return { code: 'supplier_ambiguous', reason: `more than ${SEARCH_CAP} suppliers match "${name}": a second supplier of that name may be beyond the ones read, so none is picked` };
+    if (typeof found === 'string') return { code: 'supplier_unresolved', reason: found };
+    for (const x of found.ids) if (!pooled.ids.includes(x)) pooled.ids.push(x);
+    for (const x of found.otherRef) if (!pooled.otherRef.some((y) => y.id === x.id)) pooled.otherRef.push(x);
   }
-  if (found.ids.length === 0) return { code: 'supplier_unresolved', reason: `no IsaFlow supplier carries Sage reference ${id} or is named "${name}"` };
-  return { code: 'supplier_ambiguous', reason: `${found.ids.length} IsaFlow suppliers are named "${name}" and none carries Sage reference ${id}` };
+  const label = named.map((n) => `"${n}"`).join(' / ');
+  if (pooled.ids.length === 1) return { id: pooled.ids[0]! };
+  if (pooled.ids.length === 0 && pooled.otherRef.length > 0) {
+    const who = pooled.otherRef.map((x) => `${x.id} (Sage supplier ${x.ref})`).join(', ');
+    return { code: 'supplier_ref_conflict', reason: `the supplier(s) named ${label} already carry another Sage reference: ${who}; Sage supplier ${id} is a different one, so none is matched by name` };
+  }
+  if (pooled.ids.length === 0) return { code: 'supplier_unresolved', reason: `no IsaFlow supplier carries Sage reference ${id} or is named ${label}` };
+  return { code: 'supplier_ambiguous', reason: `${pooled.ids.length} IsaFlow suppliers match Sage supplier ${id} (${label}) and none carries its reference: ${pooled.ids.join(', ')}` };
 }
 
 /** One resolution per distinct Sage supplier id of `pos`. */
 export async function resolveSuppliers(
   session: ToolSession, pos: readonly SagePurchaseOrder[], refs: SupplierSageRefs,
 ): Promise<Map<string, SupplierResolution>> {
-  const names = new Map<string, string | null>();
-  for (const po of pos) if (!names.get(po.supplierId)) names.set(po.supplierId, po.supplierName);
+  const names = new Map<string, string[]>();
+  for (const po of pos) names.set(po.supplierId, [...(names.get(po.supplierId) ?? []), ...(po.supplierName ? [po.supplierName] : [])]);
   const out = new Map<string, SupplierResolution>();
-  for (const [id, name] of names) out.set(id, await resolveOne(session, id, name, refs));
+  for (const [id, list] of names) out.set(id, await resolveOne(session, id, list, refs));
   // Two different Sage suppliers that land on one IsaFlow supplier (found by the same name) would be merged silently: both are refused.
   const bySupplier = new Map<string, string[]>();
   for (const [id, r] of out) if ('id' in r) bySupplier.set(r.id, [...(bySupplier.get(r.id) ?? []), id]);
   for (const [uuid, sageIds] of bySupplier) {
     if (sageIds.length < 2) continue;
     const list = sageIds.length === 2 ? sageIds.join(' and ') : `${sageIds.slice(0, -1).join(', ')} and ${sageIds[sageIds.length - 1]}`;
-    const named = [...new Set(sageIds.map((i) => names.get(i)).filter((n): n is string => Boolean(n)))].map((n) => `"${n}"`).join(' / ');
+    const named = [...new Set(sageIds.flatMap((i) => distinctNames(names.get(i) ?? [])))].map((n) => `"${n}"`).join(' / ');
     for (const id of sageIds) {
       out.set(id, { code: 'supplier_collapsed', reason: `Sage suppliers ${list} (named ${named}) all resolve to one IsaFlow supplier ${uuid}; they are different Sage suppliers, so none is matched` });
     }
