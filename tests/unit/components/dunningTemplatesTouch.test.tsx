@@ -36,7 +36,9 @@ describe('Dunning templates on touch', () => {
   it('the Body template summary is a 44px tap target', async () => {
     render(<Page />);
     await screen.findByText('First reminder');
-    expect(cls(screen.getAllByText('Body template')[0])).toEqual(expect.arrayContaining(['max-lg:flex', 'max-lg:items-center', MIN]));
+    const summary = screen.getAllByText('Body template')[0];
+    expect(cls(summary)).toContain(MIN);
+    expect(cls(summary)).not.toContain('max-lg:flex'); // display:flex would drop the disclosure marker; min-height works on list-item
   });
 
   it('edit form: fields, the weekdays checkbox row and Cancel/Save are 44px; the three-column grid stacks', async () => {

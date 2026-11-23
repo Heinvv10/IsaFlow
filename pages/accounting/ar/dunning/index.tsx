@@ -352,7 +352,7 @@ export default function DunningTemplatesPage() {
                     </div>
                   </div>
                   <details className="mt-2 text-sm">
-                    <summary className="cursor-pointer text-gray-800 max-lg:flex max-lg:items-center max-lg:min-h-11">Body template</summary>
+                    <summary className="cursor-pointer text-gray-800 max-lg:min-h-11">Body template</summary>
                     <pre className="mt-2 whitespace-pre-wrap text-xs bg-white/70 rounded p-2">
                       {t.body_template}
                     </pre>
