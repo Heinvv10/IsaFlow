@@ -42,6 +42,9 @@ describe('New payroll loan on touch', () => {
     const table = container.querySelector('table')!;
     expect(cls(table)).toContain('table-cards');
     const row = table.querySelector('tbody tr')!;
-    expect(Array.from(row.querySelectorAll('td')).map((td) => td.getAttribute('data-label'))).toEqual(['#', 'Period', 'Interest', 'Principal', 'Installment', 'Closing']);
+    const labels = Array.from(row.querySelectorAll('td')).map((td) => td.getAttribute('data-label'));
+    expect(labels).toEqual(['#', 'Period', 'Interest', 'Principal', 'Installment', 'Closing']);
+    expect(Array.from(table.querySelectorAll('th')).map((th) => th.textContent)).toEqual(labels);
+    expect(cls(table.parentElement!)).toContain('max-lg:max-h-none');
   });
 });
