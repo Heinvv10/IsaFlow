@@ -82,7 +82,11 @@ export default function CustomerPaymentDetailPage() {
     if (!payment) return;
 
     if (action === 'cancel') {
-      const reason = prompt('Reason for cancellation:');
+      // P4-D: a receipt stamped IC:<message> clears an intercompany payment message; cancelling it reverses the clearing, the message stays accepted
+      const clearing = payment.bankReference?.startsWith('IC:')
+        ? 'This receipt clears an intercompany payment from your group. Cancelling it reverses that clearing: the message stays accepted and shows "Clearing voided", and nothing re-clears it until the payer sends the payment again.\n\n'
+        : '';
+      const reason = prompt(`${clearing}Reason for cancellation:`);
       if (reason === null) return;
       setActing(true);
       try {

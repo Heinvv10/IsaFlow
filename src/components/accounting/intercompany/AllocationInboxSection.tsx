@@ -1,9 +1,10 @@
 /**
  * Bills > Intercompany, "Payments from your group" (P4-C): the payments a payer in the group applied to bills linked to this company's
  * invoices, under the invoice list, shown only when there is one. Each row says whether the payer's books still say what it says (Live /
- * Stale: <reason>) and what does not fit this company's invoice (Check: <mismatch>). Read only: Reject (a reason is required), Dismiss (asked
- * first) and Restore of a dismissed one; there is NO Accept (clearing comes later, P4-D). Every action button and notice names its row by
- * payment and invoice. A failed reload keeps the list (and any open dialog) with an alert above it; a 409 reloads the list.
+ * Stale: <reason>) and what does not fit this company's invoice (Check: <mismatch>). Reject (a reason is required), Dismiss (asked first) and
+ * Restore of a dismissed one; P4-D: Accept from the detail drawer (its preview, a posting date, a confirm), which clears the payment against the
+ * invoice; a refusal shows its sentence and reloads. Every action button and notice names its row by payment and invoice. A failed reload keeps
+ * the list (and any open dialog) with an alert above it; a 409 reloads the list.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
@@ -11,7 +12,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { InboxFilter } from '@/modules/accounting/services/intercompany/inboxTypes';
 import type { AllocationItem, AllocationPage } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
+import type { AllocationClearingPreview } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 import { AllocationDetailDrawer } from './AllocationDetailDrawer';
+import { AllocationAcceptModal } from './AllocationAcceptModal';
 import { InboxRejectModal } from './InboxRejectModal';
 import { AllocationRow } from './AllocationRow';
 import { isOpen, rowLabel, rowLabels } from './allocationLabels';
@@ -38,6 +41,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
   const [open, setOpen] = useState<AllocationItem | null>(null);
   const [rejecting, setRejecting] = useState<AllocationItem | null>(null);
   const [confirming, setConfirming] = useState<AllocationItem | null>(null);
+  const [accepting, setAccepting] = useState<{ item: AllocationItem; preview: AllocationClearingPreview } | null>(null);
   // Per row: an action in flight on one row leaves the others usable.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   // Only the newest load may write state: a slow answer for the other filter must not replace this one.
@@ -55,6 +59,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
       setOpen(keep(byId, () => true));
       setRejecting(keep(byId, isOpen));
       setConfirming(keep(byId, isOpen));
+      setAccepting((cur) => { const now = cur ? byId.get(cur.item.id) : undefined; return cur && now && isOpen(now) ? { ...cur, item: now } : null; });
     } catch (err) {
       // the last list stays (and so does any open dialog): the alert says the reload failed
       if (mine === latest.current) setError(apiErrorMessage(err, LOAD_ERROR));
@@ -104,7 +109,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 id="ic-allocations-heading" className="text-base font-semibold text-ink">Payments from your group</h2>
           <p className="text-sm text-ink-muted">
-            Payments a company in your group applied to bills linked to your invoices. Clearing them against your invoices is coming; for now you can reject or dismiss one. Nothing here changes your books.
+            Payments a company in your group applied to bills linked to your invoices. Accept one to clear it against your invoice through your intercompany loan account (one journal in your books); or reject or dismiss it.
           </p>
         </div>
         <table className="table-cards w-full text-sm" data-testid="allocation-table">
@@ -129,7 +134,11 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
           <p className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 text-sm text-ink-muted">Showing the latest {items.length} of {page.total}.</p>
         )}
         <AllocationDetailDrawer item={open} label={open ? labelOf(open) : ''} canWrite={canWrite} busy={open !== null && busy.has(open.id)} onClose={() => setOpen(null)}
-          onReject={(i) => { setOpen(null); setRejecting(i); }} onDismiss={(i) => { setOpen(null); setConfirming(i); }} />
+          onReject={(i) => { setOpen(null); setRejecting(i); }} onDismiss={(i) => { setOpen(null); setConfirming(i); }}
+          onAccept={(i, preview) => { setOpen(null); setAccepting({ item: i, preview }); }} />
+        <AllocationAcceptModal target={accepting ? { id: accepting.item.id, label: labelOf(accepting.item) } : null} preview={accepting?.preview ?? null}
+          onClose={() => setAccepting(null)} onDone={(msg) => { setAccepting(null); onNotice({ msg, ok: true }); void reload(); }}
+          onRefused={(msg, stale) => { if (stale) setAccepting(null); onNotice({ msg, ok: false }); void reload(); }} />
         <ConfirmDialog open={confirming !== null} title={confirming ? `Dismiss ${labelOf(confirming)}?` : 'Dismiss payment?'}
           message="It is set aside under Handled and nothing changes in your books or the payer's; you can restore it later."
           acceptLabel="Dismiss payment" loading={confirming !== null && busy.has(confirming.id)}
