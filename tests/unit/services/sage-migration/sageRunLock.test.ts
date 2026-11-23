@@ -48,7 +48,7 @@ describe('acquireRunLock', () => {
     const { pool, client } = fakePool({ ok: false });
     await expect(acquireRunLock(pool, A)).rejects.toThrow(RunInProgressError);
     await expect(acquireRunLock(pool, A)).rejects.toThrow(/another Sage migration is running for this company \(11111111/);
-    expect(client.release).toHaveBeenCalledWith();
+    expect(client.release).toHaveBeenCalledWith(undefined);
   });
   it('a failed lock query destroys the connection and throws that error', async () => {
     const { pool, client } = fakePool({ lockThrows: true });

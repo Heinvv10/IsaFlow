@@ -51,15 +51,11 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   } catch (err) {
     failure = err instanceof Error ? err : new Error(String(err));
   }
-  if (failure) {
+  if (failure || !held) {
+    // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
     client.release(failure);
-    throw failure;
-  }
-  if (!held) {
-    client.removeListener('error', onError);
-    client.release();
-    throw new RunInProgressError(`another Sage migration is running for this company (${companyId}): wait for it to finish, then run again; nothing was written`);
+    throw failure ?? new RunInProgressError(`another Sage migration is running for this company (${companyId}): wait for it to finish, then run again; nothing was written`);
   }
   // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
   // session only it is off. A failure here is a failure of the connection like any other.
