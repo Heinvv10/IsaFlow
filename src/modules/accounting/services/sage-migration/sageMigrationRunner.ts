@@ -7,9 +7,9 @@
  *      has; the same code runs as live). Nothing it did survives, idempotency and audit rows included. A batch a tool refuses (a
  *      budget block among them) makes the dry run not clean and the run stops there.
  *   3. LIVE (opts.live and a clean dry run): each category, then each item batch (<= 500), then each PO batch (<= 100) is ONE
- *      committed request through the real registry, under a key derived from its rows (an item or category batch: and from the state of
- *      the owned rows it touches, so a re-run after a change in IsaFlow is a fresh call, not a replay). Every batch is keyed by the state of the existing rows it touches, so the others
- *      answer `unchanged` / already there. A run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
+ *      committed request through the real registry, under a key derived from its rows and salted with a hash of the state of the existing
+ *      rows the batch touches (category, item and PO batches alike), so a re-run after a change in IsaFlow is a fresh call, not a replay of
+ *      a stored answer; the batches whose rows are unchanged answer `unchanged` / already there. A run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
  *      nothing of it is written; the other batches of its phase still run, and the next phase does not start.
  *   4. The reconciliation is measured in the database before and after, not taken from what the tools said.
  */
@@ -22,6 +22,7 @@ import { assertPoGlAccount } from './sageAccountCheck';
 import { checkRowsPresent, keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
 import { categoriesMismatch, itemsMismatch, ownershipProblem } from './sageOwnership';
 import { MigrationStopped } from './sageMigrationStopped';
+import { CommitUnconfirmedError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -82,11 +83,12 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       // never came may still have landed, so the books are the judge: the run's final reconciliation reads them, and a re-run finds what landed.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
-      b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
+      b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message,
+        ...(err instanceof CommitUnconfirmedError ? { commitUnconfirmed: true as const } : {}) };
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
-    else committed.push(b); // what an error later in the run can still say was committed
+    if (b.status === 'ok' || b.commitUnconfirmed) committed.push(b); // what an error later in the run can still say was (or may have been) committed
   }
   return p;
 }
@@ -131,11 +133,12 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   const blockers = liveBlockers(dryReconciliation, dryDifferences, opts);
   if (blockers.length > 0) return noLive('live_blocked', blockers);
 
+  // The lock's connection sat idle through the dry run: if its backend was dropped, another run could start now, so this one stops. Checked
+  // BEFORE the live phase counts as started: a refused start, nothing written (then between the phases, below).
+  await lockHeld();
   // From here the live phase has STARTED: an error carries what was committed, and says the run may have committed.
   const committed: BatchReport[] = [];
   try {
-    // The lock's connection sits idle all run: if its backend was dropped, another run could start now, so this one stops (between phases).
-    await lockHeld();
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
     // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy. It is
     // checked BETWEEN the phases, so the next phase does not start behind absent rows (an item batch replayed "ok" with its rows gone would

@@ -31,6 +31,8 @@ export interface ToolSession {
 }
 
 export class NotAMemberError extends Error {}
+/** The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back. */
+export class CommitUnconfirmedError extends Error {}
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
 
@@ -86,7 +88,11 @@ export async function withToolSession<T>(
       return result;
     }
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
-    await client.query('COMMIT');
+    try {
+      await client.query('COMMIT');
+    } catch (err) {
+      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err));
+    }
     committed = true;
     drainAfterCommit(txCtx);
     return result;

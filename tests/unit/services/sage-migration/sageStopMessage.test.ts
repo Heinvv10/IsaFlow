@@ -28,6 +28,16 @@ describe('stopMessage', () => {
   });
 });
 
+describe('L2 (round 6): a batch whose COMMIT answer was lost is listed apart', () => {
+  it('"commit unconfirmed" with its key, next to the committed ones', () => {
+    const lost: BatchReport = { ...batch('item', 2, 'failed'), commitUnconfirmed: true, error: 'COMMIT failed' };
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [batch('category', 1), lost]));
+    expect(m).toContain('committed: category batch 1 (key-category-1)');
+    expect(m).toContain('commit unconfirmed: item batch 2 (key-item-2)');
+    expect(m).not.toContain('committed: item batch 2');
+  });
+});
+
 describe('MigrationStopped', () => {
   it('keeps the cause\'s message and the batches, and is an Error', () => {
     const e = new MigrationStopped(new Error('inner'), true, [batch('item', 1)]);

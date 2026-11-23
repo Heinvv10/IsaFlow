@@ -18,8 +18,10 @@ export interface BatchReport {
   rowsAbsent: number;
   /** What the tool answered (counts, outcomes). Every batch is keyed by the state of the existing rows it touches, so a stored answer is replayed only for rows that are absent. */
   toolReported: Record<string, unknown> | null;
-  /** The tool's refusal text when the batch failed: nothing in it was written. */
+  /** The tool's refusal text when the batch failed: nothing in it was written (unless commitUnconfirmed). */
   error: string | null;
+  /** The batch's COMMIT failed or never answered: it may have landed. The books are the judge (the final reconciliation reads them; a re-run finds what landed). */
+  commitUnconfirmed?: true;
 }
 
 export interface PhaseReport { batches: BatchReport[]; failed: number }
