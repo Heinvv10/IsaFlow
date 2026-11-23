@@ -162,7 +162,7 @@ export default function ParallelRunPage() {
         )}
 
         <div className="rounded-xl border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-cards">
             <thead>
               <tr className="text-left text-xs text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border)]">
                 <th className="px-4 py-2">Period</th>
@@ -174,12 +174,12 @@ export default function ParallelRunPage() {
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center">
+                <tr><td colSpan={5} className="px-4 py-6 text-center max-lg:!py-8 max-lg:!text-center">
                   <Loader2 className="h-5 w-5 animate-spin inline text-[var(--ff-text-tertiary)]" />
                 </td></tr>
               )}
               {!isLoading && imports.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)]">
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                   No imports yet — upload an external payslip CSV to start a parallel run.
                 </td></tr>
               )}
@@ -191,17 +191,17 @@ export default function ParallelRunPage() {
                     selectedId === imp.id ? 'bg-[var(--ff-bg-tertiary)]' : ''
                   }`}
                 >
-                  <td className="px-4 py-2 font-medium text-[var(--ff-text-primary)]">
+                  <td data-label="Period" className="px-4 py-2 font-medium text-[var(--ff-text-primary)]">
                     {periodLabel(imp.periodMonth, imp.periodYear)}
                   </td>
-                  <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{imp.source}</td>
-                  <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{imp.fileName ?? '—'}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td data-label="Source" className="px-4 py-2 text-[var(--ff-text-secondary)]">{imp.source}</td>
+                  <td data-label="File" className="px-4 py-2 text-[var(--ff-text-tertiary)]">{imp.fileName ?? '—'}</td>
+                  <td data-label="Payslips" className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
+                  <td data-label="Actions" className="px-4 py-2 text-right">
                     <button
                       onClick={(e) => { e.stopPropagation(); void handleExport(imp.id); }}
                       title="Export comparison CSV"
-                      className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]"
+                      className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
                     >
                       <Download className="h-4 w-4" />
                     </button>
@@ -209,7 +209,7 @@ export default function ParallelRunPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
                         title="Delete import"
-                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
+                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
