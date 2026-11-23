@@ -129,7 +129,7 @@ export default function NewCreditNotePage() {
                   )}
 
                   <div>
-                    <DateField label="Credit Date" required postingDate name="creditDate" value={form.creditDate || null} className={PHONE_TAP}
+                    <DateField label="Credit Date" required postingDate="draft" name="creditDate" value={form.creditDate || null} className={PHONE_TAP}
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>

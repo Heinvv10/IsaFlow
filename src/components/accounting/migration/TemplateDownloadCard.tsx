@@ -27,7 +27,7 @@ export function TemplateDownloadCard({ step, sourceSystem, onError }: Props) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">1. Download Template</h2>
-      <button onClick={() => { void download(); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+      <button onClick={() => { void download(); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm max-lg:min-h-11">
         <Download className="h-4 w-4" /> Download CSV Template
       </button>
       <p className="text-xs text-[var(--ff-text-secondary)] mt-3">{getTemplateGuidance(step, sourceSystem)}</p>

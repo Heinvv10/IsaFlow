@@ -103,6 +103,44 @@ describe('DateField postingDate: values that were already there', () => {
   });
 });
 
+describe('DateField postingDate="draft": a form that only saves a draft', () => {
+  it('warns on a closed, locked or closing date and still accepts it (the server refuses to post it)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([...PERIODS, P(4, '2026-06-01', '2026-06-30', 'closing', 'Jun 2026')]));
+    const spy = vi.fn(); render(<Harness postingDate="draft" spy={spy} />);
+    await loaded();
+    for (const [t, iso, re] of [['15 Mar 2026', '2026-03-15', /Mar 2026.*closed/], ['2 Apr 2026', '2026-04-02', /Apr 2026.*locked/], ['5 Jun 2026', '2026-06-05', /Jun 2026.*closing/]] as const) {
+      type(t);
+      expect(out(), t).toBe(iso);
+      const note = screen.getByText(re);
+      expect(note.getAttribute('role')).toBe('status');
+      expect(note.textContent).toMatch(/draft/i);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(spy).toHaveBeenLastCalledWith(iso, expect.objectContaining({ valid: true }));
+    }
+    type('10 May 2026'); expect(screen.queryByText(/save a draft/)).toBeNull();
+  });
+  it('a closed day in the popup stays pickable', async () => {
+    render(<Harness postingDate="draft" initial="2026-05-10" />);
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: /choose date/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' })); // April, locked
+    const cell = screen.getByRole('grid').querySelector<HTMLElement>('[data-iso="2026-04-15"]')!;
+    expect(cell.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(cell);
+    expect(out()).toBe('2026-04-15');
+  });
+});
+
+describe('DateField postingDate: a closing period', () => {
+  it('is refused like a closed one', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([...PERIODS, P(4, '2026-06-01', '2026-06-30', 'closing', 'Jun 2026')]));
+    render(<Harness postingDate />); await loaded();
+    type('5 Jun 2026');
+    expect(screen.getByRole('alert').textContent).toMatch(/Jun 2026.*closing/);
+    expect(out()).toBe('null');
+  });
+});
+
 describe('DateField postingDate: outside the financial year', () => {
   it('warns (amber, not an error) and still accepts the date', async () => {
     const spy = vi.fn(); render(<Harness postingDate spy={spy} />);
