@@ -64,7 +64,7 @@ describe('the lock bound is tighten-only and put back at every exit', () => {
     const { code, ms } = await blocked('0');
     expect(code).toBe('55P03');
     expect(ms).toBeGreaterThanOrEqual(1500);
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(3500);
   }, 30000);
 
   it('a caller bound tighter than 2 s is kept, not loosened to it', async () => {

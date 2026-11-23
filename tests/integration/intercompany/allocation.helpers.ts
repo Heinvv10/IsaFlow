@@ -81,7 +81,7 @@ export async function plantPaymentJournal(pool: Pool, amount: number, over: { co
 
 /** A payment of B for `bill` with its allocation row. `journal: false` = none; a string = that journal; a batch member takes the batch's. */
 export async function plantPaid(pool: Pool, bill: string, over: {
-  status?: string; date?: string; amount?: number; journal?: boolean | string; leg?: string; payment?: string; batch?: string; reversed?: boolean; allocate?: boolean;
+  status?: string; date?: string; amount?: number; journal?: boolean | string; leg?: string; payment?: string; batch?: string; reversed?: boolean; allocate?: boolean; memberBank?: string; provisional?: string;
 } = {}) {
   const amount = over.amount ?? 1150;
   const status = over.status ?? 'processed';
@@ -97,9 +97,9 @@ export async function plantPaid(pool: Pool, bill: string, over: {
       // the approval trigger's own exemption (the bank-feed path): a fixture plants an approved / processed payment without a request
       await client.query("SELECT set_config('isaflow.approval_gate_exempt', 'bank_feed', true)");
       payment = (await client.query(
-        `INSERT INTO supplier_payments(company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id, reference, status, batch_id, gl_journal_entry_id, created_by)
-         VALUES ($1, $2, $3::date, $4, 'eft', $5, 'IC alloc ref', $6, $7, $8, $9) RETURNING id`,
-        [co.B, party.bSupplier, over.date ?? '2026-09-01', amount, over.batch ? null : over.leg ?? bank.b, status, over.batch ?? null, journal, U.ab])).rows[0].id as string;
+        `INSERT INTO supplier_payments(company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id, reference, status, batch_id, gl_journal_entry_id, created_by, settles_provisional_je_id)
+         VALUES ($1, $2, $3::date, $4, 'eft', $5, 'IC alloc ref', $6, $7, $8, $9, $10) RETURNING id`,
+        [co.B, party.bSupplier, over.date ?? '2026-09-01', amount, over.batch ? over.memberBank ?? null : over.leg ?? bank.b, status, over.batch ?? null, journal, U.ab, over.provisional ?? null])).rows[0].id as string;
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -127,4 +127,13 @@ export async function clearPayments(pool: Pool): Promise<void> {
   await pool.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [[co.A, co.B, co.C]]);
   await pool.query('DELETE FROM supplier_payments WHERE company_id = ANY($1)', [[co.A, co.B, co.C]]);
   await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = ANY($1)', [[co.A, co.B, co.C]]);
+}
+
+/** A processed batch of `company` (B) with its own journal (or none) and bank account; its members are planted with `plantPaid({ batch })`. */
+export async function plantBatchRow(pool: Pool, over: { company?: string; journal?: string | null; bank?: string } = {}): Promise<string> {
+  const company = over.company ?? co.B;
+  return (await pool.query(
+    `INSERT INTO supplier_payment_batches(company_id, batch_date, payment_method, bank_account_id, payment_count, total_amount, created_by, status, gl_journal_entry_id)
+     VALUES ($1, DATE '2026-09-01', 'eft', $2, 1, 1150, $3, 'processed', $4) RETURNING id`,
+    [company, over.bank ?? bank.b, U.ab, over.journal ?? null])).rows[0].id as string;
 }

@@ -22,7 +22,13 @@
 --   DELETE FROM intercompany_messages WHERE kind = 'allocation';   -- (before restoring the guard: it would still refuse nothing, but nothing reads them)
 --   DROP FUNCTION IF EXISTS public.intercompany_send_for_allocation(uuid);
 --   DELETE FROM app_definer_reviews WHERE signature = 'intercompany_send_for_allocation(uuid)';
---   (the 1019 body of intercompany_messages_guard and the 1002 body of intercompany_message_doc_exists return by re-applying them)
+--   Restore the two function bodies this migration replaced, EXACTLY these two statements in this order (never a whole earlier file: 1002 also
+--   carries an older intercompany_messages_guard, which would land over 1019's):
+--     1. 1002's intercompany_message_doc_exists (defined in 1002 only; 1019 does not redefine it):
+--          sed -n '/^CREATE OR REPLACE FUNCTION public.intercompany_message_doc_exists/,/^\$\$;/p' scripts/migrations/sql/1002_intercompany_round2.sql | psql ...
+--     2. 1019's intercompany_messages_guard (section 3 of 1019, the latest body before this migration):
+--          sed -n '/^CREATE OR REPLACE FUNCTION public.intercompany_messages_guard/,/^\$\$;/p' scripts/migrations/sql/1019_intercompany_p2_mirror.sql | psql ...
+--   (the trigger, the owner and the grants of both are untouched by this migration, so nothing else needs restoring)
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -238,13 +244,14 @@ $$;
 
 -- ── 3. The definer ──────────────────────────────────────────────────────────
 
--- Session company P = app.current_company_id(); the checks run cheapest first and every answer but the message is (NULL, reason, NULL).
+-- Session company P = app.current_company_id(); every answer but the message is (NULL, reason, NULL). The write role is asked FIRST (forbidden),
+-- before any answer that says something about a row, a link or a connection: a user who may not send learns nothing about them. Then:
 --   1 not_found    the allocation row, its payment (company_id = P) and its bill (company_id = P, not deleted) exist
 --   2 no_link      the bill's slot (P, 'supplier_invoice', bill) is in an ACTIVE link whose other side is a customer_invoice of the connection's partner
 --   3 no_connection / not_loan   the link's connection is active, and settles by loan
 --   4 no_cutover / before_cutover   the connection has a cut-over and the payment is dated on or after it
---   5 forbidden    the session user has a write role in P
---   6 not_posted / no_journal   the payment is processed or reconciled, on a posted journal (its own, else its batch's) whose chain stands (odd length)
+--   6 not_posted / no_journal   the payment is processed or reconciled (a NULL status is neither), on a posted journal (its own, else its batch's,
+--                  the batch being P's) whose chain stands (odd length)
 --   7 already_sent a message for this allocation exists (the unique key makes the INSERT a no-op too: a racing writer is told the same)
 -- The lock bound is tighten-only (2 s, never loosening a tighter caller's) and the caller's value is put back at the one exit.
 CREATE OR REPLACE FUNCTION public.intercompany_send_for_allocation(p_allocation uuid)
@@ -260,7 +267,7 @@ DECLARE
   v_reason text;
   v_msg uuid;
   v_je uuid;
-  v_bank uuid;
+  v_cash boolean;
   v_loan uuid;
   v_partner uuid;
   a RECORD;
@@ -271,9 +278,10 @@ BEGIN
   <<main>>
   BEGIN
     IF v_co IS NULL OR p_allocation IS NULL THEN v_reason := 'not_found'; EXIT main; END IF;
+    IF NOT public.intercompany_user_can_write(v_co) THEN v_reason := 'forbidden'; EXIT main; END IF;
     -- 1: the payer's own rows, the company named on the payment AND on the bill
     SELECT pa.amount_allocated AS amount, sp.id AS payment_id, sp.payment_number, sp.reference, sp.payment_date, sp.payment_method, sp.status AS payment_status,
-           sp.bank_account_id, sp.gl_journal_entry_id AS payment_journal, sp.batch_id, si.id AS bill_id, si.invoice_number AS bill_number,
+           sp.gl_journal_entry_id AS payment_journal, sp.batch_id, si.id AS bill_id, si.invoice_number AS bill_number,
            COALESCE(NULLIF(si.currency_code, ''), NULLIF(si.currency, ''), 'ZAR') AS currency
       INTO a FROM public.payment_allocations pa
       JOIN public.supplier_payments sp ON sp.id = pa.payment_id AND sp.company_id = v_co
@@ -299,16 +307,10 @@ BEGIN
     IF l.settlement_mode <> 'loan' THEN v_reason := 'not_loan'; EXIT main; END IF;
     IF l.cutover_date IS NULL THEN v_reason := 'no_cutover'; EXIT main; END IF;
     IF a.payment_date < l.cutover_date THEN v_reason := 'before_cutover'; EXIT main; END IF;
-    -- 5: the writer
-    IF NOT public.intercompany_user_can_write(v_co) THEN v_reason := 'forbidden'; EXIT main; END IF;
-    -- 6: posted cash: the payment's own journal, else its batch's (a batch member carries none), standing in the ledger
-    IF a.payment_status NOT IN ('processed', 'reconciled') THEN v_reason := 'not_posted'; EXIT main; END IF;
-    v_je := a.payment_journal;
-    v_bank := a.bank_account_id;
-    IF a.batch_id IS NOT NULL THEN
-      SELECT COALESCE(a.payment_journal, b.gl_journal_entry_id), COALESCE(a.bank_account_id, b.bank_account_id) INTO v_je, v_bank
-        FROM public.supplier_payment_batches b WHERE b.id = a.batch_id AND b.company_id = v_co;
-    END IF;
+    -- 6: posted cash: the payment's own journal, else its batch's (a batch member carries none; the batch must be P's), standing in the ledger
+    IF a.payment_status IS NULL OR a.payment_status NOT IN ('processed', 'reconciled') THEN v_reason := 'not_posted'; EXIT main; END IF;
+    v_je := COALESCE(a.payment_journal,
+                     (SELECT b.gl_journal_entry_id FROM public.supplier_payment_batches b WHERE b.id = a.batch_id AND b.company_id = v_co));
     IF v_je IS NULL OR public.intercompany_journal_chain_length(v_je, v_co) % 2 <> 1 THEN v_reason := 'no_journal'; EXIT main; END IF;
     -- 7: once
     IF EXISTS (SELECT 1 FROM public.intercompany_messages m WHERE m.from_company_id = v_co AND m.source_doc_type = 'payment_allocation'
@@ -317,6 +319,10 @@ BEGIN
     END IF;
     SELECT s.loan_account_id INTO v_loan FROM public.intercompany_connection_sides s WHERE s.connection_id = l.connection_id AND s.company_id = v_co;
     v_partner := l.partner;
+    -- cashLegIsLoanAccount is read from the JOURNAL the message stands on, not from a document column (a batch member's own bank_account_id, a
+    -- provisional settlement's bank account and the batch's are not what the ledger credited): the journal CREDITS the payer's loan account.
+    v_cash := v_loan IS NOT NULL AND EXISTS (SELECT 1 FROM public.gl_journal_lines jl
+                WHERE jl.journal_entry_id = v_je AND jl.company_id = v_co AND jl.gl_account_id = v_loan AND jl.credit > 0);
     INSERT INTO public.intercompany_messages (connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload, source_journal_entry_id)
     VALUES (l.connection_id, v_co, v_partner, 'allocation', 'payment_allocation', p_allocation,
             pg_catalog.jsonb_build_object(
@@ -324,7 +330,7 @@ BEGIN
               'payment', pg_catalog.jsonb_build_object(
                 'id', a.payment_id, 'number', public.intercompany_clean_text(a.payment_number, 50), 'reference', public.intercompany_clean_text(a.reference, 255),
                 'date', pg_catalog.to_char(a.payment_date, 'YYYY-MM-DD'), 'method', public.intercompany_clean_text(a.payment_method, 20),
-                'cashLegIsLoanAccount', COALESCE(v_bank IS NOT NULL AND v_bank = v_loan, false)),
+                'cashLegIsLoanAccount', v_cash),
               'payerDocument', pg_catalog.jsonb_build_object('type', 'supplier_invoice', 'id', a.bill_id, 'number', public.intercompany_clean_text(a.bill_number, 100)),
               'issuerDocument', pg_catalog.jsonb_build_object('type', 'customer_invoice', 'id', l.issuer_doc),
               'linkId', l.link_id, 'linkOrigin', l.origin),
@@ -347,7 +353,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_send_for_allocation(uuid)', 'public.intercompany_send_for_allocation(uuid)',
-     'intercompany_messages (one kind=''allocation'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on an active LOAN connection past its cut-over, recording that journal) for the session company (a write-role user) only; nothing else is written (no journal, no group row, no document), a read of payment_allocations, supplier_payments, supplier_invoices, supplier_payment_batches, gl_journal_entries, intercompany_document_slots, intercompany_document_links, intercompany_connections and intercompany_connection_sides; nothing for another company''s rows')
+     'intercompany_messages (one kind=''allocation'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on an active LOAN connection past its cut-over, recording that journal) for the session company (a write-role user) only; nothing else is written (no journal, no group row, no document), a read of payment_allocations, supplier_payments, supplier_invoices, supplier_payment_batches, gl_journal_entries, gl_journal_lines, intercompany_document_slots, intercompany_document_links, intercompany_connections and intercompany_connection_sides; nothing for another company''s rows')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 

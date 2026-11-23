@@ -18,9 +18,12 @@ import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
 
-/** Reasons a person must find: nothing re-sends the message (a re-send is P5's reconciliation, which lists the unsent allocations). */
-const AT_ERROR = new Set(['no_journal']);
-const AT_WARN = new Set(['forbidden', 'not_posted']);
+/**
+ * Reasons a person must find: nothing re-sends the message (a re-send is P5's reconciliation, which lists the unsent allocations).
+ * `not_found` is always a bug here: the id was just inserted or read under this company, so the definer must find it.
+ */
+const AT_ERROR = new Set(['no_journal', 'not_found']);
+const AT_WARN = new Set(['not_posted']);   // ('forbidden' is silent: a user without an intercompany write role pays bills all day, linked or not; P5 lists linked bills paid without a message)
 
 async function send(companyId: string, allocationId: string): Promise<void> {
   const rows = (await sql`
@@ -33,7 +36,7 @@ async function send(companyId: string, allocationId: string): Promise<void> {
   }
   const reason = String(r?.reason ?? 'failed');
   if (AT_ERROR.has(reason)) {
-    log.error('Intercompany allocation message not sent: the payment is not on a journal the ledger carries', { companyId, allocationId, reason }, 'intercompany');
+    log.error('Intercompany allocation message not sent', { companyId, allocationId, reason }, 'intercompany');
   } else if (AT_WARN.has(reason)) {
     log.warn('Intercompany allocation message not sent', { companyId, allocationId, reason }, 'intercompany');
   }

@@ -69,6 +69,13 @@ describe('mirrorAllocations never fails or poisons the caller\'s transaction', (
     expect((await allocationMessages(pool)).map((m) => m.source_doc_id).sort()).toEqual([one.allocation, two.allocation].sort());
   });
 
+  it('an id the caller just read that the definer cannot find is logged AT ERROR (always a bug), by reason only', async () => {
+    const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const missing = crypto.randomUUID();
+    await asService(pool, U.b, co.B, () => mirrorAllocations(co.B, [missing]));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('allocation'), { companyId: co.B, allocationId: missing, reason: 'not_found' }, 'intercompany');
+  });
+
   it('what is logged: a journal the ledger does not carry at ERROR, a viewer at WARN, an unlinked bill nowhere', async () => {
     const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);

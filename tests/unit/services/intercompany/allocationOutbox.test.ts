@@ -1,6 +1,6 @@
 /**
  * Intercompany P4-B: the payer's allocation hook. One savepoint per allocation id, never throws, logs a failure by SQLSTATE only, and says
- * which refusals a person must find (a journal the ledger does not carry at ERROR; a viewer or an unposted payment at WARN) and which are
+ * which refusals a person must find (a journal the ledger does not carry, and an id the caller just read that is not found, at ERROR; a viewer or an unposted payment at WARN) and which are
  * the common silent answers (no link, not a loan, no connection).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,14 +50,14 @@ describe('mirrorAllocations', () => {
   });
 
   it.each([
-    ['no_journal', 'error'], ['forbidden', 'warn'], ['not_posted', 'warn'],
+    ['no_journal', 'error'], ['not_found', 'error'], ['not_posted', 'warn'],
   ] as const)('a %s answer is logged at %s: nothing re-sends it, so this is how it is found', async (reason, level) => {
     m.sql.mockResolvedValue([{ message_id: null, reason, detail: null }]);
     await mirrorAllocations(CO, [A1]);
     expect(m.log[level]).toHaveBeenCalledWith(expect.stringMatching(/allocation/i), expect.objectContaining({ companyId: CO, allocationId: A1, reason }), 'intercompany');
   });
 
-  it.each(['no_link', 'not_loan', 'no_connection', 'no_cutover', 'before_cutover', 'already_sent', 'not_found'])('a %s answer is silent', async (reason) => {
+  it.each(['forbidden', 'no_link', 'not_loan', 'no_connection', 'no_cutover', 'before_cutover', 'already_sent'])('a %s answer is silent', async (reason) => {
     m.sql.mockResolvedValue([{ message_id: null, reason, detail: null }]);
     await mirrorAllocations(CO, [A1]);
     expect(m.log.error).not.toHaveBeenCalled();

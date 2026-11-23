@@ -17,17 +17,18 @@ All open questions below were decided with the recommended answer (orchestrator-
 
 ## (c) Payload: built by the database only
 New registered definer `intercompany_send_for_allocation(p_allocation uuid) RETURNS TABLE(message_id uuid, reason text, detail text)`, modelled on `intercompany_send_for_source` (1019). The app names the row id and nothing else; the messages guard refuses any session-written allocation message.
-Checks, cheapest first, session company P = `app.current_company_id()`:
+Checks, session company P = `app.current_company_id()` (round 1 of review: the write role is asked FIRST, so a user who may not send learns nothing about a row, link or connection; the rest cheapest first):
+0. `intercompany_user_can_write(P)`, else `forbidden` (a NULL session company is `not_found`);
 1. allocation row exists, its `supplier_payments.company_id = P` and `supplier_invoices.company_id = P`, bill not deleted, else `not_found`;
 2. the bill's slot in `intercompany_document_slots` (P, 'supplier_invoice', id) has a link `status='active'`, other side `customer_invoice`, other company = the connection's partner, else `no_link`;
 3. connection active (`no_connection`) and loan mode (`not_loan`);
 4. `cutover_date` set (`no_cutover`) and `payment_date >= cutover_date` (`before_cutover`);
-5. `intercompany_user_can_write(P)`, else `forbidden`;
-6. payment processed/reconciled with a posted standing journal: `COALESCE(sp.gl_journal_entry_id, batch.gl_journal_entry_id)` with odd `intercompany_journal_chain_length`, else `not_posted` / `no_journal`;
+5. (moved to 0);
+6. payment processed/reconciled (a NULL status is neither: `not_posted`) with a posted standing journal: `COALESCE(sp.gl_journal_entry_id, batch.gl_journal_entry_id)` with odd `intercompany_journal_chain_length`, else `not_posted` / `no_journal`;
 7. existing message, else `already_sent`;
 8. build payload, INSERT ... ON CONFLICT DO NOTHING; record the journal in `source_journal_entry_id`; `group_transaction_id` NULL.
 
-Payload v1 (text through `intercompany_clean_text`, money 2 dp): `{ version:1, kind:'allocation', allocationId, amount, currency, payment:{ id, number, reference, date, method, cashLegIsLoanAccount }, payerDocument:{ type:'supplier_invoice', id, number }, issuerDocument:{ type:'customer_invoice', id }, linkId, linkOrigin }`. `cashLegIsLoanAccount` = `sp.bank_account_id` equals the payer side's `loan_account_id` (D needs it to avoid double counting). The issuer document number is not sent (the sender never reads the receiver's books). Non-ZAR is still sent; the receiver refuses.
+Payload v1 (text through `intercompany_clean_text`, money 2 dp): `{ version:1, kind:'allocation', allocationId, amount, currency, payment:{ id, number, reference, date, method, cashLegIsLoanAccount }, payerDocument:{ type:'supplier_invoice', id, number }, issuerDocument:{ type:'customer_invoice', id }, linkId, linkOrigin }`. `cashLegIsLoanAccount` = the JOURNAL the message stands on has a credit line on the payer side's `loan_account_id` (D needs it to avoid double counting). Read from the journal, not from a document column: a batch member's own `bank_account_id`, a provisional settlement's bank account and the batch's are not what the ledger credited. The issuer document number is not sent (the sender never reads the receiver's books). Non-ZAR is still sent; the receiver refuses.
 
 ## (d) Migration (prefix: the next free one, re-check `ls scripts/migrations/sql` and open PRs at implementation time; forward only, `SET LOCAL lock_timeout '5s'`)
 1. Messages guard (CREATE OR REPLACE of the 1019 body): add `'allocation'` to the migration_admin allow-list branch and `'payment_allocation'` to its source_doc_type list; add `'allocation'` to the `intercompany_message_doc_exists(... 'source' ...)` check on INSERT. UPDATE path unchanged (allocation creates no document, target cleared).
@@ -38,7 +39,7 @@ Payload v1 (text through `intercompany_clean_text`, money 2 dp): `{ version:1, k
 No change: the kind CHECK already allows `allocation`; inbox, auto-accept queue and `loadInboxRow` filter `kind IN ('invoice','credit_note')` so allocation messages are invisible to the receiver.
 
 ## (e) Hook (best effort)
-New `intercompany/allocationOutbox.ts`: `mirrorAllocations(companyId, allocationIds)` on the caller's transaction; each id in its own `withSavepoint('intercompany_allocation', ...)`; never throws; logs SQLSTATE only; `no_journal` / `forbidden` / `not_posted` on a linked loan bill log at ERROR/WARN (nothing re-sends; P5 lists unsent allocations); `no_link` / `not_loan` / `no_connection` silent.
+New `intercompany/allocationOutbox.ts`: `mirrorAllocations(companyId, allocationIds)` on the caller's transaction; each id in its own `withSavepoint('intercompany_allocation', ...)`; never throws; logs SQLSTATE only; `no_journal` and `not_found` (an id the caller just read under its own company is always a bug) log at ERROR, `forbidden` / `not_posted` at WARN (nothing re-sends; P5 lists unsent allocations); `no_link` / `not_loan` / `no_connection` and the other answers silent.
 
 ## (f) Tests
 Integration (`tests/integration/intercompany/allocation-*.int.test.ts`, two tenants plus a third, as app_user): one message P to I with payload equal to P's rows; idempotent re-call and re-process; cash connection, unlinked bill, pending/unlinked link, revoked connection, pre-cutover payment, draft/approved payment emit nothing with the named reason; cross-tenant (P naming I's or C's allocation row gives `not_found`; a user of both in session P naming I's row refused; C sees nothing); forged: app_user INSERT of kind `allocation` refused 42501 (update `messages-documents.int.test.ts:76`, which asserts `ok` today) and a definer-planted allocation naming a made-up or foreign row refused; viewer `forbidden`; a forced definer failure leaves the application committed; apply, process and processBatch each emit; receiver inbox count/list and auto-accept never see an allocation; registry and app_pool_reach checks pass and PUBLIC cannot execute. Fixture: `plantMessage` (intercompany.plant.ts) must plant a real allocation row for kind `allocation`.
