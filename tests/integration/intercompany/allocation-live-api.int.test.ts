@@ -65,6 +65,32 @@ describe('the receiver lists the payments from its group', () => {
     expect(by.get(gone.message)).toMatchObject({ issuerInvoice: null, mismatch: 'invoice_gone' });
   });
 
+  it('an invoice that is not open (draft, awaiting approval, paid) shows no open amount and invoice_not_open', async () => {
+    const out: Record<string, string> = {};
+    for (const status of ['draft', 'pending_approval', 'paid']) {
+      const sent = await sentAllocation(pool, conn);
+      await withoutTrigger(pool, 'customer_invoices', 'trg_doc_journal_link_upd', (q) => q.query('UPDATE customer_invoices SET status = $2 WHERE id = $1', [sent.invoice, status]));
+      out[sent.message] = status;
+    }
+    for (const item of (await page()).items) {
+      expect([out[item.id], item.issuerInvoice?.openAmount, item.issuerInvoice?.status, item.mismatch]).toEqual([out[item.id], null, out[item.id], 'invoice_not_open']);
+    }
+  });
+
+  it('a payment dated before the cut-over (the cut-over moved later): the definer says before_cutover and the mismatch pre_cutover_payment', async () => {
+    const sent = await sentAllocation(pool, conn);
+    await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET cutover_date = DATE '2026-10-01' WHERE id = $1", [conn]), true);
+    expect((await page()).items[0]).toMatchObject({ id: sent.message, live: false, liveReason: 'before_cutover', mismatch: 'pre_cutover_payment' });
+  });
+
+  it('the total is right on a page past the end, and the count of open payments with it', async () => {
+    await sentAllocation(pool, conn);
+    await sentAllocation(pool, conn);
+    expect(await page(U.a, co.A, { offset: '5' })).toMatchObject({ items: [], total: 2, allocationCount: 2 });
+    expect(await page(U.a, co.A, { limit: '1', offset: '1' })).toMatchObject({ total: 2, allocationCount: 2 });
+    expect((await page(U.a, co.A, { limit: '1', offset: '1' })).items).toHaveLength(1);
+  });
+
   it('the issuer invoice is looked up under the SESSION company: a payload naming another company\'s invoice shows none, even to a member of both', async () => {
     const sent = await sentAllocation(pool, conn);
     const thirds = await plantDocument(pool, 'customer_invoice', co.C);
@@ -74,15 +100,18 @@ describe('the receiver lists the payments from its group', () => {
     expect(item).toMatchObject({ id: sent.message, issuerInvoice: null, mismatch: 'invoice_gone', live: false, liveReason: 'link_gone' });
   });
 
-  it('a liveness check that fails (the definer cannot get its lock) shows check_failed and the request still answers', async () => {
-    const sent = await sentAllocation(pool, conn);
+  it('a liveness check that fails (the service bounds the lock wait for the page) shows check_failed for every open row, and the request still answers', async () => {
+    const one = await sentAllocation(pool, conn);
+    const two = await sentAllocation(pool, conn);
     const blocker = await pool.connect();
     try {
       await blocker.query('BEGIN');
       await blocker.query('LOCK TABLE payment_allocations IN ACCESS EXCLUSIVE MODE');
       const p = await page();
-      expect(p.items[0]).toMatchObject({ id: sent.message, live: false, liveReason: 'check_failed', issuerInvoice: { id: sent.invoice } });
-      expect(p.allocationCount).toBe(1);
+      const by = new Map(p.items.map((i) => [i.id, i]));
+      expect(by.get(one.message)).toMatchObject({ live: false, liveReason: 'check_failed', issuerInvoice: { id: one.invoice } });
+      expect(by.get(two.message)).toMatchObject({ live: false, liveReason: 'check_failed', issuerInvoice: { id: two.invoice } });
+      expect(p.allocationCount).toBe(2);
     } finally {
       await blocker.query('ROLLBACK');
       blocker.release();
@@ -129,10 +158,33 @@ describe('actions: reject with a reason, dismiss; never accept', () => {
     expect(handled.allocationCount).toBe(0);
   });
 
+  it('a reject on a revoked connection is a 409 and changes nothing; a dismiss still works there', async () => {
+    const one = await sentAllocation(pool, conn);
+    const two = await sentAllocation(pool, conn);
+    await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [conn]), true);
+    expect((await allocationsApi.reject(U.a, co.A, one.message, { reason: 'Not ours' })).state.statusCode).toBe(409);
+    expect(await status(one.message)).toMatchObject({ status: 'pending', reason: null });
+    expect((await allocationsApi.dismiss(U.a, co.A, two.message)).state.statusCode).toBe(200);
+    expect((await allocationsApi.restore(U.a, co.A, two.message)).state.statusCode).toBe(409);      // restoring needs a live connection
+    expect(await status(two.message)).toMatchObject({ status: 'dismissed' });
+  });
+
+  it('restore brings a dismissed payment back to pending (and only a dismissed one); a viewer and another company are refused', async () => {
+    const sent = await sentAllocation(pool, conn);
+    expect((await allocationsApi.restore(U.a, co.A, sent.message)).state.statusCode).toBe(409);      // pending: nothing to restore
+    expect((await allocationsApi.dismiss(U.a, co.A, sent.message)).state.statusCode).toBe(200);
+    expect((await allocationsApi.restore(U.va, co.A, sent.message)).state.statusCode).toBe(403);
+    expect((await allocationsApi.restore(U.b, co.B, sent.message)).state.statusCode).toBe(404);
+    expect((await allocationsApi.restore(U.a, co.A, sent.message)).state.statusCode).toBe(200);
+    expect(await status(sent.message)).toMatchObject({ status: 'pending' });
+    expect((await page()).items[0]).toMatchObject({ id: sent.message, status: 'pending', live: true, liveReason: 'ok' });
+  });
+
   it('the allocation routes act on allocations only: an invoice message is a 404 there', async () => {
     const invoice = await plantMessage(pool, conn, co.B, co.A, { kind: 'invoice', user: U.b });
     expect((await allocationsApi.get(U.a, co.A, invoice)).state.statusCode).toBe(404);
     expect((await allocationsApi.dismiss(U.a, co.A, invoice)).state.statusCode).toBe(404);
+    expect((await allocationsApi.restore(U.a, co.A, invoice)).state.statusCode).toBe(404);
     expect(await status(invoice)).toMatchObject({ status: 'pending' });
   });
 

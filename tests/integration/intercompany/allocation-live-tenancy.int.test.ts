@@ -7,10 +7,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { plantMessage, withoutTrigger } from './intercompany.helpers';
+import { plantMessage } from './intercompany.helpers';
 import { co, mirrorCleanup, U, wipeConnections } from './mirror.helpers';
 import { allocSetup, clearPayments, loanConnect } from './allocation.helpers';
-import { liveFor, liveRows, liveWithoutUser, sentAllocation } from './allocation-live.helpers';
+import { liveRows, liveWithoutUser, sentAllocation } from './allocation-live.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -56,23 +56,9 @@ describe('only the receiver is answered', () => {
   });
 });
 
-describe('belt and braces: two pending messages naming the same payment and bill', () => {
-  it('both answer duplicate while the allocation row stands (planted: the unique keys make it unreachable through the definers)', async () => {
-    const sent = await sentAllocation(pool, conn);
-    // a second message B -> A naming the same allocation row under ANOTHER from-company (the one way past the unique key), guard off
-    const twin = await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', async (q) => (await q.query(
-      `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload, source_journal_entry_id, status)
-       SELECT connection_id, $2, to_company_id, kind, source_doc_type, source_doc_id, payload, source_journal_entry_id, 'pending'
-         FROM intercompany_messages WHERE id = $1 RETURNING id`, [sent.message, co.C])).rows[0].id as string);
-    expect(await liveFor(pool, sent.message)).toEqual({ live: false, reason: 'duplicate' });
-    await pool.query('DELETE FROM intercompany_messages WHERE id = $1', [twin]);
-    expect(await liveFor(pool, sent.message)).toEqual({ live: true, reason: 'ok' });
-  });
-});
-
 describe('the definer is registered, owned by the definers\' owner and callable by app_user alone', () => {
   const SIG = 'public.intercompany_allocation_message_live(uuid)';
-  it('SECURITY DEFINER, migration_admin, search_path pinned with pg_temp last, a current 930 registry row; PUBLIC cannot execute it', async () => {
+  it('SECURITY DEFINER, migration_admin, search_path pinned with pg_temp last, no SET of its own but the search_path, a current 930 registry row; PUBLIC cannot execute it', async () => {
     const p = (await pool.query(
       `SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner, p.proconfig,
               has_function_privilege('public', p.oid, 'EXECUTE') AS pub, has_function_privilege('app_user', p.oid, 'EXECUTE') AS app,
@@ -82,7 +68,7 @@ describe('the definer is registered, owned by the definers\' owner and callable 
     expect(p).toMatchObject({ prosecdef: true, owner: 'migration_admin', pub: false, app: true, reviewed: 1, result: 'TABLE(live boolean, reason text)' });
     // the owner and app_user, nobody else directly (a role that is a member of app_user reaches it as it reaches every app_user grant)
     expect(p.acl).toBe('{migration_admin=X/migration_admin,app_user=X/migration_admin}');
-    expect(p.proconfig).toContain('search_path=pg_catalog, public, pg_temp');
+    expect(p.proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);
     expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
   });
 

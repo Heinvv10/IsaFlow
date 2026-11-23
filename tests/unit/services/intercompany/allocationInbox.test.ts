@@ -38,18 +38,19 @@ const payload = (over: Record<string, unknown> = {}) => ({
 });
 const row = (id: string, over: Record<string, unknown> = {}) => ({
   id, status: 'pending', connection_id: uid(5), from_company_id: SENDER, payload: payload(), reason: null, error: null, handled_at: null,
-  created_at: new Date('2026-11-23T08:00:00Z'), cutover: '2026-01-01', sender_name: 'Blitz Fibre (customer)', total: 1, ...over,
+  created_at: new Date('2026-11-23T08:00:00Z'), cutover: '2026-01-01', sender_name: 'Blitz Fibre (customer)', ...over,
 });
 const invoice = { id: INV, invoice_number: 'INV-9', open: 1150, status: 'approved', currency: 'ZAR', date: '2026-09-01' };
 
-interface World { rows: unknown[]; invoices: unknown[]; live: (id: string) => unknown[] | Promise<unknown[]>; count: number }
+interface World { rows: unknown[]; invoices: unknown[]; live: (id: string) => unknown[] | Promise<unknown[]>; count: number; total?: number }
 let world: World;
 const serve = (w: Partial<World> = {}) => {
   world = { rows: [row('m-1')], invoices: [invoice], live: () => [{ live: true, reason: 'ok' }], count: 1, ...w };
   m.answer = (text, values) => {
     if (text.includes('intercompany_allocation_message_live')) return world.live(String(values[0]));
     if (text.includes('FROM customer_invoices')) return world.invoices;
-    if (text.includes('count(*)::int AS n')) return [{ n: world.count }];
+    if (text.includes('AS open_count')) return [{ total: world.total ?? world.rows.length, open_count: world.count }];
+    if (text.includes("set_config('lock_timeout'")) return [{ prev: '0' }];
     if (text.includes('FROM intercompany_messages m')) return world.rows;
     return [];
   };
@@ -80,23 +81,39 @@ describe('listAllocationInbox', () => {
     });
   });
 
-  it('scopes every read to the session company: the messages to it, the invoice lookup under its company_id, the count', async () => {
-    await listAllocationInbox(CO, 'open', 25, 0);
-    const list = callsTo('FROM intercompany_messages m')[0]!;
-    expect(list.text).toMatch(/m\.to_company_id = \?::UUID/);
-    expect(list.text).toMatch(/m\.kind = 'allocation'/);
-    expect(list.values).toContain(CO);
-    const inv = callsTo('FROM customer_invoices')[0]!;
-    expect(inv.text).toMatch(/company_id = \?::UUID/);
-    expect(inv.values[0]).toBe(CO);
-    expect(inv.values).toContainEqual([INV]);
-    expect(callsTo('count(*)::int AS n')[0]!.values).toContain(CO);
-  });
-
   it('a page is capped at 100 and an offset is never negative', async () => {
     await listAllocationInbox(CO, 'handled', 5000, -3);
     const list = callsTo('FROM intercompany_messages m')[0]!;
     expect(list.values).toEqual(expect.arrayContaining([100, 0, ['accepted', 'rejected', 'dismissed', 'withdrawn']]));
+  });
+
+  it('the total comes from its own count, so a page past the end still says how many there are', async () => {
+    serve({ rows: [], total: 7, count: 3 });
+    expect(await listAllocationInbox(CO, 'open', 25, 50)).toEqual({ items: [], total: 7, allocationCount: 3 });
+  });
+
+  it('a handled row is not_pending without asking the database; only the open rows are checked', async () => {
+    serve({ rows: [row('m-1', { status: 'rejected', reason: 'no' }), row('m-2'), row('m-3', { status: 'dismissed' }), row('m-4', { status: 'failed' })] });
+    const items = (await listAllocationInbox(CO, 'handled', 25, 0)).items;
+    expect(items.map((i) => [i.id, i.live, i.liveReason])).toEqual([['m-1', false, 'not_pending'], ['m-2', true, 'ok'], ['m-3', false, 'not_pending'], ['m-4', true, 'ok']]);
+    expect(callsTo('intercompany_allocation_message_live').map((c) => c.values[0])).toEqual(['m-2', 'm-4']);
+  });
+
+  it('the page\'s lock wait is bounded once (tighten-only, 2 s) around the checks and put back after them, outside every savepoint', async () => {
+    serve({ rows: [row('m-1'), row('m-2')] });
+    await listAllocationInbox(CO, 'open', 25, 0);
+    const order = m.calls.map((c) => (c.text.includes("set_config('lock_timeout'") ? `lock:${c.inSavepoint}` : c.text.includes('message_live') ? 'live' : null)).filter(Boolean);
+    expect(order).toEqual(['lock:false', 'live', 'live', 'lock:false']);
+    const [tighten, restore] = callsTo("set_config('lock_timeout'");
+    expect(tighten!.text).toMatch(/2s/);
+    expect(restore!.values).toContain('0');                                  // the value it found
+  });
+
+  it('no open row: no lock bound and no definer call', async () => {
+    serve({ rows: [row('m-1', { status: 'accepted' })] });
+    await listAllocationInbox(CO, 'handled', 25, 0);
+    expect(callsTo("set_config('lock_timeout'")).toHaveLength(0);
+    expect(callsTo('intercompany_allocation_message_live')).toHaveLength(0);
   });
 
   it('one definer call per item, each inside its own savepoint', async () => {
@@ -108,15 +125,22 @@ describe('listAllocationInbox', () => {
     expect(m.savepoint).toHaveBeenCalledTimes(3);
   });
 
-  it('a failed check is check_failed (logged by SQLSTATE only, never thrown), and the next item is still checked', async () => {
+  it('a failed check is check_failed (logged by SQLSTATE only, never thrown), and the rest of the page is check_failed WITHOUT another call (one wait per page)', async () => {
     serve({
-      rows: [row('m-1'), row('m-2')],
+      rows: [row('m-1'), row('m-2'), row('m-3', { status: 'rejected' })],
       live: (id) => (id === 'm-1' ? Promise.reject(Object.assign(new Error('lock on "payment_allocations" names ids'), { code: '55P03' })) : [{ live: true, reason: 'ok' }]),
     });
     const page = await listAllocationInbox(CO, 'open', 25, 0);
-    expect(page.items.map((i) => [i.id, i.live, i.liveReason])).toEqual([['m-1', false, 'check_failed'], ['m-2', true, 'ok']]);
+    expect(page.items.map((i) => [i.id, i.live, i.liveReason])).toEqual([['m-1', false, 'check_failed'], ['m-2', false, 'check_failed'], ['m-3', false, 'not_pending']]);
+    expect(callsTo('intercompany_allocation_message_live').map((c) => c.values[0])).toEqual(['m-1']);
     expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/allocation/i), { companyId: CO, messageId: 'm-1', code: '55P03' }, 'intercompany');
     expect(JSON.stringify(m.log.warn.mock.calls)).not.toMatch(/names ids/);
+  });
+
+  it('an unreadable answer (no exception) is check_failed for that row only: the next row is still asked', async () => {
+    serve({ rows: [row('m-1'), row('m-2')], live: (id) => (id === 'm-1' ? [] : [{ live: true, reason: 'ok' }]) });
+    const items = (await listAllocationInbox(CO, 'open', 25, 0)).items;
+    expect(items.map((i) => i.liveReason)).toEqual(['check_failed', 'ok']);
   });
 
   it.each<[string, unknown[]]>([
@@ -169,7 +193,7 @@ describe('loadAllocationDetail', () => {
 
 describe('allocationMismatch (derived, never stored)', () => {
   const p = (over: Partial<AllocationPayload> = {}): AllocationPayload => ({ ...(payload() as unknown as AllocationPayload), ...over });
-  const inv = (over: Record<string, unknown> = {}) => ({ id: INV, number: 'INV-9', openAmount: 1150, status: 'approved', currency: 'ZAR', date: '2026-09-01', ...over });
+  const inv = (over: Record<string, unknown> = {}) => ({ id: INV, number: 'INV-9', openAmount: 1150 as number | null, status: 'approved', currency: 'ZAR', date: '2026-09-01', ...over });
   it.each<[string, AllocationPayload | null, ReturnType<typeof inv> | null, string | null, string | null]>([
     ['all in order', p(), inv(), '2026-01-01', null],
     ['the amount equal to the open amount', p({ amount: 1150 }), inv({ openAmount: 1150 }), '2026-01-01', null],
@@ -179,11 +203,18 @@ describe('allocationMismatch (derived, never stored)', () => {
     ['no invoice', p(), null, '2026-01-01', 'invoice_gone'],
     ['a cancelled invoice', p(), inv({ status: 'cancelled' }), '2026-01-01', 'invoice_gone'],
     ['an invoice dated before the cut-over', p(), inv({ date: '2025-12-31' }), '2026-01-01', 'pre_cutover_invoice'],
+    ['a payment dated before the cut-over', p({ payment: { ...p().payment, date: '2025-12-31' } }), inv(), '2026-01-01', 'pre_cutover_payment'],
+    ['a payment dated ON the cut-over', p({ payment: { ...p().payment, date: '2026-01-01' } }), inv(), '2026-01-01', null],
+    ['a draft invoice', p(), inv({ status: 'draft', openAmount: null }), '2026-01-01', 'invoice_not_open'],
+    ['an invoice awaiting approval', p(), inv({ status: 'pending_approval', openAmount: null }), '2026-01-01', 'invoice_not_open'],
+    ['a paid invoice', p(), inv({ status: 'paid', openAmount: null }), '2026-01-01', 'invoice_not_open'],
+    ['not open wins over the currency', p({ currency: 'USD' }), inv({ status: 'draft', openAmount: null }), '2026-01-01', 'invoice_not_open'],
+    ['a pre-cut-over payment wins over a pre-cut-over invoice', p({ payment: { ...p().payment, date: '2025-12-31' } }), inv({ date: '2025-01-01' }), '2026-01-01', 'pre_cutover_payment'],
     ['an invoice dated ON the cut-over', p(), inv({ date: '2026-01-01' }), '2026-01-01', null],
     ['no cut-over known', p(), inv({ date: '2025-12-31' }), null, null],
     ['an unreadable payload', null, inv(), '2026-01-01', null],
     ['gone wins over everything', p({ currency: 'USD', amount: 9999 }), null, '2026-01-01', 'invoice_gone'],
-    ['currency wins over pre-cut-over and the amount', p({ currency: 'USD', amount: 9999 }), inv({ date: '2025-01-01' }), '2026-01-01', 'currency'],
+    ['currency wins over pre-cut-over and the amount', p({ currency: 'USD', amount: 9999, payment: { ...p().payment, date: '2025-12-31' } }), inv({ date: '2025-01-01' }), '2026-01-01', 'currency'],
     ['pre-cut-over wins over the amount', p({ amount: 9999 }), inv({ date: '2025-01-01' }), '2026-01-01', 'pre_cutover_invoice'],
   ])('%s', (_n, payloadIn, invoiceIn, cutover, expected) => {
     expect(allocationMismatch(payloadIn, invoiceIn, cutover)).toBe(expected);

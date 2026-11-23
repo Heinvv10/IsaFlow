@@ -1,8 +1,9 @@
 /**
  * Intercompany P4-C: is an allocation message still TRUE? (`intercompany_allocation_message_live`, migration 1026). The RECEIVER (A, the issuer)
- * asks; the definer re-reads the payer's rows the message was built from and answers `(true, 'ok')` or the first thing that is no longer so,
- * cheapest first: not_pending, allocation_gone, changed, payment_not_posted, journal_reversed, bill_gone, link_gone. It reads and writes nothing
- * else: no message, no document, no journal changes around the call.
+ * asks; the definer checks the RELATIONSHIP first (the connection active and loan, the payload's link active between the payer's bill and the
+ * receiver's invoice, the payment on or after the cut-over), before it reads any payer row, then re-reads the payer's rows the message was built
+ * from, and answers `(true, 'ok')` or the first thing that is no longer so: not_pending, link_gone, before_cutover, allocation_gone, changed,
+ * payment_not_posted, journal_reversed, bill_gone. It writes nothing: no message, no document, no journal changes around the call.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -85,6 +86,8 @@ describe('each way a message goes stale answers its reason', () => {
     ['the link unlinked', 'link_gone', (s) => unlink(s.link!)],
     ['the connection revoked', 'link_gone', () => onConnection("status = 'revoked'")],
     ['the connection switched to cash', 'link_gone', () => onConnection("settlement_mode = 'cash'")],
+    ['the cut-over moved past the payment date', 'before_cutover', () => onConnection("cutover_date = DATE '2026-09-02'")],
+    ['the cut-over cleared', 'before_cutover', () => onConnection('cutover_date = NULL')],
   ];
   it.each(cases)('%s: %s', async (_name, reason, stale) => {
     const sent = await sentAllocation(pool, conn);
@@ -93,15 +96,39 @@ describe('each way a message goes stale answers its reason', () => {
     expect(await liveFor(pool, sent.message)).toEqual({ live: false, reason });
   });
 
-  it('the first failure wins, cheapest first: a deleted allocation on a revoked connection is allocation_gone; a reversed journal of a deleted bill is journal_reversed', async () => {
-    const one = await sentAllocation(pool, conn);
+  it('the first failure wins, in order: a reversed journal of a deleted bill is journal_reversed; a payment on the cut-over day is still ok', async () => {
     const two = await sentAllocation(pool, conn);
-    await pool.query('DELETE FROM payment_allocations WHERE id = $1', [one.allocation]);
     await rawReverseJournal(pool, two.journal!);
     await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [two.bill]);
-    await onConnection("status = 'revoked'");
-    expect(await liveFor(pool, one.message)).toEqual({ live: false, reason: 'allocation_gone' });
     expect(await liveFor(pool, two.message)).toEqual({ live: false, reason: 'journal_reversed' });
+    const onDay = await sentAllocation(pool, conn);
+    await onConnection("cutover_date = DATE '2026-09-01'");
+    expect(await liveFor(pool, onDay.message)).toEqual({ live: true, reason: 'ok' });
+  });
+});
+
+describe('a dead relationship answers link_gone and nothing more specific (no payer row is read for it)', () => {
+  it.each<[string, string]>([['revoked', "status = 'revoked'"], ['switched to cash', "settlement_mode = 'cash'"]])(
+    'a connection %s: a deleted allocation, a reversed journal and a deleted bill all answer link_gone', async (_name, set) => {
+      const gone = await sentAllocation(pool, conn);
+      const reversed = await sentAllocation(pool, conn);
+      const deleted = await sentAllocation(pool, conn);
+      await pool.query('DELETE FROM payment_allocations WHERE id = $1', [gone.allocation]);
+      await rawReverseJournal(pool, reversed.journal!);
+      await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [deleted.bill]);
+      await onConnection(set);
+      for (const m of [gone, reversed, deleted]) expect(await liveFor(pool, m.message)).toEqual({ live: false, reason: 'link_gone' });
+    });
+
+  it('an unlinked link hides an unapplied allocation; a cut-over past the payment hides a reversed journal', async () => {
+    const one = await sentAllocation(pool, conn);
+    await pool.query('DELETE FROM payment_allocations WHERE id = $1', [one.allocation]);
+    await unlink(one.link!);
+    expect(await liveFor(pool, one.message)).toEqual({ live: false, reason: 'link_gone' });
+    const two = await sentAllocation(pool, conn);
+    await rawReverseJournal(pool, two.journal!);
+    await onConnection("cutover_date = DATE '2026-10-01'");
+    expect(await liveFor(pool, two.message)).toEqual({ live: false, reason: 'before_cutover' });
   });
 });
 

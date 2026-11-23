@@ -8,6 +8,7 @@ import allocationsRoute from '../../../pages/api/accounting/intercompany/allocat
 import allocationRoute from '../../../pages/api/accounting/intercompany/allocations/[id]/index';
 import allocationRejectRoute from '../../../pages/api/accounting/intercompany/allocations/[id]/reject';
 import allocationDismissRoute from '../../../pages/api/accounting/intercompany/allocations/[id]/dismiss';
+import allocationRestoreRoute from '../../../pages/api/accounting/intercompany/allocations/[id]/restore';
 import { callRoute } from '../r035-approval.helpers';
 import { asAppUser, co, tokens, U } from './intercompany.helpers';
 import { plantBill, plantPaid, sendFor } from './allocation.helpers';
@@ -60,4 +61,6 @@ export const allocationsApi = {
     callRoute(allocationRejectRoute, tokens[user]!, company, 'POST', body, `${base}/${id}/reject`, { id }),
   dismiss: (user: string, company: string, id: string) =>
     callRoute(allocationDismissRoute, tokens[user]!, company, 'POST', undefined, `${base}/${id}/dismiss`, { id }),
+  restore: (user: string, company: string, id: string) =>
+    callRoute(allocationRestoreRoute, tokens[user]!, company, 'POST', undefined, `${base}/${id}/restore`, { id }),
 };
