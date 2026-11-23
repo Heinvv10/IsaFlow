@@ -36,7 +36,7 @@ export interface EntityReconciliation {
   addedByRun: number;
 }
 
-export interface Expectation { expected: number; actual: number; basis: 'sent' | 'booked'; ok: boolean }
+export interface Expectation { expected: number; actual: number; basis: 'sent' | 'booked' | 'projected'; ok: boolean }
 
 export interface Reconciliation {
   items: EntityReconciliation;

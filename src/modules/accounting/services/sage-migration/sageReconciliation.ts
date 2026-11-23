@@ -20,7 +20,7 @@ interface Input {
   differingPos?: ReadonlySet<string>;
 }
 
-const check = (expected: number | undefined, actual: number, basis: 'sent' | 'booked'): Expectation | null =>
+const check = (expected: number | undefined, actual: number, basis: Expectation['basis']): Expectation | null =>
   (expected === undefined ? null : { expected, actual, basis, ok: expected === actual });
 
 export function buildReconciliation(i: Input): Reconciliation {
@@ -58,7 +58,10 @@ export function buildReconciliation(i: Input): Reconciliation {
     expected: {
       items: check(i.expect?.items, i.live ? itemsAfter : itemIds.length, basis),
       purchaseOrders: check(i.expect?.purchaseOrders, i.live ? posAfter : poIds.length, basis),
-      purchaseOrderTotalCents: check(i.expect?.purchaseOrderTotalCents, i.live ? bookedTotalCents : sentTotalCents, basis),
+      // Before a live run the total is what the books WILL hold: the booked total of a PO already there (an allowed difference keeps it),
+      // the sent total of a new one. Otherwise the gate passes and the live run then misses its own figure.
+      purchaseOrderTotalCents: i.live ? check(i.expect?.purchaseOrderTotalCents, bookedTotalCents, 'booked')
+        : check(i.expect?.purchaseOrderTotalCents, plan.purchaseOrders.reduce((n, p) => n + (before.poTotals.get(p.sageId) ?? p.totalCents), 0), 'projected'),
     },
     stock: {
       movementsBefore: before.stockMovements, movementsAfter: after.stockMovements, written: stockWritten,

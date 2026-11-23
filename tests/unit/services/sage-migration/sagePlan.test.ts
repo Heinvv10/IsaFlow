@@ -129,6 +129,21 @@ describe('reconciliation and its lines', () => {
     const r = buildReconciliation({ ...b, before: snap([], []), after });
     expect([r.allSentBooked, r.nothingRefused]).toEqual([true, true]);
   });
+  it('B6-I (round 6): before a live run the PO total is PROJECTED (booked totals of POs already there, sent totals of new ones), so an allowed difference cannot pass the gate and fail after', () => {
+    const { b } = all();
+    const [first] = b.plan.purchaseOrders;
+    const before = snap([], [[first!.sageId, first!.totalCents + 11500]]); // booked at R115.00 more than Sage says now
+    const sent = b.plan.purchaseOrders.reduce((n, p) => n + p.totalCents, 0);
+    const projected = sent + 11500;
+    const dry = buildReconciliation({ ...b, live: false, before, after: before, expect: { purchaseOrderTotalCents: sent } });
+    expect(dry.expected.purchaseOrderTotalCents).toEqual({ expected: sent, actual: projected, basis: 'projected', ok: false });
+    expect(buildReconciliation({ ...b, live: false, before, after: before, expect: { purchaseOrderTotalCents: projected } }).expected.purchaseOrderTotalCents!.ok).toBe(true);
+    // nothing booked yet: the projection is the sent total, as before
+    const fresh = buildReconciliation({ ...b, live: false, before: snap([], []), after: snap([], []), expect: { purchaseOrderTotalCents: sent } });
+    expect(fresh.expected.purchaseOrderTotalCents).toEqual({ expected: sent, actual: sent, basis: 'projected', ok: true });
+    // the counts stay what is SENT
+    expect(buildReconciliation({ ...b, live: false, before, after: before, expect: { purchaseOrders: 10 } }).expected.purchaseOrders).toMatchObject({ basis: 'sent', actual: 10 });
+  });
   it('L3 (round 5): a PO already booked with another total (a listed difference) is not a missing booking; any other total off still is', () => {
     const { b, after } = all();
     const [firstRef, firstTotal] = [...after.poTotals][0]!;
