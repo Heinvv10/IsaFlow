@@ -39,6 +39,7 @@ it('the action dialog Cancel and primary buttons are 44px', async () => {
   fireEvent.click(button(/^Mark filed$/)!);
   const dialog = await screen.findByRole('dialog');
   min(within(dialog).getByRole('button', { name: 'Cancel' }), 'Cancel');
+  min(within(dialog).getByLabelText('SARS eFiling reference'), 'eFiling reference field'); // the Mark filed dialog's first field
   const primary = within(dialog).getAllByRole('button').find((b) => /file/i.test(b.textContent ?? '') && b.textContent !== 'Cancel');
   min(primary ?? null, 'primary');
 });
