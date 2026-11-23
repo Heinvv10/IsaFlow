@@ -29,6 +29,11 @@ describe('resolveSuppliers', () => {
     expect(await one(s)).toEqual({ id: 'uuid-1' });
     expect(calls).toEqual(['find_by_external_ref']);
   });
+  it('B6-D (round 6): two live suppliers carrying the Sage reference is supplier_ambiguous, not the first of them', async () => {
+    const { s, calls } = session({ ref: () => ({ found: true, record: { id: 'uuid-1' }, other_live: [{ id: 'uuid-2' }] }) });
+    expect(await one(s)).toMatchObject({ code: 'supplier_ambiguous', reason: expect.stringMatching(/2 live IsaFlow suppliers carry Sage reference 9.*uuid-1.*uuid-2/) });
+    expect(calls).toEqual(['find_by_external_ref']); // no name search is made to break the tie
+  });
   it('otherwise the exact name, case-insensitive and trimmed, among what the search returns', async () => {
     const { s } = session({ suppliers: () => ({ suppliers: [{ id: 'a', name: 'Acme Holdings' }, { id: 'b', name: '  ACME ' }], next_offset: null }) });
     expect(await one(s)).toEqual({ id: 'b' });

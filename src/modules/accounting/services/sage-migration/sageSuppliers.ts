@@ -44,6 +44,12 @@ async function resolveOne(session: ToolSession, id: string, name: string | null,
   const ref = await session.call('find_by_external_ref', { source: SAGE_SYSTEM, kind: 'supplier', id });
   if (ref.isError || !ref.body) return { code: 'supplier_unresolved', reason: `find_by_external_ref failed for Sage supplier ${id}: ${ref.text.slice(0, 200)}` };
   const record = ref.body.record as { id?: string } | null;
+  // The tool answers the first live match and lists the others: two live suppliers on one Sage reference is a guess, never booked.
+  const others = Array.isArray(ref.body.other_live) ? (ref.body.other_live as Array<{ id?: string }>) : [];
+  if (ref.body.found === true && record?.id && others.length > 0) {
+    const ids = [record.id, ...others.map((o) => String(o.id))].join(', ');
+    return { code: 'supplier_ambiguous', reason: `${others.length + 1} live IsaFlow suppliers carry Sage reference ${id} (${ids}): none is picked; remove the reference from all but one` };
+  }
   if (ref.body.found === true && record?.id) return { id: String(record.id) };
   if (!name) return { code: 'supplier_unresolved', reason: `Sage supplier ${id} has no IsaFlow supplier carrying that reference and the export gives no name` };
   const found = await byName(session, name, id, refs);
