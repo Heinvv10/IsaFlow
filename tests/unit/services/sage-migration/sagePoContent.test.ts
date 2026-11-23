@@ -18,7 +18,7 @@ const line = (n: number, over: Partial<Record<LineColumn, Scalar>> = {}, itemCod
   itemCode,
   columns: {
     description: n === 0 ? 'Fibre drop cable' : 'Delivery charge', quantity: n === 0 ? 2 : 1, unit_price: n === 0 ? 1200 : 350.5, tax_rate: 15,
-    line_total: n === 0 ? 2400 : 350.5, tax_amount: n === 0 ? 360 : 52.58, gl_account_id: null, cc1_id: null, cc2_id: null, bu_id: null, item_id: null, sort_order: n, ...over,
+    line_total: n === 0 ? 2400 : 350.5, tax_amount: n === 0 ? 360 : 52.58, item_id: null, sort_order: n, ...over,
   } as Record<LineColumn, Scalar>,
 });
 const sent = (over: { header?: Partial<Record<HeaderColumn, Scalar>>; lines?: StoredPo['lines'] } = {}): StoredPo => ({ header: header(over.header), lines: over.lines ?? [line(0), line(1)] });
@@ -40,6 +40,15 @@ describe('the column lists', () => {
   });
 });
 
+describe('B8-B (round 8): IsaFlow-owned coding never blocks a re-run', () => {
+  it('a line coded in IsaFlow (account, CC1, CC2, business unit) or given another account by --po-gl-account is no difference', () => {
+    const coded = books({ lines: [line(0), line(1)].map((l) => ({ ...l.columns, gl_account_id: ACC, cc1_id: ACC, cc2_id: ACC, bu_id: ACC })) });
+    expect(diff(sent(), coded)).toEqual([]);
+    expect(Object.keys(PO_LINE_EXCLUDED)).toEqual(expect.arrayContaining(['gl_account_id', 'cc1_id', 'cc2_id', 'bu_id']));
+    expect(PO_LINE_EXCLUDED.gl_account_id).toMatch(/IsaFlow-owned coding/);
+  });
+});
+
 describe('poContentDifferences: every compared column', () => {
   it('a PO that matches in every compared column has no difference (excluded columns may differ); one not in the books has none to compare', () => {
     expect(diff(sent(), books())).toEqual([]);
@@ -57,7 +66,7 @@ describe('poContentDifferences: every compared column', () => {
   });
   it('each line column is compared, by position: a change in any one is listed as "line N <column>"', () => {
     const changed: Record<LineColumn, Scalar> = {
-      description: 'Other', quantity: 4, unit_price: 600, tax_rate: 0, line_total: 1, tax_amount: 2, gl_account_id: ACC, cc1_id: ACC, cc2_id: ACC, bu_id: ACC, item_id: ITEM, sort_order: 7,
+      description: 'Other', quantity: 4, unit_price: 600, tax_rate: 0, line_total: 1, tax_amount: 2, item_id: ITEM, sort_order: 7,
     };
     for (const column of PO_LINE_COMPARED) {
       const d = diff(sent({ lines: [line(0), line(1, { [column]: changed[column] })] }), books());
@@ -79,7 +88,7 @@ describe('poContentDifferences: every compared column', () => {
   it('compares values, not spellings: 2 and 2.00, 350.5 and 350.500000, "" and null, an id in upper case, the system in any case', () => {
     const have = books({
       header: { reference: '', external_system: 'SAGE', supplier_id: S1.toUpperCase(), subtotal: 2750.500000 },
-      lines: [line(0, { quantity: Number('2.00'), unit_price: Number('1200.000000') }), line(1, { unit_price: Number('350.500000'), gl_account_id: '' })].map((l) => ({ ...l.columns })),
+      lines: [line(0, { quantity: Number('2.00'), unit_price: Number('1200.000000') }), line(1, { unit_price: Number('350.500000') })].map((l) => ({ ...l.columns })),
     });
     expect(diff(sent({ header: { reference: null } }), have)).toEqual([]);
   });
@@ -136,7 +145,7 @@ describe('storedPoFrom: the row set the tool writes for its own parse', () => {
   const parsed = {
     poNumber: 'PO1', supplierId: S1, orderDate: '2026-02-01', deliveryDate: null, status: 'approved', reference: null,
     ref: { system: 'sage', ref: '1', documentNumber: 'PO1' }, totals: { subtotal: 275050, tax: 41258, total: 316308 },
-    lines: [{ description: 'A', quantity: 2, unitPrice: 90, taxRate: 15, glAccountId: ACC, dims: { cc1: S2 }, cents: { net: 18000, tax: 2700 } }],
+    lines: [{ description: 'A', quantity: 2, unitPrice: 90, taxRate: 15, cents: { net: 18000, tax: 2700 } }],
   };
   it('has exactly the compared columns, in rands, with the plan\'s item decision', () => {
     const st = storedPoFrom(parsed, () => ({ itemId: ITEM, itemCode: 'FIB-1' }));
@@ -144,7 +153,7 @@ describe('storedPoFrom: the row set the tool writes for its own parse', () => {
     expect(Object.keys(st.lines[0]!.columns).sort()).toEqual([...PO_LINE_COMPARED].sort());
     expect(st.header).toMatchObject({ subtotal: 2750.5, tax_amount: 412.58, total: 3163.08, expected_delivery_date: null, external_ref: '1', external_document_number: 'PO1' });
     expect(st.lines[0]).toEqual({ itemCode: 'FIB-1', columns: {
-      description: 'A', quantity: 2, unit_price: 90, tax_rate: 15, line_total: 180, tax_amount: 27, gl_account_id: ACC, cc1_id: S2, cc2_id: null, bu_id: null, item_id: ITEM, sort_order: 0,
+      description: 'A', quantity: 2, unit_price: 90, tax_rate: 15, line_total: 180, tax_amount: 27, item_id: ITEM, sort_order: 0,
     } });
   });
 });

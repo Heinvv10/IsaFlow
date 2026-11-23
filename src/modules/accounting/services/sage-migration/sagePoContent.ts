@@ -40,13 +40,18 @@ export const PO_HEADER_EXCLUDED: Readonly<Record<string, string>> = {
 
 /** `po_items` columns the PO tool writes from Sage data: compared (by position, ordered by sort_order). */
 export const PO_LINE_COMPARED = [
-  'description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'gl_account_id', 'cc1_id', 'cc2_id', 'bu_id', 'item_id', 'sort_order',
+  'description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'item_id', 'sort_order',
 ] as const;
+const CODING = 'IsaFlow-owned coding: Sage has no such field, a person codes the line in IsaFlow after the import (the import sets gl_account_id only on create, from --po-gl-account), so a coded line must not block a re-run';
 /** `po_items` columns NOT compared, and why. */
 export const PO_LINE_EXCLUDED: Readonly<Record<string, string>> = {
   id: 'surrogate key',
   purchase_order_id: 'the parent PO: lines are read through it',
   product_id: 'legacy: the import always writes NULL',
+  gl_account_id: CODING,
+  cc1_id: CODING,
+  cc2_id: CODING,
+  bu_id: CODING,
   quantity_received: 'goods received in IsaFlow after the import: IsaFlow workflow, never Sage data',
   quantity_invoiced: 'bills linked in IsaFlow after the import: IsaFlow workflow, never Sage data',
   created_at: 'a timestamp',
@@ -145,8 +150,7 @@ export interface ParsedPoLike {
   ref: { system: string; ref: string; documentNumber: string | null } | null;
   totals: { subtotal: number; tax: number; total: number };
   lines: Array<{
-    description: string; quantity: number; unitPrice: number; taxRate: number; glAccountId: string | null;
-    dims: { cc1?: string; cc2?: string; bu?: string } | undefined; cents: { net: number; tax: number };
+    description: string; quantity: number; unitPrice: number; taxRate: number; cents: { net: number; tax: number };
   }>;
 }
 
@@ -166,7 +170,7 @@ export function storedPoFrom(parsed: ParsedPoLike, itemOf: (n: number) => { item
       itemCode: itemOf(n).itemCode,
       columns: {
         description: l.description, quantity: l.quantity, unit_price: l.unitPrice, tax_rate: l.taxRate, line_total: money(l.cents.net), tax_amount: money(l.cents.tax),
-        gl_account_id: l.glAccountId, cc1_id: l.dims?.cc1 ?? null, cc2_id: l.dims?.cc2 ?? null, bu_id: l.dims?.bu ?? null, item_id: itemOf(n).itemId, sort_order: n,
+        item_id: itemOf(n).itemId, sort_order: n,
       },
     })),
   };
