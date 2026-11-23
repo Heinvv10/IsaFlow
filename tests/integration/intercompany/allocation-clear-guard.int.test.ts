@@ -3,7 +3,8 @@
  * (`intercompany_allocation_target_ok`): a direct UPDATE to accepted (the #1788 hole C pinned) is refused 23514, and so is a forged target
  * (a contra receipt made by hand without this message's stamp, another amount, another message's receipt, a not-live message), or a target set
  * on any other transition. The exact clearing is accepted (the guard holds the shape, not who wrote it). The liveness definer is replaced,
- * registered with its new hash, owned by migration_admin; PUBLIC can execute none of the three functions.
+ * registered with its new hash, owned by migration_admin; PUBLIC can execute none of the four functions (round 1: the cap helper is gone,
+ * the definer answers the caps itself; the advisory-lock and loan-class helpers are new).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -144,13 +145,13 @@ describe('migration 1027 objects', () => {
       SELECT pg_get_userbyid(p.proowner) AS owner, pg_get_function_result(p.oid) AS result,
              (SELECT count(*)::int FROM app_definer_reviews r WHERE r.signature = 'intercompany_allocation_message_live(uuid)' AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
         FROM pg_proc p WHERE p.oid = 'public.intercompany_allocation_message_live(uuid)'::regprocedure`)).rows[0];
-    expect(r).toEqual({ owner: 'migration_admin', result: 'TABLE(live boolean, reason text, clearable_total numeric, journal_clearable numeric)', reviewed: 1 });
-    for (const fn of ['intercompany_allocation_message_live(uuid)', 'intercompany_allocation_cleared(uuid)', 'intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)']) {
+    expect(r).toEqual({ owner: 'migration_admin', result: 'TABLE(live boolean, reason text, cap text, payer_loan_type text)', reviewed: 1 });
+    for (const fn of ['intercompany_allocation_message_live(uuid)', 'intercompany_allocation_cap_lock(uuid)', 'intercompany_is_loan_class(text, text, boolean)', 'intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)']) {
       const g = (await pool.query("SELECT has_function_privilege('public', $1, 'EXECUTE') AS pub, has_function_privilege('app_user', $1, 'EXECUTE') AS app", [`public.${fn}`])).rows[0];
       expect([fn, g]).toEqual([fn, { pub: false, app: true }]);
     }
-    const helpers = (await pool.query("SELECT proname, prosecdef FROM pg_proc WHERE proname IN ('intercompany_allocation_cleared', 'intercompany_allocation_target_ok') ORDER BY proname")).rows;
-    expect(helpers).toEqual([{ proname: 'intercompany_allocation_cleared', prosecdef: false }, { proname: 'intercompany_allocation_target_ok', prosecdef: false }]);
+    const helpers = (await pool.query("SELECT proname, prosecdef FROM pg_proc WHERE proname IN ('intercompany_allocation_cleared', 'intercompany_allocation_cap_lock', 'intercompany_is_loan_class', 'intercompany_allocation_target_ok') ORDER BY proname")).rows;
+    expect(helpers).toEqual([{ proname: 'intercompany_allocation_cap_lock', prosecdef: false }, { proname: 'intercompany_allocation_target_ok', prosecdef: false }, { proname: 'intercompany_is_loan_class', prosecdef: false }]);
     expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
   });
 });

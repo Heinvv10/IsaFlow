@@ -51,6 +51,8 @@ describe('Accept a payment from the group', () => {
     expect(posts()).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     expect(within(dialog).getByTestId('allocation-accept-confirm').textContent).toMatch(/debit 1400 Loan to Velocity, credit 1200 Accounts Receivable, against invoice INV-900/);
+    // (L4) the step change moves focus to the confirm control
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Post clearing' })));
     expect(posts()).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
     await waitFor(() => expect(posts()).toHaveLength(1));
@@ -117,6 +119,14 @@ describe('Accept a payment from the group', () => {
   });
 });
 
+describe('a payment dated after today (round 1, m3)', () => {
+  it('is listed as stale, saying so', async () => {
+    serve({ items: [], allocations: [alloc({ live: false, liveReason: 'future_dated' })] });
+    render(<IntercompanyInboxPage />);
+    expect(within(await section()).getByTestId('allocation-state')).toHaveTextContent('Stale: the payment is dated after today');
+  });
+});
+
 describe('a handled payment', () => {
   it('names its clearing receipt, and says "Clearing voided" only when that receipt was voided', async () => {
     const cleared = alloc({ id: 'a-1', status: 'accepted', clearedBy: { paymentId: 'p-1', paymentNumber: 'CP-00031', journalEntryId: 'je-1', voided: false } });
@@ -132,6 +142,9 @@ describe('a handled payment', () => {
     fireEvent.click(within(rows[1]!).getByRole('button', { name: /Details for payment SP-00013/ }));
     const drawer = await screen.findByRole('dialog');
     expect(within(drawer).getByTestId('allocation-cleared-by').textContent).toMatch(/Cleared by receipt CP-00032.*Clearing voided/);
+    // (F8) a re-send needs the payer to unapply and re-apply the payment (the same allocation is never sent twice)
+    expect(within(drawer).getByTestId('allocation-cleared-by').textContent).toMatch(/the payer must unapply the payment and apply it again/);
+    expect(within(drawer).getByTestId('allocation-cleared-by').textContent).not.toMatch(/A new payment message from the payer can clear it/);
     expect(within(drawer).queryByRole('button', { name: /accept/i })).toBeNull();
   });
 });

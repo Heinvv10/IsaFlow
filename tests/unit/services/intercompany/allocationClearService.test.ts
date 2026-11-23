@@ -1,6 +1,7 @@
 /**
  * Intercompany P4-D, `acceptAllocation` with its reads mocked: the actor is the session user and is creator == approver; the person checks
- * (Login-as, write role, Approve) come before any row is read; the locks are taken in THE order; every refusal is stored as `failed` only AFTER
+ * (the person's OWN session: not Login-as, not session-less; write role; Approve) come before any row is read; the payer's advisory locks
+ * right after the message lock (round 1, F2); the locks are taken in THE order; every refusal is stored as `failed` only AFTER
  * the clearing's savepoint was rolled back; anything else propagates with nothing stored; a stale preview is a 409 and the approver a 403,
  * neither stored.
  */
@@ -26,8 +27,8 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => m.store } }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-const guard = vi.hoisted(() => ({ assertNotImpersonating: vi.fn() }));
-vi.mock('@/lib/auth/impersonationGuard', () => guard);
+const guard = vi.hoisted(() => ({ currentSessionActor: vi.fn() }));
+vi.mock('@/lib/auth/impersonationSessions', () => guard);
 const perm = vi.hoisted(() => ({ mayApprove: vi.fn(), approveRefusedMessage: () => 'no approve' }));
 vi.mock('@/modules/accounting/services/core/approvePermission', () => perm);
 const settle = vi.hoisted(() => {
@@ -39,8 +40,8 @@ vi.mock('@/modules/accounting/services/core/contraSettlementPosting', () => sett
 const lock = vi.hoisted(() => ({ lockReceiptInvoices: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/receiptInvoiceLock', () => lock);
 const reads = vi.hoisted(() => ({
-  userCanWrite: vi.fn(), lockAllocationMessages: vi.fn(), lockConnection: vi.fn(), lockOwnSide: vi.fn(), lockLink: vi.fn(), askLive: vi.fn(),
-  invoiceFacts: vi.fn(), pairCutover: vi.fn(), lockLoanAccount: vi.fn(), pendingDraftAmount: vi.fn(), clearedSoFar: vi.fn(),
+  userCanWrite: vi.fn(), lockAllocationMessages: vi.fn(), lockPayerCaps: vi.fn(), lockConnection: vi.fn(), lockOwnSide: vi.fn(), lockLink: vi.fn(), askLive: vi.fn(),
+  invoiceFacts: vi.fn(), pairCutover: vi.fn(), lockLoanAccount: vi.fn(), pendingDraftAmount: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/intercompany/allocationClearReads', () => reads);
 const dates = vi.hoisted(() => ({ todaySast: vi.fn(), postingDateRefusal: vi.fn() }));
@@ -65,20 +66,20 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.events = [];
   m.store = { client: {}, userId: 'u-1', companyId: 'co-1' };
-  guard.assertNotImpersonating.mockImplementation(record('impersonation', undefined));
+  guard.currentSessionActor.mockImplementation(record('impersonation', 'self'));
   reads.userCanWrite.mockImplementation(record('canWrite', true));
   perm.mayApprove.mockImplementation(record('mayApprove', true));
   reads.lockAllocationMessages.mockImplementation(record('lock:message', { id: 'm-1', status: 'pending', fromCompanyId: 'co-2', connectionId: 'c-1', payload, sourceJournalEntryId: 'je-9' }));
+  reads.lockPayerCaps.mockImplementation(record('lock:payer', undefined));
   reads.lockConnection.mockImplementation(record('lock:connection', { id: 'c-1', status: 'active', kind: 'group', cutoverDate: '2026-01-01', lowId: 'co-1', highId: 'co-2' }));
   reads.lockOwnSide.mockImplementation(record('lock:side', { loanAccountId: LOAN, customerId: 'cust-1' }));
   reads.lockLink.mockImplementation(record('lock:link', undefined));
-  reads.askLive.mockImplementation(record('live', { live: true, reason: 'ok', clearableTotal: 400, journalClearable: 400 }));
+  reads.askLive.mockImplementation(record('live', { live: true, reason: 'ok', cap: null, payerLoanType: 'liability' }));
   lock.lockReceiptInvoices.mockImplementation(record('lock:invoice', new Map([[INV, { id: INV, invoiceNumber: 'INV-1', status: 'approved', deleted: false, totalCents: 115000, paidCents: 0, currencyCode: 'ZAR' }]])));
   reads.invoiceFacts.mockImplementation(record('invoice', { date: '2026-09-01', customerId: 'cust-1', currency: 'ZAR' }));
   reads.pairCutover.mockImplementation(record('cutover', '2026-01-01'));
   reads.lockLoanAccount.mockImplementation(record('lock:account', { accountType: 'asset', accountSubtype: 'other_current_asset', isActive: true, isParent: false, isSystem: false }));
   reads.pendingDraftAmount.mockImplementation(record('pending', 0));
-  reads.clearedSoFar.mockImplementation(record('cleared', { byPayment: 0, byJournal: 0 }));
   dates.todaySast.mockResolvedValue('2026-11-23');
   dates.postingDateRefusal.mockImplementation(record('period', null));
   settle.settleDocumentByContra.mockImplementation(record('settle', { paymentId: 'p-1', paymentNumber: 'CP-1', journalEntryId: 'je-1' }));
@@ -93,9 +94,11 @@ describe('the actor and the person checks', () => {
     expect(m.events).toEqual([]);
   });
 
-  it('a Login-as session, no write role, no Approve: refused before any row is read (no lock, nothing stored)', async () => {
-    guard.assertNotImpersonating.mockRejectedValueOnce(new Error('impersonating'));
-    await expect(call()).rejects.toThrow('impersonating');
+  it('a Login-as session, a session-less one (a receiver worker, a bearer token), no write role, no Approve: refused before any row is read', async () => {
+    guard.currentSessionActor.mockResolvedValueOnce('impersonation');
+    await expect(call()).rejects.toMatchObject({ code: 'IMPERSONATION_FORBIDDEN' });
+    guard.currentSessionActor.mockResolvedValueOnce('unknown');
+    await expect(call()).rejects.toMatchObject({ status: 403 });
     expect(m.events).toEqual([]);
     reads.userCanWrite.mockImplementationOnce(record('canWrite', false));
     await expect(call()).rejects.toMatchObject({ status: 403 });
@@ -113,9 +116,9 @@ describe('the clearing', () => {
     const out = await call();
     expect(out).toEqual({ accepted: true, messageId: 'm-1', paymentId: 'p-1', paymentNumber: 'CP-1', journalEntryId: 'je-1' });
     expect(m.events).toEqual([
-      'impersonation', 'canWrite', 'mayApprove', 'bound', 'savepoint:ic_allocation_lock', 'lock:message', 'release:ic_allocation_lock',
+      'impersonation', 'canWrite', 'mayApprove', 'bound', 'savepoint:ic_allocation_lock', 'lock:message', 'lock:payer', 'release:ic_allocation_lock',
       'savepoint:ic_allocation_clear', 'lock:connection', 'lock:side', 'lock:link', 'live', 'lock:invoice', 'invoice', 'cutover', 'lock:account',
-      'pending', 'cleared', 'period', 'settle', 'stamp', 'accepted', 'release:ic_allocation_clear', 'bound',
+      'pending', 'period', 'settle', 'stamp', 'accepted', 'release:ic_allocation_clear', 'bound',
     ]);
     expect(settle.settleDocumentByContra).toHaveBeenCalledWith(expect.objectContaining({
       companyId: 'co-1', subledger: 'ar', documentId: INV, contraAccountId: LOAN, amount: 400, date: '2026-09-10',
@@ -125,15 +128,19 @@ describe('the clearing', () => {
   });
 
   it('a refusal of a check is stored as failed AFTER the savepoint is rolled back, and nothing is posted', async () => {
-    reads.askLive.mockImplementationOnce(record('live', { live: false, reason: 'allocation_gone', clearableTotal: null, journalClearable: null }));
+    reads.askLive.mockImplementationOnce(record('live', { live: false, reason: 'allocation_gone', cap: null, payerLoanType: null }));
     expect(await call()).toEqual({ accepted: false, messageId: 'm-1', status: 'failed', code: 'not_live', error: CLEAR_REFUSAL_SENTENCES.not_live });
     expect(m.events.slice(m.events.indexOf('live'))).toEqual(['live', 'rollback:ic_allocation_clear', 'failed', 'bound']);
     expect(settle.settleDocumentByContra).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['the cap', () => reads.clearedSoFar.mockImplementationOnce(record('cleared', { byPayment: 0.01, byJournal: 0 })), 'already_cleared'],
-    ['the cash leg', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', clearableTotal: 0, journalClearable: 0 })), 'cash_not_through_loan'],
+    ['the cap', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'already_cleared', payerLoanType: 'liability' })), 'already_cleared'],
+    ['the cash leg', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'cash_not_through_loan', payerLoanType: null })), 'cash_not_through_loan'],
+    ['an unknown cap answer', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: 'something', payerLoanType: 'liability' })), 'refused'],
+    ['the loan types alike', () => reads.askLive.mockImplementationOnce(record('live', { live: true, reason: 'ok', cap: null, payerLoanType: 'asset' })), 'loan_class_mismatch'],
+    ['an external connection', () => reads.lockConnection.mockImplementationOnce(record('lock:connection', { id: 'c-1', status: 'active', kind: 'external', cutoverDate: '2026-01-01', lowId: 'co-1', highId: 'co-2' })), 'not_group'],
+    ['a system loan account', () => reads.lockLoanAccount.mockImplementationOnce(record('lock:account', { accountType: 'asset', accountSubtype: 'other_current_asset', isActive: true, isParent: false, isSystem: true })), 'loan_account_unusable'],
     ['the open amount with draft receipts', () => reads.pendingDraftAmount.mockImplementationOnce(record('pending', 750.01)), 'exceeds_open'],
     ['the cut-over (none for the pair)', () => reads.pairCutover.mockImplementationOnce(record('cutover', null)), 'pre_cutover_invoice'],
     ['the loan class', () => reads.lockLoanAccount.mockImplementationOnce(record('lock:account', { accountType: 'asset', accountSubtype: 'bank', isActive: true, isParent: false, isSystem: false })), 'loan_account_unusable'],
@@ -147,9 +154,14 @@ describe('the clearing', () => {
   });
 
   it('a refusal code raised AFTER writes inside the posting (a receipt refusal) still rolls everything back first, then stores busy', async () => {
-    settle.settleDocumentByContra.mockImplementationOnce(async () => { m.events.push('settle'); throw Object.assign(new Error('x'), { code: 'RECEIPT_REFUSED' }); });
+    settle.settleDocumentByContra.mockImplementationOnce(async () => { m.events.push('settle'); throw Object.assign(new Error('x'), { code: 'RECEIPT_REFUSED', retryable: true }); });
     expect(await call()).toMatchObject({ accepted: false, code: 'busy' });
     expect(m.events.slice(m.events.indexOf('settle'))).toEqual(['settle', 'rollback:ic_allocation_clear', 'failed', 'bound']);
+    // (blind M1) busy only for a retryable / held receipt refusal; any other is the generic refusal
+    settle.settleDocumentByContra.mockImplementationOnce(async () => { throw Object.assign(new Error('x'), { code: 'RECEIPT_REFUSED', retryable: false, held: false }); });
+    expect(await call()).toMatchObject({ accepted: false, code: 'refused' });
+    settle.settleDocumentByContra.mockImplementationOnce(async () => { throw Object.assign(new Error('x'), { code: 'RECEIPT_REFUSED', held: true }); });
+    expect(await call()).toMatchObject({ accepted: false, code: 'busy' });
   });
 
   it('anything else propagates, nothing stored: a codeless error, a constraint (the guard), a statement timeout', async () => {
@@ -181,6 +193,9 @@ describe('the clearing', () => {
     }
     await expect(call({ input: { ...input, postingDate: '2026-08-31' } })).rejects.toMatchObject({ status: 400 });
     await expect(call({ input: { ...input, postingDate: '2026-11-24' } })).rejects.toMatchObject({ status: 400 });
+    // (F4) before the invoice's date
+    reads.invoiceFacts.mockImplementationOnce(record('invoice', { date: '2026-09-11', customerId: 'cust-1', currency: 'ZAR' }));
+    await expect(call()).rejects.toMatchObject({ status: 400 });
     expect(settle.settleDocumentByContra).not.toHaveBeenCalled();
   });
 

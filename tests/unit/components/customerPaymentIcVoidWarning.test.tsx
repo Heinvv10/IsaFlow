@@ -37,6 +37,7 @@ describe('cancelling an intercompany clearing receipt', () => {
     const text = await cancelPrompt('IC:7d1f0000-0000-4000-8000-000000000001');
     expect(text).toMatch(/clears an intercompany payment from your group/);
     expect(text).toMatch(/Clearing voided/);
+    expect(text).toMatch(/the payer must unapply the payment and apply it again/);
     expect(text).toMatch(/Reason for cancellation:$/);
   });
 

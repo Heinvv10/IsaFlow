@@ -1,10 +1,11 @@
 /**
- * Intercompany P4-D, the pure rules of the receiver's clearing: the Accept body, "what is approved is what posts", the double-clear caps, what
- * an error under the savepoint counts as, the loan-account classes, and the sentence table (fixed, generic: no figure, no id, never database text).
+ * Intercompany P4-D, the pure rules of the receiver's clearing: the Accept body (the preview's keys only), "what is approved is what posts", what
+ * an error under the savepoint counts as (a receipt refusal is busy only when it is retryable), the loan-account classes (never a system
+ * account), and the sentence table (fixed, generic: no figure, no id, never database text). The caps are the definer's (round 1, F2).
  */
 import { describe, expect, it } from 'vitest';
 import {
-  CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, capRefusal, expectedMismatch, isLoanClass, isRealDate, parseAcceptBody, refusalOfCode,
+  CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, expectedMismatch, isLoanClass, isRealDate, parseAcceptBody, refusalOfCode,
 } from '@/modules/accounting/services/intercompany/allocationClearRefusals';
 import type { ClearRefusalCode } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 
@@ -20,7 +21,7 @@ describe('parseAcceptBody', () => {
     ['no body', null], ['an array', []], ['no loan account', body({ expectedLoanAccountId: undefined })], ['a loan account that is no UUID', body({ expectedLoanAccountId: 'x' })],
     ['no invoice', body({ invoiceId: undefined })], ['an amount as text', body({ amount: '1150' })], ['a zero amount', body({ amount: 0 })],
     ['a negative amount', body({ amount: -1 })], ['a fraction of a cent', body({ amount: 11.505 })], ['an infinite amount', body({ amount: Infinity })],
-    ['no posting date', body({ postingDate: undefined })], ['a date that does not exist', body({ postingDate: '2026-02-30' })], ['a timestamp', body({ postingDate: '2026-09-01T00:00:00Z' })],
+    ['an extra key', body({ approverUserId: LOAN })], ['no posting date', body({ postingDate: undefined })], ['a date that does not exist', body({ postingDate: '2026-02-30' })], ['a timestamp', body({ postingDate: '2026-09-01T00:00:00Z' })],
   ])('refuses %s', (_name, b) => {
     expect(parseAcceptBody(b).ok).toBe(false);
   });
@@ -43,33 +44,19 @@ describe('expectedMismatch (what is approved is what posts)', () => {
   });
 });
 
-describe('capRefusal (no double clear)', () => {
-  const cap = (over: Partial<Parameters<typeof capRefusal>[0]> = {}) => capRefusal({ amount: 400, clearableTotal: 400, journalClearable: 400, byPayment: 0, byJournal: 0, ...over });
-  it('within both caps: null, to the cent', () => {
-    expect(cap()).toBeNull();
-    expect(cap({ amount: 300, byPayment: 100, byJournal: 100 })).toBeNull();
-  });
-  it('nothing cleared yet and still too much: the cash did not (all) go through the loan account', () => {
-    expect(cap({ clearableTotal: 0, journalClearable: 0 })).toBe('cash_not_through_loan');
-    expect(cap({ clearableTotal: 399.99 })).toBe('cash_not_through_loan');
-    expect(cap({ journalClearable: 399.99 })).toBe('cash_not_through_loan');
-    expect(cap({ clearableTotal: null, journalClearable: null })).toBe('cash_not_through_loan');
-  });
-  it('something already cleared against the payment or the journal: already cleared', () => {
-    expect(cap({ byPayment: 0.01 })).toBe('already_cleared');
-    expect(cap({ journalClearable: 800, byJournal: 400.01, clearableTotal: 800 })).toBe('already_cleared');
-    expect(cap({ clearableTotal: 800, journalClearable: 800, byPayment: 400.01 })).toBe('already_cleared');
-    expect(cap({ clearableTotal: 800, journalClearable: 800, byPayment: 400, byJournal: 400 })).toBeNull();
-  });
-});
-
 describe('refusalOfCode (an error under the savepoint)', () => {
   it.each([
-    ['RECEIPT_REFUSED', 'busy'], ['CUSTOMER_INVOICE_LOCK_TIMEOUT', 'busy'], ['ROW_LOCK_TIMEOUT', 'busy'], ['55P03', 'busy'], ['40P01', 'busy'],
+    ['CUSTOMER_INVOICE_LOCK_TIMEOUT', 'busy'], ['ROW_LOCK_TIMEOUT', 'busy'], ['55P03', 'busy'], ['40P01', 'busy'],
     ['VAT_PERIOD_LOCKED', 'vat_locked'], ['CONTRA_SETTLEMENT_REFUSED', 'refused'], ['APPROVE_PERMISSION_REFUSED', 'forbidden'],
   ])('%s -> %s', (code, want) => {
     expect(refusalOfCode(code)).toBe(want);
   });
+  it('a receipt refusal is busy only when it is retryable (a held row, contention); any other receipt refusal is refused', () => {
+    expect(refusalOfCode('RECEIPT_REFUSED', { retryable: true })).toBe('busy');
+    expect(refusalOfCode('RECEIPT_REFUSED', { retryable: false })).toBe('refused');
+    expect(refusalOfCode('RECEIPT_REFUSED')).toBe('refused');
+  });
+
   it('a contra refusal or a missing system account is refused; the approver check stays forbidden even then', () => {
     expect(refusalOfCode(null, { contraRefusal: true })).toBe('refused');
     expect(refusalOfCode(null, { missingSystemAccount: true })).toBe('refused');
@@ -83,21 +70,23 @@ describe('refusalOfCode (an error under the savepoint)', () => {
 describe('isLoanClass (by type and subtype, never by name)', () => {
   it('a loan or intercompany balance-sheet position', () => {
     for (const [t, s] of [['asset', 'other_current_asset'], ['asset', 'other'], ['liability', 'other_current_liability'], ['liability', 'long_term_liability'], ['liability', 'current_liability'], ['liability', 'other']]) {
-      expect([t, s, isLoanClass(t!, s!)]).toEqual([t, s, true]);
+      expect([t, s, isLoanClass(t!, s!, false)]).toEqual([t, s, true]);
+      expect([t, s, 'system', isLoanClass(t!, s!, true)]).toEqual([t, s, 'system', false]);
     }
   });
   it('never a control, bank, cash, VAT, tax, payroll, stock, fixed asset, equity or P&L account, nor one without a subtype', () => {
     for (const [t, s] of [['asset', 'receivable'], ['asset', 'bank'], ['asset', 'cash'], ['asset', 'vat_input'], ['asset', 'inventory'], ['asset', 'fixed_asset'],
       ['liability', 'payable'], ['liability', 'vat_output'], ['liability', 'tax'], ['liability', 'payroll_liability'], ['equity', 'equity'], ['equity', 'other'],
       ['revenue', 'other'], ['expense', 'other'], ['asset', null], [null, 'other']]) {
-      expect([t, s, isLoanClass(t, s)]).toEqual([t, s, false]);
+      expect([t, s, isLoanClass(t, s, false)]).toEqual([t, s, false]);
     }
   });
 });
 
 describe('the sentence table', () => {
   const codes: ClearRefusalCode[] = ['malformed', 'not_live', 'no_loan_account', 'loan_account_unusable', 'invoice_gone', 'invoice_not_open', 'wrong_customer', 'currency',
-    'pre_cutover_invoice', 'pre_cutover_payment', 'exceeds_open', 'cash_not_through_loan', 'already_cleared', 'no_period', 'period_locked', 'vat_locked', 'busy', 'refused'];
+    'pre_cutover_invoice', 'pre_cutover_payment', 'exceeds_open', 'cash_not_through_loan', 'already_cleared', 'no_period', 'period_locked', 'vat_locked', 'busy', 'refused',
+    'not_group', 'loan_class_mismatch'];
   it('one fixed sentence per refusal, each saying nothing was posted, with no figure, id or database word', () => {
     expect(Object.keys(CLEAR_REFUSAL_SENTENCES).sort()).toEqual([...codes].sort());
     for (const c of codes) {

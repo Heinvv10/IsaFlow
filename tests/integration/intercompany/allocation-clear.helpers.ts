@@ -3,7 +3,8 @@
  * (the payer's) allocation message with one contra settlement: DR A's loan account / CR A's Accounts Receivable, through the real accept route
  * with real signed tokens (withAuth, CSRF off in tests as for the siblings). The pair is a GROUP loan connection whose two sides both mirror
  * (customer AND supplier linked, `mirroring_since` back-dated to the cut-over), so the pair's cut-over is 2026-01-01. A's loan account is an
- * asset of subtype other_current_asset (a loan class); B's journal credits B's loan account unless a case says otherwise.
+ * asset of subtype other_current_asset and B's a liability of subtype other_current_liability (loan classes of opposite types); B's journal
+ * credits B's loan account unless a case says otherwise.
  */
 import type { Pool } from 'pg';
 import acceptRoute from '../../../pages/api/accounting/intercompany/allocations/[id]/accept';
@@ -20,6 +21,8 @@ export const loan = { a2: '' };
 export async function clearSetup(pool: Pool): Promise<void> {
   await allocSetup(pool);
   await pool.query("UPDATE gl_accounts SET account_type = 'asset', normal_balance = 'debit', account_subtype = 'other_current_asset' WHERE id = $1", [acct.aLoan]);
+  // (fix round 1, F1 / F5) B's loan account is a loan-class LIABILITY (the payer owes), A's a loan-class ASSET (the receiver is owed)
+  await pool.query("UPDATE gl_accounts SET account_type = 'liability', normal_balance = 'credit', account_subtype = 'other_current_liability' WHERE id = $1", [acct.bLoan]);
   loan.a2 = crypto.randomUUID();
   await pool.query(
     `INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, normal_balance, is_active, account_subtype)

@@ -1,8 +1,8 @@
 /**
- * Intercompany P4-D, plan (i).1: no double clear. What the receiver may clear for one payer payment is capped by the payer's books (the
- * liveness definer's clearable_total: LEAST(the payment's live allocations, what its standing journal credited the payer's loan account)), and
- * what every message on one payer journal may clear together by that journal's loan credit (journal_clearable), less what the receiver's
- * other standing clearings already cleared. Unapply + re-apply, a payment moved to another linked bill, and a batch journal's members are each
+ * Intercompany P4-D, plan (i).1: no double clear. What may be cleared for one payer payment is capped by the payer's books (LEAST(the payment's
+ * live allocations, what its standing journal credited the payer's loan-class loan account)), what every message on one payer journal may clear
+ * together by that journal's loan credit, and (round 1, F3) what every message of one payer bill may clear by that bill's live loan-funded
+ * allocations, each less what every receiver's other standing clearings already cleared: the liveness definer answers the `cap`. Unapply + re-apply, a payment moved to another linked bill, and a batch journal's members are each
  * cleared once; two accepts of messages that share a cap at the same moment clear once.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -30,21 +30,21 @@ beforeEach(async () => {
 
 const already = { accepted: false, status: 'failed', code: 'already_cleared', error: CLEAR_REFUSAL_SENTENCES.already_cleared };
 const clearable = async (message: string) => (await pool.query(
-  `SELECT live, reason, clearable_total::float8 AS c, journal_clearable::float8 AS j FROM public.intercompany_allocation_message_live($1)`, [message])).rows[0];
+  'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live($1)', [message])).rows[0];
 
 describe('what the payer\'s books let be cleared', () => {
-  it('the definer says how much: the payment through its loan account; nothing through a bank; part when the journal splits; nothing once not live', async () => {
+  it('the definer answers the cap, never a figure: none through its loan account; cash_not_through_loan through a bank; nothing once not live', async () => {
     const sent = await sentClearable(pool, conn, { amount: 400 });
     expect(await liveFor(pool, sent.message)).toMatchObject({ live: true, reason: 'ok' });
     const asA = (m: string) => asAppUser(pool, U.a, co.A, async (q) => (await q.query(
-      'SELECT live, reason, clearable_total::float8 AS c, journal_clearable::float8 AS j FROM public.intercompany_allocation_message_live($1)', [m])).rows[0]);
-    expect(await asA(sent.message)).toEqual({ live: true, reason: 'ok', c: 400, j: 400 });
+      'SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live($1)', [m])).rows[0]);
+    expect(await asA(sent.message)).toEqual({ live: true, reason: 'ok', cap: null, payer_loan_type: 'liability' });
     const viaBank = await sentClearable(pool, conn, { leg: bank.b });
-    expect(await asA(viaBank.message)).toEqual({ live: true, reason: 'ok', c: 0, j: 0 });
+    expect(await asA(viaBank.message)).toEqual({ live: true, reason: 'ok', cap: 'cash_not_through_loan', payer_loan_type: 'liability' });
     await pool.query('DELETE FROM payment_allocations WHERE id = $1', [sent.allocation]);
-    expect(await asA(sent.message)).toEqual({ live: false, reason: 'allocation_gone', c: null, j: null });
-    // the table owner has no session: not_found, and no figure
-    expect(await clearable(viaBank.message)).toEqual({ live: false, reason: 'not_found', c: null, j: null });
+    expect(await asA(sent.message)).toEqual({ live: false, reason: 'allocation_gone', cap: null, payer_loan_type: null });
+    // the table owner has no session: not_found, and nothing else
+    expect(await clearable(viaBank.message)).toEqual({ live: false, reason: 'not_found', cap: null, payer_loan_type: null });
   });
 });
 
