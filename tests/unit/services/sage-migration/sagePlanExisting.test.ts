@@ -210,7 +210,7 @@ describe('M1 (round 6): a PO already booked by this migration is not refused for
 describe('M2 (round 7): a booked PO is not refused for its supplier on a re-run, and the supplier problem is listed', () => {
   const booked = { system: 'sage', ref: '900197' };
   const BOOKED_SUPPLIER = '9a7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f0';
-  const content = new Map([['900197', { supplierId: BOOKED_SUPPLIER, supplierName: 'Alpha Renamed', deliveryDate: '2026-01-25', reference: 'JOB-400', lines: [] }]]);
+  const content = new Map([['900197', { header: { po_number: 'PO0000197', supplier_id: BOOKED_SUPPLIER }, lines: [], supplierName: 'Alpha Renamed' }]]);
   const existing = { ...NONE, poNumbers: new Map([['PO0000197', booked]]), poContent: content } as never;
   const unresolved = (): Map<string, SupplierResolution> => new Map([
     ['301', { code: 'supplier_unresolved', reason: 'no IsaFlow supplier carries Sage reference 301 or is named "Alpha Optics (Pty) Ltd"' }],
@@ -246,9 +246,22 @@ describe('M2 (round 7): a booked PO is not refused for its supplier on a re-run,
     expect(r[0]!.reasons[0]).toMatch(/deleted in IsaFlow.*Restore that supplier/);
     expect(planMigration(parsed(), allResolved(), gone).refusals).toEqual([]); // a resolving supplier needs none of this
   });
-  it('a PO whose reference is in the books under ANOTHER number is not "already booked": its supplier refusal stands', () => {
-    const renumbered = { ...NONE, poNumbers: new Map([['PO0000197', { system: 'sage', ref: '555' }]]), poContent: content } as never;
-    expect(planMigration(parsed(), unresolved(), renumbered).refusals.filter((x) => x.label === 'PO0000197').map((x) => x.code)).toEqual(['supplier_unresolved']);
+  it('B7-A (round 7): "booked" is decided by the Sage REFERENCE, as the tool replays: a booked PO renumbered in Sage is still sent (its number is a difference)', () => {
+    // in the books as PO0000197-OLD with Sage ref 900197; Sage now calls it PO0000197
+    const renumbered = { ...NONE, poNumbers: new Map([['PO0000197-OLD', { system: 'sage', ref: '900197' }]]), poContent: content } as never;
+    const plan = planMigration(parsed(), unresolved(), renumbered);
+    expect(plan.refusals.filter((x) => x.label === 'PO0000197')).toEqual([]);
+    expect(po197(plan)!.supplierProblem).toBeDefined();
+    // the number is free: still sent when the supplier resolves
+    expect(planMigration(parsed(), allResolved(), renumbered).refusals).toEqual([]);
+  });
+  it('B7-A2 (round 7): two booked POs whose numbers Sage swapped are not po_number_taken (the tool replays both by reference)', () => {
+    const swapped = { ...NONE, poNumbers: new Map([['PO0000197', { system: 'sage', ref: '900198' }], ['PO0000198', { system: 'sage', ref: '900197' }]]),
+      poContent: new Map([['900197', { header: { po_number: 'PO0000198', supplier_id: SUPPLIER }, lines: [] }], ['900198', { header: { po_number: 'PO0000197', supplier_id: SUPPLIER }, lines: [] }]]) } as never;
+    expect(planMigration(parsed(), allResolved(), swapped).refusals.filter((r) => r.code === 'po_number_taken')).toEqual([]);
+    // without the reference being booked, the number held by another PO is still po_number_taken
+    const other = { ...NONE, poNumbers: new Map([['PO0000197', { system: 'sage', ref: '555' }]]) } as never;
+    expect(planMigration(parsed(), allResolved(), other).refusals.filter((r) => r.label === 'PO0000197').map((r) => r.code)).toEqual(['po_number_taken']);
   });
   it('a resolved supplier is used as before (the comparison with the books shows a real move)', () => {
     const plan = planMigration(parsed(), allResolved(), existing);

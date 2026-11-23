@@ -16,8 +16,8 @@ interface Input {
   failedBatches: number;
   expect: MigrationOptions['expect'];
   live: boolean;
-  /** PO numbers listed as differences (found already there with another figure): allowed, so not a booking that went missing. */
-  differingPos?: ReadonlySet<string>;
+  /** Sage ids of the POs listed as differences (found already there with another figure): allowed, so not a booking that went missing. By reference: a renumbered PO is listed under the number the books hold. */
+  differingRefs?: ReadonlySet<string>;
 }
 
 const check = (expected: number | undefined, actual: number, basis: Expectation['basis']): Expectation | null =>
@@ -35,7 +35,7 @@ export function buildReconciliation(i: Input): Reconciliation {
   // A PO already booked with another total is a listed difference (allowed with --allow-differences), not a booking that went missing.
   const offTotalAllowed = poIds.reduce((s, id, n) => {
     const p = plan.purchaseOrders[n]!;
-    return s + (i.differingPos?.has(p.documentNumber) && after.poTotals.has(id) ? p.totalCents - (after.poTotals.get(id) ?? 0) : 0);
+    return s + (i.differingRefs?.has(p.sageId) && after.poTotals.has(id) ? p.totalCents - (after.poTotals.get(id) ?? 0) : 0);
   }, 0);
   const itemsAfter = itemIds.filter((id) => after.itemRefs.has(id)).length;
   const posAfter = poIds.filter((id) => after.poTotals.has(id)).length;

@@ -8,6 +8,7 @@ import { parseSageExport } from '@/modules/accounting/services/sage-migration/sa
 import { planMigration } from '@/modules/accounting/services/sage-migration/sageMigrationPlan';
 import type { SupplierResolution } from '@/modules/accounting/services/sage-migration/sageSuppliers';
 import { batchKey, byStableKey, chunk, MAX_ITEM_BATCH, MAX_PO_BATCH } from '@/modules/accounting/services/sage-migration/sageBatches';
+import { PO_HEADER_COMPARED, PO_LINE_COMPARED } from '@/modules/accounting/services/sage-migration/sagePoContent';
 import { buildReconciliation } from '@/modules/accounting/services/sage-migration/sageReconciliation';
 import { CONSOLE_ERROR_CHARS, exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 import type { MigrationReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
@@ -38,9 +39,10 @@ describe('planMigration', () => {
     const plan = planMigration(parseSageExport(f), allResolved(), NONE);
     expect(plan.refusals).toEqual([]);
     const stored = plan.purchaseOrders.find((x) => x.documentNumber === 'PO0000197')!.stored;
-    expect(stored.lines.map((l) => l.unitPrice)).toEqual([90, 1.23, 1.428571]);
-    expect(stored.lines.map((l) => l.quantity)).toEqual([2, 1, 7]);
-    expect(stored).toMatchObject({ supplierId: SUPPLIER, deliveryDate: '2026-01-25', reference: 'JOB-400' });
+    expect(stored.lines.map((l) => l.columns.unit_price)).toEqual([90, 1.23, 1.428571]);
+    expect(stored.lines.map((l) => l.columns.quantity)).toEqual([2, 1, 7]);
+    expect(stored.lines.map((l) => [l.columns.line_total, l.columns.tax_amount])).toEqual([[180, 27], [1.23, 0.18], [10, 1.5]]);
+    expect(stored.header).toMatchObject({ supplier_id: SUPPLIER, expected_delivery_date: '2026-01-25', reference: 'JOB-400', subtotal: 191.23, tax_amount: 28.68, total: 219.91 });
   });
 
   it('sends only the categories a SENT item uses', () => {
@@ -144,16 +146,27 @@ describe('reconciliation and its lines', () => {
     // the counts stay what is SENT
     expect(buildReconciliation({ ...b, live: false, before, after: before, expect: { purchaseOrders: 10 } }).expected.purchaseOrders).toMatchObject({ basis: 'sent', actual: 10 });
   });
+  it('B7-A (round 7): every row the plan sends has exactly the compared columns (nothing the tool writes is left out of the compare)', () => {
+    const plan = planMigration(parsed(), allResolved(), NONE);
+    for (const p of plan.purchaseOrders) {
+      expect(Object.keys(p.stored.header).sort()).toEqual([...PO_HEADER_COMPARED].sort());
+      for (const l of p.stored.lines) expect(Object.keys(l.columns).sort()).toEqual([...PO_LINE_COMPARED].sort());
+    }
+    // linked lines carry the item's id once the item is in the books, "item:CODE" until then, null when not linked
+    const first = plan.purchaseOrders.find((p) => p.documentNumber === 'PO0000197')!;
+    expect(first.stored.lines[0]!.columns.item_id).toBe('item:FIB-0001');
+    expect(first.stored.lines[1]!.columns.item_id).toBeNull();
+  });
   it('L3 (round 5): a PO already booked with another total (a listed difference) is not a missing booking; any other total off still is', () => {
     const { b, after } = all();
     const [firstRef, firstTotal] = [...after.poTotals][0]!;
     const off = snap([...after.itemRefs], [...after.poTotals].map(([k, v]) => [k, k === firstRef ? firstTotal + 500 : v] as [string, number]));
     const po1 = b.plan.purchaseOrders.find((x) => x.sageId === firstRef)!.documentNumber;
     expect(buildReconciliation({ ...b, before: snap([], []), after: off }).allSentBooked).toBe(false);
-    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set([po1]) }).allSentBooked).toBe(true);
-    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set(['PO-other']) }).allSentBooked).toBe(false);
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingRefs: new Set([firstRef]) }).allSentBooked).toBe(true);
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingRefs: new Set(['other-ref']) }).allSentBooked).toBe(false);
     // The figures themselves stay honest: the difference is still reported.
-    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingPos: new Set([po1]) }).purchaseOrders.differenceCents).toBe(-500);
+    expect(buildReconciliation({ ...b, before: snap([], []), after: off, differingRefs: new Set([firstRef]) }).purchaseOrders.differenceCents).toBe(-500);
   });
   it('L4 (round 5): after a live run attachments list only the POs that are in the books', () => {
     const { b, after } = all();

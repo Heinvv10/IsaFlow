@@ -9,7 +9,7 @@
  * race with another writer, can still fail a batch, and the report says so.
  * Code and number uniqueness are case-SENSITIVE (the unique indexes are on the plain columns), so the match is exact.
  */
-import type { StoredPo } from './sagePoContent';
+import { storedPoFrom, type StoredPo } from './sagePoContent';
 import type { ParsedExport, RowRefusal } from './sageExportTypes';
 import { mapSageCategory, mapSageItem, SAGE_SYSTEM } from './sageItemMapping';
 import { MAX_LINE_DESCRIPTION, mapSagePurchaseOrder, type ItemLink } from './sagePurchaseOrderMapping';
@@ -160,7 +160,8 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     const holder = existing.poNumbers.get(po.documentNumber);
     // A PO this migration already booked is sent again on a re-run (the tool replays it): a supplier deactivated or a budget policy
     // turned to block since then must not drop it from what is sent (--expect-pos would miss, and it would escape the differences).
-    const alreadyBooked = holder !== undefined && holder.system === SAGE_SYSTEM && holder.ref === po.id;
+    // BY REFERENCE: the tool replays a PO by its Sage reference, whatever number it carries now (a renumbered PO is listed as a difference).
+    const alreadyBooked = (existing.poContent?.has(po.id) ?? false) || (holder !== undefined && holder.system === SAGE_SYSTEM && holder.ref === po.id);
     const unresolved = !supplier ? { code: 'supplier_unresolved', reason: `supplier ${po.supplierId} was not looked up` } : 'id' in supplier ? null : supplier;
     let supplierId: string;
     let supplierProblem: string | undefined;
@@ -172,11 +173,11 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
       if (!content) { refuse(unresolved.code, unresolved.reason); continue; }
       if (content.supplierDeleted) {
         // The tool answers Not found for the WHOLE batch of a PO naming a deleted supplier, a replay included: it cannot be sent.
-        refuse('booked_supplier_deleted', `${unresolved.reason}; the PO is booked to ${content.supplierName ?? 'a supplier'} (${content.supplierId}), which is deleted in IsaFlow: the PO tool cannot replay it. Restore that supplier (or give it Sage reference ${po.supplierId}), then run again`);
+        refuse('booked_supplier_deleted', `${unresolved.reason}; the PO is booked to ${content.supplierName ?? 'a supplier'} (${content.header.supplier_id}), which is deleted in IsaFlow: the PO tool cannot replay it. Restore that supplier (or give it Sage reference ${po.supplierId}), then run again`);
         continue;
       }
-      supplierId = content.supplierId;
-      supplierProblem = `Sage supplier ${po.supplierId}${po.supplierName ? ` "${po.supplierName}"` : ''} not found in IsaFlow (${unresolved.reason}); PO is booked to ${content.supplierName ?? 'a supplier'} (${content.supplierId})`;
+      supplierId = String(content.header.supplier_id);
+      supplierProblem = `Sage supplier ${po.supplierId}${po.supplierName ? ` "${po.supplierName}"` : ''} not found in IsaFlow (${unresolved.reason}); PO is booked to ${content.supplierName ?? 'a supplier'} (${content.header.supplier_id})`;
     } else {
       supplierId = (supplier as { id: string }).id;
     }
@@ -212,7 +213,14 @@ export function planMigration(parsed: ParsedExport, suppliers: ReadonlyMap<strin
     if (typeof checked === 'string') { refuse('tool_refuses', checked); continue; }
     purchaseOrders.push({ sageId: po.id, documentNumber: po.documentNumber, totalCents: checked.totals.total, element, pdfFile: po.pdfFile, lineLinks: { linked, notLinked },
       ...(supplierProblem ? { supplierProblem } : {}),
-      stored: { supplierId: checked.supplierId, deliveryDate: checked.deliveryDate, reference: checked.reference, lines: checked.lines.map((l, n) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, itemCode: po.lines[n]!.itemId === null ? null : links[po.lines[n]!.itemId!]?.code ?? null })) } });
+      stored: storedPoFrom(checked, (n) => {
+        const itemId = po.lines[n]!.itemId;
+        const link = itemId === null ? undefined : links[itemId];
+        if (!link) return { itemId: null, itemCode: null };
+        // Linked by id, or by the code of an item this run sends (its id is in the books on a re-run; "item:CODE" when it is not there yet).
+        const id = !link.link ? null : link.id ?? index.byCode.get(link.code.trim())?.find((x) => !x.deleted)?.id ?? `item:${link.code}`;
+        return { itemId: id, itemCode: link.code };
+      }) });
     lineLinks.linked += linked;
     lineLinks.notLinked.push(...notLinked);
   }

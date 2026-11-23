@@ -101,6 +101,19 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
   return p;
 }
 
+/**
+ * What a stop reports as committed: each batch the tool answered ok, checked against the books as the phases are (a replayed answer whose
+ * rows were deleted wrote nothing). Best effort: if the books cannot be read, the batches are listed as they were.
+ */
+async function settled(committed: BatchReport[], sends: Send[], read: () => Promise<Snapshot>): Promise<BatchReport[]> {
+  let snapshot: Snapshot;
+  try { snapshot = await read(); } catch (err) {
+    log.warn('sage migration: the books could not be read to check the committed batches', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
+    return committed;
+  }
+  return committed.map((b) => { const send = sends.find((x) => x.entity === b.entity && x.n === b.n); return send ? checkRowsPresent(b, send, snapshot) : b; });
+}
+
 export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
   // The runner guards itself, not only its CLI: whoever calls it, it touches a local throwaway database or nothing, and one run per company.
   assertLocalDatabase();
@@ -197,10 +210,10 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       reconciliation: buildReconciliation({
         parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true,
         // Only when the person allowed differences: otherwise a PO booked with another total keeps the run from being complete.
-        differingPos: opts.allowDifferences ? new Set(differences.purchaseOrders.map((d) => d.poNumber)) : undefined,
+        differingRefs: opts.allowDifferences ? new Set(differences.purchaseOrders.flatMap((d) => before.poNumbers.get(d.poNumber)?.ref ?? [])) : undefined,
       }),
     };
   } catch (err) {
-    throw new MigrationStopped(err, true, committed);
+    throw new MigrationStopped(err, true, await settled(committed, [...all.categories, ...all.items, ...all.purchaseOrders], () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId))));
   }
 }
