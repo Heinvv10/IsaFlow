@@ -1,4 +1,4 @@
-// Asset disposals: the register becomes labelled cards below lg; the asset number is the card heading.
+// Asset disposals: the register becomes labelled cards below lg (every cell, the asset number included, is a labelled row).
 import type { ReactNode } from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
