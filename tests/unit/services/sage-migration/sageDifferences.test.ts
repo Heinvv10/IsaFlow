@@ -98,6 +98,19 @@ describe('exit code and summary with differences', () => {
     expect(summaryLines(none).join('\n')).not.toMatch(/overwritten/);
   });
 
+  it('L2 (round 9): a phase that never started says "not run", not "0 batches, 0 failed" like an empty one', () => {
+    const skipped = { batches: [], failed: 0, skipped: true as const };
+    const r: MigrationReport = { ...base(), status: 'failed', live: { categories: { batches: [], failed: 1 }, items: skipped, purchaseOrders: skipped } };
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain('live: categories: 0 batches, 1 failed; items: not run; purchase orders: not run');
+    expect(summaryLines({ ...base(), live: { categories: phase, items: phase, purchaseOrders: phase } }).join('\n')).toContain('live: categories: 0 batches, 0 failed; items: 0 batches, 0 failed');
+  });
+  it('L6 (round 9): a dry run does not print the whole sent total as the "difference" (nothing is booked to compare)', () => {
+    const t = summaryLines(base()).join('\n');
+    expect(t).toContain('booked n/a (dry run), difference n/a');
+    const live: MigrationReport = { ...base(), live: { categories: phase, items: phase, purchaseOrders: phase } };
+    expect(summaryLines(live).join('\n')).toMatch(/booked R[\d\u00a0 ]+\.\d\d, difference R[\d\u00a0 ]+\.\d\d/);
+  });
   it('M1 (round 7): a batch whose COMMIT did not answer is named in the summary and the run exits 4, not 1 (the books may hold it)', () => {
     const lost: BatchReport = { ...batch('item', null), status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed', key: 'sage-mig-item-1-abc' };
     const r: MigrationReport = { ...base(), status: 'failed', live: { categories: phase, items: { batches: [lost], failed: 1 }, purchaseOrders: phase } };
