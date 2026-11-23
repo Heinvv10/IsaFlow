@@ -99,4 +99,3 @@ export function readDate(o: Raw, key: string, why: string[], required: boolean):
   return undefined;
 }
 
-export const toCents = (n: number): number => Math.round(n * 100 + 1e-9);

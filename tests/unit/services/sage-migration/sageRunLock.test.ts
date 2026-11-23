@@ -23,6 +23,11 @@ function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: bool
 }
 
 describe('migrationLockKey', () => {
+  it('L1 (round 9): an id with hex LETTERS gives the same key in upper and lower case (the digit-only ids above cannot tell)', () => {
+    const lower = 'abcdef12-3456-4abc-8def-0123456789ab';
+    expect(migrationLockKey(lower.toUpperCase())).toEqual(migrationLockKey(lower));
+    expect(migrationLockKey(lower)).not.toEqual(migrationLockKey('abcdef12-3456-4abc-8def-0123456789ac'));
+  });
   it('is two int4 keys, the same for a company however its id is cased, and different for another company', () => {
     const [a1, a2] = migrationLockKey(A);
     expect(Number.isInteger(a1) && Number.isInteger(a2) && Math.abs(a1) < 2 ** 31 && Math.abs(a2) < 2 ** 31).toBe(true);

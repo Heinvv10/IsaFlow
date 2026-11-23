@@ -92,6 +92,12 @@ describe('poContentDifferences: every compared column', () => {
     });
     expect(diff(sent({ header: { reference: null } }), have)).toEqual([]);
   });
+  it('L6 (round 9): numbers compare to 6 decimals (prices are stored to 6): float noise and a 7th decimal are no difference, a 6th is', () => {
+    const have = (n: number) => books({ lines: [line(0, { unit_price: n }), line(1)].map((l) => ({ ...l.columns })) });
+    expect(diff(sent({ lines: [line(0, { unit_price: 0.1 + 0.2 }), line(1)] }), have(0.3))).toEqual([]); // 0.30000000000000004
+    expect(diff(sent({ lines: [line(0, { unit_price: 1.0000004 }), line(1)] }), have(1.0000001))).toEqual([]);
+    expect(fieldsOf(diff(sent({ lines: [line(0, { unit_price: 1.000004 }), line(1)] }), have(1.000001)))).toEqual(['line 1 unit_price']);
+  });
   it('a supplier the plan could not resolve is listed under supplier_id with the plan\'s words, and the other columns still compare', () => {
     const problem = `Sage supplier 301 "Alpha" not found in IsaFlow; PO is booked to Alpha Renamed (${S1})`;
     expect(diff(sent({ header: { reference: 'JOB-2' } }), books(), problem)).toEqual([{ poNumber: 'PO1', differences: [
