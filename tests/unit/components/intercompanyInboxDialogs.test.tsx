@@ -14,7 +14,7 @@ useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
 import { envelope } from './intercompanyFixtures';
-import { detail, item, posts, serve } from './intercompanyInboxFixtures';
+import { detail, item, noPayments, posts, serve } from './intercompanyInboxFixtures';
 
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -23,6 +23,7 @@ describe('the list and its dialogs keep to the message in front of them', () => 
   it('a page that has become empty (its last row was handled) goes back to the first page instead of stranding', async () => {
     const offsets: number[] = [];
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('/allocations?')) return noPayments();
       const u = String(url);
       const offset = Number(/offset=(\d+)/.exec(u)?.[1] ?? 0);
       if (u.includes('/inbox?')) {
@@ -45,6 +46,7 @@ describe('the list and its dialogs keep to the message in front of them', () => 
     let releaseOpen: (r: Response) => void = () => undefined;
     let first = true;
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('/allocations?')) return noPayments();
       const u = String(url);
       if (!u.includes('/inbox?')) return envelope({});
       if (u.includes('filter=open') && first) { first = false; return envelope({ items: [item({ number: 'INV-OPEN' })], total: 1, openCount: 1 }); }
@@ -117,6 +119,7 @@ describe('a double submit sends one request', () => {
   it('Accept: two clicks in the same event batch (before React re-renders the disabled button) post once', async () => {
     const slow = slowPost();
     vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
+      if (String(url).includes('/allocations?')) return noPayments();
       const u = String(url);
       if ((init as RequestInit | undefined)?.method === 'POST') return slow.held;
       if (u.includes('/inbox?')) return envelope({ items: [item()], total: 1, openCount: 1 });
@@ -137,6 +140,7 @@ describe('a double submit sends one request', () => {
   it('Reject: two submits in the same event batch post once', async () => {
     const slow = slowPost();
     vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
+      if (String(url).includes('/allocations?')) return noPayments();
       if ((init as RequestInit | undefined)?.method === 'POST') return slow.held;
       return String(url).includes('/inbox?') ? envelope({ items: [item()], total: 1, openCount: 1 }) : envelope(detail());
     });

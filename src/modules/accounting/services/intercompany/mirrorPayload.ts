@@ -6,6 +6,8 @@
  * untrusted input (a sender is another tenant, and a payload outlives its release): `parseMirrorPayload` refuses
  * a payload that does not add up, names a storage path outside the sender's own prefix, or is malformed; `payloadBlocker`
  * names what stops an otherwise valid payload being accepted (ZAR only). Everything is held in whole cents.
+ * P4-C: the same function reads an `allocation` payload (the payer's cash applied to a linked bill, built by `intercompany_send_for_allocation`,
+ * migration 1025): strict on what the receiver shows or acts on, unknown keys ignored.
  */
 import { isRealCalendarDate } from '@/lib/validation';
 
@@ -44,6 +46,23 @@ export interface MirrorPayload {
   groupTransactionId: string | null;
 }
 
+/** An allocation message (P4-B / C): the payer applied posted cash to its bill; the receiver's issuer invoice is the other side of the link. */
+export interface AllocationPayload {
+  version: 1;
+  kind: 'allocation';
+  allocationId: string;
+  amount: number;
+  currency: string;
+  /** The payer's payment: display text only, never an identity (the id is the payer's row, for the database to re-check). */
+  payment: { id: string; number: string | null; reference: string | null; date: string; method: string | null; cashLegIsLoanAccount: boolean };
+  payerDocument: { type: 'supplier_invoice'; id: string; number: string | null };
+  issuerDocument: { type: 'customer_invoice'; id: string };
+  linkId: string;
+  linkOrigin: string;
+}
+
+export type ParsedAllocation = { ok: true; payload: AllocationPayload } | { ok: false; error: string };
+
 const cents = (n: number): number => Math.round(n * 100);
 /** The rounding every figure here shares: half up on the absolute value, as the rest of the app's 2 dp rounding. */
 const round2 = (n: number): number => cents(n) / 100;
@@ -62,6 +81,39 @@ const nullableText = (v: unknown, max: number): v is string | null => v === null
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const PDF_NAME = new RegExp(`^${UUID}\\.pdf$`, 'i');
 const bad = (error: string): ParsedPayload => ({ ok: false, error });
+const isUuid = (v: unknown): v is string => typeof v === 'string' && new RegExp(`^${UUID}$`, 'i').test(v);
+/** Money as a message carries it: finite, bounded, and whole cents (no third decimal). */
+const isCents = (v: unknown): v is number => isMoney(v) && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6;
+
+function parseAllocation(raw: unknown): ParsedAllocation {
+  const no = (error: string): ParsedAllocation => ({ ok: false, error });
+  if (!isObject(raw)) return no('The message carries no payment');
+  if (raw.version !== 1) return no('The message is from a newer version and cannot be read');
+  if (raw.kind !== 'allocation') return no('The message does not match its kind');
+  if (!isUuid(raw.allocationId)) return no('The allocation reference is malformed');
+  if (!isCents(raw.amount) || !(raw.amount > 0)) return no('The amount is not a valid amount');
+  if (!text(raw.currency, 3, 3)) return no('The currency is missing');
+  const pay = raw.payment;
+  if (!isObject(pay) || !isUuid(pay.id)) return no('The payment reference is malformed');
+  if (typeof pay.date !== 'string' || !isRealCalendarDate(pay.date)) return no('The payment date is not a date');
+  if (!nullableText(pay.number, 50) || !nullableText(pay.reference, 255) || !nullableText(pay.method, 20)) return no('The payment details are malformed');
+  if (typeof pay.cashLegIsLoanAccount !== 'boolean') return no('The payment details are malformed');
+  const payer = raw.payerDocument;
+  if (!isObject(payer) || payer.type !== 'supplier_invoice' || !isUuid(payer.id) || !nullableText(payer.number, 100)) return no('The payer\'s bill reference is malformed');
+  const issuer = raw.issuerDocument;
+  if (!isObject(issuer) || issuer.type !== 'customer_invoice' || !isUuid(issuer.id)) return no('The invoice reference is malformed');
+  if (!isUuid(raw.linkId) || !text(raw.linkOrigin, 50, 1)) return no('The link reference is malformed');
+  return {
+    ok: true,
+    payload: {
+      version: 1, kind: 'allocation', allocationId: raw.allocationId, amount: raw.amount, currency: raw.currency.toUpperCase(),
+      payment: { id: pay.id, number: pay.number, reference: pay.reference, date: pay.date, method: pay.method, cashLegIsLoanAccount: pay.cashLegIsLoanAccount },
+      payerDocument: { type: 'supplier_invoice', id: payer.id, number: payer.number },
+      issuerDocument: { type: 'customer_invoice', id: issuer.id },
+      linkId: raw.linkId, linkOrigin: raw.linkOrigin,
+    },
+  };
+}
 
 function parseLine(raw: unknown, i: number, checkVat: boolean): MirrorLine | string {
   const at = `Line ${i + 1}`;
@@ -99,7 +151,10 @@ function parsePdf(raw: unknown, kind: MirrorKind, senderCompanyId: string): Mirr
  * must sit under it. Totals must add up to the cent, because the receiver's draft is built from the lines and must equal
  * what the sender posted.
  */
-export function parseMirrorPayload(raw: unknown, kind: MirrorKind, senderCompanyId: string): ParsedPayload {
+export function parseMirrorPayload(raw: unknown, kind: 'allocation', senderCompanyId: string): ParsedAllocation;
+export function parseMirrorPayload(raw: unknown, kind: MirrorKind, senderCompanyId: string): ParsedPayload;
+export function parseMirrorPayload(raw: unknown, kind: MirrorKind | 'allocation', senderCompanyId: string): ParsedPayload | ParsedAllocation {
+  if (kind === 'allocation') return parseAllocation(raw);
   if (!isObject(raw)) return bad('The message carries no document');
   if (raw.version !== 1) return bad('The message is from a newer version and cannot be read');
   if (raw.kind !== kind) return bad('The message does not match its kind');

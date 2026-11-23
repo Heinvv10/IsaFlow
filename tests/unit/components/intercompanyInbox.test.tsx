@@ -163,8 +163,10 @@ describe('IntercompanyInboxPage', () => {
   it('a failed load says so and offers a retry, keeping the page', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => failure('boom', 500));
     render(<IntercompanyInboxPage />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/boom|Could not load/);
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    // (two alerts: the invoice list's, and "Payments from your group" below it, each with its own retry)
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.some((a) => /boom|Could not load/.test(a.textContent ?? '') && !/Payments from your group/.test(a.textContent ?? ''))).toBe(true);
+    expect(screen.getAllByRole('button', { name: 'Try again' }).length).toBeGreaterThan(0);
   });
 
   it('a failed action is announced as an alert, not a polite status', async () => {

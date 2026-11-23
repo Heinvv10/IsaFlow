@@ -4,11 +4,15 @@
  * generic sentence. All of them touch only the message row: nothing here writes a document, and nothing here touches the
  * sender's books (a rejection never changes the sender's invoice). The database enforces the same rules (guard 1002: a write
  * role in the receiving company, an active connection to reject or restore, accepted and rejected are final).
+ * P4-C: an `allocation` message (the payer's cash on a linked bill) is rejected or dismissed through the same transitions
+ * (`rejectAllocation`, `dismissAllocation`, `restoreAllocation`), found by its own loader: the invoice functions never reach one, and nothing
+ * accepts one (D).
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ConnectionRefusal } from './connectionTypes';
 import { loadInboxRow } from './inboxRead';
+import { loadAllocationRow } from './allocationInbox';
 
 // checkReason lives in inboxValidation (pure, no database import); re-exported so existing callers keep working.
 export { checkReason } from './inboxValidation';
@@ -25,8 +29,9 @@ function refusalOf(err: unknown): ConnectionRefusal | null {
 
 async function move(
   companyId: string, messageId: string, from: string[], run: () => Promise<Row[]>, what: string,
+  load: (companyId: string, messageId: string) => Promise<Row | null> = loadInboxRow,
 ): Promise<void> {
-  const row = await loadInboxRow(companyId, messageId);
+  const row = await load(companyId, messageId);
   if (!row) throw new ConnectionRefusal(404, 'Message not found');
   if (!from.includes(String(row.status))) throw new ConnectionRefusal(409, `This message is ${String(row.status)}, so it cannot be ${what}.`);
   let changed: Row[];
@@ -53,6 +58,29 @@ export function dismissMessage(companyId: string, messageId: string): Promise<vo
     UPDATE intercompany_messages SET status = 'dismissed'
      WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND status IN ('pending', 'failed') RETURNING id
   `) as Row[], 'dismissed');
+}
+
+/** An allocation message (P4-C): rejected with a reason, as an invoice message is; only an allocation message moves. */
+export function rejectAllocation(companyId: string, messageId: string, reason: string): Promise<void> {
+  return move(companyId, messageId, ['pending', 'failed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'rejected', reason = ${reason}
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed') RETURNING id
+  `) as Row[], 'rejected', loadAllocationRow);
+}
+
+export function dismissAllocation(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['pending', 'failed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'dismissed'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status IN ('pending', 'failed') RETURNING id
+  `) as Row[], 'dismissed', loadAllocationRow);
+}
+
+/** A dismissed allocation message back to pending (the guard needs the connection active, and marks it a person's to handle). */
+export function restoreAllocation(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['dismissed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'pending'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status = 'dismissed' RETURNING id
+  `) as Row[], 'restored', loadAllocationRow);
 }
 
 export function restoreMessage(companyId: string, messageId: string): Promise<void> {
