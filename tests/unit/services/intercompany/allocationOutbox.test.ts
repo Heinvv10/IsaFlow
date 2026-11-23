@@ -8,10 +8,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   sql: vi.fn(async (..._a: unknown[]) => [] as unknown[]),
   savepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
-  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  enabled: vi.fn(async (_companyId: string) => true),
 }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: m.savepoint }));
 vi.mock('@/lib/logger', () => ({ log: m.log }));
+// the dark flag (its own tests: loanClearingGate.test.ts): on here unless a case turns it off
+vi.mock('@/modules/accounting/services/intercompany/loanClearingGate', () => ({ loanClearingEnabled: m.enabled }));
 
 import { mirrorAllocations, mirrorBatchAllocations, mirrorPaymentAllocations } from '@/modules/accounting/services/intercompany/allocationOutbox';
 
@@ -20,7 +23,7 @@ const A1 = 'a1111111-1111-4111-8111-111111111111';
 const A2 = 'a2222222-2222-4222-8222-222222222222';
 const sqlText = (i: number) => (m.sql.mock.calls[i]![0] as string[]).join('?');
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); m.enabled.mockResolvedValue(true); });
 
 describe('mirrorAllocations', () => {
   it('calls the definer for each id in its own savepoint', async () => {
@@ -99,5 +102,47 @@ describe('mirrorBatchAllocations', () => {
     m.sql.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '40P01' }));
     await expect(mirrorBatchAllocations(CO, 'batch')).resolves.toBeUndefined();
     expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/allocation/i), { companyId: CO, code: '40P01' }, 'intercompany');
+  });
+});
+
+describe('the dark flag intercompany_loan_clearing: the PAYER\'s, asked once per call, before any savepoint or definer', () => {
+  const silent = () => {
+    expect(m.sql).not.toHaveBeenCalled();
+    expect(m.savepoint).not.toHaveBeenCalled();
+    for (const level of ['debug', 'info', 'warn', 'error'] as const) expect(m.log[level]).not.toHaveBeenCalled();
+  };
+
+  it('off: mirrorAllocations returns without a savepoint, a definer call or a log line', async () => {
+    m.enabled.mockResolvedValue(false);
+    await expect(mirrorAllocations(CO, [A1, A2])).resolves.toBeUndefined();
+    expect(m.enabled.mock.calls).toEqual([[CO]]);
+    silent();
+  });
+
+  it('off: mirrorPaymentAllocations and mirrorBatchAllocations do not even read the allocation rows', async () => {
+    m.enabled.mockResolvedValue(false);
+    await mirrorPaymentAllocations(CO, ['p1']);
+    await mirrorBatchAllocations(CO, 'batch');
+    expect(m.enabled.mock.calls).toEqual([[CO], [CO]]);
+    silent();
+  });
+
+  it('on: asked once per call (not per allocation), with the payer company, then every id is sent as before', async () => {
+    m.sql.mockResolvedValue([{ message_id: 'msg', reason: null, detail: null }]);
+    await mirrorAllocations(CO, [A1, A2]);
+    expect(m.enabled.mock.calls).toEqual([[CO]]);
+    expect(m.savepoint).toHaveBeenCalledTimes(2);
+    vi.clearAllMocks();
+    m.sql.mockResolvedValueOnce([{ id: A1 }, { id: A2 }]);
+    m.sql.mockResolvedValue([{ message_id: 'msg', reason: null, detail: null }]);
+    await mirrorPaymentAllocations(CO, ['p1']);
+    expect(m.enabled.mock.calls).toEqual([[CO]]);
+    expect(m.sql.mock.calls.slice(1).map((c) => c[1])).toEqual([A1, A2]);
+  });
+
+  it('no ids: not even the flag is asked', async () => {
+    await mirrorAllocations(CO, []);
+    await mirrorPaymentAllocations(CO, []);
+    expect(m.enabled).not.toHaveBeenCalled();
   });
 });

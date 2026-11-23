@@ -91,10 +91,12 @@ describe('listGroupCandidates', () => {
 
 describe('listSideOptions', () => {
   it('reads the session company\'s own non-deleted customers and suppliers and active non-header accounts', async () => {
-    answer([], [], []);
+    answer([], [], [], []);
     await listSideOptions(A);
-    expect(seen).toHaveLength(3);
-    const [customers, suppliers, accounts] = seen;
+    expect(seen).toHaveLength(4);
+    const [customers, suppliers, accounts, loanAccounts] = seen;
+    // P4-D: the loan account's picker offers only the loan class (the database's rule, the one the side form and the clearing ask)
+    expect(loanAccounts!.text).toMatch(/AND public\.intercompany_is_loan_class\(ga\.id, ga\.company_id\)/);
     for (const q of seen) expect(q!.values).toContain(A);
     expect(customers!.text).toMatch(/FROM customers WHERE company_id = \?::UUID AND deleted_at IS NULL/);
     expect(suppliers!.text).toMatch(/FROM suppliers WHERE company_id = \?::UUID AND deleted_at IS NULL/);

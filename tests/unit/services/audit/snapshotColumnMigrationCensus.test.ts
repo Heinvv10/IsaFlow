@@ -126,6 +126,10 @@ const READ_BY_HAND = new Set([
   // "journal" is the read-only (STABLE) definer intercompany_allocation_message_live's check that the journal a message recorded still stands
   // (intercompany_journal_chain_length) and the payment's gl_journal_entry_id. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
   '1026_intercompany_p4c_allocation_live.sql',
+  // 1027 (2026-11-23, intercompany P4-D allocation clearing): EXECUTE only as GRANT EXECUTE ON FUNCTION and has_function_privilege(..., 'EXECUTE');
+  // "journal" is the read-only liveness definer's SUM over the payer's gl_journal_lines (its loan credit) and the INVOKER guard helpers' reads of the
+  // receiver's own gl_journal_entries / gl_journal_lines (the clearing journal's two lines, its reversal). No DDL on either table, no dynamic SQL.
+  '1027_intercompany_p4d_allocation_clearing.sql',
   // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
   // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
   // or rebuilt, no dynamic SQL.

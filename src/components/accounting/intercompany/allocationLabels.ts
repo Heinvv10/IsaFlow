@@ -13,6 +13,7 @@ const STALE: Record<Exclude<AllocationLiveReason, 'ok' | 'check_failed'>, string
   payment_not_posted: 'the payment is no longer posted',
   journal_reversed: 'the payment journal was reversed',
   bill_gone: 'the payer\'s bill was deleted',
+  future_dated: 'the payment is dated after today',
 };
 
 const MISMATCH: Record<AllocationMismatch, string> = {
@@ -62,6 +63,9 @@ export const HANDLED_LABEL: Record<AllocationItem['status'], string> = {
 };
 
 export const isOpen = (i: AllocationItem): boolean => i.status === 'pending' || i.status === 'failed';
+
+/** P4-D: an accepted payment whose clearing receipt was voided since (read-only; nothing re-clears it). */
+export const VOIDED_CHIP = 'Clearing voided';
 
 /** The payment as a person names it: its number, else its reference. */
 export const paymentLabel = (i: AllocationItem): string => i.paymentNumber ?? i.paymentReference ?? 'payment';

@@ -27,6 +27,8 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
 // Step 6: a share journal with live undo-share journals is refused (gl/shareUndoReversalGuard, real-ledger proof in
 // breaker6-r2.int.test.ts); none here, and the positional sql queue must not see its read.
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
+// P4-D A2: the intercompany clearing-receipt reversal guard is its own module, tested in its integration suite
+vi.mock('@/modules/accounting/services/intercompany/clearingReversalGuard', () => ({ refuseReversingIntercompanyClearing: vi.fn(async () => undefined) }));
 // 1018 round 13: the sorted chain locks before the claim (gl/ledgerLinkKeys); the positional sql queue must not see it.
 vi.mock('@/modules/accounting/services/gl/ledgerLinkKeys', () => ({ lockJournalChains: vi.fn(async () => undefined) }));
 // 1018 round 15 L2: the lines' accounts re-read under the claim (gl/reversalLines, real-ledger proof in
