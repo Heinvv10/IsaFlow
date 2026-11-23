@@ -38,8 +38,10 @@ export function ComponentRfiSwitch({ component, employerFund, onChanged, onError
   };
 
   return (
-    <input type="checkbox" checked={on} disabled={saving} onChange={(e) => void toggle(e.target.checked)}
-      aria-label={`${component.name} counts as retirement-funding income`}
-      title="Recalculate any pay run already calculated after changing this." />
+    <label className="max-lg:inline-flex max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center max-lg:justify-center">
+      <input type="checkbox" checked={on} disabled={saving} onChange={(e) => void toggle(e.target.checked)}
+        aria-label={`${component.name} counts as retirement-funding income`}
+        title="Recalculate any pay run already calculated after changing this." />
+    </label>
   );
 }
