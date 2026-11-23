@@ -3,9 +3,9 @@
  *   - `clearingPreview`: for an OPEN message's Accept dialog, the two legs (this company's loan account, its Accounts Receivable control), the
  *     amount, the invoice and the posting date proposed; the Accept request sends the loan account, invoice and amount back, and is refused if
  *     the books no longer say the same.
- *   - `clearingsOf`: for ACCEPTED messages, the contra receipt each posted and whether it was voided since (the receipt cancelled, or its
- *     journal's reversal chain even: a reversal of the reversal stands again): read-only and computed, so a voided clearing is visible
- *     (nothing re-clears it; P5 will list them). The caps (the liveness definer, 1027) judge the same chain by value, across every receiver.
+ *   - `clearingsOf`: for ACCEPTED messages, the contra receipt each posted and whether it was voided since: the light definer's
+ *     `clearing_voided`, the receipt's journal chain judged by value exactly as the caps judge it (a reversal of the reversal stands again).
+ *     Read-only, so a voided clearing is visible (nothing re-clears it; P5 will list them).
  */
 import { sql } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
@@ -38,6 +38,9 @@ export async function clearingPreview(
   `) as Row[];
   const loan = side[0]?.loan_account_id ? String(side[0].loan_account_id) : null;
   const paymentDate = payload?.payment.date ?? null;
+  const invoiceDate = invoice?.date ?? null;
+  // (M1) the floor is the later of the two: a clearing is never dated before the invoice it settles
+  const floor = paymentDate && invoiceDate && invoiceDate > paymentDate ? invoiceDate : paymentDate;
   return {
     loanAccountId: loan,
     loanAccountLabel: loan ? `${String(side[0]!.account_code ?? '')} ${String(side[0]!.account_name ?? '')}`.trim() : null,
@@ -46,28 +49,33 @@ export async function clearingPreview(
     invoiceId: payload?.issuerDocument.id ?? null,
     invoiceNumber: invoice?.number ?? null,
     paymentDate,
-    defaultPostingDate: paymentDate ? await defaultPostingDate(companyId, paymentDate, await todaySast()) : null,
+    invoiceDate,
+    defaultPostingDate: floor ? await defaultPostingDate(companyId, floor, await todaySast()) : null,
   };
 }
 
-/** The clearing receipt of each accepted message (by its target), this company's only; voided when it is cancelled or its journal's reversal
- *  chain (posted journals linked by reversal_of_id from it, depth-bounded) is even. */
-export async function clearingsOf(companyId: string, paymentIds: string[]): Promise<Map<string, AllocationClearedBy>> {
-  if (paymentIds.length === 0) return new Map();
+/**
+ * The clearing receipt of each accepted message (`targets`: message id -> receipt id), this company's only; `voided` is the light definer's
+ * `clearing_voided` (the receipt's journal chain even: exactly the rule the caps count by, L5), asked once per accepted message.
+ */
+export async function clearingsOf(companyId: string, targets: Map<string, string>): Promise<Map<string, AllocationClearedBy>> {
+  if (targets.size === 0) return new Map();
   const rows = (await sql`
-    SELECT p.id, p.payment_number, p.gl_journal_entry_id, p.status,
-           (WITH RECURSIVE chain(id, depth) AS (
-              SELECT je.id, 1 FROM gl_journal_entries je WHERE je.id = p.gl_journal_entry_id AND je.company_id = p.company_id AND je.status = 'posted'
-              UNION ALL
-              SELECT r.id, c.depth + 1 FROM gl_journal_entries r JOIN chain c ON r.reversal_of_id = c.id
-               WHERE r.company_id = p.company_id AND r.status = 'posted' AND c.depth < 64)
-            SELECT count(*) FROM chain)::int AS chain
+    SELECT p.id, p.payment_number, p.gl_journal_entry_id
       FROM customer_payments p
-     WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${paymentIds}::UUID[])
+     WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${[...targets.values()]}::UUID[])
   `) as Row[];
-  return new Map(rows.map((r) => [String(r.id).toLowerCase(), {
-    paymentId: String(r.id), paymentNumber: r.payment_number ? String(r.payment_number) : null,
-    journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
-    voided: Number(r.chain) % 2 === 0 || String(r.status) === 'cancelled',
-  }]));
+  const receipts = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
+  const out = new Map<string, AllocationClearedBy>();
+  for (const [messageId, paymentId] of targets) {
+    const r = receipts.get(paymentId.toLowerCase());
+    if (!r) continue;
+    const voided = (await sql`SELECT clearing_voided FROM public.intercompany_allocation_message_live(${messageId}::UUID)`) as Row[];
+    out.set(messageId, {
+      paymentId: String(r.id), paymentNumber: r.payment_number ? String(r.payment_number) : null,
+      journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
+      voided: voided[0]?.clearing_voided === true,
+    });
+  }
+  return out;
 }

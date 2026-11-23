@@ -40,10 +40,14 @@ export async function plantForeignClearing(pool: Pool, conn: string, s: { messag
     [conn, co.B, co.C, crypto.randomUUID(), JSON.stringify({ ...payload, amount }), s.journal, receipt])).rows[0].id as string);
 }
 
-/** A session holding the clearing's advisory locks for `message` (as the service and the guard take them) until `release`. */
+/** A session of the receiver (another request of A's: the cap lock is the receiver's only) holding the clearing's advisory locks for
+ *  `message`, as the service and the guard take them, until `release`. */
 export async function holdCapLock(pool: Pool, message: string): Promise<{ release: () => Promise<void> }> {
   const client = await pool.connect();
   await client.query('BEGIN');
+  await client.query('SET LOCAL ROLE app_user');
+  await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: U.a })]);
+  await client.query("SELECT set_config('app.current_company_id', $1, true)", [co.A]);
   await client.query('SELECT public.intercompany_allocation_cap_lock($1)', [message]);
   return { release: async () => { await client.query('COMMIT'); client.release(); } };
 }

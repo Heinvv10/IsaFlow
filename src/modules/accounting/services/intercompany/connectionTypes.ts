@@ -93,6 +93,8 @@ export interface SideOptions {
   customers: NamedRef[];
   suppliers: NamedRef[];
   accounts: NamedRef[];
+  /** P4-D: the accounts the loan account may be (a loan class: `intercompany_is_loan_class`). */
+  loanAccounts: NamedRef[];
   /** True when a list was cut at its limit: the person is told, not left to wonder where a name went. */
   truncated: boolean;
 }

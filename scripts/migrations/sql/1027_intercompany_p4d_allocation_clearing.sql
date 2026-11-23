@@ -1,29 +1,36 @@
 -- 1027: Intercompany P4-D, the RECEIVER clears an allocation message with a contra settlement. Plan: docs/plans/2026-11-23-intercompany-p4d-receiver-clearing.md
 -- (section (i) supersedes the earlier text; parent: docs/plans/2026-11-17-intercompany-mirror-posting.md, P4). Applies on top of 1026. Forward only:
--- no table, column or index changes; no new SECURITY DEFINER (the liveness definer is REPLACED, three INVOKER helpers are new).
--- Fix round 1 (2026-11-23, reviews blind / adversarial ledger / policy-breaker): edited in place (not yet released): F1, F2, F3, F5, F6, F9, M4,
--- m3, m5 below.
+-- no table or column changes; one partial index (5b). The liveness definer is REPLACED, one SECURITY DEFINER is new (the full clearing check,
+-- split from it in fix round 2, M4) and three INVOKER helpers are new. Edited in place (not yet released) by fix round 1 (F1, F2, F3, F5, F6,
+-- F9, M4, m3, m5) and fix round 2 (A1, A3, M4, L1, L5).
 
 -- WHAT
---   0. intercompany_is_loan_class(type, subtype, is_system), IMMUTABLE: the loan or intercompany balance-sheet classes a clearing may touch
---      (asset other_current_asset / other; liability current_liability / other_current_liability / long_term_liability / other; never a system
---      account: the seeded charts carry their controls, bank, VAT, payroll and 2215 as system accounts). allocationClearRefusals.isLoanClass is
---      the same rule in the app.
---   1. intercompany_allocation_message_live(message) is DROPPED and CREATED again (its row type changes): the 1026 body, a new reason
---      future_dated (the payload's payment date after today, Johannesburg: m3), and two outputs, NULL unless the answer is ok and figure-free:
+--   0. intercompany_is_loan_class(account, company), STABLE INVOKER: the loan or intercompany balance-sheet accounts a clearing may touch (asset
+--      other_current_asset / other; liability current_liability / other_current_liability / long_term_liability / other; never a system
+--      account: the seeded charts carry their controls, bank, VAT, payroll and 2215 as system accounts; and never an account holding a
+--      bank-statement line: real money, the repo's money rule, ap/settlementKind.moneyAccountSql, round 2 A1). ONE rule: the definers, the
+--      guard, the service's loan-account lock, the side form and its picker all ask this function.
+--   1. intercompany_allocation_message_live(message) is DROPPED and CREATED again (its row type changes), the LIGHT check the inbox asks once
+--      per open row: the 1026 body, a new reason future_dated (the payload's payment date after today, Johannesburg: m3), and
+--      clearing_voided: for an ACCEPTED message, whether its clearing receipt's journal chain is even (voided; the net chain: a reversal of the
+--      reversal stands again), else NULL. The inbox's "Clearing voided" chip reads it (L5: the caps' own rule).
+--   1b. intercompany_allocation_clearable(message), SECURITY DEFINER, STABLE, the FULL check Accept and the guard ask: the light answer first
+--      (one source for liveness), then, when live, two figure-free outputs:
 --        cap              NULL when this message's amount fits every cap, else 'cash_not_through_loan' (nothing cleared yet and still too much)
 --                         or 'already_cleared'. The caps, each net of what EVERY receiver's other accepted, standing clearings of the same payer
---                         already cleared (F2; a clearing stands while its receipt's journal chain is odd: the net chain, F9):
+--                         already cleared (F2; a clearing stands while its receipt's journal chain is odd: F9):
 --                           the payer payment:  LEAST(its live allocations, what its standing journal credited the payer side's loan account)
 --                           the payer journal:  that loan credit (a batch's journal is shared by its members)
 --                           the payer bill:     its live allocations whose payment is processed / reconciled on a standing journal that credited
 --                                               the loan account (F3: cleared, the payer voids and pays again: the bill is not cleared twice)
---                         The loan account counts only while it is a loan class (F1: a side re-pointed at a bank account funds nothing).
+--                         The loan account counts only while it is a loan class (F1, A1: a side re-pointed at a bank or a money account funds
+--                         nothing). Accepted limit: inside a group, 'already_cleared' tells a receiver that some receiver cleared the payment.
 --        payer_loan_type  the payer side's loan account's type ('asset' / 'liability') when it is a loan class, else NULL (F5: the receiver's
 --                         must be the other type)
 --   2. intercompany_allocation_cap_lock(message), INVOKER, VOLATILE: pg_advisory_xact_lock on the payer's payment, journal and bill keys
 --      (hashtextextended('<payer>:payment|journal|bill:<id>', 1027), ascending): every clearing of the same payer, by ANY receiver, waits for the
---      others before its caps are read (F2). The service takes it right after the message lock; the guard again before it judges (re-entrant).
+--      others before its caps are read (F2). The RECEIVER's message only (to_company_id = the session company: A3); anyone else takes nothing.
+--      The service takes it right after the message lock; the guard again before it judges (re-entrant).
 --   3. intercompany_allocation_target_ok(message, payload, connection, receiver, target type, target id), INVOKER, STABLE: the clearing a message
 --      is accepted with. A customer payment of the receiver, payment_method 'contra', confirmed, created AND confirmed by the acting user
 --      (auth.uid(): M4), bank_reference stamped 'IC:<message id>', its amount the payload's (2 dp), its contra (bank_account_id) the receiver
@@ -31,11 +38,14 @@
 --      line, to the payload's issuerDocument invoice (the receiver's), for that amount; its journal posted, never reversed, exactly two lines: DR
 --      the loan account, CR the receiver's receivable control (system account, subtype receivable), both = amount, and no other accepted
 --      allocation message's receipt on that journal (M4). And the message is live, within every cap, and the two loan accounts of opposite
---      types (F5). Anything else is false. Service-only (not in the guard): the period / VAT lock, the customer link, the currency, the pair's
+--      types (F5), all asked of intercompany_allocation_clearable. Anything else is false. It assumes the receipt services post EXACTLY two lines for a
+--      one-invoice contra receipt (accepted limit: a change there must change this). Service-only (not in the guard): the period / VAT lock, the customer link, the currency, the pair's
 --      cut-over, the group connection and the open amount (the invoice's own amount_paid constraint holds that one).
 --   4. The messages guard (the 1025 body; only the target section changes): an `allocation` message is accepted only after the cap lock and with
 --      target_doc_type 'customer_payment' and a target intercompany_allocation_target_ok passes (23514 otherwise: closes the direct-UPDATE
 --      `accepted` hole, #1788), one accepted message per target; its target changes on no other transition (23514).
+--   5b. intercompany_messages_allocation_accepted_by_payer: a partial index (from_company_id) WHERE kind = 'allocation' AND status = 'accepted',
+--      for the cross-receiver scan of 1b (every call reads the payer's accepted allocations; the index keeps that to the payer's own rows).
 --   5. Grants, deploy-safe: each function REVOKEs PUBLIC and GRANTs only what it needs; any other role found able to EXECUTE one (a default
 --      privilege of the creating role, e.g. Supabase's anon / authenticated / service_role) has it REVOKED, and a revoke the migration role
 --      cannot make is a WARNING naming the role, never a halt. Strict (an EXCEPTION): PUBLIC, app_user's grants, the definer's owner and hash.
@@ -46,14 +56,17 @@
 -- previous release's allocationInbox.ts selects `live, reason` by name from the definer, which the new row type still carries; nothing in it accepts an
 -- allocation, and the new guard refuses only an accepted allocation (or a target on one), which no old code writes.
 
--- Rollback (code first):
---   DROP FUNCTION IF EXISTS public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid);
---   DROP FUNCTION IF EXISTS public.intercompany_allocation_cap_lock(uuid);
---   Restore 1025's intercompany_messages_guard, EXACTLY this one statement (never a whole earlier file):
---     sed -n '/^CREATE OR REPLACE FUNCTION public.intercompany_messages_guard/,/^\$\$;/p' scripts/migrations/sql/1025_intercompany_p4b_allocation_sender.sql | psql ...
---   Restore 1026's definer: DROP FUNCTION public.intercompany_allocation_message_live(uuid); then apply 1026 again whole (it holds only the definer,
---   its owner, grants, registry row and assertion: idempotent).
---   DROP FUNCTION IF EXISTS public.intercompany_is_loan_class(text, text, boolean);   (last: the definer above called it)
+-- Rollback (code first), in THIS order (L1: the guard calls the helpers, so it is put back before they go):
+--   1. Restore 1025's intercompany_messages_guard, EXACTLY this one statement (never a whole earlier file):
+--        sed -n '/^CREATE OR REPLACE FUNCTION public.intercompany_messages_guard/,/^\$\$;/p' scripts/migrations/sql/1025_intercompany_p4b_allocation_sender.sql | psql ...
+--   2. DROP FUNCTION IF EXISTS public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid);
+--      DROP FUNCTION IF EXISTS public.intercompany_allocation_cap_lock(uuid);
+--      DROP FUNCTION IF EXISTS public.intercompany_allocation_clearable(uuid);
+--      DELETE FROM app_definer_reviews WHERE signature = 'intercompany_allocation_clearable(uuid)';
+--      DROP INDEX IF EXISTS public.intercompany_messages_allocation_accepted_by_payer;
+--   3. Restore 1026's definer: DROP FUNCTION public.intercompany_allocation_message_live(uuid); then apply 1026 again whole (it holds only the
+--      definer, its owner, grants, registry row and assertion: idempotent).
+--   4. DROP FUNCTION IF EXISTS public.intercompany_is_loan_class(uuid, uuid);   (last: the definers above called it)
 --   (accepted allocation messages and their contra customer payments stay: they are ledger history; a clearing is undone by voiding its receipt)
 
 SET LOCAL lock_timeout = '5s';
@@ -61,28 +74,35 @@ SET LOCAL statement_timeout = '60s';
 
 -- ── 0. The loan classes ─────────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.intercompany_is_loan_class(p_type text, p_subtype text, p_system boolean)
+-- (an earlier draft of this migration took (type, subtype, is_system); it reads the account itself now, bank-statement lines included)
+DROP FUNCTION IF EXISTS public.intercompany_is_loan_class(text, text, boolean);
+CREATE OR REPLACE FUNCTION public.intercompany_is_loan_class(p_account uuid, p_company uuid)
 RETURNS boolean
 LANGUAGE sql
-IMMUTABLE
+STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT COALESCE(p_system = false AND CASE p_type
-    WHEN 'asset' THEN p_subtype IN ('other_current_asset', 'other')
-    WHEN 'liability' THEN p_subtype IN ('current_liability', 'other_current_liability', 'long_term_liability', 'other')
-    ELSE false END, false)
+  SELECT COALESCE((
+    SELECT ga.is_system_account = false
+       AND CASE ga.account_type
+             WHEN 'asset' THEN ga.account_subtype IN ('other_current_asset', 'other')
+             WHEN 'liability' THEN ga.account_subtype IN ('current_liability', 'other_current_liability', 'long_term_liability', 'other')
+             ELSE false END
+       AND NOT EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ga.company_id)
+      FROM public.gl_accounts ga
+     WHERE ga.id = p_account AND ga.company_id = p_company), false)
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_is_loan_class(text, text, boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_is_loan_class(text, text, boolean) TO app_user, migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_is_loan_class(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_is_loan_class(uuid, uuid) TO app_user, migration_admin;
 
--- ── 1. The liveness definer, with the caps ──────────────────────────────────
+-- ── 1. The light liveness definer (the inbox's) ─────────────────────────────
 
--- (an earlier draft of this migration created intercompany_allocation_cleared(uuid); the definer answers the caps itself now)
+-- (an earlier draft of this migration created intercompany_allocation_cleared(uuid); the full definer answers the caps itself now)
 DROP FUNCTION IF EXISTS public.intercompany_allocation_cleared(uuid);
 DROP FUNCTION IF EXISTS public.intercompany_allocation_message_live(uuid);
 CREATE OR REPLACE FUNCTION public.intercompany_allocation_message_live(p_message uuid)
-RETURNS TABLE (live boolean, reason text, cap text, payer_loan_type text)
+RETURNS TABLE (live boolean, reason text, clearing_voided boolean)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -101,15 +121,7 @@ DECLARE
   v_bill uuid;
   v_date text;
   v_cutover date;
-  v_loan uuid;
-  v_ptype text;
-  v_credit numeric;
-  v_paysum numeric;
-  v_billsum numeric;
-  v_bypay numeric;
-  v_byje numeric;
-  v_bybill numeric;
-  v_cap text;
+  v_voided boolean;
   m RECORD;
   pa RECORD;
   sp RECORD;
@@ -119,10 +131,15 @@ BEGIN
   BEGIN
     -- the receiver only: a signed-in member of the session company, which is the message's to_company; anything else is the one answer
     IF v_co IS NULL OR auth.uid() IS NULL OR p_message IS NULL OR NOT (v_co IN (SELECT auth.user_companies())) THEN v_reason := 'not_found'; EXIT main; END IF;
-    SELECT x.id, x.status, x.from_company_id, x.connection_id, x.source_doc_id, x.source_journal_entry_id AS je, x.payload INTO m
+    SELECT x.id, x.status, x.from_company_id, x.connection_id, x.source_doc_id, x.source_journal_entry_id AS je, x.payload, x.target_doc_type, x.target_doc_id INTO m
       FROM public.intercompany_messages x
      WHERE x.id = p_message AND x.to_company_id = v_co AND x.kind = 'allocation' AND x.source_doc_type = 'payment_allocation';
     IF NOT FOUND THEN v_reason := 'not_found'; EXIT main; END IF;
+    -- (1027, L5) an accepted message: is its clearing receipt voided? (the receiver's own receipt, its journal chain even: the caps' rule)
+    IF m.status = 'accepted' AND m.target_doc_type = 'customer_payment' THEN
+      SELECT COALESCE(public.intercompany_journal_chain_length(p.gl_journal_entry_id, p.company_id), 0) % 2 = 0 INTO v_voided
+        FROM public.customer_payments p WHERE p.id = m.target_doc_id AND p.company_id = v_co;
+    END IF;
     IF m.status NOT IN ('pending', 'failed') THEN v_reason := 'not_pending'; EXIT main; END IF;
     -- the relationship, from the payload and the link / connection rows only (an id that is no UUID names nothing): the connection active and
     -- loan, and the payload's link still active on it, joining the payload's bill of the payer to the receiver's issuer invoice
@@ -177,57 +194,106 @@ BEGIN
     END IF;
     IF NOT v_has_bill OR si.deleted_at IS NOT NULL THEN v_reason := 'bill_gone'; EXIT main; END IF;
     v_reason := 'ok';
-    -- (1027) the caps. The payer side's loan account counts only while it is a loan class (F1); its credit in the standing journal, net of
-    -- any debit to it, never below 0.
-    SELECT s.loan_account_id, ga.account_type INTO v_loan, v_ptype
-      FROM public.intercompany_connection_sides s
-      JOIN public.gl_accounts ga ON ga.id = s.loan_account_id AND ga.company_id = m.from_company_id
-     WHERE s.connection_id = m.connection_id AND s.company_id = m.from_company_id
-       AND public.intercompany_is_loan_class(ga.account_type, ga.account_subtype, ga.is_system_account);
-    v_credit := CASE WHEN v_loan IS NULL THEN 0 ELSE GREATEST(0, COALESCE((SELECT sum(COALESCE(jl.credit, 0) - COALESCE(jl.debit, 0))
-                  FROM public.gl_journal_lines jl WHERE jl.journal_entry_id = m.je AND jl.company_id = m.from_company_id AND jl.gl_account_id = v_loan), 0)) END;
-    SELECT COALESCE(sum(a.amount_allocated), 0) INTO v_paysum FROM public.payment_allocations a WHERE a.payment_id = pa.payment_id;
-    -- (F3) the bill's live loan-funded allocations: rows to the bill whose payment is the payer's, processed / reconciled, on a standing journal
-    -- (its own, else its batch's) that credited the loan account
-    SELECT COALESCE(sum(a.amount_allocated), 0) INTO v_billsum
-      FROM public.payment_allocations a
-      JOIN public.supplier_payments p ON p.id = a.payment_id AND p.company_id = m.from_company_id AND p.status IN ('processed', 'reconciled')
-      LEFT JOIN public.supplier_payment_batches b ON b.id = p.batch_id AND b.company_id = m.from_company_id
-      CROSS JOIN LATERAL (SELECT COALESCE(p.gl_journal_entry_id, b.gl_journal_entry_id) AS je) j
-     WHERE a.invoice_id = pa.invoice_id AND v_loan IS NOT NULL AND j.je IS NOT NULL
-       AND COALESCE(public.intercompany_journal_chain_length(j.je, m.from_company_id), 0) % 2 = 1
-       AND EXISTS (SELECT 1 FROM public.gl_journal_lines jl
-                    WHERE jl.journal_entry_id = j.je AND jl.company_id = m.from_company_id AND jl.gl_account_id = v_loan AND jl.credit > 0);
-    -- (F2, F9) what EVERY receiver already cleared of the same payer: its other accepted allocation messages whose clearing receipt still stands
-    -- (the receipt's journal chain is odd: a reversal of the reversal stands again)
-    SELECT COALESCE(sum(c.amount) FILTER (WHERE c.payment = (m.payload #>> '{payment,id}')), 0),
-           COALESCE(sum(c.amount) FILTER (WHERE c.je = m.je), 0),
-           COALESCE(sum(c.amount) FILTER (WHERE c.bill = (m.payload #>> '{payerDocument,id}')), 0)
-      INTO v_bypay, v_byje, v_bybill
-      FROM (SELECT x.payload #>> '{payment,id}' AS payment, x.source_journal_entry_id AS je, x.payload #>> '{payerDocument,id}' AS bill,
-                   CASE WHEN pg_catalog.jsonb_typeof(x.payload -> 'amount') = 'number' THEN pg_catalog.round((x.payload ->> 'amount')::numeric, 2) ELSE 0 END AS amount
-              FROM public.intercompany_messages x
-              JOIN public.customer_payments cp ON cp.id = x.target_doc_id AND cp.company_id = x.to_company_id
-             WHERE x.from_company_id = m.from_company_id AND x.kind = 'allocation' AND x.status = 'accepted' AND x.id <> m.id
-               AND x.target_doc_type = 'customer_payment'
-               AND COALESCE(public.intercompany_journal_chain_length(cp.gl_journal_entry_id, cp.company_id), 0) % 2 = 1) c;
-    v_cap := CASE
-      WHEN (v_bypay + v_amount > LEAST(v_paysum, v_credit) AND v_bypay > 0) OR (v_byje + v_amount > v_credit AND v_byje > 0)
-        OR (v_bybill + v_amount > v_billsum AND v_bybill > 0) THEN 'already_cleared'
-      WHEN v_bypay + v_amount > LEAST(v_paysum, v_credit) OR v_byje + v_amount > v_credit OR v_bybill + v_amount > v_billsum THEN 'cash_not_through_loan'
-    END;
   END main;
-  RETURN QUERY SELECT v_reason = 'ok', v_reason, CASE WHEN v_reason = 'ok' THEN v_cap END, CASE WHEN v_reason = 'ok' THEN v_ptype END;
+  RETURN QUERY SELECT v_reason = 'ok', v_reason, v_voided;
 END;
 $$;
 ALTER FUNCTION public.intercompany_allocation_message_live(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_allocation_message_live(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_allocation_message_live(uuid) TO app_user;
 
+-- ── 1b. The full clearing check (Accept's and the guard's) ──────────────────
+
+-- The light answer first (the one source of liveness: it is the receiver check too), then the caps and the payer's loan type, read as the
+-- definers' owner (the payer's rows and every receiver's accepted clearings of the same payer, which no session can read). No figure leaves.
+CREATE OR REPLACE FUNCTION public.intercompany_allocation_clearable(p_message uuid)
+RETURNS TABLE (live boolean, reason text, cap text, payer_loan_type text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_live boolean;
+  v_reason text;
+  v_amount numeric;
+  v_loan uuid;
+  v_ptype text;
+  v_credit numeric;
+  v_paysum numeric;
+  v_billsum numeric;
+  v_bypay numeric;
+  v_byje numeric;
+  v_bybill numeric;
+  v_cap text;
+  m RECORD;
+  pa RECORD;
+BEGIN
+  SELECT l.live, l.reason INTO v_live, v_reason FROM public.intercompany_allocation_message_live(p_message) l;
+  IF v_live IS NOT TRUE THEN
+    RETURN QUERY SELECT false, COALESCE(v_reason, 'not_found'), NULL::text, NULL::text;
+    RETURN;
+  END IF;
+  -- live: the message is the session company's (the light check said so), its allocation row exists and matches the payload
+  SELECT x.id, x.from_company_id, x.connection_id, x.source_doc_id, x.source_journal_entry_id AS je, x.payload INTO m
+    FROM public.intercompany_messages x WHERE x.id = p_message AND x.to_company_id = app.current_company_id() AND x.kind = 'allocation';
+  SELECT a.payment_id, a.invoice_id INTO pa FROM public.payment_allocations a WHERE a.id = m.source_doc_id;
+  v_amount := pg_catalog.round((m.payload ->> 'amount')::numeric, 2);
+  -- the payer side's loan account counts only while it is a loan class (F1, A1); its credit in the standing journal, net of any debit to it,
+  -- never below 0
+  SELECT s.loan_account_id, ga.account_type INTO v_loan, v_ptype
+    FROM public.intercompany_connection_sides s
+    JOIN public.gl_accounts ga ON ga.id = s.loan_account_id AND ga.company_id = m.from_company_id
+   WHERE s.connection_id = m.connection_id AND s.company_id = m.from_company_id
+     AND public.intercompany_is_loan_class(ga.id, ga.company_id);
+  v_credit := CASE WHEN v_loan IS NULL THEN 0 ELSE GREATEST(0, COALESCE((SELECT sum(COALESCE(jl.credit, 0) - COALESCE(jl.debit, 0))
+                FROM public.gl_journal_lines jl WHERE jl.journal_entry_id = m.je AND jl.company_id = m.from_company_id AND jl.gl_account_id = v_loan), 0)) END;
+  SELECT COALESCE(sum(a.amount_allocated), 0) INTO v_paysum FROM public.payment_allocations a WHERE a.payment_id = pa.payment_id;
+  -- (F3) the bill's live loan-funded allocations: rows to the bill whose payment is the payer's, processed / reconciled, on a standing journal
+  -- (its own, else its batch's) that credited the loan account
+  SELECT COALESCE(sum(a.amount_allocated), 0) INTO v_billsum
+    FROM public.payment_allocations a
+    JOIN public.supplier_payments p ON p.id = a.payment_id AND p.company_id = m.from_company_id AND p.status IN ('processed', 'reconciled')
+    LEFT JOIN public.supplier_payment_batches b ON b.id = p.batch_id AND b.company_id = m.from_company_id
+    CROSS JOIN LATERAL (SELECT COALESCE(p.gl_journal_entry_id, b.gl_journal_entry_id) AS je) j
+   WHERE a.invoice_id = pa.invoice_id AND v_loan IS NOT NULL AND j.je IS NOT NULL
+     AND COALESCE(public.intercompany_journal_chain_length(j.je, m.from_company_id), 0) % 2 = 1
+     AND EXISTS (SELECT 1 FROM public.gl_journal_lines jl
+                  WHERE jl.journal_entry_id = j.je AND jl.company_id = m.from_company_id AND jl.gl_account_id = v_loan AND jl.credit > 0);
+  -- (F2, F9) what EVERY receiver already cleared of the same payer: its other accepted allocation messages whose clearing receipt still stands
+  -- (the receipt's journal chain is odd); the partial index on (from_company_id) keeps the scan to the payer's accepted allocations
+  SELECT COALESCE(sum(c.amount) FILTER (WHERE c.payment = (m.payload #>> '{payment,id}')), 0),
+         COALESCE(sum(c.amount) FILTER (WHERE c.je = m.je), 0),
+         COALESCE(sum(c.amount) FILTER (WHERE c.bill = (m.payload #>> '{payerDocument,id}')), 0)
+    INTO v_bypay, v_byje, v_bybill
+    FROM (SELECT x.payload #>> '{payment,id}' AS payment, x.source_journal_entry_id AS je, x.payload #>> '{payerDocument,id}' AS bill,
+                 CASE WHEN pg_catalog.jsonb_typeof(x.payload -> 'amount') = 'number' THEN pg_catalog.round((x.payload ->> 'amount')::numeric, 2) ELSE 0 END AS amount
+            FROM public.intercompany_messages x
+            JOIN public.customer_payments cp ON cp.id = x.target_doc_id AND cp.company_id = x.to_company_id
+           WHERE x.from_company_id = m.from_company_id AND x.kind = 'allocation' AND x.status = 'accepted' AND x.id <> m.id
+             AND x.target_doc_type = 'customer_payment'
+             AND COALESCE(public.intercompany_journal_chain_length(cp.gl_journal_entry_id, cp.company_id), 0) % 2 = 1) c;
+  v_cap := CASE
+    WHEN (v_bypay + v_amount > LEAST(v_paysum, v_credit) AND v_bypay > 0) OR (v_byje + v_amount > v_credit AND v_byje > 0)
+      OR (v_bybill + v_amount > v_billsum AND v_bybill > 0) THEN 'already_cleared'
+    WHEN v_bypay + v_amount > LEAST(v_paysum, v_credit) OR v_byje + v_amount > v_credit OR v_bybill + v_amount > v_billsum THEN 'cash_not_through_loan'
+  END;
+  RETURN QUERY SELECT true, 'ok'::text, v_cap, v_ptype;
+END;
+$$;
+ALTER FUNCTION public.intercompany_allocation_clearable(uuid) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_allocation_clearable(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_allocation_clearable(uuid) TO app_user;
+
+-- ── 5b. The cross-receiver scan's index ─────────────────────────────────────
+
+CREATE INDEX IF NOT EXISTS intercompany_messages_allocation_accepted_by_payer
+  ON public.intercompany_messages (from_company_id) WHERE kind = 'allocation' AND status = 'accepted';
+
 -- ── 2. The payer's advisory locks ───────────────────────────────────────────
 
--- INVOKER, VOLATILE (a lock taken in a STABLE function would leave its later reads on the old snapshot). The message is read under the caller's
--- RLS (the receiver's own); a message it cannot read takes no lock (the caller refuses it anyway).
+-- INVOKER, VOLATILE (a lock taken in a STABLE function would leave its later reads on the old snapshot). The RECEIVER's message only (A3:
+-- to_company_id is the session company; the payer, who can read its own sent message, takes nothing).
 CREATE OR REPLACE FUNCTION public.intercompany_allocation_cap_lock(p_message uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -244,7 +310,7 @@ BEGIN
        (pg_catalog.hashtextextended(m.from_company_id::text || ':payment:' || COALESCE(m.payload #>> '{payment,id}', ''), 1027)),
        (pg_catalog.hashtextextended(m.from_company_id::text || ':journal:' || COALESCE(m.source_journal_entry_id::text, ''), 1027)),
        (pg_catalog.hashtextextended(m.from_company_id::text || ':bill:' || COALESCE(m.payload #>> '{payerDocument,id}', ''), 1027))) AS x(key)
-     WHERE m.id = p_message AND m.kind = 'allocation'
+     WHERE m.id = p_message AND m.kind = 'allocation' AND m.to_company_id = app.current_company_id()
      ORDER BY x.key
   LOOP
     PERFORM pg_catalog.pg_advisory_xact_lock(k);
@@ -286,7 +352,7 @@ BEGIN
     FROM public.intercompany_connection_sides s
     JOIN public.gl_accounts ga ON ga.id = s.loan_account_id AND ga.company_id = p_receiver
    WHERE s.connection_id = p_connection AND s.company_id = p_receiver
-     AND public.intercompany_is_loan_class(ga.account_type, ga.account_subtype, ga.is_system_account);
+     AND public.intercompany_is_loan_class(ga.id, ga.company_id);
   IF v_loan IS NULL THEN RETURN false; END IF;
   -- the receiver's confirmed contra receipt, stamped for THIS message, of the payload's amount, against the loan account, made and confirmed by the
   -- acting user (M4), dated on or after the payment (F6)
@@ -323,7 +389,7 @@ BEGIN
   END IF;
   -- still true in the payer's books, within every cap (every receiver's), the payer's loan account of the other type (the service checked all
   -- of it under its locks; this is the backstop, after the guard took the same cap lock)
-  SELECT * INTO v_live FROM public.intercompany_allocation_message_live(p_message);
+  SELECT * INTO v_live FROM public.intercompany_allocation_clearable(p_message);
   IF v_live.live IS NOT TRUE OR v_live.cap IS NOT NULL OR v_live.payer_loan_type IS NULL OR v_live.payer_loan_type = v_rtype THEN RETURN false; END IF;
   RETURN true;
 END;
@@ -538,7 +604,9 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_allocation_message_live(uuid)', 'public.intercompany_allocation_message_live(uuid)',
-     'nothing (STABLE): a read, for the RECEIVER of an allocation message only (a signed-in member of the session company, which is the message''s to_company), of that message, the link and connection it names (judged first: a dead relationship is link_gone, the payment before the cut-over before_cutover, after today future_dated, and no payer row is read for any), then the payer''s payment_allocations rows (the message''s row, its payment''s and its bill''s), its supplier_payments rows, supplier_payment_batches (a member''s standing journal), supplier_invoices (each under the payer''s company), the payer''s intercompany_connection_sides row and its loan account in gl_accounts, gl_journal_entries / gl_journal_lines (reversal chains, and what a journal credited that loan account), and every receiver''s accepted allocation messages of the same payer with their customer_payments and those receipts'' journal chains (the caps); answers one (live, reason, cap, payer_loan_type) row with no figure, the last two only when live; not_found for anyone else, a missing message or another kind')
+     'nothing (STABLE): a read, for the RECEIVER of an allocation message only (a signed-in member of the session company, which is the message''s to_company), of that message, the link and connection it names (judged first: a dead relationship is link_gone, the payment before the cut-over before_cutover, after today future_dated, and no payer row is read for any), then the payer''s payment_allocations row, its supplier_payments row, supplier_payment_batches (a member''s standing journal), supplier_invoices (each under the payer''s company) and gl_journal_entries (the reversal chain of the journal the message recorded); for an accepted message the receiver''s own clearing receipt (customer_payments) and its journal chain; answers one (live, reason, clearing_voided) row and no row data; not_found for anyone else, a missing message or another kind'),
+    ('intercompany_allocation_clearable(uuid)', 'public.intercompany_allocation_clearable(uuid)',
+     'nothing (STABLE): the light check intercompany_allocation_message_live first (the receiver only), then, when live, the payer''s payment_allocations rows (its payment''s and its bill''s), supplier_payments, supplier_payment_batches, the payer''s intercompany_connection_sides row and its loan account (gl_accounts, bank_transactions through intercompany_is_loan_class), gl_journal_entries / gl_journal_lines (what the standing journal credited that loan account, reversal chains), and every receiver''s accepted allocation messages of the same payer with their customer_payments and those receipts'' journal chains (the caps); answers one (live, reason, cap, payer_loan_type) row with no figure')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
@@ -554,7 +622,7 @@ BEGIN
   FOR g IN
     SELECT r.rolname, f.sig
       FROM (VALUES ('public.intercompany_allocation_message_live(uuid)'), ('public.intercompany_allocation_cap_lock(uuid)'),
-                   ('public.intercompany_is_loan_class(text, text, boolean)'),
+                   ('public.intercompany_is_loan_class(uuid, uuid)'), ('public.intercompany_allocation_clearable(uuid)'),
                    ('public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)')) AS f(sig)
       JOIN pg_catalog.pg_proc p ON p.oid = f.sig::regprocedure
      CROSS JOIN pg_catalog.pg_roles r
@@ -578,18 +646,21 @@ DO $$
 BEGIN
   IF pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_message_live(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_cap_lock(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_is_loan_class(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'EXECUTE')
      OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_message_live(uuid)', 'EXECUTE')
      OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_cap_lock(uuid)', 'EXECUTE')
-     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_clearable(uuid)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_clearable(uuid)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_is_loan_class(uuid, uuid)', 'EXECUTE')
      OR NOT pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'EXECUTE')
-     OR NOT pg_catalog.has_function_privilege('migration_admin', 'public.intercompany_is_loan_class(text, text, boolean)', 'EXECUTE') THEN
+     OR NOT pg_catalog.has_function_privilege('migration_admin', 'public.intercompany_is_loan_class(uuid, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION '1027: PUBLIC can execute an allocation clearing function, or app_user / migration_admin cannot execute what it needs';
   END IF;
-  IF (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.intercompany_allocation_message_live(uuid)'::regprocedure) <> 'migration_admin'
-     OR NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = 'intercompany_allocation_message_live(uuid)'
-                     AND r.body_md5 = public.app_definer_hash('public.intercompany_allocation_message_live(uuid)'::regprocedure)) THEN
-    RAISE EXCEPTION '1027: the liveness definer is not owned by migration_admin, or its registry row does not hold its hash';
+  IF EXISTS (SELECT 1 FROM (VALUES ('intercompany_allocation_message_live(uuid)'), ('intercompany_allocation_clearable(uuid)')) d(sig)
+              WHERE (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = ('public.' || d.sig)::regprocedure) <> 'migration_admin'
+                 OR NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = d.sig
+                                 AND r.body_md5 = public.app_definer_hash(('public.' || d.sig)::regprocedure))) THEN
+    RAISE EXCEPTION '1027: a clearing definer is not owned by migration_admin, or its registry row does not hold its hash';
   END IF;
 END $$;

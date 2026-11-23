@@ -42,7 +42,10 @@ export interface AllocationClearingPreview {
   invoiceId: string | null;
   invoiceNumber: string | null;
   paymentDate: string | null;
-  /** The payment date when its period is open (and not VAT-locked), else the first such date after it, never after today; null when none. */
+  /** This company's invoice's date: the posting date is on or after it too (null when the invoice is gone). */
+  invoiceDate: string | null;
+  /** From the later of the payment and invoice dates: that date when its period is open (and not VAT-locked), else the first such date after
+   *  it, never after today; null when none. */
   defaultPostingDate: string | null;
 }
 

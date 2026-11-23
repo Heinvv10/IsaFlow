@@ -90,10 +90,10 @@ describe('listAllocationInbox', () => {
   it("P4-D: an accepted message carries its clearing receipt (asked by its target, this company's only); any other carries none", async () => {
     const P = 'f0000000-0000-4000-8000-000000000001';
     const cleared = { paymentId: P, paymentNumber: 'CP-1', journalEntryId: 'je-1', voided: true };
-    clear.clearings.mockResolvedValue(new Map([[P, cleared]]));
+    clear.clearings.mockResolvedValue(new Map([['m-1', cleared]]));
     serve({ rows: [row('m-1', { status: 'accepted', target_doc_type: 'customer_payment', target_doc_id: P.toUpperCase() }), row('m-2', { status: 'rejected' })], count: 0 });
     const page = await listAllocationInbox(CO, 'handled', 25, 0);
-    expect(clear.clearings).toHaveBeenCalledWith(CO, [P.toUpperCase()]);
+    expect(clear.clearings).toHaveBeenCalledWith(CO, new Map([['m-1', P.toUpperCase()]]));   // by message (the definer judges its receipt)
     expect(page.items.map((i) => i.clearedBy)).toEqual([cleared, null]);
   });
 

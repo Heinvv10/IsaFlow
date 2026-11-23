@@ -138,7 +138,7 @@ export function AllocationInboxSection({ filter, canWrite, onNotice, onCount }: 
           onAccept={(i, preview) => { setOpen(null); setAccepting({ item: i, preview }); }} />
         <AllocationAcceptModal target={accepting ? { id: accepting.item.id, label: labelOf(accepting.item) } : null} preview={accepting?.preview ?? null}
           onClose={() => setAccepting(null)} onDone={(msg) => { setAccepting(null); onNotice({ msg, ok: true }); void reload(); }}
-          onRefused={(msg, stale) => { if (stale) setAccepting(null); onNotice({ msg, ok: false }); void reload(); }} />
+          onRefused={(msg, stale) => { if (stale) { setAccepting(null); onNotice({ msg, ok: false }); } void reload(); }} />
         <ConfirmDialog open={confirming !== null} title={confirming ? `Dismiss ${labelOf(confirming)}?` : 'Dismiss payment?'}
           message="It is set aside under Handled and nothing changes in your books or the payer's; you can restore it later."
           acceptLabel="Dismiss payment" loading={confirming !== null && busy.has(confirming.id)}

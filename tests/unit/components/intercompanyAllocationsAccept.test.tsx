@@ -69,7 +69,7 @@ describe('Accept a payment from the group', () => {
     const date = within(dialog).getByLabelText('Posting date');
     fireEvent.change(date, { target: { value: '2026-08-31' } });
     fireEvent.blur(date);
-    expect(await within(dialog).findByText('The posting date must be on or after the payment date.')).toBeInTheDocument();
+    expect(await within(dialog).findByText("The posting date must be on or after the payment date and your invoice's date.")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     expect(within(dialog).queryByTestId('allocation-accept-confirm')).toBeNull();
     expect(posts()).toHaveLength(0);

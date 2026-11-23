@@ -1,6 +1,7 @@
 /**
  * Pure rules of the receiver's clearing of an allocation message (P4-D): the request body, the fixed sentence each refusal stores on the
- * message, what an error raised under the clearing's savepoint counts as, the "what is approved is what posts" comparison and the loan classes.
+ * message, what an error raised under the clearing's savepoint counts as and the "what is approved is what posts" comparison (the loan classes
+ * are the database's one rule, `intercompany_is_loan_class`).
  * No database import: the service (`allocationClearService.ts`) reads, this decides. (The caps are the liveness definer's own answer since fix
  * round 1: it counts every receiver's clearings, which no session can read.)
  */
@@ -103,19 +104,4 @@ export function refusalOfCode(
     default:
       return null;
   }
-}
-
-/** The loan account classes a clearing may touch: a balance-sheet loan or intercompany position (never a control, bank, cash, VAT, tax,
- *  payroll, inventory, fixed-asset or equity account, never income or expense, and never a system account: the seeded charts carry their
- *  controls, bank, VAT, payroll and 2215 as system accounts). By type, subtype and the system flag, never by name. The database's twin is
- *  `intercompany_is_loan_class` (1027); the side form refuses any other loan account. */
-const LOAN_CLASSES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  asset: ['other_current_asset', 'other'],
-  liability: ['current_liability', 'other_current_liability', 'long_term_liability', 'other'],
-});
-
-export function isLoanClass(accountType: string | null, accountSubtype: string | null, isSystem: boolean): boolean {
-  if (!accountType || !accountSubtype || isSystem) return false;
-  if (!Object.prototype.hasOwnProperty.call(LOAN_CLASSES, accountType)) return false;
-  return (LOAN_CLASSES[accountType] ?? []).includes(accountSubtype);
 }

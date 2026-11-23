@@ -226,7 +226,7 @@ async function cancelCustomerPaymentInner(
     // (4) The journal LAST: head locked and re-checked, matched line unmatched, head reversed (none when out, D8).
     if (!delegated && journalId && leg) {
       await lockJournalAndUnmatch(companyId, journalId, leg, label);
-      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
+      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId, { voidingReceiptId: id });
     }
     await auditLeg?.();
 

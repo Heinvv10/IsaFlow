@@ -93,27 +93,27 @@ export async function invoiceFacts(companyId: string, invoiceId: string): Promis
   return rows[0] ? { date: text(rows[0].date), customerId: text(rows[0].customer), currency: String(rows[0].currency) } : null;
 }
 
-export interface LockedAccount { accountType: string | null; accountSubtype: string | null; isActive: boolean; isParent: boolean; isSystem: boolean }
+export interface LockedAccount { accountType: string | null; isActive: boolean; isParent: boolean; /** `intercompany_is_loan_class` */ loanClass: boolean }
 
 /** Step 6: the loan account, held so it cannot be re-typed, deactivated or re-parented under the clearing. */
 export async function lockLoanAccount(companyId: string, accountId: string): Promise<LockedAccount | null> {
   const rows = (await sql`
-    SELECT ga.account_type, ga.account_subtype, ga.is_active, ga.is_system_account,
+    SELECT ga.account_type, ga.is_active, public.intercompany_is_loan_class(ga.id, ga.company_id) AS loan_class,
            EXISTS (SELECT 1 FROM gl_accounts child WHERE child.parent_account_id = ga.id AND child.company_id = ga.company_id) AS is_parent
       FROM gl_accounts ga WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID
        FOR SHARE OF ga
   `) as Row[];
   const r = rows[0];
-  return r ? { accountType: text(r.account_type), accountSubtype: text(r.account_subtype), isActive: r.is_active !== false, isParent: r.is_parent === true, isSystem: r.is_system_account === true } : null;
+  return r ? { accountType: text(r.account_type), isActive: r.is_active !== false, isParent: r.is_parent === true, loanClass: r.loan_class === true } : null;
 }
 
 export interface LiveAnswer { live: boolean; reason: string; cap: string | null; payerLoanType: string | null }
 
-/** The database's answer, asked under the locks above (1027: the caps across every receiver, and the payer's loan type). Exactly one row, or a
- *  throw: the clearing never goes on a defaulted answer. */
+/** The database's FULL answer (`intercompany_allocation_clearable`, 1027: liveness, the caps across every receiver, the payer's loan type),
+ *  asked under the locks above; the inbox asks the light one. Exactly one row, or a throw: the clearing never goes on a defaulted answer. */
 export async function askLive(messageId: string): Promise<LiveAnswer> {
   const rows = (await sql`
-    SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_message_live(${messageId}::UUID)
+    SELECT live, reason, cap, payer_loan_type FROM public.intercompany_allocation_clearable(${messageId}::UUID)
   `) as Row[];
   if (rows.length !== 1) throw new Error('the allocation liveness check did not answer exactly one row');
   const r = rows[0]!;

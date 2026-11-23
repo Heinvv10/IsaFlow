@@ -5,7 +5,7 @@
  * amount): the server refuses (409) if the books changed since. A refusal of the books comes back as the sentence stored on the message and
  * is shown here; nothing was posted.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { DateField } from '@/components/ui/DateField';
@@ -39,19 +39,32 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
   const submitting = useRef(false);
   const field = useRef<HTMLInputElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const errorLine = useRef<HTMLParagraphElement>(null);
+  // where the focus goes after the next render: the date after Back, the sentence after a refusal (L4)
+  const focusNext = useRef<'date' | 'error' | null>(null);
+  const confirmId = `${useId()}-confirm`;
   // another message: its own proposed date, back to the first step, no old error
   useEffect(() => { setDate(preview?.defaultPostingDate ?? ''); setDateRefused(false); setStep('review'); setError(''); }, [target?.id, preview?.defaultPostingDate]);
 
-  // (L4) the confirm step's control takes the focus the review step's button had (it is unmounted by the step change)
-  useEffect(() => { if (step === 'confirm') confirmButton.current?.focus(); }, [step]);
+  // (L4) the confirm step's control takes the focus the review step's button had (it is unmounted by the step change); Back returns it to the
+  // date; a refusal puts it on the sentence that says why
+  useEffect(() => {
+    if (step === 'confirm') confirmButton.current?.focus();
+    else if (focusNext.current === 'error' && error) errorLine.current?.focus();
+    else if (focusNext.current === 'date') field.current?.focus();
+    focusNext.current = null;
+  }, [step, error]);
+  // (M1) the floor: the later of the payment date and this company's invoice date
+  const floor = preview?.paymentDate && preview.invoiceDate && preview.invoiceDate > preview.paymentDate ? preview.invoiceDate : preview?.paymentDate ?? null;
+  const FLOOR_MESSAGE = "The posting date must be on or after the payment date and your invoice's date.";
 
   const ready = Boolean(target && preview?.loanAccountId && preview.invoiceId && preview.amount !== null);
   const missing = !preview?.loanAccountId ? 'Set your loan account on the connection first: there is nothing to clear against.'
     : !preview.receivableLabel ? 'Your chart has no Accounts Receivable control account.' : null;
 
   function review() {
-    if (!date || dateRefused) { setError('Choose a posting date in an open period, on or after the payment date.'); return; }
-    if (preview?.paymentDate && date < preview.paymentDate) { setError('The posting date must be on or after the payment date.'); return; }
+    if (!date || dateRefused) { setError("Choose a posting date in an open period, on or after the payment date and your invoice's date."); return; }
+    if (floor && date < floor) { setError(FLOOR_MESSAGE); return; }
     setError('');
     setStep('confirm');
   }
@@ -67,9 +80,10 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
         body: JSON.stringify({ expectedLoanAccountId: preview.loanAccountId, invoiceId: preview.invoiceId, amount: preview.amount, postingDate: date }),
       }, FAIL);
       if (out.accepted) onDone(`Cleared ${target.label}: receipt ${out.paymentNumber} posted.`);
-      else { setError(out.error); setStep('review'); onRefused(out.error, false); }
+      else { focusNext.current = 'error'; setError(out.error); setStep('review'); onRefused(out.error, false); }
     } catch (err) {
       const message = apiErrorMessage(err, FAIL);
+      focusNext.current = 'error';
       setError(message);
       setStep('review');
       if (err instanceof ApiRequestError && err.status === 409) onRefused(message, true);
@@ -93,22 +107,23 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
             <dt className="text-ink-muted">Amount</dt><dd className="text-ink tabular-nums">{amount}</dd>
             <dt className="text-ink-muted">Your invoice</dt><dd className="text-ink">{preview?.invoiceNumber ?? '—'}</dd>
             <dt className="text-ink-muted">Payment date</dt><dd className="text-ink">{formatDate(preview?.paymentDate ?? null)}</dd>
+            <dt className="text-ink-muted">Invoice date</dt><dd className="text-ink">{formatDate(preview?.invoiceDate ?? null)}</dd>
           </dl>
           {step === 'review' ? (
             <div>
               <DateField id="ic-accept-date" ref={field} label="Posting date" value={date || null} postingDate keepsEscape
-                minDate={preview?.paymentDate ?? undefined} maxDate={todayInSast()} minMessage="The posting date must be on or after the payment date."
+                minDate={floor ?? undefined} maxDate={todayInSast()} minMessage={FLOOR_MESSAGE}
                 maxMessage="The posting date cannot be after today." disabled={busy || !ready}
                 onChange={(iso, v) => { setDate(v.valid && iso ? iso : ''); setDateRefused(!v.valid); }} />
               {!preview?.defaultPostingDate && ready && <p className="mt-1 text-xs text-ink-muted">No open period on or after the payment date: choose a date in an open period.</p>}
             </div>
           ) : (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-ink" data-testid="allocation-accept-confirm">
+            <p id={confirmId} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-ink" data-testid="allocation-accept-confirm">
               Post {amount} on {formatDate(date)}: debit {preview?.loanAccountLabel}, credit {preview?.receivableLabel ?? 'Accounts Receivable'}, against invoice {preview?.invoiceNumber ?? ''}?
             </p>
           )}
           {missing && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">{missing}</p>}
-          {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p role="alert" ref={errorLine} tabIndex={-1} className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
       </Modal.Body>
       <Modal.Footer>
@@ -120,8 +135,8 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
           </>
         ) : (
           <>
-            <button type="button" onClick={() => setStep('review')} disabled={busy} className={btn}>Back</button>
-            <button type="button" ref={confirmButton} onClick={() => void post()} disabled={busy}
+            <button type="button" onClick={() => { focusNext.current = 'date'; setStep('review'); }} disabled={busy} className={btn}>Back</button>
+            <button type="button" ref={confirmButton} aria-describedby={confirmId} onClick={() => void post()} disabled={busy}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Post clearing
             </button>

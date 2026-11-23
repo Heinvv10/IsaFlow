@@ -128,7 +128,8 @@ async function build(companyId: string, rows: Row[]): Promise<Built[]> {
   const ids = [...new Set(parsed.flatMap((p) => (p.ok ? [p.payload.issuerDocument.id.toLowerCase()] : [])))];
   const invoices = await issuerInvoices(companyId, ids);
   // P4-D: the clearing receipt of each accepted message (its target), with whether it was voided since
-  const targets = rows.flatMap((r) => (r.status === 'accepted' && r.target_doc_type === 'customer_payment' && r.target_doc_id ? [String(r.target_doc_id)] : []));
+  const targets = new Map(rows.flatMap((r) => (r.status === 'accepted' && r.target_doc_type === 'customer_payment' && r.target_doc_id
+    ? [[String(r.id), String(r.target_doc_id)] as [string, string]] : [])));
   const clearings = await clearingsOf(companyId, targets);
   return rows.map((r, i) => {
     const res = parsed[i]!;
@@ -145,7 +146,7 @@ async function build(companyId: string, rows: Row[]): Promise<Built[]> {
       blocker: res.ok ? null : res.error, reason: asText(r.reason), error: asText(r.error, 4000),
       handledAt: r.handled_at ? toIsoTimestamp(r.handled_at as Date | string) : null,
       createdAt: toIsoTimestamp(r.created_at as Date | string) ?? '',
-      clearedBy: r.status === 'accepted' && r.target_doc_id ? clearings.get(String(r.target_doc_id).toLowerCase()) ?? null : null,
+      clearedBy: clearings.get(String(r.id)) ?? null,
     };
     return { item, payload: p, cutover };
   });

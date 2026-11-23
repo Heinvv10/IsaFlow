@@ -39,7 +39,7 @@ import {
   pendingDraftAmount, userCanWrite, type LockedMessage,
 } from './allocationClearReads';
 import { postingDateRefusal, todaySast } from './allocationClearDate';
-import { CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, cents, expectedMismatch, isLoanClass, refusalOfCode } from './allocationClearRefusals';
+import { CLEAR_REFUSAL_SENTENCES, MISMATCH_SENTENCE, cents, expectedMismatch, refusalOfCode } from './allocationClearRefusals';
 import { ClearRefusal, type AcceptAllocationInput, type AcceptAllocationOutcome, type ClearRefusalCode } from './allocationClearTypes';
 
 type Row = Record<string, unknown>;
@@ -161,7 +161,7 @@ async function clear(companyId: string, userId: string, message: LockedMessage, 
   if (pl.payment.date < cutover) throw new ClearRefusal('pre_cutover_payment');
 
   const account = await lockLoanAccount(companyId, side.loanAccountId);
-  if (!account || !account.isActive || account.isParent || !isLoanClass(account.accountType, account.accountSubtype, account.isSystem)) {
+  if (!account || !account.isActive || account.isParent || !account.loanClass) {
     throw new ClearRefusal('loan_account_unusable');
   }
   // the open amount, with the draft receipts already claiming it (refused, never clamped)
