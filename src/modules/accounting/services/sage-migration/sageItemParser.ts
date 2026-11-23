@@ -27,7 +27,10 @@ function category(o: Raw, why: string[]): SageItem['category'] | undefined {
   const description = readText(c, 'Description', 255, why);
   if (why.length > before) {
     // An invalid_text fault keeps its own reason (it names the field); any other fault is "needs both".
-    if (!why.slice(before).some((w) => w.includes('(invalid_text)'))) why.splice(before, why.length - before, 'Category needs both ID and Description');
+    if (!why.slice(before).some((w) => w.includes('(invalid_text)'))) {
+      const none = Object.keys(c).length === 0 || why.slice(before).some((w) => w.includes('id 0 /')) || c.Description === '';
+      why.splice(before, why.length - before, none ? 'Category is an empty object, has id 0 or an empty Description: id 0 / empty object: unknown whether Sage means none (the row is refused, not guessed); give both ID and Description, or null for no category' : 'Category needs both ID and Description');
+    }
     else why.splice(before, why.length - before, ...why.slice(before).map((w) => `Category.${w}`));
     return undefined;
   }

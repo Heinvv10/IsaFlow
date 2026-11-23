@@ -17,7 +17,9 @@ export function readId(o: Raw, key: string, why: string[], required = true): str
   }
   if (typeof v === 'number' && Number.isSafeInteger(v) && v !== 0) return String(v);
   if (typeof v === 'string' && /^-?[1-9]\d{0,17}$/.test(v.trim())) return v.trim();
-  why.push(`${key} must be a Sage numeric id`);
+  // 0 is Sage's "none" in places, but this export's meaning is not confirmed: the row is refused, never read as "no such id".
+  if (v === 0 || (typeof v === 'string' && /^0+$/.test(v.trim()))) why.push(`${key} is 0: id 0 / empty object: unknown whether Sage means none (the row is refused, not guessed)`);
+  else why.push(`${key} must be a Sage numeric id`);
   return undefined;
 }
 
