@@ -7,6 +7,7 @@
  */
 import type { Pool } from 'pg';
 import { createUser } from '../r035-approval.helpers';
+import { dropFeatureOverrides, setLoanClearing } from './loan-clearing.helpers';
 
 export const U = { ab: '', a: '', b: '', c: '', ac: '', va: '', avb: '', mab: '', x: '', vc: '' };
 export const tokens: Record<string, string> = {};
@@ -64,6 +65,8 @@ export async function setup(pool: Pool): Promise<void> {
     [dim.aCc1, dim.bCc1, dim.aCc2, dim.bCc2, co.A, co.B]);
   await pool.query(`INSERT INTO business_units(id, company_id, code, name) VALUES ($1, $3, 'IC-BU', 'A bu'), ($2, $4, 'IC-BU', 'B bu')`,
     [dim.aBu, dim.bBu, co.A, co.B]);
+  // the dark loan-clearing flag (1028) ON for the three tenants: the suites that send or accept an allocation run as before
+  await setLoanClearing(pool, [co.A, co.B, co.C], true);
 }
 
 export async function cleanup(pool: Pool): Promise<void> {
@@ -87,6 +90,7 @@ export async function cleanup(pool: Pool): Promise<void> {
   await del('DELETE FROM business_units WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM company_group_members WHERE group_id = ANY($1)', [[co.G, co.H]]);
   await del('DELETE FROM company_groups WHERE id = ANY($1)', [[co.G, co.H]]);
+  await dropFeatureOverrides(pool, companies).catch((err: unknown) => process.stderr.write(`cleanup overrides: ${String(err)}\n`));
   await del('DELETE FROM company_users WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM companies WHERE id = ANY($1)', [companies]);
   await del('DELETE FROM users WHERE id = ANY($1::text[])', [users]);

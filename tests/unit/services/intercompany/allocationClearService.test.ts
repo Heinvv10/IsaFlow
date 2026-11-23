@@ -48,6 +48,11 @@ const reads = vi.hoisted(() => ({
 vi.mock('@/modules/accounting/services/intercompany/allocationClearReads', () => reads);
 const dates = vi.hoisted(() => ({ todaySast: vi.fn(), postingDateRefusal: vi.fn() }));
 vi.mock('@/modules/accounting/services/intercompany/allocationClearDate', () => dates);
+// the dark flag (its own tests: loanClearingGate.test.ts); the real refusal class, the flag read mocked
+const flag = vi.hoisted(() => ({ loanClearingEnabled: vi.fn(async (_companyId: string) => true) }));
+vi.mock('@/modules/accounting/services/intercompany/loanClearingGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/loanClearingGate')>()), loanClearingEnabled: flag.loanClearingEnabled,
+}));
 
 import { acceptAllocation, IC_ALLOCATION_POSTING_AGENT } from '@/modules/accounting/services/intercompany/allocationClearService';
 import { CLEAR_REFUSAL_SENTENCES } from '@/modules/accounting/services/intercompany/allocationClearRefusals';
@@ -66,6 +71,7 @@ const record = <T>(name: string, value: T) => async () => { m.events.push(name);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  flag.loanClearingEnabled.mockResolvedValue(true);
   m.events = [];
   m.zero = null;
   m.acceptErr = null;
@@ -112,6 +118,22 @@ describe('the actor and the person checks', () => {
     await expect(call()).rejects.toMatchObject({ status: 403 });
     expect(m.events).toEqual(['impersonation', 'canWrite', 'mayApprove']);
     expect(perm.mayApprove).toHaveBeenCalledWith('co-1', 'u-1', 'customers');
+  });
+});
+
+describe('the dark flag intercompany_loan_clearing (the RECEIVER\'s)', () => {
+  it('off: refused not_enabled (403) as the first step: no person check, no lock bound, nothing read or written', async () => {
+    flag.loanClearingEnabled.mockResolvedValue(false);
+    await expect(call()).rejects.toMatchObject({ status: 403, code: 'not_enabled' });
+    expect(flag.loanClearingEnabled.mock.calls).toEqual([['co-1']]);
+    expect(m.events).toEqual([]);
+    expect(guard.currentSessionActor).not.toHaveBeenCalled();
+  });
+
+  it('on: asked once, for the receiver, before the person checks', async () => {
+    await call();
+    expect(flag.loanClearingEnabled.mock.calls).toEqual([['co-1']]);
+    expect(flag.loanClearingEnabled.mock.invocationCallOrder[0]!).toBeLessThan(guard.currentSessionActor.mock.invocationCallOrder[0]!);
   });
 });
 
