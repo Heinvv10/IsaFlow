@@ -8,7 +8,7 @@ export function stopMessage(err: unknown): string {
   const why = `sage migration stopped: ${err instanceof Error ? err.message : String(err)}`;
   if (!(err instanceof MigrationStopped) || !err.liveStarted) return why;
   const line = (b: { entity: string; n: number; key: string }, what: string) => `\n${what}: ${b.entity} batch ${b.n} (${b.key})`;
-  const committed = err.committed.map((b) => (b.status === 'ok' ? line(b, 'committed') : b.commitUnconfirmed ? line(b, 'commit unconfirmed') : '')).join('');
+  const committed = err.committed.map((b) => (b.status === 'ok' ? line(b, b.allRowsAlreadyPresent ? 'answered ok, nothing new written (its rows were already there)' : 'committed') : b.commitUnconfirmed ? line(b, 'commit unconfirmed') : '')).join('');
   return `${why}\nthe live run may already have committed some batches before this error: check the books (or run again without --live: a dry run lists what is there and what differs); a re-run resumes.${committed}`;
 }
 

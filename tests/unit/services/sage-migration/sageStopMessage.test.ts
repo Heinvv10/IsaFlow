@@ -38,6 +38,16 @@ describe('L2 (round 6): a batch whose COMMIT answer was lost is listed apart', (
   });
 });
 
+describe('L4 (round 7): an "ok" batch that wrote nothing is not called committed', () => {
+  it('a batch whose rows were all there already is "answered ok, nothing new written"', () => {
+    const none: BatchReport = { ...batch('item', 1), allRowsAlreadyPresent: true };
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [batch('category', 1), none]));
+    expect(m).toContain('committed: category batch 1 (key-category-1)');
+    expect(m).toContain('answered ok, nothing new written (its rows were already there): item batch 1 (key-item-1)');
+    expect(m).not.toContain('committed: item batch 1');
+  });
+});
+
 describe('MigrationStopped', () => {
   it('keeps the cause\'s message and the batches, and is an Error', () => {
     const e = new MigrationStopped(new Error('inner'), true, [batch('item', 1)]);
