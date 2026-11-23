@@ -201,6 +201,27 @@ describe('scripts/sage-migration/run.ts', () => {
     }
   }, 180_000);
 
+  it('M2 (round 8): a report that cannot be written does not hide a 4 (an unconfirmed COMMIT) or a 1', async () => {
+    const world = await sageWorld(pool);
+    try {
+      const args = ['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '10',
+        '--report', join(dir, 'no-such-dir', 'report.json')];
+      const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageFailCommitPreload.ts'), 'scripts/sage-migration/run.ts', ...args],
+        { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_FAIL_COMMIT: '5' } }); // 4 categories, then the item batch
+      expect(r.stdout).toContain('COMMIT UNCONFIRMED: item batch 1');
+      expect(r.stderr).toMatch(/the report could not be written to .*no-such-dir.*ENOENT.*the exit code stays 4/s);
+      expect(r.status).toBe(4);
+      // not ok (1): a wrong expectation, the same unwritable report
+      const wrong = cli(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '999',
+        '--report', join(dir, 'no-such-dir', 'report.json')]);
+      expect(wrong.code).toBe(1);
+      expect(wrong.err).toMatch(/the exit code stays 1/);
+    } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
+  }, 180_000);
+
   it('L1 (round 6): a lock lost BEFORE the live phase (after the dry run) is exit 2, a refused start: nothing about commits, nothing written', async () => {
     const world = await sageWorld(pool);
     try {
