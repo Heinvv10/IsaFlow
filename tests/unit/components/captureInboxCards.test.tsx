@@ -38,11 +38,12 @@ describe('Capture inbox on touch', () => {
     const { container } = render(<Page />);
     await screen.findAllByText('Acme Supplies');
     const group = screen.getByRole('button', { name: 'Post' }).parentElement!;
-    expect(cls(group)).toEqual(expect.arrayContaining(['opacity-0', 'group-hover:opacity-100', 'max-lg:opacity-100']));
+    expect(cls(group)).toEqual(expect.arrayContaining(['opacity-0', 'group-hover:opacity-100', 'max-lg:opacity-100', 'max-lg:gap-2']));
     expect(cls(screen.getByRole('button', { name: 'Post' }))).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:px-4']));
-    const chevrons = container.querySelectorAll('tbody td:last-child button:not([class*="bg-brand"])');
-    expect(chevrons.length).toBe(2);
+    const chevrons = screen.getAllByRole('button', { name: 'Open details' });
+    expect(chevrons).toHaveLength(2);
     for (const c of chevrons) expect(cls(c)).toEqual(expect.arrayContaining(SQUARE));
+    expect(container.querySelectorAll('tbody td:last-child button')).toHaveLength(3); // Post + two chevrons
   });
 
   it('header: wraps; Show processed and Refresh are 44px', async () => {
@@ -57,7 +58,7 @@ describe('Capture inbox on touch', () => {
     state.events = [];
     const { container } = render(<Page />);
     await screen.findByText('No pending captures');
-    const copy = container.querySelector('p button')!;
+    const copy = screen.getByRole('button', { name: 'Copy address' });
     expect(cls(copy)).toEqual(expect.arrayContaining(SQUARE));
   });
 
@@ -65,6 +66,7 @@ describe('Capture inbox on touch', () => {
     state.addrFails = true;
     render(<Page />);
     const toast = (await screen.findByText(/inbox address down|Could not load the inbox address/)).closest('div')!;
-    expect(cls(toast.querySelector('button')!)).toEqual(expect.arrayContaining(SQUARE));
+    expect(cls(screen.getByRole('button', { name: 'Dismiss' }))).toEqual(expect.arrayContaining(SQUARE));
+    expect(toast.contains(screen.getByRole('button', { name: 'Dismiss' }))).toBe(true);
   });
 });

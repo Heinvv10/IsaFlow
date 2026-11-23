@@ -143,7 +143,7 @@ export default function CaptureInboxPage() {
               {toast.ok ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {toast.msg}
             </span>
-            <button onClick={() => setToast(null)} className="max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setToast(null)} aria-label="Dismiss" className="max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
 
@@ -167,7 +167,7 @@ export default function CaptureInboxPage() {
                 <p className="text-slate-500 text-sm flex items-center gap-2 flex-wrap justify-center">
                   Forward slips to
                   <span className="font-mono text-slate-300 bg-white/5 px-2 py-0.5 rounded">{inboxAddr.address}</span>
-                  <button onClick={() => void copyAddress()} className="text-slate-500 hover:text-teal-400 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
+                  <button onClick={() => void copyAddress()} aria-label="Copy address" className="text-slate-500 hover:text-teal-400 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </button>
                 </p>
@@ -200,14 +200,14 @@ export default function CaptureInboxPage() {
                       <td data-label="Amount" className="px-4 py-3 text-right text-slate-300">{fmtZAR(ev.totalAmount)}</td>
                       <td data-label="Status" className="px-4 py-3"><StatusBadge status={ev.status} error={ev.error} /></td>
                       <td data-label="Actions" className="px-4 py-3">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 max-lg:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 max-lg:opacity-100 max-lg:gap-2 transition-opacity">
                           {ev.status === 'extracted' && (
                             <button onClick={e => { e.stopPropagation(); void handlePost(ev.eventId); }}
                               className="px-2.5 py-1 bg-brand-700 hover:bg-brand-600 text-white rounded text-xs font-medium max-lg:min-h-11 max-lg:px-4">
                               Post
                             </button>
                           )}
-                          <button onClick={e => { e.stopPropagation(); setSelected(ev); }}
+                          <button onClick={e => { e.stopPropagation(); setSelected(ev); }} aria-label="Open details"
                             className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-white/10 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                             <ChevronRight className="h-3.5 w-3.5" />
                           </button>
