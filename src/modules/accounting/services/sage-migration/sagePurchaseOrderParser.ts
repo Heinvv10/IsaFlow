@@ -68,11 +68,33 @@ function lineRate(o: Raw, why: string[], date: string): number | undefined {
   return rate;
 }
 
+/**
+ * The line's type, when the export has one: ASSUMED (unconfirmed against a real export) to be Sage's PurchaseOrderLine LineType, 0 = an item
+ * line, 1 = an account line. Absent or 0 is an item line, as before. 1 is refused (a SelectionId on an account line is a ledger ACCOUNT, and
+ * Sage numbers entity types separately: it can equal an item's id), and any other value is refused: a line of a type nobody knows is never
+ * linked to an item. The marker in the reason picks the refusal code.
+ */
+export const ACCOUNT_LINE_MARK = '(po_account_line_unsupported)';
+export const UNKNOWN_LINE_TYPE_MARK = '(po_line_type_unknown)';
+function lineTypeProblem(raw: Raw, at: string): string | null {
+  const v = raw.LineType;
+  if (v === undefined || v === null || v === '') return null;
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v.trim()) : Number.NaN;
+  if (n === 0) return null;
+  if (n === 1) {
+    const account = raw.SelectionId ?? raw.ItemId;
+    return `${at}LineType 1 is an account line${account === undefined || account === null ? '' : ` (account ${String(account)})`}, which this import does not read: its SelectionId is a ledger account, not an item ${ACCOUNT_LINE_MARK}`;
+  }
+  return `${at}LineType ${JSON.stringify(v)} is not 0 (item) or 1 (account): a line of an unknown type is never linked to an item ${UNKNOWN_LINE_TYPE_MARK}`;
+}
+
 function parseLine(raw: unknown, i: number, why: string[], date: string): SagePoLine | undefined {
   const at = `Lines[${i}].`;
   if (!isRaw(raw)) { why.push(`Lines[${i}] must be an object`); return undefined; }
   const before = why.length;
   const sub: string[] = [];
+  const typeProblem = lineTypeProblem(raw, '');
+  if (typeProblem) sub.push(typeProblem);
   const description = readText(raw, 'Description', 500, sub);
   const quantity = readNumber(raw, 'Quantity', sub, { required: true, positive: true });
   if (typeof quantity === 'number' && !hasWholeCents(quantity)) sub.push('Quantity has at most two decimals');
@@ -126,7 +148,7 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
       ok: false,
       refusal: {
         entity: 'purchase_order', sageId: typeof id === 'string' ? id : null,
-        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
+        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : why.some((w) => w.includes(ACCOUNT_LINE_MARK)) ? 'po_account_line_unsupported' : why.some((w) => w.includes(UNKNOWN_LINE_TYPE_MARK)) ? 'po_line_type_unknown' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
       },
     };
   }

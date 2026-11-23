@@ -254,3 +254,30 @@ describe('L5 (round 5): whole-cent checks hold at large amounts (an absolute tol
     expect(r(10.005)).toMatch(/Exclusive must be whole cents/);
   });
 });
+
+describe('B8-F (round 8): LineType (assumed 0 = item, 1 = account): a line that is not an item is never linked to one', () => {
+  const withType = (type: unknown, over: Row = {}) => parseSagePurchaseOrder(po({ Lines: [{ ...(po().Lines as Row[])[0], ItemId: undefined, SelectionId: 50002, ...(type === undefined ? {} : { LineType: type }), ...over }],
+    Exclusive: 2400, Tax: 360, Total: 2760 }), 0);
+  const codeOf = (r: ReturnType<typeof parseSagePurchaseOrder>) => (r.ok ? 'ok' : r.refusal.code);
+  it('absent, 0 and "0" are item lines, as before (the SelectionId is the item)', () => {
+    for (const t of [undefined, 0, '0', null, '']) {
+      const r = withType(t);
+      expect(codeOf(r), String(t)).toBe('ok');
+      expect(r.ok && r.value.lines[0]!.itemId).toBe('50002');
+    }
+  });
+  it('1 (an account line) refuses the PO as po_account_line_unsupported, naming the account', () => {
+    for (const t of [1, '1']) {
+      const r = withType(t);
+      expect(codeOf(r)).toBe('po_account_line_unsupported');
+      expect(!r.ok && r.refusal.reasons.join(' ')).toMatch(/Lines\[0\]\.LineType 1 is an account line \(account 50002\).*ledger account, not an item/);
+    }
+  });
+  it('any other value refuses it as po_line_type_unknown', () => {
+    for (const t of [2, 7, -1, 'x', 1.5, true]) expect(codeOf(withType(t)), String(t)).toBe('po_line_type_unknown');
+  });
+  it('a line type is checked on every line, and an account line wins over an unknown one in the code', () => {
+    const mixed = parseSagePurchaseOrder(po({ Lines: [{ ...(po().Lines as Row[])[0], LineType: 9 }, { ...(po().Lines as Row[])[1], LineType: 1, SelectionId: 7 }] }), 0);
+    expect(codeOf(mixed)).toBe('po_account_line_unsupported');
+  });
+});
