@@ -77,7 +77,9 @@ describe('round 14: the Eliminations page', () => {
         detail: 'eliminated automatically on 2026-04-03, after the period to 2026-03-31, and is matched to this row',
         description: 'Manual sale March', date: '2026-03-05', amount: 1000 }] } }), { status: 200 }) });
     render(<EliminationsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
+    // (disabled until the page has picked a group: findByRole finds it at once and a click then does nothing)
+    await waitFor(() => expect((screen.getByRole('button', { name: /auto-generate/i }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /auto-generate/i }));
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
     // (one heading, then each row with its mirror and what is true of that mirror for the period: R21 M2, the date it falls on)
     expect(n.textContent).toMatch(/1 intercompany row was not drafted: a mirrored document of the pair eliminates it\./);
