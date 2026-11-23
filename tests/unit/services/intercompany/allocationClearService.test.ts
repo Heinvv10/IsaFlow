@@ -11,13 +11,14 @@ const m = vi.hoisted(() => ({
   events: [] as string[],
   store: { client: {}, userId: 'u-1', companyId: 'co-1' } as Record<string, unknown> | undefined,
   zero: null as string | null,
+  acceptErr: null as unknown,
 }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     if (text.includes("set_config('lock_timeout'")) { m.events.push('bound'); return [{ prev: '0' }]; }
     if (text.includes('UPDATE customer_payments')) { m.events.push('stamp'); return m.zero === 'stamp' ? [] : [{ id: 'p-1' }]; }
-    if (text.includes("SET status = 'accepted'")) { m.events.push('accepted'); return m.zero === 'accepted' ? [] : [{ id: 'm-1' }]; }
+    if (text.includes("SET status = 'accepted'")) { m.events.push('accepted'); if (m.acceptErr) throw m.acceptErr; return m.zero === 'accepted' ? [] : [{ id: 'm-1' }]; }
     if (text.includes("SET status = 'failed'")) { m.events.push('failed'); return [{ id: 'm-1' }]; }
     return [];
   }),
@@ -67,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.events = [];
   m.zero = null;
+  m.acceptErr = null;
   m.store = { client: {}, userId: 'u-1', companyId: 'co-1' };
   guard.currentSessionActor.mockImplementation(record('impersonation', 'self'));
   reads.userCanWrite.mockImplementation(record('canWrite', true));
@@ -175,6 +177,25 @@ describe('the clearing', () => {
       m.zero = null;
     }
     expect(m.events).not.toContain('failed');
+  });
+
+  it("(round 3 G, final L2) the MESSAGES GUARD's 23514 on the accept is stored `refused` after the rollback; any other 23514 is a 5xx", async () => {
+    for (const message of ['an allocation message is accepted with the clearing posted for it', 'a document is the target of one accepted message per receiving company']) {
+      m.events = [];
+      m.acceptErr = Object.assign(new Error(message), { code: '23514' });
+      expect(await call()).toMatchObject({ accepted: false, code: 'refused' });
+      expect(m.events.slice(m.events.indexOf('accepted'))).toEqual(['accepted', 'rollback:ic_allocation_clear', 'failed', 'bound']);
+    }
+    for (const err of [
+      Object.assign(new Error('new row for relation "intercompany_messages" violates check constraint "x"'), { code: '23514', constraint: 'x' }),
+      Object.assign(new Error('an allocation message is accepted with the clearing posted for it'), { code: '23514', constraint: 'intercompany_messages_status_check' }),
+      Object.assign(new Error('a message changes only its handling'), { code: '23514' }),
+    ]) {
+      m.events = [];
+      m.acceptErr = err;
+      await expect(call()).rejects.toBe(err);
+      expect(m.events).not.toContain('failed');
+    }
   });
 
   it('anything else propagates, nothing stored: a codeless error, a constraint (the guard), a statement timeout', async () => {
