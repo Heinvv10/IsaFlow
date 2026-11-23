@@ -99,12 +99,19 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
  * live call. Nothing the dry run does survives its transaction, idempotency and audit rows included (tests prove it); its keys carry
  * "-dry" as well, so even a failed rollback could not make the live run replay a dry run's answer.
  */
+/** Whether the tool's answer says it wrote nothing: an item batch with `written: false`, a category that is not created or updated. A PO batch is never rewritten (the tool only replays or creates). */
+function wroteNothing(entity: Send['entity'], body: Record<string, unknown> | null): boolean {
+  if (entity === 'item') return body?.written !== true;
+  if (entity === 'category') return body?.outcome !== 'created' && body?.outcome !== 'updated';
+  return true;
+}
+
 export async function sendBatch(session: ToolSession, s: Send, before: Snapshot, dry: boolean): Promise<BatchReport> {
   const key = keyFor(s, before, dry);
   const r = await session.call(s.tool, { ...s.args, idempotency_key: key });
   return {
     entity: s.entity, n: s.n, size: s.size, key, status: r.isError ? 'failed' : 'ok',
-    allRowsAlreadyPresent: s.present(before) || (s.entity === 'category' && r.body?.outcome === 'unchanged'), rowsAbsent: 0,
+    allRowsAlreadyPresent: (s.present(before) && wroteNothing(s.entity, r.body)) || (s.entity === 'category' && r.body?.outcome === 'unchanged'), rowsAbsent: 0,
     toolReported: r.isError ? null : r.body,
     // The tool's whole message: the JSON report keeps it; only the console summary is cut.
     error: r.isError ? r.text : null,

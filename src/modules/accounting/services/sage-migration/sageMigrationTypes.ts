@@ -12,7 +12,7 @@ export interface BatchReport {
   /** The idempotency key the batch was sent under: the same rows give the same key. */
   key: string;
   status: 'ok' | 'failed';
-  /** Every row of the batch was in the books before this run: a re-run sends it again and it changes nothing. */
+  /** Every row of the batch was in the books before this run AND the tool wrote nothing for it (items: `written` false; a category: not created or updated; a PO batch is never rewritten): a re-run sends it again and it changes nothing. */
   allRowsAlreadyPresent: boolean;
   /** Rows of this batch that are NOT in the books although the tool answered (a replayed answer of rows since deleted); 0 when all are there. */
   rowsAbsent: number;

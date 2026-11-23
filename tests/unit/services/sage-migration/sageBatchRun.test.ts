@@ -84,6 +84,16 @@ describe('sendBatch', () => {
     expect(r).toMatchObject({ status: 'failed', toolReported: null });
     expect(r.error).toBe(long);
   });
+  it('H1 (round 8): an item batch whose rows were all there but which the tool UPDATED is not "already present" (it wrote)', async () => {
+    const before = { ...empty(), itemRefs: new Set(['1', '2']) };
+    const wrote = fake({ body: { written: true, counts: { created: 0, updated: 2, unchanged: 0, total: 2 }, rows: [{ outcome: 'updated' }, { outcome: 'updated' }] } });
+    expect((await sendBatch(wrote.s, batches.items[0]!, before, false)).allRowsAlreadyPresent).toBe(false);
+    const nothing = fake({ body: { written: false, counts: { created: 0, updated: 0, unchanged: 2, total: 2 }, rows: [{ outcome: 'unchanged' }, { outcome: 'unchanged' }] } });
+    expect((await sendBatch(nothing.s, batches.items[0]!, before, false)).allRowsAlreadyPresent).toBe(true);
+    // a PO batch keeps present(before): the PO tool never rewrites an existing PO
+    const poBefore = { ...empty(), poTotals: new Map(batches.purchaseOrders[0]!.poRefs!.map((r) => [r, 1])) };
+    expect((await sendBatch(fake({ body: { created: 0 } }).s, batches.purchaseOrders[0]!, poBefore, false)).allRowsAlreadyPresent).toBe(true);
+  });
   it('flags a batch whose rows are all in the books already', async () => {
     const before = { ...empty(), itemRefs: new Set(['1', '2']) };
     expect((await sendBatch(fake().s, batches.items[0]!, before, false)).allRowsAlreadyPresent).toBe(true);
