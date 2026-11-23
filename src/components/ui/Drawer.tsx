@@ -88,7 +88,8 @@ export function Drawer({
               'rounded-md p-1 text-gray-400 transition-colors',
               'hover:bg-gray-100 hover:text-gray-600',
               'dark:hover:bg-gray-800 dark:hover:text-gray-300',
-              'ff-focus-ring'
+              'ff-focus-ring',
+              'max-lg:inline-flex max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center max-lg:justify-center'
             )}
           >
             <X size={20} aria-hidden="true" />
