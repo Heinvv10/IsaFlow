@@ -53,7 +53,9 @@ describe('Payroll UIF declarations on touch', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Declaration/ }));
     const dialogTitle = screen.getByText('Generate UIF Declaration');
     const overlay = dialogTitle.parentElement!.parentElement!;
-    expect(cls(overlay)).toEqual(expect.arrayContaining(['max-lg:p-4', 'max-lg:overflow-y-auto'])); // a short landscape phone scrolls the dialog instead of clipping it
+    // a short landscape phone scrolls the dialog instead of clipping it; start-aligned + my-auto keeps it centred when it fits and its top reachable when it does not
+    expect(cls(overlay)).toEqual(expect.arrayContaining(['max-lg:p-4', 'max-lg:overflow-y-auto', 'max-lg:items-start']));
+    expect(cls(dialogTitle.parentElement!)).toContain('max-lg:my-auto');
     const selects = dialogTitle.parentElement!.querySelectorAll('select');
     expect(selects).toHaveLength(2);
     for (const s of selects) expect(cls(s)).toContain('max-lg:min-h-11');
