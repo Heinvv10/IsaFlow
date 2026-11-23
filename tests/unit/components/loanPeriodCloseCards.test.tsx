@@ -31,8 +31,9 @@ describe('Loan period close on touch', () => {
   });
 
   it('Post and the loan link are 44px; the description wraps; the actions cell hides when locked (no Post, not posted)', async () => {
-    render(<Page />);
+    const unlocked = render(<Page />);
     await screen.findByText('LN-1');
+    expect(unlocked.container.querySelector('tbody tr:first-child > td:last-child')!.className).toBe('px-4 py-3 text-right'); // open and unlocked: the Post cell stays, desktop classes exactly as before
     expect(cls(screen.getByRole('button', { name: 'Post' }))).toContain('max-lg:min-h-11');
     expect(cls(screen.getByRole('link', { name: 'LN-1' }))).toEqual(expect.arrayContaining(['max-lg:inline-flex', 'max-lg:items-center', 'max-lg:min-h-11']));
     expect(cls(screen.getAllByText(/Mortgage bond/, { selector: 'div' })[0])).toEqual(expect.arrayContaining(['max-lg:max-w-none', 'max-lg:whitespace-normal']));
