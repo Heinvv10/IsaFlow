@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { formatCents } from '@/lib/money/formatMoney';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
 import { afterCommitOf, booked, cleanupSageWorld, exportFile, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
@@ -146,6 +147,7 @@ describe('B6-I: --expect-po-total with an allowed difference', () => {
     const blocked = await run(f, { allowRefusals: false, expect: { items: 20, purchaseOrders: 10, purchaseOrderTotalCents: sageTotal } });
     expect(blocked.status).toBe('live_blocked');
     expect(blocked.liveBlockedBy.join(' ')).toMatch(/--expect-po-total/);
+    expect(blocked.liveBlockedBy.join(' ')).toContain(formatCents(sageTotal)); // money, not bare cents next to a flag given in rands
     expect(await booked(pool, s.companyId)).toEqual(before);
     // The projected figure (the books' PO198 total plus the sent totals of the new ones) goes through and exits 0.
     const projected = sageTotal - 11500;

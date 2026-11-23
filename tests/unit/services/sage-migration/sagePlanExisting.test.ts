@@ -246,6 +246,10 @@ describe('M2 (round 7): a booked PO is not refused for its supplier on a re-run,
     expect(r[0]!.reasons[0]).toMatch(/deleted in IsaFlow.*Restore that supplier/);
     expect(planMigration(parsed(), allResolved(), gone).refusals).toEqual([]); // a resolving supplier needs none of this
   });
+  it('a PO whose reference is in the books under ANOTHER number is not "already booked": its supplier refusal stands', () => {
+    const renumbered = { ...NONE, poNumbers: new Map([['PO0000197', { system: 'sage', ref: '555' }]]), poContent: content } as never;
+    expect(planMigration(parsed(), unresolved(), renumbered).refusals.filter((x) => x.label === 'PO0000197').map((x) => x.code)).toEqual(['supplier_unresolved']);
+  });
   it('a resolved supplier is used as before (the comparison with the books shows a real move)', () => {
     const plan = planMigration(parsed(), allResolved(), existing);
     expect(po197(plan)!.element.supplier_id).toBe(SUPPLIER);
