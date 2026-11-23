@@ -88,8 +88,25 @@ describe('no dialog or drawer outlives its row', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Handled' }));
     fireEvent.click(screen.getByRole('button', { name: /Needs you/ }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // judged once the new list is in (the section is gone while it loads, which would hide the drawer anyway)
+    await within(await section()).findByRole('button', { name: 'Details for payment SP-00012 on INV-901' });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.queryByText(/a-1/)).toBeNull();
+  });
+
+  it('a reject dialog on a message the next list shows as handled (rejected by someone else) is closed', async () => {
+    serve({ items: [], allocations: [ROW_A] });
+    const real = vi.mocked(apiFetch).getMockImplementation()!;
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(within(await section()).getByRole('button', { name: 'Reject payment SP-00012 on INV-900' }));
+    await screen.findByRole('dialog');
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) =>
+      (String(url).includes('/allocations?') ? page([{ ...ROW_A, status: 'rejected', reason: 'someone else', live: false, liveReason: 'not_pending' }]) : real(url as never, init as never)));
+    fireEvent.click(screen.getByRole('button', { name: 'Handled' }));
+    await within(await section()).findByText('Reason: someone else');
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
