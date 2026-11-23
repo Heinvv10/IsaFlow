@@ -148,6 +148,9 @@ describe('Payments from your group', () => {
     fireEvent.click(within(await section()).getByRole('button', { name: 'Reject payment SP-00012 on INV-900' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Reject message' }));
     expect(await screen.findByText(/Say why you are rejecting it/)).toBeInTheDocument();
+    // a payment's reason is recorded on the message: nothing shows it to the payer, so the dialog never says they will read it
+    expect(screen.getByRole('dialog')).toHaveTextContent('Say why you are rejecting it: the reason is recorded on the message.');
+    expect(screen.getByRole('dialog').textContent).not.toMatch(/will read/);
     expect(posts()).toHaveLength(0);
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: '  Not our payment  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reject message' }));

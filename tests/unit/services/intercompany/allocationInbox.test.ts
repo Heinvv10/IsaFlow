@@ -200,6 +200,18 @@ describe('listAllocationInbox', () => {
   });
 });
 
+describe('the invoice\'s open amount follows the shared AR open statuses', () => {
+  it.each(['approved', 'sent', 'partially_paid', 'overdue'])('a %s invoice is open: its open amount shows and nothing is a mismatch', async (status) => {
+    serve({ invoices: [{ ...invoice, status, open: 1150 }] });
+    expect((await listAllocationInbox(CO, 'open', 25, 0)).items[0]).toMatchObject({ issuerInvoice: { status, openAmount: 1150 }, mismatch: null });
+  });
+
+  it.each(['draft', 'pending_approval', 'paid'])('a %s invoice is not open: no open amount, invoice_not_open', async (status) => {
+    serve({ invoices: [{ ...invoice, status, open: 1150 }] });
+    expect((await listAllocationInbox(CO, 'open', 25, 0)).items[0]).toMatchObject({ issuerInvoice: { status, openAmount: null }, mismatch: 'invoice_not_open' });
+  });
+});
+
 describe('loadAllocationDetail', () => {
   it('the item and the payload facts', async () => {
     const d = await loadAllocationDetail(CO, 'm-1');
