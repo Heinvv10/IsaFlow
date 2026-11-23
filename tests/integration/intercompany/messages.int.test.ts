@@ -36,7 +36,7 @@ describe('inserting', () => {
     await asAppUser(pool, U.a, co.A, async (q) => {
       expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC]))
         .toBe('23505: duplicate key value violates unique constraint "intercompany_messages_once"');
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'allocation', DOC])).toBe('ok');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'credit_request', DOC])).toBe('ok');
       expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', crypto.randomUUID()])).toBe('ok');
     });
   });

@@ -249,6 +249,7 @@ describe('batch membership', () => {
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
     'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
     'src/modules/accounting/services/gl/approvalMatching.ts': READS,
+    'src/modules/accounting/services/intercompany/allocationOutbox.ts': 'intercompany P4-B: reads a processed batch\'s members\' payment_allocations ids (a SELECT) for the payer\'s allocation messages; writes nothing',
     'scripts/lib/demoReseed/wipePlan.ts': 'Demo reseed wipe plan: batch_id is the FK column of payroll_batch_lines (payroll_batches) in a delete scope; seeded payments carry no batch_id',
   };
   it('only the pinned files mention both supplier_payments and batch_id', () => {

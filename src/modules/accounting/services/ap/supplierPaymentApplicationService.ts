@@ -53,6 +53,7 @@ import {
 } from './supplierAllocationLines';
 import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { mirrorAllocations } from '../intercompany/allocationOutbox';
 
 export type { SupplierAllocationInput, SupplierApplicationLine };
 
@@ -189,11 +190,14 @@ export async function applySupplierPaymentPlan(
   plan: SupplierPaymentApplicationPlan,
   userId: string,
 ): Promise<SupplierPaymentApplicationPlan> {
+  const allocationIds: string[] = [];
   for (const line of plan.lines) {
-    await sql`
+    const inserted = (await sql`
       INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
       VALUES (${plan.paymentId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-    `;
+      RETURNING id
+    `) as Array<{ id?: string }>;
+    if (inserted[0]?.id) allocationIds.push(String(inserted[0].id));
     await applyLineToBill(companyId, line);
   }
 
@@ -202,6 +206,9 @@ export async function applySupplierPaymentPlan(
     SET status = ${plan.paymentStatusAfter}, updated_at = NOW()
     WHERE id = ${plan.paymentId}::UUID AND company_id = ${companyId}::UUID
   `;
+
+  // The payer's allocation message (intercompany P4-B), after the status write, on this transaction; best effort, never throws.
+  if (allocationIds.length > 0) await mirrorAllocations(companyId, allocationIds);
 
   log.info('Applied supplier payment to bills', {
     paymentId: plan.paymentId,
