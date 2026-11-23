@@ -8,6 +8,7 @@
  * EVIDENCE_DIR=<dir> also saves a screenshot of each screen; THEME=light|dark picks the theme it is taken in.
  */
 import { expect, request as pwRequest, test, type Page, type Request } from '@playwright/test';
+import { LIST_FILTER_ROUTES, warmDevRoutes } from './helpers/warmDevRoutes';
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const THEME = process.env.THEME === 'light' ? 'light' : 'dark';
@@ -37,6 +38,7 @@ test.beforeAll(async () => {
   } finally {
     await ctx.dispose();
   }
+  await warmDevRoutes(LIST_FILTER_ROUTES); // the list APIs a filter change calls, too (they were not compiled yet)
 });
 
 async function openScreen(page: Page, s: Screen): Promise<void> {
