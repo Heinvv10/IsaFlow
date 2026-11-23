@@ -19,10 +19,10 @@ const MIN = 'max-lg:min-h-11';
 describe('New loan form on touch', () => {
   it('every text field, number field and select is 44px (fixed-rate mode)', () => {
     const { container } = render(<Page />);
-    const fields = [...container.querySelectorAll('form input:not([type="checkbox"]), form select')].filter((e) => !e.closest('[data-datefield]'));
-    expect(fields.length).toBeGreaterThanOrEqual(10);
+    const fields = [...container.querySelectorAll('form input:not([type="checkbox"]), form select')];
+    expect(fields).toHaveLength(14); // 3 text, 3 amount, the start date, term and fixed rate, 5 selects
     const missing = fields.filter((f) => !cls(f).includes(MIN)).map((f) => f.getAttribute('placeholder') ?? f.tagName);
-    // the shared DateField input carries its own max-lg:min-h-11, so it passes too
+    // the shared DateField input is included: it carries its own max-lg:min-h-11
     expect(missing).toEqual([]);
   });
 
