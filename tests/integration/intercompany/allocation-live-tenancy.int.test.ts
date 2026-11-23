@@ -65,7 +65,7 @@ describe('the definer is registered, owned by the definers\' owner and callable 
               p.proacl::text AS acl, pg_get_function_result(p.oid) AS result,
               (SELECT count(*)::int FROM app_definer_reviews r WHERE r.signature = 'intercompany_allocation_message_live(uuid)' AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
          FROM pg_proc p WHERE p.oid = $1::regprocedure`, [SIG])).rows[0];
-    expect(p).toMatchObject({ prosecdef: true, owner: 'migration_admin', pub: false, app: true, reviewed: 1, result: 'TABLE(live boolean, reason text)' });
+    expect(p).toMatchObject({ prosecdef: true, owner: 'migration_admin', pub: false, app: true, reviewed: 1, result: 'TABLE(live boolean, reason text, clearable_total numeric, journal_clearable numeric)' });
     // the owner and app_user, nobody else directly (a role that is a member of app_user reaches it as it reaches every app_user grant)
     expect(p.acl).toBe('{migration_admin=X/migration_admin,app_user=X/migration_admin}');
     expect(p.proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);

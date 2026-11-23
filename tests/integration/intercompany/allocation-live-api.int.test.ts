@@ -1,8 +1,8 @@
 /**
  * Intercompany P4-C: the RECEIVER's allocation routes (`allocations`, `allocations/[id]`, and reject / dismiss), read only: each item carries
  * the receiver's OWN issuer invoice (by the payload's id, under the session company), the definer's liveness answer and a derived mismatch.
- * The invoice inbox and its badge never count an allocation; no route accepts one (D owns that); the guard's direct-UPDATE `accepted` on an
- * allocation is pinned as it stands so D's change to it is deliberate.
+ * The invoice inbox and its badge never count an allocation; only D's clearing route accepts one, and the guard refuses a direct-UPDATE `accepted`
+ * on an allocation (C pinned it open; D's migration 1027 closed it, deliberately: the pin is flipped).
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -188,9 +188,9 @@ describe('actions: reject with a reason, dismiss; never accept', () => {
     expect(await status(invoice)).toMatchObject({ status: 'pending' });
   });
 
-  it('no accept route exists, and the invoice routes (detail, accept, reject, dismiss) do not reach an allocation', async () => {
+  it("the only accept route is D's clearing, and the invoice routes (detail, accept, reject, dismiss) do not reach an allocation", async () => {
     const root = path.resolve(__dirname, '../../../pages/api/accounting/intercompany/allocations');
-    expect(existsSync(path.join(root, '[id]', 'accept.ts'))).toBe(false);
+    expect(existsSync(path.join(root, '[id]', 'accept.ts'))).toBe(true);
     expect(existsSync(path.join(root, '[id]', 'index.ts'))).toBe(true);
     const sent = await sentAllocation(pool, conn);
     expect((await inbox.get(U.a, co.A, sent.message)).state.statusCode).toBe(404);
@@ -200,11 +200,12 @@ describe('actions: reject with a reason, dismiss; never accept', () => {
     expect(await status(sent.message)).toMatchObject({ status: 'pending', target_doc_id: null });
   });
 
-  it('PINNED (D closes it): the receiver can still set accepted on an allocation by a direct UPDATE, with no target', async () => {
+  it('FLIPPED by D (1027): the receiver can no longer set accepted on an allocation by a direct UPDATE with no clearing', async () => {
     const sent = await sentAllocation(pool, conn);
     await asAppUser(pool, U.a, co.A, async (q) => {
-      expect(await outcome(q, "UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [sent.message])).toBe('ok');
+      expect(await outcome(q, "UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [sent.message]))
+        .toMatch(/^23514: an allocation message is accepted with the clearing posted for it/);
     }, true);
-    expect(await status(sent.message)).toMatchObject({ status: 'accepted', target_doc_id: null });
+    expect(await status(sent.message)).toMatchObject({ status: 'pending', target_doc_id: null });
   });
 });
