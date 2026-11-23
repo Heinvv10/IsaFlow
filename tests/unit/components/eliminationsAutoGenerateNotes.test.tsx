@@ -39,12 +39,17 @@ function serve(post: () => Response, items: unknown[] = []) {
 }
 const ok = (flagged: unknown) => () => new Response(JSON.stringify({ success: true, data: { items: [], count: 0, flagged } }), { status: 200 });
 const notes = () => screen.queryByRole('status', { name: 'Auto-generate notes' });
+/** The button renders disabled until the page has picked a group (the groups load async); findByRole finds a disabled button at once and a click on it does nothing, so wait for it to be enabled. */
+async function clickAutoGenerate() {
+  await waitFor(() => expect((screen.getByRole('button', { name: /auto-generate/i }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: /auto-generate/i }));
+}
 
 describe('Auto-Generate shows the flagged drafts of this run', () => {
   it('one flagged draft: listed with its reason; Dismiss clears it', async () => {
     serve(ok(FLAGGED));
     render(<EliminationsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
+    await clickAutoGenerate();
     const n = await screen.findByRole('status', { name: 'Auto-generate notes' });
     expect(within(n).getByText(/1 elimination was drafted with a flag/)).toBeTruthy();
     expect(within(n).getByText(/same companies, direction, amount and date/)).toBeTruthy();
@@ -58,7 +63,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
   it('the notes are cleared when the group changes', async () => {
     serve(ok(FLAGGED));
     render(<EliminationsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
+    await clickAutoGenerate();
     await screen.findByRole('status', { name: 'Auto-generate notes' });
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
     await waitFor(() => expect(notes()).toBeNull());
@@ -73,7 +78,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
       return new Response(JSON.stringify({ success: true, data: { items: [] } }), { status: 200 });
     });
     render(<EliminationsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
+    await clickAutoGenerate();
     await waitFor(() => expect(release).toBeTypeOf('function'));
     fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: G2 } });
     const late = observedResponse(JSON.stringify({ success: true, data: { items: [], count: 0, flagged: FLAGGED } }), { status: 200 });
@@ -87,7 +92,7 @@ describe('Auto-Generate shows the flagged drafts of this run', () => {
   it('a 200 whose body does not parse: no error, no notes, and the list still reloads', async () => {
     const s = serve(() => new Response('not json', { status: 200 }));
     render(<EliminationsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /auto-generate/i }));
+    await clickAutoGenerate();
     const before = s.lists();
     await waitFor(() => expect(s.lists()).toBeGreaterThan(before - 1));
     await waitFor(() => expect(s.lists()).toBeGreaterThanOrEqual(2));

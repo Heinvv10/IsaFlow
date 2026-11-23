@@ -123,7 +123,7 @@ export default function TaxDirectivesPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-5 w-5 text-teal-400" /></div>
               <div>
@@ -131,7 +131,7 @@ export default function TaxDirectivesPage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives, and fixed-percentage or fixed-amount directives on regular pay</p>
               </div>
             </div>
-            <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
+            <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors max-lg:min-h-11">
               <Plus className="h-4 w-4" />New Directive
             </button>
           </div>
@@ -140,19 +140,19 @@ export default function TaxDirectivesPage() {
         {/* Content */}
         <div className="px-6 py-6">
           {/* Filters */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
+          <div className="flex items-center gap-3 mb-6 max-lg:flex-wrap">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search by employee name..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 max-lg:w-full max-lg:min-h-11 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             <div className="w-44">
-              <Select label="Status" labelClassName="sr-only" options={STATUS_FILTER_OPTIONS} value={statusFilter}
+              <Select label="Status" labelClassName="sr-only" touchTarget options={STATUS_FILTER_OPTIONS} value={statusFilter}
                 onChange={v => { if (v) setStatusFilter(v as StatusFilter); }} />
             </div>
             {!isLoading && (
@@ -185,7 +185,7 @@ export default function TaxDirectivesPage() {
               {!search && statusFilter === 'all' && (
                 <button
                   onClick={() => setShowModal(true)}
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors max-lg:min-h-11"
                 >
                   <Plus className="h-4 w-4" />
                   New Directive
@@ -194,7 +194,7 @@ export default function TaxDirectivesPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     <th className={TH}>Employee</th>
@@ -212,38 +212,40 @@ export default function TaxDirectivesPage() {
                       key={d.id}
                       className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-teal-500/[0.04] transition-colors"
                     >
-                      <td className="py-3 px-4">
-                        <span className="font-medium text-[var(--ff-text-primary)]">
-                          {d.employeeName}
-                        </span>
-                        {d.employeeTaxNumber && (
-                          <div className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
-                            {d.employeeTaxNumber}
-                          </div>
-                        )}
+                      <td data-label="Employee" className="py-3 px-4">
+                        <div className="max-lg:text-right">
+                          <span className="font-medium text-[var(--ff-text-primary)]">
+                            {d.employeeName}
+                          </span>
+                          {d.employeeTaxNumber && (
+                            <div className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
+                              {d.employeeTaxNumber}
+                            </div>
+                          )}
+                        </div>
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                      <td data-label="Type" className="py-3 px-4 text-[var(--ff-text-secondary)]">
                         {TYPE_LABELS[d.directiveType]}
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                      <td data-label="Effective" className="py-3 px-4 text-[var(--ff-text-secondary)]">
                         {formatDisplayDate(d.effectiveDate)}
                       </td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
+                      <td data-label="Amount (R)" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {directiveAmountCell(d)}
                       </td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">
+                      <td data-label="Tax Rate %" className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">
                         {d.taxRate != null ? `${(d.taxRate * 100).toFixed(2)}%` : '—'}
                       </td>
-                      <td className="py-3 px-4">
+                      <td data-label="Status" className="py-3 px-4">
                         <StatusBadge status={d.status} />
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
+                      <td data-label="Actions" className="py-3 px-4">
+                        <div className="flex items-center gap-2 max-lg:flex-wrap">
                           {d.status === 'pending' && (
                             <button
                               disabled={actionLoading === d.id}
                               onClick={() => void handleStatusUpdate(d.id, 'approved')}
-                              className="text-xs text-teal-400 hover:text-teal-300 disabled:opacity-50 transition-colors"
+                              className="text-xs text-teal-400 hover:text-teal-300 disabled:opacity-50 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                             >
                               Approve
                             </button>
@@ -255,7 +257,7 @@ export default function TaxDirectivesPage() {
                             <button
                               disabled={actionLoading === d.id}
                               onClick={() => void handleStatusUpdate(d.id, 'cancelled')}
-                              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
+                              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                             >
                               Cancel
                             </button>

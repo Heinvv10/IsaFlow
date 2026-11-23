@@ -117,9 +117,9 @@ export default function LoanDetailPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
-            <Link href="/payroll/loans" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/payroll/loans" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-emerald-500/10"><Banknote className="h-6 w-6 text-emerald-500" /></div>
@@ -131,13 +131,13 @@ export default function LoanDetailPage() {
             </div>
           </div>
           {loan.status === 'active' && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 max-lg:flex-wrap">
               <button onClick={() => close('settled')} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 <CheckCircle2 className="h-4 w-4" /> Settle
               </button>
               <button onClick={() => close('written_off')} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-500/40 text-red-400 text-sm font-medium hover:bg-red-500/10 disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-500/40 text-red-400 text-sm font-medium hover:bg-red-500/10 disabled:opacity-50 max-lg:min-h-11">
                 <XCircle className="h-4 w-4" /> Write off
               </button>
             </div>
@@ -147,7 +147,7 @@ export default function LoanDetailPage() {
         <div className="p-6 space-y-6">
           {error && <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded-lg p-3"><AlertCircle className="h-4 w-4" />{error}</div>}
 
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-4 gap-4 max-lg:grid-cols-2">
             <Stat label="Principal" value={formatCurrency(loan.principal)} />
             <Stat label="Outstanding" value={formatCurrency(loan.outstandingBalance)} highlight />
             <Stat label="Interest paid" value={formatCurrency(loan.totalInterestCharged)} />
@@ -158,8 +158,8 @@ export default function LoanDetailPage() {
             <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] text-sm font-medium text-[var(--ff-text-primary)]">
               Amortisation schedule
             </div>
-            <div className="max-h-[28rem] overflow-auto">
-              <table className="w-full text-sm">
+            <div className="max-h-[28rem] overflow-auto max-lg:max-h-none">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left sticky top-0">
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">#</th>
@@ -175,14 +175,14 @@ export default function LoanDetailPage() {
                 <tbody>
                   {schedule.map(r => (
                     <tr key={r.id} className={`border-b border-[var(--ff-border-primary)] last:border-0 ${r.paidFlag ? 'opacity-50' : ''}`}>
-                      <td className="py-1.5 px-3 tabular-nums text-[var(--ff-text-secondary)]">{r.sequence}</td>
-                      <td className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.openingBalance)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
-                      <td className="py-1.5 px-3">{r.paidFlag && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}</td>
+                      <td data-label="#" className="py-1.5 px-3 tabular-nums text-[var(--ff-text-secondary)]">{r.sequence}</td>
+                      <td data-label="Period" className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
+                      <td data-label="Opening" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.openingBalance)}</td>
+                      <td data-label="Interest" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
+                      <td data-label="Principal" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
+                      <td data-label="Installment" className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
+                      <td data-label="Closing" className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
+                      <td data-label="Paid" className={`py-1.5 px-3${r.paidFlag ? '' : ' max-lg:!hidden'}`}>{r.paidFlag && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -195,7 +195,7 @@ export default function LoanDetailPage() {
               <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] text-sm font-medium text-[var(--ff-text-primary)]">
                 Payments made
               </div>
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Period</th>
@@ -208,11 +208,11 @@ export default function LoanDetailPage() {
                 <tbody>
                   {payments.map(p => (
                     <tr key={p.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                      <td className="py-1.5 px-3">{MONTHS[p.periodMonth - 1]} {p.periodYear}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.interestCharged)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.principalPaid)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.fringeBenefit)}</td>
-                      <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(p.closingBalance)}</td>
+                      <td data-label="Period" className="py-1.5 px-3">{MONTHS[p.periodMonth - 1]} {p.periodYear}</td>
+                      <td data-label="Interest" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.interestCharged)}</td>
+                      <td data-label="Principal" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.principalPaid)}</td>
+                      <td data-label="Fringe (3801)" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.fringeBenefit)}</td>
+                      <td data-label="Closing" className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(p.closingBalance)}</td>
                     </tr>
                   ))}
                 </tbody>
