@@ -122,6 +122,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'COMPANY_SETTINGS_STALE',
   // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
+  // core/contraSettlementService: a contra account or document the settlement guards refuse; read-only, pre-write.
+  'CONTRA_SETTLEMENT_REFUSED',
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.

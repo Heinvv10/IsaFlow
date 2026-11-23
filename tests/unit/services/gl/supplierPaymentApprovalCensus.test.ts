@@ -127,15 +127,15 @@ describe('batch writers', () => {
 });
 
 describe('who reaches the four choke points', () => {
-  it('the two action routes and MCP settle_by_contra, nobody else', () => {
+  it('the two action routes and the contra-settlement posting service (MCP settle_by_contra), nobody else', () => {
     expect(matching(/\b(approveSupplierPayment|processSupplierPayment|approveBatch|processBatch)\(/)).toEqual([
       'pages/api/accounting/batch-payments-action.ts',
       'pages/api/accounting/supplier-payments-action.ts',
-      'src/lib/mcp/tools/writeSettleByContra.ts',
       `${AP}batchPaymentApproval.ts`, // the definition
       `${AP}batchPaymentService.ts`, // the definition
       `${AP}supplierPaymentApproval.ts`, // the definition
       `${AP}supplierPaymentWorkflowService.ts`, // the definition
+      'src/modules/accounting/services/core/contraSettlementPosting.ts', // settle_by_contra's posting, lifted out of the tool
     ]);
   });
 
