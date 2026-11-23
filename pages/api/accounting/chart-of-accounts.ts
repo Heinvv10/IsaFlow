@@ -71,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, account);
     } catch (err) {
       // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
-      if (isServiceRefusal(err)) log.warn('Failed to create account', { error: err }, 'accounting-api');
+      if (isServiceRefusal(err) || err instanceof ParentAccountError) log.warn('Failed to create account', { error: err }, 'accounting-api');
       else log.error('Failed to create account', { error: err }, 'accounting-api');
       // Only a refusal is a 400 (which COMMITS). A lock timeout reaches
       // withErrorHandler as 503 + Retry-After; anything else is a 500.
@@ -129,7 +129,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }, { role: companyRole, userId: user.id });
       return apiResponse.success(res, updated);
     } catch (err) {
-      log.error('Failed to update account', { error: err }, 'accounting-api');
+      if (isServiceRefusal(err)) log.warn('Failed to update account', { error: err }, 'accounting-api');
+      else log.error('Failed to update account', { error: err }, 'accounting-api');
       if (reclassified) throw err;
       // Only a refusal is a 400 (which COMMITS); anything unexpected is a 500.
       if (!isServiceRefusal(err)) throw err;
