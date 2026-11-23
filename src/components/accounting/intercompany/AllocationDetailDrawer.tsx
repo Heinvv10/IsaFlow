@@ -3,12 +3,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
-import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDate } from '@/utils/formatters';
 import type { AllocationDetail, AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
-import { allocationState, HANDLED_LABEL, isOpen, LINK_ORIGIN, paymentLabel, STATE_CLASS } from './allocationLabels';
+import { allocationState, HANDLED_LABEL, isOpen, LINK_ORIGIN, moneyIn, paymentLabel, STATE_CLASS } from './allocationLabels';
 
 interface Props {
   item: AllocationItem | null;
+  /** The row's name (payment and invoice), as its buttons in the list say it. */
+  label: string;
   canWrite: boolean;
   busy: boolean;
   onClose: () => void;
@@ -17,18 +19,17 @@ interface Props {
 }
 
 const btn = 'px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken disabled:opacity-50 inline-flex items-center gap-2';
-const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : formatCurrency(n));
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[10rem_1fr] gap-3 py-1.5 text-sm">
+    <div className="grid grid-cols-1 gap-0.5 py-1.5 text-sm sm:grid-cols-[10rem_1fr] sm:gap-3">
       <dt className="text-ink-muted">{label}</dt>
       <dd className="text-ink break-words">{children}</dd>
     </div>
   );
 }
 
-export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject, onDismiss }: Props) {
+export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, onReject, onDismiss }: Props) {
   const [detail, setDetail] = useState<AllocationDetail | null>(null);
   const [error, setError] = useState('');
   const id = item?.id ?? null;
@@ -49,7 +50,7 @@ export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject
   const state = allocationState(shown);
   const inv = shown.issuerInvoice;
   return (
-    <Drawer open onClose={onClose} title={`Payment ${paymentLabel(shown)}`} width="lg">
+    <Drawer open onClose={onClose} title={label ? `Details for ${label}` : `Payment ${paymentLabel(shown)}`} width="lg">
       <div className="p-5 space-y-4">
         <div>
           {isOpen(shown)
@@ -63,14 +64,14 @@ export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject
           <Fact label="Reference">{shown.paymentReference ?? '—'}</Fact>
           <Fact label="Date">{formatDate(shown.paymentDate)}</Fact>
           <Fact label="Method">{shown.paymentMethod ?? '—'}</Fact>
-          <Fact label="Amount">{money(shown.amount)}{shown.currency && shown.currency !== 'ZAR' ? ` (${shown.currency})` : ''}</Fact>
+          <Fact label="Amount">{moneyIn(shown.amount, shown.currency)}</Fact>
           <Fact label="Paid">
             {shown.cashLegIsLoanAccount === null ? '—' : shown.cashLegIsLoanAccount ? 'Paid through the intercompany loan account' : 'Paid from a bank account'}
           </Fact>
           <Fact label="Payer's bill">{shown.payerDocumentNumber ?? '—'}</Fact>
           <Fact label="Your invoice">{inv ? `${inv.number} (${inv.status})` : 'Not found in your books'}</Fact>
           <Fact label="Open on your invoice">
-            {!inv ? '—' : inv.openAmount === null ? 'Not open' : `${money(inv.openAmount)}${inv.currency !== 'ZAR' ? ` (${inv.currency})` : ''}`}
+            {!inv ? '—' : inv.openAmount === null ? 'Not open' : moneyIn(inv.openAmount, inv.currency)}
           </Fact>
           <Fact label="Linked by">{detail?.linkOrigin ? LINK_ORIGIN[detail.linkOrigin] ?? detail.linkOrigin : '—'}</Fact>
           <Fact label="Cut-over">{detail?.cutoverDate ? formatDate(detail.cutoverDate) : '—'}</Fact>
@@ -82,8 +83,8 @@ export function AllocationDetailDrawer({ item, canWrite, busy, onClose, onReject
         </p>
         {isOpen(shown) && canWrite && (
           <div className="flex gap-2">
-            <button type="button" className={btn} disabled={busy} aria-label={`Reject payment ${paymentLabel(shown)}`} onClick={() => onReject(shown)}>Reject</button>
-            <button type="button" className={btn} disabled={busy} aria-label={`Dismiss payment ${paymentLabel(shown)}`} onClick={() => onDismiss(shown)}>
+            <button type="button" className={btn} disabled={busy} aria-label={`Reject ${label}`} onClick={() => onReject(shown)}>Reject</button>
+            <button type="button" className={btn} disabled={busy} aria-label={`Dismiss ${label}`} onClick={() => onDismiss(shown)}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Dismiss
             </button>
           </div>

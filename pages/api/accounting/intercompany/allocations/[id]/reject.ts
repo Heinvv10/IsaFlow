@@ -1,4 +1,4 @@
-/** POST { reason } — reject an allocation message (P4-C); the reason (required) goes back to the payer's outbox. Touches only the message: nothing is cleared. */
+/** POST { reason } — reject an allocation message (P4-C); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';

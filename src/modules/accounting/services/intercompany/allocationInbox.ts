@@ -7,13 +7,14 @@
  * query too. Each item carries the payload's facts (display text only, never an identity), this company's OWN issuer invoice looked up by the
  * payload's id under this company, the database's liveness answer and a derived mismatch that is never stored. The liveness answer
  * (`intercompany_allocation_message_live`) is asked only for an OPEN (pending / failed) message, one call per message in its own savepoint;
- * a handled one is `not_pending` without asking. The page's lock wait is bounded once (tighten-only 2 s, put back after the checks) and the
- * first failure ends the asking: the rest of the page is `check_failed`, so a page waits at most once. Never a throw, never a poisoned
+ * a handled one is `not_pending` without asking. The page's lock wait is bounded once (tighten-only 2 s, put back after the checks) and a
+ * call that runs out of time ends the asking: the rest of the page is `check_failed`, so a page waits at most once. Never a throw, never a poisoned
  * transaction. The answer is advisory: D asks again under its own locks before acting.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { toIsoTimestamp } from '@/lib/dateUtils';
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { ConnectionRefusal } from './connectionTypes';
 import { parseMirrorPayload, type AllocationPayload } from './mirrorPayload';
 import { INBOX_PAGE_MAX } from './inboxRead';
@@ -32,8 +33,11 @@ const cents = (n: number): number => Math.round(n * 100);
 const asText = (v: unknown, max = 2000): string | null => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : null);
 const sqlstate = (err: unknown): string | null => (err as { code?: string } | null)?.code ?? null;
 
-/** The invoice statuses something is still owed on (the ageing's): a draft, one awaiting approval, a paid or a cancelled one is not open. */
-const OPEN_INVOICE = new Set(['approved', 'sent', 'partially_paid', 'overdue']);
+/** The invoice statuses something is still owed on (AR's shared set): a draft, one awaiting approval, a paid or a cancelled one is not open.
+ *  (Deliberately not `showsARBalance`: a 'paid' invoice that still carries a balance is not one a payment should be cleared against.) */
+const OPEN_INVOICE: ReadonlySet<string> = new Set(AR_OPEN_STATUSES);
+/** The failures that mean the database is busy (a lock wait that ran out, a statement timeout): the page stops asking after one. */
+const STOP_CODES = new Set(['55P03', '57014']);
 
 /**
  * What does not fit between the payment and this company's invoice, first that applies: the invoice is gone (or cancelled), it is not open,
@@ -54,28 +58,28 @@ export function allocationMismatch(p: AllocationPayload | null, invoice: Allocat
 type Live = { live: boolean; liveReason: AllocationLiveReason };
 const FAILED: Live = { live: false, liveReason: 'check_failed' };
 
-/** The database's answer for one message, in a savepoint of its own (a failed call must not poison the request's transaction). `threw`: the
- *  call itself failed (a lock wait that ran out, a refusal), so the page stops asking. */
-async function liveOf(companyId: string, messageId: string): Promise<Live & { threw: boolean }> {
+/** The database's answer for one message, in a savepoint of its own (a failed call must not poison the request's transaction). `stop`: the
+ *  call ran out of time (STOP_CODES), so the page stops asking; any other failure is that row's alone. Never throws. */
+async function liveOf(companyId: string, messageId: string): Promise<Live & { stop: boolean }> {
   try {
     const rows = (await withSavepoint('intercompany_allocation_live', async () => (await sql`
       SELECT live, reason FROM public.intercompany_allocation_message_live(${messageId}::UUID)
     `) as Row[])) as Row[];
     const reason = rows[0]?.reason;
     const known = ALLOCATION_LIVE_REASONS.includes(reason as AllocationLiveReason) && reason !== 'check_failed';
-    if (rows.length !== 1 || !known || (rows[0]!.live === true) !== (reason === 'ok')) return { ...FAILED, threw: false };
-    return { live: reason === 'ok', liveReason: reason as AllocationLiveReason, threw: false };
+    if (rows.length !== 1 || !known || (rows[0]!.live === true) !== (reason === 'ok')) return { ...FAILED, stop: false };
+    return { live: reason === 'ok', liveReason: reason as AllocationLiveReason, stop: false };
   } catch (err) {
     // the code only: a database message names ids
     log.warn('Intercompany allocation liveness check failed', { companyId, messageId, code: sqlstate(err) }, 'intercompany');
-    return { ...FAILED, threw: true };
+    return { ...FAILED, stop: STOP_CODES.has(sqlstate(err) ?? '') };
   }
 }
 
 /**
  * The answers for a page: handled rows `not_pending` without a call; the open ones asked in order under ONE tighten-only 2 s lock bound (the
- * caller's value put back after, outside every savepoint, so no savepoint rollback can undo either), and after the first failed call the rest
- * `check_failed` without another call.
+ * caller's value put back after, outside every savepoint, so no savepoint rollback can undo either), and after a call that ran out of time
+ * (55P03, 57014) the rest `check_failed` without another call; any other failure marks only its own row.
  */
 async function livesOf(companyId: string, rows: Row[]): Promise<Live[]> {
   const open = rows.filter((r) => OPEN.includes(String(r.status) as InboxStatus));
@@ -85,17 +89,15 @@ async function livesOf(companyId: string, rows: Row[]): Promise<Live[]> {
       FROM (SELECT pg_catalog.current_setting('lock_timeout') AS prev) s
   `) as Row[];
   const answers = new Map<string, Live>();
-  try {
-    let failed = false;
-    for (const r of open) {
-      if (failed) { answers.set(String(r.id), FAILED); continue; }
-      const { threw, ...answer } = await liveOf(companyId, String(r.id));
-      answers.set(String(r.id), answer);
-      failed = threw;
-    }
-  } finally {
-    await sql`SELECT pg_catalog.set_config('lock_timeout', ${String(bound[0]?.prev ?? '0')}, true)`;
+  // (no try / finally: liveOf never throws, and a throw from here would fail the request and roll its transaction back anyway)
+  let stopped = false;
+  for (const r of open) {
+    if (stopped) { answers.set(String(r.id), FAILED); continue; }
+    const { stop, ...answer } = await liveOf(companyId, String(r.id));
+    answers.set(String(r.id), answer);
+    stopped = stop;
   }
+  await sql`SELECT pg_catalog.set_config('lock_timeout', ${String(bound[0]?.prev ?? '0')}, true)`;
   return rows.map((r) => answers.get(String(r.id)) ?? { live: false, liveReason: 'not_pending' });
 }
 

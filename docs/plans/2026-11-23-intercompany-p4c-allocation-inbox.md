@@ -35,3 +35,9 @@ Any accept/clear/draft, journal, status transition by the app, persistence of mi
 - Restore: a dismissed allocation comes back to pending (`POST allocations/[id]/restore`, the guard's dismissed -> pending, needs the connection active); Dismiss is confirmed first. Reject on a revoked connection is a 409.
 - The list's `total` and `allocationCount` come from their own count (a page past the end still says how many). Buttons are named by their payment; the table has a caption; the invoice list's empty state does not say nothing is waiting while payments are listed.
 
+## (h) Review round 2 (2026-11-23)
+- Only a check that runs out of time (SQLSTATE 55P03, 57014) stops the page; any other failure is that row's `check_failed` alone. The lock setting is put back after the checks whatever they answered (no try / finally: the per-row call never throws).
+- Open invoice statuses are the shared `AR_OPEN_STATUSES` (same set as before).
+- UI: every button, dialog and notice names its row by payment and this company's invoice ("payment SP-1 on INV-900"; the payer's bill when the invoice is gone; "(1 of 2)" for a repeated pair, e.g. a stale and a live message of one payment). The reject dialog says the rejection is final and the reason is recorded on the message (nothing shows the payer a rejected allocation yet). Foreign amounts carry their currency code. A mismatch shows on a stale row too (a pre-cut-over payment's only beside a reason other than `before_cutover`). A failed reload keeps the list and any open dialog under an alert; a 409 reloads the list; busy is per row; a filter switch clears an old error; the payment count is kept while a list loads.
+- Not in this round: one definer call per open row and the 100-row page (filed separately, L3).
+

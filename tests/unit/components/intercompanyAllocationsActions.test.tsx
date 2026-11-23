@@ -17,6 +17,8 @@ useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
 import { envelope, failure } from './intercompanyFixtures';
+import { formatAmount } from '@/lib/money/formatMoney';
+import { formatCurrency } from '@/utils/formatters';
 import { alloc, posts, serve } from './intercompanyInboxFixtures';
 
 beforeEach(() => { h.role = 'owner'; vi.mocked(apiFetch).mockReset(); });
@@ -76,9 +78,9 @@ describe('what a row shows', () => {
     serve({ items: [], allocations: [alloc({ currency: 'USD', mismatch: 'currency', issuerInvoice: { ...inv('INV-900'), currency: 'USD', openAmount: 2000 } })] });
     render(<IntercompanyInboxPage />);
     const row = within(await section()).getByTestId('allocation-row');
-    expect(row.textContent).toContain('USD 1 150.00');
-    expect(row.textContent).toContain('USD 2 000.00');
-    expect(row.textContent).not.toMatch(/R\s1 150\.00/);
+    expect(row.textContent).toContain(`USD ${formatAmount(1150)}`);
+    expect(row.textContent).toContain(`USD ${formatAmount(2000)}`);
+    expect(row.textContent).not.toContain(formatCurrency(1150));
   });
 
   it('a mismatch shows on a stale row too, beside its stale reason', async () => {
@@ -87,6 +89,17 @@ describe('what a row shows', () => {
     const row = within(await section()).getByTestId('allocation-row');
     expect(within(row).getByTestId('allocation-state')).toHaveTextContent('Stale: the payment journal was reversed');
     expect(within(row).getByTestId('allocation-mismatch')).toHaveTextContent('Check: not in rand');
+  });
+
+  it('a pre-cut-over payment\'s mismatch shows beside link_gone, and not beside before_cutover (which already says it)', async () => {
+    serve({ items: [], allocations: [
+      alloc({ id: 'a-1', live: false, liveReason: 'link_gone', mismatch: 'pre_cutover_payment' }),
+      alloc({ id: 'a-2', issuerInvoice: inv('INV-901'), live: false, liveReason: 'before_cutover', mismatch: 'pre_cutover_payment' }),
+    ] });
+    render(<IntercompanyInboxPage />);
+    const rows = within(await section()).getAllByTestId('allocation-row');
+    expect(within(rows[0]!).getByTestId('allocation-mismatch')).toHaveTextContent('Check: the payment is dated before the cut-over');
+    expect(within(rows[1]!).queryByTestId('allocation-mismatch')).toBeNull();
   });
 
   it('before_cutover is worded as either case', async () => {
