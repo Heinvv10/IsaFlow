@@ -181,6 +181,26 @@ describe('scripts/sage-migration/run.ts', () => {
     }
   }, 180_000);
 
+  it('B6-A2 (round 6): a second identical --live run of a file with a discounted line exits 0 (a re-run resumes, it does not fail on a false difference)', async () => {
+    const world = await sageWorld(pool);
+    try {
+      const f = JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8')) as { PurchaseOrders: Array<Record<string, unknown>> };
+      const lines = f.PurchaseOrders[0]!.Lines as Array<Record<string, unknown>>;
+      lines[1] = { ...lines[1], UnitPriceExclusive: 400 }; // list price 400 less 12.5%: Exclusive stays 350
+      const file = join(dir, 'discount.json');
+      writeFileSync(file, JSON.stringify(f));
+      const args = ['--company', world.companyId, '--user', world.userId, '--file', file, '--live', '--expect-items', '20', '--expect-pos', '10'];
+      expect(cli(args).code).toBe(0);
+      const two = cli(args);
+      expect(two.code).toBe(0);
+      expect(two.out).not.toContain('DIFFERS');
+      expect(two.out).not.toContain('LIVE NOT STARTED');
+    } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
+  }, 180_000);
+
   it('L1 (round 6): a lock lost BEFORE the live phase (after the dry run) is exit 2, a refused start: nothing about commits, nothing written', async () => {
     const world = await sageWorld(pool);
     try {
