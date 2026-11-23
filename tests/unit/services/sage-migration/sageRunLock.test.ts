@@ -174,3 +174,19 @@ describe('unlock says when the lock was not held (round 6 L4)', () => {
     expect(log.error).toHaveBeenCalledWith(expect.stringMatching(/run lock was not held/), expect.anything(), 'sage-migration');
   });
 });
+
+describe('unlock cannot hang the run on a dead connection (round 7 L2)', () => {
+  it('an unlock that never answers gives up after CHECK_TIMEOUT_MS and destroys the connection (release with an error)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool, client } = fakePool();
+      const { unlock } = await acquireRunLock(pool, A);
+      client.query.mockImplementation(() => new Promise(() => undefined)); // half-open: no answer, no error
+      const done = unlock().then(() => 'done');
+      await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS + 10);
+      await expect(done).resolves.toBe('done');
+      expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/no answer within/) }));
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});

@@ -69,20 +69,26 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     client.release(failure);
     throw failure;
   }
+  /** A query on the lock connection that gives up after CHECK_TIMEOUT_MS: a half-open connection never answers and never errors. */
+  const bounded = async <T,>(run: () => Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        run(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer within ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const lostError = (): LockLostError => new LockLostError(`lock lost (${lost?.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
   const held = (): void => { if (lost) throw lostError(); };
   const check = async (): Promise<void> => {
     if (!lost) {
-      let timer: NodeJS.Timeout | undefined;
       try {
-        await Promise.race([
-          client.query('SELECT 1'),
-          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer within ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS); }),
-        ]);
+        await bounded(() => client.query('SELECT 1'));
       } catch (err) {
         lost = err instanceof Error ? err : new Error(String(err));
-      } finally {
-        clearTimeout(timer);
       }
     }
     held();
@@ -94,9 +100,9 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     let unlockFailure: Error | undefined = lost;
     if (!lost) {
       try {
-        const unlocked = await client.query<{ ok: boolean }>('SELECT pg_advisory_unlock($1::int, $2::int) AS ok', [k1, k2]);
+        const unlocked = await bounded(() => client.query<{ ok: boolean }>('SELECT pg_advisory_unlock($1::int, $2::int) AS ok', [k1, k2]));
         if (unlocked.rows[0]?.ok !== true) log.error('sage migration: the run lock was not held at unlock', { companyId }, 'sage-migration');
-        await client.query('RESET idle_session_timeout'); // the connection goes back to the pool as the server configured it
+        await bounded(() => client.query('RESET idle_session_timeout')); // the connection goes back to the pool as the server configured it
       } catch (err) {
         unlockFailure = err instanceof Error ? err : new Error(String(err));
       }
