@@ -8,6 +8,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { DateField } from '@/components/ui/DateField';
+import { todayInSast } from '@/lib/saDateParser';
 import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import type { AllocationClearingPreview } from '@/modules/accounting/services/intercompany/allocationClearTypes';
@@ -29,20 +31,22 @@ const FAIL = 'Could not clear this payment - try again';
 
 export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefused }: Props) {
   const [date, setDate] = useState('');
+  // the field refused what was typed (unreadable, before the payment, after today, a closed period): Review stays blocked
+  const [dateRefused, setDateRefused] = useState(false);
   const [step, setStep] = useState<'review' | 'confirm'>('review');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
   const field = useRef<HTMLInputElement>(null);
   // another message: its own proposed date, back to the first step, no old error
-  useEffect(() => { setDate(preview?.defaultPostingDate ?? ''); setStep('review'); setError(''); }, [target?.id, preview?.defaultPostingDate]);
+  useEffect(() => { setDate(preview?.defaultPostingDate ?? ''); setDateRefused(false); setStep('review'); setError(''); }, [target?.id, preview?.defaultPostingDate]);
 
   const ready = Boolean(target && preview?.loanAccountId && preview.invoiceId && preview.amount !== null);
   const missing = !preview?.loanAccountId ? 'Set your loan account on the connection first: there is nothing to clear against.'
     : !preview.receivableLabel ? 'Your chart has no Accounts Receivable control account.' : null;
 
   function review() {
-    if (!date) { setError('Choose a posting date.'); return; }
+    if (!date || dateRefused) { setError('Choose a posting date in an open period, on or after the payment date.'); return; }
     if (preview?.paymentDate && date < preview.paymentDate) { setError('The posting date must be on or after the payment date.'); return; }
     setError('');
     setStep('confirm');
@@ -88,9 +92,10 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
           </dl>
           {step === 'review' ? (
             <div>
-              <label htmlFor="ic-accept-date" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Posting date</label>
-              <input id="ic-accept-date" ref={field} type="date" className="ff-input text-sm" value={date} min={preview?.paymentDate ?? undefined}
-                onChange={(e) => setDate(e.target.value)} disabled={busy || !ready} />
+              <DateField id="ic-accept-date" ref={field} label="Posting date" value={date || null} postingDate keepsEscape
+                minDate={preview?.paymentDate ?? undefined} maxDate={todayInSast()} minMessage="The posting date must be on or after the payment date."
+                maxMessage="The posting date cannot be after today." disabled={busy || !ready}
+                onChange={(iso, v) => { setDate(v.valid && iso ? iso : ''); setDateRefused(!v.valid); }} />
               {!preview?.defaultPostingDate && ready && <p className="mt-1 text-xs text-ink-muted">No open period on or after the payment date: choose a date in an open period.</p>}
             </div>
           ) : (
@@ -107,13 +112,13 @@ export function AllocationAcceptModal({ target, preview, onClose, onDone, onRefu
           <>
             <button type="button" onClick={onClose} disabled={busy} className={btn}>Cancel</button>
             <button type="button" onClick={review} disabled={busy || !ready || missing !== null}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">Review clearing</button>
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">Review clearing</button>
           </>
         ) : (
           <>
             <button type="button" onClick={() => setStep('review')} disabled={busy} className={btn}>Back</button>
             <button type="button" onClick={() => void post()} disabled={busy}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 inline-flex items-center gap-2">
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Post clearing
             </button>
           </>

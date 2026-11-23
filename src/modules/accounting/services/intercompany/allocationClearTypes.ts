@@ -22,9 +22,9 @@ export type AcceptAllocationOutcome =
   | { accepted: true; messageId: string; paymentId: string; paymentNumber: string; journalEntryId: string }
   | { accepted: false; messageId: string; status: 'failed'; code: ClearRefusalCode; error: string };
 
-/** A refusal one of the clearing's own checks raised, before anything was posted. */
+/** A refusal one of the clearing's own checks raised, before anything was posted. Known by identity (it never leaves the service: it becomes the
+ *  message's `failed` sentence), so it carries no refusal `code` of its own. */
 export class ClearRefusal extends Error {
-  readonly code = 'IC_ALLOCATION_CLEAR_REFUSED';
   constructor(readonly reason: ClearRefusalCode) {
     super(reason);
     this.name = 'ClearRefusal';

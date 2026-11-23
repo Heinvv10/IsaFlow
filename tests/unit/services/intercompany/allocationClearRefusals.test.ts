@@ -76,7 +76,7 @@ describe('refusalOfCode (an error under the savepoint)', () => {
     expect(refusalOfCode('APPROVE_PERMISSION_REFUSED', { contraRefusal: true })).toBe('forbidden');
   });
   it('anything else is not a refusal: a codeless error, a driver code, a constraint, a statement timeout', () => {
-    for (const code of [null, '23514', '23505', '57014', 'XX000', 'IC_ALLOCATION_CLEAR_REFUSED']) expect(refusalOfCode(code)).toBeNull();
+    for (const code of [null, '23514', '23505', '57014', 'XX000']) expect(refusalOfCode(code)).toBeNull();
   });
 });
 

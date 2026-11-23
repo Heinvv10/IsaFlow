@@ -11,8 +11,8 @@ import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { settleDocumentByContra } from '../../../src/modules/accounting/services/core/contraSettlementPosting';
 import { acct, asAppUser, co, outcome, U, wipeConnections } from './intercompany.helpers';
 import { asService, mirrorCleanup } from './mirror.helpers';
-import { clearPayments } from './allocation.helpers';
-import { accept, bodyFor, clearConnect, clearSetup, ledger, outcomeOf, sentClearable } from './allocation-clear.helpers';
+import { clearPayments, plantBill } from './allocation.helpers';
+import { accept, bodyFor, clearConnect, clearSetup, ledger, loan, outcomeOf, reapply, sentClearable } from './allocation-clear.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -34,6 +34,24 @@ async function manualContra(invoice: string, amount: number, stamp: string | nul
   }));
   if (stamp) await pool.query('UPDATE customer_payments SET bank_reference = $2 WHERE id = $1', [posted.paymentId, stamp]);
   return posted.paymentId;
+}
+
+/** Run `fn` with the posted-line freezes of gl_journal_lines off for the transaction (a superuser's DDL; each is back ON ALWAYS at COMMIT). */
+async function withLinesUnfrozen(fn: (q: PoolClient) => Promise<void>): Promise<void> {
+  const triggers = ['trg_gl_jl_posted_frozen', 'trg_gl_jl_posted_set_frozen', 'trg_gl_jl_posted_balanced'];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const t of triggers) await client.query(`ALTER TABLE gl_journal_lines DISABLE TRIGGER ${t}`);
+    await fn(client);
+    for (const t of triggers) await client.query(`ALTER TABLE gl_journal_lines ENABLE ALWAYS TRIGGER ${t}`);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 const acceptDirect = (q: PoolClient, message: string, target: string | null) => outcome(q,
@@ -76,6 +94,36 @@ describe('the guard holds an accepted allocation to its clearing', () => {
     const exact = await manualContra(sent.invoice, 400, `IC:${sent.message}`);
     await asAppUser(pool, U.a, co.A, async (q) => { expect(await acceptDirect(q, sent.message, exact)).toBe('ok'); }, true);
     expect(await ledger.message(pool, sent.message)).toMatchObject({ status: 'accepted', target_doc_id: exact });
+  });
+
+  it('the exact clearing of a second message for an already-cleared payment is refused (the cap is held by the guard too)', async () => {
+    const sent = await sentClearable(pool, conn, { amount: 400 });
+    expect(outcomeOf(await accept(sent.message, bodyFor(sent)))).toMatchObject({ accepted: true });
+    await pool.query('DELETE FROM payment_allocations WHERE id = $1', [sent.allocation]);
+    const other = await plantBill(pool, conn);
+    const moved = await reapply(pool, sent.payment, other.bill, 400);
+    const exact = await manualContra(other.invoice, 400, `IC:${moved.message}`);
+    await asAppUser(pool, U.a, co.A, async (q) => { expect(await acceptDirect(q, moved.message, exact)).toMatch(REFUSED); });
+  });
+
+  it('the exact clearing tampered with afterwards is refused: another total, another contra account, a second allocation line, more journal lines', async () => {
+    const tamper: Array<[string, (payment: string, invoice: string) => Promise<unknown>]> = [
+      ['total', (p) => pool.query('UPDATE customer_payments SET total_amount = 401 WHERE id = $1', [p])],
+      ['contra account', (p) => pool.query('UPDATE customer_payments SET bank_account_id = $2 WHERE id = $1', [p, loan.a2])],
+      ['second allocation line', async (p) => pool.query('INSERT INTO customer_payment_allocations(payment_id, invoice_id, amount_allocated) VALUES ($1, $2, 0.01)', [p, (await plantBill(pool, conn)).invoice])],
+      ['two more journal lines', (p) => withLinesUnfrozen(async (q) => {
+        const je = (await q.query('SELECT gl_journal_entry_id AS je FROM customer_payments WHERE id = $1', [p])).rows[0].je as string;
+        for (const [debit, credit] of [[0.01, 0], [0, 0.01]]) {
+          await q.query("INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description) VALUES ($1, $2, $3, $4, $5, 'tampered')", [je, acct.aLoan, debit, credit, co.A]);
+        }
+      })],
+    ];
+    for (const [what, change] of tamper) {
+      const sent = await sentClearable(pool, conn, { amount: 400 });
+      const exact = await manualContra(sent.invoice, 400, `IC:${sent.message}`);
+      await change(exact, sent.invoice);
+      await asAppUser(pool, U.a, co.A, async (q) => { expect([what, await acceptDirect(q, sent.message, exact)]).toEqual([what, expect.stringMatching(REFUSED)]); });
+    }
   });
 
   it('a target is never set on another transition (failed, dismissed)', async () => {

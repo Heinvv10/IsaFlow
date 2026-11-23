@@ -45,8 +45,9 @@ describe('Accept a payment from the group', () => {
     const preview = within(dialog).getByTestId('allocation-accept-preview');
     for (const text of ['1400 Loan to Velocity', '1200 Accounts Receivable', formatCurrency(1150), 'INV-900']) expect(preview.textContent).toContain(text);
     const date = within(dialog).getByLabelText('Posting date') as HTMLInputElement;
-    expect(date.value).toBe('2026-09-01');
+    expect(date.value).toMatch(/^0?1 Sep 2026$/);   // the proposed date (the payment date), shown as the app shows dates
     fireEvent.change(date, { target: { value: '2026-09-10' } });
+    fireEvent.blur(date);
     expect(posts()).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     expect(within(dialog).getByTestId('allocation-accept-confirm').textContent).toMatch(/debit 1400 Loan to Velocity, credit 1200 Accounts Receivable, against invoice INV-900/);
@@ -63,9 +64,12 @@ describe('Accept a payment from the group', () => {
   it('a date before the payment is refused in the dialog, before any request', async () => {
     serve({ items: [], allocations: [alloc()] });
     const dialog = await openAccept();
-    fireEvent.change(within(dialog).getByLabelText('Posting date'), { target: { value: '2026-08-31' } });
+    const date = within(dialog).getByLabelText('Posting date');
+    fireEvent.change(date, { target: { value: '2026-08-31' } });
+    fireEvent.blur(date);
+    expect(await within(dialog).findByText('The posting date must be on or after the payment date.')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('The posting date must be on or after the payment date.');
+    expect(within(dialog).queryByTestId('allocation-accept-confirm')).toBeNull();
     expect(posts()).toHaveLength(0);
   });
 
@@ -95,7 +99,7 @@ describe('Accept a payment from the group', () => {
     const item = alloc();
     serve({ items: [], allocations: [item], allocationDetail: detailOf(item, previewOf(item, { loanAccountId: null, loanAccountLabel: null })) });
     const dialog = await openAccept();
-    expect(within(dialog).getByRole('alert')).toHaveTextContent(/Set your loan account on the connection first/);
+    expect(dialog.textContent).toMatch(/Set your loan account on the connection first/);
     expect(within(dialog).getByRole('button', { name: 'Review clearing' })).toBeDisabled();
   });
 

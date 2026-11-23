@@ -190,7 +190,7 @@ describe('settleDocumentByContra', () => {
 describe('who calls settleDocumentByContra', () => {
   // It records an approval on a supplier payment, and its caller owns the authority question (the approver it names).
   // A new caller must be added here deliberately.
-  it('only the MCP tool, until the intercompany worker is added on purpose', () => {
+  it('only the MCP tool and the intercompany receiver clearing (P4-D, added on purpose)', () => {
     const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'scripts'], { encoding: 'utf8' })
       .split('\n').filter((f) => /\.(tsx?|mts|cts|mjs|cjs|js|jsx)$/.test(f));
     // The name anywhere (an aliased import, a re-export, a call), OR the module specifier in any form: a static or
@@ -200,6 +200,8 @@ describe('who calls settleDocumentByContra', () => {
     expect(callers.sort()).toEqual([
       'src/lib/mcp/tools/writeSettleByContra.ts',
       'src/modules/accounting/services/core/contraSettlementPosting.ts', // the definition
+      // P4-D: a person's Accept of an allocation message; the actor is the session user, creator == approver (allocationClearService.ts)
+      'src/modules/accounting/services/intercompany/allocationClearService.ts',
     ]);
   });
 
