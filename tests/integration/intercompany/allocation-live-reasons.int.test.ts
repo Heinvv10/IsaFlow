@@ -68,7 +68,8 @@ describe('each way a message goes stale answers its reason', () => {
   const cases: Array<[string, string, (s: Sent) => Promise<unknown>]> = [
     ['rejected by the receiver', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'rejected', reason = 'no' WHERE id = $1", [s.message])],
     ['dismissed by the receiver', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'dismissed' WHERE id = $1", [s.message])],
-    ['accepted by a direct UPDATE (the pinned hole D closes)', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [s.message])],
+    ['accepted (planted: since 1027 the guard refuses a direct UPDATE without the clearing)', 'not_pending', (s) => withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard',
+      (q) => q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [s.message]))],
     ['withdrawn (planted: no path withdraws an allocation yet)', 'not_pending', (s) => withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard',
       (q) => q.query("UPDATE intercompany_messages SET status = 'withdrawn', source_cancelled_at = now() WHERE id = $1", [s.message]))],
     ['the payment renumbered', 'changed', (s) => pool.query("UPDATE supplier_payments SET payment_number = 'SP-RENUMBERED' WHERE id = $1", [s.payment])],

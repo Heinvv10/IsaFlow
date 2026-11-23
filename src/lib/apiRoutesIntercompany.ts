@@ -7,6 +7,7 @@ import type { AcceptResult, InboxDetail, InboxPage } from '@/modules/accounting/
 import type { ConnectionView, GroupCandidate, SideOptions } from '@/modules/accounting/services/intercompany/connectionTypes';
 import type { PairingResult, PairingView } from '@/modules/accounting/services/intercompany/pairingTypes';
 import type { AllocationDetail, AllocationPage } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
+import type { AcceptAllocationOutcome } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 
 export interface IntercompanyStaticRoutes {
   // GET the list (`items`), POST the new connection: the list and the item of one resource, disjoint on `items`.
@@ -34,6 +35,8 @@ export interface IntercompanyDynamicRoutes {
   '/api/accounting/intercompany/allocations/{}/reject': { id: string; status: string };
   '/api/accounting/intercompany/allocations/{}/dismiss': { id: string; status: string };
   '/api/accounting/intercompany/allocations/{}/restore': { id: string; status: string };
+  // P4-D: clear an allocation (one contra settlement) or store why it was refused (`accepted: false`).
+  '/api/accounting/intercompany/allocations/{}/accept': AcceptAllocationOutcome;
   // GET the pairing screen's data; POST records pairs (answers with the counts).
   '/api/accounting/intercompany/connections/{}/pairing': PairingView | PairingResult;
   // PUT confirms the partner's proposal, DELETE unlinks: both answer with the link's new status.

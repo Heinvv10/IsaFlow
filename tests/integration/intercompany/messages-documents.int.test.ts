@@ -128,7 +128,16 @@ describe('accepting: the target is the receiver\'s and fits the kind', () => {
     expect(await handle(U.b, co.B, m, "status = 'rejected', reason = 'wrong amount'")).toBe('ok');
   });
 
-  it.each([['payment'], ['allocation'], ['reject'], ['credit_request']])('%s creates no document: whatever target is sent is cleared, on accepting and on any other update', async (kind) => {
+  it("allocation (P4-D, 1027): accepted only with the clearing posted for it, a target on any other update refused, never cleared", async () => {
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'allocation' });
+    const thirds = await plantDocument(pool, 'customer_invoice', co.C);                        // attack A
+    expect(await handle(U.b, co.B, m, accepting('customer_invoice', thirds))).toMatch(/^23514: an allocation message is accepted with the clearing posted for it/);
+    expect(await handle(U.b, co.B, m, `status = 'failed', error = 'x', target_doc_type = 'supplier_invoice', target_doc_id = '${thirds}'`))
+      .toMatch(/^23514: an allocation message names its clearing only when it is accepted/);
+    expect(await row(m)).toMatchObject({ status: 'pending', target_doc_type: null, target_doc_id: null });
+  });
+
+  it.each([['payment'], ['reject'], ['credit_request']])('%s creates no document: whatever target is sent is cleared, on accepting and on any other update', async (kind) => {
     const m = await plantMessage(pool, id, co.A, co.B, { kind });
     const thirds = await plantDocument(pool, 'customer_invoice', co.C);                        // attack A
     expect(await handle(U.b, co.B, m, accepting('customer_invoice', thirds))).toBe('ok');

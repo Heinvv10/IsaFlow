@@ -1,6 +1,6 @@
 // Bills > Intercompany, "Payments from your group" (P4-C): the payer's allocation messages under the invoice list, shown only when there
 // is one; each row's state (Live, Stale: <reason>, Check: <mismatch>); the detail drawer with the payload facts; Reject (reason required)
-// and Dismiss (confirmed first), Restore of a dismissed one; NO Accept anywhere (clearing comes later); a viewer reads only. Every action
+// and Dismiss (confirmed first), Restore of a dismissed one; Accept only in the drawer (P4-D, its own tests); a viewer reads only. Every action
 // button names its payment (screen readers hear which row).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -119,15 +119,15 @@ describe('Payments from your group', () => {
     expect(rows[1]!.textContent).not.toContain(formatCurrency(1150));
   });
 
-  it('has no Accept anywhere and says clearing is coming', async () => {
+  it('P4-D: no Accept in the list; the drawer offers it, enabled once its preview arrives, and the section says what Accept does', async () => {
     serve({ items: [], allocations: [alloc()] });
     render(<IntercompanyInboxPage />);
     const s = await section();
     expect(within(s).queryByRole('button', { name: /accept/i })).toBeNull();
-    expect(s.textContent).toMatch(/clearing.*coming/i);
+    expect(s.textContent).toMatch(/Accept one to clear it against your invoice through your intercompany loan account/);
     fireEvent.click(within(s).getByRole('button', { name: 'Details for payment SP-00012 on INV-900' }));
     const drawer = await screen.findByRole('dialog');
-    expect(within(drawer).queryByRole('button', { name: /accept/i })).toBeNull();
+    await waitFor(() => expect(within(drawer).getByRole('button', { name: 'Accept payment SP-00012 on INV-900' })).toBeEnabled());
   });
 
   it('the detail drawer shows the payload facts', async () => {

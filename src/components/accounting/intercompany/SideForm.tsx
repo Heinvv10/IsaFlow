@@ -34,6 +34,12 @@ export function SideForm({ connection, options, onSaved, onError }: Props) {
   const [autoAccept, setAutoAccept] = useState(side?.autoAccept ?? false);
   const [saving, setSaving] = useState(false);
   const fid = `ic-${connection.id}`;
+  // P4-D: only loan-class accounts are offered; a stored loan account that is not one (a legacy side) stays selectable as it is, so the
+  // form saves the other fields without changing it
+  const stored = side?.loanAccountId ?? null;
+  const loanItems: NamedRef[] = stored && !options.loanAccounts.some((a) => a.id === stored)
+    ? [...options.loanAccounts, { id: stored, label: `${options.accounts.find((a) => a.id === stored)?.label ?? 'Current account'} (current, not a loan account)` }]
+    : options.loanAccounts;
 
   async function save() {
     setSaving(true);
@@ -67,8 +73,13 @@ export function SideForm({ connection, options, onSaved, onError }: Props) {
         <Pick id={`${fid}-supplier`} label={`Supplier that is ${connection.partnerName} (when they invoice you)`}
           value={supplierId} onChange={setSupplierId} items={options.suppliers} empty="Not linked" />
         {connection.settings.settlementMode === 'loan' && (
-          <Pick id={`${fid}-loan`} label="Intercompany loan account" value={loanAccountId} onChange={setLoanAccountId}
-            items={options.accounts} empty="Not set" />
+          <div>
+            <Pick id={`${fid}-loan`} label="Intercompany loan account" value={loanAccountId} onChange={setLoanAccountId}
+              items={loanItems} empty="Not set" />
+            <p className="mt-1 text-xs text-ink-muted" data-testid="ic-loan-account-help">
+              Only loan or intercompany balance-sheet accounts are offered: not a bank, cash, control, VAT or system account, nor one that holds bank-statement lines.
+            </p>
+          </div>
         )}
         <Pick id={`${fid}-expense`} label="Default expense account for bills from them" value={expenseAccountId}
           onChange={setExpenseAccountId} items={options.accounts} empty="Not set" />
