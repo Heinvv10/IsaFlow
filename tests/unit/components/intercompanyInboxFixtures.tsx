@@ -26,6 +26,15 @@ export interface Serve {
   allocations?: AllocationItem[]; allocationDetail?: AllocationDetail; allocationsFail?: boolean;
 }
 const OPEN = ['pending', 'failed'];
+
+/** A payment from the group (P4-C) as the allocations list sends it. */
+export const alloc = (over: Partial<AllocationItem> = {}): AllocationItem => ({
+  id: 'a-1', status: 'pending', connectionId: 'c-1', senderName: 'Velocity Fibre (customer)', paymentNumber: 'SP-00012', paymentDate: '2026-09-01',
+  paymentMethod: 'eft', paymentReference: 'IC alloc ref', amount: 1150, currency: 'ZAR', payerDocumentNumber: 'BILL-7', cashLegIsLoanAccount: false,
+  issuerInvoice: { id: 'inv-1', number: 'INV-900', openAmount: 2000, status: 'approved', currency: 'ZAR', date: '2026-09-01' },
+  live: true, liveReason: 'ok', mismatch: null, blocker: null, reason: null, error: null, handledAt: null, createdAt: '2026-11-23T08:00:00.000Z', ...over,
+});
+export const detailOf = (item: AllocationItem): AllocationDetail => ({ item, allocationId: 'pa-1', linkId: 'l-1', linkOrigin: 'manual_pairing', cutoverDate: '2026-01-01' });
 export function serve(s: Serve = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
     const u = String(url);

@@ -137,6 +137,28 @@ describe('listAllocationInbox', () => {
     expect(JSON.stringify(m.log.warn.mock.calls)).not.toMatch(/names ids/);
   });
 
+  it('the lock setting is put back after a FAILING call too (outside every savepoint)', async () => {
+    serve({ rows: [row('m-1'), row('m-2')], live: () => Promise.reject(Object.assign(new Error('x'), { code: '57014' })) });
+    await listAllocationInbox(CO, 'open', 25, 0);
+    const order = m.calls.map((c) => (c.text.includes("set_config('lock_timeout'") ? `lock:${c.inSavepoint}` : c.text.includes('message_live') ? 'live' : null)).filter(Boolean);
+    expect(order).toEqual(['lock:false', 'live', 'lock:false']);
+    expect(callsTo("set_config('lock_timeout'")[1]!.values).toContain('0');
+  });
+
+  it.each(['55P03', '57014'])('a %s (a lock wait or a timeout) stops the page', async (code) => {
+    serve({ rows: [row('m-1'), row('m-2')], live: (id) => (id === 'm-1' ? Promise.reject(Object.assign(new Error('x'), { code })) : [{ live: true, reason: 'ok' }]) });
+    const items = (await listAllocationInbox(CO, 'open', 25, 0)).items;
+    expect(items.map((i) => i.liveReason)).toEqual(['check_failed', 'check_failed']);
+    expect(callsTo('intercompany_allocation_message_live')).toHaveLength(1);
+  });
+
+  it.each(['42501', '22P02', null])('any other failure (%s) marks only its row check_failed and the next row is still asked', async (code) => {
+    serve({ rows: [row('m-1'), row('m-2')], live: (id) => (id === 'm-1' ? Promise.reject(Object.assign(new Error('x'), code ? { code } : {})) : [{ live: true, reason: 'ok' }]) });
+    const items = (await listAllocationInbox(CO, 'open', 25, 0)).items;
+    expect(items.map((i) => i.liveReason)).toEqual(['check_failed', 'ok']);
+    expect(callsTo('intercompany_allocation_message_live')).toHaveLength(2);
+  });
+
   it('an unreadable answer (no exception) is check_failed for that row only: the next row is still asked', async () => {
     serve({ rows: [row('m-1'), row('m-2')], live: (id) => (id === 'm-1' ? [] : [{ live: true, reason: 'ok' }]) });
     const items = (await listAllocationInbox(CO, 'open', 25, 0)).items;

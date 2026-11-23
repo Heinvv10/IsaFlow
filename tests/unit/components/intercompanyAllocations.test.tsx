@@ -18,16 +18,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { envelope } from './intercompanyFixtures';
-import { posts, serve } from './intercompanyInboxFixtures';
-import type { AllocationDetail, AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
-
-const alloc = (over: Partial<AllocationItem> = {}): AllocationItem => ({
-  id: 'a-1', status: 'pending', connectionId: 'c-1', senderName: 'Velocity Fibre (customer)', paymentNumber: 'SP-00012', paymentDate: '2026-09-01',
-  paymentMethod: 'eft', paymentReference: 'IC alloc ref', amount: 1150, currency: 'ZAR', payerDocumentNumber: 'BILL-7', cashLegIsLoanAccount: false,
-  issuerInvoice: { id: 'inv-1', number: 'INV-900', openAmount: 2000, status: 'approved', currency: 'ZAR', date: '2026-09-01' },
-  live: true, liveReason: 'ok', mismatch: null, blocker: null, reason: null, error: null, handledAt: null, createdAt: '2026-11-23T08:00:00.000Z', ...over,
-});
-const detailOf = (item: AllocationItem): AllocationDetail => ({ item, allocationId: 'pa-1', linkId: 'l-1', linkOrigin: 'manual_pairing', cutoverDate: '2026-01-01' });
+import { alloc, detailOf, posts, serve } from './intercompanyInboxFixtures';
 
 beforeEach(() => { h.role = 'owner'; vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -53,7 +44,7 @@ describe('Payments from your group', () => {
     expect(within(rows[1]!).getByTestId('allocation-state')).toHaveTextContent('Stale: the payment was unapplied');
     expect(within(rows[2]!).getByTestId('allocation-state')).toHaveTextContent('Check: more than the invoice\'s open amount');
     expect(within(await section()).getByRole('table', { name: /Payments from your group/ })).toBeInTheDocument();   // the table's caption
-    for (const name of ['Details for payment SP-00012', 'Reject payment SP-00012', 'Dismiss payment SP-00012', 'Details for payment SP-00013']) {
+    for (const name of ['Details for payment SP-00012 on INV-900', 'Reject payment SP-00012 on INV-900', 'Dismiss payment SP-00012 on INV-900', 'Details for payment SP-00013 on INV-900']) {
       expect(within(await section()).getByRole('button', { name })).toBeInTheDocument();
     }
   });
@@ -134,7 +125,7 @@ describe('Payments from your group', () => {
     const s = await section();
     expect(within(s).queryByRole('button', { name: /accept/i })).toBeNull();
     expect(s.textContent).toMatch(/clearing.*coming/i);
-    fireEvent.click(within(s).getByRole('button', { name: 'Details for payment SP-00012' }));
+    fireEvent.click(within(s).getByRole('button', { name: 'Details for payment SP-00012 on INV-900' }));
     const drawer = await screen.findByRole('dialog');
     expect(within(drawer).queryByRole('button', { name: /accept/i })).toBeNull();
   });
@@ -142,7 +133,7 @@ describe('Payments from your group', () => {
   it('the detail drawer shows the payload facts', async () => {
     serve({ items: [], allocations: [alloc()], allocationDetail: detailOf(alloc({ cashLegIsLoanAccount: true })) });
     render(<IntercompanyInboxPage />);
-    fireEvent.click(within(await section()).getByRole('button', { name: 'Details for payment SP-00012' }));
+    fireEvent.click(within(await section()).getByRole('button', { name: 'Details for payment SP-00012 on INV-900' }));
     const drawer = await screen.findByRole('dialog');
     await within(drawer).findByText('SP-00012');
     for (const text of ['BILL-7', 'INV-900', 'IC alloc ref', 'Paid through the intercompany loan account', 'Manual pairing', formatDate('2026-01-01')]) {
@@ -154,13 +145,13 @@ describe('Payments from your group', () => {
   it('reject asks for a reason, then posts it trimmed to the allocation route', async () => {
     serve({ items: [], allocations: [alloc()] });
     render(<IntercompanyInboxPage />);
-    fireEvent.click(within(await section()).getByRole('button', { name: 'Reject payment SP-00012' }));
+    fireEvent.click(within(await section()).getByRole('button', { name: 'Reject payment SP-00012 on INV-900' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Reject message' }));
     expect(await screen.findByText(/Say why you are rejecting it/)).toBeInTheDocument();
     expect(posts()).toHaveLength(0);
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: '  Not our payment  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reject message' }));
-    await screen.findByText(/Rejected SP-00012/);
+    await screen.findByText(/Rejected payment SP-00012 on INV-900/);
     const [url, init] = posts()[0]!;
     expect(String(url)).toBe('/api/accounting/intercompany/allocations/a-1/reject');
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ reason: 'Not our payment' });
@@ -169,12 +160,12 @@ describe('Payments from your group', () => {
   it('dismiss asks first: cancel posts nothing; confirming posts to the allocation route and says so', async () => {
     serve({ items: [], allocations: [alloc()] });
     render(<IntercompanyInboxPage />);
-    fireEvent.click(within(await section()).getByRole('button', { name: 'Dismiss payment SP-00012' }));
+    fireEvent.click(within(await section()).getByRole('button', { name: 'Dismiss payment SP-00012 on INV-900' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(posts()).toHaveLength(0);
-    fireEvent.click(within(await section()).getByRole('button', { name: 'Dismiss payment SP-00012' }));
+    fireEvent.click(within(await section()).getByRole('button', { name: 'Dismiss payment SP-00012 on INV-900' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Dismiss payment' }));
-    await screen.findByText(/Dismissed payment SP-00012/);
+    await screen.findByText(/Dismissed payment SP-00012 on INV-900/);
     expect(posts().map(([u]) => String(u))).toEqual(['/api/accounting/intercompany/allocations/a-1/dismiss']);
   });
 
@@ -184,8 +175,8 @@ describe('Payments from your group', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Handled' }));
     const row = within(await section()).getByTestId('allocation-row');
     expect(within(row).queryByRole('button', { name: /^Reject/ })).toBeNull();
-    fireEvent.click(within(row).getByRole('button', { name: 'Restore payment SP-00012' }));
-    await screen.findByText(/Restored payment SP-00012/);
+    fireEvent.click(within(row).getByRole('button', { name: 'Restore payment SP-00012 on INV-900' }));
+    await screen.findByText(/Restored payment SP-00012 on INV-900/);
     expect(posts().map(([u]) => String(u))).toEqual(['/api/accounting/intercompany/allocations/a-1/restore']);
   });
 
@@ -195,7 +186,7 @@ describe('Payments from your group', () => {
     render(<IntercompanyInboxPage />);
     const s = await section();
     for (const name of [/^Reject/, /^Dismiss/, /^Restore/]) expect(within(s).queryByRole('button', { name })).toBeNull();
-    fireEvent.click(within(s).getByRole('button', { name: 'Details for payment SP-00012' }));
+    fireEvent.click(within(s).getByRole('button', { name: 'Details for payment SP-00012 on INV-900' }));
     const drawer = await screen.findByRole('dialog');
     await within(drawer).findByText('SP-00012');
     for (const name of [/^Reject/, /^Dismiss/]) expect(within(drawer).queryByRole('button', { name })).toBeNull();

@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
+import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, count, withoutTrigger } from './intercompany.helpers';
 import { co, mirrorCleanup, rawReverseJournal, U, wipeConnections } from './mirror.helpers';
 import { allocSetup, clearPayments, loanConnect, plantBatchRow, plantBill, plantPaid, plantPaymentJournal, sendFor } from './allocation.helpers';
@@ -67,6 +68,15 @@ describe('each way a message goes stale answers its reason', () => {
   const cases: Array<[string, string, (s: Sent) => Promise<unknown>]> = [
     ['rejected by the receiver', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'rejected', reason = 'no' WHERE id = $1", [s.message])],
     ['dismissed by the receiver', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'dismissed' WHERE id = $1", [s.message])],
+    ['accepted by a direct UPDATE (the pinned hole D closes)', 'not_pending', (s) => asA("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [s.message])],
+    ['withdrawn (planted: no path withdraws an allocation yet)', 'not_pending', (s) => withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard',
+      (q) => q.query("UPDATE intercompany_messages SET status = 'withdrawn', source_cancelled_at = now() WHERE id = $1", [s.message]))],
+    ['the payment renumbered', 'changed', (s) => pool.query("UPDATE supplier_payments SET payment_number = 'SP-RENUMBERED' WHERE id = $1", [s.payment])],
+    ['the payment method changed', 'changed', (s) => pool.query("UPDATE supplier_payments SET payment_method = 'cheque' WHERE id = $1", [s.payment])],
+    ['the bill\'s currency changed', 'changed', async (s) => {
+      await enableFxDocuments(pool, co.B);
+      await pool.query("UPDATE supplier_invoices SET currency_code = 'USD', currency = 'USD' WHERE id = $1", [s.bill]);
+    }],
     ['the allocation row deleted (unapplied)', 'allocation_gone', (s) => pool.query('DELETE FROM payment_allocations WHERE id = $1', [s.allocation])],
     ['the allocated amount changed', 'changed', (s) => pool.query('UPDATE payment_allocations SET amount_allocated = 1000 WHERE id = $1', [s.allocation])],
     ['the allocation moved to another bill', 'changed', async (s) => {
