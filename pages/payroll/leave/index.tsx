@@ -148,8 +148,10 @@ export default function LeaveIndexPage() {
                   {requests.map(r => (
                     <tr key={r.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
                       <td data-label="Employee" className="py-3 px-4">
-                        <span className="font-medium text-[var(--ff-text-primary)]">{r.employeeName}</span>
-                        <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-id">{r.employeeNumber}</span>
+                        <span className="max-lg:text-right">
+                          <span className="font-medium text-[var(--ff-text-primary)]">{r.employeeName}</span>
+                          <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-id max-lg:block max-lg:ml-0">{r.employeeNumber}</span>
+                        </span>
                       </td>
                       <td data-label="Leave Type" className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
                       <td data-label="From" className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>

@@ -41,6 +41,17 @@ describe('Payroll leave list on touch', () => {
     expect(cls(screen.getAllByRole('combobox')[0].closest('.mb-6')!)).toContain('max-lg:flex-wrap');
   });
 
+  it('keeps the employee name and number together, right-aligned, instead of three flex items', async () => {
+    render(<Page />);
+    const name = await screen.findByText('Ann Smith');
+    const wrap = name.parentElement!;
+    expect(cls(wrap)).toContain('max-lg:text-right');
+    const number = screen.getByText('E001');
+    expect(number.parentElement).toBe(wrap);
+    expect(cls(number)).toEqual(expect.arrayContaining(['max-lg:block', 'max-lg:ml-0']));
+    expect(wrap.parentElement!.getAttribute('data-label')).toBe('Employee');
+  });
+
   it('gives both filters a phone-sized trigger', async () => {
     render(<Page />);
     await screen.findByText('Ann Smith');
