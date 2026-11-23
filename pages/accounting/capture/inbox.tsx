@@ -118,19 +118,19 @@ export default function CaptureInboxPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div>
             <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Capture Inbox</h1>
             <p className="text-sm text-[var(--ff-text-secondary)] mt-0.5">Captured documents awaiting review</p>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none max-lg:min-h-11">
               <input type="checkbox" checked={showProcessed} onChange={e => setShowProcessed(e.target.checked)}
                 className="rounded border-slate-600 bg-transparent" />
               Show processed
             </label>
             <button onClick={() => { setLoading(true); void loadEvents(); }}
-              className="p-2 rounded text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-colors" title="Refresh">
+              className="p-2 rounded text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Refresh">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
@@ -143,7 +143,7 @@ export default function CaptureInboxPage() {
               {toast.ok ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {toast.msg}
             </span>
-            <button onClick={() => setToast(null)}><X className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setToast(null)} className="max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
 
@@ -167,7 +167,7 @@ export default function CaptureInboxPage() {
                 <p className="text-slate-500 text-sm flex items-center gap-2 flex-wrap justify-center">
                   Forward slips to
                   <span className="font-mono text-slate-300 bg-white/5 px-2 py-0.5 rounded">{inboxAddr.address}</span>
-                  <button onClick={() => void copyAddress()} className="text-slate-500 hover:text-teal-400 transition-colors">
+                  <button onClick={() => void copyAddress()} className="text-slate-500 hover:text-teal-400 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </button>
                 </p>
@@ -175,7 +175,7 @@ export default function CaptureInboxPage() {
             </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-[rgba(255,255,255,0.06)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[rgba(255,255,255,0.06)] text-xs text-slate-500 uppercase tracking-wider">
                     <th className="px-4 py-3 text-left font-medium">Channel</th>
@@ -192,23 +192,23 @@ export default function CaptureInboxPage() {
                   {visible.map(ev => (
                     <tr key={ev.eventId} onClick={() => setSelected(ev)}
                       className="cursor-pointer hover:bg-white/5 transition-colors group">
-                      <td className="px-4 py-3 text-slate-400">{CHANNEL_ICONS[ev.channel]}</td>
-                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{fmtDate(ev.receivedAt)}</td>
-                      <td className="px-4 py-3 text-slate-400 max-w-[160px] truncate">{ev.sender ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-300 font-medium">{ev.vendorName ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-400 font-mono text-xs">{ev.referenceNumber ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{fmtZAR(ev.totalAmount)}</td>
-                      <td className="px-4 py-3"><StatusBadge status={ev.status} error={ev.error} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <td data-label="Channel" className="px-4 py-3 text-slate-400">{CHANNEL_ICONS[ev.channel]}</td>
+                      <td data-label="Received" className="px-4 py-3 text-slate-300 whitespace-nowrap">{fmtDate(ev.receivedAt)}</td>
+                      <td data-label="Sender" className="px-4 py-3 text-slate-400 max-w-[160px] truncate max-lg:max-w-none max-lg:whitespace-normal">{ev.sender ?? '—'}</td>
+                      <td data-label="Vendor" className="px-4 py-3 text-slate-300 font-medium">{ev.vendorName ?? '—'}</td>
+                      <td data-label="Reference" className="px-4 py-3 text-slate-400 font-mono text-xs">{ev.referenceNumber ?? '—'}</td>
+                      <td data-label="Amount" className="px-4 py-3 text-right text-slate-300">{fmtZAR(ev.totalAmount)}</td>
+                      <td data-label="Status" className="px-4 py-3"><StatusBadge status={ev.status} error={ev.error} /></td>
+                      <td data-label="Actions" className="px-4 py-3">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 max-lg:opacity-100 transition-opacity">
                           {ev.status === 'extracted' && (
                             <button onClick={e => { e.stopPropagation(); void handlePost(ev.eventId); }}
-                              className="px-2.5 py-1 bg-brand-700 hover:bg-brand-600 text-white rounded text-xs font-medium">
+                              className="px-2.5 py-1 bg-brand-700 hover:bg-brand-600 text-white rounded text-xs font-medium max-lg:min-h-11 max-lg:px-4">
                               Post
                             </button>
                           )}
                           <button onClick={e => { e.stopPropagation(); setSelected(ev); }}
-                            className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-white/10">
+                            className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-white/10 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                             <ChevronRight className="h-3.5 w-3.5" />
                           </button>
                         </div>
