@@ -46,6 +46,7 @@ describe('Payroll parallel run on touch', () => {
     // one flex item beside the card label, not two spread apart
     const group = screen.getByTitle('Export comparison CSV').parentElement!;
     expect(group).toBe(screen.getByTitle('Delete import').parentElement);
+    expect(group.className.split(' ')).toEqual(expect.arrayContaining(['inline-flex', 'items-center'])); // stays on one line, right-aligned as before
     expect(group.getAttribute('data-label')).toBeNull();
     expect(group.closest('td')!.getAttribute('data-label')).toBe('Actions');
   });
