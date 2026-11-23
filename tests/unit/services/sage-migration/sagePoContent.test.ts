@@ -106,7 +106,7 @@ describe('the " [item CODE]" suffix', () => {
 
 describe('keyed like the tool', () => {
   it('a renumbered PO is listed under the number the books hold', () => {
-    const d = diff(sent({ header: { po_number: 'PO1-NEW' } }), books());
+    const d = poContentDifferences({ purchaseOrders: [{ sageId: '1', documentNumber: 'PO1-NEW', stored: sent({ header: { po_number: 'PO1-NEW' } }) }] }, new Map([['1', books()]]));
     expect(d.map((p) => p.poNumber)).toEqual(['PO1']);
     expect(fieldsOf(d)).toEqual(['po_number']);
   });

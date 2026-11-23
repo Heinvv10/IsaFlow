@@ -47,6 +47,19 @@ describe('B7-A: a booked PO renumbered in Sage', () => {
     expect((await booked(pool, s.companyId)).pos).toBe(10);
     expect((await pool.query(`SELECT po_number FROM purchase_orders WHERE company_id = $1 AND external_ref = '900198'`, [s.companyId])).rows).toEqual([{ po_number: 'PO0000198' }]);
   });
+  it('renumbered AND its total changed (a line added in Sage): the allowance covers it by reference, the run is complete and exits 0', async () => {
+    expect((await run()).status).toBe('completed');
+    const f = renumbered();
+    const p = pos(f).find((x) => x.ID === 900198)!;
+    Object.assign(p, { Exclusive: (p.Exclusive as number) + 100, Tax: (p.Tax as number) + 15, Total: (p.Total as number) + 115,
+      Lines: [...(p.Lines as Row[]), { Description: 'Extra', Quantity: 1, UnitPriceExclusive: 100, TaxTypeId: 1, TaxPercentage: 15, Exclusive: 100, Tax: 15 }] });
+    const r = await run(f, { expect: { items: 20, purchaseOrders: 10 } });
+    expect(r.status).toBe('completed');
+    expect(r.differences.purchaseOrders.map((x) => x.poNumber)).toEqual(['PO0000198']);
+    expect(r.reconciliation.purchaseOrders.differenceCents).toBe(11500);
+    expect(r.reconciliation.allSentBooked).toBe(true);
+    expect(exitCodeFor(r, false, true)).toBe(0);
+  });
   it('two booked POs whose numbers Sage swapped are not po_number_taken; each is listed under the number the books hold', async () => {
     expect((await run()).status).toBe('completed');
     const f = exportFile();
