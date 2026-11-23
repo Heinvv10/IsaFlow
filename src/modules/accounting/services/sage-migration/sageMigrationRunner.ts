@@ -14,6 +14,7 @@
  *   4. The reconciliation is measured in the database before and after, not taken from what the tools said.
  */
 import type { Pool } from 'pg';
+import { formatCents } from '@/lib/money/formatMoney';
 import { log } from '@/lib/logger';
 import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
@@ -42,7 +43,10 @@ function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationRep
   const why: string[] = [];
   const names: Record<string, string> = { items: '--expect-items', purchaseOrders: '--expect-pos', purchaseOrderTotalCents: '--expect-po-total' };
   for (const [key, e] of Object.entries(rec.expected)) {
-    if (e && !e.ok) why.push(`${names[key] ?? key} ${e.expected}, but the dry run would ${e.basis === 'projected' ? 'leave the books at' : 'send'} ${e.actual}`);
+    if (e && !e.ok) {
+      const fig = (n: number): string => (key === 'purchaseOrderTotalCents' ? formatCents(n) : String(n));
+      why.push(`${names[key] ?? key} ${fig(e.expected)}, but the dry run would ${e.basis === 'projected' ? 'leave the books at' : 'send'} ${fig(e.actual)}`);
+    }
   }
   if (!rec.nothingRefused && !o.allowRefusals) why.push('rows are refused (see the refused list); --allow-refusals imports the rest');
   const differs = diff.purchaseOrders.length + diff.items.length + diff.categories.length;
@@ -72,12 +76,13 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
   });
 }
 
-async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, committed: BatchReport[], lockHeld: () => void): Promise<PhaseReport> {
+async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, committed: BatchReport[], lockHeld: () => Promise<void>): Promise<PhaseReport> {
   const p = emptyPhase();
   for (const s of list) {
-    // The lock's connection reports its own loss at once: no batch is committed while another run may hold the lock (thrown outside the batch's
-    // own try, so it stops the run, listing what was committed).
-    lockHeld();
+    // The lock is asked before EVERY batch (one SELECT 1, bounded by CHECK_TIMEOUT_MS, and the connection's own error flag): a loss it
+    // already knows of stops the run here; a half-open connection is noticed within the timeout, so at most one batch can be in flight
+    // beyond the loss. Thrown outside the batch's own try, so it stops the run, listing what was committed.
+    await lockHeld();
     let b: BatchReport;
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
@@ -171,13 +176,13 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       });
       return { batches, failed: batches.filter((b) => b.status === 'failed').length };
     };
-    const liveCategories = await livePhase(pool, opts, all.categories, before, committed, lock.held);
+    const liveCategories = await livePhase(pool, opts, all.categories, before, committed, lock.check);
     const categoriesVerified = liveCategories.failed === 0 ? verifiedCategories(liveCategories, await readAfter()) : liveCategories;
     await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.held) : emptyPhase();
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.check) : emptyPhase();
     const items = categoriesVerified.failed === 0 && liveItems.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
     await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.held) : emptyPhase();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.check) : emptyPhase();
     await lockHeld();
     const after = await readAfter();
     const purchaseOrders = verified(livePos, all.purchaseOrders, after);

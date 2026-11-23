@@ -44,12 +44,17 @@ export function summaryLines(r: MigrationReport): string[] {
   if (rec.items.presentBefore > 0) {
     lines.push('NOTE: a re-run sets the items and categories this migration owns back to the values it sends; edits to those fields in IsaFlow since the import are overwritten (a value Sage dropped stays: the tools never clear a field).');
   }
-  for (const [name, e] of Object.entries(rec.expected)) if (e && !e.ok) lines.push(`MISMATCH ${name}: expected ${e.expected}, ${e.basis} ${e.actual}`);
+  for (const [name, e] of Object.entries(rec.expected)) {
+    if (!e || e.ok) continue;
+    const fig = (n: number): string => (name === 'purchaseOrderTotalCents' ? money(n) : String(n));
+    lines.push(`MISMATCH ${name}: expected ${fig(e.expected)}, ${e.basis} ${fig(e.actual)}`);
+  }
   for (const x of r.refused.slice(0, 20)) lines.push(`refused ${x.entity} ${x.label} [${x.code}]: ${x.reasons.join('; ')}`);
   if (r.refused.length > 20) lines.push(`... and ${r.refused.length - 20} more refused rows (see the report file)`);
   for (const p of [r.live, r.dryRun]) {
     for (const b of p ? [...p.categories.batches, ...p.items.batches, ...p.purchaseOrders.batches] : []) {
       if (b.status === 'failed') lines.push(`FAILED ${b.entity} batch ${b.n}${p === r.dryRun ? ' (dry run)' : ''}: ${shown(b.error)}`);
+      if (b.commitUnconfirmed) lines.push(`COMMIT UNCONFIRMED: ${b.entity} batch ${b.n} (${b.key}): it may have been committed; check the books`);
     }
   }
   lines.push(`all sent rows booked: ${rec.allSentBooked}; nothing refused: ${rec.nothingRefused}`);
@@ -59,9 +64,12 @@ export function summaryLines(r: MigrationReport): string[] {
 /**
  * 0: a clean dry run, or a live run that booked every row it sent, and every --expect-* figure matched what was sent / booked, and
  * no row was refused (unless `allowRefusals`), and no PO or owned item differs from what the books hold (unless `allowDifferences`). 1: anything else.
+ * 4: a live batch's COMMIT did not answer (`commitUnconfirmed`): the books may hold it, so the run is not just "not ok" (same meaning as a stop after the live phase started).
  */
-export function exitCodeFor(r: MigrationReport, allowRefusals: boolean, allowDifferences = false): 0 | 1 {
+export function exitCodeFor(r: MigrationReport, allowRefusals: boolean, allowDifferences = false): 0 | 1 | 4 {
   const rec = r.reconciliation;
+  const live = r.live ? [...r.live.categories.batches, ...r.live.items.batches, ...r.live.purchaseOrders.batches] : [];
+  if (live.some((b) => b.commitUnconfirmed)) return 4;
   const finished = r.status === 'dry_run_ok' || (r.status === 'completed' && rec.allSentBooked);
   const expectationsMet = Object.values(rec.expected).every((e) => e === null || e.ok);
   const differs = r.differences.purchaseOrders.length + r.differences.items.length + r.differences.categories.length > 0;

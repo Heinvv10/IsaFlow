@@ -1,5 +1,6 @@
 /** M2: a re-run that finds a PO already there with other figures, or an owned item that would change, says so; exit 1 unless allowed. */
 import { describe, expect, it } from 'vitest';
+import { formatCents } from '@/lib/money/formatMoney';
 import { differencesFrom } from '@/modules/accounting/services/sage-migration/sageDifferences';
 import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 import type { BatchReport, MigrationReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
@@ -97,6 +98,24 @@ describe('exit code and summary with differences', () => {
     expect(summaryLines(none).join('\n')).not.toMatch(/overwritten/);
   });
 
+  it('M1 (round 7): a batch whose COMMIT did not answer is named in the summary and the run exits 4, not 1 (the books may hold it)', () => {
+    const lost: BatchReport = { ...batch('item', null), status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed', key: 'sage-mig-item-1-abc' };
+    const r: MigrationReport = { ...base(), status: 'failed', live: { categories: phase, items: { batches: [lost], failed: 1 }, purchaseOrders: phase } };
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain('COMMIT UNCONFIRMED: item batch 1 (sage-mig-item-1-abc): it may have been committed; check the books');
+    expect(exitCodeFor(r, true, true)).toBe(4);
+    // an ordinary failed batch is exit 1, and says nothing about the books
+    const plain: MigrationReport = { ...r, live: { categories: phase, items: { batches: [{ ...lost, commitUnconfirmed: undefined }], failed: 1 }, purchaseOrders: phase } };
+    expect(exitCodeFor(plain, true, true)).toBe(1);
+    expect(summaryLines(plain).join('\n')).not.toContain('COMMIT UNCONFIRMED');
+  });
+  it('L3 (round 7): the PO total expectation is printed as money, not as bare cents next to a flag given in rands', () => {
+    const r = base();
+    (r.reconciliation as { expected: unknown }).expected = { items: null, purchaseOrders: null, purchaseOrderTotalCents: { expected: 8095000000, actual: 8094000000, basis: 'projected', ok: false } };
+    const t = summaryLines(r).join('\n');
+    expect(t).toContain(`MISMATCH purchaseOrderTotalCents: expected ${formatCents(8095000000)}, projected ${formatCents(8094000000)}`);
+    expect(t).not.toContain('8095000000');
+  });
   it('the summary warns loudly when rows were refused and nothing at all is sent or booked', () => {
     const none = base();
     (none.reconciliation.items as Record<string, number>).sent = 0;
