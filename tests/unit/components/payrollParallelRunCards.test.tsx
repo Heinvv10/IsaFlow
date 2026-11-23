@@ -43,6 +43,11 @@ describe('Payroll parallel run on touch', () => {
     render(<Page />);
     await screen.findByText('Mar 2026');
     for (const title of ['Export comparison CSV', 'Delete import']) expect(cls(screen.getByTitle(title)), title).toEqual(expect.arrayContaining(SQUARE));
+    // one flex item beside the card label, not two spread apart
+    const group = screen.getByTitle('Export comparison CSV').parentElement!;
+    expect(group).toBe(screen.getByTitle('Delete import').parentElement);
+    expect(group.getAttribute('data-label')).toBeNull();
+    expect(group.closest('td')!.getAttribute('data-label')).toBe('Actions');
   });
 
   it('makes the upload card phone-sized: both period selects, the source box and Choose CSV', async () => {

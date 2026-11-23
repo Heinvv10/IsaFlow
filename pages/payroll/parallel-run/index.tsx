@@ -198,22 +198,24 @@ export default function ParallelRunPage() {
                   <td data-label="File" className="px-4 py-2 text-[var(--ff-text-tertiary)]">{imp.fileName ?? '—'}</td>
                   <td data-label="Payslips" className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
                   <td data-label="Actions" className="px-4 py-2 text-right">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void handleExport(imp.id); }}
-                      title="Export comparison CSV"
-                      className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                    <WriteOnly>
+                    <div className="inline-flex items-center gap-1">
                       <button
-                        onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
-                        title="Delete import"
-                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
+                        onClick={(e) => { e.stopPropagation(); void handleExport(imp.id); }}
+                        title="Export comparison CSV"
+                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Download className="h-4 w-4" />
                       </button>
-                    </WriteOnly>
+                      <WriteOnly>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
+                          title="Delete import"
+                          className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </WriteOnly>
+                    </div>
                   </td>
                 </tr>
               ))}
