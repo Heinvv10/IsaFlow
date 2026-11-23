@@ -74,7 +74,7 @@ export default function LeaveIndexPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <CalendarOff className="h-6 w-6 text-teal-500" />
@@ -85,11 +85,11 @@ export default function LeaveIndexPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Link href="/payroll/leave/balances" className="px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">
+              <Link href="/payroll/leave/balances" className="px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                 Balances
               </Link>
               <WriteOnly>
-                <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+                <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium max-lg:min-h-11">
                   <Plus className="h-4 w-4" /> New Request
                 </Link>
               </WriteOnly>
@@ -99,12 +99,12 @@ export default function LeaveIndexPage() {
 
         <div className="p-6">
           {/* Filters */}
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-6 max-lg:flex-wrap">
             <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <Select label="Filter by status" labelClassName="sr-only" className="w-44" size="sm" placeholder="All Statuses" clearable
+            <Select label="Filter by status" labelClassName="sr-only" className="w-44" size="sm" touchTarget placeholder="All Statuses" clearable
               value={filterStatus || null} onChange={v => setFilterStatus(v ?? '')}
               options={['pending', 'approved', 'rejected', 'cancelled'].map(st => ({ value: st, label: st.charAt(0).toUpperCase() + st.slice(1) }))} />
-            <Select label="Filter by month" labelClassName="sr-only" className="w-40" size="sm" placeholder="All months" clearable
+            <Select label="Filter by month" labelClassName="sr-only" className="w-40" size="sm" touchTarget placeholder="All months" clearable
               value={filterMonth || null} onChange={v => setFilterMonth(v ?? '')}
               options={MONTHS.slice(1).map((m, i) => ({ value: String(i + 1), label: m }))} />
             {!isLoading && (
@@ -125,14 +125,14 @@ export default function LeaveIndexPage() {
               <CalendarOff className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No leave requests</p>
               <WriteOnly>
-                <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+                <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium max-lg:min-h-11">
                   <Plus className="h-4 w-4" /> New Request
                 </Link>
               </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Employee</th>
@@ -147,17 +147,17 @@ export default function LeaveIndexPage() {
                 <tbody>
                   {requests.map(r => (
                     <tr key={r.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
-                      <td className="py-3 px-4">
+                      <td data-label="Employee" className="py-3 px-4">
                         <span className="font-medium text-[var(--ff-text-primary)]">{r.employeeName}</span>
                         <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-id">{r.employeeNumber}</span>
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.endDate)}</td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-primary)] font-medium">{r.days}</td>
-                      <td className="py-3 px-4"><StatusBadge status={r.status} /></td>
+                      <td data-label="Leave Type" className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
+                      <td data-label="From" className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>
+                      <td data-label="To" className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.endDate)}</td>
+                      <td data-label="Days" className="py-3 px-4 text-right text-[var(--ff-text-primary)] font-medium">{r.days}</td>
+                      <td data-label="Status" className="py-3 px-4"><StatusBadge status={r.status} /></td>
                       <td className="py-3 px-4 text-right">
-                        <Link href={`/payroll/leave/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">View</Link>
+                        <Link href={`/payroll/leave/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium max-lg:inline-flex max-lg:items-center max-lg:min-h-11">View</Link>
                       </td>
                     </tr>
                   ))}
