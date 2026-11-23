@@ -1,5 +1,6 @@
 /** One payment from the group (P4-C): the payload's facts, this company's invoice it names, its state; Reject and Dismiss. P4-D: Accept (it clears
- *  the payment against the invoice, with the preview this detail carries), and an accepted one's clearing receipt, flagged when it was voided. */
+ *  the payment against the invoice, with the preview this detail carries), and an accepted one's clearing receipt, flagged when it was voided.
+ *  Accept (and the sentence about it) only while the dark flag intercompany_loan_clearing is on: the list's answer AND this detail's. */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
@@ -14,6 +15,8 @@ interface Props {
   /** The row's name (payment and invoice), as its buttons in the list say it. */
   label: string;
   canWrite: boolean;
+  /** The list's `loanClearingEnabled`: false, no Accept (the detail's own answer can only turn it off). */
+  clearingEnabled: boolean;
   busy: boolean;
   onClose: () => void;
   onReject: (item: AllocationItem) => void;
@@ -33,7 +36,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, onReject, onDismiss, onAccept }: Props) {
+export function AllocationDetailDrawer({ item, label, canWrite, clearingEnabled, busy, onClose, onReject, onDismiss, onAccept }: Props) {
   const [detail, setDetail] = useState<AllocationDetail | null>(null);
   const [error, setError] = useState('');
   const id = item?.id ?? null;
@@ -53,6 +56,7 @@ export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, o
   const shown = detail?.item ?? item;
   const state = allocationState(shown);
   const inv = shown.issuerInvoice;
+  const mayClear = clearingEnabled && detail?.loanClearingEnabled !== false;
   return (
     <Drawer open onClose={onClose} title={label ? `Details for ${label}` : `Payment ${paymentLabel(shown)}`} width="lg">
       <div className="p-5 space-y-4">
@@ -92,13 +96,17 @@ export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, o
         )}
         {isOpen(shown) && (
           <p className="text-sm text-ink-muted">
-            Accept clears this payment against your invoice through your intercompany loan account (one journal; you choose the date). Or reject it with a reason, or dismiss it.
+            {mayClear
+              ? 'Accept clears this payment against your invoice through your intercompany loan account (one journal; you choose the date). Or reject it with a reason, or dismiss it.'
+              : 'You can reject it with a reason, or dismiss it.'}
           </p>
         )}
         {isOpen(shown) && canWrite && (
           <div className="flex gap-2">
-            <button type="button" className={btn} disabled={busy || !detail?.preview} aria-label={`Accept ${label}`}
-              onClick={() => { if (detail?.preview) onAccept(shown, detail.preview); }}>Accept</button>
+            {mayClear && (
+              <button type="button" className={btn} disabled={busy || !detail?.preview} aria-label={`Accept ${label}`}
+                onClick={() => { if (detail?.preview) onAccept(shown, detail.preview); }}>Accept</button>
+            )}
             <button type="button" className={btn} disabled={busy} aria-label={`Reject ${label}`} onClick={() => onReject(shown)}>Reject</button>
             <button type="button" className={btn} disabled={busy} aria-label={`Dismiss ${label}`} onClick={() => onDismiss(shown)}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Dismiss

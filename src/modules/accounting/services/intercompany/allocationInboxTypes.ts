@@ -63,6 +63,8 @@ export interface AllocationPage {
   total: number;
   /** Pending and failed allocation messages (not in the Bills badge: nothing can be done with one yet). */
   allocationCount: number;
+  /** The dark flag `intercompany_loan_clearing` for the session company: false, the inbox offers no Accept (reject / dismiss stay). */
+  loanClearingEnabled: boolean;
 }
 
 export interface AllocationDetail {
@@ -73,6 +75,8 @@ export interface AllocationDetail {
   linkOrigin: string | null;
   /** The connection's cut-over date (an invoice dated before it is refused by D). */
   cutoverDate: string | null;
-  /** P4-D: what Accept would post, for an open message; null for a handled one. */
+  /** P4-D: what Accept would post, for an open message; null for a handled one, and for every one while loan clearing is off. */
   preview: AllocationClearingPreview | null;
+  /** The dark flag `intercompany_loan_clearing` for the session company (as on the list). */
+  loanClearingEnabled: boolean;
 }

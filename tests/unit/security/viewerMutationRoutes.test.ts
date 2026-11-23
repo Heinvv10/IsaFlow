@@ -22,6 +22,10 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/rateLimit', async (orig) => ({ ...(await orig<typeof import('@/lib/rateLimit')>()), checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/bank/vlmService', () => ({ isVlmAvailable: () => false, extractStatutoryDocWithVlm: vi.fn() }));
+// the intercompany accept's dark flag on (a 403 of its own, tested in loanClearingGate / loan-clearing-flag-accept): this file is about the role gate
+vi.mock('@/modules/accounting/services/intercompany/loanClearingGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/loanClearingGate')>()), loanClearingEnabled: async () => true,
+}));
 
 import { sql } from '@/lib/neon';
 
