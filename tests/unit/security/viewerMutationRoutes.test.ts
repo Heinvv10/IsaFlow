@@ -61,6 +61,9 @@ const ROUTES: Array<[string, string[]]> = [
   ['intercompany/inbox/[id]/reject', ['POST']],
   ['intercompany/inbox/[id]/dismiss', ['POST']],
   ['intercompany/inbox/[id]/restore', ['POST']],
+  ['intercompany/allocations/[id]/reject', ['POST']],
+  ['intercompany/allocations/[id]/dismiss', ['POST']],
+  ['intercompany/allocations/[id]/restore', ['POST']],
   ['intercompany/connections/[id]/pairing', ['POST']],
   ['intercompany/connections/[id]/pairing/links/[linkId]', ['PUT', 'DELETE']],
 ];
