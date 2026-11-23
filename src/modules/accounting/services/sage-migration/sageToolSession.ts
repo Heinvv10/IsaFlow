@@ -31,6 +31,16 @@ export interface ToolSession {
 }
 
 export class NotAMemberError extends Error {}
+/** How long a COMMIT may take to answer: a batch of 500 items or 100 POs commits in well under this on a healthy server. */
+export const COMMIT_TIMEOUT_MS = 120_000;
+let commitBoundMs = COMMIT_TIMEOUT_MS;
+/** Test seam: shortens the bound and returns the restore. Throws unless NODE_ENV is 'test'. */
+export function setCommitBoundForTests(ms: number): () => void {
+  if (process.env.NODE_ENV !== 'test') throw new Error('setCommitBoundForTests works only in a test run (NODE_ENV=test)');
+  commitBoundMs = ms;
+  return () => { commitBoundMs = COMMIT_TIMEOUT_MS; };
+}
+
 /** The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back. */
 export class CommitUnconfirmedError extends Error {}
 
@@ -94,10 +104,17 @@ export async function withToolSession<T>(
       return result;
     }
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
+    let commitTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await client.query('COMMIT');
+      // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
+      await Promise.race([
+        client.query('COMMIT'),
+        new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
+      ]);
     } catch (err) {
       throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err));
+    } finally {
+      clearTimeout(commitTimer);
     }
     committed = true;
     drainAfterCommit(txCtx);
