@@ -26,7 +26,7 @@ describe('Payroll UIF declarations on touch', () => {
     const table = container.querySelector('table')!;
     expect(cls(table)).toContain('table-cards');
     expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(HEADS);
-    expect([...table.querySelectorAll('tbody tr:first-child td')].map((td) => td.getAttribute('data-label'))).toEqual(HEADS);
+    for (const tr of table.querySelectorAll('tbody tr')) expect([...tr.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual(HEADS);
   });
 
   it('makes Mark Submitted, Generate Declaration and the year filter phone-sized; the header wraps', async () => {
@@ -53,7 +53,7 @@ describe('Payroll UIF declarations on touch', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Declaration/ }));
     const dialogTitle = screen.getByText('Generate UIF Declaration');
     const overlay = dialogTitle.parentElement!.parentElement!;
-    expect(cls(overlay)).toContain('max-lg:p-4');
+    expect(cls(overlay)).toEqual(expect.arrayContaining(['max-lg:p-4', 'max-lg:overflow-y-auto'])); // a short landscape phone scrolls the dialog instead of clipping it
     const selects = dialogTitle.parentElement!.querySelectorAll('select');
     expect(selects).toHaveLength(2);
     for (const s of selects) expect(cls(s)).toContain('max-lg:min-h-11');

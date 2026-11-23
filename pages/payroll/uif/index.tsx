@@ -77,7 +77,7 @@ function GenerateModal({ yearOptions, onClose, onGenerated }: GenerateModalProps
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 max-lg:p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 max-lg:p-4 max-lg:overflow-y-auto">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded-xl p-6 w-full max-w-sm shadow-xl">
         <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-4">Generate UIF Declaration</h2>
         <div className="space-y-4">
