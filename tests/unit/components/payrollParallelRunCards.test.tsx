@@ -46,7 +46,8 @@ describe('Payroll parallel run on touch', () => {
     // one flex item beside the card label, not two spread apart
     const group = screen.getByTitle('Export comparison CSV').parentElement!;
     expect(group).toBe(screen.getByTitle('Delete import').parentElement);
-    expect(group.className.split(' ')).toEqual(expect.arrayContaining(['inline-flex', 'items-center'])); // stays on one line, right-aligned as before
+    expect(group.className.split(' ')).toEqual(expect.arrayContaining(['inline-flex', 'items-center', 'max-lg:gap-1'])); // one row; the gap is phone-only so desktop spacing is unchanged
+    expect(group.className.split(' ')).not.toContain('gap-1');
     expect(group.getAttribute('data-label')).toBeNull();
     expect(group.closest('td')!.getAttribute('data-label')).toBe('Actions');
   });

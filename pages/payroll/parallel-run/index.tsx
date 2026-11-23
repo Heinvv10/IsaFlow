@@ -198,7 +198,7 @@ export default function ParallelRunPage() {
                   <td data-label="File" className="px-4 py-2 text-[var(--ff-text-tertiary)]">{imp.fileName ?? '—'}</td>
                   <td data-label="Payslips" className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
                   <td data-label="Actions" className="px-4 py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
+                    <div className="inline-flex items-center max-lg:gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); void handleExport(imp.id); }}
                         title="Export comparison CSV"
