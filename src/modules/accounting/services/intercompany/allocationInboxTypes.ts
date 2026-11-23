@@ -1,13 +1,15 @@
 /** Types of the receiver's allocation inbox (P4-C): what "Payments from your group" on the Bills "Intercompany" tab lists. Read only. */
 import type { InboxStatus } from './inboxTypes';
+import type { AllocationClearedBy, AllocationClearingPreview } from './allocationClearTypes';
 
 /** The database's answer (`intercompany_allocation_message_live`, migration 1026), or `check_failed` when it could not be asked. */
 export type AllocationLiveReason =
   | 'ok' | 'not_found' | 'not_pending' | 'link_gone' | 'before_cutover' | 'allocation_gone' | 'changed' | 'payment_not_posted' | 'journal_reversed'
-  | 'bill_gone' | 'check_failed';
+  | 'bill_gone' | 'future_dated' | 'check_failed';
 
 export const ALLOCATION_LIVE_REASONS: readonly AllocationLiveReason[] = [
-  'ok', 'not_found', 'not_pending', 'link_gone', 'before_cutover', 'allocation_gone', 'changed', 'payment_not_posted', 'journal_reversed', 'bill_gone', 'check_failed',
+  'ok', 'not_found', 'not_pending', 'link_gone', 'before_cutover', 'allocation_gone', 'changed', 'payment_not_posted', 'journal_reversed', 'bill_gone',
+  'future_dated', 'check_failed',
 ];
 
 /** What does not fit between the payment and the receiver's invoice, derived at read time and never stored (D refuses or caps on it). */
@@ -52,6 +54,8 @@ export interface AllocationItem {
   error: string | null;
   handledAt: string | null;
   createdAt: string;
+  /** P4-D: an accepted message's clearing receipt, and whether it was voided since (read-only, computed); null otherwise. */
+  clearedBy: AllocationClearedBy | null;
 }
 
 export interface AllocationPage {
@@ -69,4 +73,6 @@ export interface AllocationDetail {
   linkOrigin: string | null;
   /** The connection's cut-over date (an invoice dated before it is refused by D). */
   cutoverDate: string | null;
+  /** P4-D: what Accept would post, for an open message; null for a handled one. */
+  preview: AllocationClearingPreview | null;
 }

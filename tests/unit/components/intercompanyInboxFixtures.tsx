@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { envelope, failure } from './intercompanyFixtures';
 import type { InboxDetail, InboxItem } from '@/modules/accounting/services/intercompany/inboxTypes';
 import type { AllocationDetail, AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
+import type { AllocationClearingPreview } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 
 export const item = (over: Partial<InboxItem> = {}): InboxItem => ({
   id: 'm-1', kind: 'invoice', status: 'pending', connectionId: 'c-1', senderName: 'Blitz Fibre', number: 'INV-100', date: '2026-11-18', dueDate: '2026-12-18',
@@ -32,9 +33,16 @@ export const alloc = (over: Partial<AllocationItem> = {}): AllocationItem => ({
   id: 'a-1', status: 'pending', connectionId: 'c-1', senderName: 'Velocity Fibre (customer)', paymentNumber: 'SP-00012', paymentDate: '2026-09-01',
   paymentMethod: 'eft', paymentReference: 'IC alloc ref', amount: 1150, currency: 'ZAR', payerDocumentNumber: 'BILL-7', cashLegIsLoanAccount: false,
   issuerInvoice: { id: 'inv-1', number: 'INV-900', openAmount: 2000, status: 'approved', currency: 'ZAR', date: '2026-09-01' },
-  live: true, liveReason: 'ok', mismatch: null, blocker: null, reason: null, error: null, handledAt: null, createdAt: '2026-11-23T08:00:00.000Z', ...over,
+  live: true, liveReason: 'ok', mismatch: null, blocker: null, reason: null, error: null, handledAt: null, createdAt: '2026-11-23T08:00:00.000Z', clearedBy: null, ...over,
 });
-export const detailOf = (item: AllocationItem): AllocationDetail => ({ item, allocationId: 'pa-1', linkId: 'l-1', linkOrigin: 'manual_pairing', cutoverDate: '2026-01-01' });
+/** P4-D: what Accept would post for an open payment (loan 1400 debit, receivable 1200 credit, the payment's amount and invoice). */
+export const previewOf = (item: AllocationItem, over: Partial<AllocationClearingPreview> = {}): AllocationClearingPreview => ({
+  loanAccountId: 'loan-1', loanAccountLabel: '1400 Loan to Velocity', receivableLabel: '1200 Accounts Receivable', amount: item.amount,
+  invoiceId: item.issuerInvoice?.id ?? null, invoiceNumber: item.issuerInvoice?.number ?? null, paymentDate: item.paymentDate,
+  invoiceDate: item.issuerInvoice?.date ?? null, defaultPostingDate: item.paymentDate, ...over,
+});
+export const detailOf = (item: AllocationItem, preview: AllocationClearingPreview | null = OPEN.includes(item.status) ? previewOf(item) : null): AllocationDetail =>
+  ({ item, allocationId: 'pa-1', linkId: 'l-1', linkOrigin: 'manual_pairing', cutoverDate: '2026-01-01', preview });
 export function serve(s: Serve = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
     const u = String(url);
@@ -48,7 +56,7 @@ export function serve(s: Serve = {}) {
     }
     if (/\/allocations\/[^/]+$/.test(u)) {
       const item = s.allocationDetail?.item ?? (s.allocations ?? []).find((x) => u.endsWith(`/${x.id}`));
-      return item ? envelope(s.allocationDetail ?? { item, allocationId: null, linkId: null, linkOrigin: null, cutoverDate: null }) : failure('Not found', 404);
+      return item ? envelope(s.allocationDetail ?? { item, allocationId: null, linkId: null, linkOrigin: null, cutoverDate: null, preview: OPEN.includes(item.status) ? previewOf(item) : null }) : failure('Not found', 404);
     }
     if (u.includes('/inbox?')) {
       const items = (s.items ?? [item()]).filter((x) => (u.includes('filter=handled') ? !['pending', 'failed'].includes(x.status) : ['pending', 'failed'].includes(x.status)));

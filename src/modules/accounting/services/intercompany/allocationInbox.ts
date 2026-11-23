@@ -1,7 +1,8 @@
 /**
  * The RECEIVER's allocation inbox (intercompany P4-C): the `allocation` messages a payer in the group sent THIS company (its cash applied to
  * the bill that is linked to one of this company's customer invoices). READ ONLY: nothing here writes a journal, a document or a message
- * (reject and dismiss are `handleService`'s guarded transitions; clearing is D's).
+ * (reject and dismiss are `handleService`'s guarded transitions; clearing is `allocationClearService`'s, P4-D). P4-D adds, read only: an
+ * accepted item's clearing receipt and whether it was voided (`clearedBy`), and an open message's Accept preview on the detail (`preview`).
  *
  * Runs on the request's transaction, so RLS already limits every row to the session company; `to_company_id` / `company_id` are named in each
  * query too. Each item carries the payload's facts (display text only, never an identity), this company's OWN issuer invoice looked up by the
@@ -18,6 +19,7 @@ import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { ConnectionRefusal } from './connectionTypes';
 import { parseMirrorPayload, type AllocationPayload } from './mirrorPayload';
 import { INBOX_PAGE_MAX } from './inboxRead';
+import { clearingPreview, clearingsOf } from './allocationClearPreview';
 import type { InboxFilter, InboxStatus } from './inboxTypes';
 import {
   ALLOCATION_LIVE_REASONS, type AllocationDetail, type AllocationIssuerInvoice, type AllocationItem, type AllocationLiveReason,
@@ -125,6 +127,10 @@ async function build(companyId: string, rows: Row[]): Promise<Built[]> {
   const lives = await livesOf(companyId, rows);
   const ids = [...new Set(parsed.flatMap((p) => (p.ok ? [p.payload.issuerDocument.id.toLowerCase()] : [])))];
   const invoices = await issuerInvoices(companyId, ids);
+  // P4-D: the clearing receipt of each accepted message (its target), with whether it was voided since
+  const targets = new Map(rows.flatMap((r) => (r.status === 'accepted' && r.target_doc_type === 'customer_payment' && r.target_doc_id
+    ? [[String(r.id), String(r.target_doc_id)] as [string, string]] : [])));
+  const clearings = await clearingsOf(companyId, targets);
   return rows.map((r, i) => {
     const res = parsed[i]!;
     const p = res.ok ? res.payload : null;
@@ -140,6 +146,7 @@ async function build(companyId: string, rows: Row[]): Promise<Built[]> {
       blocker: res.ok ? null : res.error, reason: asText(r.reason), error: asText(r.error, 4000),
       handledAt: r.handled_at ? toIsoTimestamp(r.handled_at as Date | string) : null,
       createdAt: toIsoTimestamp(r.created_at as Date | string) ?? '',
+      clearedBy: clearings.get(String(r.id)) ?? null,
     };
     return { item, payload: p, cutover };
   });
@@ -157,7 +164,7 @@ async function countsOf(companyId: string, statuses: InboxStatus[]): Promise<{ t
 /** The message rows, with this company's own name for the payer (its side's customer) and the connection's cut-over. */
 async function rowsOf(companyId: string, statuses: InboxStatus[] | null, messageId: string | null, limit: number, offset: number): Promise<Row[]> {
   return (await sql`
-    SELECT m.id, m.status, m.connection_id, m.from_company_id, m.payload, m.reason, m.error, m.handled_at, m.created_at,
+    SELECT m.id, m.status, m.connection_id, m.from_company_id, m.payload, m.reason, m.error, m.handled_at, m.created_at, m.target_doc_type, m.target_doc_id,
            c.cutover_date::text AS cutover, cu.name AS sender_name
       FROM intercompany_messages m
       LEFT JOIN intercompany_connections c ON c.id = m.connection_id AND (c.company_low_id = ${companyId}::UUID OR c.company_high_id = ${companyId}::UUID)
@@ -188,7 +195,8 @@ export async function loadAllocationDetail(companyId: string, messageId: string)
   if (rows.length === 0) throw new ConnectionRefusal(404, 'Message not found');
   const [b] = await build(companyId, rows);
   const p = b!.payload;
-  return { item: b!.item, allocationId: p?.allocationId ?? null, linkId: p?.linkId ?? null, linkOrigin: p?.linkOrigin ?? null, cutoverDate: b!.cutover };
+  const preview = OPEN.includes(b!.item.status) ? await clearingPreview(companyId, b!.item.connectionId, p, b!.item.issuerInvoice) : null;
+  return { item: b!.item, allocationId: p?.allocationId ?? null, linkId: p?.linkId ?? null, linkOrigin: p?.linkOrigin ?? null, cutoverDate: b!.cutover, preview };
 }
 
 /** One allocation message of this company, raw (id, status), or null: what reject / dismiss check first. Never an invoice message. */

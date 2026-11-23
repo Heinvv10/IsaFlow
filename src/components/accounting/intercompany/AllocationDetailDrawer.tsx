@@ -1,11 +1,13 @@
-/** One payment from the group (P4-C): the payload's facts, this company's invoice it names, its state; Reject and Dismiss. No Accept. */
+/** One payment from the group (P4-C): the payload's facts, this company's invoice it names, its state; Reject and Dismiss. P4-D: Accept (it clears
+ *  the payment against the invoice, with the preview this detail carries), and an accepted one's clearing receipt, flagged when it was voided. */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import type { AllocationDetail, AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
-import { allocationState, HANDLED_LABEL, isOpen, LINK_ORIGIN, moneyIn, paymentLabel, STATE_CLASS } from './allocationLabels';
+import type { AllocationClearingPreview } from '@/modules/accounting/services/intercompany/allocationClearTypes';
+import { allocationState, HANDLED_LABEL, isOpen, LINK_ORIGIN, moneyIn, paymentLabel, STATE_CLASS, VOIDED_CHIP } from './allocationLabels';
 
 interface Props {
   item: AllocationItem | null;
@@ -16,6 +18,8 @@ interface Props {
   onClose: () => void;
   onReject: (item: AllocationItem) => void;
   onDismiss: (item: AllocationItem) => void;
+  /** P4-D: open the Accept preview for this message, with what the detail says would post. */
+  onAccept: (item: AllocationItem, preview: AllocationClearingPreview) => void;
 }
 
 const btn = 'px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken disabled:opacity-50 inline-flex items-center gap-2';
@@ -29,7 +33,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, onReject, onDismiss }: Props) {
+export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, onReject, onDismiss, onAccept }: Props) {
   const [detail, setDetail] = useState<AllocationDetail | null>(null);
   const [error, setError] = useState('');
   const id = item?.id ?? null;
@@ -57,6 +61,7 @@ export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, o
             ? <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full border ${STATE_CLASS[state.tone]}`}>{state.text}</span>
             : <span className="text-sm font-medium text-ink">{HANDLED_LABEL[shown.status]}</span>}
           {shown.reason && <p className="mt-1 text-xs text-ink-muted">Reason: {shown.reason}</p>}
+          {shown.status === 'failed' && shown.error && <p className="mt-1 text-xs text-red-600 dark:text-red-400" data-testid="allocation-failed-error">Not cleared: {shown.error}</p>}
         </div>
         <dl className="divide-y divide-slate-100 dark:divide-slate-800">
           <Fact label="Payer">{shown.senderName}</Fact>
@@ -78,11 +83,22 @@ export function AllocationDetailDrawer({ item, label, canWrite, busy, onClose, o
         </dl>
         {!detail && !error && <p className="text-xs text-ink-muted inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Loading</p>}
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <p className="text-sm text-ink-muted">
-          Clearing this payment against your invoice is coming soon. Nothing has changed in your books; for now you can reject it with a reason, or dismiss it.
-        </p>
+        {shown.clearedBy && (
+          <div className="text-sm text-ink" data-testid="allocation-cleared-by">
+            Cleared by receipt {shown.clearedBy.paymentNumber ?? '—'}
+            {shown.clearedBy.voided && <span className={`ml-2 inline-block px-2 py-0.5 text-xs font-medium rounded-full border ${STATE_CLASS.check}`}>{VOIDED_CHIP}</span>}
+            {shown.clearedBy.voided && <p className="mt-1 text-xs text-ink-muted">The clearing receipt was voided after it was accepted: the invoice is open again. To clear it again, the payer must unapply the payment and apply it again (that sends a new message); the same allocation is never sent twice.</p>}
+          </div>
+        )}
+        {isOpen(shown) && (
+          <p className="text-sm text-ink-muted">
+            Accept clears this payment against your invoice through your intercompany loan account (one journal; you choose the date). Or reject it with a reason, or dismiss it.
+          </p>
+        )}
         {isOpen(shown) && canWrite && (
           <div className="flex gap-2">
+            <button type="button" className={btn} disabled={busy || !detail?.preview} aria-label={`Accept ${label}`}
+              onClick={() => { if (detail?.preview) onAccept(shown, detail.preview); }}>Accept</button>
             <button type="button" className={btn} disabled={busy} aria-label={`Reject ${label}`} onClick={() => onReject(shown)}>Reject</button>
             <button type="button" className={btn} disabled={busy} aria-label={`Dismiss ${label}`} onClick={() => onDismiss(shown)}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Dismiss

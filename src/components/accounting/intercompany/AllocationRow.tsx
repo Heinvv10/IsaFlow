@@ -1,9 +1,10 @@
 /** One row of "Payments from your group" (P4-C): payer, payment, this company's invoice, amounts in their currency, state; its actions
- *  named by `label` (payment and invoice, unique on the page). */
+ *  named by `label` (payment and invoice, unique on the page). P4-D: a failed one says why it was not cleared; an accepted one names its
+ *  clearing receipt, with a "Clearing voided" chip when that receipt was voided since. */
 import { StatusPill } from '@/components/ui';
 import { formatDate } from '@/utils/formatters';
 import type { AllocationItem } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
-import { allocationState, extraMismatch, HANDLED_LABEL, isOpen, moneyIn, STATE_CLASS } from './allocationLabels';
+import { allocationState, extraMismatch, HANDLED_LABEL, isOpen, moneyIn, STATE_CLASS, VOIDED_CHIP } from './allocationLabels';
 
 interface Props {
   item: AllocationItem;
@@ -38,6 +39,9 @@ export function AllocationRow({ item: i, label, canWrite, busy, onDetails, onRej
           : <StatusPill status={i.status === 'withdrawn' ? 'cancelled' : i.status}>{HANDLED_LABEL[i.status]}</StatusPill>}
         {isOpen(i) && extra && <span data-testid="allocation-mismatch" className={`${chip} ${STATE_CLASS.check}`}>{extra}</span>}
         {i.status === 'rejected' && i.reason && <p className="text-xs text-ink-muted max-w-xs">Reason: {i.reason}</p>}
+        {i.status === 'failed' && i.error && <p className="text-xs text-red-600 dark:text-red-400 max-w-xs">Not cleared: {i.error}</p>}
+        {i.clearedBy && <p className="text-xs text-ink-muted">Receipt {i.clearedBy.paymentNumber ?? '—'}</p>}
+        {i.clearedBy?.voided && <span data-testid="allocation-voided" className={`${chip} ${STATE_CLASS.check}`}>{VOIDED_CHIP}</span>}
       </td>
       <td className="px-5 py-3.5 text-right">
         <div className="flex flex-wrap justify-end gap-2">

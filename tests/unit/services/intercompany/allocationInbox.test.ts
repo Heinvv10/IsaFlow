@@ -21,6 +21,9 @@ vi.mock('@/lib/neon', () => ({
   withSavepoint: m.savepoint,
 }));
 vi.mock('@/lib/logger', () => ({ log: m.log }));
+// P4-D's clearing reads (their own unit / integration tests): here only what the inbox asks of them
+const clear = vi.hoisted(() => ({ preview: vi.fn(), clearings: vi.fn() }));
+vi.mock('@/modules/accounting/services/intercompany/allocationClearPreview', () => ({ clearingPreview: clear.preview, clearingsOf: clear.clearings }));
 
 import { allocationMismatch, listAllocationInbox, loadAllocationDetail } from '@/modules/accounting/services/intercompany/allocationInbox';
 import type { AllocationPayload } from '@/modules/accounting/services/intercompany/mirrorPayload';
@@ -66,6 +69,8 @@ beforeEach(() => {
     try { return await fn(); } finally { m.inSavepoint = false; }
   });
   serve();
+  clear.preview.mockResolvedValue({ loanAccountId: 'loan-1' });
+  clear.clearings.mockResolvedValue(new Map());
 });
 
 describe('listAllocationInbox', () => {
@@ -78,7 +83,18 @@ describe('listAllocationInbox', () => {
       amount: 1150, currency: 'ZAR', payerDocumentNumber: 'BILL-1', cashLegIsLoanAccount: true,
       issuerInvoice: { id: INV, number: 'INV-9', openAmount: 1150, status: 'approved', currency: 'ZAR', date: '2026-09-01' },
       live: true, liveReason: 'ok', mismatch: null, blocker: null, reason: null, error: null, handledAt: null, createdAt: '2026-11-23T08:00:00.000Z',
+      clearedBy: null,
     });
+  });
+
+  it("P4-D: an accepted message carries its clearing receipt (asked by its target, this company's only); any other carries none", async () => {
+    const P = 'f0000000-0000-4000-8000-000000000001';
+    const cleared = { paymentId: P, paymentNumber: 'CP-1', journalEntryId: 'je-1', voided: true };
+    clear.clearings.mockResolvedValue(new Map([['m-1', cleared]]));
+    serve({ rows: [row('m-1', { status: 'accepted', target_doc_type: 'customer_payment', target_doc_id: P.toUpperCase() }), row('m-2', { status: 'rejected' })], count: 0 });
+    const page = await listAllocationInbox(CO, 'handled', 25, 0);
+    expect(clear.clearings).toHaveBeenCalledWith(CO, new Map([['m-1', P.toUpperCase()]]));   // by message (the definer judges its receipt)
+    expect(page.items.map((i) => i.clearedBy)).toEqual([cleared, null]);
   });
 
   it('a page is capped at 100 and an offset is never negative', async () => {
@@ -215,8 +231,15 @@ describe('the invoice\'s open amount follows the shared AR open statuses', () =>
 describe('loadAllocationDetail', () => {
   it('the item and the payload facts', async () => {
     const d = await loadAllocationDetail(CO, 'm-1');
-    expect(d).toMatchObject({ item: { id: 'm-1', liveReason: 'ok' }, allocationId: uid(1), linkId: uid(4), linkOrigin: 'mirror', cutoverDate: '2026-01-01' });
+    expect(d).toMatchObject({ item: { id: 'm-1', liveReason: 'ok' }, allocationId: uid(1), linkId: uid(4), linkOrigin: 'mirror', cutoverDate: '2026-01-01', preview: { loanAccountId: 'loan-1' } });
+    expect(clear.preview).toHaveBeenCalledWith(CO, uid(5), expect.objectContaining({ amount: 1150 }), expect.objectContaining({ id: INV }));
     expect(callsTo('FROM intercompany_messages m')[0]!.values).toEqual(expect.arrayContaining(['m-1', CO]));
+  });
+
+  it('P4-D: a handled message has no Accept preview (the clearing reads are not asked)', async () => {
+    serve({ rows: [row('m-1', { status: 'rejected' })] });
+    expect((await loadAllocationDetail(CO, 'm-1')).preview).toBeNull();
+    expect(clear.preview).not.toHaveBeenCalled();
   });
 
   it('a message that is not this company\'s allocation is a 404 refusal', async () => {

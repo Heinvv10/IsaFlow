@@ -43,7 +43,7 @@ type Row = DbRow;
 type ReverseOpts = PostingActorOpts & {
   reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[];
   /** The bank line's own undo (bank/liveBankLineReversal): it resets the line itself, so a live line is not refused. */
-  bankLinesHandled?: boolean;
+  bankLinesHandled?: boolean; voidingReceiptId?: string; // the receipt cancel reversing its own journal (intercompany/clearingReversalGuard)
 };
 
 import {
@@ -143,7 +143,7 @@ async function reverseJournalEntryInner(
     // reversed — and a release UPDATE would still bump updated_at (#1518 brk L1).
     await withSavepoint('journal_reversal_claim', async () => {
       if (!await claimJournalReversal(companyId, id, userId)) throw new Error('Journal entry already reversed');
-      await refuseReversingSettlementJournal(companyId, entry);
+      await refuseReversingSettlementJournal(companyId, entry, opts?.voidingReceiptId);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
       // ...and a LIVE statement line still booking it (bank/liveBankLineReversal): undo it from Bank Transactions.
       await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked, { bankLinesHandled: opts?.bankLinesHandled });
