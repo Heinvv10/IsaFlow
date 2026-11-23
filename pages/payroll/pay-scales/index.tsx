@@ -96,26 +96,26 @@ export default function PayScalesPage() {
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
               <input placeholder="Code (G5)" value={form.code}
                 onChange={e => setForm({ ...form, code: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input placeholder="Name" value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })}
-                className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input type="number" placeholder="Grade" value={form.gradeLevel}
                 onChange={e => setForm({ ...form, gradeLevel: Number(e.target.value) })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input type="number" placeholder="Min" value={form.minSalary}
                 onChange={e => setForm({ ...form, minSalary: Number(e.target.value) })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <input type="number" placeholder="Mid" value={form.midSalary}
                 onChange={e => setForm({ ...form, midSalary: Number(e.target.value) })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
             </div>
             <div className="mt-3 flex items-center gap-3">
               <input type="number" placeholder="Max" value={form.maxSalary}
                 onChange={e => setForm({ ...form, maxSalary: Number(e.target.value) })}
-                className="w-32 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]" />
+                className="w-32 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11" />
               <button onClick={handleCreate} disabled={creating || !form.code.trim() || !form.name.trim()}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 <Plus className="h-4 w-4" /> Create
               </button>
             </div>
@@ -129,7 +129,7 @@ export default function PayScalesPage() {
         )}
 
         <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-sm table-cards">
             <thead className="text-left text-[var(--ff-text-secondary)] bg-[var(--ff-surface-secondary)]">
               <tr>
                 <th className="px-4 py-2">Code</th>
@@ -143,23 +143,23 @@ export default function PayScalesPage() {
             </thead>
             <tbody className="divide-y divide-[var(--ff-border-primary)] text-[var(--ff-text-primary)]">
               {loading ? (
-                <tr><td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-secondary)]">
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-secondary)] max-lg:!py-8 max-lg:!text-center">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />Loading...
                 </td></tr>
               ) : scales.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-secondary)]">No pay scales yet.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-secondary)] max-lg:!py-8 max-lg:!text-center">No pay scales yet.</td></tr>
               ) : (
                 scales.map(s => (
                   <tr key={s.id}>
-                    <td className="px-4 py-2 font-id">{s.code}</td>
-                    <td className="px-4 py-2">{s.name}</td>
-                    <td className="px-4 py-2 text-right">{s.gradeLevel}</td>
-                    <td className="px-4 py-2 text-right">{zar(s.minSalary)}</td>
-                    <td className="px-4 py-2 text-right">{zar(s.midSalary)}</td>
-                    <td className="px-4 py-2 text-right">{zar(s.maxSalary)}</td>
-                    <td className="px-4 py-2">
+                    <td data-label="Code" className="px-4 py-2 font-id">{s.code}</td>
+                    <td data-label="Name" className="px-4 py-2">{s.name}</td>
+                    <td data-label="Grade" className="px-4 py-2 text-right">{s.gradeLevel}</td>
+                    <td data-label="Min" className="px-4 py-2 text-right">{zar(s.minSalary)}</td>
+                    <td data-label="Mid" className="px-4 py-2 text-right">{zar(s.midSalary)}</td>
+                    <td data-label="Max" className="px-4 py-2 text-right">{zar(s.maxSalary)}</td>
+                    <td data-label="Status" className="px-4 py-2">
                       <button onClick={() => toggleActive(s)}
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium max-lg:min-h-11 max-lg:px-4 ${
                           s.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'
                         }`}>
                         {s.isActive ? 'Active' : 'Inactive'}
