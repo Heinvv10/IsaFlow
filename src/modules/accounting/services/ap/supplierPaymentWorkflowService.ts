@@ -26,6 +26,7 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { BALANCE_DERIVED, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 import { assertVoidKeepsCredit } from './supplierVoidCredit';
+import { mirrorPaymentAllocations } from '../intercompany/allocationOutbox';
 type Row = DbRow;
 
 /**
@@ -156,6 +157,9 @@ export async function processSupplierPayment(
     // typed 409, which is raised only before the journal exists.
     if (!updatedRows[0]) throw new Error('Cannot process payment: its status changed concurrently');
     const updated = updatedRows[0];
+
+    // The payer's allocation message (intercompany P4-B): a loan-mode clearing is created, approved and processed, and never applied.
+    await mirrorPaymentAllocations(companyId, [id]);
 
     log.info('Processed supplier payment', { id, journalEntryId: journalEntry.id }, 'accounting');
     return mapPaymentRow(updated);

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import {
-  asAppUser, asDefiner, asOwner, cleanup, co, outcome, plantConnection, payloadFor, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
+  asAppUser, asDefiner, asOwner, cleanup, co, outcome, plantAllocationRow, plantConnection, payloadFor, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
 } from './intercompany.helpers';
 import { LINK, linkRow, mirrorArgs } from './links.helpers';
 
@@ -72,10 +72,21 @@ describe('sending: the source document is the sender\'s and fits the kind', () =
     expect(await send(U.a, co.A, co.B, 'credit_note', 'credit_note', supplierSide)).toBe(R.msgSource);
   });
 
-  it('a kind that carries no document (payment, allocation, reject, credit_request) names a row id and is not checked', async () => {
-    for (const kind of ['payment', 'allocation', 'reject', 'credit_request']) {
+  it('a kind that carries no document (payment, reject, credit_request) names a row id and is not checked', async () => {
+    for (const kind of ['payment', 'reject', 'credit_request']) {
       expect(await send(U.a, co.A, co.B, kind, 'payment', crypto.randomUUID()), kind).toBe('ok');
     }
+  });
+
+  it('an allocation message (1025) names a payment allocation of the sender\'s OWN payment: a made-up row, another company\'s and the wrong type are refused', async () => {
+    const own = (await plantAllocationRow(pool, { paymentCompany: co.A })).allocation;
+    const thirds = (await plantAllocationRow(pool, { paymentCompany: co.C })).allocation;
+    const receivers = (await plantAllocationRow(pool, { paymentCompany: co.B })).allocation;
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', crypto.randomUUID())).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', thirds)).toBe(R.msgSource);
+    expect(await send(U.ab, co.A, co.B, 'allocation', 'payment_allocation', receivers)).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment', own)).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', own)).toBe('ok');
   });
 });
 

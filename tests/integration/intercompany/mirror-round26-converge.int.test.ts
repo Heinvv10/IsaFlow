@@ -18,6 +18,8 @@ import { clearMirrorRows, co, connect, mirrorCleanup, mirrorSetup, sentInvoice }
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const MIGRATION_1019 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1019_intercompany_p2_mirror.sql'), 'utf8');
+// 1025 redefines two functions 1019 defines (the messages guard, the message-document check): replayed after it, so the committed replay leaves the newest bodies
+const MIGRATION_1025 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1025_intercompany_p4b_allocation_sender.sql'), 'utf8');
 beforeAll(() => mirrorSetup(pool), 60000);
 afterAll(() => mirrorCleanup(pool), 60000);
 
@@ -27,6 +29,7 @@ const apply = async (notices: string[] = []) => {
   try {
     await client.query('BEGIN');
     await client.query(MIGRATION_1019);
+    await client.query(MIGRATION_1025);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
