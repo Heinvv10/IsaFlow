@@ -9,7 +9,7 @@
 
 import { Plus, Loader2 } from 'lucide-react';
 import type { GLAccount, GLAccountType } from '@/modules/accounting/types/gl.types';
-import { subtypeOptionsFor } from './accountSubtypeOptions';
+import { subtypeOptionsFor, subtypeRequiredFor } from './accountSubtypeOptions';
 import { mayBeParent } from './systemAccountNote';
 
 export interface AddAccountFormState {
@@ -32,8 +32,7 @@ export function AddAccountForm({
   onSubmit: () => Promise<void>;
 }) {
   const subtypes = subtypeOptionsFor(addForm.accountType);
-  // The API refuses a blank subtype on revenue/expense (missingSubtypeError).
-  const subtypeRequired = addForm.accountType === 'revenue' || addForm.accountType === 'expense';
+  const subtypeRequired = subtypeRequiredFor(addForm.accountType);
 
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-teal-500/30 p-4 space-y-4">

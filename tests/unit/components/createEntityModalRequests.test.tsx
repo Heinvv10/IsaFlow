@@ -12,7 +12,8 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
-import { subtypeOptionsFor } from '@/components/accounting/dashboard/accountSubtypeOptions';
+import { subtypeOptionsFor, subtypeRequiredFor } from '@/components/accounting/dashboard/accountSubtypeOptions';
+import { subtypeErrorFor, missingSubtypeError } from '@/modules/accounting/services/gl/accountSubtypeRules';
 
 useApiJsonOverMock();
 
@@ -71,7 +72,7 @@ describe('CreateEntityModal create requests', () => {
 
   describe('GL account subtype', () => {
     // The API refuses a blank subtype on revenue/expense (missingSubtypeError, 400), so the modal must send one.
-    const subtypeSelect = () => screen.getByLabelText('Subtype') as HTMLSelectElement;
+    const subtypeSelect = () => screen.getByLabelText(/^Subtype/) as HTMLSelectElement;
     const typeSelect = () => screen.getAllByRole('combobox')[0] as HTMLSelectElement;
     const createBtn = () => screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
     const optionValues = () => Array.from(subtypeSelect().options).map(o => o.value);
@@ -98,6 +99,7 @@ describe('CreateEntityModal create requests', () => {
       openAccount();
       fillAccount();
       expect(typeSelect().value).toBe('expense');
+      expect(subtypeSelect().getAttribute('aria-required')).toBe('true');
       expect(subtypeSelect().options[0]!.textContent).toBe('Select…');
       expect(createBtn().disabled).toBe(true);
       fireEvent.click(createBtn());
@@ -117,6 +119,33 @@ describe('CreateEntityModal create requests', () => {
       fireEvent.change(typeSelect(), { target: { value: 'revenue' } });
       expect(subtypeSelect().value).toBe('');
       expect(createBtn().disabled).toBe(true);
+    });
+
+    it('does not carry a subtype chosen for another type into the save', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(envelope(200, created));
+      openAccount();
+      fillAccount();
+      fireEvent.change(subtypeSelect(), { target: { value: optionValues().find(v => v)! } });
+      fireEvent.change(typeSelect(), { target: { value: 'revenue' } });
+      fireEvent.change(typeSelect(), { target: { value: 'asset' } });
+      expect(subtypeSelect().getAttribute('aria-required')).toBe('false');
+      fireEvent.click(createBtn());
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      const { body } = lastCall();
+      expect(body.accountType).toBe('asset');
+      expect('accountSubtype' in body).toBe(false);
+    });
+
+    it('only offers subtypes the server accepts, and never a blank-subtype refusal for a chosen one', () => {
+      for (const t of ['expense', 'revenue', 'asset', 'liability', 'equity'] as const) {
+        const options = subtypeOptionsFor(t);
+        expect(options.length).toBeGreaterThan(0);
+        for (const o of options) {
+          expect(subtypeErrorFor({ accountType: t }, o.value), `${t}/${o.value}`).toBeNull();
+          expect(missingSubtypeError(t, o.value), `${t}/${o.value}`).toBeNull();
+        }
+        expect(subtypeRequiredFor(t)).toBe(missingSubtypeError(t, '') !== null);
+      }
     });
 
     it('still saves an asset account with no subtype and sends no accountSubtype key', async () => {
