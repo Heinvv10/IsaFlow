@@ -9,6 +9,7 @@ import { isHeaderSql } from '@/modules/accounting/services/budgets/headerSql';
 import { listConnections } from './connectionRead';
 import { autoAcceptRefusal } from './connectionValidation';
 import { ConnectionRefusal, type ConnectionView, type SideInput } from './connectionTypes';
+import { lockConnectionAndRefuseWhileHeld } from './connectionMessageHold';
 
 type Row = Record<string, unknown>;
 
@@ -86,6 +87,8 @@ export async function updateOwnSide(companyId: string, connectionId: string, inp
   await refuseForeignRefs(companyId, input, conn.side?.loanAccountId ?? null);
 
   const next = merged(conn.side, input);
+  // P4-E (j).8: either side's loan account is not re-pointed under an open or accepted allocation message (the connection locked first)
+  if ((next.loanAccountId ?? null) !== (conn.side?.loanAccountId ?? null)) await lockConnectionAndRefuseWhileHeld(companyId, connectionId, 'loan_account');
   try {
     // A savepoint: a refused write must not poison the request's transaction.
     await withSavepoint(`ic_side_${++sideSeq}`, async () => sql`

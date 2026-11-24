@@ -23,12 +23,14 @@ const preview = (over: Partial<LoanClearingPreview> = {}): LoanClearingPreview =
 
 let answer: { get: () => Response; post?: (body: unknown) => Response };
 const posts = () => vi.mocked(apiFetch).mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === 'POST');
+const previews = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('/loan-clearings?billId=bill-1')).length;
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
-  vi.mocked(apiFetch).mockImplementation(async (_url: unknown, init?: unknown) => {
+  vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
     const i = init as RequestInit | undefined;
     if (i?.method === 'POST') return answer.post?.(JSON.parse(String(i.body))) ?? envelope({});
-    return answer.get();
+    // the date field asks for the fiscal periods; only the preview is this route's
+    return String(url).includes('/loan-clearings?') ? answer.get() : envelope([]);
   });
 });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -45,12 +47,12 @@ describe('Clear against the intercompany loan', () => {
   it('nothing shows with the flag off (403) or for a bill not linked on a loan connection', async () => {
     answer = { get: () => failure('Clearing intercompany payments against the loan account is not enabled for this company.', 403) };
     const { unmount } = render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
-    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
+    await waitFor(() => expect(previews()).toBe(1));
     expect(screen.queryByRole('button', { name: BUTTON })).toBeNull();
     unmount();
     answer = { get: () => envelope(preview({ linked: false })) };
     render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
-    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(previews()).toBe(2));
     expect(screen.queryByRole('button', { name: BUTTON })).toBeNull();
   });
 

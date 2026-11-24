@@ -6,6 +6,7 @@ import { sql } from '@/lib/neon';
 import { userCanWriteCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { listConnections } from './connectionRead';
 import { ConnectionRefusal, type ConnectionView, type PairInput } from './connectionTypes';
+import { lockConnectionAndRefuseWhileHeld } from './connectionMessageHold';
 
 type Row = Record<string, unknown>;
 
@@ -22,6 +23,8 @@ export async function updateConnectionSettings(userId: string, companyId: string
   const mode = pick('settlementMode', conn.settings.settlementMode) ?? 'cash';
   const cutover = pick('cutoverDate', conn.settings.cutoverDate) ?? null;
   const interest = pick('interestRatePct', conn.settings.interestRatePct) ?? null;
+  // P4-E (j).8: the settlement mode does not change under an open or accepted allocation message (the connection locked first)
+  if (mode !== (conn.settings.settlementMode ?? 'cash')) await lockConnectionAndRefuseWhileHeld(companyId, connectionId, 'settlement_mode');
   const done = (await sql`
     UPDATE intercompany_connections
        SET settlement_mode = ${mode}, cutover_date = ${cutover}::DATE, interest_rate_pct = ${interest}::NUMERIC

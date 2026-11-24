@@ -62,6 +62,8 @@ import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
 import { lockBankLegOf, lockJournalAndUnmatch, type BankLeg } from '../ap/paymentJournalReversal';
 import { underFlowLockBudget } from './rowLockBudget';
+import { partnerClearedRefusal } from '../intercompany/allocationUndoGate';
+import { SupplierPaymentRefusal } from '../ap/supplierPaymentRefusal';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
@@ -177,6 +179,9 @@ async function voidPaymentDocumentInner(
     return { refusal: 'not_applied', status: payment.status };
   }
   if (payment.batchId) return { refusal: 'batch_member', paymentNumber: payment.paymentNumber, batchId: payment.batchId };
+  // P4-E (j).4: a supplier payment the partner already cleared against the loan (accepted allocation message) is not voided here.
+  const cleared = kind === 'supplier' ? await partnerClearedRefusal(companyId, payment.id) : null;
+  if (cleared) throw new SupplierPaymentRefusal(cleared);
   if (beforeFirstWrite) await beforeFirstWrite({ ...payment, bankTransactionId });
   if (payment.settlesProvisionalJeId) return voidSettlementDocument(companyId, payment, userId, opts); // R-127
   if (payment.journalEntryId !== peekedJournalId) {

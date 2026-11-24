@@ -115,6 +115,26 @@ describe('clearing a linked bill against the intercompany loan', () => {
   });
 });
 
+describe('the lock', () => {
+  it('a bill held by another transaction: the wait is bounded (5 s) and answered 409 with nothing written', async () => {
+    const b = await plantBill(pool, conn);
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [b.bill]);
+    try {
+      const before = [await payer.journals(pool), await payer.payments(pool)];
+      const res = await clearBill(clearBody(b));
+      expect(res.state.statusCode).toBe(409);
+      expect(errorText(res)).toMatch(/right now/);
+      expect([await payer.journals(pool), await payer.payments(pool)]).toEqual(before);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect((await clearBill(clearBody(b))).state.statusCode).toBe(200);
+  }, 30000);
+});
+
 describe('the preview', () => {
   it('names the debit (Accounts Payable) and the credit (the loan account), the open amount, the partner and the receiver is ready', async () => {
     const b = await plantBill(pool, conn);

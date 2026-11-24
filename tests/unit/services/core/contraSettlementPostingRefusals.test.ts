@@ -12,6 +12,11 @@ import { bindRequestTx } from '../../../helpers/boundRequestTx';
 import { als } from '@/lib/als';
 
 const spLog: string[] = [];
+// intercompany P4-E (j).3: the loan-account guard asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/loanAccountPaymentGuard', () => ({
+  LOAN_ACCOUNT_PAYMENT_REFUSED: 'refused', loanAccountPaymentRefusal: vi.fn(async () => null), refuseLoanAccountPayment: vi.fn(async () => undefined),
+  refuseLoanAccountApply: vi.fn(async () => undefined), refuseLoanAccountBatch: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/neon', () => ({
   // Records what a real savepoint does: SAVEPOINT, run, then RELEASE on success or ROLLBACK TO on a throw.
   withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => {

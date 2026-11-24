@@ -24,6 +24,7 @@ import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { withSupplierInvoiceLock } from './supplierInvoiceLock';
 import { FIFO_ELIGIBLE_STATUSES, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { UnapplyRefusal, assertSourceJournalLive } from '../shared/unapplyRefusal';
+import { partnerClearedRefusal } from '../intercompany/allocationUndoGate';
 
 export { UnapplyRefusal };
 
@@ -130,6 +131,9 @@ async function buildPlan(companyId: string, input: PaymentUnapplyInput): Promise
     throw new UnapplyRefusal(`Payment ${number} belongs to batch ${String(pay.batch_id)} — undo it through its batch.`);
   }
   await assertSourceJournalLive(sql, companyId, pay.gl_journal_entry_id, `Payment ${number}`);
+  // P4-E (j).4: the partner already cleared it against the loan (accepted allocation message): refused, the dry run too.
+  const cleared = await partnerClearedRefusal(companyId, input.paymentId);
+  if (cleared) throw new UnapplyRefusal(cleared);
 
   const rows = (await sql`
     SELECT pa.invoice_id, pa.amount_allocated, si.invoice_number, si.status,

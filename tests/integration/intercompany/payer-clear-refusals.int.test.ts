@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { acct, asAppUser, co, party, U, wipeConnections } from './intercompany.helpers';
+import { acct, asAppUser, co, party, U, wipeConnections, withoutTrigger } from './intercompany.helpers';
 import { mirrorCleanup } from './mirror.helpers';
 import { bank, clearPayments, plantPaid } from './allocation.helpers';
 import { loan } from './allocation-clear.helpers';
@@ -47,6 +47,15 @@ describe('the relationship', () => {
     const late = await clearConnect(pool, { since: '2026-09-15' });
     const b = await plantBill(pool, late);
     await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { postingDate: '2026-09-20' })), 409, /cut-over/i);
+  });
+
+  it('a deleted bill: 404; a revoked connection (the link left active): 409 not active', async () => {
+    const gone = await plantBill(pool, conn);
+    await pool.query('UPDATE supplier_invoices SET deleted_at = now() WHERE id = $1', [gone.bill]);
+    await refusedUntouched(pool, gone.bill, () => clearBill(clearBody(gone)), 404);
+    const b = await plantBill(pool, conn);
+    await withoutTrigger(pool, 'intercompany_connections', 'trg_intercompany_connections_guard', (q) => q.query("UPDATE intercompany_connections SET status = 'revoked', revoked_at = now(), revoked_by = $2 WHERE id = $1", [conn, U.ab]));
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /not active/i);
   });
 
   it('another tenant, the receiver itself, a member of both acting as a third company: 404', async () => {
@@ -101,8 +110,14 @@ describe('the bill', () => {
     await pool.query("INSERT INTO suppliers(id, company_id, name) VALUES ($1, $2, 'IC B other supplier')", [supplier, co.B]);
     await pool.query('UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [other.bill, supplier]);
     await refusedUntouched(pool, other.bill, () => clearBill(clearBody(other)), 409, /supplier/i);
-    const usd = await plantBill(pool, conn, { currency: 'USD' });
-    await refusedUntouched(pool, usd.bill, () => clearBill(clearBody(usd)), 409, /rand/i);
+    // a foreign bill needs the company's foreign-currency documents on (the FX gate refuses the INSERT otherwise)
+    await pool.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [co.B]);
+    try {
+      const usd = await plantBill(pool, conn, { currency: 'USD' });
+      await refusedUntouched(pool, usd.bill, () => clearBill(clearBody(usd)), 409, /rand/i);
+    } finally {
+      await pool.query('UPDATE companies SET fx_documents_enabled = false WHERE id = $1', [co.B]);
+    }
   });
 });
 

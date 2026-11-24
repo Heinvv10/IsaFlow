@@ -17,6 +17,8 @@ import { asService, mirrorCleanup } from './mirror.helpers';
 import { clearPayments } from './allocation.helpers';
 import { loan, outcomeOf } from './allocation-clear.helpers';
 import { pairingApi } from './pairing.helpers';
+import { holdCapLock } from './allocation-clear-round1.helpers';
+import { lockWaiter } from './ledger.helpers';
 import { clearBill, clearBody, clearConnect, clearedOf, errorText, payer, payerSetup, plantBill, receiverAccepts } from './payer-clear.helpers';
 
 assertDisposable();
@@ -64,6 +66,21 @@ describe('the payer undo gate', () => {
     const acc = await receiverAccepts(out.messageId, b.invoice, 1150);
     expect(outcomeOf(acc)).toMatchObject({ accepted: false });
   });
+
+  it("a receiver's clearing in flight (its cap lock held) makes the payer's void wait for it, then decide", async () => {
+    const { out } = await cleared();
+    const held = await holdCapLock(pool, out.messageId);
+    let settled = false;
+    const voiding = action({ action: 'void', paymentId: out.paymentId }).finally(() => { settled = true; });
+    try {
+      expect(await lockWaiter(pool, 'advisory')).toBe(true);
+      expect(settled).toBe(false);
+    } finally {
+      await held.release();
+    }
+    expect((await voiding).state.statusCode).toBe(200);
+    expect(await reversals(out.journalEntryId)).toBe(1);
+  }, 30000);
 
   it('accepted by the receiver: unapply and void are refused with a plain sentence, nothing changed', async () => {
     const { b, out } = await accepted();

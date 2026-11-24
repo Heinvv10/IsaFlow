@@ -44,6 +44,11 @@ const { mockTx } = vi.hoisted(() => ({
   },
 }));
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// intercompany P4-E (j).3: the loan-account guard asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/loanAccountPaymentGuard', () => ({
+  LOAN_ACCOUNT_PAYMENT_REFUSED: 'refused', loanAccountPaymentRefusal: vi.fn(async () => null), refuseLoanAccountPayment: vi.fn(async () => undefined),
+  refuseLoanAccountApply: vi.fn(async () => undefined), refuseLoanAccountBatch: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/als', async () => {

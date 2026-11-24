@@ -30,6 +30,7 @@ import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDia
 import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
+import { LoanClearingPanel } from '@/components/accounting/intercompany/LoanClearingPanel';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -226,6 +227,8 @@ export default function SupplierInvoiceDetailPage() {
           />
 
           <ThreeWayMatchPanel invoiceId={invoiceId as string} />
+          {/* intercompany P4-E: only for a bill linked on a loan connection, with the dark flag on */}
+          <LoanClearingPanel billId={invoiceId as string} onCleared={() => void loadInvoice()} />
 
           <AccountingDocumentPanel
             entityType="supplier_invoice"
