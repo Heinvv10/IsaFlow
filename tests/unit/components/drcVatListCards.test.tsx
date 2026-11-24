@@ -45,6 +45,9 @@ describe('DRC VAT on touch', () => {
     render(<Page />);
     await screen.findByText('SI-1');
     for (const name of [/Eligible/, /Processed/]) expect(cls(screen.getByRole('button', { name })), String(name)).toContain(MIN);
+    const strip = screen.getByRole('button', { name: /Eligible/ }).parentElement!;
+    expect(cls(strip)).toEqual(expect.arrayContaining(['w-fit', 'max-lg:w-full'])); // full width on a phone, so long counts have room
+    for (const b of strip.querySelectorAll('button')) expect(cls(b), b.textContent ?? '').toContain('max-lg:flex-1');
     expect(cls(screen.getByRole('button', { name: /Apply DRC/ }))).toContain(MIN);
     expect(cls(screen.getByRole('heading', { level: 1 }).parentElement!.parentElement!.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });

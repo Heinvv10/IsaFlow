@@ -117,13 +117,13 @@ export default function DRCVatPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 bg-[var(--ff-bg-secondary)] rounded-lg p-1 w-fit border border-[var(--ff-border-light)]">
+          <div className="flex gap-1 bg-[var(--ff-bg-secondary)] rounded-lg p-1 w-fit border border-[var(--ff-border-light)] max-lg:w-full">
             <button onClick={() => setTab('eligible')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 ${tab === 'eligible' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 max-lg:flex-1 ${tab === 'eligible' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
               Eligible ({eligible.length})
             </button>
             <button onClick={() => setTab('history')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 ${tab === 'history' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 max-lg:flex-1 ${tab === 'history' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
               Processed ({history.length})
             </button>
           </div>
