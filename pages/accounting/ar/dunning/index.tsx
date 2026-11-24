@@ -148,7 +148,7 @@ export default function DunningTemplatesPage() {
   if (loading) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-64 text-gray-500">
+        <div className="flex items-center justify-center h-64 text-[var(--ff-text-secondary)]">
           <Loader2 className="animate-spin mr-2" /> Loading dunning templates…
         </div>
       </AppLayout>
@@ -160,10 +160,10 @@ export default function DunningTemplatesPage() {
       <div className="max-w-6xl mx-auto p-6 space-y-6">
         <header className="flex items-start justify-between gap-4 max-lg:flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] flex items-center gap-2">
               <Mail className="w-6 h-6" /> Dunning Templates
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
               Escalation ladder for overdue customer invoices. Four SA defaults
               are seeded automatically — edit or add custom tones per company.
             </p>
@@ -362,7 +362,7 @@ export default function DunningTemplatesPage() {
             </div>
           ))}
           {templates.length === 0 && !error && (
-            <div className="text-sm text-gray-500 p-6 text-center border rounded">
+            <div className="text-sm text-[var(--ff-text-secondary)] p-6 text-center border rounded">
               No templates configured. Refresh to auto-seed SA defaults.
             </div>
           )}
