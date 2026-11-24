@@ -5,7 +5,7 @@ Daily job that emails the owners of each trial company at four points of its 30-
 | Stage | When | Email |
 |---|---|---|
 | `setup_nudge` | 3 or more whole days after signup | the setup steps not done yet (skipped, nothing sent, when setup is complete) |
-| `check_in` | 10 or more whole days after signup | features worth trying |
+| `check_in` | 10 or more whole days after signup | service check-in: how it is going, help, setup checklist |
 | `ending_soon` | the trial ends within 5 days | the end date and how to upgrade |
 | `ended` | the trial ended in the last 7 days | what happens now and how to upgrade |
 

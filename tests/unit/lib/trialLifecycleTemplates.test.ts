@@ -93,4 +93,31 @@ describe('trial lifecycle templates', () => {
     expect(footer).toMatch(/background-color:#f8fafc;[^"]*color:#475569;/);
     expect(e.html).not.toContain('#94a3b8');
   });
+
+  it.each([['check_in', renderCheckIn], ['ending_soon', renderEndingSoon], ['ended', renderEnded]] as const)(
+    '%s: service tone, no promotional phrasing', (_s, render) => {
+      const e = render(payload());
+      for (const text of [e.subject, e.html]) {
+        expect(text).not.toMatch(/worth trying|try next|suits you|recommend|unlock|powerful|don't miss|save time|stays as it is/i);
+      }
+      expect(e.html).not.toContain('Contact us to upgrade');
+    });
+
+  it('day 10 is a service check-in: how the trial is going, where to get help, the setup checklist', () => {
+    const html = renderCheckIn(payload()).html;
+    expect(renderCheckIn(payload()).subject).toBe('How is your IsaFlow trial going for Example Traders?');
+    expect(html).toContain('how your trial is going');
+    expect(html).toContain('href="https://app.example.test/accounting"');
+    expect(html).toContain('setup checklist');
+    expect(html).toContain('Where to find things:');
+    expect(html).toContain('href="mailto:accounts@isaflow.co.za"');
+  });
+
+  it('ending soon is factual: the end date and how to continue, no retention promise, a neutral button', () => {
+    const html = renderEndingSoon(payload()).html;
+    expect(html).toContain('<strong>1 December 2026</strong>');
+    expect(html).toContain('href="mailto:accounts@isaflow.co.za"');
+    expect(html).not.toMatch(/captured|stays|is kept|retain/i);
+    expect(html).toContain('>Contact us<');
+  });
 });

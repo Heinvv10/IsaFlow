@@ -16,7 +16,7 @@ export function renderEnded(p: TrialEmailPayload): RenderedEmail {
       `Reply to this email, or email us at ${contactLink()}.`,
       'We will move your company onto a paid plan.',
     ]),
-    button('Contact us to upgrade', upgradeUrl()),
+    button('Contact us', upgradeUrl()),
     contactLine(),
   ].join('');
   return { subject: headerSafe(`Your IsaFlow trial for ${p.companyName} has ended`), html: trialLayout(inner) };
