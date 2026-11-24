@@ -84,7 +84,7 @@ export function ConfirmDialog({
             onClick={onCancel}
             disabled={busy}
             aria-label="Close"
-            className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-slate-800 text-zinc-500 disabled:opacity-50"
+            className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-slate-800 text-zinc-500 disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
           >
             <X className="w-4 h-4" />
           </button>
@@ -92,13 +92,13 @@ export function ConfirmDialog({
         <div className="px-5 py-4 text-sm text-zinc-700 dark:text-slate-200 whitespace-pre-line">
           {message}
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-100 dark:border-slate-800 px-5 py-3 bg-zinc-50 dark:bg-slate-950 rounded-b-xl">
+        <div className="flex items-center justify-end gap-2 max-lg:flex-wrap border-t border-zinc-100 dark:border-slate-800 px-5 py-3 bg-zinc-50 dark:bg-slate-950 rounded-b-xl">
           <button
             ref={cancelBtn}
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-3 py-1.5 rounded-md text-sm text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-md text-sm text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800 disabled:opacity-50 max-lg:min-h-11"
           >
             {cancelLabel}
           </button>
@@ -107,7 +107,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy || confirmDisabled}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 ${confirmCls}`}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 max-lg:min-h-11 ${confirmCls}`}
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {confirmLabel}
