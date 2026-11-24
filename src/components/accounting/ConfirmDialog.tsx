@@ -89,7 +89,7 @@ export function ConfirmDialog({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-5 py-4 text-sm text-zinc-700 dark:text-slate-200 whitespace-pre-line max-lg:overflow-y-auto">
+        <div className="px-5 py-4 text-sm text-zinc-700 dark:text-slate-200 whitespace-pre-line max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:break-words">
           {message}
         </div>
         <div className="flex items-center justify-end gap-2 max-lg:flex-wrap max-lg:shrink-0 border-t border-zinc-100 dark:border-slate-800 px-5 py-3 bg-zinc-50 dark:bg-slate-950 rounded-b-xl">

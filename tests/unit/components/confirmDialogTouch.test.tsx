@@ -35,7 +35,7 @@ describe('ConfirmDialog on touch', () => {
     expect(cls(box)).toEqual(expect.arrayContaining(['max-lg:flex', 'max-lg:flex-col', 'max-lg:max-h-[calc(100dvh-2rem)]']));
     const [header, body, footer] = [...box.children];
     expect(cls(header!)).toContain('max-lg:shrink-0');
-    expect(cls(body!)).toContain('max-lg:overflow-y-auto');
+    expect(cls(body!)).toEqual(expect.arrayContaining(['max-lg:overflow-y-auto', 'max-lg:overscroll-contain', 'max-lg:break-words'])); // a long unbroken token wraps, and a scroll at the end does not chain to the page
     expect(cls(footer!)).toContain('max-lg:shrink-0');
   });
 });
