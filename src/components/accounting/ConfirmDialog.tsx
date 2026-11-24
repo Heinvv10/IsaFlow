@@ -68,9 +68,9 @@ export function ConfirmDialog({
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-zinc-200 dark:border-slate-700"
+        className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-zinc-200 dark:border-slate-700 max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]"
       >
-        <div className="flex items-start justify-between border-b border-zinc-100 dark:border-slate-800 px-5 py-3 gap-3">
+        <div className="flex items-start justify-between border-b border-zinc-100 dark:border-slate-800 px-5 py-3 gap-3 max-lg:shrink-0">
           <div className="flex items-start gap-2">
             {/* Warning icon only on destructive actions — primary tone shouldn't
                 signal danger. */}
@@ -89,10 +89,10 @@ export function ConfirmDialog({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-5 py-4 text-sm text-zinc-700 dark:text-slate-200 whitespace-pre-line">
+        <div className="px-5 py-4 text-sm text-zinc-700 dark:text-slate-200 whitespace-pre-line max-lg:overflow-y-auto">
           {message}
         </div>
-        <div className="flex items-center justify-end gap-2 max-lg:flex-wrap border-t border-zinc-100 dark:border-slate-800 px-5 py-3 bg-zinc-50 dark:bg-slate-950 rounded-b-xl">
+        <div className="flex items-center justify-end gap-2 max-lg:flex-wrap max-lg:shrink-0 border-t border-zinc-100 dark:border-slate-800 px-5 py-3 bg-zinc-50 dark:bg-slate-950 rounded-b-xl">
           <button
             ref={cancelBtn}
             type="button"

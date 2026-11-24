@@ -28,4 +28,14 @@ describe('ConfirmDialog on touch', () => {
     open({ confirmLabel: 'Delete everything on this page', cancelLabel: 'Keep it for now' });
     expect(cls(screen.getByRole('button', { name: 'Keep it for now' }).parentElement!)).toContain('max-lg:flex-wrap');
   });
+
+  it('a long message scrolls inside the box on a phone: the box is capped to the viewport and the header and footer keep their size, so the buttons stay reachable', () => {
+    open({ message: 'x '.repeat(2000) });
+    const box = screen.getByRole('dialog').firstElementChild!;
+    expect(cls(box)).toEqual(expect.arrayContaining(['max-lg:flex', 'max-lg:flex-col', 'max-lg:max-h-[calc(100dvh-2rem)]']));
+    const [header, body, footer] = [...box.children];
+    expect(cls(header!)).toContain('max-lg:shrink-0');
+    expect(cls(body!)).toContain('max-lg:overflow-y-auto');
+    expect(cls(footer!)).toContain('max-lg:shrink-0');
+  });
 });
