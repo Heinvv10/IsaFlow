@@ -15,7 +15,7 @@ import { canWrite } from '@/lib/auth/writeRoles';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import type { ConnectionView, GroupCandidate, SideOptions } from '@/modules/accounting/services/intercompany/connectionTypes';
 
-const NO_OPTIONS: SideOptions = { customers: [], suppliers: [], accounts: [], truncated: false };
+const NO_OPTIONS: SideOptions = { customers: [], suppliers: [], accounts: [], loanAccounts: [], truncated: false };
 
 export default function IntercompanyConnectionsPage() {
   const mayWrite = canWrite(useCompany().companyRole);

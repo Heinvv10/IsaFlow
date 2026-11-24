@@ -23,10 +23,19 @@ export async function listSideOptions(companyId: string): Promise<SideOptions> {
     WHERE ga.company_id = ${companyId}::UUID AND ga.is_active = true AND NOT ${isHeaderSql()}
     ORDER BY ga.account_code, ga.id LIMIT ${LIMIT + 1}
   `) as Row[];
+  // P4-D: the loan account's picker offers only what the side form takes (`intercompany_is_loan_class`: no bank, control, VAT or system
+  // account, none holding bank-statement lines)
+  const loanAccounts = (await sql`
+    SELECT ga.id, ga.account_code || ' ' || ga.account_name AS label FROM gl_accounts ga
+    WHERE ga.company_id = ${companyId}::UUID AND ga.is_active = true AND NOT ${isHeaderSql()}
+      AND public.intercompany_is_loan_class(ga.id, ga.company_id)
+    ORDER BY ga.account_code, ga.id LIMIT ${LIMIT + 1}
+  `) as Row[];
   return {
     customers: refs(customers),
     suppliers: refs(suppliers),
     accounts: refs(accounts),
-    truncated: [customers, suppliers, accounts].some((l) => l.length > LIMIT),
+    loanAccounts: refs(loanAccounts),
+    truncated: [customers, suppliers, accounts, loanAccounts].some((l) => l.length > LIMIT),
   };
 }

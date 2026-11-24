@@ -12,9 +12,13 @@
  * create, approve, process, and never reaches the apply function). Each allocation id runs in its OWN savepoint and the hook never throws: a
  * message that cannot be written is logged by SQLSTATE and the payment stands. Calling it twice, or for a payment that is not eligible, is
  * harmless: the definer answers `already_sent` / a named reason and writes nothing.
+ *
+ * DARK FLAG (`intercompany_loan_clearing`, loanClearingGate.ts): each entry point asks the PAYER company's flag ONCE, before any read,
+ * savepoint or definer call; off (every company's default), it returns silently: no message, no savepoint, no log line.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { loanClearingEnabled } from './loanClearingGate';
 
 type Row = Record<string, unknown>;
 
@@ -46,6 +50,12 @@ const sqlstate = (err: unknown): string | null => (err as { code?: string })?.co
 
 /** After a payer's cash was applied to its bills: the allocation message for each row, if it has a partner (never throws). */
 export async function mirrorAllocations(companyId: string, allocationIds: readonly string[]): Promise<void> {
+  if (allocationIds.length === 0 || !(await loanClearingEnabled(companyId))) return;
+  await sendAll(companyId, allocationIds);
+}
+
+/** Each id in its own savepoint (the flag already asked by the caller). */
+async function sendAll(companyId: string, allocationIds: readonly string[]): Promise<void> {
   for (const allocationId of allocationIds) {
     try {
       await withSavepoint('intercompany_allocation', () => send(companyId, allocationId));
@@ -58,6 +68,7 @@ export async function mirrorAllocations(companyId: string, allocationIds: readon
 
 /** Reads allocation ids in a savepoint of their own (a failed read must not poison the caller's transaction), then mirrors them. */
 async function mirrorRead(companyId: string, read: () => Promise<Row[]>): Promise<void> {
+  if (!(await loanClearingEnabled(companyId))) return;
   let ids: string[];
   try {
     ids = (await withSavepoint('intercompany_allocation_ids', read)).map((r) => String(r.id));
@@ -65,7 +76,7 @@ async function mirrorRead(companyId: string, read: () => Promise<Row[]>): Promis
     log.error('Intercompany allocation messages not written: the allocation rows could not be read', { companyId, code: sqlstate(err) }, 'intercompany');
     return;
   }
-  await mirrorAllocations(companyId, ids);
+  await sendAll(companyId, ids);
 }
 
 /** The same for every allocation row of these payments of the company (the process path, which wrote the payment's status, not the rows). */

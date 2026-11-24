@@ -1,10 +1,11 @@
-/** POST { reason } — reject an allocation message (P4-C); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. */
+/** POST { reason } — reject an allocation message (P4-C); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. Needs Approve on Customers & AR (P4-D round 1), a 403 before anything. */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { isUuidParam } from '@/lib/validation';
 import { respondIfRefusal } from '@/modules/accounting/services/intercompany/connectionRoute';
 import { rejectAllocation } from '@/modules/accounting/services/intercompany/handleService';
@@ -17,9 +18,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const parsed = parseRejectBody(req.body);
   if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
   try {
-    await rejectAllocation(req.companyId, id.toLowerCase(), parsed.value.reason);
+    // P4-D round 2 (A4): rejecting a payment is final, like clearing one: never from a Login-as session
+    await assertNotImpersonating();
+    await rejectAllocation(req.companyId, req.user.id, id.toLowerCase(), parsed.value.reason);
     return apiResponse.success(res, { id: id.toLowerCase(), status: 'rejected' }, 'Rejected');
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     if (respondIfRefusal(res, err)) return;
     throw err;
   }

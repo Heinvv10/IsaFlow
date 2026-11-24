@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { findJournalChainRoot } from '../shared/journalChainHead';
+import { refuseReversingIntercompanyClearing } from '../intercompany/clearingReversalGuard';
 
 /** How every settlement refusal names the undo — the UI action first. */
 export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
@@ -22,11 +23,16 @@ export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_suppl
 /** Only these sources can be either half; anything else is decided without a query. */
 const SETTLEMENT_SOURCES = new Set(['auto_bank_recon', 'auto_supplier_payment']);
 
-/** Called by `reverseJournalEntry` for every entry it reverses, once its claim holds the row. */
+/**
+ * Called by `reverseJournalEntry` for every entry it reverses, once its claim holds the row. Also refuses the other settlement a journal
+ * reversal must not undo alone: an intercompany clearing receipt's (P4-D, `intercompany/clearingReversalGuard`; its cancel names itself).
+ */
 export async function refuseReversingSettlementJournal(
   companyId: string,
   entry: { id: string; entryNumber: string; source?: string | null },
+  voidingReceiptId?: string,
 ): Promise<void> {
+  await refuseReversingIntercompanyClearing(companyId, entry, voidingReceiptId);
   if (!entry.source || !SETTLEMENT_SOURCES.has(entry.source)) return;
   // The entry OR any entry it reverses (D8): a provisional reversed and
   // re-reversed settles through its chain, and reversing the head R2 takes it

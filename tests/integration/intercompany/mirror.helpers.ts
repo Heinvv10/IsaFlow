@@ -20,6 +20,7 @@ import { cleanupPr4 } from '../r035-pr4.helpers';
 import { acct, co, companies, party, setup, tokens, U, wipeConnections } from './intercompany.fixture';
 import { asAppUser } from './intercompany.session';
 import { plantConnection, plantSide } from './intercompany.plant';
+import { dropFeatureOverrides } from './loan-clearing.helpers';
 
 export { U, co, party, tokens, companies, wipeConnections };
 
@@ -80,6 +81,7 @@ export async function mirrorCleanup(pool: Pool): Promise<void> {
   await quiet('DELETE FROM business_units WHERE company_id = ANY($1)', [both]);
   await quiet('DELETE FROM company_group_members WHERE group_id = ANY($1)', [[co.G, co.H]]);
   await quiet('DELETE FROM company_groups WHERE id = ANY($1)', [[co.G, co.H]]);
+  await dropFeatureOverrides(pool, companies).catch((err: unknown) => process.stderr.write(`mirror cleanup overrides: ${String(err)}\n`));
   await cleanupPr4(pool, companies, Object.values(U));
 }
 
