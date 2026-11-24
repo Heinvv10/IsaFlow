@@ -396,3 +396,21 @@ Checked against 1002:258, 1019:1584, 1025:295-315, 1027:162-174 and 1027:479-575
 - **Verified, unchanged:** the auto-accept queue (1019 `intercompany_auto_accept_queue`) takes `kind IN ('invoice', 'credit_note')` only; a
   payment message to a side with `auto_accept` on is never queued (`payment-r1-cash.int.test.ts`, with a rolled-back widening as the control).
 
+
+## (n) Review round 2: binding changes (SUPERSEDE (m) and all earlier text)
+- **MED-R1 cash = settlementKind's rules (H4).** (m)'s MED-1 copied rules 3-4 of `ap/settlementKind.ts` and skipped rule 2, so a bank-first
+  (R-127) payment was refused: `settleInvoiceFromProvisional` writes it with `gl_journal_entry_id` = the RECLASS (DR AP / CR the provisional's
+  expense and VAT lines) and `settles_provisional_je_id` = the provisional, the journal that credited the bank. New
+  `intercompany_payment_cash_word(payment, company)` (1031, STABLE INVOKER, EXECUTE app_user + migration_admin) mirrors every rule: 1 method
+  `contra` -> `not_cash`; 2 it settles a provisional that credited a money account, or a settling statement line (`SETTLING_LINE_STATUSES`) is
+  matched to a line of its journal -> `cash`; 3/4 the account its journal credits (largest credit line, ties by id; else `bank_account_id`) is
+  not a money account -> `no_money_account`; 5 else `cash`. Three differences, each fail closed or the batch's journal standing in for a member's:
+  a provisional that credited no money account; nothing credited; a batch member judged by its batch's journal. D1 and the unsent read both
+  call it (no list of their own, pinned by `paymentSqlPins.test.ts`); `payment-r2-kind.int.test.ts` pins it against `paymentSettlementKindSql`
+  on a table with one row per rule.
+- **LOW-R2 `no_money_account`.** D1's `not_cash` now means only the connection's mode or a contra set-off; a payment crediting no money account
+  (a clearing account such as "Bank Transfer acc - ABSA Paycards", a bank with no subtype and no statement line yet) is `no_money_account`. The
+  unsent read lists it with `refusal: 'no_money_account'` (Note column: "Not sent: no cash account") instead of hiding it; D1 still sends nothing.
+- **LOW-R3 a flag-off F draft has an exit.** The receipt chip asks `receipt-state` for any receipt stamped `IC:<uuid>` (not a contra), flag on
+  or off, and a stamped DRAFT offers "Discard draft" (the message that targets it, or the orphan's). The flag decides only for a receipt with no
+  stamp. Server side unchanged (D4 and `receipt-state` never asked the flag), pinned by `payment-confirm.int.test.ts`.
