@@ -4,7 +4,9 @@
 // difference. Three tabs with paginated tables (each page shows its own readAt), empty states, NO action buttons, and links to this
 // company's own documents only (the partner's payload text is never a link). A refusal shows its sentence. Round 1: the four parts show
 // whenever any is not 0, a failed read offers "Try again" and keeps the chosen connection, and a capped list says it was cut. Hand postings
-// that cancel (mirrored openings) show "Reconciles" WITH a note naming both figures; residuals that cancel are "Does not reconcile".
+// that cancel (mirrored openings) show "Reconciles" WITH a note naming both figures; residuals that cancel are "Does not reconcile". Round 2:
+// the green badge reads "Reconciles: every difference is explained" (never "balances agree": D may be non-zero), and a shared own loan
+// account never shows it and says its postings cannot be separated from this connection's.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -68,7 +70,7 @@ describe('the summary card', () => {
     expect(within(card).getByTestId('own-balance')).toHaveTextContent(/63\s700\.00/);
     expect(within(card).getByTestId('partner-balance')).toHaveTextContent(/60\s800\.00/);
     expect(within(card).getByTestId('difference')).toHaveTextContent(/2\s900\.00/);
-    expect(within(card).getByTestId('badge')).toHaveTextContent('Reconciles');
+    expect(within(card).getByTestId('badge').textContent).toBe('Reconciles: every difference is explained');
     const rows = within(within(card).getByRole('table')).getAllByRole('row');
     expect(rows.length).toBe(4);
     expect(card).toHaveTextContent(/In flight/);
@@ -82,7 +84,7 @@ describe('the summary card', () => {
   it('hand-posted openings that cancel: "Reconciles" with a note naming yours and the partner\'s, the parts listed', async () => {
     reply = () => envelope(report({ summary: summary({ reconciles: true, unexplained: { total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 } }) }));
     render(<ReconPage />);
-    expect(await screen.findByTestId('badge')).toHaveTextContent('Reconciles');
+    expect((await screen.findByTestId('badge')).textContent).toBe('Reconciles: every difference is explained');
     const note = screen.getByTestId('hand-postings-note');
     // the signed figures, each as the card shows money: yours the credit, the partner's the debit
     expect(note.textContent).toBe(`Includes hand postings on the loan accounts: yours ${formatCurrency(-50000)}, partner's ${formatCurrency(50000)} (they cancel)`);
@@ -95,7 +97,7 @@ describe('the summary card', () => {
     reply = () => envelope(report({ summary: summary({ reconciles: false, unexplained: { total: 0, ownOther: 0, partnerOther: 0, residualOwn: -300, residualPartner: 300 } }) }));
     render(<ReconPage />);
     expect(await screen.findByTestId('badge')).toHaveTextContent('Does not reconcile: postings no message explains');
-    expect(screen.queryByText('Reconciles')).toBeNull();
+    expect(screen.queryByText(/Reconciles/)).toBeNull();
     expect(screen.queryByTestId('hand-postings-note')).toBeNull();
     expect(screen.getByTestId('unexplained-parts')).toHaveTextContent(/Journals that differ from their messages, your side/);
   });
@@ -116,7 +118,7 @@ describe('the summary card', () => {
     reply = () => envelope(report({ summary: summary({ reconciles: false, blockingRows: 2 }) }));
     render(<ReconPage />);
     expect(await screen.findByTestId('badge')).toHaveTextContent('Does not reconcile: 2 rows need attention');
-    expect(screen.queryByText('Reconciles')).toBeNull();
+    expect(screen.queryByText(/Reconciles/)).toBeNull();
   });
 
   it('the partner withheld: own figures, "Withheld: <sentence>", no difference, no components, no badge', async () => {
@@ -136,7 +138,18 @@ describe('the summary card', () => {
     render(<ReconPage />);
     expect(await screen.findByText(/Unexplained \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/a loan account was changed: figures cover the current account only/i)).toBeInTheDocument();
-    expect(screen.getByText(/also serves another of your connections/i)).toBeInTheDocument();
+    expect(screen.getByText('Your loan account also serves another connection: postings from it cannot be separated from this one.')).toBeInTheDocument();
+  });
+
+  it("a shared own loan account whose other postings cancel the partner's (round 2): never green, no hand-postings note, the sentence said", async () => {
+    reply = () => envelope(report({ summary: summary({ reconciles: false, difference: 0, components: [{ key: 'matched', amount: 0, count: 1 }],
+      own: { balance: -1100, attributed: -400, other: -700, loanShared: true }, partner: { balance: 1100, attributed: 400, other: 700 },
+      unexplained: { total: 0, ownOther: -700, partnerOther: 700, residualOwn: 0, residualPartner: 0 } }) }));
+    render(<ReconPage />);
+    expect(await screen.findByTestId('badge')).toHaveTextContent('Does not reconcile: postings no message explains');
+    expect(screen.queryByText(/Reconciles/)).toBeNull();
+    expect(screen.queryByTestId('hand-postings-note')).toBeNull();
+    expect(screen.getByText('Your loan account also serves another connection: postings from it cannot be separated from this one.')).toBeInTheDocument();
   });
 });
 

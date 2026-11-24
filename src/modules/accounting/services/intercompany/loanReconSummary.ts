@@ -10,8 +10,11 @@
  * wrong ledger, so it is no safety net (round 1, (c)). Strict (the caller says so: the tests) throws on a failure; otherwise it is counted
  * for an "Unexplained (count)" line, never shown as a figure. "Reconciles" ONLY when residual_S = 0 AND residual_X = 0 AND D = sum(contrib)
  * (so U = 0: the hand postings, own_other + partner_other, net to 0), no anomaly / loan_account_changed / withdrawn row, no row whose payer
- * or receiver journal differs from its messages, and no identity failed. Mirrored hand-posted openings are the normal case: they cancel and
- * reconcile (the card notes them); residuals that cancel each other never give green (plan (m).6).
+ * or receiver journal differs from its messages, no identity failed, and S's own loan account serves no other connection (plan (m).18: b4
+ * attributes only this connection's journals, so another connection's postings sit in own_other, where they could cancel an unrelated
+ * partner_other). Mirrored hand-posted openings are the normal case: they cancel and reconcile (the card notes them); residuals that cancel
+ * each other never give green (plan (m).6). Green means every difference is explained, not that the balances agree ((m).19): D may be the
+ * messages in flight / rejected / undone, and two wrong, equal-and-opposite hand postings still cancel (the note shows both figures).
  *
  * The partner withheld (b0 not ok): no difference, no components, no Unexplained, no badge, no assertion ((l).3).
  */
@@ -90,7 +93,7 @@ export function summarize(row: SummaryRow, messages: MessageFacts[], opts: { str
     partnerState: 'ok', own: ownView, partner: figures(partner.balance, partner.other), withheld: null,
     difference: rand(d), components,
     unexplained: { total: rand(u), ownOther: rand(own.other), partnerOther: rand(partner.other), residualOwn: rand(residualOwn), residualPartner: rand(residualPartner) },
-    reconciles: residualOwn === 0 && residualPartner === 0 && d === sum && u === 0 && blocking === 0 && failures.length === 0,
+    reconciles: residualOwn === 0 && residualPartner === 0 && d === sum && u === 0 && blocking === 0 && failures.length === 0 && row.own_loan_shared !== true,
     blockingRows: blocking, identityFailures: failures.length, loanAccountChanged,
   };
 }

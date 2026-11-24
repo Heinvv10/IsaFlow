@@ -124,6 +124,15 @@ describe('the badge ((l).6)', () => {
     expect(s.unexplained).toEqual({ total: 0, ownOther: -500, partnerOther: 500, residualOwn: 0, residualPartner: 0 });
     expect(s.reconciles).toBe(true);
   });
+  it("S's loan account shared with another connection: never Reconciles, even when every figure would (round 2, (m).18)", () => {
+    // B's view: the other connection's Cr 700 lands in own_other and cancels A's unrelated Dr 700 in partner_other
+    const shared = { ...zero, own_balance: '-700', own_other: '-700', own_loan_shared: true, partner_balance: '700', partner_other: '700' };
+    const s = summarize(shared, [], { strict: true });
+    expect(s.unexplained).toEqual({ total: 0, ownOther: -700, partnerOther: 700, residualOwn: 0, residualPartner: 0 });
+    expect(s.reconciles).toBe(false);
+    expect(summarize({ ...zero, own_loan_shared: true }, [], { strict: true }).reconciles).toBe(false);
+    expect(summarize({ ...shared, own_loan_shared: false }, [], { strict: true }).reconciles).toBe(true);
+  });
   it('hand postings that do not cancel (S -500, X +400): no Reconciles', () => {
     const s = summarize({ ...zero, own_balance: '-500', own_other: '-500', partner_balance: '400', partner_other: '400' }, [], { strict: true });
     expect(s.unexplained?.total).toBe(-100);

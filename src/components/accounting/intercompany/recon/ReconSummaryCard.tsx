@@ -1,10 +1,11 @@
 /**
  * The loan reconciliation's summary card (P5): "as at <T>, read at <readAt>", both loan balances (or "Withheld: <sentence>"), the difference,
- * the components with their counts and the badge: "Reconciles" ONLY when the summary says so, "Unexplained R x", "Does not reconcile: n rows
+ * the components with their counts and the badge: "Reconciles: every difference is explained" ONLY when the summary says so (never "the
+ * balances agree": the difference may be messages in flight / rejected / undone, plan (m).19), "Unexplained R x", "Does not reconcile: n rows
  * need attention", or "Does not reconcile: postings no message explains" (U = 0 from residuals that cancel). "Reconciles" with hand postings
  * on the loan accounts (they cancel: mirrored openings) carries a note naming yours and the partner's (a disclosed figure, partner_other).
  * The four parts of Unexplained are listed whenever ANY of them is not 0. With the partner withheld there is no difference, no component,
- * no badge and no note.
+ * no badge and no note. A loan account of yours that also serves another connection never reconciles ((m).18) and the card says why.
  * Read only.
  */
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -23,7 +24,7 @@ const handPostings = (s: ReconSummary): boolean => s.reconciles === true && s.un
 
 function Badge({ s }: { s: ReconSummary }) {
   if (s.reconciles) {
-    return <span data-testid="badge" className="inline-flex items-center gap-1 rounded bg-green-100 px-2 py-1 text-sm font-medium text-green-800"><CheckCircle2 className="h-4 w-4" />Reconciles</span>;
+    return <span data-testid="badge" className="inline-flex items-center gap-1 rounded bg-green-100 px-2 py-1 text-sm font-medium text-green-800"><CheckCircle2 className="h-4 w-4" />Reconciles: every difference is explained</span>;
   }
   const u = s.unexplained?.total ?? 0;
   const text = u !== 0 ? `Unexplained ${formatRandAbs(u)}`
@@ -69,7 +70,7 @@ export function ReconSummaryCard({ summary: s, asOf, readAt, partnerName }: Prop
       )}
       {s.identityFailures > 0 && <p className="text-sm text-red-700">Unexplained ({s.identityFailures}): the report could not account for every message. Tell support.</p>}
       {s.loanAccountChanged && <p className="text-sm">A loan account was changed: figures cover the current account only.</p>}
-      {s.own?.loanShared && <p className="text-sm">Your loan account also serves another of your connections: your figures include it.</p>}
+      {s.own?.loanShared && <p className="text-sm">Your loan account also serves another connection: postings from it cannot be separated from this one.</p>}
       {s.components && s.components.length > 0 && (
         <table className="w-full text-sm">
           <caption className="sr-only">What the difference is made of</caption>
