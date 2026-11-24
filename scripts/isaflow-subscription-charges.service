@@ -1,0 +1,31 @@
+[Unit]
+Description=IsaFlow - subscription charges: queue and run recurring Paystack debits for due subscriptions
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+# Calls /api/cron/subscription-charges: resolves unanswered submissions, queues a charge for every
+# paid subscription whose period has ended, then debits queued and retry-eligible charges through
+# the company's active Paystack mandate. This moves real money: run the dry run first
+# (scripts/README-subscription-charges-cron.md). The X-Cron-Secret header reaches curl on stdin
+# (-H @-), never its argv, which /proc/<pid>/cmdline shows every local account
+# (scripts/isaflow-management-packs.service). CRON_SECRET must never be written here.
+# --max-time 600: the runner handles at most 100 charges a run, one Paystack call each.
+
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 600 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/subscription-charges'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-subscription-charges
+
+NoNewPrivileges=true
+ProtectSystem=strict
