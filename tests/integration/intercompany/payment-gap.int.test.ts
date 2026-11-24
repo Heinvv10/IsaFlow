@@ -93,14 +93,16 @@ describe('registry and grants', () => {
     expect(r).toMatchObject({ ok: true, owner: 'migration_admin', prosecdef: true });
   });
 
-  it('PUBLIC executes none; app_user executes D1, D2, D4, H2, H3 and not H1', async () => {
+  it('PUBLIC executes none; app_user executes D1, D2, D4, H2, H3, H4 and not H1', async () => {
     const can = async (role: string, fn: string) => (await pool.query('SELECT has_function_privilege($1, $2, \'EXECUTE\') AS ok', [role, fn])).rows[0].ok as boolean;
     const fns = ['public.intercompany_send_for_payment(uuid)', 'public.intercompany_payment_message_state(uuid)', 'public.intercompany_discard_payment_draft(uuid, uuid, text)',
-      'public.intercompany_payment_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'public.intercompany_allocation_cap_lock(uuid)'];
+      'public.intercompany_payment_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', 'public.intercompany_allocation_cap_lock(uuid)',
+      'public.intercompany_payment_cash_word(uuid, uuid)'];
     for (const fn of [...fns, 'public.intercompany_payment_payer_standing(uuid)']) expect(await can('public', fn), fn).toBe(false);
     for (const fn of fns) expect(await can('app_user', fn), fn).toBe(true);
     expect(await can('app_user', 'public.intercompany_payment_payer_standing(uuid)')).toBe(false);
     expect(await can('migration_admin', 'public.intercompany_payment_payer_standing(uuid)')).toBe(true);
+    expect(await can('migration_admin', 'public.intercompany_payment_cash_word(uuid, uuid)')).toBe(true);   // round 2: D1 (its owner) calls H4
   });
 
   it('app_pool_reach passes (no app pool reaches what it must not)', async () => {
