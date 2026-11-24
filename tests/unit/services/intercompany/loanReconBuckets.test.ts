@@ -14,7 +14,7 @@ import {
 const base: MessageFacts = {
   status: 'pending', sourceCancelled: false, direction: 'out', amount: 123.45, payerState: 'standing', payerCounts: true, payerLoanCredit: true,
   payerAfterT: false, payerJournalDiffers: false, receiverState: 'not_accepted', receiverCounts: false, receiverAfterT: false,
-  loanAccountChanged: false, partnerDocument: 'open',
+  receiverJournalDiffers: false, loanAccountChanged: false, partnerDocument: 'open',
 };
 const f = (over: Partial<MessageFacts>): MessageFacts => ({ ...base, ...over });
 
@@ -105,6 +105,16 @@ describe('the corrected labels of (l).4', () => {
   ])('%s', (_name, over, bucket, cents) => {
     expect(bucketOf(f(over))).toBe(bucket);
     expect(contributionCents(f(over))).toBe(cents);
+  });
+});
+
+describe('a status the report does not know (round 1, LOW-7)', () => {
+  it.each(['superseded', 'cancelled', ''])('%j: anomaly whatever else holds (never receiver_undone or any normal bucket), the formula amount', (status) => {
+    for (const over of [{}, { receiverCounts: true }, { payerCounts: false, payerState: 'journal_reversed' as const }, { sourceCancelled: true }, { loanAccountChanged: true }]) {
+      const x = f({ ...over, status: status as MessageFacts['status'] });
+      expect(bucketOf(x), JSON.stringify(over)).toBe('anomaly');
+      expect(contributionCents(x)).toBe(formula(x) || 0);
+    }
   });
 });
 

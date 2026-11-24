@@ -8,7 +8,7 @@ import {
   RECON_SENTENCES, RECON_STATUS, WITHHELD_SENTENCES, firstRefusal, parseReconQuery, reconRefusal, ReconRefusal,
 } from '@/modules/accounting/services/intercompany/loanReconRefusals';
 import { BUCKET_SENTENCES, sectionsOf } from '@/modules/accounting/services/intercompany/loanReconSections';
-import { BUCKETS, PARTNER_STATES } from '@/modules/accounting/services/intercompany/loanReconTypes';
+import { BUCKETS, MAX_RECON_OFFSET, PARTNER_STATES } from '@/modules/accounting/services/intercompany/loanReconTypes';
 
 const CONN = 'c0000000-0000-4000-8000-000000000001';
 
@@ -35,8 +35,14 @@ describe('parseReconQuery', () => {
     ['an unknown section', { connectionId: CONN, section: 'all' }], ['a limit of 0', { connectionId: CONN, limit: '0' }],
     ['a limit over 200', { connectionId: CONN, limit: '201' }], ['a fractional limit', { connectionId: CONN, limit: '1.5' }],
     ['a negative offset', { connectionId: CONN, offset: '-1' }], ['an offset as words', { connectionId: CONN, offset: 'ten' }],
+    ['an offset past the capped lists (round 1, LOW-9)', { connectionId: CONN, offset: '6001' }],
+    ['an offset far past them', { connectionId: CONN, offset: '900719925474099' }],
   ])('refuses %s', (_n, q) => {
     expect(parseReconQuery(q).ok).toBe(false);
+  });
+  it('the offset cap is the 5 000 messages plus the two capped lists: the last reachable row, no further', () => {
+    expect(MAX_RECON_OFFSET).toBe(5000 + 2 * 500);
+    expect(parseReconQuery({ connectionId: CONN, offset: String(MAX_RECON_OFFSET) })).toMatchObject({ ok: true, value: { offset: MAX_RECON_OFFSET } });
   });
 });
 

@@ -1,9 +1,11 @@
 /**
  * Intercompany P5, the arithmetic of the summary ((d), (k).4, (l).1, (l).3, (l).6) in integer cents: I1 (balance = attributed + other), the
  * contribution with NO direction sign, the residuals, Unexplained U = own_other + partner_other + residual_S + residual_X, the I2 code
- * assertion D = sum(contrib) + U (a 500 when strict, an "Unexplained (count)" line otherwise), and the badge: "Reconciles" only when
- * D = sum(contrib) AND U = 0 AND no anomaly / loan_account_changed / withdrawn row AND no payer_journal_differs. The worked example from BOTH
- * sessions gives the same D, contributions and U; its two variants never reconcile. The partner withheld: null figures, no throw.
+ * assertion D = sum(contrib) + U (arithmetic given I1: a check of this code's sums, no safety net; a throw only when the caller asks for
+ * strict), and the badge: "Reconciles" only when D = sum(contrib) AND U = 0 AND each of U's four parts is 0 (round 1, (b): cancelling hand
+ * postings or residuals never give green) AND no anomaly / loan_account_changed / withdrawn row AND no payer / receiver journal that differs.
+ * The worked example from BOTH sessions gives the same D, contributions and U; with its hand-posted openings it does not reconcile, without
+ * them it does; its two variants never reconcile. The partner withheld: null figures, no throw.
  */
 import { describe, expect, it } from 'vitest';
 import { summarize, LoanReconIdentityError } from '@/modules/accounting/services/intercompany/loanReconSummary';
@@ -13,7 +15,8 @@ const stand = { payerState: 'standing' as const, payerCounts: true, payerLoanCre
 const notAcc = { receiverState: 'not_accepted' as const, receiverCounts: false, receiverAfterT: false };
 const rcv = { receiverState: 'clearing_standing' as const, receiverCounts: true, receiverAfterT: false };
 const m = (amount: number, over: Partial<MessageFacts>, direction: 'out' | 'in' = 'out'): MessageFacts => ({
-  status: 'pending', sourceCancelled: false, direction, amount, ...stand, ...notAcc, loanAccountChanged: false, partnerDocument: 'open', ...over,
+  status: 'pending', sourceCancelled: false, direction, amount, ...stand, ...notAcc, receiverJournalDiffers: false, loanAccountChanged: false,
+  partnerDocument: 'open', ...over,
 });
 
 /** The worked example (d): m1-m5, S = the payer of all five. */
@@ -34,11 +37,12 @@ const xRow = (over: Partial<SummaryRow> = {}): SummaryRow => ({
 });
 
 describe('the worked example', () => {
-  it("from S's session (all out): D = -2 900 = sum(contrib), U = 0, Reconciles", () => {
+  it("from S's session (all out): D = -2 900 = sum(contrib), U = 0; the openings are other postings: no Reconciles", () => {
     const s = summarize(sRow(), example('out'), { strict: true });
     expect(s.difference).toBe(-2900);
     expect(s.unexplained).toEqual({ total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 });
-    expect(s.reconciles).toBe(true);
+    expect(s.reconciles).toBe(false);
+    expect(s.blockingRows).toBe(0);
     expect(s.identityFailures).toBe(0);
     expect(s.components).toEqual(expect.arrayContaining([
       { key: 'matched', amount: 0, count: 1 }, { key: 'in_flight', amount: -2500, count: 1 }, { key: 'receiver_undone', amount: -1200, count: 1 },
@@ -54,8 +58,18 @@ describe('the worked example', () => {
     const o = summarize(sRow(), example('out'), { strict: true });
     expect(s.difference).toBe(-2900);
     expect(s.unexplained?.total).toBe(0);
-    expect(s.reconciles).toBe(true);
+    expect(s.reconciles).toBe(false);
     expect(s.components).toEqual(o.components);
+  });
+
+  it('without the hand-posted openings: Reconciles from both sessions', () => {
+    const s = summarize(sRow({ own_balance: '-13700.00', own_other: '0', partner_balance: '10800.00', partner_other: '0' }), example('out'), { strict: true });
+    const x = summarize(xRow({ own_balance: '10800.00', own_other: '0', partner_balance: '-13700.00', partner_other: '0' }), example('in'), { strict: true });
+    for (const r of [s, x]) {
+      expect(r.difference).toBe(-2900);
+      expect(r.unexplained).toEqual({ total: 0, ownOther: 0, partnerOther: 0, residualOwn: 0, residualPartner: 0 });
+      expect(r.reconciles).toBe(true);
+    }
   });
 
   it('variant 1: the partner opened at R49 000: U = -1 000, no Reconciles, its parts listed', () => {
@@ -82,6 +96,7 @@ describe('the badge ((l).6)', () => {
     ['a loan_account_changed row', { loanAccountChanged: true, payerCounts: false, payerState: 'journal_reversed' }],
     ['a withdrawn row', { status: 'withdrawn', payerCounts: false, payerState: 'journal_reversed' }],
     ['a payer_journal_differs row', { payerJournalDiffers: true, payerCounts: false, payerState: 'journal_reversed' }],
+    ['a receiver_journal_differs row', { receiverJournalDiffers: true, payerCounts: false, payerState: 'journal_reversed' }],
   ])('U = 0 and D = sum(contrib) but %s: no Reconciles', (_n, over) => {
     const s = summarize(zero, [m(100, over)], { strict: true });
     expect(s.unexplained?.total).toBe(0);
@@ -91,6 +106,21 @@ describe('the badge ((l).6)', () => {
   });
   it('nothing at all reconciles', () => {
     expect(summarize(zero, [], { strict: true }).reconciles).toBe(true);
+  });
+  it.each<[string, Partial<SummaryRow>, Partial<Record<'ownOther' | 'partnerOther' | 'residualOwn' | 'residualPartner', number>>]>([
+    // S posted -500 by hand, X +500 by hand: U = 0, but both are postings no message explains
+    ['hand postings that cancel', { own_balance: '-500', own_other: '-500', partner_balance: '500', partner_other: '500' }, { ownOther: -500, partnerOther: 500 }],
+    // S's attributed journals carry -300 more than its messages, X's +300 more: the residuals cancel
+    ['residuals that cancel', { own_balance: '-300', own_attributed: '-300', partner_balance: '300', partner_other: '0' }, { residualOwn: -300, residualPartner: 300 }],
+    // a hand posting of S against a residual of X
+    ['a hand posting against a residual', { own_balance: '-200', own_other: '-200', partner_balance: '200', partner_other: '0' }, { ownOther: -200, residualPartner: 200 }],
+  ])('U = 0 and D = sum(contrib) but %s: no Reconciles, the parts are non-zero', (_n, row, parts) => {
+    const s = summarize({ ...zero, ...row }, [], { strict: true });
+    expect(s.unexplained?.total).toBe(0);
+    expect(s.difference).toBe(0);
+    expect(s.unexplained).toMatchObject(parts);
+    expect(s.reconciles).toBe(false);
+    expect(s.blockingRows).toBe(0);
   });
 });
 
@@ -103,8 +133,9 @@ describe('I1 and I2', () => {
     expect(s.reconciles).toBe(false);
   });
   it('rounding: sub-cent text is rounded per figure, identities run in integer cents', () => {
-    const s = summarize(sRow({ own_balance: '-63700.004', own_attributed: '-13700.001', own_other: '-50000.003' }), example('out'), { strict: true });
-    expect(s.own?.balance).toBe(-63700);
+    const s = summarize(sRow({ own_balance: '-13700.004', own_attributed: '-13700.001', own_other: '-0.003', partner_balance: '10800.00', partner_other: '0' }),
+      example('out'), { strict: true });
+    expect(s.own?.balance).toBe(-13700);
     expect(s.reconciles).toBe(true);
   });
 });

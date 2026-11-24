@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { useRef, type KeyboardEvent } from 'react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { SECTIONS, type ReconItem, type ReconReport, type SectionKey } from '@/modules/accounting/services/intercompany/loanReconTypes';
+import { MAX_RECON_LIST_ROWS, SECTIONS, type ReconItem, type ReconReport, type SectionKey } from '@/modules/accounting/services/intercompany/loanReconTypes';
 import { BUCKET_LABELS, MISMATCH_LABELS, SECTION_EMPTY, SECTION_LABELS } from './reconLabels';
 
 const PANEL = 'ic-recon-panel';
@@ -74,6 +74,12 @@ export function ReconSection({ report, onSection, onPage }: Props) {
           </button>
         ))}
       </div>
+      {key === 'attention' && (report.summary.truncated.unsent || report.summary.truncated.unlinked) && (
+        <p data-testid="recon-truncated" className="text-sm text-amber-800">
+          {report.summary.truncated.unsent && `Only the oldest ${MAX_RECON_LIST_ROWS} payments not sent to the partner are listed. `}
+          {report.summary.truncated.unlinked && `Only the oldest ${MAX_RECON_LIST_ROWS} paid bills not linked to the partner's invoice are listed.`}
+        </p>
+      )}
       <div role="tabpanel" id={PANEL} aria-labelledby={tabId(key)} tabIndex={0} data-testid="recon-section" className="outline-none">
         {items.length === 0 ? <p className="py-6 text-sm text-ink-muted">{SECTION_EMPTY[key]}</p> : (
           <div className="overflow-x-auto">

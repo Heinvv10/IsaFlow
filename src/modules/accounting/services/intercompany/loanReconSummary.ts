@@ -5,10 +5,12 @@
  * and every message's facts (b3): D = own_balance + partner_balance; each message's contribution (loanReconBuckets.ts); the residuals
  * residual_Y = attributed_Y - expected_Y, where expected_Y sums -a x [pc AND lc] over the messages Y paid and +a x [rc] over those Y received;
  * Unexplained U = own_other + partner_other + residual_S + residual_X (the headline: other postings on the loan accounts, and journals that
- * differ from their messages). I0 (one bucket per message) and I2 (D = sum(contrib) + U) are code assertions: they fail only on a defect (a
- * lost row, a double count, a sign); strict (tests) throws, otherwise the failure is counted for an "Unexplained (count)" line, never shown as
- * a figure. "Reconciles" ONLY when D = sum(contrib) AND U = 0 AND no anomaly / loan_account_changed / withdrawn row AND no row whose payer
- * journal differs from its messages, AND no identity failed.
+ * differ from their messages). I0 (one bucket per message) is a code assertion. I2 (D = sum(contrib) + U) is kept as a code assertion of
+ * this function's own sums, but given I1 and the definitions it is arithmetic: it can catch a defect here (a lost row, a sign), never a
+ * wrong ledger, so it is no safety net (round 1, (c)). Strict (the caller says so: the tests) throws on a failure; otherwise it is counted
+ * for an "Unexplained (count)" line, never shown as a figure. "Reconciles" ONLY when D = sum(contrib), U = 0 AND each of its four parts is 0
+ * (hand postings or residuals that cancel each other never give green: round 1, (b)), no anomaly / loan_account_changed / withdrawn row,
+ * no row whose payer or receiver journal differs from its messages, and no identity failed.
  *
  * The partner withheld (b0 not ok): no difference, no components, no Unexplained, no badge, no assertion ((l).3).
  */
@@ -31,7 +33,7 @@ function figures(balance: number, other: number): Figures {
   return { balance: rand(balance), attributed: rand(balance - other), other: rand(other) };
 }
 
-export type SummaryCore = Omit<ReconSummary, 'counts'>;
+export type SummaryCore = Omit<ReconSummary, 'counts' | 'truncated'>;
 
 export function summarize(row: SummaryRow, messages: MessageFacts[], opts: { strict: boolean }): SummaryCore {
   const failures: ('I0' | 'I1' | 'I2')[] = [];
@@ -72,7 +74,7 @@ export function summarize(row: SummaryRow, messages: MessageFacts[], opts: { str
     const received = m.receiverCounts ? a : 0;
     // the payer's credit goes to the payer's expectation, the receiver's debit to the receiver's, whichever company is asking
     if (m.direction === 'out') { expectedOwn += paid; expectedPartner += received; } else { expectedPartner += paid; expectedOwn += received; }
-    if (BLOCKING_BUCKETS.has(bucket) || m.payerJournalDiffers === true) blocking += 1;
+    if (BLOCKING_BUCKETS.has(bucket) || m.payerJournalDiffers === true || m.receiverJournalDiffers === true) blocking += 1;
   }
   if (bucketed !== messages.length) failures.push('I0');
   const residualOwn = own.attributed - expectedOwn;
@@ -87,7 +89,8 @@ export function summarize(row: SummaryRow, messages: MessageFacts[], opts: { str
     partnerState: 'ok', own: ownView, partner: figures(partner.balance, partner.other), withheld: null,
     difference: rand(d), components,
     unexplained: { total: rand(u), ownOther: rand(own.other), partnerOther: rand(partner.other), residualOwn: rand(residualOwn), residualPartner: rand(residualPartner) },
-    reconciles: d === sum && u === 0 && blocking === 0 && failures.length === 0,
+    reconciles: d === sum && u === 0 && own.other === 0 && partner.other === 0 && residualOwn === 0 && residualPartner === 0
+      && blocking === 0 && failures.length === 0,
     blockingRows: blocking, identityFailures: failures.length, loanAccountChanged,
   };
 }

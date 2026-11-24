@@ -2,7 +2,9 @@
 // read at <readAt>", both balances or "Withheld: <sentence>", the difference, the components with counts and the badge ("Reconciles",
 // "Unexplained R x" with its four parts, or "Does not reconcile: n rows need attention"); with the partner withheld there is no badge and no
 // difference. Three tabs with paginated tables (each page shows its own readAt), empty states, NO action buttons, and links to this
-// company's own documents only (the partner's payload text is never a link). A refusal shows its sentence.
+// company's own documents only (the partner's payload text is never a link). A refusal shows its sentence. Round 1: the four parts show
+// whenever any is not 0 (U = 0 from cancelling parts is "Does not reconcile"), a failed read offers "Try again" and keeps the chosen
+// connection, and a capped list says it was cut.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -23,12 +25,13 @@ const summary = (over: Partial<ReconSummary> = {}): ReconSummary => ({
   partnerState: 'ok', own: { balance: -63700, attributed: -13700, other: -50000, loanShared: false }, partner: { balance: 60800, attributed: 10800, other: 50000 },
   withheld: null, difference: -2900,
   components: [{ key: 'in_flight', amount: -2500, count: 1 }, { key: 'receiver_undone', amount: -1200, count: 1 }, { key: 'payer_undone', amount: 800, count: 1 }],
-  unexplained: { total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 }, reconciles: true, blockingRows: 0,
-  identityFailures: 0, loanAccountChanged: false, counts: { messages: 5, undone: 2, attention: 1, mismatch: 0 }, ...over,
+  unexplained: { total: 0, ownOther: 0, partnerOther: 0, residualOwn: 0, residualPartner: 0 }, reconciles: true, blockingRows: 0,
+  identityFailures: 0, loanAccountChanged: false, counts: { messages: 5, undone: 2, attention: 1, mismatch: 0 }, truncated: { unsent: false, unlinked: false }, ...over,
 });
 const item = (over: Partial<ReconItem> = {}): ReconItem => ({
   kind: 'message', id: 'msg-1', createdAt: '2026-09-10T08:00:00.000Z', direction: 'out', status: 'accepted', bucket: 'receiver_undone', amount: 1200,
-  contribution: -1200, payerState: 'standing', receiverState: 'clearing_voided', partnerDocument: 'not_open', payerJournalDiffers: false, flags: [], mismatches: [],
+  contribution: -1200, payerState: 'standing', receiverState: 'clearing_voided', partnerDocument: 'not_open', payerJournalDiffers: false,
+  receiverJournalDiffers: false, flags: [], mismatches: [],
   error: null, sentence: 'The partner cancelled its clearing receipt; your side still stands.',
   display: { paymentNumber: 'PAY-9', paymentDate: '2026-09-10', reference: 'ref', payerDocumentNumber: 'PARTNER-INV-7', currency: 'ZAR' },
   own: { billId: 'bill-1', billNumber: 'BILL-1', paymentId: 'pay-1', paymentNumber: 'PAY-9', paymentStatus: 'processed', invoiceId: null, invoiceNumber: null, receiptId: null, receiptNumber: null },
@@ -70,6 +73,18 @@ describe('the summary card', () => {
     expect(card).toHaveTextContent(/In flight/);
     expect(document.querySelector('input[type="date"]')).toBeNull();
     expect(screen.getByRole('combobox', { name: /connection/i })).toBeInTheDocument();
+    // every part 0: nothing to break down
+    expect(within(card).queryByTestId('unexplained-parts')).toBeNull();
+  });
+
+  it('U = 0 from parts that cancel (hand-posted openings): "Does not reconcile", the four parts listed', async () => {
+    reply = () => envelope(report({ summary: summary({ reconciles: false, unexplained: { total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 } }) }));
+    render(<ReconPage />);
+    expect(await screen.findByTestId('badge')).toHaveTextContent('Does not reconcile: postings no message explains');
+    expect(screen.queryByText('Reconciles')).toBeNull();
+    const parts = screen.getByTestId('unexplained-parts');
+    expect(parts).toHaveTextContent(/Other postings, your account/);
+    expect(parts).toHaveTextContent(/50\s000\.00/);
   });
 
   it('Unexplained: the badge names R |U| and its four parts', async () => {
@@ -155,6 +170,55 @@ describe('the sections', () => {
     reply = () => failure('Intercompany loan reconciliation is not enabled for this company.', 403);
     render(<ReconPage />);
     expect(await screen.findByText('Intercompany loan reconciliation is not enabled for this company.')).toBeInTheDocument();
+  });
+
+  it('a failed read offers Try again, keeps the chosen connection, and reads that connection again', async () => {
+    let fail = false;
+    reply = (u) => (fail ? failure('Could not load the reconciliation - try again', 500) : envelope(report({ connectionId: u.pathname.split('/').pop()! })));
+    render(<ReconPage />);
+    await screen.findByTestId('recon-summary');
+    fail = true;
+    fireEvent.change(screen.getByRole('combobox', { name: /connection/i }), { target: { value: 'conn-2' } });
+    const retry = await screen.findByRole('button', { name: /try again/i });
+    expect(screen.queryByTestId('recon-summary')).toBeNull();
+    expect(screen.getByRole('combobox', { name: /connection/i })).toHaveValue('conn-2');
+    fail = false;
+    fireEvent.click(retry);
+    expect(await screen.findByTestId('recon-summary')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /connection/i })).toHaveValue('conn-2');
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+    const reads = calls().filter((u) => u.pathname.endsWith('/conn-2'));
+    expect(reads.length).toBe(2);
+  });
+
+  it('the connection list failing: Try again asks for it again', async () => {
+    let fail = true;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      const u = new URL(String(url), 'http://x');
+      if (u.pathname === '/api/accounting/intercompany/loan-reconciliation') {
+        return fail ? failure('Could not load your intercompany connections - try again', 500)
+          : envelope({ connections: [{ id: 'conn-1', partnerName: 'Velocity Fibre', settlementMode: 'loan', status: 'active' }] });
+      }
+      return envelope(report());
+    });
+    render(<ReconPage />);
+    const retry = await screen.findByRole('button', { name: /try again/i });
+    fail = false;
+    fireEvent.click(retry);
+    expect(await screen.findByTestId('recon-summary')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /connection/i })).toHaveValue('conn-1');
+  });
+
+  it('a capped list says it was cut (Needs attention)', async () => {
+    reply = (u) => {
+      const r = report({ summary: summary({ truncated: { unsent: true, unlinked: false } }) });
+      return envelope({ ...r, section: { ...r.section, key: u.searchParams.get('section') ?? 'undone' } });
+    };
+    render(<ReconPage />);
+    await screen.findByTestId('recon-section');
+    expect(screen.queryByTestId('recon-truncated')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: /Needs attention/ }));
+    expect(await screen.findByTestId('recon-truncated')).toHaveTextContent('Only the oldest 500 payments not sent to the partner are listed.');
   });
 
   it('no loan connection: says so', async () => {

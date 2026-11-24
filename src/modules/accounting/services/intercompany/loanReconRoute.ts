@@ -4,7 +4,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { ReconRefusal } from './loanReconRefusals';
 
 const CODE: Record<ReconRefusal['status'], ErrorCode> = {
-  403: ErrorCode.FORBIDDEN, 404: ErrorCode.NOT_FOUND, 422: ErrorCode.BUSINESS_RULE_VIOLATION, 503: ErrorCode.SERVICE_UNAVAILABLE,
+  400: ErrorCode.BAD_REQUEST, 403: ErrorCode.FORBIDDEN, 404: ErrorCode.NOT_FOUND, 422: ErrorCode.BUSINESS_RULE_VIOLATION, 503: ErrorCode.SERVICE_UNAVAILABLE,
 };
 
 /** True (and the response sent) when `err` is a refusal; otherwise false so the caller rethrows. */

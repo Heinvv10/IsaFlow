@@ -1,7 +1,9 @@
 /**
  * The loan reconciliation's summary card (P5): "as at <T>, read at <readAt>", both loan balances (or "Withheld: <sentence>"), the difference,
- * the components with their counts and the badge: "Reconciles" ONLY when the summary says so, "Unexplained R x" with its four parts, or
- * "Does not reconcile: n rows need attention". With the partner withheld there is no difference, no component and no badge. Read only.
+ * the components with their counts and the badge: "Reconciles" ONLY when the summary says so, "Unexplained R x", "Does not reconcile: n rows
+ * need attention", or "Does not reconcile: postings no message explains" (U = 0 from parts that cancel). The four parts of Unexplained are
+ * listed whenever ANY of them is not 0 (round 1, (b)). With the partner withheld there is no difference, no component and no badge.
+ * Read only.
  */
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { formatCurrency, formatDate, formatRandAbs } from '@/utils/formatters';
@@ -10,12 +12,18 @@ import { BUCKET_LABELS, PART_LABELS, formatReadAt } from './reconLabels';
 
 interface Props { summary: ReconSummary; asOf: string; readAt: string; partnerName: string }
 
+const PART_KEYS = Object.keys(PART_LABELS) as (keyof typeof PART_LABELS)[];
+/** Some part of Unexplained is not 0 (they can cancel to U = 0 and still need a person). */
+const anyPart = (s: ReconSummary): boolean => s.unexplained !== null && PART_KEYS.some((k) => s.unexplained![k] !== 0);
+
 function Badge({ s }: { s: ReconSummary }) {
   if (s.reconciles) {
     return <span data-testid="badge" className="inline-flex items-center gap-1 rounded bg-green-100 px-2 py-1 text-sm font-medium text-green-800"><CheckCircle2 className="h-4 w-4" />Reconciles</span>;
   }
   const u = s.unexplained?.total ?? 0;
-  const text = u !== 0 ? `Unexplained ${formatRandAbs(u)}` : s.blockingRows ? `Does not reconcile: ${s.blockingRows} rows need attention` : 'Does not reconcile';
+  const text = u !== 0 ? `Unexplained ${formatRandAbs(u)}`
+    : s.blockingRows ? `Does not reconcile: ${s.blockingRows} rows need attention`
+      : anyPart(s) ? 'Does not reconcile: postings no message explains' : 'Does not reconcile';
   return <span data-testid="badge" className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-sm font-medium text-amber-800"><AlertTriangle className="h-4 w-4" />{text}</span>;
 }
 
@@ -42,9 +50,9 @@ export function ReconSummaryCard({ summary: s, asOf, readAt, partnerName }: Prop
         )}
       </dl>
       {s.reconciles !== null && <Badge s={s} />}
-      {s.unexplained && s.unexplained.total !== 0 && (
+      {anyPart(s) && (
         <ul data-testid="unexplained-parts" className="space-y-1 text-sm">
-          {(Object.keys(PART_LABELS) as (keyof typeof PART_LABELS)[]).map((k) => (
+          {PART_KEYS.map((k) => (
             <li key={k} className="flex justify-between gap-4"><span>{PART_LABELS[k]}</span><span>{formatCurrency(s.unexplained![k])}</span></li>
           ))}
         </ul>

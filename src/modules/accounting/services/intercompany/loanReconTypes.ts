@@ -50,6 +50,8 @@ export interface MessageFacts {
   receiverState: ReceiverState | null;
   receiverCounts: boolean | null;
   receiverAfterT: boolean | null;
+  /** The clearing receipt's loan debit differs from its accepted message's amount (round 1, LOW-5). */
+  receiverJournalDiffers: boolean | null;
   loanAccountChanged: boolean | null;
   partnerDocument: PartnerDocument | null;
 }
@@ -111,6 +113,7 @@ export interface ReconItem {
   receiverState: ReceiverState | null;
   partnerDocument: PartnerDocument | null;
   payerJournalDiffers: boolean | null;
+  receiverJournalDiffers: boolean | null;
   flags: AttentionFlag[];
   mismatches: MismatchKey[];
   /** The stored generic error sentence of a failed message (both parties already read it). */
@@ -140,12 +143,15 @@ export interface ReconSummary {
   components: Component[] | null;
   unexplained: Unexplained | null;
   reconciles: boolean | null;
-  /** Rows that keep "Reconciles" off even at U = 0 ((l).6): anomaly, loan_account_changed, withdrawn, payer_journal_differs. */
+  /** Rows that keep "Reconciles" off even at U = 0 ((l).6): anomaly, loan_account_changed, withdrawn, payer_journal_differs,
+   *  receiver_journal_differs. */
   blockingRows: number | null;
   /** I0 / I2 failures (a code defect): shown as an "Unexplained (count)" line, never as a figure. */
   identityFailures: number;
   loanAccountChanged: boolean;
   counts: Record<SectionKey, number> & { messages: number };
+  /** The `unsent` / `unlinked_partner_bill` lists hold at most MAX_RECON_LIST_ROWS rows each; true when there were more (round 1). */
+  truncated: { unsent: boolean; unlinked: boolean };
 }
 
 export interface ReconReport {
@@ -167,6 +173,11 @@ export interface ReconQuery { section: SectionKey; limit: number; offset: number
 export const PENDING_TOO_LONG_DAYS = 7;
 /** More allocation messages than this on one connection is refused ((f)): no partial answer that would look reconciled. */
 export const MAX_RECON_MESSAGES = 5000;
+/** The `unsent` and `unlinked_partner_bill` lists each list at most this many rows (oldest first) and say when they were cut. */
+export const MAX_RECON_LIST_ROWS = 500;
+/** The highest page offset: every page re-runs the whole statement, so its cost is bounded by the caps, never by the offset; no row of a
+ *  section lies beyond the capped messages plus the two capped lists. */
+export const MAX_RECON_OFFSET = MAX_RECON_MESSAGES + 2 * MAX_RECON_LIST_ROWS;
 export const DEFAULT_LIMIT = 50;
 export const MAX_LIMIT = 200;
 /** The report's statement bound, tighten-only ((f)). */

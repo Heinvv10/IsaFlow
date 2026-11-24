@@ -4,7 +4,7 @@
  * loan balances (the partner's only with its consent: flag on, still a group partner, its loan account set up for this connection only), the
  * difference split into named components, what is Unexplained, and three lists (Accepted, then undone; Needs attention; Mismatches). There
  * is no date to choose and nothing to press: the report posts, repairs and sends nothing. Behind the dark flag `intercompany_loan_clearing`
- * (the nav hides the link; the API refuses on its own).
+ * (the nav hides the link; the API refuses on its own). After a failed read the page offers "Try again" and keeps the chosen connection.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
@@ -31,21 +31,25 @@ export default function IntercompanyLoanReconciliationPage() {
   const wanted = useRef<string | null>(null);
 
   const queryConnection = router.query.connection;
+  const loadConnections = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = (await apiJson(BASE, undefined, 'Could not load your intercompany connections - try again')).connections;
+      setConnections(list);
+      setError('');
+      // a connection already chosen stays chosen
+      setConnectionId((prev) => prev || (list.find((c) => c.id === wanted.current)?.id ?? list[0]?.id ?? ''));
+      if (list.length === 0) setLoading(false);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load your intercompany connections - try again'));
+      setLoading(false);
+    }
+  }, []);
   useEffect(() => {
     if (!router.isReady || wanted.current !== null) return;
     wanted.current = typeof queryConnection === 'string' ? queryConnection : '';
-    void (async () => {
-      try {
-        const list = (await apiJson(BASE, undefined, 'Could not load your intercompany connections - try again')).connections;
-        setConnections(list);
-        setConnectionId(list.find((c) => c.id === wanted.current)?.id ?? list[0]?.id ?? '');
-        if (list.length === 0) setLoading(false);
-      } catch (err) {
-        setError(apiErrorMessage(err, 'Could not load your intercompany connections - try again'));
-        setLoading(false);
-      }
-    })();
-  }, [router.isReady, queryConnection]);
+    void loadConnections();
+  }, [router.isReady, queryConnection, loadConnections]);
 
   const load = useCallback(async () => {
     if (!connectionId) return;
@@ -89,7 +93,15 @@ export default function IntercompanyLoanReconciliationPage() {
         {connections !== null && connections.length === 0 && !error && (
           <p className="text-sm">This company has no intercompany loan connection to reconcile.</p>
         )}
-        {error && <p role="alert" className="flex items-center gap-2 text-sm text-red-700"><AlertCircle className="h-4 w-4" />{error}</p>}
+        {error && (
+          <div role="alert" className="flex items-center gap-3 text-sm text-red-700">
+            <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</span>
+            <button type="button" disabled={loading} className="rounded border border-[var(--ff-border-light)] px-3 py-1 text-[var(--ff-text-primary)] disabled:opacity-50"
+              onClick={() => { void (connections === null ? loadConnections() : load()); }}>
+              Try again
+            </button>
+          </div>
+        )}
         {loading && <p className="flex items-center gap-2 text-sm text-ink-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading…</p>}
         {report && !error && (
           <>

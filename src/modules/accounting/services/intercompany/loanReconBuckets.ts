@@ -7,10 +7,13 @@
  * (+a), and D = own_balance + partner_balance is the same sum whichever company is asking, so there is NO direction sign ((l).1). The bucket
  * only NAMES the message; the amount never depends on it, so no cell can fall through.
  *
- * The bucket is the first match of (l).4: withdrawn, loan_account_changed, anomaly, payer_timing, timing, then by (pc AND lc, rc). With the
- * partner withheld (b0 not ok) a partner-fact input is NULL: then there is no bucket and no contribution ((l).3), never a throw.
+ * The bucket is the first match of (l).4: a status the report does not know (anomaly, round 1), withdrawn, loan_account_changed, anomaly,
+ * payer_timing, timing, then by (pc AND lc, rc). With the partner withheld (b0 not ok) a partner-fact input is NULL: then there is no bucket
+ * and no contribution ((l).3), never a throw.
  */
-import type { Bucket, MessageFacts } from './loanReconTypes';
+import { MESSAGE_STATUSES, type Bucket, type MessageFacts } from './loanReconTypes';
+
+const KNOWN_STATUSES: ReadonlySet<string> = new Set(MESSAGE_STATUSES);
 
 /** Money as integer cents (2 dp first: a sub-cent payload is a mismatch, never dust). */
 export function toCents(v: string | number | null | undefined): number {
@@ -39,6 +42,8 @@ export function bucketOf(f: MessageFacts): Bucket | null {
   if (!judged(f)) return null;
   const accepted = f.status === 'accepted';
   const rc = f.receiverCounts === true;
+  // a status the report does not know (the CHECK allows none today) is named, never folded into a normal bucket (round 1, LOW-7)
+  if (!KNOWN_STATUSES.has(f.status)) return 'anomaly';
   if (f.status === 'withdrawn' || f.sourceCancelled) return 'withdrawn';
   // before anomaly: it forces lc / rc false, so an accepted message with a re-pointed payer account would otherwise read as one
   if (f.loanAccountChanged) return 'loan_account_changed';
@@ -66,5 +71,5 @@ export const ATTENTION_BUCKETS: ReadonlySet<Bucket> = new Set([
   'not_live', 'not_through_loan', 'rejected_or_dismissed', 'withdrawn', 'anomaly', 'loan_account_changed', 'timing', 'payer_timing',
 ]);
 
-/** Rows that keep "Reconciles" off even at U = 0 ((l).6), with payer_journal_differs. */
+/** Rows that keep "Reconciles" off even at U = 0 ((l).6), with payer_journal_differs and receiver_journal_differs. */
 export const BLOCKING_BUCKETS: ReadonlySet<Bucket> = new Set(['anomaly', 'loan_account_changed', 'withdrawn']);

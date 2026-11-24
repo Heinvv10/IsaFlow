@@ -70,7 +70,7 @@ export function messageItem(r: MessageRow, cutover: string | null): ReconItem {
   if (r.status === 'failed') flags.push('failed');
   if ((r.status === 'pending' || r.status === 'failed') && r.ageDays > PENDING_TOO_LONG_DAYS) flags.push('pending_too_long');
   const mismatches: MismatchKey[] = [];
-  if (r.amount === null || r.payerState === 'changed' || r.payerJournalDiffers === true) mismatches.push('amount');
+  if (r.amount === null || r.payerState === 'changed' || r.payerJournalDiffers === true || r.receiverJournalDiffers === true) mismatches.push('amount');
   if ((r.display.currency ?? 'ZAR').toUpperCase() !== 'ZAR') mismatches.push('currency');
   const paidBefore = cutover !== null && r.display.paymentDate !== null && r.display.paymentDate < cutover;
   if (paidBefore || r.payerAfterT === true || r.receiverAfterT === true) mismatches.push('date');
@@ -82,7 +82,8 @@ export function messageItem(r: MessageRow, cutover: string | null): ReconItem {
   return {
     kind: 'message', id: r.id, createdAt: iso(r.createdAt), direction: r.direction, status: r.status, bucket, amount: r.amount ?? 0,
     contribution: contribution === null ? null : contribution / 100, payerState: r.payerState, receiverState: r.receiverState,
-    partnerDocument: r.partnerDocument, payerJournalDiffers: r.payerJournalDiffers, flags, mismatches, error: str(r.error), sentence,
+    partnerDocument: r.partnerDocument, payerJournalDiffers: r.payerJournalDiffers, receiverJournalDiffers: r.receiverJournalDiffers, flags, mismatches,
+    error: str(r.error), sentence,
     display: r.display, own: r.own, cutover,
   };
 }
@@ -92,7 +93,7 @@ export function unsentItem(r: Record<string, unknown>, cutover: string | null): 
   return {
     kind: 'unsent', id: String(r.allocation_id), createdAt: iso(r.created_at), direction: 'out', status: null, bucket: null,
     amount: Number(r.amount ?? 0), contribution: null, payerState: null, receiverState: null, partnerDocument: null, payerJournalDiffers: null,
-    flags: ['unsent'], mismatches: [], error: null, sentence: FLAG_SENTENCES.unsent,
+    receiverJournalDiffers: null, flags: ['unsent'], mismatches: [], error: null, sentence: FLAG_SENTENCES.unsent,
     display: { ...NO_DISPLAY, paymentNumber: str(r.payment_number), paymentDate: day(r.payment_date), reference: str(r.reference) },
     own: { ...NO_DOCUMENTS, billId: str(r.bill_id), billNumber: str(r.bill_number), paymentId: str(r.payment_id), paymentNumber: str(r.payment_number), paymentStatus: str(r.payment_status) },
     cutover,
@@ -104,7 +105,7 @@ export function unlinkedItem(r: Record<string, unknown>, cutover: string | null)
   return {
     kind: 'unlinked_bill', id: String(r.bill_id), createdAt: iso(r.created_at), direction: 'out', status: null, bucket: null,
     amount: Number(r.amount_paid ?? 0), contribution: null, payerState: null, receiverState: null, partnerDocument: null, payerJournalDiffers: null,
-    flags: ['unlinked_partner_bill'], mismatches: [], error: null, sentence: FLAG_SENTENCES.unlinked_partner_bill,
+    receiverJournalDiffers: null, flags: ['unlinked_partner_bill'], mismatches: [], error: null, sentence: FLAG_SENTENCES.unlinked_partner_bill,
     display: { ...NO_DISPLAY, paymentDate: day(r.bill_date) },
     own: { ...NO_DOCUMENTS, billId: str(r.bill_id), billNumber: str(r.bill_number) },
     cutover,

@@ -17,18 +17,21 @@
 --   b0 intercompany_loan_recon_partner_state(connection, company) RETURNS text: the ONE partner-consent judgement ((k).1, (k).3, (l).2). The
 --      relationship first, so a company that is no longer a partner never learns the partner's flag or set-up: connection_not_active,
 --      not_group, not_one_group (intercompany_shared_group: STABLE, no lock); then the company's OWN fact loan_unset (its loan account NULL,
---      not its own, or a header); only then the partner's: partner_flag_off (its override, else is_global; no plan read: fail closed),
---      partner_setup (its loan account NULL, not its own, a header, or also the loan account of another of its connection sides: one generic
---      word); else ok. STABLE INVOKER, migration_admin only.
+--      not its own, a header, or not a loan class); only then the partner's: partner_flag_off (its override, else is_global; no plan read:
+--      fail closed), partner_setup (its loan account NULL, not its own, a header, also the loan account of another of its connection sides, or
+--      not a loan class: one generic word); else ok. "A loan class" is 1027's intercompany_is_loan_class (no bank subtype, no bank-statement
+--      line, no bank table naming it), as P4-D / P4-E count a loan account (round 1, HIGH-1). STABLE INVOKER, migration_admin only.
 --   b3 intercompany_loan_recon_messages(connection), a registered SECURITY DEFINER: per allocation message of the connection between the
 --      session company S and the connection's partner X (S a party), coarse words and booleans only: no figure, no partner id, no partner
 --      text. Every partner-fact column is NULL unless b0 says ok (computed once at the top): the payer's columns when S received the message
---      (`in`), the receiver's and partner_document when S sent it (`out`); loan_account_changed is the OR of both sides' parts (NULL when the
---      partner's part is withheld and S's own is false). Each journal chain is walked ONCE (one intercompany_journal_chain_eff per distinct
---      payer journal and per clearing receipt). Zero rows for anyone but a signed-in member of S with an intercompany write role, S having
---      the flag, the connection S's.
+--      (`in`), the receiver's (receiver_journal_differs included) and partner_document when S sent it (`out`); loan_account_changed is the OR
+--      of both sides' parts (NULL when the partner's part is withheld and S's own is false). A side's loan account counts only while it is a
+--      loan class (1027). A withheld side's journal lines, chains and loan account are not read at all. Each journal chain is walked ONCE (one
+--      intercompany_journal_chain_eff per distinct payer journal and per clearing receipt). Zero rows for anyone but a signed-in member of S
+--      with an intercompany write role, S having the flag, the connection S's.
 --   b4 intercompany_loan_recon_summary(connection), a registered SECURITY DEFINER: ONE row: b0's word, T, S's loan account balance at T, its
---      part from this connection's allocation journals (A_S, a DISTINCT set of b1 members) and the rest, whether S's loan account also
+--      part from this connection's allocation journals (A_S, a DISTINCT set of b1 members) and the rest (no own figures when S's account is
+--      not a loan class), whether S's loan account also
 --      serves another of S's connections; and, only when b0 says ok, X's balance and its non-allocation part on the account X named for this
 --      connection. Posted, company on line AND entry, entry_date <= T (getPostedAccountBalance's definition plus the date). I1 (balance =
 --      attributed + other) is asserted for both. Same caller check as b3; zero rows otherwise.
@@ -152,8 +155,11 @@ BEGIN
   IF NOT public.intercompany_shared_group(p_company, v_x) THEN RETURN 'not_one_group'; END IF;
   -- the session company's own set-up
   SELECT s.loan_account_id INTO v_own FROM public.intercompany_connection_sides s WHERE s.connection_id = p_connection AND s.company_id = p_company;
+  -- (round 1, HIGH-1) a loan account is one only while it is a loan class (1027's intercompany_is_loan_class: no bank subtype, no bank-statement
+  -- line, no bank table naming it), as 1027 / 1029 count it: an account that is or became a bank account is no loan account
   IF v_own IS NULL OR NOT EXISTS (SELECT 1 FROM public.gl_accounts ga WHERE ga.id = v_own AND ga.company_id = p_company)
-     OR EXISTS (SELECT 1 FROM public.gl_accounts ch WHERE ch.parent_account_id = v_own AND ch.company_id = p_company) THEN
+     OR EXISTS (SELECT 1 FROM public.gl_accounts ch WHERE ch.parent_account_id = v_own AND ch.company_id = p_company)
+     OR NOT public.intercompany_is_loan_class(v_own, p_company) THEN
     RETURN 'loan_unset';
   END IF;
   -- only now the partner's facts: its flag (override, else is_global; no plan read), then its loan account
@@ -165,7 +171,8 @@ BEGIN
   SELECT s.loan_account_id INTO v_xl FROM public.intercompany_connection_sides s WHERE s.connection_id = p_connection AND s.company_id = v_x;
   IF v_xl IS NULL OR NOT EXISTS (SELECT 1 FROM public.gl_accounts ga WHERE ga.id = v_xl AND ga.company_id = v_x)
      OR EXISTS (SELECT 1 FROM public.gl_accounts ch WHERE ch.parent_account_id = v_xl AND ch.company_id = v_x)
-     OR EXISTS (SELECT 1 FROM public.intercompany_connection_sides o WHERE o.company_id = v_x AND o.loan_account_id = v_xl AND o.connection_id <> p_connection) THEN
+     OR EXISTS (SELECT 1 FROM public.intercompany_connection_sides o WHERE o.company_id = v_x AND o.loan_account_id = v_xl AND o.connection_id <> p_connection)
+     OR NOT public.intercompany_is_loan_class(v_xl, v_x) THEN
     RETURN 'partner_setup';
   END IF;
   RETURN 'ok';
@@ -179,8 +186,8 @@ GRANT EXECUTE ON FUNCTION public.intercompany_loan_recon_partner_state(uuid, uui
 
 CREATE OR REPLACE FUNCTION public.intercompany_loan_recon_messages(p_connection uuid)
 RETURNS TABLE (message_id uuid, direction text, payer_state text, payer_after_t boolean, payer_loan_credit boolean, payer_counts boolean,
-               payer_journal_differs boolean, receiver_state text, receiver_after_t boolean, receiver_counts boolean, loan_account_changed boolean,
-               partner_document text)
+               payer_journal_differs boolean, receiver_state text, receiver_after_t boolean, receiver_counts boolean, receiver_journal_differs boolean,
+               loan_account_changed boolean, partner_document text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -218,7 +225,12 @@ BEGIN
        -- S is a party, and the other party is the connection's partner (a row naming a third company is not read)
        AND x.from_company_id IN (v_co, v_x) AND x.to_company_id IN (v_co, v_x)
   ),
-  sd AS MATERIALIZED (SELECT s.company_id, s.loan_account_id FROM public.intercompany_connection_sides s WHERE s.connection_id = p_connection),
+  -- (round 1, MED-2) a side's loan account counts only while it is a loan class, as 1027 counts it (an account that is or became a bank account
+  -- is NO loan account: no loan credit or debit on it, and a loan-paid payload has no loan line); the partner's row is read only when b0 says ok
+  sd AS MATERIALIZED (
+    SELECT s.company_id, CASE WHEN public.intercompany_is_loan_class(s.loan_account_id, s.company_id) THEN s.loan_account_id END AS loan_account_id
+      FROM public.intercompany_connection_sides s WHERE s.connection_id = p_connection AND (v_ok OR s.company_id = v_co)
+  ),
   -- each payer root chain walked ONCE; the partner's only when it may be shown
   pj AS MATERIALIZED (
     SELECT d.je, d.payer, public.intercompany_journal_chain_eff(d.je, d.payer) AS eff
@@ -234,13 +246,20 @@ BEGIN
   f AS (
     SELECT m.*, (v_ok OR m.payer = v_co) AS see_payer, (v_ok OR m.receiver = v_co) AS see_receiver,
            pj.eff AS peff, COALESCE(pg_catalog.cardinality(pj.eff), 0) AS pn,
-           (SELECT COALESCE(sum(l.credit - l.debit), 0) FROM public.gl_journal_lines l
-             WHERE l.journal_entry_id = m.je AND l.company_id = m.payer AND l.gl_account_id = ps.loan_account_id) AS pcredit,
-           EXISTS (SELECT 1 FROM public.gl_journal_lines l WHERE l.journal_entry_id = m.je AND l.company_id = m.payer AND l.gl_account_id = ps.loan_account_id) AS pline,
+           -- (round 1, timing) a side's journal lines are read only when that side may be shown: the CASE runs no subquery for a withheld side
+           CASE WHEN NOT (v_ok OR m.payer = v_co) THEN NULL WHEN m.je IS NULL OR ps.loan_account_id IS NULL THEN 0
+                ELSE (SELECT COALESCE(sum(l.credit - l.debit), 0) FROM public.gl_journal_lines l
+                       WHERE l.journal_entry_id = m.je AND l.company_id = m.payer AND l.gl_account_id = ps.loan_account_id) END AS pcredit,
+           CASE WHEN NOT (v_ok OR m.payer = v_co) THEN NULL WHEN m.je IS NULL OR ps.loan_account_id IS NULL THEN false
+                ELSE EXISTS (SELECT 1 FROM public.gl_journal_lines l
+                              WHERE l.journal_entry_id = m.je AND l.company_id = m.payer AND l.gl_account_id = ps.loan_account_id) END AS pline,
            r.id IS NOT NULL AS rfound, r.status AS rstatus, r.je AS rje, r.eff AS reff, COALESCE(pg_catalog.cardinality(r.eff), 0) AS rn,
-           (SELECT COALESCE(sum(l.debit - l.credit), 0) FROM public.gl_journal_lines l
-             WHERE l.journal_entry_id = r.je AND l.company_id = m.receiver AND l.gl_account_id = rs.loan_account_id) AS rdebit,
-           EXISTS (SELECT 1 FROM public.gl_journal_lines l WHERE l.journal_entry_id = r.je AND l.company_id = m.receiver AND l.gl_account_id = rs.loan_account_id) AS rline
+           CASE WHEN NOT (v_ok OR m.receiver = v_co) THEN NULL WHEN r.je IS NULL OR rs.loan_account_id IS NULL THEN 0
+                ELSE (SELECT COALESCE(sum(l.debit - l.credit), 0) FROM public.gl_journal_lines l
+                       WHERE l.journal_entry_id = r.je AND l.company_id = m.receiver AND l.gl_account_id = rs.loan_account_id) END AS rdebit,
+           CASE WHEN NOT (v_ok OR m.receiver = v_co) THEN NULL WHEN r.je IS NULL OR rs.loan_account_id IS NULL THEN false
+                ELSE EXISTS (SELECT 1 FROM public.gl_journal_lines l
+                              WHERE l.journal_entry_id = r.je AND l.company_id = m.receiver AND l.gl_account_id = rs.loan_account_id) END AS rline
       FROM m
       LEFT JOIN pj ON pj.je = m.je AND pj.payer = m.payer
       LEFT JOIN sd ps ON ps.company_id = m.payer
@@ -278,8 +297,16 @@ BEGIN
          h.rstate,
          CASE WHEN h.see_receiver THEN h.rn > 0 AND h.rlen < h.rn END,
          CASE WHEN h.see_receiver THEN h.status = 'accepted' AND h.rstate = 'clearing_standing' AND h.rdebit > 0 END,
-         -- the payload says loan-paid (or the message is accepted) but the journal has no line on that side's CURRENT loan account ((k).8)
-         (CASE WHEN h.see_payer THEN ((h.payload #>> '{payment,cashLegIsLoanAccount}') = 'true' OR h.status = 'accepted') AND h.pn > 0 AND NOT h.pline END)
+         -- (round 1, LOW-5) the clearing receipt's loan debit against the accepted messages targeting it (at most one: intercompany_messages_target_uq,
+         -- 1002:258), judged like payer_journal_differs: only while it debits the loan account and its chain is odd as at T
+         CASE WHEN h.see_receiver THEN h.status = 'accepted' AND h.rdebit > 0 AND h.rlen % 2 = 1
+              AND pg_catalog.round(h.rdebit, 2) <> (SELECT COALESCE(sum(m2.amount), 0) FROM m m2
+                                                     WHERE m2.status = 'accepted' AND m2.target_doc_type = 'customer_payment'
+                                                       AND m2.target_doc_id = h.target_doc_id AND m2.receiver = h.receiver) END,
+         -- the payer's part: the payload says loan-paid but the payer journal has no line on the payer side's CURRENT loan account; the receiver's:
+         -- the message is accepted but the receipt's journal has none on the receiver side's ((k).8). An accepted message that was never loan-paid
+         -- is no changed account: it is not_through_loan ((l).4 row (F, F); round 1, (g))
+         (CASE WHEN h.see_payer THEN (h.payload #>> '{payment,cashLegIsLoanAccount}') = 'true' AND h.pn > 0 AND NOT h.pline END)
            OR (CASE WHEN h.see_receiver THEN h.status = 'accepted' AND h.rn > 0 AND NOT h.rline END),
          CASE WHEN h.dir = 'out' AND v_ok THEN (
            SELECT CASE WHEN i.id IS NULL OR i.deleted_at IS NOT NULL OR i.status = 'cancelled' THEN 'gone'
@@ -340,6 +367,10 @@ BEGIN
   -- b0 alone judges the partner's flag, its loan account and its sharing ((l).7): nothing of the partner is recomputed here
   v_state := public.intercompany_loan_recon_partner_state(p_connection, v_co);
   SELECT s.loan_account_id INTO v_own FROM public.intercompany_connection_sides s WHERE s.connection_id = p_connection AND s.company_id = v_co;
+  -- (round 1, MED-2) S's own account counts only while it is a loan class, as 1027 counts it: a bank account is no loan account (no own figures)
+  IF v_own IS NOT NULL AND NOT public.intercompany_is_loan_class(v_own, v_co) THEN
+    v_own := NULL;
+  END IF;
   IF v_own IS NOT NULL THEN
     v_shared := EXISTS (SELECT 1 FROM public.intercompany_connection_sides s
                          WHERE s.company_id = v_co AND s.loan_account_id = v_own AND s.connection_id <> p_connection);
@@ -399,9 +430,9 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_loan_recon_messages(uuid)', 'public.intercompany_loan_recon_messages(uuid)',
-     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of the session company, the company having the intercompany_loan_clearing flag (feature_flags / company_feature_overrides: override, else is_global) and the connection its own (intercompany_connections), a read of the connection''s allocation intercompany_messages between the company and its partner, the two intercompany_connection_sides rows (their loan accounts), through intercompany_loan_recon_partner_state the partner-consent facts (intercompany_connections, company_group_members / company_groups through intercompany_shared_group, gl_accounts, feature_flags / company_feature_overrides of the partner, intercompany_connection_sides), each payer journal''s and clearing receipt''s reversal chain once (gl_journal_entries, gl_journal_lines through intercompany_journal_chain_eff / intercompany_lines_negate), through intercompany_allocation_payer_state the payment_allocations / supplier_payments / supplier_payment_batches / supplier_invoices rows, the payer journal''s gl_journal_lines on the payer side''s loan account, an accepted message''s customer_payments row and its gl_journal_lines on the receiver side''s loan account, and for a message the company sent the receiver''s customer_invoices row (status, deleted_at, currency_code); answers per message coarse words and booleans only (no figure, no partner id, no partner text), every partner fact NULL unless the partner-consent gate says ok; zero rows for anyone else'),
+     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of the session company, the company having the intercompany_loan_clearing flag (feature_flags / company_feature_overrides: override, else is_global) and the connection its own (intercompany_connections), a read of the connection''s allocation intercompany_messages between the company and its partner, the two intercompany_connection_sides rows (their loan accounts), through intercompany_loan_recon_partner_state the partner-consent facts (intercompany_connections, company_group_members / company_groups through intercompany_shared_group, gl_accounts, feature_flags / company_feature_overrides of the partner, intercompany_connection_sides, and through intercompany_is_loan_class bank_transactions, bank_accounts, bank_feed_connections, bank_statement_imports, bank_import_batches, bank_reconciliations, bank_transfer_link_log for both loan accounts), each payer journal''s and clearing receipt''s reversal chain once (gl_journal_entries, gl_journal_lines through intercompany_journal_chain_eff / intercompany_lines_negate), through intercompany_allocation_payer_state the payment_allocations / supplier_payments / supplier_payment_batches / supplier_invoices rows, the payer journal''s gl_journal_lines on the payer side''s loan account, an accepted message''s customer_payments row and its gl_journal_lines on the receiver side''s loan account (and the receipt''s loan debit against its accepted message''s amount), and for a message the company sent the receiver''s customer_invoices row (status, deleted_at, currency_code); answers per message coarse words and booleans only (no figure, no partner id, no partner text), every partner fact NULL unless the partner-consent gate says ok; zero rows for anyone else'),
     ('intercompany_loan_recon_summary(uuid)', 'public.intercompany_loan_recon_summary(uuid)',
-     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of the session company, the company having the intercompany_loan_clearing flag (feature_flags / company_feature_overrides: override, else is_global) and the connection its own (intercompany_connections), the partner-consent word of intercompany_loan_recon_partner_state (intercompany_connections, company_group_members / company_groups, gl_accounts, feature_flags / company_feature_overrides of the partner, intercompany_connection_sides), the two intercompany_connection_sides rows (their loan accounts; the partner''s only when the gate says ok), the connection''s allocation intercompany_messages and accepted ones'' customer_payments rows, their journals'' reversal chains (gl_journal_entries, gl_journal_lines through intercompany_journal_chain_members / intercompany_lines_negate), and the posted gl_journal_lines / gl_journal_entries on each company''s own loan account dated on or before today; answers ONE row: the gate''s word, the date, the company''s balance on its loan account split into its allocation part and the rest, whether that account serves another of its connections, and (only when the gate says ok) the partner''s balance and its non-allocation part on the account the partner named for this connection; zero rows for anyone else')
+     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of the session company, the company having the intercompany_loan_clearing flag (feature_flags / company_feature_overrides: override, else is_global) and the connection its own (intercompany_connections), the partner-consent word of intercompany_loan_recon_partner_state (intercompany_connections, company_group_members / company_groups, gl_accounts, feature_flags / company_feature_overrides of the partner, intercompany_connection_sides, and through intercompany_is_loan_class the bank tables bank_transactions, bank_accounts, bank_feed_connections, bank_statement_imports, bank_import_batches, bank_reconciliations, bank_transfer_link_log for both loan accounts), the two intercompany_connection_sides rows (their loan accounts; the partner''s only when the gate says ok), the connection''s allocation intercompany_messages and accepted ones'' customer_payments rows, their journals'' reversal chains (gl_journal_entries, gl_journal_lines through intercompany_journal_chain_members / intercompany_lines_negate), and the posted gl_journal_lines / gl_journal_entries on each company''s own loan account dated on or before today; answers ONE row: the gate''s word, the date, the company''s balance on its loan account split into its allocation part and the rest, whether that account serves another of its connections, and (only when the gate says ok) the partner''s balance and its non-allocation part on the account the partner named for this connection; zero rows for anyone else')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
@@ -444,6 +475,11 @@ DECLARE
   d RECORD;
   v_vol "char";
 BEGIN
+  -- (round 1, MED-10) b3 / b4 read FORCE RLS tables (intercompany_messages, gl_journal_lines, gl_accounts, customer_payments, bank_transactions,
+  -- ...) as their owner: an owner that does not bypass row security would see no row and the report would answer an empty ledger as if true
+  IF NOT COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = 'migration_admin'), false) THEN
+    RAISE EXCEPTION '1030: migration_admin does not bypass row security: the report''s definers would read FORCE RLS tables as empty';
+  END IF;
   FOR d IN SELECT * FROM (VALUES ('public.intercompany_loan_recon_messages(uuid)', 'intercompany_loan_recon_messages(uuid)', true),
                                  ('public.intercompany_loan_recon_summary(uuid)', 'intercompany_loan_recon_summary(uuid)', true),
                                  ('public.intercompany_loan_recon_partner_state(uuid, uuid)', NULL, false),
@@ -473,7 +509,7 @@ BEGIN
                                  ('auth.user_companies()'), ('public.intercompany_user_can_write(uuid)'), ('public.intercompany_shared_group(uuid, uuid)'),
                                  ('public.intercompany_journal_chain_eff(uuid, uuid)'), ('public.intercompany_journal_chain_length(uuid, uuid, date, date[])'),
                                  ('public.intercompany_lines_negate(uuid, uuid)'), ('public.intercompany_pair_cutovers(uuid)'),
-                                 ('public.rls_user_group_ids()')) AS x(fn) LOOP
+                                 ('public.rls_user_group_ids()'), ('public.intercompany_is_loan_class(uuid, uuid)')) AS x(fn) LOOP
     SELECT p.provolatile INTO v_vol FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure;
     IF v_vol IS DISTINCT FROM 's' THEN
       RAISE EXCEPTION '1030: % is not STABLE (%): the report would read more than one snapshot', d.fn, v_vol;

@@ -38,7 +38,8 @@ const B5 = ['intercompany_loan_recon_partner_state(uuid,uuid)', 'intercompany_jo
   'intercompany_allocation_payer_state(uuid,date,date[])', 'intercompany_loan_recon_messages(uuid)', 'intercompany_loan_recon_summary(uuid)'];
 const CALLEES = ['app.current_company_id()', 'auth.uid()', 'auth.user_companies()', 'public.intercompany_user_can_write(uuid)',
   'public.intercompany_shared_group(uuid,uuid)', 'public.intercompany_journal_chain_eff(uuid,uuid)', 'public.intercompany_journal_chain_length(uuid,uuid,date,date[])',
-  'public.intercompany_lines_negate(uuid,uuid)', 'public.intercompany_pair_cutovers(uuid)', 'public.rls_user_group_ids()'];
+  'public.intercompany_lines_negate(uuid,uuid)', 'public.intercompany_pair_cutovers(uuid)', 'public.rls_user_group_ids()',
+  'public.intercompany_is_loan_class(uuid,uuid)'];
 
 describe('read only', () => {
   it('nothing moves around a report; no xid, no advisory lock, nothing above AccessShare; a concurrent FOR UPDATE NOWAIT does not wait', async () => {
@@ -189,6 +190,20 @@ describe('the STABLE halt ((b5), (k).10)', () => {
       }
     }
     expect((await pool.query("SELECT provolatile FROM pg_proc WHERE oid = 'public.intercompany_loan_recon_summary(uuid)'::regprocedure")).rows[0].provolatile).toBe('s');
+  });
+
+  it('round 1, MED-10: the migration refuses to finish when the definers\' owner migration_admin does not bypass row security', async () => {
+    const MIGRATION = readFileSync(path.resolve(__dirname, '../../../scripts/migrations/sql/1030_intercompany_p5_loan_reconciliation.sql'), 'utf8');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('ALTER ROLE migration_admin NOBYPASSRLS');
+      await expect(client.query(MIGRATION)).rejects.toThrow(/migration_admin does not bypass row security/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    expect((await pool.query("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'migration_admin'")).rows[0].rolbypassrls).toBe(true);
   });
 });
 

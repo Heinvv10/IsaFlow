@@ -153,9 +153,10 @@ export const listAs = (user: string, company: string, token = tokens[user]!) => 
 export const reportOf = (r: { state: { body: unknown } }) => dataOf<ReconReport>(r);
 export const errorOf = (r: { state: { body: unknown } }) => (r.state.body as { error?: unknown }).error;
 
-/** Every classified row (matched and in-flight included) and the summary, through the service as `user`'s own session of `company`. */
+/** Every classified row (matched and in-flight included) and the summary, through the service as `user`'s own session of `company`; strict:
+ *  an identity failure throws here (the service never reads the environment for it). */
 export const rowsAs = (pool: Pool, user: string, company: string, conn: string) =>
-  asPerson(pool, user, company, () => loadReconRows(company, conn)) as Promise<{ summary: ReconSummary; items: ReconItem[]; asOf: string; readAt: string }>;
+  asPerson(pool, user, company, () => loadReconRows(company, conn, { strict: true })) as Promise<{ summary: ReconSummary; items: ReconItem[]; asOf: string; readAt: string }>;
 
 /** The bucket of each message by id. */
 export const bucketsOf = (rows: { items: ReconItem[] }) => Object.fromEntries(rows.items.filter((i) => i.kind === 'message').map((i) => [i.id, i.bucket]));
@@ -170,7 +171,7 @@ export const rawSummary = (pool: Pool, user: string, company: string, conn: stri
 /** The partner-fact columns of b3 per direction ((k).1); loan_account_changed is the OR of both sides' parts, the partner's NULL when withheld. */
 export const PARTNER_FACTS = {
   in: ['payer_state', 'payer_after_t', 'payer_loan_credit', 'payer_counts', 'payer_journal_differs'],
-  out: ['receiver_state', 'receiver_after_t', 'receiver_counts', 'partner_document'],
+  out: ['receiver_state', 'receiver_after_t', 'receiver_counts', 'receiver_journal_differs', 'partner_document'],
 } as const;
 
 /** Components by key, as { amount, count }. */

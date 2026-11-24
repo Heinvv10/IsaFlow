@@ -6,34 +6,36 @@
  * answer for a connection of another pair, a random id and a cash connection without messages: no existence oracle).
  */
 import { isUuidParam } from '@/lib/validation';
-import { DEFAULT_LIMIT, MAX_LIMIT, SECTIONS, type PartnerState, type ReconQuery, type SectionKey } from './loanReconTypes';
+import { DEFAULT_LIMIT, MAX_LIMIT, MAX_RECON_OFFSET, SECTIONS, type PartnerState, type ReconQuery, type SectionKey } from './loanReconTypes';
 
-export type ReconCode = 'impersonating' | 'not_own_session' | 'not_enabled' | 'forbidden' | 'not_found' | 'too_many' | 'timeout';
+export type ReconCode = 'impersonating' | 'not_own_session' | 'not_enabled' | 'forbidden' | 'bad_request' | 'not_found' | 'too_many' | 'timeout';
 
 export const RECON_SENTENCES: Record<ReconCode, string> = {
   impersonating: 'This report cannot be opened while impersonating another user. End the impersonation and act as yourself.',
   not_own_session: 'Open this report from your own signed-in session.',
   not_enabled: 'Intercompany loan reconciliation is not enabled for this company.',
   forbidden: 'The intercompany loan reconciliation needs an owner, admin or manager role in this company.',
+  bad_request: 'The request is not valid.',
   not_found: 'Connection not found',
   too_many: 'This connection has too many to reconcile in one view.',
   timeout: 'The report took too long; try again.',
 };
 
-export const RECON_STATUS: Record<ReconCode, 403 | 404 | 422 | 503> = {
-  impersonating: 403, not_own_session: 403, not_enabled: 403, forbidden: 403, not_found: 404, too_many: 422, timeout: 503,
+export const RECON_STATUS: Record<ReconCode, 400 | 403 | 404 | 422 | 503> = {
+  impersonating: 403, not_own_session: 403, not_enabled: 403, forbidden: 403, bad_request: 400, not_found: 404, too_many: 422, timeout: 503,
 };
 
 export class ReconRefusal extends Error {
-  readonly status: 403 | 404 | 422 | 503;
-  constructor(readonly code: ReconCode) {
-    super(RECON_SENTENCES[code]);
+  readonly status: 400 | 403 | 404 | 422 | 503;
+  /** `sentence` replaces the code's fixed one only for a bad request (parseReconQuery's own fixed sentences). */
+  constructor(readonly code: ReconCode, sentence?: string) {
+    super(sentence ?? RECON_SENTENCES[code]);
     this.name = 'ReconRefusal';
     this.status = RECON_STATUS[code];
   }
 }
 
-export const reconRefusal = (code: ReconCode) => new ReconRefusal(code);
+export const reconRefusal = (code: ReconCode, sentence?: string) => new ReconRefusal(code, sentence);
 
 /** The first refusal of the person, in the order of (c); null when they may read. */
 export function firstRefusal(g: { session: 'self' | 'impersonation' | 'unknown'; flagOn: boolean; canWrite: boolean }): ReconCode | null {
@@ -52,8 +54,10 @@ const whole = (v: string | undefined | null, min: number, max: number, fallback:
   return n >= min && n <= max ? n : null;
 };
 
+export type ParsedReconQuery = { ok: true; value: ReconQuery & { connectionId: string } } | { ok: false; error: string };
+
 /** The report's query: the connection, the section and the page. An `asOf` (in any form) is refused. */
-export function parseReconQuery(q: Record<string, unknown>): { ok: true; value: ReconQuery & { connectionId: string } } | { ok: false; error: string } {
+export function parseReconQuery(q: Record<string, unknown>): ParsedReconQuery {
   if (Object.keys(q).some((k) => k.toLowerCase() === 'asof' || k.toLowerCase() === 'as_of')) {
     return { ok: false, error: 'The report is as of today: it takes no date.' };
   }
@@ -65,8 +69,9 @@ export function parseReconQuery(q: Record<string, unknown>): { ok: true; value: 
   }
   const limit = whole(one(q.limit), 1, MAX_LIMIT, DEFAULT_LIMIT);
   if (limit === null) return { ok: false, error: `limit must be a whole number from 1 to ${MAX_LIMIT}` };
-  const offset = whole(one(q.offset), 0, Number.MAX_SAFE_INTEGER, 0);
-  if (offset === null) return { ok: false, error: 'offset must be a whole number, 0 or more' };
+  // every page re-runs the whole statement: the offset is capped where the capped lists end (round 1, LOW-9)
+  const offset = whole(one(q.offset), 0, MAX_RECON_OFFSET, 0);
+  if (offset === null) return { ok: false, error: `offset must be a whole number from 0 to ${MAX_RECON_OFFSET}` };
   return { ok: true, value: { connectionId: id.toLowerCase(), section: (section ?? 'attention') as SectionKey, limit, offset } };
 }
 

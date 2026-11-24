@@ -175,6 +175,12 @@ describe('the request', () => {
     for (const q of [{ asOf: '2026-01-01' }, { asOf: '' }]) expect((await reportAs(U.b, co.B, conn, q)).state.statusCode).toBe(400);
     expect((await reportAs(U.b, co.B, 'not-a-uuid')).state.statusCode).toBe(400);
     expect((await reportAs(U.b, co.B, conn, { section: 'everything' })).state.statusCode).toBe(400);
+    // round 1, LOW-9: the offset is capped where the capped lists end (every page re-runs the whole statement)
+    expect((await reportAs(U.b, co.B, conn, { offset: '6001' })).state.statusCode).toBe(400);
+    expect((await reportAs(U.b, co.B, conn, { offset: '6000' })).state.statusCode).toBe(200);
+    // round 1, (d): the person is checked once, in the service, and still before the request: a viewer's bad request is a 403, not a 400
+    const viewer = await reportAs(U.avb, co.B, conn, { asOf: '2026-01-01' });
+    expect(viewer.state.statusCode).toBe(403);
     const post = await callRoute(reconRoute, tokens[U.b]!, co.B, 'POST', {}, `/api/accounting/intercompany/loan-reconciliation/${conn}`, { connectionId: conn });
     expect(post.state.statusCode).toBe(405);
   });
@@ -183,12 +189,13 @@ describe('the request', () => {
     const r = (await pool.query(
       "SELECT pg_get_function_result('public.intercompany_loan_recon_messages(uuid)'::regprocedure) AS r, pg_get_function_result('public.intercompany_loan_recon_summary(uuid)'::regprocedure) AS s")).rows[0];
     expect(r.r).toBe('TABLE(message_id uuid, direction text, payer_state text, payer_after_t boolean, payer_loan_credit boolean, payer_counts boolean, '
-      + 'payer_journal_differs boolean, receiver_state text, receiver_after_t boolean, receiver_counts boolean, loan_account_changed boolean, partner_document text)');
+      + 'payer_journal_differs boolean, receiver_state text, receiver_after_t boolean, receiver_counts boolean, receiver_journal_differs boolean, '
+      + 'loan_account_changed boolean, partner_document text)');
     expect(r.s).toBe('TABLE(partner_state text, as_of date, own_balance numeric, own_attributed numeric, own_other numeric, own_loan_shared boolean, '
       + 'partner_balance numeric, partner_other numeric)');
     const rows = await rawMessages(pool, U.b, co.B, conn);
     expect(rows).toHaveLength(1);
-    expect(Object.keys(rows[0]!)).toHaveLength(12);
+    expect(Object.keys(rows[0]!)).toHaveLength(13);
   });
 
   it('more than 5 000 allocation messages on the connection: 422, no partial answer', async () => {

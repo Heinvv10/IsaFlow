@@ -6,10 +6,12 @@
  * transaction is READ COMMITTED and already started, so REPEATABLE READ cannot be set; but a STABLE function runs on its calling statement's
  * snapshot, so the partner's figures, the message states and the own rows are all as of the same instant (migration 1030 halts if b0-b4 or a
  * callee is not STABLE). Every app-side read runs as app_user under RLS and names company_id = S; `payment_allocations` has no RLS and no
- * company_id, so its tenant scope is ONLY the INNER join to `supplier_payments` (company_id = S).
+ * company_id, so its tenant scope is ONLY the INNER join to `supplier_payments` (company_id = S). The `unsent` and `unlinked` lists are cut
+ * at MAX_RECON_LIST_ROWS (oldest first) and read one row more, so the service can say a list was cut; `unsent` is read only on a connection
+ * whose settlement mode is loan (the sender sends nothing on a cash one: 1025 `not_loan`).
  */
 import { sql } from '@/lib/neon';
-import { RECON_STATEMENT_TIMEOUT_MS } from './loanReconTypes';
+import { MAX_RECON_LIST_ROWS, RECON_STATEMENT_TIMEOUT_MS } from './loanReconTypes';
 
 type Row = Record<string, unknown>;
 
@@ -68,6 +70,8 @@ export async function readReconStatement(companyId: string, connectionId: string
        CROSS JOIN LATERAL public.intercompany_pair_cutovers(gm.group_id) pc
         JOIN conn ON pc.company_low_id = conn.company_low_id AND pc.company_high_id = conn.company_high_id
        WHERE gm.company_id = ${companyId}::UUID AND gm.left_date IS NULL
+       -- intercompany_pair_cutovers answers a pair only in the group its mirrors go to, so at most one row; ordered all the same (round 1, LOW-6)
+       ORDER BY pc.cutover, gm.group_id
        LIMIT 1
     ),
     msg AS (
@@ -107,6 +111,11 @@ export async function readReconStatement(companyId: string, connectionId: string
         LEFT JOIN intercompany_messages om ON om.from_company_id = ${companyId}::UUID AND om.kind = 'allocation'
              AND om.source_doc_type = 'payment_allocation' AND om.source_doc_id = a.id
        WHERE om.id IS NULL
+         -- the sender sends allocation messages only on a loan connection (1025 not_loan): on a cash one no payment is "unsent" (round 1, (h))
+         AND EXISTS (SELECT 1 FROM intercompany_connections c WHERE c.id = ${connectionId}::UUID AND c.settlement_mode = 'loan'
+                        AND (c.company_low_id = ${companyId}::UUID OR c.company_high_id = ${companyId}::UUID))
+       ORDER BY a.created_at, a.id
+       LIMIT ${MAX_RECON_LIST_ROWS + 1}
     ),
     unlinked AS (
       SELECT bl.id AS bill_id, bl.invoice_number AS bill_number, bl.invoice_date AS bill_date, bl.amount_paid, bl.created_at
@@ -119,6 +128,8 @@ export async function readReconStatement(companyId: string, connectionId: string
             WHERE l.connection_id = ${connectionId}::UUID AND l.status <> 'unlinked'
               AND ((l.company_a_id = ${companyId}::UUID AND l.doc_a_type = 'supplier_invoice' AND l.doc_a_id = bl.id)
                 OR (l.company_b_id = ${companyId}::UUID AND l.doc_b_type = 'supplier_invoice' AND l.doc_b_id = bl.id)))
+       ORDER BY bl.created_at, bl.id
+       LIMIT ${MAX_RECON_LIST_ROWS + 1}
     )
     SELECT (SELECT row_to_json(s) FROM s LIMIT 1) AS summary,
            (SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.created_at, x.message_id), '[]'::JSON) FROM msg x) AS messages,

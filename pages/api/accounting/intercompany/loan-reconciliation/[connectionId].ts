@@ -12,18 +12,15 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
-import { assertReconReader, loanReconReport } from '@/modules/accounting/services/intercompany/loanReconService';
+import { loanReconReport } from '@/modules/accounting/services/intercompany/loanReconService';
 import { parseReconQuery } from '@/modules/accounting/services/intercompany/loanReconRefusals';
 import { respondIfReconRefusal } from '@/modules/accounting/services/intercompany/loanReconRoute';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET']);
   try {
-    await assertReconReader(req.companyId);
-    const parsed = parseReconQuery(req.query as Record<string, unknown>);
-    if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
-    const { connectionId, ...q } = parsed.value;
-    return apiResponse.success(res, await loanReconReport(req.companyId, connectionId, q));
+    // the service checks the person first, then refuses a bad request (400), so the order of (c) holds with ONE check per request
+    return apiResponse.success(res, await loanReconReport(req.companyId, parseReconQuery(req.query as Record<string, unknown>)));
   } catch (err) {
     if (respondIfReconRefusal(res, err)) return;
     throw err;
