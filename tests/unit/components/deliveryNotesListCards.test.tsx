@@ -34,12 +34,16 @@ describe('Delivery notes list on touch', () => {
   });
 
   it('the actions cell is hidden on cards when the note has no actions (delivered, cancelled), and kept for draft and dispatched', async () => {
-    state.notes = [note('1', 'draft'), note('2', 'dispatched'), note('3', 'delivered'), note('4', 'cancelled')];
+    state.notes = [note('1', 'draft'), note('2', 'dispatched'), note('3', 'delivered'), note('4', 'cancelled'), note('5', 'invoiced')];
     const { container } = render(<Page />);
     await screen.findByText('DN-1');
-    const last = [...container.querySelectorAll('tbody tr')].map((r) => r.querySelector('td:last-child')!);
-    expect(last.map((td) => cls(td).includes('max-lg:!hidden'))).toEqual([false, false, true, true]);
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(5);
+    const last = rows.map((r) => r.querySelector('td:last-child')!);
+    expect(last.map((td) => cls(td).includes('max-lg:!hidden'))).toEqual([false, false, true, true, false]);
     expect(last[0]!.className).toBe('px-4 py-3.5');
+    // The invariant, not just the class: a cell is hidden exactly when it holds no button (an unknown status like 'invoiced' still gets Cancel).
+    for (const td of last) expect(td.querySelectorAll('button').length > 0, td.parentElement!.textContent ?? '').toBe(!cls(td).includes('max-lg:!hidden'));
   });
 
   it('New Delivery Note, the status tabs and the row actions are 44px', async () => {
@@ -47,8 +51,10 @@ describe('Delivery notes list on touch', () => {
     render(<Page />);
     await screen.findByText('DN-1');
     expect(cls(screen.getByRole('button', { name: /New Delivery Note/ }))).toContain(MIN);
-    for (const name of ['All', 'Draft', 'Dispatched']) expect(cls(screen.getByRole('button', { name, exact: true })), name).toContain(MIN);
-    expect(cls(screen.getAllByRole('button', { name: 'Delivered' })[0]!)).toContain(MIN); // the tab (the row action is checked below by its title)
+    const tabs = screen.getByRole('button', { name: 'All' }).parentElement!;
+    const tabButtons = [...tabs.querySelectorAll('button')];
+    expect(tabButtons.map((b) => b.textContent)).toEqual(['All', 'Draft', 'Dispatched', 'Delivered']);
+    for (const b of tabButtons) expect(cls(b), b.textContent ?? '').toEqual(expect.arrayContaining([MIN, 'max-lg:min-w-11']));
     expect(cls(screen.getByTitle('Mark Dispatched'))).toContain(MIN);
     for (const b of screen.getAllByTitle('Cancel')) expect(cls(b)).toEqual(expect.arrayContaining([MIN, 'max-lg:min-w-11', 'max-lg:inline-flex', 'max-lg:justify-center']));
     expect(cls(screen.getByTitle('Mark Delivered'))).toContain(MIN);
