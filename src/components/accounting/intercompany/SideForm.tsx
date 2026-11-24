@@ -78,6 +78,7 @@ export function SideForm({ connection, options, onSaved, onError }: Props) {
               items={loanItems} empty="Not set" />
             <p className="mt-1 text-xs text-ink-muted" data-testid="ic-loan-account-help">
               Only loan or intercompany balance-sheet accounts are offered: not a bank, cash, control, VAT or system account, nor one that holds bank-statement lines.
+              Your partner&apos;s loan reconciliation reads this account&apos;s balance, so use it for this connection only.
             </p>
           </div>
         )}

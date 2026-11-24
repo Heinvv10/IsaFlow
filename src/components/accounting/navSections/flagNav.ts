@@ -10,10 +10,15 @@
 import { isFlyout, type NavItem, type Tab } from './types';
 
 export const THREE_WAY_HREF = '/accounting/budgets/three-way';
+/** Intercompany P5: the loan reconciliation (read only), dark behind the loan-clearing flag. Hidden by the flag only: a surface names one
+ *  feature flag or one module Read, and the intercompany write role (owner / admin / manager) is neither, so a member without it sees the
+ *  link and the page answers its 403 sentence. */
+export const LOAN_RECON_HREF = '/accounting/settings/intercompany/loan-reconciliation';
 
 /** Page path → the feature flag code it needs. */
 const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
+  [LOAN_RECON_HREF]: 'intercompany_loan_clearing',
 };
 
 /** The marker `useNavFlags` puts in the set when the user may read `moduleKey`. */
