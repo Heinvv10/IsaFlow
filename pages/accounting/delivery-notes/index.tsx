@@ -95,7 +95,7 @@ export default function DeliveryNotesPage() {
           subtitle={`${total} ${total === 1 ? 'delivery note' : 'delivery notes'}`}
           className="mb-0"
           actions={
-            <button onClick={() => router.push('/accounting/delivery-notes/new')} className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors">
+            <button onClick={() => router.push('/accounting/delivery-notes/new')} className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors max-lg:min-h-11">
               <Plus className="w-4 h-4" /> New Delivery Note
             </button>
           }
@@ -104,9 +104,9 @@ export default function DeliveryNotesPage() {
         <div className="p-6 space-y-4">
           {error && <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
-          <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
+          <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-fit max-lg:flex-wrap max-lg:w-full">
             {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}>
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors max-lg:min-h-11 ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}>
                 {t === 'all' ? 'All' : STATUS[t]?.label ?? t}
               </button>
             ))}
@@ -120,10 +120,10 @@ export default function DeliveryNotesPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><Truck className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No delivery notes found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create a delivery note to start tracking fulfilment</p>
-                <button onClick={() => router.push('/accounting/delivery-notes/new')} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">New Delivery Note</button>
+                <button onClick={() => router.push('/accounting/delivery-notes/new')} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors max-lg:min-h-11">New Delivery Note</button>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['DN #', 'Customer', 'Date', 'Lines', 'Status', ''].map((h, i) => (
@@ -135,26 +135,26 @@ export default function DeliveryNotesPage() {
                   {notes.map(n => (
                     <tr key={n.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => router.push(`/accounting/delivery-notes/${n.id}`)}>
                       <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{n.deliveryNoteNumber}</td>
-                      <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{n.customerName}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(n.deliveryDate)}</td>
-                      <td className="px-5 py-3.5 text-center text-slate-500 dark:text-slate-400">{n.lineCount ?? 0}</td>
-                      <td className="px-5 py-3.5">
+                      <td data-label="Customer" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{n.customerName}</td>
+                      <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(n.deliveryDate)}</td>
+                      <td data-label="Lines" className="px-5 py-3.5 text-center text-slate-500 dark:text-slate-400">{n.lineCount ?? 0}</td>
+                      <td data-label="Status" className="px-5 py-3.5">
                         <StatusPill status={n.status} />
                       </td>
-                      <td className="px-4 py-3.5">
+                      <td className={`px-4 py-3.5${n.status === 'cancelled' || n.status === 'delivered' ? ' max-lg:!hidden' : ''}`}>
                         <div className="flex justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                           {n.status === 'draft' && (
-                            <button onClick={() => void handleStatusChange(n.id, 'dispatched')} disabled={patching === n.id} title="Mark Dispatched" className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50">
+                            <button onClick={() => void handleStatusChange(n.id, 'dispatched')} disabled={patching === n.id} title="Mark Dispatched" className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50 max-lg:min-h-11">
                               {patching === n.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Dispatch
                             </button>
                           )}
                           {n.status === 'dispatched' && (
-                            <button onClick={() => void handleStatusChange(n.id, 'delivered')} disabled={patching === n.id} title="Mark Delivered" className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50">
+                            <button onClick={() => void handleStatusChange(n.id, 'delivered')} disabled={patching === n.id} title="Mark Delivered" className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50 max-lg:min-h-11">
                               {patching === n.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />} Delivered
                             </button>
                           )}
                           {n.status !== 'cancelled' && n.status !== 'delivered' && (
-                            <button onClick={() => void handleCancel(n.id)} disabled={deleting === n.id} title="Cancel" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                            <button onClick={() => void handleCancel(n.id)} disabled={deleting === n.id} title="Cancel" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                               {deleting === n.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
                             </button>
                           )}
