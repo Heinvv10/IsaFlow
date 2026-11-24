@@ -14,7 +14,14 @@
  * harmless: the definer answers `already_sent` / a named reason and writes nothing.
  *
  * DARK FLAG (`intercompany_loan_clearing`, loanClearingGate.ts): each entry point asks the PAYER company's flag ONCE, before any read,
- * savepoint or definer call; off (every company's default), it returns silently: no message, no savepoint, no log line.
+ * savepoint or definer call; off (every company's default), it returns silently: no message, no savepoint, no log line. Both definers ask it
+ * again in SQL (override, else is_global, no plan: a plan-only grant reads on here and off there, and fails closed).
+ *
+ * F (migration 1031, plan (k) L-4): the CASH connection's `payment` message. Per allocation id, inside its savepoint, the allocation definer
+ * (D3) is asked FIRST; only when it answers `not_loan` is `intercompany_send_for_payment` (D1) asked, in a savepoint of its own. At most one
+ * of them writes (IX1 and the payer journal key both take before their link / connection shares). A 23505 from either (the row already
+ * has its message of the other kind) is info `other_kind_sent`, never the "not written" error; a D1 lock timeout (55P03) is log.error with
+ * its SQLSTATE (M-4: the payer's unsent read lists it), never a thrown payment.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -28,17 +35,26 @@ type Row = Record<string, unknown>;
  */
 const AT_ERROR = new Set(['no_journal', 'not_found']);
 const AT_WARN = new Set(['not_posted']);   // ('forbidden' is silent: a user without an intercompany write role pays bills all day, linked or not; P5 lists linked bills paid without a message)
+/** D1's (plan (c), (l) MED-3): every other answer is silent (not the partner's supplier, not linked, a loan connection, already sent, ...). */
+const PAYMENT_AT_ERROR = new Set(['not_found', 'no_journal', 'ambiguous', 'superseded']);
+const PAYMENT_AT_WARN = new Set(['not_posted', 'no_cutover', 'before_cutover']);
+
+const sqlstate = (err: unknown): string | null => (err as { code?: string })?.code ?? null;
+const otherKind = (companyId: string, allocationId: string) =>
+  log.info('Intercompany payment row already has its message', { companyId, allocationId, reason: 'other_kind_sent' }, 'intercompany');
 
 async function send(companyId: string, allocationId: string): Promise<void> {
-  const rows = (await sql`
+  // (a 23505 here rolls the id's savepoint back and is told apart in sendAll: the other kind already holds the row)
+  const r = ((await sql`
     SELECT message_id, reason FROM public.intercompany_send_for_allocation(${allocationId}::UUID)
-  `) as Row[];
-  const r = rows[0];
+  `) as Row[])[0];
   if (r?.message_id) {
     log.info('Intercompany allocation message sent', { companyId, allocationId, messageId: String(r.message_id) }, 'intercompany');
     return;
   }
   const reason = String(r?.reason ?? 'failed');
+  if (reason === 'not_loan') { await sendPayment(companyId, allocationId); return; }
+  if (reason === 'payment_sent') { otherKind(companyId, allocationId); return; }
   if (AT_ERROR.has(reason)) {
     log.error('Intercompany allocation message not sent', { companyId, allocationId, reason }, 'intercompany');
   } else if (AT_WARN.has(reason)) {
@@ -46,7 +62,26 @@ async function send(companyId: string, allocationId: string): Promise<void> {
   }
 }
 
-const sqlstate = (err: unknown): string | null => (err as { code?: string })?.code ?? null;
+/** D1 in a savepoint of its own (a failure, the lock timeout included, is logged by SQLSTATE and never thrown). */
+async function sendPayment(companyId: string, allocationId: string): Promise<void> {
+  let r: Row | undefined;
+  try {
+    r = (await withSavepoint('intercompany_payment', async () => (await sql`
+      SELECT message_id, reason FROM public.intercompany_send_for_payment(${allocationId}::UUID)
+    `) as Row[]))[0];
+  } catch (err) {
+    if (sqlstate(err) === '23505') { otherKind(companyId, allocationId); return; }
+    log.error('Intercompany payment message not written', { companyId, allocationId, code: sqlstate(err) }, 'intercompany');
+    return;
+  }
+  if (r?.message_id) {
+    log.info('Intercompany payment message sent', { companyId, allocationId, messageId: String(r.message_id) }, 'intercompany');
+    return;
+  }
+  const reason = String(r?.reason ?? 'failed');
+  if (PAYMENT_AT_ERROR.has(reason)) log.error('Intercompany payment message not sent', { companyId, allocationId, reason }, 'intercompany');
+  else if (PAYMENT_AT_WARN.has(reason)) log.warn('Intercompany payment message not sent', { companyId, allocationId, reason }, 'intercompany');
+}
 
 /** After a payer's cash was applied to its bills: the allocation message for each row, if it has a partner (never throws). */
 export async function mirrorAllocations(companyId: string, allocationIds: readonly string[]): Promise<void> {
@@ -61,7 +96,8 @@ async function sendAll(companyId: string, allocationIds: readonly string[]): Pro
       await withSavepoint('intercompany_allocation', () => send(companyId, allocationId));
     } catch (err) {
       // Never the payment's failure; the code, not the message text, goes to the log (a database message names ids). AT ERROR: nothing re-sends it.
-      log.error('Intercompany allocation message not written', { companyId, allocationId, code: sqlstate(err) }, 'intercompany');
+      if (sqlstate(err) === '23505') otherKind(companyId, allocationId);
+      else log.error('Intercompany allocation message not written', { companyId, allocationId, code: sqlstate(err) }, 'intercompany');
     }
   }
 }

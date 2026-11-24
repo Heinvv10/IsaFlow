@@ -5,7 +5,7 @@
  * A LEAF on purpose (fix round 3, d): `gl/journalEntryReversalClaim` and `shared/journalChainHead` import it, and it imports neither (nor
  * `allocationUndoGate`, which imports it), so the chain walk up is its own SQL here rather than `findJournalChainRoot`.
  *
- * WHEN (fix round 3, MED): only for a chain an allocation message of THIS company stands on (its `source_journal_entry_id` is the root),
+ * WHEN (fix round 3, MED): only for a chain an allocation (or, since F / migration 1031, a payment) message of THIS company stands on (its `source_journal_entry_id` is the root),
  * the one shape the undo gate's journal refusal can match. Round 2 took it for every journal of a company that had sent any allocation
  * message, so a flow that holds a journal row and then reverses it (an invoice or credit-note cancel, a soft delete, a payroll reversal)
  * reached the key AFTER the row while a GL reversal took key then row: 40P01. No other journal needs it: nothing can clear against it.
@@ -54,7 +54,7 @@ export async function lockPayerJournalKey(companyId: string, entryId: string): P
     SELECT root.id AS root, pg_catalog.hashtextextended(${companyId}::UUID::TEXT || ':journal:' || root.id::TEXT, 1027) AS k
       FROM root
      WHERE EXISTS (SELECT 1 FROM intercompany_messages m
-                    WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND m.source_journal_entry_id = root.id)
+                    WHERE m.from_company_id = ${companyId}::UUID AND m.kind IN ('allocation', 'payment') AND m.source_journal_entry_id = root.id)
   `) as Row[];
   if (!hit) return null;
   await lockKeys([hit]);

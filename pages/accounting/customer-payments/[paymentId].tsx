@@ -12,6 +12,7 @@ import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { notify } from '@/utils/toast';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ReceiptIcChip } from '@/components/accounting/intercompany/payments/ReceiptIcChip';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -142,6 +143,7 @@ export default function CustomerPaymentDetailPage() {
                     {payment?.paymentNumber || 'Payment'}
                   </h1>
                   {payment && <StatusBadge status={payment.status} />}
+                  {payment && <ReceiptIcChip receiptId={payment.id} />}
                 </div>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
                   {payment?.clientName || 'Loading...'}

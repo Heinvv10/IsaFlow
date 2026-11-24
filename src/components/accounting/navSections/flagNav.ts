@@ -14,6 +14,8 @@ export const THREE_WAY_HREF = '/accounting/budgets/three-way';
 /** Page path → the feature flag code it needs. */
 const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
+  // intercompany F: the receiver's Payments inbox and the payer's unsent list (the dark flag; the routes refuse without it)
+  '/accounting/intercompany/payments': 'intercompany_loan_clearing',
 };
 
 /** The marker `useNavFlags` puts in the set when the user may read `moduleKey`. */

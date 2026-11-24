@@ -24,7 +24,7 @@ import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { withSupplierInvoiceLock } from './supplierInvoiceLock';
 import { FIFO_ELIGIBLE_STATUSES, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { UnapplyRefusal, assertSourceJournalLive } from '../shared/unapplyRefusal';
-import { loanClearedUnapplyRefusal } from '../intercompany/allocationUndoGate';
+import { loanClearedUnapplyRefusal, lockPaymentMessageKeys } from '../intercompany/allocationUndoGate';
 
 export { UnapplyRefusal };
 
@@ -68,6 +68,9 @@ export async function unapplySupplierPayment(
 ): Promise<PaymentUnapplyResult> {
   // Payment first, then its bills by id: the order void and process take.
   await lockSupplierPaymentForUpdate(companyId, input.paymentId);
+  // F (l) MED-1: a payment with a cash-mode payment message takes the receiver's accept keys now (payment row, then keys: the void's order),
+  // so the undo gate in buildPlan reads after an accept in flight has committed
+  await lockPaymentMessageKeys(companyId, input.paymentId);
   // BOUNDED: lockSupplierPaymentForUpdate restores the default lock_timeout on
   // its way out, and there is no session default, so a bare FOR UPDATE here
   // would wait forever on a contended bill. The shared helper bounds it and

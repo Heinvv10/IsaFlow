@@ -88,6 +88,39 @@ export function restoreAllocation(companyId: string, messageId: string): Promise
   `) as Row[], 'restored', loadAllocationRow);
 }
 
+/** One payment message of this company, raw (id, status), or null: what reject / dismiss / restore of a payment message check first. */
+async function loadPaymentRow(companyId: string, messageId: string): Promise<Row | null> {
+  const rows = (await sql`
+    SELECT id, status FROM intercompany_messages WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment'
+  `) as Row[];
+  return rows[0] ?? null;
+}
+
+/** A payment message (F): rejected, dismissed or restored as an allocation message is (Approve on Customers & AR to reject: final). */
+export async function rejectPayment(companyId: string, userId: string, messageId: string, reason: string): Promise<void> {
+  if (!(await mayApprove(companyId, userId, 'customers'))) {
+    throw new ConnectionRefusal(403, 'You need Approve on Customers & AR to reject a payment from your group. An owner or admin can grant it in User Access.');
+  }
+  return move(companyId, messageId, ['pending'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'rejected', reason = ${reason}
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'pending' RETURNING id
+  `) as Row[], 'rejected', loadPaymentRow);
+}
+
+export function dismissPayment(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['pending'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'dismissed'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'pending' RETURNING id
+  `) as Row[], 'dismissed', loadPaymentRow);
+}
+
+export function restorePayment(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['dismissed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'pending'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'dismissed' RETURNING id
+  `) as Row[], 'restored', loadPaymentRow);
+}
+
 export function restoreMessage(companyId: string, messageId: string): Promise<void> {
   return move(companyId, messageId, ['dismissed'], async () => (await sql`
     UPDATE intercompany_messages SET status = 'pending'
