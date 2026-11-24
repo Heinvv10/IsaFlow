@@ -61,6 +61,9 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '../ap/supplierPaymentService';
+import { loanAccountPaymentRefusal } from '../intercompany/loanAccountPaymentGuard';
+import type { LoanClearPermit } from '../intercompany/loanClearPermit';
+import type { ActorType } from '@/lib/mcp/contracts/actor';
 
 /** One side of the journal, for the dry run and the response text. */
 export interface ContraLeg {
@@ -87,6 +90,8 @@ export interface ContraSettlementActor {
   approverUserId: string;
   /** Stamped on the posted journal (`mcp:settle_by_contra:v1` for the tool). */
   postingAgent: string;
+  /** gl_journal_entries.actor_type of the AP journal, when the caller knows it (P4-E: 'human', a person pressed it); omitted: derived. */
+  actorType?: ActorType;
 }
 
 export interface ContraSettlementResult {
@@ -176,6 +181,8 @@ export interface SettleDocumentByContraParams {
   /** Why it was netted rather than paid; recorded on the payment document. */
   reason: string;
   actor: ContraSettlementActor;
+  /** Intercompany P4-E (j).3: only "Clear against the intercompany loan" passes one (minted, never parsed); see loanAccountPaymentGuard. */
+  loanClearPermit?: LoanClearPermit;
 }
 
 /**
@@ -231,7 +238,11 @@ export async function settleDocumentByContra(
   // R-035 PR5 (Q6): a payable settles through a supplier payment created, approved and processed in this one call,
   // so an enforced rule that would govern it refuses here, from a read, before the first write.
   if (subledger === 'ap') {
-    const refusal = await agentNewSupplierPaymentRefusal(companyId, amount);
+    const refusal = await agentNewSupplierPaymentRefusal(companyId, amount)
+      // P4-E (j).3: a linked bill settles from the payer's loan account only through the intercompany loan clearing
+      ?? await loanAccountPaymentRefusal(companyId, {
+        billIds: [context.document.documentId], creditedAccountIds: [context.contra.accountId], postingAgent: actor.postingAgent, permit: p.loanClearPermit,
+      });
     if (refusal) return refuse(new ContraSettlementRefusal(refusal));
   }
 
@@ -274,7 +285,7 @@ async function postSettlement(p: SettleDocumentByContraParams, context: ContraSe
   );
   await approveSupplierPayment(companyId, payment.id, actor.approverUserId);
   const processed = await processSupplierPayment(companyId, payment.id, actor.userId, {
-    postingAgent: actor.postingAgent,
+    postingAgent: actor.postingAgent, actorType: actor.actorType, loanClearPermit: p.loanClearPermit,
   });
   return {
     paymentId: processed.id,

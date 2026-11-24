@@ -13,6 +13,7 @@ import { ConnectionRefusal } from './connectionTypes';
 import { MY_TYPE, THEIR_TYPE, isInvoicePairing, readOwnLinks } from './pairingRead';
 import { buildPairingView } from './pairingView';
 import type { PairInput, PairingBlock, PairingDirection, PairingResult } from './pairingTypes';
+import { lockLinkAndRefuseWhileHeld } from './connectionMessageHold';
 
 type Row = Record<string, unknown>;
 
@@ -117,6 +118,8 @@ export async function confirmPairing(userId: string, companyId: string, connecti
 export async function unlinkPairing(userId: string, companyId: string, connectionId: string, linkId: string): Promise<{ status: string }> {
   await mayWriteOrRefuse(userId, companyId);
   await ownLink(companyId, connectionId, linkId);
+  // P4-E (j).8: not while the connection holds an open or accepted allocation message (the link locked first)
+  await lockLinkAndRefuseWhileHeld(companyId, connectionId, linkId);
   try {
     const done = (await sql`
       UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = ${linkId}::UUID AND status <> 'unlinked' RETURNING status

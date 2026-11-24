@@ -20,6 +20,7 @@ vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('@/components/accounting/ap/ThreeWayMatchPanel', () => ({ ThreeWayMatchPanel: () => null }));
+vi.mock('@/components/accounting/intercompany/LoanClearingPanel', () => ({ LoanClearingPanel: () => null }));   // P4-E: its own preview fetch is tested in intercompanyLoanClearing
 vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';

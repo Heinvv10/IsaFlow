@@ -130,6 +130,11 @@ const READ_BY_HAND = new Set([
   // "journal" is the read-only liveness definer's SUM over the payer's gl_journal_lines (its loan credit) and the INVOKER guard helpers' reads of the
   // receiver's own gl_journal_entries / gl_journal_lines (the clearing journal's two lines, its reversal). No DDL on either table, no dynamic SQL.
   '1027_intercompany_p4d_allocation_clearing.sql',
+  // 1029 (2026-11-24, intercompany P4-E receiver readiness + connection hold): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(...,
+  // 'EXECUTE') and the deploy-safe REVOKE loop's EXECUTE format('REVOKE ALL ON FUNCTION ...'); "journal" is the read-only payer-standing helper's
+  // check that a message's recorded journal stands (intercompany_journal_chain_length, the payment's gl_journal_entry_id) and a receipt's journal
+  // chain. No DDL on gl_journal_entries / gl_journal_lines.
+  '1029_intercompany_p4e_receiver_readiness.sql',
   // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
   // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
   // or rebuilt, no dynamic SQL.

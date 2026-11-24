@@ -15,7 +15,7 @@ import { applySupplierPaymentPlan, planSupplierPaymentApplication } from '../../
 import { payRoutes } from '../r035-pr5.helpers';
 import { acct } from './intercompany.fixture';
 import { asService, co, mirrorCleanup, tokens, U, wipeConnections } from './mirror.helpers';
-import { allocSetup, allocationMessages, clearPayments, loanConnect, plantBill, plantPaid } from './allocation.helpers';
+import { allocSetup, allocationMessages, clearPayments, loanConnect, plantBill, plantPaid, bank } from './allocation.helpers';
 import { LOAN_CLEARING, setLoanClearing } from './loan-clearing.helpers';
 
 assertDisposable();
@@ -63,7 +63,7 @@ async function processOne(): Promise<string> {
 async function processBatch(): Promise<string> {
   const { rows: [batch] } = await pool.query(
     `INSERT INTO supplier_payment_batches(company_id, batch_date, payment_method, bank_account_id, payment_count, total_amount, created_by)
-     VALUES ($1, DATE '2026-09-01', 'eft', $2, 2, 2300, $3) RETURNING id`, [co.B, acct.bLoan, U.ab]);
+     VALUES ($1, DATE '2026-09-01', 'eft', $2, 2, 2300, $3) RETURNING id`, [co.B, bank.b, U.ab]);   // (P4-E: a loan-account batch on a linked bill is refused)
   await plantPaid(pool, (await plantBill(pool, conn)).bill, { status: 'draft', batch: batch.id });
   await plantPaid(pool, (await plantBill(pool, conn)).bill, { status: 'draft', batch: batch.id });
   expect((await r.batch(U.b, co.B, 'approve', batch.id)).state.statusCode).toBe(200);
