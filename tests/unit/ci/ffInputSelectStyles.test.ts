@@ -6,13 +6,21 @@ import { describe, expect, it } from 'vitest';
 
 const CSS = readFileSync(path.resolve(__dirname, '../../../styles/globals.css'), 'utf8');
 
-/** The body of the rule whose selector list is exactly `.ff-input, .ff-select`, with the @layer it sits in. */
+/**
+ * The body of the rule whose selector list is exactly `.ff-input, .ff-select`, and the name of the @layer block that is still OPEN at that point
+ * (tracked by brace depth, so a rule moved after the layer's closing brace reports no layer).
+ */
 function ruleAndLayer(): { body: string; layer: string } {
   const at = CSS.search(/\.ff-input,\s*\.ff-select\s*\{/);
   expect(at, '.ff-input, .ff-select rule').toBeGreaterThan(-1);
   const body = CSS.slice(CSS.indexOf('{', at) + 1, CSS.indexOf('}', at));
-  const layers = [...CSS.slice(0, at).matchAll(/@layer\s+([\w-]+)\s*\{/g)];
-  return { body, layer: layers[layers.length - 1]?.[1] ?? '' };
+  const open: Array<{ name: string; depth: number }> = [];
+  let depth = 0;
+  const head = CSS.slice(0, at).replace(/\/\*[\s\S]*?\*\//g, ''); // comments carry braces and the word @layer
+  for (const m of head.matchAll(/@layer\s+([\w-]+)\s*\{|\{|\}/g)) {
+    if (m[1]) { depth += 1; open.push({ name: m[1], depth }); } else if (m[0] === '{') depth += 1; else { if (open.length && open[open.length - 1]!.depth === depth) open.pop(); depth -= 1; }
+  }
+  return { body, layer: open[open.length - 1]?.name ?? '' };
 }
 
 describe('ff-input / ff-select', () => {
@@ -29,6 +37,6 @@ describe('ff-input / ff-select', () => {
 
   it('do not set a width, a height, a colour or a font size: the page and the shell rules own those', () => {
     const { body } = ruleAndLayer();
-    for (const prop of ['width', 'height', 'min-height', 'color', 'background', 'font-size']) expect(body, prop).not.toMatch(new RegExp(`(^|[;\\s])${prop}\\s*:`));
+    for (const prop of ['width', 'min-width', 'max-width', 'height', 'min-height', 'line-height', 'box-sizing', 'color', 'background', 'font-size']) expect(body, prop).not.toMatch(new RegExp(`(^|[;\\s])${prop}\\s*:`));
   });
 });
