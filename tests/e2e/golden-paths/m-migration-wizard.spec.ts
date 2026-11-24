@@ -25,6 +25,7 @@
 import { test, expect } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { Api, gpRef } from './_api';
+import { MIGRATION_WIZARD_ROUTES, warmDevRoutes } from './helpers/warmDevRoutes';
 import {
   activeCompanyId, cancelStaleTakeOns, findLedgerRow, findOrCreateMigrationSandbox, listTakeOnPage,
   switchApiCompany, switchBrowserCompany,
@@ -55,6 +56,9 @@ const TB_EXPECTED: Record<string, [number, number]> = {
 };
 const VAT_ACCOUNT_CODES = ['1140', '1145', '2120'];
 const GOLDEN_CUSTOMER = '0GP-Golden-Customer'; // Api.fixtureCustomer's name
+
+// Compile what the wizard touches before its first request, with no page open (helpers/warmDevRoutes.ts).
+test.beforeAll(async () => { await warmDevRoutes(MIGRATION_WIZARD_ROUTES); });
 
 test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-on, GL import, Sage findability', async ({
   page, baseURL,
