@@ -1,4 +1,5 @@
 /** Words of the loan reconciliation page (P5): bucket names, the Unexplained parts, the tabs and their empty states. */
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import type { Bucket, SectionKey } from '@/modules/accounting/services/intercompany/loanReconTypes';
 
 export const BUCKET_LABELS: Record<Bucket, string> = {
@@ -25,11 +26,5 @@ export const SECTION_EMPTY: Record<SectionKey, string> = {
 
 export const MISMATCH_LABELS = { amount: 'Amount', currency: 'Currency', date: 'Date', partner_document: "Partner's invoice" } as const;
 
-/** A timestamp as Johannesburg time (24 Nov 2026 12:15), whatever the browser's zone. */
-export function formatReadAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Africa/Johannesburg', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(d);
-}
+/** A timestamp as Johannesburg time (24 Nov 2026, 12:15), the app's one date-time display. */
+export const formatReadAt = (iso: string): string => formatDisplayDateTime(iso);

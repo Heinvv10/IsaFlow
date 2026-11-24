@@ -135,6 +135,10 @@ const READ_BY_HAND = new Set([
   // check that a message's recorded journal stands (intercompany_journal_chain_length, the payment's gl_journal_entry_id) and a receipt's journal
   // chain. No DDL on gl_journal_entries / gl_journal_lines.
   '1029_intercompany_p4e_receiver_readiness.sql',
+  // 1030 (2026-11-24, intercompany P5 loan reconciliation, read only): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(...,
+  // 'EXECUTE') and the deploy-safe REVOKE loop's EXECUTE format('REVOKE ALL ON FUNCTION ...'); "journal" is the STABLE readers' walk of
+  // gl_journal_entries (reversal chains) and their SUMs over gl_journal_lines on the loan accounts. No DDL on gl_journal_entries / gl_journal_lines.
+  '1030_intercompany_p5_loan_reconciliation.sql',
   // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
   // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
   // or rebuilt, no dynamic SQL.

@@ -34,7 +34,7 @@ export default function IntercompanyLoanReconciliationPage() {
   useEffect(() => {
     if (!router.isReady || wanted.current !== null) return;
     wanted.current = typeof queryConnection === 'string' ? queryConnection : '';
-    (async () => {
+    void (async () => {
       try {
         const list = (await apiJson(BASE, undefined, 'Could not load your intercompany connections - try again')).connections;
         setConnections(list);
