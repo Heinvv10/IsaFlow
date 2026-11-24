@@ -103,6 +103,11 @@ describe('forged rows never reach the report', () => {
     expect(JSON.stringify(a.state.body)).not.toContain(cInvoice);
     const b = await reportAs(U.b, co.B, conn, { section: 'attention' });
     expect(JSON.stringify(b.state.body)).not.toContain('C-SECRET-1');
+    // a member of A AND C in session A: RLS would let C's invoice through, the company_id = S lookup does not
+    const ac = await reportAs(U.ac, co.A, conn, { section: 'attention' });
+    expect(ac.state.statusCode).toBe(200);
+    expect(JSON.stringify(ac.state.body)).not.toContain('C-SECRET-1');
+    expect(reportOf(ac).section.items.find((i) => i.id === m.message)?.own.invoiceId).toBeNull();
   });
 });
 
