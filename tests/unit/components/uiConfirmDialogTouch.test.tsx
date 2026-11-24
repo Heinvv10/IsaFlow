@@ -25,10 +25,11 @@ describe('ui ConfirmDialog on touch', () => {
   });
 
   it('a long message scrolls inside a box capped to the viewport while the title and the buttons stay pinned, and a long unbroken token wraps', () => {
-    open({ message: 'x '.repeat(2000) });
+    open({ message: 'x'.repeat(2000) }); // one unbroken token: only break-words keeps it inside the box
     const heading = screen.getByRole('heading', { name: 'Revoke this extension?' });
     const box = heading.closest('div[class*="max-w-sm"]')!;
     expect(cls(box)).toEqual(expect.arrayContaining(['max-lg:flex', 'max-lg:flex-col', 'max-lg:max-h-[calc(100dvh-2rem)]']));
+    expect(cls(box).filter((c) => /^(flex|flex-col|max-h-)/.test(c))).toEqual([]); // nothing unprefixed: desktop keeps its plain block box
     const [title, body, buttons] = [...box.children];
     expect(cls(title!)).toContain('max-lg:shrink-0');
     expect(cls(body!)).toEqual(expect.arrayContaining(['max-lg:overflow-y-auto', 'max-lg:overscroll-contain', 'max-lg:break-words']));
