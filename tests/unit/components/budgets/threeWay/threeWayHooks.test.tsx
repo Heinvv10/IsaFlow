@@ -167,20 +167,18 @@ describe('useAssumptionsForm', () => {
 describe('useNavFlags across a company switch (M4)', () => {
   const answer = (enabled: boolean) => new Response(JSON.stringify({ success: true, data: { enabled } }), { status: 200 });
   it("never shows the previous company's flags while the new company's check is in flight", async () => {
-    const forB = deferred<Response>();
-    // Company A answers at once; B's feature check hangs on `forB`. Both companies' permission answers are immediate.
-    let featureChecks = 0;
+    const forB = deferred<void>();
+    // Company A answers every flag the nav checks at once; B's feature checks hang on `forB`. Both companies' permission answers are immediate.
     h.apiFetch.mockImplementation((url: string) => {
       if (url.startsWith('/api/accounting/my-permissions')) return Promise.resolve(new Response(JSON.stringify({ success: true, data: { modules: {} } }), { status: 200 }));
-      featureChecks += 1;
-      return featureChecks === 1 ? Promise.resolve(answer(true)) : forB.promise;
+      return h.company?.id === 'A' ? Promise.resolve(answer(true)) : forB.promise.then(() => answer(false));
     });
     const { result, rerender } = renderHook(() => useNavFlags());
     await waitFor(() => expect(result.current.has('budgets_three_way')).toBe(true));
     h.company = { id: 'B' };
     rerender();
     expect(result.current.has('budgets_three_way')).toBe(false);
-    await act(async () => { forB.resolve(answer(false)); });
+    await act(async () => { forB.resolve(); });
     expect(result.current.has('budgets_three_way')).toBe(false);
   });
 });

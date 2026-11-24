@@ -9,6 +9,7 @@ import type { PairingResult, PairingView } from '@/modules/accounting/services/i
 import type { AllocationDetail, AllocationPage } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
 import type { AcceptAllocationOutcome } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 import type { LoanClearingPreview, LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
+import type { ReconConnection, ReconReport } from '@/modules/accounting/services/intercompany/loanReconTypes';
 import type { AcceptPaymentOutcome, PaymentDetail, PaymentPage, PaymentState, UnsentPage } from '@/modules/accounting/services/intercompany/paymentInboxTypes';
 
 export interface IntercompanyStaticRoutes {
@@ -23,6 +24,8 @@ export interface IntercompanyStaticRoutes {
   '/api/accounting/intercompany/allocations': AllocationPage;
   // P4-E: GET the bill's "Clear against the intercompany loan" preview (?billId=), POST the clearing (one contra settlement).
   '/api/accounting/intercompany/loan-clearings': LoanClearingPreview | LoanClearResult;
+  // P5: the connections the loan reconciliation can open (read only).
+  '/api/accounting/intercompany/loan-reconciliation': { connections: ReconConnection[] };
   // F: the payments a payer in the group made from its bank on bills linked to this company's invoices (cash mode), the payer's unsent list,
   // and a receipt's intercompany chip (?receiptId=)
   '/api/accounting/intercompany/payments': PaymentPage;
@@ -57,4 +60,6 @@ export interface IntercompanyDynamicRoutes {
   '/api/accounting/intercompany/connections/{}/pairing': PairingView | PairingResult;
   // PUT confirms the partner's proposal, DELETE unlinks: both answer with the link's new status.
   '/api/accounting/intercompany/connections/{}/pairing/links/{}': { status: string };
+  // P5: one connection's loan reconciliation as at today (?section=&limit=&offset=), read only.
+  '/api/accounting/intercompany/loan-reconciliation/{}': ReconReport;
 }

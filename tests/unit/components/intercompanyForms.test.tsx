@@ -60,6 +60,7 @@ describe('SideForm', () => {
     const loan = screen.getByLabelText('Intercompany loan account') as HTMLSelectElement;
     expect([...loan.options].map((o) => o.value)).toEqual(['', 'acc-1']);
     expect(screen.getByTestId('ic-loan-account-help')).toHaveTextContent(/Only loan or intercompany balance-sheet accounts are offered/);
+    expect(screen.getByTestId('ic-loan-account-help')).toHaveTextContent(/partner's loan reconciliation reads this account's balance/);
   });
 
   it('offers auto-accept on a group connection only, and does not send it for an external one', async () => {
