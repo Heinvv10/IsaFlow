@@ -90,8 +90,8 @@ export default function MyReportsPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Reports</h1>
-            <p className="text-sm text-gray-500 mt-1">Saved custom report templates</p>
+            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">My Reports</h1>
+            <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Saved custom report templates</p>
           </div>
           <Link
             href="/accounting/reports/builder"
@@ -122,7 +122,7 @@ export default function MyReportsPage() {
         {!isLoading && !error && templates.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-600 dark:text-gray-400">
             <FileText className="w-12 h-12 mb-4 text-gray-700 dark:text-gray-300" />
-            <p className="text-lg font-medium text-gray-500 mb-1">No saved reports yet</p>
+            <p className="text-lg font-medium text-[var(--ff-text-secondary)] mb-1">No saved reports yet</p>
             <p className="text-sm mb-4">Create your first custom report using the Report Builder</p>
             <Link
               href="/accounting/reports/builder"
@@ -153,7 +153,7 @@ export default function MyReportsPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-800">{t.name}</div>
                       {t.description && (
-                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 truncate max-w-xs">{t.description}</div>
+                        <div className="text-xs text-gray-600 mt-0.5 truncate max-w-xs">{t.description}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
