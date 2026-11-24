@@ -2,14 +2,16 @@
  * "Clear against the intercompany loan" (P4-E): two steps. The preview (debit Accounts Payable, credit this company's loan account, the amount,
  * proposed as what is open and editable down to a partial clearing, the partner, whether the partner can clear it, and a posting date proposed
  * as today), then a confirm that says what will post. The request sends back what the preview showed (loan account, link, amount, the bill's
- * open amount): the server refuses (409) if the books changed since. A refusal shows its sentence; nothing was posted.
+ * open amount, the AP control): the server refuses (409) if the books changed since. A refusal shows its sentence; nothing was posted. After a
+ * 409 (the books changed, or the bill is busy) the panel fetches the preview again (`onStale`), so a retry sends what the books now say; the
+ * sentence stays until the person acts.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { DateField } from '@/components/ui/DateField';
 import { todayInSast } from '@/lib/saDateParser';
-import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import type { LoanClearingPreview, LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 
@@ -18,6 +20,8 @@ interface Props {
   preview: LoanClearingPreview;
   onClose: () => void;
   onDone: (out: LoanClearResult) => void;
+  /** A 409 (stale preview, bill busy): fetch the preview again. */
+  onStale: () => void;
 }
 
 const TITLE = 'Clear against the intercompany loan';
@@ -25,7 +29,7 @@ const FAIL = 'Could not clear this bill - try again';
 const btn = 'px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken disabled:opacity-50';
 const toCents = (n: number) => Math.round(n * 100);
 
-export function LoanClearingModal({ open, preview, onClose, onDone }: Props) {
+export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: Props) {
   const [amountText, setAmountText] = useState('');
   const [date, setDate] = useState('');
   const [dateRefused, setDateRefused] = useState(false);
@@ -36,14 +40,18 @@ export function LoanClearingModal({ open, preview, onClose, onDone }: Props) {
   const field = useRef<HTMLInputElement>(null);
   const confirmId = `${useId()}-confirm`;
   const amountId = `${useId()}-amount`;
+  const maxText = preview.maxAmount === null ? '' : String(preview.maxAmount);
+  // opening the dialog starts it afresh; a preview fetched again while it is open (after a 409) only moves the proposed amount
   useEffect(() => {
     if (!open) return;
-    setAmountText(preview.maxAmount === null ? '' : String(preview.maxAmount));
     setDate(preview.defaultPostingDate); setDateRefused(false); setStep('review'); setError('');
-  }, [open, preview.maxAmount, preview.defaultPostingDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on opening only: a refetched preview must not wipe the date or the sentence
+  }, [open]);
+  useEffect(() => { if (open) setAmountText(maxText); }, [open, maxText]);
 
   const amount = Number(amountText);
-  const ready = preview.linked && preview.blocked === null && preview.loanAccountId !== null && preview.linkId !== null && preview.openAmount !== null;
+  const ready = preview.linked && preview.blocked === null && preview.loanAccountId !== null && preview.linkId !== null && preview.openAmount !== null
+    && preview.payableAccountId !== null;
 
   function review() {
     const max = preview.maxAmount ?? 0;
@@ -64,13 +72,16 @@ export function LoanClearingModal({ open, preview, onClose, onDone }: Props) {
         method: 'POST',
         body: JSON.stringify({
           billId: preview.billId, amount, postingDate: date,
-          expected: { loanAccountId: preview.loanAccountId, linkId: preview.linkId, amount, openAmount: preview.openAmount },
+          expected: {
+            loanAccountId: preview.loanAccountId, linkId: preview.linkId, amount, openAmount: preview.openAmount, payableAccountId: preview.payableAccountId,
+          },
         }),
       }, FAIL)) as LoanClearResult;
       onDone(out);
     } catch (err) {
       setError(apiErrorMessage(err, FAIL));
       setStep('review');
+      if (err instanceof ApiRequestError && err.status === 409) onStale();
     } finally {
       submitting.current = false;
       setBusy(false);

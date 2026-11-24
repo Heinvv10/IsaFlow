@@ -6,13 +6,15 @@
  *   5. the loan account FOR SHARE (P4-D's `lockLoanAccount`: it cannot be re-typed, deactivated or re-parented under the clearing);
  *   then what the contra settlement and the payment services lock themselves (the bill again, re-entrant; the new payment; the period).
  * The link is first found by an unlocked read (it names the connection to lock) and re-read under its lock in step 4. The preview reads the
- * same facts with the bill unlocked (`lock: false`).
+ * same facts with NO row lock at all (`lock: false`, fix round 1 H): it is a page view, and the POST re-reads everything under the locks.
  */
 import { sql } from '@/lib/neon';
 import {
   lockConnection, lockLoanAccount, pairCutover, type LockedAccount, type LockedConnection,
 } from './allocationClearReads';
 import { cents } from './allocationClearRefusals';
+import { getSystemAccount } from '../gl/systemAccountResolver';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 
 type Row = Record<string, unknown>;
 const text = (v: unknown): string | null => (v == null ? null : String(v));
@@ -33,6 +35,8 @@ export interface ClearingFacts {
   cutover: string | null;
   /** What draft / approved supplier payments already claim on the bill, in cents (as `createSupplierPayment` counts them). */
   pendingCents: number;
+  /** The Accounts Payable control the clearing debits (the system account), null when the chart has none. */
+  payableAccountId: string | null;
 }
 
 async function readBill(companyId: string, billId: string, lock: boolean): Promise<ClearingBill | null> {
@@ -71,14 +75,52 @@ async function readLink(companyId: string, billId: string, lock: boolean, linkId
   return rows[0] ? { id: String(rows[0].id), connectionId: String(rows[0].connection_id) } : null;
 }
 
-/** Step 3: this company's own side (its loan account and the partner's supplier record). */
-async function lockPayerSide(companyId: string, connectionId: string): Promise<{ loanAccountId: string | null; supplierId: string | null } | null> {
-  const rows = (await sql`
-    SELECT s.loan_account_id, s.supplier_id FROM intercompany_connection_sides s
-     WHERE s.connection_id = ${connectionId}::UUID AND s.company_id = ${companyId}::UUID
-       FOR SHARE
-  `) as Row[];
+/** Step 3: this company's own side (its loan account and the partner's supplier record); `lock` holds it FOR SHARE. */
+async function readPayerSide(companyId: string, connectionId: string, lock: boolean): Promise<{ loanAccountId: string | null; supplierId: string | null } | null> {
+  const rows = (lock
+    ? await sql`
+        SELECT s.loan_account_id, s.supplier_id FROM intercompany_connection_sides s
+         WHERE s.connection_id = ${connectionId}::UUID AND s.company_id = ${companyId}::UUID
+           FOR SHARE`
+    : await sql`
+        SELECT s.loan_account_id, s.supplier_id FROM intercompany_connection_sides s
+         WHERE s.connection_id = ${connectionId}::UUID AND s.company_id = ${companyId}::UUID`) as Row[];
   return rows[0] ? { loanAccountId: text(rows[0].loan_account_id), supplierId: text(rows[0].supplier_id) } : null;
+}
+
+/** The preview's step 2 without the lock: the same row and shape as P4-D's `lockConnection`. */
+async function readConnection(companyId: string, connectionId: string): Promise<LockedConnection | null> {
+  const rows = (await sql`
+    SELECT c.id, c.status, c.kind, c.settlement_mode, to_char(c.cutover_date, 'YYYY-MM-DD') AS cutover, c.company_low_id, c.company_high_id
+      FROM intercompany_connections c
+     WHERE c.id = ${connectionId}::UUID AND (c.company_low_id = ${companyId}::UUID OR c.company_high_id = ${companyId}::UUID)
+  `) as Row[];
+  const r = rows[0];
+  return r ? {
+    id: String(r.id), status: String(r.status), kind: String(r.kind), settlementMode: text(r.settlement_mode), cutoverDate: text(r.cutover),
+    lowId: String(r.company_low_id), highId: String(r.company_high_id),
+  } : null;
+}
+
+/** The preview's step 5 without the lock: the same columns and shape as P4-D's `lockLoanAccount`. */
+async function readLoanAccount(companyId: string, accountId: string): Promise<LockedAccount | null> {
+  const rows = (await sql`
+    SELECT ga.account_type, ga.is_active, public.intercompany_is_loan_class(ga.id, ga.company_id) AS loan_class,
+           EXISTS (SELECT 1 FROM gl_accounts child WHERE child.parent_account_id = ga.id AND child.company_id = ga.company_id) AS is_parent
+      FROM gl_accounts ga WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID
+  `) as Row[];
+  const r = rows[0];
+  return r ? { accountType: text(r.account_type), isActive: r.is_active !== false, isParent: r.is_parent === true, loanClass: r.loan_class === true } : null;
+}
+
+/** The AP control the clearing debits (J: the person approves it), null when the chart has none (the posting would refuse). */
+async function payableControl(companyId: string): Promise<string | null> {
+  try {
+    return (await getSystemAccount('payable', companyId)).id;
+  } catch (err) {
+    if (err instanceof MissingSystemAccountError) return null;
+    throw err;
+  }
 }
 
 async function pendingPaymentCents(companyId: string, billId: string): Promise<number> {
@@ -90,22 +132,25 @@ async function pendingPaymentCents(companyId: string, billId: string): Promise<n
   return cents(Number(rows[0]?.pending ?? 0));
 }
 
-/** Every fact the clearing judges, read in THE lock order (`lock: true`), or for the preview with the bill unlocked. */
+/** Every fact the clearing judges, read in THE lock order (`lock: true`), or for the preview with no row lock (`lock: false`). */
 export async function loadClearingFacts(companyId: string, billId: string, lock: boolean): Promise<ClearingFacts> {
-  const facts: ClearingFacts = { bill: null, link: null, conn: null, side: null, loan: null, cutover: null, pendingCents: 0 };
+  const facts: ClearingFacts = { bill: null, link: null, conn: null, side: null, loan: null, cutover: null, pendingCents: 0, payableAccountId: null };
   facts.bill = await readBill(companyId, billId, lock);
   if (!facts.bill) return facts;
   const found = await readLink(companyId, billId, false);
   if (found) {
-    facts.conn = await lockConnection(companyId, found.connectionId);
-    facts.side = facts.conn ? await lockPayerSide(companyId, found.connectionId) : null;
-    // step 4: the link re-read under its lock, as it then stands (an unlink in flight was waited for)
-    facts.link = facts.conn ? await readLink(companyId, billId, true, found.id) : null;
+    facts.conn = lock ? await lockConnection(companyId, found.connectionId) : await readConnection(companyId, found.connectionId);
+    facts.side = facts.conn ? await readPayerSide(companyId, found.connectionId, lock) : null;
+    // step 4: the link re-read under its lock, as it then stands (an unlink in flight was waited for); the preview keeps the unlocked read
+    facts.link = facts.conn ? (lock ? await readLink(companyId, billId, true, found.id) : found) : null;
     if (facts.link && facts.link.connectionId !== found.connectionId) facts.link = null;
-    if (facts.side?.loanAccountId) facts.loan = await lockLoanAccount(companyId, facts.side.loanAccountId);
+    if (facts.side?.loanAccountId) {
+      facts.loan = lock ? await lockLoanAccount(companyId, facts.side.loanAccountId) : await readLoanAccount(companyId, facts.side.loanAccountId);
+    }
     if (facts.conn) facts.cutover = await pairCutover(companyId, facts.conn);
   }
   facts.pendingCents = await pendingPaymentCents(companyId, billId);
+  facts.payableAccountId = await payableControl(companyId);
   return facts;
 }
 

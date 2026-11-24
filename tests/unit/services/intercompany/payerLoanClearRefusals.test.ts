@@ -3,6 +3,8 @@
  * is approved is what posts" (loan account, link, amount, the bill's open amount), the refusal table (a fixed sentence and an HTTP status per
  * code: no figure, no id, never database text) and the receiver-readiness words the definer may answer.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   PAYER_CLEAR_SENTENCES, PAYER_CLEAR_STATUS, R035_SENTENCE, RECEIVER_READY_REASONS, parseLoanClearBody, payerExpectedMismatch, payerRefusal,
@@ -13,13 +15,14 @@ import { ConnectionRefusal } from '@/modules/accounting/services/intercompany/co
 const BILL = 'b0000000-0000-4000-8000-000000000001';
 const LOAN = 'a0000000-0000-4000-8000-000000000001';
 const LINK = 'c0000000-0000-4000-8000-000000000001';
+const AP = 'd0000000-0000-4000-8000-000000000001';
 const body = (over: Record<string, unknown> = {}, expected: Record<string, unknown> = {}) => ({
-  billId: BILL, amount: 400, postingDate: '2026-09-10', expected: { loanAccountId: LOAN, linkId: LINK, amount: 400, openAmount: 1150, ...expected }, ...over,
+  billId: BILL, amount: 400, postingDate: '2026-09-10', expected: { loanAccountId: LOAN, linkId: LINK, amount: 400, openAmount: 1150, payableAccountId: AP, ...expected }, ...over,
 });
 
 describe('parseLoanClearBody', () => {
   it('takes the bill, the amount, the date and what the preview showed; ids lower-cased', () => {
-    const r = parseLoanClearBody(body({ billId: BILL.toUpperCase() }, { loanAccountId: LOAN.toUpperCase() }));
+    const r = parseLoanClearBody(body({ billId: BILL.toUpperCase() }, { loanAccountId: LOAN.toUpperCase(), payableAccountId: AP.toUpperCase() }));
     expect(r).toEqual({ ok: true, value: body() });
   });
   it.each([
@@ -31,16 +34,19 @@ describe('parseLoanClearBody', () => {
     ['an expected amount in fractions of a cent', body({}, { amount: 1.001 })], ['a negative open amount', body({}, { openAmount: -1 })],
     ['an open amount as text', body({}, { openAmount: '1150' })], ['no posting date', body({ postingDate: undefined })],
     ['a date that does not exist', body({ postingDate: '2026-02-30' })], ['a timestamp', body({ postingDate: '2026-09-01T00:00:00Z' })],
+    ['no expected AP control (J)', body({}, { payableAccountId: undefined })], ['an AP control that is no UUID', body({}, { payableAccountId: 'ap' })],
   ])('refuses %s', (_name, b) => {
     expect(parseLoanClearBody(b).ok).toBe(false);
   });
 });
 
 describe('payerExpectedMismatch (what is approved is what posts)', () => {
-  const read = { loanAccountId: LOAN, linkId: LINK, openAmount: 1150 };
-  const input = (expected: Record<string, unknown> = {}, amount = 400) => ({ amount, expected: { loanAccountId: LOAN, linkId: LINK, amount: 400, openAmount: 1150, ...expected } });
+  const read = { loanAccountId: LOAN, linkId: LINK, openAmount: 1150, payableAccountId: AP };
+  const input = (expected: Record<string, unknown> = {}, amount = 400) => ({
+    amount, expected: { loanAccountId: LOAN, linkId: LINK, amount: 400, openAmount: 1150, payableAccountId: AP, ...expected },
+  });
   it('nothing differs: null (case of the ids ignored, the amounts to the cent)', () => {
-    expect(payerExpectedMismatch(input({ loanAccountId: LOAN.toUpperCase(), linkId: LINK.toUpperCase() }), read)).toBeNull();
+    expect(payerExpectedMismatch(input({ loanAccountId: LOAN.toUpperCase(), linkId: LINK.toUpperCase(), payableAccountId: AP.toUpperCase() }), read)).toBeNull();
     expect(payerExpectedMismatch(input({ openAmount: 1150.001 }), read)).toBeNull();
   });
   it('the first that differs: loan account, link, amount (the request against the preview), open amount', () => {
@@ -49,6 +55,9 @@ describe('payerExpectedMismatch (what is approved is what posts)', () => {
     expect(payerExpectedMismatch(input({ amount: 500, openAmount: 1 }), read)).toBe('amount');
     expect(payerExpectedMismatch(input({ openAmount: 1000 }), read)).toBe('open_amount');
     expect(payerExpectedMismatch(input({}), { ...read, loanAccountId: null })).toBe('loan_account');
+    // J: the AP control approved is the one the books name now (and a chart without one never matches)
+    expect(payerExpectedMismatch(input({ payableAccountId: LOAN }), read)).toBe('payable_account');
+    expect(payerExpectedMismatch(input({}), { ...read, payableAccountId: null })).toBe('payable_account');
   });
 });
 
@@ -86,10 +95,14 @@ describe('the refusal table', () => {
     expect(PAYER_CLEAR_SENTENCES.approval_rule).toBe(R035_SENTENCE);
     expect(PAYER_CLEAR_SENTENCES.receiver_not_ready).toMatch(/partner/i);
   });
-  it('the readiness words the definer may answer', () => {
-    expect([...RECEIVER_READY_REASONS].sort()).toEqual([
-      'currency', 'exceeds_open', 'invoice_gone', 'invoice_not_open', 'invoice_pre_cutover', 'loan_class_mismatch', 'not_found', 'ready',
-      'receiver_flag_off', 'receiver_loan_not_set_up', 'wrong_customer',
-    ]);
+  it('the readiness words are exactly the words the definer (migration 1029) can RETURN, both ways', () => {
+    const migration = readFileSync(path.join(process.cwd(), 'scripts/migrations/sql/1029_intercompany_p4e_receiver_readiness.sql'), 'utf8');
+    const start = migration.indexOf('CREATE OR REPLACE FUNCTION public.intercompany_receiver_loan_ready');
+    const body = migration.slice(start, migration.indexOf('$$;', migration.indexOf('AS $$', start)));
+    const returned = new Set([...body.matchAll(/RETURN '([a-z_]+)'/g)].map((m) => m[1]!));
+    expect(returned.size).toBeGreaterThan(5);
+    expect([...RECEIVER_READY_REASONS].sort()).toEqual([...returned].sort());
+    // and no other RETURN can answer something else (a computed word would escape the list)
+    expect(body.match(/\bRETURN\b(?! ')/g) ?? []).toEqual([]);
   });
 });

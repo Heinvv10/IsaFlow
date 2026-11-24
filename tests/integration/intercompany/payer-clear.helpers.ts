@@ -17,9 +17,13 @@ import { acceptAs, clearSetup } from './allocation-clear.helpers';
 
 export { clearConnect, clearSetup } from './allocation-clear.helpers';
 
+/** B's Accounts Payable control (the clearing's debit; part of what the person approves). */
+export const payable = { b: '' };
+
 /** P4-D's fixture plus U.mab without Approve on Suppliers & AP in B. */
 export async function payerSetup(pool: Pool): Promise<void> {
   await clearSetup(pool);
+  payable.b = String((await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'payable' AND is_system_account", [co.B])).rows[0].id);
   await pool.query(
     `INSERT INTO company_user_permissions (company_id, user_id, module_key, can_read, can_write, can_approve)
      VALUES ($1, $2, 'suppliers', true, true, false) ON CONFLICT DO NOTHING`, [co.B, U.mab]);
@@ -30,15 +34,16 @@ export { plantBill };
 
 export interface ClearBody {
   billId: string; amount: number; postingDate: string;
-  expected: { loanAccountId: string; linkId: string; amount: number; openAmount: number };
+  expected: { loanAccountId: string; linkId: string; amount: number; openAmount: number; payableAccountId?: string };
 }
 
 /** What the preview shows for `b` (R1 150 open, B's loan account), posted on 2026-09-10 unless overridden. */
-export function clearBody(b: { bill: string; link: string | null }, over: { amount?: number; postingDate?: string; open?: number; loan?: string; link?: string; expectedAmount?: number } = {}): ClearBody {
+export function clearBody(b: { bill: string; link: string | null }, over: { amount?: number; postingDate?: string; open?: number; loan?: string; link?: string; expectedAmount?: number; payable?: string } = {}): ClearBody {
   const amount = over.amount ?? 1150;
   return {
     billId: b.bill, amount, postingDate: over.postingDate ?? '2026-09-10',
-    expected: { loanAccountId: over.loan ?? acct.bLoan, linkId: over.link ?? b.link ?? '', amount: over.expectedAmount ?? amount, openAmount: over.open ?? 1150 },
+    expected: { loanAccountId: over.loan ?? acct.bLoan, linkId: over.link ?? b.link ?? '', amount: over.expectedAmount ?? amount, openAmount: over.open ?? 1150,
+      payableAccountId: over.payable ?? payable.b },
   };
 }
 

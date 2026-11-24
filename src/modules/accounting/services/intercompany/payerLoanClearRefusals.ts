@@ -28,7 +28,7 @@ export const PAYER_CLEAR_SENTENCES: Readonly<Record<PayerClearCode, string>> = O
   currency: 'Only a bill in rand can be cleared against the intercompany loan. Nothing was posted.',
   wrong_supplier: "This bill is not on the partner's supplier account linked on the connection. Nothing was posted.",
   exceeds_open: 'The amount is more than what is still open on this bill (draft and approved payments on it count). Nothing was posted.',
-  stale: 'The bill, its link or your loan account changed since the preview. Nothing was posted: review the clearing again.',
+  stale: 'The bill, its link, your loan account or the Accounts Payable control changed since the preview. Nothing was posted: review the clearing again.',
   busy: 'This bill is being paid or cleared right now. Try again in a moment. Nothing was posted.',
   date_before_bill: "The posting date must be on or after the bill's date. Nothing was posted.",
   date_after_today: 'The posting date cannot be after today. Nothing was posted.',
@@ -61,7 +61,7 @@ export const RECEIVER_READY_REASONS: ReadonlySet<string> = new Set([
 export type ParsedLoanClearBody = { ok: true; value: LoanClearInput } | { ok: false; error: string };
 
 const BODY_KEYS = new Set(['billId', 'amount', 'postingDate', 'expected']);
-const EXPECTED_KEYS = new Set(['loanAccountId', 'linkId', 'amount', 'openAmount']);
+const EXPECTED_KEYS = new Set(['loanAccountId', 'linkId', 'amount', 'openAmount', 'payableAccountId']);
 const wholeCents = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && cents(n) / 100 === n;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -81,25 +81,30 @@ export function parseLoanClearBody(body: unknown): ParsedLoanClearBody {
   if (typeof e.linkId !== 'string' || !UUID.test(e.linkId)) return { ok: false, error: 'expected.linkId must be a UUID' };
   if (!wholeCents(e.amount) || e.amount <= 0) return { ok: false, error: 'expected.amount must be a positive amount in whole cents' };
   if (!wholeCents(e.openAmount) || e.openAmount < 0) return { ok: false, error: 'expected.openAmount must be an amount in whole cents' };
+  if (typeof e.payableAccountId !== 'string' || !UUID.test(e.payableAccountId)) return { ok: false, error: 'expected.payableAccountId must be a UUID' };
   return {
     ok: true,
     value: {
       billId: body.billId.toLowerCase(), amount: body.amount, postingDate: body.postingDate,
-      expected: { loanAccountId: e.loanAccountId.toLowerCase(), linkId: e.linkId.toLowerCase(), amount: e.amount, openAmount: e.openAmount },
+      expected: {
+        loanAccountId: e.loanAccountId.toLowerCase(), linkId: e.linkId.toLowerCase(), amount: e.amount, openAmount: e.openAmount,
+        payableAccountId: e.payableAccountId.toLowerCase(),
+      },
     },
   };
 }
 
-export type PayerMismatch = 'loan_account' | 'link' | 'amount' | 'open_amount';
+export type PayerMismatch = 'loan_account' | 'link' | 'amount' | 'open_amount' | 'payable_account';
 
 /** What the transaction read under its locks, against what the person approved: the first that differs, or null. */
 export function payerExpectedMismatch(
   input: Pick<LoanClearInput, 'amount' | 'expected'>,
-  read: { loanAccountId: string | null; linkId: string; openAmount: number },
+  read: { loanAccountId: string | null; linkId: string; openAmount: number; payableAccountId: string | null },
 ): PayerMismatch | null {
   if (!read.loanAccountId || input.expected.loanAccountId.toLowerCase() !== read.loanAccountId.toLowerCase()) return 'loan_account';
   if (input.expected.linkId.toLowerCase() !== read.linkId.toLowerCase()) return 'link';
   if (cents(input.amount) !== cents(input.expected.amount)) return 'amount';
   if (cents(input.expected.openAmount) !== cents(read.openAmount)) return 'open_amount';
+  if (!read.payableAccountId || input.expected.payableAccountId.toLowerCase() !== read.payableAccountId.toLowerCase()) return 'payable_account';
   return null;
 }

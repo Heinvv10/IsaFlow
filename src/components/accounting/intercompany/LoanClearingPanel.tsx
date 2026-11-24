@@ -72,7 +72,7 @@ export function LoanClearingPanel({ billId, onCleared }: Props) {
       )}
       {preview && (
         <LoanClearingModal open={open} preview={preview} onClose={() => setOpen(false)}
-          onDone={(out) => { setOpen(false); setDone(out); onCleared(); void reload(); }} />
+          onDone={(out) => { setOpen(false); setDone(out); onCleared(); void reload(); }} onStale={() => { void reload(); }} />
       )}
     </section>
   );

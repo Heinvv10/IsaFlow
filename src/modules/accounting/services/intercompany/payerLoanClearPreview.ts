@@ -1,18 +1,22 @@
 /**
- * The bill page's preview of "Clear against the intercompany loan" (P4-E): READ ONLY (the bill unlocked; the connection, side, link and loan
- * account read with P4-D's FOR SHARE reads, which block no reader and last only this request). It runs the clearing's own checks
- * (`payerLoanClearJudge.ts`) for the bill's open amount on today's date, so `blocked` is the sentence the POST would answer, and `receiverReady`
- * is the preflight's answer (no partner detail beyond that). The partner's invoice number is not shown: these books cannot read it.
+ * The bill page's preview of "Clear against the intercompany loan" (P4-E): READ ONLY and LOCK FREE (fix round 1 H: every read unlocked; the
+ * POST re-reads everything under THE lock order). Only a writer of the company sees it: without the intercompany write role it is the 403 the
+ * POST would answer first (`no_write_role`), and the bill page shows nothing. It runs the clearing's own checks for the bill's open amount
+ * EXCEPT the posting date (fix round 1 E: a closed or locked period today must not disable the dialog; the date field and the POST judge the
+ * date the person picks), so `blocked` is the sentence the POST would answer for a good date. `receiverReady` is the preflight's word alone
+ * (`ready`), whatever else blocks. The partner's invoice number is not shown: these books cannot read it.
  */
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { todaySast } from './allocationClearDate';
-import { factsRefusal, postingRefusal, requestRefusal } from './payerLoanClearJudge';
+import { userCanWrite } from './allocationClearReads';
+import { approvedRefusal, booksRefusal, factsRefusal, receiverWord } from './payerLoanClearJudge';
 import { accountLabel, loadClearingFacts, supplierName } from './payerLoanClearReads';
 import { PAYER_CLEAR_SENTENCES, payerRefusal } from './payerLoanClearRefusals';
-import type { LoanClearingPreview } from './payerLoanClearTypes';
+import type { LoanClearingPreview, PayerClearCode } from './payerLoanClearTypes';
 
 export async function previewLoanClearing(companyId: string, billId: string): Promise<LoanClearingPreview> {
+  if (!(await userCanWrite(companyId))) throw payerRefusal('no_write_role');
   const f = await loadClearingFacts(companyId, billId, false);
   if (!f.bill || f.bill.deleted) throw payerRefusal('bill_not_found');
   const today = await todaySast();
@@ -30,21 +34,21 @@ export async function previewLoanClearing(companyId: string, billId: string): Pr
     if (!(err instanceof MissingSystemAccountError)) throw err;
   }
   const floor = bill.date && f.cutover ? (bill.date > f.cutover ? bill.date : f.cutover) : null;
-  let code = factsRefusal(f);
+  let code: PayerClearCode | null = factsRefusal(f);
   let receiverReady = false;
   if (!code && max > 0) {
     const amount = max / 100;
-    code = await requestRefusal(companyId, f, {
-      billId, amount, postingDate: today, expected: { loanAccountId: loanAccountId!, linkId: f.link!.id, amount, openAmount: open / 100 },
-    }) ?? await postingRefusal(companyId, f, amount);
-    receiverReady = code === null;
+    const expected = { loanAccountId: loanAccountId!, linkId: f.link!.id, amount, openAmount: open / 100, payableAccountId: f.payableAccountId ?? '' };
+    code = approvedRefusal(f, { amount, expected }) ?? await booksRefusal(companyId, f, amount);
+    receiverReady = (await receiverWord(companyId, f, amount)) === 'ready';
+    if (!code && !receiverReady) code = 'receiver_not_ready';
   } else if (!code) {
     code = 'exceeds_open';
   }
   return {
     linked, billId: bill.id, billNumber: bill.number, billDate: bill.date, linkId: f.link?.id ?? null,
     partnerName: await supplierName(companyId, f.side?.supplierId ?? null), loanAccountId, loanAccountLabel: await accountLabel(companyId, loanAccountId),
-    payableLabel: payable, openAmount: open / 100, maxAmount: max / 100, floorDate: floor, defaultPostingDate: today, receiverReady,
-    blocked: code ? PAYER_CLEAR_SENTENCES[code] : null,
+    payableAccountId: f.payableAccountId, payableLabel: payable, openAmount: open / 100, maxAmount: max / 100, floorDate: floor,
+    defaultPostingDate: today, receiverReady, blocked: code ? PAYER_CLEAR_SENTENCES[code] : null,
   };
 }

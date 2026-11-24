@@ -31,6 +31,7 @@ import { refuseLoanAccountPayment } from '../intercompany/loanAccountPaymentGuar
 import { partnerClearedRefusal } from '../intercompany/allocationUndoGate';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type { LoanClearPermit } from '../intercompany/loanClearPermit';
+import type { ActorType } from '@/lib/mcp/contracts/actor';
 type Row = DbRow;
 
 /**
@@ -72,7 +73,7 @@ export async function processSupplierPayment(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string; loanClearPermit?: LoanClearPermit },
+  opts?: { postingAgent?: string; actorType?: ActorType; loanClearPermit?: LoanClearPermit },
 ): Promise<SupplierPayment> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
@@ -133,7 +134,7 @@ export async function processSupplierPayment(
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent, ...(opts.actorType ? { actorType: opts.actorType } : {}) } : defaultHumanMeta(userId));
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 

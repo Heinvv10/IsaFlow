@@ -28,7 +28,7 @@ import { userCanWrite } from './allocationClearReads';
 import { cents } from './allocationClearRefusals';
 import { LoanClearingNotEnabled, loanClearingEnabled } from './loanClearingGate';
 import { IC_LOAN_CLEAR_AGENT, mintLoanClearPermit } from './loanClearPermit';
-import { factsRefusal, postingRefusal, requestRefusal } from './payerLoanClearJudge';
+import { factsRefusal, requestRefusal } from './payerLoanClearJudge';
 import { journalLinesOf, loadClearingFacts, sentMessagesFor, supplierName, type ClearingFacts } from './payerLoanClearReads';
 import { payerRefusal } from './payerLoanClearRefusals';
 import type { LoanClearInput, LoanClearResult } from './payerLoanClearTypes';
@@ -65,7 +65,7 @@ export async function clearBillAgainstLoan(p: ClearBillAgainstLoanParams): Promi
 
   const prev = await boundLockWait();
   const facts = await lockFacts(companyId, billId);
-  const refusal = factsRefusal(facts) ?? await requestRefusal(companyId, facts, p) ?? await postingRefusal(companyId, facts, p.amount);
+  const refusal = factsRefusal(facts) ?? await requestRefusal(companyId, facts, p);
   if (refusal) throw payerRefusal(refusal);
 
   const result = await post(companyId, userId, facts, p);
@@ -102,7 +102,8 @@ async function post(companyId: string, userId: string, f: ClearingFacts, input: 
     posted = await settleDocumentByContra({
       companyId, subledger: 'ap', documentId: bill.id, contraAccountId: loanAccountId, amount: input.amount, date: input.postingDate,
       reason: `Cleared against intercompany loan, partner ${partner}`,
-      actor: { userId, approverUserId: userId, postingAgent: IC_LOAN_CLEAR_AGENT },
+      // a person pressed it (I): the journal records actor_type human; the label says which action posted it
+      actor: { userId, approverUserId: userId, postingAgent: IC_LOAN_CLEAR_AGENT, actorType: 'human' },
       loanClearPermit: mintLoanClearPermit({ companyId, billId: bill.id, loanAccountId }),
     });
   } catch (err) {
@@ -117,6 +118,8 @@ async function post(companyId: string, userId: string, f: ClearingFacts, input: 
   // From here on nothing is a refusal: a plain Error rolls the posting back with the request (no 4xx after a write).
   if (!posted.journalEntryId) throw new Error('the intercompany loan clearing posted no journal');
   const ap = await getSystemAccount('payable', companyId);
+  // J: the AP control resolved when it posted is the one the person approved (compared before the posting too, as a 409)
+  if (ap.id.toLowerCase() !== input.expected.payableAccountId.toLowerCase()) throw new Error('the intercompany loan clearing debited another Accounts Payable control than the one approved');
   const lines = await journalLinesOf(companyId, posted.journalEntryId);
   const amount = cents(input.amount);
   const exact = lines.length === 2

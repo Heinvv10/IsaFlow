@@ -1,7 +1,7 @@
 /**
  * The checks of "Clear against the intercompany loan" (P4-E, plan (c) and (j)), in their order, over the facts `loadClearingFacts` read: the
- * service asks them under its locks before the posting, the preview asks the same ones (unlocked) to say why the action cannot post now. The
- * first refusal wins; null = the clearing may post. Reads only: nothing here writes.
+ * service asks them under its locks before the posting (`factsRefusal`, then `requestRefusal`); the preview asks the same ones (unlocked) but
+ * the date (`dateRefusal`) to say why the action cannot post now. The first refusal wins; null = the clearing may post. Reads only.
  */
 import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
 import { agentNewSupplierPaymentRefusal } from '../gl/approvalUnattended';
@@ -10,7 +10,7 @@ import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { log } from '@/lib/logger';
 import { cents } from './allocationClearRefusals';
 import { postingDateRefusal, todaySast } from './allocationClearDate';
-import { payerExpectedMismatch } from './payerLoanClearRefusals';
+import { RECEIVER_READY_REASONS, payerExpectedMismatch } from './payerLoanClearRefusals';
 import { receiverReadiness, type ClearingFacts } from './payerLoanClearReads';
 import type { LoanClearInput, PayerClearCode } from './payerLoanClearTypes';
 
@@ -34,23 +34,27 @@ export function factsRefusal(f: ClearingFacts): PayerClearCode | null {
   return null;
 }
 
-/** The person's request against the facts: what they approved (409), the amount (409), the date (400). Facts first: `factsRefusal` passed. */
-export async function requestRefusal(companyId: string, f: ClearingFacts, input: LoanClearInput): Promise<PayerClearCode | null> {
-  const bill = f.bill!;
-  const open = bill.totalCents - bill.paidCents;
-  if (payerExpectedMismatch(input, { loanAccountId: f.side?.loanAccountId ?? null, linkId: f.link!.id, openAmount: open / 100 })) return 'stale';
+/** The person's request against the facts, the date-independent part: what they approved (409), the amount (409). Facts first. */
+export function approvedRefusal(f: ClearingFacts, input: Pick<LoanClearInput, 'amount' | 'expected'>): PayerClearCode | null {
+  const open = f.bill!.totalCents - f.bill!.paidCents;
+  const read = { loanAccountId: f.side?.loanAccountId ?? null, linkId: f.link!.id, openAmount: open / 100, payableAccountId: f.payableAccountId };
+  if (payerExpectedMismatch(input, read)) return 'stale';
   if (cents(input.amount) > open - f.pendingCents) return 'exceeds_open';
-  if (bill.date && input.postingDate < bill.date) return 'date_before_bill';
-  if (input.postingDate > await todaySast()) return 'date_after_today';
-  if (!f.cutover || input.postingDate < f.cutover) return 'pre_cutover_payment';
-  return postingDateRefusal(companyId, input.postingDate);
+  return null;
 }
 
-/**
- * What the composed services would refuse, asked first so the person gets a sentence (R-035 (j).7; the contra account), then the
- * receiver-readiness preflight ((j).5: the partner's flag, loan account, invoice), last because it is the only cross-company question.
- */
-export async function postingRefusal(companyId: string, f: ClearingFacts, amount: number): Promise<PayerClearCode | null> {
+/** The posting date (400): on or after the bill and the pair's cut-over, not after today, an open period outside a locked VAT period. The POST
+ *  asks it; the preview does not (fix round 1 E: a closed period today must not disable the dialog; the date field and the POST judge it). */
+export async function dateRefusal(companyId: string, f: ClearingFacts, postingDate: string): Promise<PayerClearCode | null> {
+  const bill = f.bill!;
+  if (bill.date && postingDate < bill.date) return 'date_before_bill';
+  if (postingDate > await todaySast()) return 'date_after_today';
+  if (!f.cutover || postingDate < f.cutover) return 'pre_cutover_payment';
+  return postingDateRefusal(companyId, postingDate);
+}
+
+/** What the composed services would refuse, asked first so the person gets a sentence: R-035 ((j).7) and the contra account. */
+export async function booksRefusal(companyId: string, f: ClearingFacts, amount: number): Promise<PayerClearCode | null> {
   if (await agentNewSupplierPaymentRefusal(companyId, amount)) return 'approval_rule';
   try {
     await assertContraAccountUsable(companyId, 'ap', f.side!.loanAccountId!);
@@ -58,11 +62,25 @@ export async function postingRefusal(companyId: string, f: ClearingFacts, amount
     if (err instanceof ContraGuardRefusal || err instanceof MissingSystemAccountError) return 'contra_refused';
     throw err;
   }
-  const ready = await receiverReadiness(f.link!.id, f.bill!.id, amount);
-  if (ready !== 'ready') {
-    // the word stays in the log (it names the partner's state); the person reads one generic sentence
-    log.info('Intercompany loan clearing refused: the partner is not ready', { companyId, billId: f.bill!.id, reason: ready }, 'intercompany');
-    return 'receiver_not_ready';
-  }
   return null;
+}
+
+/** (j).5 the receiver-readiness preflight, the only cross-company question (last): its word, logged when it is not `ready`. Only a word the
+ *  definer is known to answer is logged (RECEIVER_READY_REASONS); anything else is logged as `unknown` and is not ready. */
+export async function receiverWord(companyId: string, f: ClearingFacts, amount: number): Promise<string> {
+  const word = await receiverReadiness(f.link!.id, f.bill!.id, amount);
+  if (word !== 'ready') {
+    // the word stays in the log (it names the partner's state); the person reads one generic sentence
+    log.info('Intercompany loan clearing refused: the partner is not ready', {
+      companyId, billId: f.bill!.id, reason: RECEIVER_READY_REASONS.has(word) ? word : 'unknown',
+    }, 'intercompany');
+  }
+  return word;
+}
+
+/** Everything after the facts, in order, for the POST: the request, the date, the books, the partner. */
+export async function requestRefusal(companyId: string, f: ClearingFacts, input: LoanClearInput): Promise<PayerClearCode | null> {
+  const refusal = approvedRefusal(f, input) ?? await dateRefusal(companyId, f, input.postingDate) ?? await booksRefusal(companyId, f, input.amount);
+  if (refusal) return refusal;
+  return (await receiverWord(companyId, f, input.amount)) === 'ready' ? null : 'receiver_not_ready';
 }

@@ -2,8 +2,10 @@
  * "Clear against the intercompany loan" (intercompany P4-E): the PAYER clears its supplier bill, linked to the partner's customer invoice on a
  * group LOAN connection, with ONE contra settlement against its intercompany loan account (DR Accounts Payable / CR the loan account). The
  * P4-B hook sends the allocation message; the partner then clears its invoice (P4-D).
- *   GET  ?billId=<uuid>  the preview (both legs, the open amount, the partner, whether it can post now and why not). Read only.
- *   POST { billId, amount, postingDate, expected: { loanAccountId, linkId, amount, openAmount } }  200 `{ cleared: true, paymentId,
+ *   GET  ?billId=<uuid>  the preview (both legs, the open amount, the partner, whether it can post now and why not). Read only, no row lock,
+ *        and for a member with the intercompany WRITE role only (403 `no_write_role` otherwise, the bill page then shows nothing): withWriteAccess
+ *        lets a GET through for every role, so the service asks the role itself.
+ *   POST { billId, amount, postingDate, expected: { loanAccountId, linkId, amount, openAmount, payableAccountId } }  200 `{ cleared: true, paymentId,
  *        paymentNumber, journalEntryId, messageId }`; a refusal is a 4xx with a plain sentence (404 bill, 403 the person, 400 the date or the
  *        body, 409 the books or a stale preview), always before any write; anything after the posting is a 5xx (the request rolls back).
  * The dark flag `intercompany_loan_clearing` off for this company: 403 with a plain sentence, before the query or the body is read (the

@@ -17,7 +17,7 @@ import { envelope, failure } from './intercompanyFixtures';
 
 const preview = (over: Partial<LoanClearingPreview> = {}): LoanClearingPreview => ({
   linked: true, billId: 'bill-1', billNumber: 'BILL-77', billDate: '2026-09-01', linkId: 'link-1', partnerName: 'Velocity Fibre',
-  loanAccountId: 'loan-1', loanAccountLabel: '2800 Loan from Velocity', payableLabel: '2000 Accounts Payable', openAmount: 1150, maxAmount: 1150,
+  loanAccountId: 'loan-1', loanAccountLabel: '2800 Loan from Velocity', payableAccountId: 'ap-1', payableLabel: '2000 Accounts Payable', openAmount: 1150, maxAmount: 1150,
   floorDate: '2026-09-01', defaultPostingDate: '2026-09-10', receiverReady: true, blocked: null, ...over,
 });
 
@@ -77,7 +77,7 @@ describe('Clear against the intercompany loan', () => {
     const [url, init] = posts()[0]!;
     expect(String(url)).toBe('/api/accounting/intercompany/loan-clearings');
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({
-      billId: 'bill-1', amount: 400, postingDate: '2026-09-10', expected: { loanAccountId: 'loan-1', linkId: 'link-1', amount: 400, openAmount: 1150 },
+      billId: 'bill-1', amount: 400, postingDate: '2026-09-10', expected: { loanAccountId: 'loan-1', linkId: 'link-1', amount: 400, openAmount: 1150, payableAccountId: 'ap-1' },
     });
     expect(await screen.findByText(/SP-00042/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /journal/i })).toHaveAttribute('href', '/accounting/journal-entries/je-9');
@@ -108,5 +108,42 @@ describe('Clear against the intercompany loan', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
     expect(await within(dialog).findByText(/changed since the preview/)).toBeInTheDocument();
     expect(posts()).toHaveLength(1);
+  });
+
+  it('a 409 (the books changed) fetches the preview again: the sentence stays, and the retry sends what the books now say', async () => {
+    let served = 0;
+    answer = {
+      get: () => envelope(served++ === 0 ? preview() : preview({ openAmount: 1000, maxAmount: 1000 })),
+      post: (body) => ((body as { expected: { openAmount: number } }).expected.openAmount === 1150
+        ? failure('The bill, its link, your loan account or the Accounts Payable control changed since the preview. Nothing was posted: review the clearing again.', 409)
+        : envelope({ cleared: true, billId: 'bill-1', paymentId: 'pay-2', paymentNumber: 'SP-00043', journalEntryId: 'je-10', messageId: 'm-2' })),
+    };
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    expect(await within(dialog).findByText(/changed since the preview/)).toBeInTheDocument();
+    await waitFor(() => expect(previews()).toBe(2));
+    await waitFor(() => expect((within(dialog).getByLabelText('Amount') as HTMLInputElement).value).toBe('1000'));
+    expect(within(dialog).getByText(/changed since the preview/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    expect(await screen.findByText(/SP-00043/)).toBeInTheDocument();
+    expect(JSON.parse(String((posts()[1]![1] as RequestInit).body)).expected).toMatchObject({ openAmount: 1000, amount: 1000 });
+  });
+
+  it('a refusal other than 409 does not fetch the preview again', async () => {
+    answer = { get: () => envelope(preview()), post: () => failure('The posting date is in a closed or locked financial period.', 400) };
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    expect(await within(dialog).findByText(/closed or locked financial period/)).toBeInTheDocument();
+    expect(previews()).toBe(1);
+  });
+
+  it('blocked by something else, the partner still reads ready when the preflight said so (E)', async () => {
+    answer = { get: () => envelope(preview({ receiverReady: true, blocked: 'Not cleared: an approval rule applies to payments of this size.' })) };
+    const dialog = await open();
+    expect(within(dialog).getByTestId('loan-clearing-preview').textContent).toMatch(/can clear it/i);
+    expect(within(dialog).getByRole('button', { name: 'Review clearing' })).toBeDisabled();
   });
 });

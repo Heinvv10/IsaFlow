@@ -14,6 +14,8 @@ export interface LoanClearExpected {
   amount: number;
   /** The bill's open amount (total less paid) the preview read: a second click after a first one posted is a 409. */
   openAmount: number;
+  /** The Accounts Payable control (the debit) the preview named: the account resolved when it posts must be this one. */
+  payableAccountId: string;
 }
 
 export interface LoanClearInput {
@@ -64,6 +66,8 @@ export interface LoanClearingPreview {
   loanAccountId: string | null;
   /** "code name" of the payer side's loan account (the credit). */
   loanAccountLabel: string | null;
+  /** The Accounts Payable control (the debit): sent back as `expected.payableAccountId`. Null: the chart has none (nothing can post). */
+  payableAccountId: string | null;
   /** "code name" of the Accounts Payable control (the debit). */
   payableLabel: string | null;
   /** The bill's total less paid. */
