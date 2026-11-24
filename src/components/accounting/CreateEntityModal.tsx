@@ -37,6 +37,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
   const [acctCode, setAcctCode] = useState('');
   const [acctName, setAcctName] = useState('');
   const [acctType, setAcctType] = useState('expense');
+  const [acctSubtype, setAcctSubtype] = useState('');
 
   const [suggestion, setSuggestion] = useState<GLSuggestion | null>(null);
   const [suggestionApplied, setSuggestionApplied] = useState(false);
@@ -103,6 +104,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
 
   const handleAcctType = useCallback((v: string) => {
     setAcctType(v);
+    setAcctSubtype(''); // a subtype is only valid for the type it was picked under
     if (suggestionApplied) setSuggestionApplied(false);
     if (suggestionDismissed) setSuggestionDismissed(false);
   }, [suggestionApplied, suggestionDismissed]);
@@ -110,8 +112,11 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
   const title = type === 'account' ? 'New GL Account'
     : type === 'supplier' ? 'New Supplier' : 'New Customer';
 
+  // The API refuses a blank subtype on revenue/expense (missingSubtypeError).
+  const subtypeRequired = acctType === 'revenue' || acctType === 'expense';
+
   const canSave = type === 'account'
-    ? !!(acctCode.trim() && acctName.trim())
+    ? !!(acctCode.trim() && acctName.trim() && (!subtypeRequired || acctSubtype))
     : type === 'supplier'
       ? !!(supName.trim() && supEmail.trim())
       : !!custName.trim();
@@ -128,6 +133,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           body: JSON.stringify({
             accountCode: acctCode.trim(), accountName: acctName.trim(),
             accountType: acctType, normalBalance: nb,
+            ...(acctSubtype ? { accountSubtype: acctSubtype } : {}),
           }),
         }, 'Could not create the account - try again') as { id: string; accountCode: string; accountName: string };
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
@@ -174,9 +180,12 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
               code={acctCode}
               name={acctName}
               type={acctType}
+              subtype={acctSubtype}
+              subtypeRequired={subtypeRequired}
               onCode={setAcctCode}
               onName={handleAcctName}
               onType={handleAcctType}
+              onSubtype={setAcctSubtype}
               transactionDescription={transactionDescription}
               suggestion={suggestion}
               suggestionApplied={suggestionApplied}

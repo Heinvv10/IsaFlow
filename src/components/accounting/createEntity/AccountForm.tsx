@@ -1,15 +1,19 @@
 import { Sparkles, Check, X } from 'lucide-react';
 import type { SelectOption } from '../BankTxTable';
 import { ACCOUNT_TYPES, type GLSuggestion } from './glAccountSuggestions';
+import { subtypeOptionsFor } from '../dashboard/accountSubtypeOptions';
 import { INPUT, LABEL } from './styles';
 
 interface Props {
   code: string;
   name: string;
   type: string;
+  subtype: string;
+  subtypeRequired: boolean;
   onCode: (v: string) => void;
   onName: (v: string) => void;
   onType: (v: string) => void;
+  onSubtype: (v: string) => void;
   transactionDescription?: string;
   suggestion: GLSuggestion | null;
   suggestionApplied: boolean;
@@ -19,7 +23,7 @@ interface Props {
 }
 
 export function AccountForm({
-  code, name, type, onCode, onName, onType,
+  code, name, type, subtype, subtypeRequired, onCode, onName, onType, onSubtype,
   transactionDescription, suggestion, suggestionApplied, existingMatch,
   onApplySuggestion, onDismissSuggestion,
 }: Props) {
@@ -83,6 +87,13 @@ export function AccountForm({
         <label className={LABEL}>Account Name *</label>
         <input type="text" value={name} onChange={e => onName(e.target.value)}
           placeholder="e.g. Cleaning & Maintenance" className={INPUT} />
+      </div>
+      <div>
+        <label className={LABEL}>Subtype{subtypeRequired ? ' *' : ''}</label>
+        <select value={subtype} onChange={e => onSubtype(e.target.value)} aria-label="Subtype" className={INPUT}>
+          {subtypeRequired ? <option value="">Select…</option> : <option value="">None</option>}
+          {subtypeOptionsFor(type).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
       </div>
       <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)]">
         Normal balance:&nbsp;
