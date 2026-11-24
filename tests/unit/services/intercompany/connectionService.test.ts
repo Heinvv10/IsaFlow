@@ -223,6 +223,8 @@ describe('updateConnectionSettings', () => {
     fakeDb(
       [/FROM intercompany_connections c/, view({ settlement_mode: 'loan', cutover_date: '2026-12-01', interest_rate_pct: 12 })],
       [/^UPDATE intercompany_connections/, (_t, v) => { written.push(v); return [{ id: CID }]; }],
+      // P4-E (j).8: a mode change asks the connection hold (migration 1029); nothing holds it here
+      [/intercompany_connection_allocation_held/, [{ held: false }]],
     );
     await updateConnectionSettings('u', A, CID, { interestRatePct: null });
     expect(written[0]).toEqual(['loan', '2026-12-01', null, CID]);
