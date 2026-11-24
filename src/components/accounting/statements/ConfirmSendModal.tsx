@@ -52,7 +52,7 @@ export function ConfirmSendModal({ count, asAtDate, isSending, onConfirm, onCanc
         </div>
 
         {/* Body */}
-        <div className="space-y-3 text-sm text-[var(--ff-text-secondary)] max-lg:overflow-y-auto">
+        <div className="space-y-3 text-sm text-[var(--ff-text-secondary)] max-lg:overflow-y-auto max-lg:overscroll-contain">
           <p>
             You are about to email account statements to{' '}
             <span className="font-semibold text-[var(--ff-text-primary)]">

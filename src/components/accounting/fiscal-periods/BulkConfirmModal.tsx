@@ -47,7 +47,7 @@ export function BulkConfirmModal({ action, count, busy, onCancel, onConfirm }: P
       onClick={e => e.target === e.currentTarget && !busy && onCancel()}
     >
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]">
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 max-lg:overflow-y-auto">
+        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 max-lg:overflow-y-auto max-lg:overscroll-contain">
           <h2 id="bulk-confirm-title" className="text-base font-semibold text-slate-900 dark:text-white">{verb} {count} period{count !== 1 ? 's' : ''}?</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{explainer}</p>
         </div>

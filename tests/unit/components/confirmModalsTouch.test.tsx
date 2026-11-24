@@ -35,8 +35,9 @@ describe('BulkConfirmModal on touch', () => {
     open();
     const box = screen.getByRole('dialog').firstElementChild!;
     expect(cls(box)).toEqual(expect.arrayContaining(CAP));
+    expect(box.children).toHaveLength(2); // the title block and the footer
     const [head, foot] = [...box.children];
-    expect(cls(head!)).toContain('max-lg:overflow-y-auto');
+    expect(cls(head!)).toEqual(expect.arrayContaining(['max-lg:overflow-y-auto', 'max-lg:overscroll-contain']));
     expect(cls(foot!)).toEqual(expect.arrayContaining(['max-lg:shrink-0', 'max-lg:flex-wrap']));
   });
 });
@@ -55,9 +56,10 @@ describe('ConfirmSendModal on touch', () => {
     open();
     const box = screen.getByRole('dialog').firstElementChild!;
     expect(cls(box)).toEqual(expect.arrayContaining(CAP));
+    expect(box.children).toHaveLength(3); // header, body, actions
     const [head, body, actions] = [...box.children];
     expect(cls(head!)).toContain('max-lg:shrink-0');
-    expect(cls(body!)).toContain('max-lg:overflow-y-auto');
+    expect(cls(body!)).toEqual(expect.arrayContaining(['max-lg:overflow-y-auto', 'max-lg:overscroll-contain']));
     expect(cls(actions!)).toEqual(expect.arrayContaining(['max-lg:shrink-0', 'max-lg:flex-wrap']));
   });
 });
