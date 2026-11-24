@@ -241,9 +241,9 @@ export default function ItemsListPage() {
                     </td>
                     <td data-label="Active" className="px-4 py-3 text-center">
                       {item.is_active ? (
-                        <span className="inline-block h-2 w-2 rounded-full bg-green-500" title="Active" />
+                        <span className="inline-block h-2 w-2 rounded-full bg-green-500 max-lg:self-center" title="Active" />
                       ) : (
-                        <span className="inline-block h-2 w-2 rounded-full bg-gray-500" title="Inactive" />
+                        <span className="inline-block h-2 w-2 rounded-full bg-gray-500 max-lg:self-center" title="Inactive" />
                       )}
                     </td>
                   </tr>

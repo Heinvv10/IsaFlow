@@ -46,6 +46,13 @@ describe('Items list on touch', () => {
     expect(cls(screen.getByRole('heading', { level: 1 }).parentElement!.parentElement!.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
 
+  it('the Active dot is centred against its label on cards, active or not', async () => {
+    state.items = [item('1', 'physical'), { ...item('2', 'service'), is_active: false }];
+    render(<Page />);
+    await screen.findByText('IT-1');
+    for (const title of ['Active', 'Inactive']) expect(cls(screen.getByTitle(title)), title).toContain('max-lg:self-center');
+  });
+
   it('the item code links are 44px', async () => {
     state.items = [item('1', 'physical'), item('2', 'service')];
     render(<Page />);
