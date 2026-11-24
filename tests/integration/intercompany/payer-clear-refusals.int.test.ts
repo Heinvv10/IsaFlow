@@ -39,7 +39,7 @@ describe('the relationship', () => {
     await wipeConnections(pool);
     const cash = await clearConnect(pool, { mode: 'cash' });
     const b = await plantBill(pool, cash);
-    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /loan/i);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /does not settle through a loan account/);
   });
 
   it("a bill dated before the pair's cut-over (both sides mirroring only from 2026-09-15): 409", async () => {
@@ -71,12 +71,12 @@ describe("the payer's loan account", () => {
     const b = await plantBill(pool, conn);
     await pool.query('UPDATE gl_accounts SET is_system_account = true WHERE id = $1', [acct.bLoan]);
     try {
-      await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /loan account/i);
+      await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /names no usable loan account/);
     } finally {
       await pool.query('UPDATE gl_accounts SET is_system_account = false WHERE id = $1', [acct.bLoan]);
     }
     await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET loan_account_id = NULL WHERE connection_id = $1 AND company_id = $2', [conn, co.B]), true);
-    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /loan account/i);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /names no usable loan account/);
   });
 });
 
@@ -85,7 +85,7 @@ describe('the bill', () => {
     const b = await plantBill(pool, conn);
     await plantPaid(pool, b.bill, { leg: bank.b });
     await pool.query("UPDATE supplier_invoices SET amount_paid = 1150, status = 'paid' WHERE id = $1", [b.bill]);
-    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { open: 0 })), 409);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { open: 0 })), 409, /already paid/);
   });
 
   it('part paid from the bank: more than what is open is refused, the rest clears', async () => {
@@ -125,7 +125,7 @@ describe('the posting date', () => {
   it('before the bill, after today, not a date: 400; a closed period: refused', async () => {
     const b = await plantBill(pool, conn);
     await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { postingDate: '2026-08-31' })), 400);
-    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { postingDate: '2099-01-01' })), 400);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { postingDate: '2099-01-01' })), 400, /cannot be after today/);
     await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b, { postingDate: '2026-02-30' })), 400);
     await pool.query("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1", [co.B]);
     try {
@@ -174,6 +174,35 @@ describe('the receiver must be able to clear it (the preflight)', () => {
     await pool.query('UPDATE customer_invoices SET amount_paid = 0 WHERE id = $1', [b.invoice]);
     await asAppUser(pool, U.a, co.A, (q) => q.query('UPDATE intercompany_connection_sides SET loan_account_id = NULL WHERE connection_id = $1 AND company_id = $2', [conn, co.A]), true);
     await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /partner/i);
+  });
+
+  it("the receiver's invoice before the pair's cut-over, in another currency, a draft receipt claiming it, or the two loan accounts of one type: refused", async () => {
+    const b = await plantBill(pool, conn);
+    await pool.query("UPDATE customer_invoices SET invoice_date = DATE '2025-12-01' WHERE id = $1", [b.invoice]);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /partner/i);
+    await pool.query("UPDATE customer_invoices SET invoice_date = DATE '2026-09-01' WHERE id = $1", [b.invoice]);
+    await pool.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [co.A]);
+    try {
+      await pool.query("UPDATE customer_invoices SET currency_code = 'USD' WHERE id = $1", [b.invoice]);
+      await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /partner/i);
+      await pool.query("UPDATE customer_invoices SET currency_code = 'ZAR' WHERE id = $1", [b.invoice]);
+    } finally {
+      await pool.query('UPDATE companies SET fx_documents_enabled = false WHERE id = $1', [co.A]);
+    }
+    const receipt = (await pool.query(
+      `INSERT INTO customer_payments(company_id, client_id, payment_date, total_amount, payment_method, status, created_by)
+       VALUES ($1, $2, DATE '2026-09-05', 1000, 'eft', 'draft', $3) RETURNING id`, [co.A, party.aCustomer, U.a])).rows[0].id as string;
+    await pool.query('INSERT INTO customer_payment_allocations(payment_id, invoice_id, amount_allocated) VALUES ($1, $2, 1000)', [receipt, b.invoice]);
+    await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /partner/i);
+    await pool.query('DELETE FROM customer_payment_allocations WHERE payment_id = $1', [receipt]);
+    await pool.query('DELETE FROM customer_payments WHERE id = $1', [receipt]);
+    await pool.query("UPDATE gl_accounts SET account_type = 'liability', normal_balance = 'credit', account_subtype = 'other_current_liability' WHERE id = $1", [acct.aLoan]);
+    try {
+      await refusedUntouched(pool, b.bill, () => clearBill(clearBody(b)), 409, /partner/i);
+    } finally {
+      await pool.query("UPDATE gl_accounts SET account_type = 'asset', normal_balance = 'debit', account_subtype = 'other_current_asset' WHERE id = $1", [acct.aLoan]);
+    }
+    expect((await clearBill(clearBody(b))).state.statusCode).toBe(200);
   });
 
   it("the receiver's invoice is on another customer than the one linked to the payer: refused", async () => {

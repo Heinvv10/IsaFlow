@@ -54,6 +54,7 @@ describe('Clear against the intercompany loan', () => {
     render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
     await waitFor(() => expect(previews()).toBe(2));
     expect(screen.queryByRole('button', { name: BUTTON })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Intercompany loan' })).toBeNull();
   });
 
   it('previews both legs, the amount, the partner and its readiness; Review, then a confirm; the POST sends what was shown; the ids are shown', async () => {

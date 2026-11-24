@@ -83,6 +83,7 @@ describe('clearing a linked bill against the intercompany loan', () => {
     // a second clearing of the same bill is refused (nothing open), and the receiver cannot clear more: nothing more was sent
     const again = await clearBill(clearBody(b, { open: 0 }));
     expect(again.state.statusCode).toBe(409);
+    expect(errorText(again)).toMatch(/already paid/);
     expect(await payer.messages(pool)).toBe(1);
   });
 
