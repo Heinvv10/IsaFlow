@@ -112,6 +112,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/transactionLedgerService.ts', 'RAW'],
   ['gl/vatLateClaimSplit.ts', 'VAT'],
   ['gl/yearEndJournalBuilder.ts', 'WRITE'],
+  ['intercompany/payerLoanClearReads.ts', 'SUBLEDGER', 'COALESCE(l.debit, 0) AS debit'], // P4-E: the lines of the ONE clearing journal just posted, checked DR AP / CR loan before the request commits
   ['items/fixedAssetReconciliationQueries.ts', 'SUBLEDGER'],
   ['payroll/etiBooking.ts', 'SUBLEDGER'], // the ETI booked on 2140 / the refund receivable by payroll journals (wave 5 ET)
   ['payroll/payrollApprovalGate.ts', 'SUBLEDGER'],

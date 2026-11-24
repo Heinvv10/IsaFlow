@@ -69,6 +69,7 @@ const ROUTES: Array<[string, string[]]> = [
   ['intercompany/allocations/[id]/dismiss', ['POST']],
   ['intercompany/allocations/[id]/restore', ['POST']],
   ['intercompany/allocations/[id]/accept', ['POST']],
+  ['intercompany/loan-clearings', ['POST']],
   ['intercompany/connections/[id]/pairing', ['POST']],
   ['intercompany/connections/[id]/pairing/links/[linkId]', ['PUT', 'DELETE']],
 ];

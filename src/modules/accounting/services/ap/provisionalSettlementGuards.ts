@@ -16,6 +16,7 @@ import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { findJournalChainRoot } from '../shared/journalChainHead';
 import { refuseReversingIntercompanyClearing } from '../intercompany/clearingReversalGuard';
+import { partnerClearedJournalRefusal } from '../intercompany/allocationUndoGate';
 
 /** How every settlement refusal names the undo — the UI action first. */
 export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
@@ -33,6 +34,9 @@ export async function refuseReversingSettlementJournal(
   voidingReceiptId?: string,
 ): Promise<void> {
   await refuseReversingIntercompanyClearing(companyId, entry, voidingReceiptId);
+  // P4-E (j).4: the payer's journal an accepted allocation message stands on (the partner cleared it against the loan).
+  const partnerCleared = await partnerClearedJournalRefusal(companyId, entry.id);
+  if (partnerCleared) throw new SupplierPaymentRefusal(partnerCleared);
   if (!entry.source || !SETTLEMENT_SOURCES.has(entry.source)) return;
   // The entry OR any entry it reverses (D8): a provisional reversed and
   // re-reversed settles through its chain, and reversing the head R2 takes it
