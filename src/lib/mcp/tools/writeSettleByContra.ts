@@ -26,6 +26,7 @@ import {
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
+import { loanAccountPaymentRefusal } from '@/modules/accounting/services/intercompany/loanAccountPaymentGuard';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
@@ -139,7 +140,9 @@ export const settleByContraTool: McpTool = {
     // approved and processed in this one call. Refused here, before the first
     // write, when an enforced rule would govern that payment.
     if (subledger === 'ap') {
-      const refusal = await agentNewSupplierPaymentRefusal(ctx.companyId, amount);
+      const refusal = await agentNewSupplierPaymentRefusal(ctx.companyId, amount)
+        // P4-E (j).3, the dry run too: a linked bill settles from the payer's loan account only by the intercompany loan clearing
+        ?? await loanAccountPaymentRefusal(ctx.companyId, { billIds: [document.documentId], creditedAccountIds: [context.contra.accountId] });
       if (refusal) return toolError(refusal);
     }
 

@@ -32,13 +32,23 @@ const sqlstate = (err: unknown): string | null => {
   return typeof code === 'string' ? code : null;
 };
 
-/** Whether `companyId` has loan clearing. Never throws: a failed read is false. */
-export async function loanClearingEnabled(companyId: string): Promise<boolean> {
+/** The flag as read: 'on', 'off', or 'unknown' when it could not be read (logged by SQLSTATE only). Never throws. Fix round 1 D: the shared
+ *  payment guard tells a failed read from a clean off (it refuses on 'unknown'); every other caller asks `loanClearingEnabled`. */
+export type LoanClearingState = 'on' | 'off' | 'unknown';
+
+export async function loanClearingState(companyId: string): Promise<LoanClearingState> {
   try {
-    return (await withSavepoint('ic_loan_clearing_flag', () => hasFeature(companyId, LOAN_CLEARING_FEATURE))) === true;
+    return (await withSavepoint('ic_loan_clearing_flag', () => hasFeature(companyId, LOAN_CLEARING_FEATURE))) === true ? 'on' : 'off';
   } catch (err) {
     // the code, not the database's text (which can name ids)
-    log.warn('Intercompany loan clearing flag could not be read: treated as off', { companyId, code: sqlstate(err) }, 'intercompany');
-    return false;
+    log.warn('Intercompany loan clearing flag could not be read: senders and accepts treat it as off, the payment guard refuses', {
+      companyId, code: sqlstate(err),
+    }, 'intercompany');
+    return 'unknown';
   }
+}
+
+/** Whether `companyId` has loan clearing. Never throws: a failed read is false (fail closed for a sender, an accept, E). */
+export async function loanClearingEnabled(companyId: string): Promise<boolean> {
+  return (await loanClearingState(companyId)) === 'on';
 }

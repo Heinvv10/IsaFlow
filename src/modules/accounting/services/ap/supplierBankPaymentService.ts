@@ -38,6 +38,7 @@ import { getBankTransactionStatus } from '../bank/bankTransactionLookupService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { allocateTransaction } from '../bank/bankAllocationService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
+import { refuseLoanAccountPayment } from '../intercompany/loanAccountPaymentGuard';
 import {
   EPS,
   planSupplierAllocationLines,
@@ -135,6 +136,10 @@ export async function validateBankSupplierPayment(
     paymentId: null,
     supplierId: null,
   });
+
+  // Intercompany P4-E (j).3, before the dry run and before allocateTransaction's first write (O: dry-run parity): a line on the payer's loan
+  // account does not settle a linked bill (Clear against the intercompany loan does). The apply plan asks it again after the posting.
+  await refuseLoanAccountPayment(companyId, { billIds: lines.map((l) => l.invoiceId), creditedAccountIds: [tx.bankAccountId] });
 
   const allocatedTotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   if (allocatedTotal > paymentAmount + EPS) {

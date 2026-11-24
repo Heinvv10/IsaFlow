@@ -54,6 +54,7 @@ import {
 import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { mirrorAllocations } from '../intercompany/allocationOutbox';
+import { refuseLoanAccountApply } from '../intercompany/loanAccountPaymentGuard';
 
 export type { SupplierAllocationInput, SupplierApplicationLine };
 
@@ -128,6 +129,8 @@ export async function planSupplierPaymentApplication(
     paymentId,
     supplierId,
   });
+  // P4-E (j).3: loan-account cash reaches a linked bill only through the intercompany loan clearing (pre-write, the plan is the gate).
+  await refuseLoanAccountApply(companyId, paymentId, lines.map((l) => l.invoiceId));
 
   // POSTED cash lowers the supplier's on-account credit: take the credit key (tried, never waited on —
   // `supplierCreditLock`), then check the ceiling. AFTER the bill locks, so the key is held only while this request

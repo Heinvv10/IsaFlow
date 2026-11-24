@@ -23,6 +23,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { withRowLockBudget } from '../core/rowLockBudget';
+import { lockPayerJournalKey, PAYER_JOURNAL_KEY_BUSY } from '../intercompany/payerJournalKey';
 
 /** Far past any chain built by hand; a guard, not a limit anyone meets. */
 export const MAX_CHAIN_DEPTH = 64;
@@ -131,6 +132,11 @@ export const CHAIN_HEAD_LOCK_BUDGET_MS = 5000;
  * caller's value restored), and a timeout is the reversal claim's retryable
  * `JournalReversalLockTimeoutError` (503 + Retry-After at the route), never an
  * unbounded wait on a pooled connection.
+ *
+ * P4-E round 3: FOR UPDATE takes the payer's journal key first, under the same
+ * deadline (`intercompany/payerJournalKey`: only for a chain an allocation
+ * message stands on), so a caller that goes on to reverse the head reaches the
+ * key before the row, as a GL reversal does (else 40P01).
  */
 export async function lockChainHead(
   companyId: string,
@@ -140,6 +146,10 @@ export async function lockChainHead(
 ): Promise<{ id: string; standing: boolean } | null> {
   // One deadline across every pass: the budget bounds the whole wait, not each lock (D8 round 9: core/rowLockBudget).
   const deadline = Date.now() + CHAIN_HEAD_LOCK_BUDGET_MS;
+  if (mode === 'update') {
+    await withRowLockBudget(() => lockPayerJournalKey(companyId, rootId),
+      () => new JournalReversalLockTimeoutError(rootId, PAYER_JOURNAL_KEY_BUSY(rootId)), { deadline });
+  }
   for (let pass = 0; pass < MAX_CHAIN_DEPTH; pass++) {
     const chain = await findJournalChainHead(companyId, rootId);
     if (!chain) return null;
