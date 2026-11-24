@@ -132,20 +132,20 @@ export default function CustomerStatementsPage() {
               value={asAtDate || null}
               onChange={(iso, v) => { if (v.valid && iso) setAsAtDate(iso); }}
             />
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
                 placeholder="Search customer..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="pl-9 pr-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm placeholder:text-[var(--ff-text-tertiary)] w-48"
+                className="pl-9 pr-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm placeholder:text-[var(--ff-text-tertiary)] w-48 max-lg:w-full max-lg:min-h-11"
               />
             </div>
             {customers.length > 0 && (
               <button
                 onClick={handleDownloadAll}
-                className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium transition-colors"
+                className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium transition-colors max-lg:min-h-11"
                 title="Download all customer balances as CSV"
               >
                 <Download className="h-4 w-4" />
@@ -170,7 +170,7 @@ export default function CustomerStatementsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
@@ -187,19 +187,19 @@ export default function CustomerStatementsPage() {
                   {filteredCustomers.map((c) => (
                     <tr key={c.client_id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`} className="hover:text-purple-400 transition-colors">
+                        <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`} className="hover:text-purple-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                           {c.client_name}
                         </Link>
                       </td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-teal-400">{formatCurrency(c.total_paid)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-amber-400">{formatCurrency(c.total_credits)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
-                      <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(c.last_payment_date)}</td>
+                      <td data-label="Invoiced" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
+                      <td data-label="Paid" className="py-3 px-4 text-right tabular-nums text-teal-400">{formatCurrency(c.total_paid)}</td>
+                      <td data-label="Credits" className="py-3 px-4 text-right tabular-nums text-amber-400">{formatCurrency(c.total_credits)}</td>
+                      <td data-label="Balance" className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
+                      <td data-label="# Invoices" className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
+                      <td data-label="Last Payment" className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(c.last_payment_date)}</td>
                       <td className="py-3 px-4 text-center">
                         <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`}
-                          className="inline-flex items-center gap-1 px-4 py-3 rounded-lg text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 text-sm font-medium transition-colors"
+                          className="inline-flex items-center gap-1 px-4 py-3 rounded-lg text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 text-sm font-medium transition-colors max-lg:min-h-11"
                           title={`View ${c.client_name} statement`}>
                           View <ChevronRight className="h-4 w-4" />
                         </Link>
