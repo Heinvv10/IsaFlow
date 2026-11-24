@@ -528,6 +528,8 @@ jobs:
           E2E_ADMIN_PASSWORD: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_PASSWORD || '' }}
           ADMIN_ENV_FILE: ${{ runner.temp }}/golden-admin.env
           GOLDEN_CHUNK: ${{ matrix.chunk }}
+          # Hosted only: traces and screenshots of red specs (playwright-golden.config.ts), uploaded below.
+          GOLDEN_EVIDENCE: ${{ runner.environment == 'github-hosted' && '1' || '' }}
         run: |
           set -e
           HOSTED=false
@@ -672,6 +674,26 @@ jobs:
             echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
           fi
           exit "$rc"
+
+      # Hosted only, red only: what the next flake needs to be diagnosed. Traces and screenshots of the red specs
+      # (test-results/, one directory per playwright run: run-chunk.ts), the dev server's log of every piece
+      # (golden-dev.all.log; each piece starts it afresh, so the log of the piece that failed is otherwise gone) plus
+      # golden-dev.log, the current piece's, which a boot or seed failure leaves out of the .all file, and the process samples. Hosted values are random and
+      # per-run, on a VM that is gone afterwards (as for the log tail printed above); velo's dev log can echo real
+      # env values, so nothing is uploaded from there.
+      - name: Upload golden failure evidence
+        if: ${{ failure() && runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-chunk-${{ matrix.chunk }}-evidence
+          path: |
+            test-results/
+            golden-dev.all.log
+            golden-dev.log
+            golden-samples.log
+          if-no-files-found: ignore
+          retention-days: 7
+          overwrite: true
 
   # The required check. The chunks are a matrix, whose own checks are named
   # per chunk, so this job keeps the name the branch protection and the merge
