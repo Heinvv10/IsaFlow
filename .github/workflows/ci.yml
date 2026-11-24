@@ -520,8 +520,12 @@ jobs:
         if: steps.mq.outputs.skip != 'true'
         env:
           # Next 15's dev server restarts itself near its heap threshold, which
-          # dropped requests mid-suite on hosted (#1005). 8 GB fits the runner's 16 GB.
-          NODE_OPTIONS: --max-old-space-size=8192
+          # dropped requests mid-suite on hosted (#1005). Its threshold is 80% of this limit, and a piece of
+          # specs took next-server to 7.5-7.8 GB RSS (chunk 4, run 45310932416: z17 at 7538 MB, z19 at 7814 MB,
+          # which restarted), so 8192 left under 5% headroom. 10240 puts the threshold ~1.6 GB higher. It fits the
+          # runner's 16 GB even at V8's hard ceiling: 10 GB heap + ~1.2 GB outside the heap + the ~2.6 GB everything
+          # else used at that run's peak (free memory then was 5.96 GB) is ~13 GB, leaving ~3 GB. 12288 would leave ~1 GB.
+          NODE_OPTIONS: --max-old-space-size=10240
           # Velo only: the real secrets never reach a hosted runner, whose
           # E2E admin is generated (ADMIN_ENV_FILE, below).
           E2E_ADMIN_EMAIL: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_EMAIL || '' }}
@@ -600,7 +604,7 @@ jobs:
           # "Server is approaching the used memory threshold, restarting..."),
           # which refuses or drops the request in flight. The size follows the
           # pages visited, not the clock: PR 1348's first run with a six-chunk
-          # matrix had next-server at 7.5-8.2 GB (max-old-space-size 8192, so
+          # matrix had next-server at 7.5-8.2 GB (then max-old-space-size 8192; it is 10240 now, so
           # the threshold is ~6.5 GB of heap) within 4-10 min in every chunk, and
           # chunks 4 and 5 hit the restart (ERR_CONNECTION_REFUSED mid-spec). A
           # piece is ~3 min of tests, and the server also starts clean after the

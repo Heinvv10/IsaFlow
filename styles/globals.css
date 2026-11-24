@@ -422,6 +422,19 @@
   .dark .ff-focus-ring.ff-focus-ring-inset:focus-visible {
     outline-offset: calc(var(--ff-focus-ring-width) * -1);
   }
+
+  /*
+   * ff-input / ff-select: used on ~75 files and never defined, so those controls had no border, no radius and no padding.
+   * Only the box is given here. The fill, the placeholder and the dark focus come from the shell rules above, and the width,
+   * height and font size from each page: this is the components layer, so any utility on the element (w-64, pl-9, px-3,
+   * min-h-11) overrides it.
+   */
+  .ff-input,
+  .ff-select {
+    border: 1px solid var(--ff-border-light);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
 }
 
 /*

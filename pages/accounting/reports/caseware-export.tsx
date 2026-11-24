@@ -246,7 +246,7 @@ export default function CaseWareExportPage() {
                           <td className="px-3 py-1">
                             <input type="text" value={edit.code}
                               onChange={e => updateEdit(m.glAccountId, 'code', e.target.value)}
-                              className="ff-input text-xs py-0.5 w-20 font-mono" maxLength={20} />
+                              className="ff-input text-xs py-0.5 w-28 font-mono" maxLength={20} />
                           </td>
                           <td className="px-3 py-1">
                             <input type="text" value={edit.label}
