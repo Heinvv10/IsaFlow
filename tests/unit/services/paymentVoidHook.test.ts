@@ -5,6 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),

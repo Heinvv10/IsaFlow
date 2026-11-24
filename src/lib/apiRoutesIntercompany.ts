@@ -8,6 +8,7 @@ import type { ConnectionView, GroupCandidate, SideOptions } from '@/modules/acco
 import type { PairingResult, PairingView } from '@/modules/accounting/services/intercompany/pairingTypes';
 import type { AllocationDetail, AllocationPage } from '@/modules/accounting/services/intercompany/allocationInboxTypes';
 import type { AcceptAllocationOutcome } from '@/modules/accounting/services/intercompany/allocationClearTypes';
+import type { LoanClearingPreview, LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 
 export interface IntercompanyStaticRoutes {
   // GET the list (`items`), POST the new connection: the list and the item of one resource, disjoint on `items`.
@@ -19,6 +20,8 @@ export interface IntercompanyStaticRoutes {
   '/api/accounting/intercompany/inbox-count': { openCount: number; enabled: boolean };
   // P4-C: the payments a payer in the group applied to bills linked to this company's invoices (read only).
   '/api/accounting/intercompany/allocations': AllocationPage;
+  // P4-E: GET the bill's "Clear against the intercompany loan" preview (?billId=), POST the clearing (one contra settlement).
+  '/api/accounting/intercompany/loan-clearings': LoanClearingPreview | LoanClearResult;
 }
 
 export interface IntercompanyDynamicRoutes {

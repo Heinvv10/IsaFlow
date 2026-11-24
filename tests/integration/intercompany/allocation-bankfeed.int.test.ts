@@ -55,10 +55,11 @@ describe('a bank line applied to a linked loan-mode bill', () => {
     expect(rows[0].payload).toMatchObject({ amount: 1150, issuerDocument: { id: invoice }, payment: { id: res.supplierPaymentId, cashLegIsLoanAccount: false } });
   });
 
-  it('a line on the payer\'s loan account says so (the journal credits it)', async () => {
+  it('a line on the payer\'s loan account is refused on a linked bill since P4-E (j).3 (use Clear against the intercompany loan): nothing sent', async () => {
     const { bill } = await plantBill(pool, conn);
-    await apply(await bankLine(acct.bLoan), bill);
-    expect((await allocationMessages(pool))[0].payload.payment.cashLegIsLoanAccount).toBe(true);
+    const line = await bankLine(acct.bLoan);
+    await expect(apply(line, bill)).rejects.toThrow(/use Clear against the intercompany loan/);
+    expect(await allocationMessages(pool)).toHaveLength(0);
   });
 
   it('a part payment (the payment keeps its status) is sent as well, once per allocation row', async () => {

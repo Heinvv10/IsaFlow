@@ -12,6 +12,7 @@ import { bindRequestTx } from '../../../helpers/boundRequestTx';
 import { als } from '@/lib/als';
 
 const spLog: string[] = [];
+vi.mock('@/modules/accounting/services/intercompany/loanAccountPaymentGuard', () => ({ loanAccountPaymentRefusal: vi.fn(async () => null) })); // P4-E guard: intercompany suites
 vi.mock('@/lib/neon', () => ({
   // Records what a real savepoint does: SAVEPOINT, run, then RELEASE on success or ROLLBACK TO on a throw.
   withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => {

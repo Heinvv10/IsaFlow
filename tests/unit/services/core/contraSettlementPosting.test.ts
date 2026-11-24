@@ -14,6 +14,11 @@ import { readFileSync } from 'node:fs';
 import { bindRequestTx } from '../../../helpers/boundRequestTx';
 
 const spLog: string[] = [];
+// intercompany P4-E (j).3: the loan-account guard asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/loanAccountPaymentGuard', () => ({
+  LOAN_ACCOUNT_PAYMENT_REFUSED: 'refused', loanAccountPaymentRefusal: vi.fn(async () => null), refuseLoanAccountPayment: vi.fn(async () => undefined),
+  refuseLoanAccountApply: vi.fn(async () => undefined), refuseLoanAccountBatch: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/neon', () => ({
   // Records what a real savepoint does: SAVEPOINT, run, then RELEASE on success or ROLLBACK TO on a throw.
   withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => {
@@ -190,7 +195,7 @@ describe('settleDocumentByContra', () => {
 describe('who calls settleDocumentByContra', () => {
   // It records an approval on a supplier payment, and its caller owns the authority question (the approver it names).
   // A new caller must be added here deliberately.
-  it('only the MCP tool and the intercompany receiver clearing (P4-D, added on purpose)', () => {
+  it('only the MCP tool and the intercompany clearings (P4-D receiver, P4-E payer: added on purpose)', () => {
     const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'scripts'], { encoding: 'utf8' })
       .split('\n').filter((f) => /\.(tsx?|mts|cts|mjs|cjs|js|jsx)$/.test(f));
     // The name anywhere (an aliased import, a re-export, a call), OR the module specifier in any form: a static or
@@ -202,6 +207,8 @@ describe('who calls settleDocumentByContra', () => {
       'src/modules/accounting/services/core/contraSettlementPosting.ts', // the definition
       // P4-D: a person's Accept of an allocation message; the actor is the session user, creator == approver (allocationClearService.ts)
       'src/modules/accounting/services/intercompany/allocationClearService.ts',
+      // P4-E: a person's "Clear against the intercompany loan" on a linked bill; the actor is the session user, creator == approver (payerLoanClearService.ts)
+      'src/modules/accounting/services/intercompany/payerLoanClearService.ts',
     ]);
   });
 

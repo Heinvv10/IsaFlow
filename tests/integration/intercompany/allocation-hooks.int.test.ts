@@ -14,7 +14,7 @@ import { payRoutes } from '../r035-pr5.helpers';
 import { acct } from './intercompany.fixture';
 import { asAppUser } from './intercompany.session';
 import { asService, co, mirrorCleanup, tokens, U, wipeConnections } from './mirror.helpers';
-import { allocSetup, allocationMessages, clearPayments, loanConnect, plantBill, plantPaid } from './allocation.helpers';
+import { allocSetup, allocationMessages, bank, clearPayments, loanConnect, plantBill, plantPaid } from './allocation.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -164,9 +164,10 @@ describe('the three sites that apply a payer\'s cash to a bill each leave the me
   });
 
   it('processBatch (approve, then process, through the route): one message per member allocation, on the batch\'s journal, its bank leg named', async () => {
+    // (P4-E (j).3) from B's bank: a batch paid from the payer's LOAN account on a linked bill is refused (the case below)
     const { rows: [batch] } = await pool.query(
       `INSERT INTO supplier_payment_batches(company_id, batch_date, payment_method, bank_account_id, payment_count, total_amount, created_by)
-       VALUES ($1, DATE '2026-09-01', 'eft', $2, 2, 2300, $3) RETURNING id`, [co.B, acct.bLoan, U.ab]);
+       VALUES ($1, DATE '2026-09-01', 'eft', $2, 2, 2300, $3) RETURNING id`, [co.B, bank.b, U.ab]);
     const one = await plantPaid(pool, (await plantBill(pool, conn)).bill, { status: 'draft', batch: batch.id });
     const two = await plantPaid(pool, (await plantBill(pool, conn)).bill, { status: 'draft', batch: batch.id });
     const free = await plantPaid(pool, (await plantBill(pool, conn, { link: false })).bill, { status: 'draft', batch: batch.id });
@@ -177,8 +178,21 @@ describe('the three sites that apply a payer\'s cash to a bill each leave the me
     const journal = (await pool.query('SELECT gl_journal_entry_id AS je FROM supplier_payment_batches WHERE id = $1', [batch.id])).rows[0].je as string;
     const rows = await allocationMessages(pool);
     expect(rows.map((m) => m.source_doc_id).sort()).toEqual([one.allocation, two.allocation].sort());
-    expect(rows.every((m) => m.source_journal_entry_id === journal && m.payload.payment.cashLegIsLoanAccount === true)).toBe(true);
+    expect(rows.every((m) => m.source_journal_entry_id === journal && m.payload.payment.cashLegIsLoanAccount === false)).toBe(true);
     expect(await allocationMessages(pool, free.allocation)).toHaveLength(0);
+  });
+
+  it('P4-E (j).3: a batch paid from the payer\'s LOAN account with a linked bill is refused before the posting (use Clear against the intercompany loan)', async () => {
+    const { rows: [batch] } = await pool.query(
+      `INSERT INTO supplier_payment_batches(company_id, batch_date, payment_method, bank_account_id, payment_count, total_amount, created_by)
+       VALUES ($1, DATE '2026-09-01', 'eft', $2, 1, 1150, $3) RETURNING id`, [co.B, acct.bLoan, U.ab]);
+    await plantPaid(pool, (await plantBill(pool, conn)).bill, { status: 'draft', batch: batch.id });
+    expect((await r.batch(U.b, co.B, 'approve', batch.id)).state.statusCode).toBe(200);
+    const res = await r.batch(U.b, co.B, 'process', batch.id);
+    expect(res.state.statusCode).toBe(400);
+    expect(JSON.stringify(res.state.body)).toMatch(/use Clear against the intercompany loan/);
+    expect((await pool.query('SELECT status, gl_journal_entry_id FROM supplier_payment_batches WHERE id = $1', [batch.id])).rows[0]).toMatchObject({ status: 'approved', gl_journal_entry_id: null });
+    expect(await allocationMessages(pool)).toHaveLength(0);
   });
 
   it('a cash connection: processing still succeeds and writes no message', async () => {
