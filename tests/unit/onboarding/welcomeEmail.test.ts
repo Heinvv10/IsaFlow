@@ -141,8 +141,7 @@ describe('welcome copy', () => {
     await sendWelcomeEmailOnce(notice({ signupType: 'accountant' }));
     for (const c of sendEmailMock.mock.calls) {
       const m = c[0] as SentMail;
-      // The shared layout footer (email-templates-shared.ts) carries one; that is every email's, not this copy's.
-      const text = m.subject + m.html.replace('IsaFlow &#8212; South African Cloud Accounting', '');
+      const text = m.subject + m.html;
       expect(text).not.toMatch(/—|&mdash;|&#8212;/);
       expect(text).not.toMatch(/Isaflow|ISAFlow|isaFlow/);
       expect(m.subject).toContain('IsaFlow');
