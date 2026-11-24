@@ -18,7 +18,7 @@ beforeAll(() => setup(pool), 60000);
 afterAll(() => cleanup(pool));
 
 const ASK = 'SELECT public.intercompany_in_one_group($1, $2), pg_sleep(0)';
-const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')";
+const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')";
 const count = async (sql: string, params: unknown[]) => (await pool.query(sql, params)).rows[0].n as number;
 
 async function world() {
