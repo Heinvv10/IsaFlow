@@ -100,6 +100,19 @@ describe('discard (D4)', () => {
     expect(again.state.statusCode, errorText(again)).toBe(200);
   });
 
+  it("(round 2 LOW-R3) with the receiver's flag off the draft still has its exit: confirm refused, the chip's read answers, the discard cancels it", async () => {
+    const d = await drafted();
+    await setLoanClearing(pool, [co.A], false);
+    expect((await payApi.confirmReceipt(U.a, co.A, d.draft)).state.statusCode).not.toBe(200);
+    const chip = await payApi.receiptState(U.a, co.A, d.draft);
+    expect(chip.state.statusCode, errorText(chip)).toBe(200);
+    expect(dataOf(chip)).toEqual({ messageId: d.message, state: 'not_enabled', status: 'accepted' });
+    const res = await payApi.discard(U.a, co.A, d.message, { paymentId: d.draft, reason: 'flag off' });
+    expect(res.state.statusCode, errorText(res)).toBe(200);
+    expect(await receiptStatus(d.draft)).toBe('cancelled');
+    expect(await rows.message(pool, d.message)).toMatchObject({ status: 'pending', target_doc_id: null });
+  });
+
   it('refuses a confirmed draft (not_draft), a receipt that is not the message\'s IC draft, and a user without Approve; nothing written', async () => {
     const d = await drafted();
     expect((await payApi.confirmReceipt(U.a, co.A, d.draft)).state.statusCode).toBe(200);
