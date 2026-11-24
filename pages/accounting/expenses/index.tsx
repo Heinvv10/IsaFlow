@@ -62,15 +62,15 @@ export default function ExpenseClaimsIndex() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div>
             <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Expense Claims</h1>
             <p className="text-sm text-[var(--ff-text-secondary)] mt-0.5">Employee expenses and mileage</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-lg:flex-wrap">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)]">
               <Filter className="h-3.5 w-3.5 text-slate-500" />
-              <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-transparent text-xs text-slate-300 focus:outline-none">
+              <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-transparent text-xs text-slate-300 focus:outline-none max-lg:min-h-11">
                 <option value="">All statuses</option>
                 <option value="draft">Draft</option>
                 <option value="submitted">Submitted</option>
@@ -80,10 +80,10 @@ export default function ExpenseClaimsIndex() {
                 <option value="rejected">Rejected</option>
               </select>
             </div>
-            <button onClick={() => void load()} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm">
+            <button onClick={() => void load()} aria-label="Refresh" className="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center">
               <RefreshCw className="h-4 w-4" />
             </button>
-            <Link href="/accounting/expenses/new" className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+            <Link href="/accounting/expenses/new" className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium max-lg:min-h-11">
               <Plus className="h-4 w-4" /> New claim
             </Link>
           </div>
@@ -103,12 +103,12 @@ export default function ExpenseClaimsIndex() {
               <div className="py-16 text-center">
                 <Receipt className="h-8 w-8 mx-auto text-slate-600 mb-3" />
                 <p className="text-slate-400 text-sm">No claims yet</p>
-                <Link href="/accounting/expenses/new" className="inline-flex items-center gap-1 mt-3 text-xs text-teal-400 hover:text-teal-300">
+                <Link href="/accounting/expenses/new" className="inline-flex items-center gap-1 mt-3 text-xs text-teal-400 hover:text-teal-300 max-lg:min-h-11">
                   Create your first claim <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-[rgba(255,255,255,0.06)]">
                     <th className="px-6 py-3 font-medium">Claim</th>
@@ -124,15 +124,15 @@ export default function ExpenseClaimsIndex() {
                     <tr key={c.id} className="hover:bg-white/5 cursor-pointer"
                         onClick={() => { window.location.href = `/accounting/expenses/${c.id}`; }}>
                       <td className="px-6 py-3 text-slate-200 font-mono text-xs">{c.claimNumber}</td>
-                      <td className="px-6 py-3 text-slate-400">{formatDisplayDate(c.claimDate)}</td>
-                      <td className="px-6 py-3 text-slate-300">{c.title ?? '—'}</td>
-                      <td className="px-6 py-3">
+                      <td data-label="Date" className="px-6 py-3 text-slate-400">{formatDisplayDate(c.claimDate)}</td>
+                      <td data-label="Title" className="px-6 py-3 text-slate-300">{c.title ?? '—'}</td>
+                      <td data-label="Status" className="px-6 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${STATUS_LABELS[c.status].tone}`}>
                           {STATUS_LABELS[c.status].text}
                         </span>
                       </td>
-                      <td className="px-6 py-3 text-right text-slate-400">{fmtZAR(c.totalVat)}</td>
-                      <td className="px-6 py-3 text-right text-slate-200 font-medium">{fmtZAR(c.totalAmount)}</td>
+                      <td data-label="VAT" className="px-6 py-3 text-right text-slate-400">{fmtZAR(c.totalVat)}</td>
+                      <td data-label="Total" className="px-6 py-3 text-right text-slate-200 font-medium">{fmtZAR(c.totalAmount)}</td>
                     </tr>
                   ))}
                 </tbody>
