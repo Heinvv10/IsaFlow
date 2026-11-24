@@ -11,8 +11,9 @@
 --   intercompany_message_doc_exists: a 'payment' source branch identical to 'allocation''s.
 --   H1 intercompany_payment_payer_standing(message), STABLE INVOKER, EXECUTE migration_admin only: 1029's allocation payer standing, kind payment.
 --   D2 intercompany_payment_message_state(message) -> (live, state), registered SECURITY DEFINER, STABLE, no lock: the RECEIVER's one word,
---       first wins: connection_gone, not_enabled (its flag), future_dated, before_cutover (the connection's cut-over, payment date), payer_gone
---       (H1), link_gone, currency, then target_cancelled / target_ok for an accepted message, else open. (false, 'not_found') for anyone else.
+--       first wins: connection_gone, not_cash (the connection is no longer on cash), not_enabled (its flag), future_dated, before_cutover (the
+--       connection's cut-over, payment date), payer_gone (H1), link_gone, currency, then target_cancelled / target_ok for an accepted message,
+--       closed for a rejected / dismissed / failed one, else open (pending). (false, 'not_found') for anyone else.
 --   H3 intercompany_allocation_cap_lock (1027): kind IN ('allocation', 'payment'), so a payment accept holds the payer's payment / journal / bill keys.
 --   H2 intercompany_payment_target_ok(...), STABLE INVOKER (the guard's session): D2 says `open`, and the target is a non-contra receipt of the
 --       receiver on the side's customer dated within [payment date, today], either the F draft stamped IC:<message> by the acting user for exactly
@@ -24,7 +25,8 @@
 --   D1 intercompany_send_for_payment(allocation), registered SECURITY DEFINER: the payer's payment message (see its header).
 --   D3 intercompany_send_for_allocation (the 1025 body): the payer's flag in SQL, the payer journal key first, and payment_sent. Re-registered.
 --   D4 intercompany_discard_payment_draft(message, payment, reason), registered SECURITY DEFINER: the receiver discards the F draft an accepted
---       payment message names (draft -> cancelled, message -> pending, the 'redraft' system transition).
+--       payment message names (draft -> cancelled, message -> pending, the 'redraft' system transition); an ORPHAN F draft (stamped IC:<id>
+--       where no payment message of the company has that id, which the confirm gate refuses) is cancelled alone (reason 'orphan').
 --   The dark flag's description (one flag for both kinds, (k) Q5).
 
 -- DEFINER REGISTRY (930): D1, D2, D4 registered, D3 re-registered (new hash), each AFTER create and owner change. OLD COLOUR: the previous release
@@ -159,10 +161,12 @@ BEGIN
      WHERE x.id = p_message AND x.to_company_id = v_co AND x.kind = 'payment' AND x.source_doc_type = 'payment_allocation';
     IF NOT FOUND THEN v_state := 'not_found'; EXIT main; END IF;
     -- the relationship: active, group, both companies still in one group (the STABLE helper; never the VOLATILE intercompany_in_one_group)
-    SELECT k.status, k.kind, k.cutover_date, k.company_low_id, k.company_high_id INTO c FROM public.intercompany_connections k WHERE k.id = m.connection_id;
+    SELECT k.status, k.kind, k.settlement_mode, k.cutover_date, k.company_low_id, k.company_high_id INTO c FROM public.intercompany_connections k WHERE k.id = m.connection_id;
     IF NOT FOUND OR c.status <> 'active' OR c.kind <> 'group' OR NOT public.intercompany_shared_group(c.company_low_id, c.company_high_id) THEN
       v_state := 'connection_gone'; EXIT main;
     END IF;
+    -- (round 1 LOW-1) a payment message is a CASH connection's: once the connection is no longer on cash it matches nothing
+    IF c.settlement_mode IS DISTINCT FROM 'cash' THEN v_state := 'not_cash'; EXIT main; END IF;
     -- the receiver's dark flag: its override, else is_global; no plan read (fail closed)
     SELECT COALESCE(o.enabled, ff.is_global, false) INTO v_flag
       FROM public.feature_flags ff
@@ -200,6 +204,8 @@ BEGIN
                       THEN 'target_ok' ELSE 'target_cancelled' END;
       EXIT main;
     END IF;
+    -- (round 1) rejected / dismissed / failed: handled or set aside, never open (a restore makes it pending, and open, again)
+    IF m.status IS DISTINCT FROM 'pending' THEN v_state := 'closed'; EXIT main; END IF;
     v_state := 'open';
   END main;
   RETURN QUERY SELECT v_state IN ('open', 'target_ok'), v_state;
@@ -579,6 +585,8 @@ $$;
 --   no_cutover / before_cutover   the connection's cut-over and the payment date (1025's and 1027's live rule, MED-3)
 --   not_posted / no_journal   processed or reconciled, on its standing journal (its own, else its batch's) with an odd chain
 --   through_loan      that journal credits the payer side's loan account (the allocation kind's, D3)
+--   not_cash          (round 1) a contra set-off (payment_method 'contra'), or a journal that credits no money account of P (bank / cash
+--                     subtype, or an account holding statement lines): no cash moved, so no payment message
 --   allocation_sent   an allocation message exists for this row (Z1)
 --   superseded        an ACCEPTED message of P for the same payment names an allocation row that no longer exists (MED-1)
 --   already_sent      a payment message for this row exists (the unique key makes the INSERT a no-op for a racing writer too)
@@ -674,6 +682,20 @@ BEGIN
     IF v_loan IS NOT NULL AND EXISTS (SELECT 1 FROM public.gl_journal_lines jl
                                        WHERE jl.journal_entry_id = v_je AND jl.company_id = v_co AND jl.gl_account_id = v_loan AND jl.credit > 0) THEN
       v_reason := 'through_loan'; EXIT main;
+    END IF;
+    -- (round 1 MED-1) CASH only. A contra set-off moved no cash: settle_by_contra writes payment_method 'contra' and rides its contra account
+    -- (any balance-sheet account, a bank one included) in the bank column, so the method alone refuses it. A payment captured as eft whose
+    -- journal credits no MONEY account of the payer moved no cash either. Money account = settlementKind.ts's rule (ap/settlementKind.ts,
+    -- moneyAccountSql): a bank / cash subtype (gl/accountSubtypes CASH_SUBTYPES, pinned equal by paymentSqlPins.test.ts) or an account
+    -- holding imported statement lines (a paycard whose subtype was never set). Any credit line of the journal counts (a batch journal
+    -- credits the batch's bank for every member). Without this the receiver gets a `payment` and its draft posts DR bank for cash that never came.
+    IF a.payment_method IS NOT DISTINCT FROM 'contra' OR NOT EXISTS (
+         SELECT 1 FROM public.gl_journal_lines jl
+           JOIN public.gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = v_co
+          WHERE jl.journal_entry_id = v_je AND jl.company_id = v_co AND jl.credit > 0
+            AND (ga.account_subtype = ANY (ARRAY['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']::text[])
+                 OR EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = v_co))) THEN
+      v_reason := 'not_cash'; EXIT main;
     END IF;
     IF EXISTS (SELECT 1 FROM public.intercompany_messages m WHERE m.from_company_id = v_co AND m.source_doc_type = 'payment_allocation'
                   AND m.source_doc_id = p_allocation AND m.kind = 'allocation') THEN
@@ -851,7 +873,8 @@ GRANT EXECUTE ON FUNCTION public.intercompany_send_for_allocation(uuid) TO app_u
 -- the receipt FOR UPDATE (the receiver's, stamped IC:<message>, not a contra); the receipt draft -> cancelled (its allocation rows stay, as
 -- cancelCustomerPayment keeps them; a cancelled draft claims nothing on the invoice); then the message back to pending with no target through
 -- the guard's 'redraft' system transition. Answers (ok, reason): forbidden, not_found, not_target, not_ic_draft, not_draft (nothing written
--- for any of them) or (true, 'ok'). customer_payments has no cancelled_by / cancelled_at / reason columns: the reason goes in its description
+-- for any of them) or (true, 'ok'). (round 1 LOW-3) No payment message of this company with that id: the receipt alone, if it is this
+-- company's non-contra draft stamped IC:<p_message>, is cancelled and the answer is (true, 'orphan'); else not_found. customer_payments has no cancelled_by / cancelled_at / reason columns: the reason goes in its description
 -- (cancelCustomerPayment's form) and who / when in the service's audit_log row.
 CREATE OR REPLACE FUNCTION public.intercompany_discard_payment_draft(p_message uuid, p_payment uuid, p_reason text)
 RETURNS TABLE (ok boolean, reason text)
@@ -889,7 +912,22 @@ BEGIN
     SELECT x.id, x.status, x.target_doc_type, x.target_doc_id INTO m
       FROM public.intercompany_messages x WHERE x.id = p_message AND x.to_company_id = v_co AND x.kind = 'payment'
        FOR UPDATE;
-    IF NOT FOUND THEN v_reason := 'not_found'; EXIT main; END IF;
+    IF NOT FOUND THEN
+      -- (round 1 LOW-3) an ORPHAN F draft: this company's non-contra draft stamped IC:<p_message> where no payment message of this company
+      -- has that id (the confirm gate refuses to confirm it, so it must have a way out). It is cancelled; no message is read or written.
+      SELECT x.id, x.bank_reference, x.payment_method INTO p
+        FROM public.customer_payments x WHERE x.id = p_payment AND x.company_id = v_co
+         FOR UPDATE;
+      IF NOT FOUND OR p.bank_reference IS DISTINCT FROM 'IC:' || p_message::text OR p.payment_method IS NOT DISTINCT FROM 'contra' THEN
+        v_reason := 'not_found'; EXIT main;
+      END IF;
+      v_note := ' [CANCELLED: ' || COALESCE(NULLIF(public.intercompany_clean_text(p_reason, 200), ''), 'intercompany draft discarded') || ']';
+      UPDATE public.customer_payments SET status = 'cancelled', description = COALESCE(description, '') || v_note
+       WHERE id = p_payment AND company_id = v_co AND status = 'draft'
+      RETURNING id INTO v_id;
+      v_reason := CASE WHEN v_id IS NULL THEN 'not_draft' ELSE 'orphan' END;
+      EXIT main;
+    END IF;
     IF m.status <> 'accepted' OR m.target_doc_type IS DISTINCT FROM 'customer_payment' OR m.target_doc_id IS DISTINCT FROM p_payment THEN
       v_reason := 'not_target'; EXIT main;
     END IF;
@@ -911,7 +949,7 @@ BEGIN
     PERFORM pg_catalog.set_config('app.intercompany_system_update', '', true);
     v_reason := 'ok';
   END main;
-  RETURN QUERY SELECT v_reason = 'ok', v_reason;
+  RETURN QUERY SELECT v_reason IN ('ok', 'orphan'), v_reason;
 END;
 $$;
 ALTER FUNCTION public.intercompany_discard_payment_draft(uuid, uuid, text) OWNER TO migration_admin;
@@ -930,13 +968,13 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_send_for_payment(uuid)', 'public.intercompany_send_for_payment(uuid)',
-     'intercompany_messages (one kind=''payment'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal that does not credit its loan account, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on the ONE active CASH group connection whose payer side names the bill''s supplier, past the connection''s cut-over, recording that journal) for the session company (a write-role user, the dark flag on) only; nothing else is written (no journal, no document), a read of payment_allocations, supplier_payments, supplier_payment_batches, supplier_invoices, gl_journal_entries, gl_journal_lines (the reversal chain, the loan-account credit), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE), intercompany_connection_sides, feature_flags, company_feature_overrides, company_users (the write role) and intercompany_messages (has either kind been written for the row; an accepted message of the payment whose row is gone); takes one advisory key (the payer journal key of the payment''s journal root); nothing for another company''s rows'),
+     'intercompany_messages (one kind=''payment'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal that does not credit its loan account and credits a money account (never a contra), its bill, and the ACTIVE link of that bill to the partner''s customer invoice on the ONE active CASH group connection whose payer side names the bill''s supplier, past the connection''s cut-over, recording that journal) for the session company (a write-role user, the dark flag on) only; nothing else is written (no journal, no document), a read of payment_allocations, supplier_payments, supplier_payment_batches, supplier_invoices, gl_journal_entries, gl_journal_lines (the reversal chain, the loan-account credit, a credit on a money account), gl_accounts (the subtype of a credited account) and bank_transactions (does a credited account hold statement lines), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE), intercompany_connection_sides, feature_flags, company_feature_overrides, company_users (the write role) and intercompany_messages (has either kind been written for the row; an accepted message of the payment whose row is gone); takes one advisory key (the payer journal key of the payment''s journal root); nothing for another company''s rows'),
     ('intercompany_payment_message_state(uuid)', 'public.intercompany_payment_message_state(uuid)',
      'nothing (STABLE, no lock): for the RECEIVER of a payment message only (a signed-in member of the session company, which is the message''s to_company), a read of that message, its intercompany_connections row and company_group_members / company_groups (intercompany_shared_group), feature_flags / company_feature_overrides (its own flag), intercompany_document_links (the payload''s link), through intercompany_payment_payer_standing the payer''s payment_allocations / supplier_payments / supplier_payment_batches rows and journal chain (gl_journal_entries), and for an accepted message its target receipt (customer_payments, the receiver''s); answers one (live, state) row, one word and no row data; not_found for anyone else, a missing message or another kind'),
     ('intercompany_send_for_allocation(uuid)', 'public.intercompany_send_for_allocation(uuid)',
      'intercompany_messages (one kind=''allocation'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal, its bill, and the ACTIVE link of that bill to the partner''s customer invoice on an active LOAN connection past its cut-over, recording that journal) for the session company (a write-role user, the dark flag on) only; nothing else is written (no journal, no group row, no document), a read of payment_allocations, supplier_payments, supplier_invoices, supplier_payment_batches, gl_journal_entries, gl_journal_lines, intercompany_messages (has a message of either kind been written: and a read of payment messages), company_users (the write role), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE), intercompany_connection_sides, feature_flags and company_feature_overrides; takes one advisory key (the payer journal key of the payment''s journal root, before the shares); nothing for another company''s rows'),
     ('intercompany_discard_payment_draft(uuid,uuid,text)', 'public.intercompany_discard_payment_draft(uuid, uuid, text)',
-     'customer_payments (one row of the session company: the F draft stamped IC:<message> that an accepted payment message names, status draft -> cancelled, the reason appended to its description) and intercompany_messages (that message back to pending with no target and no handling, manual_only, through the guard''s redraft system transition) for the RECEIVER (a signed-in member with an intercompany write role and Approve on Customers & AR) only; a read of company_users and company_user_permissions (the approve right), the message FOR UPDATE and the receipt FOR UPDATE; nothing else')
+     'customer_payments (one row of the session company: the F draft stamped IC:<message> that an accepted payment message names, status draft -> cancelled, the reason appended to its description) and intercompany_messages (that message back to pending with no target and no handling, manual_only, through the guard''s redraft system transition; an ORPHAN draft stamped for an id that is no payment message of the company is cancelled with no message touched) for the RECEIVER (a signed-in member with an intercompany write role and Approve on Customers & AR) only; a read of company_users and company_user_permissions (the approve right), the message FOR UPDATE and the receipt FOR UPDATE; nothing else')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 

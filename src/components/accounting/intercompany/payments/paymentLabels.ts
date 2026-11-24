@@ -2,19 +2,20 @@
 import type { PaymentItem, PaymentState } from '@/modules/accounting/services/intercompany/paymentInboxTypes';
 
 export const STATE_LABEL: Readonly<Record<PaymentState, string>> = Object.freeze({
-  open: 'Open', connection_gone: 'Connection ended', not_enabled: 'Not enabled', future_dated: 'Future-dated', before_cutover: 'Before cut-over',
+  open: 'Open', connection_gone: 'Connection ended', not_cash: 'Not on cash', not_enabled: 'Not enabled', future_dated: 'Future-dated', before_cutover: 'Before cut-over',
   payer_gone: 'Payer voided or changed it', link_gone: 'Link ended', currency: 'Not in rand', target_cancelled: 'Receipt cancelled',
-  target_ok: 'Matched', not_found: 'Not found', check_failed: 'Could not check',
+  target_ok: 'Matched', closed: 'Set aside', not_found: 'Not found', check_failed: 'Could not check',
 });
 
 /** The receipt's chip: `Intercompany: <word>`. */
 export const CHIP_LABEL: Readonly<Record<PaymentState, string>> = Object.freeze({
   ...STATE_LABEL, target_ok: 'matched', target_cancelled: 'receipt cancelled', payer_gone: 'payer voided or changed it', open: 'open',
-  link_gone: 'link ended', connection_gone: 'connection ended', not_enabled: 'not enabled', check_failed: 'could not check',
+  link_gone: 'link ended', connection_gone: 'connection ended', not_cash: 'not on cash', not_enabled: 'not enabled', check_failed: 'could not check',
+  not_found: 'its message is missing', closed: 'set aside',
 });
 
 export const STATE_TONE: Readonly<Record<PaymentState, 'ok' | 'warn' | 'muted'>> = Object.freeze({
-  open: 'ok', target_ok: 'ok', connection_gone: 'warn', not_enabled: 'muted', future_dated: 'muted', before_cutover: 'warn', payer_gone: 'warn',
+  open: 'ok', target_ok: 'ok', connection_gone: 'warn', not_cash: 'warn', closed: 'muted', not_enabled: 'muted', future_dated: 'muted', before_cutover: 'warn', payer_gone: 'warn',
   link_gone: 'warn', currency: 'warn', target_cancelled: 'warn', not_found: 'muted', check_failed: 'muted',
 });
 

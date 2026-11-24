@@ -14,6 +14,7 @@ import { ConnectionRefusal } from './connectionTypes';
 import { loadInboxRow } from './inboxRead';
 import { loadAllocationRow } from './allocationInbox';
 import { mayApprove } from '../core/approvePermission';
+import { loanClearingEnabled } from './loanClearingGate';
 
 // checkReason lives in inboxValidation (pure, no database import); re-exported so existing callers keep working.
 export { checkReason } from './inboxValidation';
@@ -96,8 +97,17 @@ async function loadPaymentRow(companyId: string, messageId: string): Promise<Row
   return rows[0] ?? null;
 }
 
-/** A payment message (F): rejected, dismissed or restored as an allocation message is (Approve on Customers & AR to reject: final). */
+/**
+ * A payment message (F): rejected, dismissed or restored as an allocation message is. AUTHORIZATION lives HERE, not in the route: rejecting
+ * is FINAL, so it needs the receiver's dark flag `intercompany_loan_clearing` (round 1 LOW-4: 403 before anything) and Approve on Customers &
+ * AR (`mayApprove`, 403 before anything is read or written); the route adds withAuth, CSRF, the write role (withWriteAccess) and no Login-as.
+ * Dismiss and restore are reversible and touch only the message's status, so they stay allowed with the flag off (a receiver can still tidy
+ * the list); they need the write role (withWriteAccess on the route, and the database guard 1002 for every role).
+ */
 export async function rejectPayment(companyId: string, userId: string, messageId: string, reason: string): Promise<void> {
+  if (!(await loanClearingEnabled(companyId))) {
+    throw new ConnectionRefusal(403, 'Intercompany payment messages are not enabled for this company.');
+  }
   if (!(await mayApprove(companyId, userId, 'customers'))) {
     throw new ConnectionRefusal(403, 'You need Approve on Customers & AR to reject a payment from your group. An owner or admin can grant it in User Access.');
   }

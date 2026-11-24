@@ -1,4 +1,11 @@
-/** POST { reason } — reject a payment message (F); final; the reason (required) is recorded on the message (nothing shows it to the payer yet). Touches only the message: nothing is cleared. Needs Approve on Customers & AR (P4-D round 1), a 403 before anything. */
+/**
+ * POST { reason } — reject a payment message (F); final; the reason (required) is recorded on the message (nothing shows it to the payer yet).
+ * Touches only the message: nothing is cleared.
+ * AUTHORIZATION: withAuth (session + company), withCsrf, withWriteAccess (the write role) and no Login-as here; the rest lives in
+ * `handleService.rejectPayment`, which refuses with a ConnectionRefusal 403 BEFORE anything is read or written: the receiver's dark flag off
+ * (round 1 LOW-4), and no Approve on Customers & AR (`mayApprove(companyId, userId, 'customers')`, P4-D round 1). Pinned by
+ * tests/integration/intercompany/payment-r1-handle.int.test.ts and tests/unit/services/intercompany/rejectPaymentAuth.test.ts.
+ */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';

@@ -3,12 +3,15 @@
  * payment is spread over the customer's open invoices (the linked invoice first, filled by default); the amounts must add up to exactly the
  * payment (no part payments). Nothing is posted: the draft is confirmed later through the normal receipt Confirm. What the person saw
  * (the amount, the state, the invoices offered) goes with the request, so a change since is a reload, not a guess.
+ * Round 1 (LOW-2): receipts of this customer, dated on or after the payment, with enough cash left may already hold it (they are not
+ * candidates: their cash is allocated elsewhere). They are listed and the draft needs the person's confirmation that none of them holds it;
+ * the count they saw goes with the request.
  */
 import { useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { DateField } from '@/components/ui';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import type { PaymentItem, PaymentSuggestions } from '@/modules/accounting/services/intercompany/paymentInboxTypes';
 
 interface Props {
@@ -30,6 +33,8 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [noHolder, setNoHolder] = useState(false);
+  const holders = suggestions.holderCount;
   const picked = useMemo(() => suggestions.invoices
     .map((i) => ({ invoiceId: i.id, amount: Number(split[i.id] ?? 0) }))
     .filter((a) => Number.isFinite(a.amount) && a.amount > 0), [split, suggestions.invoices]);
@@ -39,6 +44,7 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
     if (busy) return;
     if (total !== cents(amount)) { setError(`The amounts must add up to exactly ${formatCurrency(amount)}.`); return; }
     if (!date) { setError('Choose a receipt date on or after the payment date, not after today.'); return; }
+    if (holders > 0 && !noHolder) { setError('Check the receipts listed above and confirm that none of these receipts holds this payment.'); return; }
     setBusy(true);
     setError('');
     try {
@@ -46,7 +52,8 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
         method: 'POST',
         body: JSON.stringify({
           outcome: 'draft', bankAccountId: bank, paymentDate: date, allocations: picked,
-          expected: { amount, state: item.state, invoiceIds: suggestions.invoices.map((i) => i.id) },
+          expected: { amount, state: item.state, invoiceIds: suggestions.invoices.map((i) => i.id), ...(holders > 0 ? { holderCount: holders } : {}) },
+          ...(holders > 0 ? { confirmNoHolder: noHolder } : {}),
         }),
       }, 'Could not draft the receipt - try again') as { receiptNumber?: string };
       onDone(`Draft receipt ${out?.receiptNumber ?? ''} created. Confirm it from Receipts once the cash is in your bank; match the bank line to it, do not allocate the line again.`);
@@ -69,6 +76,22 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
         <DateField label="Receipt date" value={date} minDate={item.paymentDate ?? undefined} maxDate={suggestions.today}
           onChange={(iso, v) => setDate(v.valid ? iso : null)} />
       </div>
+      {holders > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm space-y-2">
+          <p className="text-ink">
+            {holders === 1 ? 'A receipt you already have' : `${holders} receipts you already have`} from this customer, dated on or after the payment,
+            still {holders === 1 ? 'has' : 'have'} enough cash left for it. If one of them is this payment, do not draft another receipt (it would count the cash twice).
+          </p>
+          <ul aria-label="Receipts that may hold this payment" className="list-disc pl-5 text-ink-muted">
+            {suggestions.holders.map((h) => <li key={h.id}>{h.number} - {formatDate(h.date)} - {formatCurrency(h.unconsumed)} left</li>)}
+            {holders > suggestions.holders.length && <li>and {holders - suggestions.holders.length} more</li>}
+          </ul>
+          <label className="flex items-center gap-2 text-ink">
+            <input type="checkbox" checked={noHolder} onChange={(e) => setNoHolder(e.target.checked)} />
+            None of these receipts holds this payment
+          </label>
+        </div>
+      )}
       <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-ink-muted">Spread over your open invoices</legend>
         {suggestions.invoices.map((i) => (

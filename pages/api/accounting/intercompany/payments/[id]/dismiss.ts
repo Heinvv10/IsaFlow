@@ -1,4 +1,8 @@
-/** POST — dismiss a payment message (F): set aside. Touches only the message: nothing is cleared. */
+/**
+ * POST — dismiss a payment message (F): set aside. Touches only the message: nothing is cleared.
+ * AUTHORIZATION: withAuth, withCsrf and withWriteAccess (the write role; a viewer is 403) here, and the database guard (1002) for every role.
+ * Allowed with the dark flag off on purpose (round 1 LOW-4: reversible, the message's status only); handleService.dismissPayment.
+ */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';

@@ -5,7 +5,8 @@
  *               oldest first, ties by id
  *   receipts    the MED-2 candidates (the reads apply the set), by the bank matcher's own scores (amount, date, description), ties by date, id
  *   bank lines  a HINT only (no action anywhere): R's unmatched incoming lines, the same scores
- * The draft is refused while a candidate holds an allocation on the linked invoice or its remainder is exactly the amount (Q2 / MED-2).
+ * The draft is refused while a candidate holds an allocation on the linked invoice or its remainder is exactly the amount (Q2 / MED-2), judged
+ * over the full candidate set (round 1 B3).
  */
 import { scoreAmount, scoreDate, scoreDescription } from '../bank/bankMatchCandidatesService';
 import type { BankLineHint, InvoiceSuggestion, ReceiptSuggestion } from './paymentInboxTypes';
@@ -60,9 +61,9 @@ export function rankBankLines(p: RankPayload, lines: readonly BankLineRow[]): Ba
 
 export type DraftBlock = 'exact_receipt' | 'linked_receipt';
 
-/** Why `draft` is refused for this candidate set, or null. */
-export function draftRefusal(receipts: readonly ReceiptSuggestion[]): DraftBlock | null {
-  if (receipts.some((r) => r.exact)) return 'exact_receipt';
-  if (receipts.some((r) => r.onLinkedInvoice)) return 'linked_receipt';
+/** Why `draft` is refused for the candidate set, or null. Round 1 (B3): over the FULL set (paymentSuggestions counts it in SQL), never the listed page. */
+export function draftRefusal(set: { anyExact: boolean; anyLinked: boolean }): DraftBlock | null {
+  if (set.anyExact) return 'exact_receipt';
+  if (set.anyLinked) return 'linked_receipt';
   return null;
 }

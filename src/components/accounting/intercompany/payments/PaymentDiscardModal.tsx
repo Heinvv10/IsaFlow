@@ -11,9 +11,11 @@ interface Props {
   target: PaymentTarget | null;
   onClose: () => void;
   onDone: (msg: string) => void;
+  /** round 1 (LOW-3): the draft's message is missing, so nothing is reopened */
+  orphan?: boolean;
 }
 
-export function PaymentDiscardModal({ open, messageId, target, onClose, onDone }: Props) {
+export function PaymentDiscardModal({ open, messageId, target, onClose, onDone, orphan = false }: Props) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +43,9 @@ export function PaymentDiscardModal({ open, messageId, target, onClose, onDone }
     <Modal open onClose={busy ? () => undefined : onClose} title={`Discard draft ${target.paymentNumber}`} size="md">
       <Modal.Body>
         <form id="ic-discard-form" className="space-y-3" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-          <p className="text-sm text-ink-muted">The draft receipt is cancelled (nothing was posted from it) and the payment message is open again, to match or draft anew.</p>
+          <p className="text-sm text-ink-muted">{orphan
+            ? 'The draft receipt is cancelled (nothing was posted from it). Its intercompany payment message is missing, so nothing else changes.'
+            : 'The draft receipt is cancelled (nothing was posted from it) and the payment message is open again, to match or draft anew.'}</p>
           <div>
             <label htmlFor="ic-discard-reason" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Reason</label>
             <textarea id="ic-discard-reason" rows={3} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} className="ff-input w-full text-sm" />

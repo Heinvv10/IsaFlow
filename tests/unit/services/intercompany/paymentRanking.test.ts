@@ -48,12 +48,11 @@ describe('rankReceipts', () => {
 });
 
 describe('draftRefusal', () => {
-  const base = { id: 'x', number: 'x', date: '2026-09-01', total: 1150, unallocated: 1150, unconsumed: 1150, exact: true, onLinkedInvoice: false, score: 1 };
-  it('refuses while a candidate is exact or holds an allocation on the linked invoice; else null', () => {
-    expect(draftRefusal([base])).toBe('exact_receipt');
-    expect(draftRefusal([{ ...base, exact: false, onLinkedInvoice: true }])).toBe('linked_receipt');
-    expect(draftRefusal([{ ...base, exact: false }])).toBeNull();
-    expect(draftRefusal([])).toBeNull();
+  it('refuses while ANY candidate of the full set (round 1 B3: counted in SQL, not the listed page) is exact or holds the linked invoice; else null', () => {
+    expect(draftRefusal({ anyExact: true, anyLinked: false })).toBe('exact_receipt');
+    expect(draftRefusal({ anyExact: true, anyLinked: true })).toBe('exact_receipt');
+    expect(draftRefusal({ anyExact: false, anyLinked: true })).toBe('linked_receipt');
+    expect(draftRefusal({ anyExact: false, anyLinked: false })).toBeNull();
   });
 });
 

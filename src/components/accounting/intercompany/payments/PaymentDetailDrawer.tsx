@@ -15,7 +15,7 @@ import type { PaymentDetail, PaymentItem, ReceiptSuggestion } from '@/modules/ac
 import { PaymentStateChip } from './PaymentStateChip';
 import { PaymentDraftForm } from './PaymentDraftForm';
 import { PaymentDiscardModal } from './PaymentDiscardModal';
-import { HANDLED, rowLabel } from './paymentLabels';
+import { HANDLED, STATE_LABEL, rowLabel } from './paymentLabels';
 
 interface Props {
   item: PaymentItem | null;
@@ -63,6 +63,8 @@ export function PaymentDetailDrawer({ item, canWrite, busy, onClose, onReject, o
   const label = rowLabel(shown);
   const s = detail?.enabled && shown.status === 'pending' ? detail.suggestions : null;
   const open = shown.status === 'pending';
+  // round 1 (B4): matching or drafting is offered only while the database's word is `open` (the accept refuses anything else anyway)
+  const acceptable = canWrite && shown.state === 'open';
 
   async function match(r: ReceiptSuggestion) {
     setWorking(true);
@@ -107,15 +109,16 @@ export function PaymentDetailDrawer({ item, canWrite, busy, onClose, onReject, o
                 {s.receipts.map((r) => (
                   <li key={r.id} className="flex items-center justify-between gap-2">
                     <span>{r.number} - {formatDate(r.date)} - {formatCurrency(r.unconsumed)} left{r.exact ? ' (exact)' : ''}</span>
-                    {canWrite && <button type="button" className={btn} disabled={working} onClick={() => setMatching(r)}>This is my receipt {r.number}</button>}
+                    {acceptable && <button type="button" className={btn} disabled={working} onClick={() => setMatching(r)}>This is my receipt {r.number}</button>}
                   </li>
                 ))}
               </ul>
             )}
-            {s.draftAllowed
-              ? canWrite && !drafting && <button type="button" className={btn} onClick={() => setDrafting(true)}>Draft a receipt for {label}</button>
-              : <p className="text-sm text-ink-muted">A receipt you already have matches this payment: use the receipt above instead of drafting another one.</p>}
-            {drafting && <PaymentDraftForm item={shown} suggestions={s} onCancel={() => setDrafting(false)} onDone={(msg) => { setDrafting(false); onChanged(msg); }} />}
+            {shown.state !== 'open' ? <p className="text-sm text-ink-muted">Matching is not offered while this payment is &quot;{STATE_LABEL[shown.state] ?? shown.state}&quot;.</p>
+              : s.draftAllowed
+                ? acceptable && !drafting && <button type="button" className={btn} onClick={() => setDrafting(true)}>Draft a receipt for {label}</button>
+                : <p className="text-sm text-ink-muted">A receipt you already have matches this payment: use the receipt above instead of drafting another one.</p>}
+            {drafting && acceptable && <PaymentDraftForm item={shown} suggestions={s} onCancel={() => setDrafting(false)} onDone={(msg) => { setDrafting(false); onChanged(msg); }} />}
             <h3 className="text-sm font-semibold text-ink">Bank lines (hint only)</h3>
             <ul aria-label="Bank lines (hint only)" className="text-sm space-y-1 text-ink-muted">
               {s.bankLines.length === 0 ? <li>No unmatched incoming bank line looks like it.</li>

@@ -9,6 +9,8 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn(), query: {}, pathname: '/accounting/customer-payments/intercompany' }) }));
+// the receipt chip asks only with the dark flag on (the nav's answer; round 1 B8)
+vi.mock('@/hooks/useNavFlags', () => ({ useNavFlags: () => new Set(['intercompany_loan_clearing']) }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 
@@ -31,6 +33,7 @@ const detail = (i: PaymentItem, over: Partial<PaymentDetail> = {}): PaymentDetai
     receipts: [{ id: 'r-1', number: 'RC-1', date: '2026-09-02', total: 1150, unallocated: 1150, unconsumed: 1150, exact: true, onLinkedInvoice: false, score: 80 }],
     bankLines: [{ id: 'bt-1', date: '2026-09-02', amount: 1150, description: 'VELOCITY 7', score: 70 }],
     bankAccounts: [{ id: 'bank-1', label: '1000 Bank' }], draftAllowed: false, draftRefusal: 'exact_receipt', today: '2026-11-24',
+    holderCount: 0, holders: [],
   },
   ...over,
 });

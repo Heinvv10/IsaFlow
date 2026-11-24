@@ -11,7 +11,8 @@
  *
  * Every refusal comes from READS before the first write and is a plain 4xx (`PaymentRefusal`): the dark flag off for this company (403, first,
  * before anything is read), not the person's own session, no write role or no create right, not this company's message (404), not pending,
- * the state word not `open`, the receipt or the draft refused (paymentAcceptRules.ts, in its order), what the person saw has changed (409).
+ * the state word not `open`, the receipt or the draft refused (paymentAcceptRules.ts, in its order), what the person saw has changed (409), a
+ * held receipt or invoice row (409 busy, retry: round 1 B2).
  * After the first write (the draft) any failure is a plain Error (5xx: withAuth rolls the request back). The guard (migration 1031) judges the
  * accepted transition again (H2: `open`, the receipt rules, consumption).
  * LOCK ORDER: paymentAcceptReads.ts (message, payer keys, receipt, invoices).
@@ -27,9 +28,8 @@ import { postingDateRefusal, todaySast } from './allocationClearDate';
 import { userCanWrite } from './allocationClearReads';
 import { loanClearingEnabled } from './loanClearingGate';
 import { parsePaymentPayload, type PaymentPayload } from './paymentPayload';
-import { openInvoices, receiptCandidates, scopeOf } from './paymentSuggestions';
-import { draftRefusal } from './paymentRanking';
-import { PaymentRefusal, cents, judgeDraft, judgeExisting, stateSentence, type AcceptPaymentInput } from './paymentAcceptRules';
+import { draftBlockFacts, openInvoices, receiptInBase, scopeOf } from './paymentSuggestions';
+import { PaymentRefusal, cents, judgeDraft, judgeExisting, refusalOfReceiptCreate, stateSentence, type AcceptPaymentInput } from './paymentAcceptRules';
 import { bankAccountOk, draftInvoiceFacts, existingFacts, lockPaymentMessage, markAccepted, stampDraft, stateNow, type LockedPayment } from './paymentAcceptReads';
 import type { AcceptPaymentOutcome } from './paymentInboxTypes';
 
@@ -38,6 +38,21 @@ const sqlstate = (err: unknown): string | null => {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
 };
+/** A held row: a lock wait that ran out (55P03, or the receipts' own typed timeout on an invoice) or a deadlock victim. */
+const HELD = new Set(['55P03', '40P01', 'CUSTOMER_INVOICE_LOCK_TIMEOUT']);
+
+/**
+ * (round 1 B2) A read that takes a row lock, in a savepoint of its own: a held row is the retryable 409 `busy` (the transaction stays usable
+ * and nothing was written), never a 500.
+ */
+async function lockedRead<T>(name: string, read: () => Promise<T>): Promise<T> {
+  try {
+    return await withSavepoint(name, read);
+  } catch (err) {
+    if (HELD.has(sqlstate(err) ?? '') || (isReceiptRefusal(err) && (err as { retryable?: boolean }).retryable === true)) throw new PaymentRefusal('busy');
+    throw err;
+  }
+}
 
 export interface AcceptPaymentParams { companyId: string; messageId: string; userId: string; input: AcceptPaymentInput }
 
@@ -91,9 +106,14 @@ export async function acceptPaymentMessage(p: AcceptPaymentParams): Promise<Acce
 }
 
 async function acceptExisting(companyId: string, m: LockedPayment, pl: PaymentPayload, input: Extract<AcceptPaymentInput, { outcome: 'existing' }>): Promise<AcceptPaymentOutcome> {
-  const facts = await existingFacts(companyId, m, input.receiptId);
+  const facts = await lockedRead('ic_payment_receipt_lock', () => existingFacts(companyId, m, input.receiptId));
   const short = facts.unconsumedCents < cents(pl.amount);
-  const refusal = judgeExisting({ expected: input.expected, amount: pl.amount, state: 'open', candidate: facts.ok || short, unconsumedCents: facts.unconsumedCents });
+  // (round 1 B1) a receipt H2 refuses is `receipt_short` only when it is a candidate but for what other messages consumed; a receipt that does
+  // not exist, is another company's or customer's, a contra, a draft, ... is `receipt_not_candidate`
+  const scope = short && !facts.ok ? await scopeOf(companyId, m.connectionId) : null;
+  const inBase = scope?.customerId
+    ? await receiptInBase({ companyId, messageId: m.id, connectionId: m.connectionId, payload: pl }, scope.customerId, input.receiptId) : false;
+  const refusal = judgeExisting({ expected: input.expected, amount: pl.amount, state: 'open', candidate: facts.ok || (short && inBase), unconsumedCents: facts.unconsumedCents });
   if (refusal) throw new PaymentRefusal(refusal);
   // the one write; the guard judges it again (a disagreement is pre-write: nothing else was written, so it is the 422 it would have been)
   let accepted: boolean;
@@ -111,15 +131,17 @@ async function acceptExisting(companyId: string, m: LockedPayment, pl: PaymentPa
 async function acceptDraft(companyId: string, userId: string, m: LockedPayment, pl: PaymentPayload,
   input: Extract<AcceptPaymentInput, { outcome: 'draft' }>): Promise<AcceptPaymentOutcome> {
   const scope = await scopeOf(companyId, m.connectionId);
-  const offered = scope.customerId && scope.cutover ? await openInvoices(companyId, scope.customerId, scope.cutover) : [];
-  const candidates = scope.customerId ? await receiptCandidates({ companyId, messageId: m.id, connectionId: m.connectionId, payload: pl }, scope.customerId) : [];
-  const invoices = await draftInvoiceFacts(companyId, input.allocations, scope.customerId, scope.cutover);
+  const offered = scope.customerId && scope.cutover ? await openInvoices(companyId, scope.customerId, scope.cutover, pl.issuerDocument.id) : [];
+  // (round 1 B3 / LOW-2) the draft refusal and the receipts that may already hold the payment, over the FULL set
+  const held = scope.customerId
+    ? await draftBlockFacts({ companyId, messageId: m.id, connectionId: m.connectionId, payload: pl }, scope.customerId) : { block: null, holderCount: 0 };
+  const invoices = await lockedRead('ic_payment_invoice_lock', () => draftInvoiceFacts(companyId, input.allocations, scope.customerId, scope.cutover));
   const today = await todaySast();
   const dateRefusal = input.paymentDate >= pl.payment.date && input.paymentDate <= today ? await postingDateRefusal(companyId, input.paymentDate) : null;
   const refusal = judgeDraft({
-    expected: input.expected, amount: pl.amount, state: 'open', offeredInvoiceIds: offered.map((i) => i.id), draftBlock: draftRefusal(candidates),
+    expected: input.expected, amount: pl.amount, state: 'open', offeredInvoiceIds: offered.map((i) => i.id), draftBlock: held.block,
     bankAccountOk: await bankAccountOk(companyId, input.bankAccountId), paymentDate: input.paymentDate, payloadDate: pl.payment.date, today,
-    invoices, dateRefusal,
+    invoices, dateRefusal, holderCount: held.holderCount, confirmNoHolder: input.confirmNoHolder,
   });
   if (refusal) throw new PaymentRefusal(refusal);
   let created: { id: string; paymentNumber: string };
@@ -130,8 +152,8 @@ async function acceptDraft(companyId: string, userId: string, m: LockedPayment, 
       allocations: input.allocations,
     }, userId);
   } catch (err) {
-    // createCustomerPayment refuses before its INSERT (a typed refusal): still nothing written, so still the 4xx it is
-    if (isReceiptRefusal(err)) throw new PaymentRefusal((err as { retryable?: boolean }).retryable ? 'busy' : 'exceeds_open');
+    // createCustomerPayment refuses before its INSERT (a typed refusal): still nothing written, so still the 4xx it is, by its own cause
+    if (isReceiptRefusal(err)) throw refusalOfReceiptCreate(err as { message: string; retryable?: boolean });
     throw err;
   }
   // after the first write: any failure is a plain Error (5xx, the request rolls back)

@@ -13,14 +13,16 @@ const isWholeCents = (n: number): boolean => Math.abs(n * 100 - Math.round(n * 1
 export type AcceptPaymentInput =
   | { outcome: 'existing'; receiptId: string; expected: { amount: number; state: string } }
   | { outcome: 'draft'; bankAccountId: string; paymentDate: string; allocations: { invoiceId: string; amount: number }[];
-      expected: { amount: number; state: string; invoiceIds: string[] } };
+      /** (round 1 LOW-2) the person checked the receipts that may already hold this payment and none does; `expected.holderCount` says how many they saw */
+      confirmNoHolder: boolean;
+      expected: { amount: number; state: string; invoiceIds: string[]; holderCount?: number } };
 
 export type PaymentRefusalCode =
   | 'not_enabled' | 'not_own_session' | 'impersonating' | 'no_write_role' | 'no_create_right' | 'no_approve' | 'not_found' | 'not_pending'
   | 'state' | 'expected_mismatch' | 'busy' | 'receipt_not_candidate' | 'receipt_short' | 'draft_refused_exact' | 'bank_account'
   | 'invoice_not_yours' | 'invoice_wrong_customer' | 'invoice_not_open' | 'invoice_currency' | 'pre_cutover_invoice' | 'amount_cents'
   | 'amount_sum' | 'exceeds_open' | 'date_before_payment' | 'date_after_today' | 'no_period' | 'period_locked' | 'vat_locked'
-  | 'not_target' | 'not_ic_draft' | 'not_draft';
+  | 'not_target' | 'not_ic_draft' | 'not_draft' | 'holder_unconfirmed' | 'receipt_refused';
 
 type Status = 403 | 404 | 409 | 422;
 const r = (status: Status, sentence: string) => ({ status, sentence });
@@ -58,6 +60,8 @@ export const PAYMENT_REFUSALS: Readonly<Record<PaymentRefusalCode, { status: Sta
   not_target: r(409, 'That receipt is not the draft this payment message was matched to. Nothing was written.'),
   not_ic_draft: r(409, 'That receipt is not a draft created from this payment message. Nothing was written.'),
   not_draft: r(409, 'That receipt is no longer a draft (it was confirmed or cancelled), so it cannot be discarded here. Nothing was written.'),
+  holder_unconfirmed: r(422, 'Receipts you already have from this customer, dated on or after the payment, still have enough cash left for it: check that none of them holds this payment and confirm that before drafting another receipt (it would count the cash twice). Nothing was written.'),
+  receipt_refused: r(422, 'The receipt could not be drafted. Nothing was written.'),
 });
 
 /** A refusal decided before any write: the routes answer its status and sentence (422 as a business-rule refusal). */
@@ -72,6 +76,8 @@ export class PaymentRefusal extends Error {
 
 const STATE_SENTENCES: Readonly<Record<PaymentState, string>> = Object.freeze({
   open: '',
+  not_cash: 'The intercompany connection with the payer is no longer on cash settlement, so its payments are not matched here.',
+  closed: 'This payment message was rejected or dismissed: restore it to match it.',
   connection_gone: 'The intercompany connection with the payer is no longer active (revoked, or the companies are no longer in one group).',
   not_enabled: 'Intercompany payment messages are not enabled for this company.',
   future_dated: 'The payment is dated after today: it can be matched from its date.',
@@ -86,6 +92,15 @@ const STATE_SENTENCES: Readonly<Record<PaymentState, string>> = Object.freeze({
 });
 
 export const stateSentence = (s: PaymentState): string => STATE_SENTENCES[s] ?? STATE_SENTENCES.check_failed;
+
+/**
+ * (round 1 B2) `createCustomerPayment` refused before its INSERT (a typed ReceiptRefusal, so still nothing written): lock contention is the
+ * retryable `busy`; anything else is `receipt_refused` carrying the receipt's own sentence about this company's books, never a guessed cause.
+ */
+export function refusalOfReceiptCreate(err: { message: string; retryable?: boolean }): PaymentRefusal {
+  if (err.retryable === true) return new PaymentRefusal('busy');
+  return new PaymentRefusal('receipt_refused', `The receipt could not be drafted: ${err.message} Nothing was written.`);
+}
 
 export type ParsedAcceptPayment = { ok: true; value: AcceptPaymentInput } | { ok: false; error: string };
 
@@ -106,6 +121,11 @@ export function parsePaymentAcceptBody(body: unknown): ParsedAcceptPayment {
   if (typeof body.paymentDate !== 'string' || !isRealCalendarDate(body.paymentDate)) return no('paymentDate must be a YYYY-MM-DD date');
   const ids = e.invoiceIds;
   if (!Array.isArray(ids) || ids.length > 200 || !ids.every((x) => typeof x === 'string' && UUID.test(x))) return no('expected.invoiceIds must be invoice ids');
+  const confirm = body.confirmNoHolder ?? false;
+  if (typeof confirm !== 'boolean') return no('confirmNoHolder must be true or false');
+  const holderCount = e.holderCount;
+  if (holderCount !== undefined && !(Number.isInteger(holderCount) && (holderCount as number) >= 0)) return no('expected.holderCount must be a count');
+  if (confirm && holderCount === undefined) return no('expected.holderCount is required with confirmNoHolder');
   const allocs = body.allocations;
   if (!Array.isArray(allocs) || allocs.length === 0 || allocs.length > 50) return no('allocations must list between 1 and 50 invoices');
   const seen = new Set<string>();
@@ -120,8 +140,11 @@ export function parsePaymentAcceptBody(body: unknown): ParsedAcceptPayment {
   return {
     ok: true,
     value: {
-      outcome: 'draft', bankAccountId: body.bankAccountId.toLowerCase(), paymentDate: body.paymentDate, allocations: out,
-      expected: { amount: e.amount, state: e.state, invoiceIds: (ids as string[]).map((x) => x.toLowerCase()) },
+      outcome: 'draft', bankAccountId: body.bankAccountId.toLowerCase(), paymentDate: body.paymentDate, allocations: out, confirmNoHolder: confirm,
+      expected: {
+        amount: e.amount, state: e.state, invoiceIds: (ids as string[]).map((x) => x.toLowerCase()),
+        ...(holderCount === undefined ? {} : { holderCount: holderCount as number }),
+      },
     },
   };
 }
@@ -141,7 +164,7 @@ export interface DraftInvoiceFacts {
 }
 
 export interface DraftFacts {
-  expected: { amount: number; state: string; invoiceIds: string[] };
+  expected: { amount: number; state: string; invoiceIds: string[]; holderCount?: number };
   amount: number;
   state: PaymentState;
   offeredInvoiceIds: string[];
@@ -152,6 +175,9 @@ export interface DraftFacts {
   today: string;
   invoices: DraftInvoiceFacts[];
   dateRefusal: 'no_period' | 'period_locked' | 'vat_locked' | null;
+  /** receipts that may already hold this payment (LOW-2), counted over the full set */
+  holderCount: number;
+  confirmNoHolder: boolean;
 }
 
 const sawState = (f: { expected: { amount: number; state: string }; amount: number; state: string }) =>
@@ -169,6 +195,10 @@ export function judgeDraft(f: DraftFacts): PaymentRefusalCode | null {
   if (f.state !== 'open') return 'state';
   if (!sawState(f)) return 'expected_mismatch';
   if (f.draftBlock) return 'draft_refused_exact';
+  // (round 1 LOW-2) a hard warning, not a block: such a receipt is no candidate (its cash is allocated elsewhere), so a block would leave the
+  // message with no way forward; the person confirms none holds it, for exactly the receipts they saw (a count changed since is a reload)
+  if (f.confirmNoHolder && f.expected.holderCount !== f.holderCount) return 'expected_mismatch';
+  if (f.holderCount > 0 && !f.confirmNoHolder) return 'holder_unconfirmed';
   if (!f.bankAccountOk) return 'bank_account';
   for (const [check, code] of [
     ['own', 'invoice_not_yours'], ['customer', 'invoice_wrong_customer'], ['open', 'invoice_not_open'], ['zar', 'invoice_currency'],

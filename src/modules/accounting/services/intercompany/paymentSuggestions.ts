@@ -13,9 +13,9 @@ import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { todaySast } from './allocationClearDate';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { draftRefusal, orderInvoices, rankBankLines, rankReceipts, type ReceiptRow } from './paymentRanking';
+import { draftRefusal, orderInvoices, rankBankLines, rankReceipts, type DraftBlock, type ReceiptRow } from './paymentRanking';
 import type { PaymentPayload } from './paymentPayload';
-import type { InvoiceSuggestion, PaymentSuggestions, ReceiptSuggestion } from './paymentInboxTypes';
+import type { InvoiceSuggestion, PaymentSuggestions, ReceiptHolder, ReceiptSuggestion } from './paymentInboxTypes';
 
 type Row = Record<string, unknown>;
 const OPEN = [...AR_OPEN_STATUSES] as string[];
@@ -34,58 +34,113 @@ export async function scopeOf(companyId: string, connectionId: string): Promise<
   return { customerId: text(r?.customer_id), cutover: text(r?.cutover) };
 }
 
-/** The customer's open rand invoices dated on or after the cut-over, with what is still open less the draft receipts on them. */
-export async function openInvoices(companyId: string, customerId: string, cutover: string): Promise<InvoiceSuggestion[]> {
+/**
+ * The customer's open rand invoices dated on or after the cut-over, with what is still open less the draft receipts on them. Round 1 (B3):
+ * the linked invoice is ordered FIRST before the limit, so it is always offered while it is open.
+ */
+export async function openInvoices(companyId: string, customerId: string, cutover: string, linkedId: string): Promise<InvoiceSuggestion[]> {
   const rows = (await sql`
-    SELECT ci.id, ci.invoice_number, to_char(ci.invoice_date, 'YYYY-MM-DD') AS date,
-           (ci.total_amount - COALESCE(ci.amount_paid, 0) - COALESCE((
-              SELECT sum(a.amount_allocated) FROM customer_payment_allocations a
-                JOIN customer_payments p ON p.id = a.payment_id AND p.company_id = ${companyId}::UUID AND p.status = 'draft'
-               WHERE a.invoice_id = ci.id), 0))::float8 AS open
-      FROM customer_invoices ci
-     WHERE ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
-       AND ci.status = ANY(${OPEN}::TEXT[]) AND upper(COALESCE(NULLIF(ci.currency_code, ''), 'ZAR')) = 'ZAR'
-       AND ci.invoice_date >= ${cutover}::DATE
-     ORDER BY ci.invoice_date, ci.id
+    WITH i AS (
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, to_char(ci.invoice_date, 'YYYY-MM-DD') AS date,
+             (ci.total_amount - COALESCE(ci.amount_paid, 0) - COALESCE((
+                SELECT sum(a.amount_allocated) FROM customer_payment_allocations a
+                  JOIN customer_payments p ON p.id = a.payment_id AND p.company_id = ${companyId}::UUID AND p.status = 'draft'
+                 WHERE a.invoice_id = ci.id), 0)) AS open
+        FROM customer_invoices ci
+       WHERE ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+         AND ci.status = ANY(${OPEN}::TEXT[]) AND upper(COALESCE(NULLIF(ci.currency_code, ''), 'ZAR')) = 'ZAR'
+         AND ci.invoice_date >= ${cutover}::DATE
+    )
+    SELECT id, invoice_number, date, open::float8 AS open FROM i
+     WHERE open > 0.004
+     ORDER BY (id = ${linkedId}::UUID) DESC, invoice_date, id
      LIMIT 200
   `) as Row[];
-  return rows.filter((r) => Number(r.open) > 0.004).map((r) => ({
-    id: String(r.id), number: String(r.invoice_number ?? ''), date: text(r.date), openAmount: Number(r.open), linked: false,
-  }));
+  return rows.map((r) => ({ id: String(r.id), number: String(r.invoice_number ?? ''), date: text(r.date), openAmount: Number(r.open), linked: false }));
 }
 
-/** The MED-2 receipt candidates, ranked. */
-export async function receiptCandidates(s: SuggestionScope, customerId: string): Promise<ReceiptSuggestion[]> {
+/**
+ * The receipts of the customer that may hold this payment, one row each with what the candidate rules read (MED-2; H2 in migration 1031 judges
+ * the same set): confirmed / reconciled, non-contra, dated on or after the payment, on a posted journal never reversed, not the F draft of
+ * another message (its target AND its stamp: LOW-2). `allocated`, `consumed` (what accepted payment messages took) and `on_linked`.
+ */
+function receiptBase(s: SuggestionScope, customerId: string) {
   const { companyId, messageId, payload } = s;
-  const rows = (await sql`
-    WITH r AS (
-      SELECT p.id, p.payment_number, to_char(p.payment_date, 'YYYY-MM-DD') AS date, p.total_amount::numeric AS total,
-             COALESCE(p.bank_reference, '') || ' ' || COALESCE(p.description, '') AS words,
-             COALESCE((SELECT sum(a.amount_allocated) FROM customer_payment_allocations a WHERE a.payment_id = p.id), 0) AS allocated,
-             COALESCE((SELECT sum(round((x.payload ->> 'amount')::numeric, 2)) FROM intercompany_messages x
+  return sql`
+    SELECT p.id, p.payment_number, p.payment_date, to_char(p.payment_date, 'YYYY-MM-DD') AS date, p.total_amount::numeric AS total,
+           COALESCE(p.bank_reference, '') || ' ' || COALESCE(p.description, '') AS words,
+           COALESCE((SELECT sum(a.amount_allocated) FROM customer_payment_allocations a WHERE a.payment_id = p.id), 0) AS allocated,
+           COALESCE((SELECT sum(round((x.payload ->> 'amount')::numeric, 2)) FROM intercompany_messages x
+                      WHERE x.to_company_id = ${companyId}::UUID AND x.kind = 'payment' AND x.status = 'accepted' AND x.id <> ${messageId}::UUID
+                        AND x.target_doc_type = 'customer_payment' AND x.target_doc_id = p.id AND jsonb_typeof(x.payload -> 'amount') = 'number'), 0) AS consumed,
+           EXISTS (SELECT 1 FROM customer_payment_allocations a WHERE a.payment_id = p.id AND a.invoice_id = ${payload.issuerDocument.id}::UUID) AS on_linked
+      FROM customer_payments p
+     WHERE p.company_id = ${companyId}::UUID AND p.client_id = ${customerId}::UUID AND p.status IN ('confirmed', 'reconciled')
+       AND p.payment_method IS DISTINCT FROM 'contra' AND p.payment_date >= ${payload.payment.date}::DATE AND p.gl_journal_entry_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.id = p.gl_journal_entry_id AND je.company_id = ${companyId}::UUID AND je.status = 'posted')
+       AND NOT EXISTS (SELECT 1 FROM gl_journal_entries rv WHERE rv.reversal_of_id = p.gl_journal_entry_id AND rv.company_id = ${companyId}::UUID)
+       AND NOT EXISTS (SELECT 1 FROM intercompany_messages x
                         WHERE x.to_company_id = ${companyId}::UUID AND x.kind = 'payment' AND x.status = 'accepted' AND x.id <> ${messageId}::UUID
-                          AND x.target_doc_type = 'customer_payment' AND x.target_doc_id = p.id AND jsonb_typeof(x.payload -> 'amount') = 'number'), 0) AS consumed,
-             EXISTS (SELECT 1 FROM customer_payment_allocations a WHERE a.payment_id = p.id AND a.invoice_id = ${payload.issuerDocument.id}::UUID) AS on_linked
-        FROM customer_payments p
-       WHERE p.company_id = ${companyId}::UUID AND p.client_id = ${customerId}::UUID AND p.status IN ('confirmed', 'reconciled')
-         AND p.payment_method IS DISTINCT FROM 'contra' AND p.payment_date >= ${payload.payment.date}::DATE AND p.gl_journal_entry_id IS NOT NULL
-         AND EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.id = p.gl_journal_entry_id AND je.company_id = ${companyId}::UUID AND je.status = 'posted')
-         AND NOT EXISTS (SELECT 1 FROM gl_journal_entries rv WHERE rv.reversal_of_id = p.gl_journal_entry_id AND rv.company_id = ${companyId}::UUID)
-         AND NOT EXISTS (SELECT 1 FROM intercompany_messages x
-                          WHERE x.to_company_id = ${companyId}::UUID AND x.kind = 'payment' AND x.status = 'accepted' AND x.id <> ${messageId}::UUID
-                            AND x.target_doc_type = 'customer_payment' AND x.target_doc_id = p.id AND p.bank_reference = 'IC:' || x.id::TEXT)
-    )
+                          AND x.target_doc_type = 'customer_payment' AND x.target_doc_id = p.id AND p.bank_reference = 'IC:' || x.id::TEXT)`;
+}
+
+/** A candidate: its unconsumed amount covers the payment AND it holds the linked invoice or has that much unallocated. */
+const isCandidate = (amount: number) => sql`(total - consumed >= ${amount} AND (on_linked OR total - allocated >= ${amount}))`;
+/** Exact: what is left both unallocated and unconsumed is the amount to the cent (rankReceipts' `exact`). */
+const isExact = (amount: number) => sql`(round(LEAST(total - allocated, total - consumed), 2) = round(${amount}::numeric, 2))`;
+
+/** The MED-2 receipt candidates, ranked. Round 1 (B3): exact and linked ones come first before the limit. */
+export async function receiptCandidates(s: SuggestionScope, customerId: string): Promise<ReceiptSuggestion[]> {
+  const amount = s.payload.amount;
+  const rows = (await sql`
+    WITH r AS (${receiptBase(s, customerId)})
     SELECT id, payment_number, date, total::float8 AS total, words, allocated::float8 AS allocated, consumed::float8 AS consumed, on_linked
       FROM r
-     WHERE total - consumed >= ${payload.amount} AND (on_linked OR total - allocated >= ${payload.amount})
-     ORDER BY date, id
+     WHERE ${isCandidate(amount)}
+     ORDER BY ${isExact(amount)} DESC, on_linked DESC, payment_date, id
      LIMIT 100
   `) as Row[];
   const mapped: ReceiptRow[] = rows.map((r) => ({
     id: String(r.id), number: String(r.payment_number ?? ''), date: String(r.date), total: Number(r.total), allocated: Number(r.allocated),
     consumed: Number(r.consumed), onLinkedInvoice: r.on_linked === true, text: String(r.words ?? ''),
   }));
-  return rankReceipts(rankBasis(payload), mapped);
+  return rankReceipts(rankBasis(s.payload), mapped);
+}
+
+export interface DraftBlockFacts { block: DraftBlock | null; holderCount: number; holders: ReceiptHolder[] }
+
+/**
+ * Over the FULL set (round 1 B3): is any candidate exact or on the linked invoice (the draft is refused, Q2 / MED-2), and how many receipts of
+ * the customer may already hold this payment (LOW-2: the base set with an unconsumed amount that covers it, candidate or not; the first 20).
+ */
+export async function draftBlockFacts(s: SuggestionScope, customerId: string): Promise<DraftBlockFacts> {
+  const amount = s.payload.amount;
+  const [f] = (await sql`
+    WITH r AS (${receiptBase(s, customerId)})
+    SELECT COALESCE(bool_or(${isCandidate(amount)} AND ${isExact(amount)}), false) AS any_exact,
+           COALESCE(bool_or(${isCandidate(amount)} AND on_linked), false) AS any_linked,
+           count(*) FILTER (WHERE total - consumed >= ${amount})::int AS holders
+      FROM r
+  `) as Row[];
+  const holderCount = Number(f?.holders ?? 0);
+  const holders = holderCount === 0 ? [] : ((await sql`
+    WITH r AS (${receiptBase(s, customerId)})
+    SELECT id, payment_number, date, (total - consumed)::float8 AS unconsumed FROM r
+     WHERE total - consumed >= ${amount}
+     ORDER BY payment_date, id
+     LIMIT 20
+  `) as Row[]).map((r) => ({ id: String(r.id), number: String(r.payment_number ?? ''), date: String(r.date), unconsumed: Number(r.unconsumed) }));
+  return { block: draftRefusal({ anyExact: f?.any_exact === true, anyLinked: f?.any_linked === true }), holderCount, holders };
+}
+
+/** (round 1 B1) Is this receipt in the candidate set, consumption aside (so a short one is told apart from one that is no candidate at all)? */
+export async function receiptInBase(s: SuggestionScope, customerId: string, receiptId: string): Promise<boolean> {
+  const amount = s.payload.amount;
+  const rows = (await sql`
+    WITH r AS (${receiptBase(s, customerId)})
+    SELECT 1 AS one FROM r WHERE id = ${receiptId}::UUID AND (on_linked OR total - allocated >= ${amount})
+  `) as Row[];
+  return rows.length === 1;
 }
 
 const rankBasis = (p: PaymentPayload) => ({ amount: p.amount, date: p.payment.date, reference: p.payment.reference, number: p.payment.number });
@@ -95,8 +150,9 @@ export async function suggestionsFor(s: SuggestionScope): Promise<PaymentSuggest
   const { companyId, payload } = s;
   const scope = await scopeOf(companyId, s.connectionId);
   const today = await todaySast();
-  const invoices = scope.customerId && scope.cutover ? await openInvoices(companyId, scope.customerId, scope.cutover) : [];
+  const invoices = scope.customerId && scope.cutover ? await openInvoices(companyId, scope.customerId, scope.cutover, payload.issuerDocument.id) : [];
   const receipts = scope.customerId ? await receiptCandidates(s, scope.customerId) : [];
+  const facts: DraftBlockFacts = scope.customerId ? await draftBlockFacts(s, scope.customerId) : { block: null, holderCount: 0, holders: [] };
   const lines = (await sql`
     SELECT bt.id, to_char(bt.transaction_date, 'YYYY-MM-DD') AS date, bt.amount::float8 AS amount, COALESCE(bt.description, '') || ' ' || COALESCE(bt.reference, '') AS description
       FROM bank_transactions bt
@@ -111,7 +167,7 @@ export async function suggestionsFor(s: SuggestionScope): Promise<PaymentSuggest
        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ga.company_id)
      ORDER BY ga.account_code, ga.id
   `) as Row[];
-  const block = draftRefusal(receipts);
+  const block = facts.block;
   return {
     invoices: orderInvoices(payload.issuerDocument.id, invoices),
     receipts,
@@ -119,6 +175,8 @@ export async function suggestionsFor(s: SuggestionScope): Promise<PaymentSuggest
     bankAccounts: accounts.map((a) => ({ id: String(a.id), label: `${String(a.account_code ?? '')} ${String(a.account_name ?? '')}`.trim() })),
     draftAllowed: block === null,
     draftRefusal: block,
+    holderCount: facts.holderCount,
+    holders: facts.holders,
     today,
   };
 }

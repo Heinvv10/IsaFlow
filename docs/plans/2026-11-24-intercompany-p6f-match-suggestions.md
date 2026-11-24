@@ -5,7 +5,8 @@ other side's bank line, never a posting"; P4 row: "`payment` message -> match su
 P4-B (1025), P4-C (1026), P4-D (1027), the dark flag (1028), P4-E (1029, its section (j) binding) and P5 (1030, open as #1871 on
 `feat/ic-p5-reconciliation-20261124`). The builder branches off master only after P5 merges and re-reads 1027-1030 as merged: F replaces the
 1027 messages guard body and the 1025 allocation sender, so a later edit to either on master must be carried into F's bodies.
-**Sections (k) and (l) are binding; (k) SUPERSEDES earlier text and (l) SUPERSEDES (k)**; earlier sections were edited to match both.
+**Sections (k), (l) and (m) are binding; (k) SUPERSEDES earlier text, (l) SUPERSEDES (k) and (m) (review round 1) SUPERSEDES (l)**; earlier
+sections were edited to match them.
 
 **Rulings (orchestrator, binding).** Suggestions are READ ONLY. Any accept creates a DRAFT only (a receiver `customer_payments` row with
 `status = 'draft'`) or nothing at all; no journal is posted by F anywhere, in either company. There is NO auto-accept of payment messages in F
@@ -66,7 +67,8 @@ only; `SET LOCAL lock_timeout '5s'`; rollback header in the 1025/1027 style nami
   `intercompany_document_slots`, 1025's join, link and connection FOR SHARE AFTER the key), `no_connection` / `not_group` / `not_cash`, `no_cutover` /
   `before_cutover` (the CONNECTION's `cutover_date`, payment date, exactly 1025's and 1027's live rule, (l) MED-3), `not_posted` / `no_journal` (1025's rule:
   processed or reconciled, `COALESCE(sp.gl_journal_entry_id, batch.gl_journal_entry_id)` with odd `intercompany_journal_chain_length`),
-  `through_loan` (that journal credits P's side `loan_account_id`), then `allocation_sent` (an `allocation` message for this allocation row
+  `through_loan` (that journal credits P's side `loan_account_id`), `not_cash` ((m) MED-1: a contra set-off or a journal crediting no money
+  account), then `allocation_sent` (an `allocation` message for this allocation row
   exists), `superseded` ((l) MED-1: keyed on the payment id) and `already_sent`.
   Payload v1 (text through `intercompany_clean_text`, money 2 dp): `{ version:1, kind:'payment', allocationId, amount, currency, payment:{ id,
   number, reference, date, method }, payerDocument:{ type:'supplier_invoice', id, number, date }, issuerDocument:{ type:'customer_invoice', id },
@@ -74,9 +76,10 @@ only; `SET LOCAL lock_timeout '5s'`; rollback header in the 1025/1027 style nami
 - **D2 `intercompany_payment_message_state(p_message uuid) RETURNS TABLE(live boolean, state text)`**, SECURITY DEFINER, STABLE, no lock, owner
   migration_admin, GRANT app_user. Receiver only: session company = `to_company_id`, signed-in member, `kind = 'payment'`, else
   `(false, 'not_found')`. Words, first wins: `connection_gone` (not active / not group / not one group via `intercompany_shared_group`, NOT the
-  VOLATILE `intercompany_in_one_group`), `not_enabled` (R's flag), `future_dated` (payload date after today, Johannesburg), `before_cutover` (payload payment date before the connection's `cutover_date`, (l) MED-3),
+  VOLATILE `intercompany_in_one_group`), `not_cash` (the connection is no longer on cash, (m) LOW-1), `not_enabled` (R's flag), `future_dated` (payload date after today, Johannesburg), `before_cutover` (payload payment date before the connection's `cutover_date`, (l) MED-3),
   `payer_gone` (H1 below is false), `link_gone` (the payload's link is no longer active), `currency`, then for an accepted message
-  `target_cancelled` (target receipt status `cancelled`) / `target_ok`, else `open`. One word, no figure, no id, no partner text. The guard (G1)
+  `target_cancelled` (target receipt status `cancelled`) / `target_ok`, `closed` for a rejected / dismissed / failed message ((m) B6), else
+  `open` (pending). One word, no figure, no id, no partner text. The guard (G1)
   and the confirm gate ((k) H-3) both ask it.
 - **H1 `intercompany_payment_payer_standing(p_message uuid) RETURNS boolean`**, STABLE INVOKER, EXECUTE migration_admin only: 1029's
   `intercompany_allocation_payer_standing` body with `m.kind = 'payment'`. (Not a definer; not registered.)
@@ -218,7 +221,10 @@ Any journal; any bank allocation, bank match or `bankAllocationService` change; 
 suggestions for UNLINKED bills of the partner's supplier ((k) Q6, later slice); loan-mode non-invoice advances as "loan-movement" suggestions
 (parent rule 6; F2); payments on account (no allocation row); external connections (P6); following reversals or withdrawing a message on payer
 void (#1772); FX; partial accepts; storing suggestions; P5 report rows for payment messages (P5 is loan-only, (k) M-4); re-send; a general
-draft-receipt discard. **Named residuals:** R1 R confirms an F draft (DR bank) AND later allocates the same bank line as a new receipt through the
+draft-receipt discard. **Named residuals:** R4 ((m) LOW-2) a receipt of the customer dated on or after the payment whose cash is allocated elsewhere (R's R200
+receipt put R100 on I1 and R100 on I3; message m2 is R100 on I2) is no `existing` candidate, so a draft for m2 is possible: it needs the
+person's explicit confirmation that none of the listed receipts holds the payment (a hard warning, not a block); a person who confirms
+wrongly doubles the cash, shown by R's bank reconciliation. R1 R confirms an F draft (DR bank) AND later allocates the same bank line as a new receipt through the
 bank screen (DR bank again): the invoice cap stops it when the invoice is fully paid, a second open invoice of the same customer is not protected;
 mitigated by the Q2 rule, the draft's warning "match the bank line to this receipt, do not allocate it again", and R's bank reconciliation
 showing the doubled debit. R2 an accepted message whose target receipt R later cancels (confirmed `existing` or confirmed F draft) stays accepted
@@ -355,3 +361,38 @@ Checked against 1002:258, 1019:1584, 1025:295-315, 1027:162-174 and 1027:479-575
 - **LOW-3** L-5 is dropped: P4-D allows creator = approver for persons; the ruling is about workers. Optional friction note only (a UI hint).
 - **LOW-4** `GET /api/accounting/intercompany/payments/unsent` is `withAuth(withErrorHandler(handler as any))`. A P user without visibility of
   the pair's group gets an explicit state `cannot_determine` (with a sentence), never an empty list.
+
+## (m) Review round 1: binding changes (SUPERSEDE (l) and all earlier text)
+- **MED-1 cash only (D1).** D1 refuses `not_cash` (after `through_loan`) when `sp.payment_method = 'contra'` OR no credit line of the payment's
+  standing journal (its own, else its batch's) hits a MONEY account of P. Money account = ap/settlementKind.ts's rule: `account_subtype` in
+  `CASH_SUBTYPES` (bank, bank_account, cash, cash_on_hand, petty_cash; pinned equal to the TS list by `paymentSqlPins.test.ts`) or an account
+  holding imported statement lines (a paycard with no subtype). Why both: `settle_by_contra` writes method `contra` and rides its contra account
+  (any balance-sheet account, a bank one included) in the bank column, so the method alone closes the reported path; the money test closes an
+  eft captured against a clearing account. Any credit line counts (a batch journal credits the batch bank for every member). Silent in the hook.
+- **B5 unsent read** lists only what D1 could still send: never contra / no money credit, `through_loan`, a reversed journal (stricter than D1's
+  odd chain: app_user cannot ask the chain), `ambiguous` or `superseded`.
+- **LOW-1 / B6 (D2).** `not_cash` between `connection_gone` and `not_enabled`; `closed` (live false) for rejected / dismissed / failed.
+- **LOW-2 holders.** "Holders" = R's receipts in the candidate base set (customer, confirmed / reconciled, non-contra, posted unreversed journal,
+  dated on or after the payment, not another message's F draft) whose UNCONSUMED amount still covers the payment, candidate or not. The detail
+  returns `holderCount` and the first 20 `holders`. While `holderCount > 0` a draft needs `confirmNoHolder: true` with `expected.holderCount` =
+  the count the person saw (else 422 `holder_unconfirmed`; a different count 409 `expected_mismatch`). Chosen over a hard block: such a receipt
+  is no `existing` candidate (its cash is allocated elsewhere), so a block would leave the message no way forward but reject, and the set grows
+  with every later receipt of a regular payer. The exact / linked candidate refusal stays a hard block. Residual R4 in (h).
+- **B3 no truncation.** The draft refusal (any exact / linked candidate) and the holder count are computed in SQL over the FULL set; the listed
+  receipts order exact, then linked, first before `LIMIT 100`; the invoices order the linked invoice first before `LIMIT 200`.
+- **B1** `receipt_short` only for a receipt in the candidate set but for consumption; anything else `receipt_not_candidate`.
+- **B2** a held receipt row (existing) or invoice row (draft: 55P03, 40P01, the receipts' typed invoice-lock timeout, a retryable
+  ReceiptRefusal) is 409 `busy`, read in its own savepoint; a non-retryable `createCustomerPayment` refusal is 422 `receipt_refused` carrying its
+  own sentence (never labelled `exceeds_open`).
+- **LOW-3 orphan F draft.** The confirm gate refuses a non-contra draft stamped `IC:<id>` where no payment message to R has that id (it fails
+  closed). D4 gives it a way out: no such message, the receipt R's non-contra draft stamped `IC:<p_message>` -> cancelled alone, `(true,
+  'orphan')`, no message touched; the service writes the audit row with `orphan: 'true'`; the receipt chip answers status `orphan` and offers
+  "Discard draft".
+- **LOW-4** reject (final) refuses 403 with R's flag off, before Approve is asked; dismiss / restore stay allowed with the flag off (reversible,
+  status only, write role on the route and the 1002 guard). Reject's Approve check lives in `handleService.rejectPayment` (`mayApprove`), pinned
+  by `rejectPaymentAuth.test.ts` and `payment-r1-handle.int.test.ts`.
+- **B4 / B8 UI.** The detail offers "This is my receipt" / "Draft a receipt" only while the word is `open`; the receipt chip asks
+  `receipt-state` only when the nav says the flag is on.
+- **Verified, unchanged:** the auto-accept queue (1019 `intercompany_auto_accept_queue`) takes `kind IN ('invoice', 'credit_note')` only; a
+  payment message to a side with `auto_accept` on is never queued (`payment-r1-cash.int.test.ts`, with a rolled-back widening as the control).
+

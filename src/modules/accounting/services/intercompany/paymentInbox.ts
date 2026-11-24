@@ -26,6 +26,8 @@ const OPEN: InboxStatus[] = ['pending', 'failed'];
 const HANDLED: InboxStatus[] = ['accepted', 'rejected', 'dismissed', 'withdrawn'];
 const OPEN_INVOICE: ReadonlySet<string> = new Set(AR_OPEN_STATUSES);
 const STOP_CODES = new Set(['55P03', '57014']);
+/** An F draft's binding stamp, exactly as icDraftConfirmGate reads it. */
+const STAMP_RE = '^IC:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 const sqlstate = (err: unknown): string | null => (err as { code?: string } | null)?.code ?? null;
 const asText = (v: unknown, max = 2000): string | null => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : null);
 
@@ -143,7 +145,11 @@ export async function loadPaymentDetail(companyId: string, messageId: string): P
   return { item: b!.item, allocationId: b!.payload?.allocationId ?? null, linkId: b!.payload?.linkId ?? null, cutoverDate: b!.cutover, enabled, suggestions };
 }
 
-/** The receipt chip (LOW-2): the payment message whose TARGET is this receipt (never the stamp alone), and its word; null when none. */
+/**
+ * The receipt chip (LOW-2): the payment message whose TARGET is this receipt (never the stamp alone), and its word; null when none. Round 1
+ * (LOW-3): a non-contra DRAFT stamped IC:<id> where no payment message of this company has that id answers status `orphan` (state not_found)
+ * with that id, so the chip offers its discard (the confirm gate refuses it).
+ */
 export async function receiptIcState(companyId: string, receiptId: string): Promise<{ messageId: string; state: PaymentState; status: string } | null> {
   const [m] = (await sql`
     SELECT id, status FROM intercompany_messages
@@ -151,7 +157,16 @@ export async function receiptIcState(companyId: string, receiptId: string): Prom
        AND target_doc_type = 'customer_payment' AND target_doc_id = ${receiptId}::UUID
      ORDER BY created_at, id LIMIT 1
   `) as Row[];
-  if (!m) return null;
+  if (!m) {
+    const [o] = (await sql`
+      SELECT lower(substr(p.bank_reference, 4)) AS stamp FROM customer_payments p
+       WHERE p.id = ${receiptId}::UUID AND p.company_id = ${companyId}::UUID AND p.status = 'draft' AND p.payment_method IS DISTINCT FROM 'contra'
+         AND p.bank_reference ~* ${STAMP_RE}
+         AND NOT EXISTS (SELECT 1 FROM intercompany_messages x WHERE x.id::TEXT = lower(substr(p.bank_reference, 4))
+                            AND x.to_company_id = ${companyId}::UUID AND x.kind = 'payment')
+    `) as Row[];
+    return o ? { messageId: String(o.stamp), state: 'not_found', status: 'orphan' } : null;
+  }
   const st = (await statesOf(companyId, [String(m.id)])).get(String(m.id))!;
   return { messageId: String(m.id), state: st.state, status: String(m.status) };
 }

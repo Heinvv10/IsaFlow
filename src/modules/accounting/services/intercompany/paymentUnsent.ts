@@ -5,8 +5,15 @@
  * over the payer's OWN rows (its payments, allocations, bills, sides, links, its own messages); 500 rows, oldest first. A session that cannot
  * see a current group membership of its company cannot judge a group connection: `cannot_determine`, never an empty list. Not P5's report:
  * P5 is loan-only and refuses a cash connection by design.
+ *
+ * Round 1 (B5): ONLY what D1 (intercompany_send_for_payment) could still send, so the list carries no permanent noise: never a contra set-off
+ * or a journal crediting no money account (`not_cash`), never a journal crediting the side's loan account (`through_loan`), never a reversed
+ * journal (stricter than D1's odd chain: app_user cannot ask the chain, so a reversal of a reversal is left out), never a supplier on more
+ * than one active cash connection (`ambiguous`), never a payment an accepted message of which lost its allocation row (`superseded`). What
+ * stays is a payment the flag (off at send), a lock timeout or a since-fixed refusal left without its message.
  */
 import { sql } from '@/lib/neon';
+import { CASH_SUBTYPES } from '../gl/accountSubtypes';
 import type { UnsentPage } from './paymentInboxTypes';
 
 type Row = Record<string, unknown>;
@@ -33,7 +40,24 @@ export async function listUnsentPayments(companyId: string): Promise<UnsentPage>
        AND ((k.company_a_id = ${companyId}::UUID AND k.doc_a_type = 'supplier_invoice' AND k.doc_a_id = si.id AND k.doc_b_type = 'customer_invoice')
          OR (k.company_b_id = ${companyId}::UUID AND k.doc_b_type = 'supplier_invoice' AND k.doc_b_id = si.id AND k.doc_a_type = 'customer_invoice'))
       LEFT JOIN suppliers su ON su.id = si.supplier_id AND su.company_id = ${companyId}::UUID
-     WHERE COALESCE(sp.gl_journal_entry_id, (SELECT b.gl_journal_entry_id FROM supplier_payment_batches b WHERE b.id = sp.batch_id AND b.company_id = ${companyId}::UUID)) IS NOT NULL
+      CROSS JOIN LATERAL (SELECT COALESCE(sp.gl_journal_entry_id, (SELECT b.gl_journal_entry_id FROM supplier_payment_batches b
+                                                                   WHERE b.id = sp.batch_id AND b.company_id = ${companyId}::UUID)) AS id) je
+     WHERE je.id IS NOT NULL AND sp.payment_method IS DISTINCT FROM 'contra'
+       AND EXISTS (SELECT 1 FROM gl_journal_entries e WHERE e.id = je.id AND e.company_id = ${companyId}::UUID AND e.status = 'posted')
+       AND NOT EXISTS (SELECT 1 FROM gl_journal_entries rv WHERE rv.reversal_of_id = je.id AND rv.company_id = ${companyId}::UUID)
+       AND EXISTS (SELECT 1 FROM gl_journal_lines jl JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
+                    WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID AND jl.credit > 0
+                      AND (ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
+                           OR EXISTS (SELECT 1 FROM bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ${companyId}::UUID)))
+       AND NOT EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID AND jl.credit > 0
+                        AND jl.gl_account_id = s.loan_account_id)
+       AND NOT EXISTS (SELECT 1 FROM intercompany_connection_sides s2
+                         JOIN intercompany_connections c2 ON c2.id = s2.connection_id AND c2.status = 'active' AND c2.settlement_mode = 'cash'
+                        WHERE s2.company_id = ${companyId}::UUID AND s2.supplier_id = si.supplier_id AND s2.connection_id <> s.connection_id)
+       AND NOT EXISTS (SELECT 1 FROM intercompany_messages x
+                        WHERE x.from_company_id = ${companyId}::UUID AND x.kind IN ('allocation', 'payment') AND x.status = 'accepted'
+                          AND x.source_doc_type = 'payment_allocation' AND (x.payload #>> '{payment,id}') = sp.id::TEXT
+                          AND NOT EXISTS (SELECT 1 FROM payment_allocations gone WHERE gone.id = x.source_doc_id))
        AND NOT EXISTS (SELECT 1 FROM intercompany_messages m
                         WHERE m.from_company_id = ${companyId}::UUID AND m.source_doc_type = 'payment_allocation' AND m.source_doc_id = pa.id
                           AND m.kind IN ('allocation', 'payment'))

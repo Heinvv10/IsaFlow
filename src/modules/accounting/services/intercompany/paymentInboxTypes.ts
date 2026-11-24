@@ -3,12 +3,12 @@ import type { InboxStatus } from './inboxTypes';
 
 /** D2's word (`intercompany_payment_message_state`, migration 1031), or `check_failed` when it could not be asked. */
 export type PaymentState =
-  | 'open' | 'connection_gone' | 'not_enabled' | 'future_dated' | 'before_cutover' | 'payer_gone' | 'link_gone' | 'currency'
-  | 'target_cancelled' | 'target_ok' | 'not_found' | 'check_failed';
+  | 'open' | 'connection_gone' | 'not_cash' | 'not_enabled' | 'future_dated' | 'before_cutover' | 'payer_gone' | 'link_gone' | 'currency'
+  | 'target_cancelled' | 'target_ok' | 'closed' | 'not_found' | 'check_failed';
 
 export const PAYMENT_STATES: readonly PaymentState[] = [
-  'open', 'connection_gone', 'not_enabled', 'future_dated', 'before_cutover', 'payer_gone', 'link_gone', 'currency', 'target_cancelled', 'target_ok',
-  'not_found', 'check_failed',
+  'open', 'connection_gone', 'not_cash', 'not_enabled', 'future_dated', 'before_cutover', 'payer_gone', 'link_gone', 'currency', 'target_cancelled',
+  'target_ok', 'closed', 'not_found', 'check_failed',
 ];
 
 /** The receiver's own customer invoice the payload names (looked up under the session company). */
@@ -54,6 +54,8 @@ export interface InvoiceSuggestion { id: string; number: string; date: string | 
 export interface ReceiptSuggestion {
   id: string; number: string; date: string; total: number; unallocated: number; unconsumed: number; exact: boolean; onLinkedInvoice: boolean; score: number;
 }
+/** (round 1 LOW-2) A receipt that may already hold this payment: the customer's, confirmed, dated on or after it, unconsumed cash >= the amount. */
+export interface ReceiptHolder { id: string; number: string; date: string; unconsumed: number }
 /** A bank line is a hint only: no action is offered on it in F. */
 export interface BankLineHint { id: string; date: string; amount: number; description: string; score: number }
 
@@ -66,6 +68,9 @@ export interface PaymentSuggestions {
   /** False while a candidate receipt holds the linked invoice or is exactly the amount (Q2): use that receipt instead. */
   draftAllowed: boolean;
   draftRefusal: 'exact_receipt' | 'linked_receipt' | null;
+  /** How many receipts may already hold this payment (LOW-2): above 0 the draft needs `confirmNoHolder` with this count; the first 20 listed. */
+  holderCount: number;
+  holders: ReceiptHolder[];
   /** Today (Johannesburg): the latest receipt date the draft takes. */
   today: string;
 }
