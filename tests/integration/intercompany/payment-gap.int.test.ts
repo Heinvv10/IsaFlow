@@ -103,6 +103,10 @@ describe('registry and grants', () => {
     expect(await can('migration_admin', 'public.intercompany_payment_payer_standing(uuid)')).toBe(true);
   });
 
+  it('app_pool_reach passes (no app pool reaches what it must not)', async () => {
+    expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
+  });
+
   it('the flag description names both kinds', async () => {
     const d = String((await pool.query("SELECT description FROM feature_flags WHERE code = 'intercompany_loan_clearing'")).rows[0].description);
     expect(d).toBe('Intercompany payment messages: loan-mode clearing (allocation messages) and cash-mode payment match suggestions (payment messages). Off by default.');

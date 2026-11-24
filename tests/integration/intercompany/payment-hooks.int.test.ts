@@ -163,6 +163,16 @@ describe('Z1: one message per allocation row across a mode flip', () => {
     const waiting = sendPay(pool, allocation);
     try {
       await blockedOn(pool, 'intercompany_send_for_payment', waiting);
+      // waiting on the key, D1 holds no link or connection share yet (MED-4: key first)
+      const probe = await pool.connect();
+      try {
+        await probe.query('BEGIN');
+        await probe.query('SELECT 1 FROM intercompany_document_links WHERE connection_id = $1 FOR UPDATE NOWAIT', [conn]);
+        await probe.query('SELECT 1 FROM intercompany_connections WHERE id = $1 FOR UPDATE NOWAIT', [conn]);
+      } finally {
+        await probe.query('ROLLBACK');
+        probe.release();
+      }
     } finally {
       await holder.query('COMMIT');
       holder.release();

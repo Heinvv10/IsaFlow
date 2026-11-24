@@ -6,6 +6,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { DateField } from '@/components/ui';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import type { PaymentItem, PaymentSuggestions } from '@/modules/accounting/services/intercompany/paymentInboxTypes';
@@ -22,7 +23,7 @@ const cents = (n: number) => Math.round(n * 100);
 export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props) {
   const amount = item.amount ?? 0;
   const [bank, setBank] = useState(suggestions.bankAccounts[0]?.id ?? '');
-  const [date, setDate] = useState(item.paymentDate ?? suggestions.today);
+  const [date, setDate] = useState<string | null>(item.paymentDate ?? suggestions.today);
   const [split, setSplit] = useState<Record<string, string>>(() => {
     const first = suggestions.invoices[0];
     return first ? { [first.id]: String(Math.min(amount, first.openAmount)) } : {};
@@ -37,6 +38,7 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
   async function submit() {
     if (busy) return;
     if (total !== cents(amount)) { setError(`The amounts must add up to exactly ${formatCurrency(amount)}.`); return; }
+    if (!date) { setError('Choose a receipt date on or after the payment date, not after today.'); return; }
     setBusy(true);
     setError('');
     try {
@@ -64,10 +66,8 @@ export function PaymentDraftForm({ item, suggestions, onDone, onCancel }: Props)
             {suggestions.bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
           </select>
         </label>
-        <label className="text-xs font-medium text-ink-muted">Receipt date
-          <input type="date" className="ff-input w-full text-sm mt-1" value={date} min={item.paymentDate ?? undefined} max={suggestions.today}
-            onChange={(e) => setDate(e.target.value)} />
-        </label>
+        <DateField label="Receipt date" value={date} minDate={item.paymentDate ?? undefined} maxDate={suggestions.today}
+          onChange={(iso, v) => setDate(v.valid ? iso : null)} />
       </div>
       <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-ink-muted">Spread over your open invoices</legend>

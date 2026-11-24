@@ -79,6 +79,7 @@ describe('D2 state words, first wins', () => {
     const s = await sentPayment(pool, conn);
     await connectBC(pool);
     expect((await word(s.message, U.b, co.B)).state).toBe('not_found');
+    expect((await word(s.message, U.ab, co.B)).state).toBe('not_found');                    // a user of both, in the payer's session
     expect((await word(s.message, U.c, co.C)).state).toBe('not_found');
     expect((await word(s.message, U.x, co.A)).state).toBe('not_found');
     const reject = await plantMessage(pool, conn, co.B, co.A, { kind: 'reject', user: U.b });
@@ -97,6 +98,7 @@ describe('the list and the detail (read only)', () => {
     expect(page.enabled).toBe(true);
     expect(dataOf<PaymentPage>(await payApi.list(U.c, co.C)).items).toHaveLength(0);
     expect(dataOf<PaymentPage>(await payApi.list(U.b, co.B)).items).toHaveLength(0);
+    expect(dataOf<PaymentPage>(await payApi.list(U.ab, co.B)).items).toHaveLength(0);       // a user of both sees the payer's perspective in B
     expect((await payApi.get(U.c, co.C, s.message)).state.statusCode).toBe(404);
   });
 

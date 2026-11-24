@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { Pool, Client } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { impersonationToken } from '../r035-pr2.helpers';
-import { callRoute } from '../r035-approval.helpers';
+import { callRoute, reasonOf } from '../r035-approval.helpers';
 import acceptRoute from '../../../pages/api/accounting/intercompany/payments/[id]/accept';
 import { asAppUser, count } from './intercompany.helpers';
 import { mirrorCleanup, plantArInvoice, wipeConnections } from './mirror.helpers';
@@ -115,30 +115,31 @@ describe('draft: "draft a receipt for it"', () => {
   it('is refused while an exact existing candidate exists (Q2)', async () => {
     const s = await sentPayment(pool, conn);
     await plantReceipt(pool);
-    await refused(s, () => payApi.accept(U.a, co.A, s.message, draftBody(s)), 422);
+    expect(reasonOf(await refused(s, () => payApi.accept(U.a, co.A, s.message, draftBody(s)), 422))).toBe('draft_refused_exact');
   });
 
   it('each refusal from the request writes nothing', async () => {
     const s = await sentPayment(pool, conn);
     const pre = (await plantArInvoice(pool, { status: 'approved', date: '2025-12-01' })).id;
     const draftInv = (await plantArInvoice(pool, { status: 'draft' })).id;
-    const cases: [string, Parameters<typeof draftBody>[1], number][] = [
-      ['partial amount', { allocations: [{ invoiceId: s.invoice, amount: 1000 }] }, 422],
-      ['fractional cents', { allocations: [{ invoiceId: s.invoice, amount: 1149.995 }] }, 422],
-      ['inactive bank account', { bankAccountId: rbank.aInactive }, 422],
-      ['not a bank account', { bankAccountId: (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'receivable'", [co.A])).rows[0].id }, 422],
-      ['date before the payment', { paymentDate: '2026-08-31' }, 422],
-      ['date after today', { paymentDate: '2099-01-01' }, 422],
-      ['pre-cut-over invoice', { allocations: [{ invoiceId: pre, amount: 1150 }] }, 422],
-      ['draft (not open) invoice', { allocations: [{ invoiceId: draftInv, amount: 1150 }] }, 422],
+    const cases: [string, Parameters<typeof draftBody>[1], number, string?][] = [
+      ['partial amount', { allocations: [{ invoiceId: s.invoice, amount: 1000 }] }, 422, 'amount_sum'],
+      ['fractional cents', { allocations: [{ invoiceId: s.invoice, amount: 1149.995 }] }, 422, 'amount_cents'],
+      ['inactive bank account', { bankAccountId: rbank.aInactive }, 422, 'bank_account'],
+      ['not a bank account', { bankAccountId: (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'receivable'", [co.A])).rows[0].id }, 422, 'bank_account'],
+      ['date before the payment', { paymentDate: '2026-08-31' }, 422, 'date_before_payment'],
+      ['date after today', { paymentDate: '2099-01-01' }, 422, 'date_after_today'],
+      ['pre-cut-over invoice', { allocations: [{ invoiceId: pre, amount: 1150 }] }, 422, 'pre_cutover_invoice'],
+      ['draft (not open) invoice', { allocations: [{ invoiceId: draftInv, amount: 1150 }] }, 422, 'invoice_not_open'],
       ['expected amount differs', { expected: { amount: 1000, state: 'open', invoiceIds: [s.invoice] } }, 409],
       ['expected state differs', { expected: { amount: 1150, state: 'payer_gone', invoiceIds: [s.invoice] } }, 409],
       ['an invoice offered now that the person did not see', { expected: { amount: 1150, state: 'open', invoiceIds: [] } }, 409],
     ];
     const seen = await offeredOf(s.message);
-    for (const [name, over, status] of cases) {
+    for (const [name, over, status, reason] of cases) {
       const res = await refused(s, () => payApi.accept(U.a, co.A, s.message, draftBody(s, { expected: { amount: 1150, state: 'open', invoiceIds: seen }, ...over })), status);
       expect(res.state.statusCode, name).toBe(status);
+      if (reason) expect(reasonOf(res), name).toBe(reason);
     }
   });
 
@@ -146,7 +147,8 @@ describe('draft: "draft a receipt for it"', () => {
     const s = await sentPayment(pool, conn);
     await pool.query("UPDATE fiscal_periods SET status = 'locked' WHERE company_id = $1", [co.A]);
     try {
-      await refused(s, async () => payApi.accept(U.a, co.A, s.message, draftBody(s, {}, await offeredOf(s.message))), 422, /period/i);
+      const res = await refused(s, async () => payApi.accept(U.a, co.A, s.message, draftBody(s, {}, await offeredOf(s.message))), 422, /period/i);
+      expect(reasonOf(res)).toBe('period_locked');
     } finally {
       await pool.query("UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1", [co.A]);
     }

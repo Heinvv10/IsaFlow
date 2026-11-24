@@ -9,8 +9,10 @@ import { Pool } from 'pg';
 import createRoute from '../../../pages/api/accounting/customer-payments';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { callRoute } from '../r035-approval.helpers';
-import { count, tokens, withoutTrigger } from './intercompany.helpers';
-import { mirrorCleanup, wipeConnections } from './mirror.helpers';
+import { runIntegrityChecks } from '../../../src/modules/accounting/services/gl/integrityChecks';
+import { partyLedgerCheckTool } from '../../../src/lib/mcp/tools/partyLedgerCheck';
+import { asAppUser, count, tokens, withoutTrigger } from './intercompany.helpers';
+import { asService, mirrorCleanup, wipeConnections } from './mirror.helpers';
 import { setLoanClearing } from './loan-clearing.helpers';
 import { clearPayments, plantBill, plantPaid } from './allocation.helpers';
 import {
@@ -113,6 +115,15 @@ describe('discard (D4)', () => {
     expect((await rows.message(pool, e.message)).status).toBe('accepted');
   });
 
+  it('D4 itself refuses a user without Approve on Customers & AR and a viewer (forbidden), whatever the route did', async () => {
+    const e = await drafted();
+    for (const user of [U.mab, U.va]) {
+      const r = await asAppUser(pool, user, co.A, async (q) => (await q.query('SELECT ok, reason FROM public.intercompany_discard_payment_draft($1, $2, $3)', [e.message, e.draft, 'x'])).rows[0]);
+      expect(r, user).toEqual({ ok: false, reason: 'forbidden' });
+    }
+    expect(await receiptStatus(e.draft)).toBe('draft');
+  });
+
   it('a concurrent confirm and discard end with exactly one outcome', async () => {
     const d = await drafted();
     const [c, x] = await Promise.all([payApi.confirmReceipt(U.ab, co.A, d.draft), payApi.discard(U.a, co.A, d.message, { paymentId: d.draft, reason: 'race' })]);
@@ -123,9 +134,18 @@ describe('discard (D4)', () => {
     expect((await rows.message(pool, d.message)).status).toBe(st === 'confirmed' ? 'accepted' : 'pending');
   });
 
-  it('after a discard every integrity read of the receipt is clean: no journal, no allocation counted as pending', async () => {
+  it('after a discard every integrity check and the party ledger check are as clean as before: no journal, no allocation counted as pending', async () => {
     const d = await drafted();
-    await payApi.discard(U.a, co.A, d.message, { paymentId: d.draft, reason: 'clean' });
+    const integrity = () => asService(pool, U.a, co.A, () => runIntegrityChecks(co.A, { asAt: '2026-12-31' }));
+    const ctx = { companyId: co.A, userId: U.a, scopes: ['read:reports', 'read:invoices'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
+    const ledger = () => asService(pool, U.a, co.A, () => partyLedgerCheckTool.handler({ party_type: 'customer', party_id: party.aCustomer, as_at: '2026-12-31', detail: 'full' }, ctx as never))
+      .then((x) => JSON.stringify(x));
+    const before = { checks: await integrity(), ledger: await ledger() };
+    expect((await payApi.discard(U.a, co.A, d.message, { paymentId: d.draft, reason: 'clean' })).state.statusCode).toBe(200);
+    const after = await integrity();
+    expect(after.failingRowsTotal).toBe(before.checks.failingRowsTotal);
+    expect(after.checksErrored).toEqual(before.checks.checksErrored);
+    expect(await ledger()).not.toMatch(/cancelled_payment_journal_stands/);
     expect(await count(pool, "SELECT count(*) AS n FROM customer_payments WHERE id = $1 AND gl_journal_entry_id IS NULL AND status = 'cancelled'", [d.draft])).toBe(1);
     expect(await count(pool, `SELECT count(*) AS n FROM customer_payment_allocations a JOIN customer_payments p ON p.id = a.payment_id
                                WHERE a.invoice_id = $1 AND p.status = 'draft'`, [d.invoice])).toBe(0);
@@ -143,6 +163,20 @@ describe('the payer\'s unsent read', () => {
     for (const [user, company] of [[U.a, co.A], [U.c, co.C]] as const) {
       const other = dataOf<{ items: unknown[] }>(await payApi.unsent(user, company));
       expect(other.items, company).toHaveLength(0);
+    }
+  });
+
+  it('cannot_determine (with a sentence) when the payer has an active cash group connection but no current group membership it can see', async () => {
+    await pool.query('ALTER TABLE company_group_members DISABLE TRIGGER trg_intercompany_group_membership');
+    try {
+      await pool.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
+      const res = dataOf<{ state: string; sentence: string | null; items: unknown[] }>(await payApi.unsent(U.b, co.B));
+      expect(res.state).toBe('cannot_determine');
+      expect(res.sentence).toMatch(/cannot be checked/);
+      expect(res.items).toEqual([]);
+    } finally {
+      await pool.query('UPDATE company_group_members SET left_date = NULL WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
+      await pool.query('ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_membership');
     }
   });
 

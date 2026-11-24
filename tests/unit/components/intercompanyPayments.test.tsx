@@ -108,7 +108,9 @@ describe('the detail and its suggestions', () => {
     const drawer = await openDrawer();
     fireEvent.click(await within(drawer).findByRole('button', { name: 'Draft a receipt for payment SP-7' }));
     const form = await screen.findByRole('form', { name: 'Draft a receipt' });
-    fireEvent.change(within(form).getByLabelText('Receipt date'), { target: { value: '2026-09-02' } });
+    const when = within(form).getByLabelText('Receipt date');
+    fireEvent.change(when, { target: { value: '2026-09-02' } });
+    fireEvent.blur(when);
     fireEvent.click(within(form).getByRole('button', { name: 'Create draft receipt' }));
     await waitFor(() => expect(posts().length, form.textContent ?? '').toBeGreaterThan(0));
     expect(posts().at(-1)).toEqual({ url: '/api/accounting/intercompany/payments/m-1/accept', body: {
