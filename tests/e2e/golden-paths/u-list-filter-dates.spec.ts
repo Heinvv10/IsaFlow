@@ -74,10 +74,10 @@ test('no native date input is left on the three screens', async ({ page }) => {
 });
 
 test('bank transactions: typed From date filters by ISO; unreadable text sends nothing', async ({ page }) => {
-  // The list is fetched only once the page has its own startup behind it (router, the saved card order, a default account).
-  // A date typed before that is committed fine, but its request waits behind those fetches: in hosted CI the filtered request
-  // came later than expect.poll's 5 s window (run 45318062778: the filter applied, the list was still skeletons, no request
-  // yet). So wait for the page's own first list response, which is that readiness, before typing: no timeout is raised.
+  // On a cold, loaded dev server the page is still on its own startup fetches (about twenty at hydration) when the date is
+  // typed: the date is committed, but the filtered list request had not been sent inside expect.poll's 5 s window (hosted run
+  // 45318062778: filter applied, list still skeletons, no list request in the trace). Locally, cold server + 4 cores + spinners,
+  // that failed 4 of 20. So wait for the page's own first list response, i.e. its startup is done, before typing: no timeout raised.
   const firstList = page.waitForResponse((r) => /\/api\/accounting\/bank-transactions\?/.test(r.url()) && r.ok(), { timeout: 60_000 });
   await openScreen(page, BANK);
   await firstList;
