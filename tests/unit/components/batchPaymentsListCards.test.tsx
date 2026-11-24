@@ -33,14 +33,14 @@ describe('Batch payments list on touch', () => {
     for (const row of rows) expect([...row.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual([null, 'Date', 'Payments', 'Total', 'Method', 'Status', null]);
   });
 
-  it('the actions cell is hidden on cards exactly when it holds no button (processed, cancelled); draft and approved keep it', async () => {
-    state.items = [batch('1', 'draft'), batch('2', 'approved'), batch('3', 'processed'), batch('4', 'cancelled')];
+  it('the actions cell is hidden on cards exactly when it holds no button (processed, cancelled, reversed); draft and approved keep it', async () => {
+    state.items = [batch('1', 'draft'), batch('2', 'approved'), batch('3', 'processed'), batch('4', 'cancelled'), batch('5', 'reversed')]; // 'reversed': migration 691
     const { container } = render(<Page />);
     await screen.findByText('BP-1');
     const rows = [...container.querySelectorAll('tbody tr')];
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     const last = rows.map((r) => r.querySelector('td:last-child')!);
-    expect(last.map((td) => cls(td).includes('max-lg:!hidden'))).toEqual([false, false, true, true]);
+    expect(last.map((td) => cls(td).includes('max-lg:!hidden'))).toEqual([false, false, true, true, true]);
     expect(last[0]!.className).toBe('px-4 py-3');
     for (const td of last) expect(td.querySelectorAll('button').length > 0, td.parentElement!.textContent ?? '').toBe(!cls(td).includes('max-lg:!hidden'));
   });
