@@ -51,7 +51,7 @@ describe('Batch payments list on touch', () => {
     await screen.findByText('BP-1');
     expect(cls(screen.getByRole('link', { name: /New Batch/ }))).toContain(MIN);
     for (const code of ['BP-1', 'BP-2']) expect(cls(screen.getByRole('link', { name: code })), code).toEqual(expect.arrayContaining([MIN, 'max-lg:inline-flex', 'max-lg:items-center']));
-    for (const title of ['Approve', 'Process']) expect(cls(screen.getByRole('button', { name: title })), title).toEqual(expect.arrayContaining([MIN, 'max-lg:min-w-11', 'max-lg:inline-flex', 'max-lg:items-center', 'max-lg:justify-center']));
+    for (const title of ['Approve', 'Process']) expect(cls(screen.getByTitle(title)), title).toEqual(expect.arrayContaining([MIN, 'max-lg:min-w-11', 'max-lg:inline-flex', 'max-lg:items-center', 'max-lg:justify-center']));
     expect(cls(screen.getByRole('heading', { level: 1 }).parentElement!.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:gap-3']));
   });
 

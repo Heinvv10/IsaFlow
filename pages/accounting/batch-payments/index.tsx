@@ -112,12 +112,12 @@ export default function BatchPaymentsPage() {
                     <td className={`px-4 py-3${item.status !== 'draft' && item.status !== 'approved' ? ' max-lg:!hidden' : ''}`}>
                       <div className="flex items-center gap-1">
                         {item.status === 'draft' && (
-                          <button onClick={() => doAction('approve', item.id)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Approve" aria-label="Approve">
+                          <button onClick={() => doAction('approve', item.id)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Approve">
                             {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                           </button>
                         )}
                         {item.status === 'approved' && (
-                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Process" aria-label="Process">
+                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Process">
                             {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                           </button>
                         )}
