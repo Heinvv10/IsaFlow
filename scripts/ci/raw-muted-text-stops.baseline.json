@@ -202,7 +202,7 @@
   "pages/accounting/bank-reconciliation/index.tsx": 1,
   "pages/accounting/bank-reconciliation/[reconId].tsx": 2,
   "pages/accounting/ar/settings/sent-mirror.tsx": 22,
-  "pages/accounting/ar/dunning/index.tsx": 3,
+  "pages/accounting/ar/dunning/index.tsx": 1,
   "pages/accounting/ar/receipt-match/index.tsx": 11,
   "pages/accounting/supplier-returns/index.tsx": 10,
   "pages/accounting/write-offs/index.tsx": 1,
