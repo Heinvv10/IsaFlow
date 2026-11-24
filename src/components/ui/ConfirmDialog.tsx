@@ -41,10 +41,10 @@ export function ConfirmDialog({
       onClick={onCancel}
     >
       <div
-        className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-sm mx-4 p-6"
+        className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-sm mx-4 p-6 max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-3 mb-3 max-lg:shrink-0">
           {tone === 'destructive' && (
             <div className="p-2 rounded-full bg-red-500/10">
               <XCircle className="h-5 w-5 text-red-400" />
@@ -52,13 +52,13 @@ export function ConfirmDialog({
           )}
           <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">{title}</h3>
         </div>
-        <div className="text-sm text-[var(--ff-text-secondary)] mb-6">{message}</div>
-        <div className="flex justify-end gap-2">
+        <div className="text-sm text-[var(--ff-text-secondary)] mb-6 max-lg:break-words max-lg:overflow-y-auto max-lg:overscroll-contain">{message}</div>
+        <div className="flex justify-end gap-2 max-lg:flex-wrap max-lg:shrink-0">
           <button
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] disabled:opacity-50"
+            className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] disabled:opacity-50 max-lg:min-h-11"
           >
             {cancelLabel}
           </button>
@@ -67,7 +67,7 @@ export function ConfirmDialog({
             onClick={onAccept}
             disabled={loading}
             className={cn(
-              'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50',
+              'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 max-lg:min-h-11',
               tone === 'destructive'
                 ? 'bg-red-600 hover:bg-red-500'
                 : 'bg-blue-600 hover:bg-blue-500',
