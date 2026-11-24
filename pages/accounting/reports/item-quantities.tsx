@@ -41,7 +41,7 @@ export default function ItemQuantitiesReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-sky-500/10"><Package className="h-6 w-6 text-sky-500" /></div>
               <div>
@@ -49,14 +49,14 @@ export default function ItemQuantitiesReport() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">On-hand quantities with low stock alerts</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer">
+            <div className="flex items-center gap-3 max-lg:flex-wrap">
+              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer max-lg:min-h-11">
                 <input type="checkbox" checked={showLowOnly} onChange={e => setShowLowOnly(e.target.checked)}
                   className="rounded border-[var(--ff-border-light)]" />
                 Low stock only
               </label>
               <button onClick={() => window.open(`/api/accounting/reports/item-quantities?format=csv${showLowOnly ? '&low_stock=true' : ''}`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg max-lg:min-h-11">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
@@ -76,7 +76,7 @@ export default function ItemQuantitiesReport() {
             ) : rows.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)]">{showLowOnly ? 'No low stock items' : 'No items found'}</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
@@ -90,12 +90,12 @@ export default function ItemQuantitiesReport() {
                   {rows.map(r => (
                     <tr key={r.id} className={`hover:bg-teal-500/[0.04] ${r.lowStock ? 'bg-red-500/5' : ''}`}>
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
-                      <td className={`px-4 py-3 text-right tabular-nums ${r.lowStock ? 'text-red-400 font-bold' : 'text-[var(--ff-text-primary)]'}`}>{r.qtyOnHand}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.minLevel > 0 ? r.minLevel : '—'}</td>
-                      <td className="px-4 py-3 text-center">
+                      <td data-label="Item" className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
+                      <td data-label="UOM" className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
+                      <td data-label="On Hand" className={`px-4 py-3 text-right tabular-nums ${r.lowStock ? 'text-red-400 font-bold' : 'text-[var(--ff-text-primary)]'}`}>{r.qtyOnHand}</td>
+                      <td data-label="Min Level" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.minLevel > 0 ? r.minLevel : '—'}</td>
+                      <td data-label="Status" className="px-4 py-3 text-center">
                         {r.lowStock ? (
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400">Low</span>
                         ) : (
