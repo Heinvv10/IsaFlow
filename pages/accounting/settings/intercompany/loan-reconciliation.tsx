@@ -31,8 +31,8 @@ export default function IntercompanyLoanReconciliationPage() {
   const wanted = useRef<string | null>(null);
 
   const queryConnection = router.query.connection;
+  // the first load starts with `loading` set; a retry after a failed list shows no spinner (the list is one quick read)
   const loadConnections = useCallback(async () => {
-    setLoading(true);
     try {
       const list = (await apiJson(BASE, undefined, 'Could not load your intercompany connections - try again')).connections;
       setConnections(list);
