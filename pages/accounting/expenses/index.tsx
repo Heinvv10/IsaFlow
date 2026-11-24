@@ -68,7 +68,7 @@ export default function ExpenseClaimsIndex() {
             <p className="text-sm text-[var(--ff-text-secondary)] mt-0.5">Employee expenses and mileage</p>
           </div>
           <div className="flex items-center gap-2 max-lg:flex-wrap">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)]">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] max-lg:py-0 max-lg:min-h-11">
               <Filter className="h-3.5 w-3.5 text-slate-500" />
               <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-transparent text-xs text-slate-300 focus:outline-none max-lg:min-h-11">
                 <option value="">All statuses</option>

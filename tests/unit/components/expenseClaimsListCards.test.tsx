@@ -37,6 +37,7 @@ describe('Expense claims list on touch', () => {
     const { container } = render(<Page />);
     await screen.findByText('EXP-0001');
     expect(cls(container.querySelector('select')!)).toContain(MIN);
+    expect(cls(container.querySelector('select')!.parentElement!)).toEqual(expect.arrayContaining([MIN, 'max-lg:py-0'])); // the pill is 44px too, not 44 + its padding
     expect(cls(screen.getByRole('button', { name: 'Refresh' }))).toEqual(expect.arrayContaining([MIN, 'max-lg:min-w-11', 'max-lg:justify-center']));
     expect(cls(screen.getByRole('link', { name: /New claim/ }))).toContain(MIN);
     const h1 = screen.getByRole('heading', { level: 1 });
