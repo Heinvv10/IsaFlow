@@ -1,8 +1,10 @@
 /**
  * The loan reconciliation's summary card (P5): "as at <T>, read at <readAt>", both loan balances (or "Withheld: <sentence>"), the difference,
  * the components with their counts and the badge: "Reconciles" ONLY when the summary says so, "Unexplained R x", "Does not reconcile: n rows
- * need attention", or "Does not reconcile: postings no message explains" (U = 0 from parts that cancel). The four parts of Unexplained are
- * listed whenever ANY of them is not 0 (round 1, (b)). With the partner withheld there is no difference, no component and no badge.
+ * need attention", or "Does not reconcile: postings no message explains" (U = 0 from residuals that cancel). "Reconciles" with hand postings
+ * on the loan accounts (they cancel: mirrored openings) carries a note naming yours and the partner's (a disclosed figure, partner_other).
+ * The four parts of Unexplained are listed whenever ANY of them is not 0. With the partner withheld there is no difference, no component,
+ * no badge and no note.
  * Read only.
  */
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -15,6 +17,9 @@ interface Props { summary: ReconSummary; asOf: string; readAt: string; partnerNa
 const PART_KEYS = Object.keys(PART_LABELS) as (keyof typeof PART_LABELS)[];
 /** Some part of Unexplained is not 0 (they can cancel to U = 0 and still need a person). */
 const anyPart = (s: ReconSummary): boolean => s.unexplained !== null && PART_KEYS.some((k) => s.unexplained![k] !== 0);
+/** Reconciles, and hand postings on the two loan accounts make it up (they cancel, or the summary would not reconcile). */
+const handPostings = (s: ReconSummary): boolean => s.reconciles === true && s.unexplained !== null
+  && (s.unexplained.ownOther !== 0 || s.unexplained.partnerOther !== 0);
 
 function Badge({ s }: { s: ReconSummary }) {
   if (s.reconciles) {
@@ -50,6 +55,11 @@ export function ReconSummaryCard({ summary: s, asOf, readAt, partnerName }: Prop
         )}
       </dl>
       {s.reconciles !== null && <Badge s={s} />}
+      {handPostings(s) && (
+        <p data-testid="hand-postings-note" className="text-sm">
+          Includes hand postings on the loan accounts: yours {formatCurrency(s.unexplained!.ownOther)}, partner&apos;s {formatCurrency(s.unexplained!.partnerOther)} (they cancel)
+        </p>
+      )}
       {anyPart(s) && (
         <ul data-testid="unexplained-parts" className="space-y-1 text-sm">
           {PART_KEYS.map((k) => (

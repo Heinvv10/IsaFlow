@@ -3,9 +3,9 @@
  * receipt's cancel), a pre-gate payer void and a bank-paid payment by fixture, read through the real route as app_user with real tokens.
  * From S's session (B, the payer: every message `out`) AND from X's session (A: every message `in`): the balances swap between the two
  * sessions, while D, every contribution and U are IDENTICAL ((l).1). I0 (one bucket per message), I1 (balance = attributed + other), I2 and
- * the badge hold to the cent. Round 1, (b): the hand-posted openings cancel (U = 0) but are other postings, so the example with them does
- * NOT show "Reconciles"; the same messages without them do. Variant 1 (the partner opened at R49 000) and variant 2 (a batch journal) never
- * show "Reconciles". The own balance is the trial balance's ((j).10).
+ * the badge hold to the cent. The mirrored hand-posted openings cancel (U = 0, residuals 0): the normal case, so the example shows
+ * "Reconciles" with them (the card notes them) and without them. Variant 1 (the partner opened at R49 000: the hand postings do not cancel)
+ * and variant 2 (a batch journal) never show "Reconciles". The own balance is the trial balance's ((j).10).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -52,14 +52,14 @@ const EXAMPLE_COMPONENTS = {
 };
 
 describe('the worked example', () => {
-  it("from S's session (B, all out): the balances, D = sum(contrib) = -2 900, U = 0 but other postings, no Reconciles; each message in its bucket", async () => {
+  it("from S's session (B, all out): the balances, D = sum(contrib) = -2 900, U = 0, the openings cancel: Reconciles; each message in its bucket", async () => {
     const x = await workedExample();
     const res = await reportAs(U.b, co.B, conn, { section: 'undone' });
     expect(res.state.statusCode, errorText(res)).toBe(200);
     const r = reportOf(res);
     expect(r.summary.own).toEqual({ balance: -63700, attributed: -13700, other: -50000, loanShared: false });
     expect(r.summary.partner).toEqual({ balance: 60800, attributed: 10800, other: 50000 });
-    expect(r.summary).toMatchObject({ partnerState: 'ok', withheld: null, difference: -2900, reconciles: false, identityFailures: 0, blockingRows: 0 });
+    expect(r.summary).toMatchObject({ partnerState: 'ok', withheld: null, difference: -2900, reconciles: true, identityFailures: 0, blockingRows: 0 });
     expect(r.summary.unexplained).toEqual({ total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 });
     expect(componentsOf(r.summary)).toEqual(EXAMPLE_COMPONENTS);
     expect(r.asOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -86,7 +86,7 @@ describe('the worked example', () => {
     const r = reportOf(res);
     expect(r.summary.own).toEqual({ balance: 60800, attributed: 10800, other: 50000, loanShared: false });
     expect(r.summary.partner).toEqual({ balance: -63700, attributed: -13700, other: -50000 });
-    expect(r.summary).toMatchObject({ difference: -2900, reconciles: false, identityFailures: 0 });
+    expect(r.summary).toMatchObject({ difference: -2900, reconciles: true, identityFailures: 0 });
     expect(r.summary.unexplained).toEqual({ total: 0, ownOther: 50000, partnerOther: -50000, residualOwn: 0, residualPartner: 0 });
     expect(componentsOf(r.summary)).toEqual(EXAMPLE_COMPONENTS);
     const xr = await rowsAs(pool, U.a, co.A, conn);
@@ -100,7 +100,7 @@ describe('the worked example', () => {
     expect(itemOf(xr, x.m1.message)?.own.receiptId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('without the hand-posted openings: no other postings, U = 0, Reconciles from both sessions (round 1, (b))', async () => {
+  it('without the hand-posted openings: no other postings, U = 0, Reconciles from both sessions', async () => {
     await workedExample(0, 0);
     for (const [user, company] of [[U.b, co.B], [U.a, co.A]] as const) {
       const r = reportOf(await reportAs(user, company, conn));
@@ -110,7 +110,7 @@ describe('the worked example', () => {
     }
   });
 
-  it('variant 1: the partner posted its opening as R49 000: Unexplained R1 000 (other postings), no Reconciles, from both sessions', async () => {
+  it('variant 1: the partner posted its opening as R49 000: the hand postings do not cancel, Unexplained R1 000, no Reconciles, from both sessions', async () => {
     await workedExample(49000);
     for (const [user, company] of [[U.b, co.B], [U.a, co.A]] as const) {
       const r = reportOf(await reportAs(user, company, conn));

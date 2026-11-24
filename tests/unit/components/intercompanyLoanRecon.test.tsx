@@ -3,8 +3,8 @@
 // "Unexplained R x" with its four parts, or "Does not reconcile: n rows need attention"); with the partner withheld there is no badge and no
 // difference. Three tabs with paginated tables (each page shows its own readAt), empty states, NO action buttons, and links to this
 // company's own documents only (the partner's payload text is never a link). A refusal shows its sentence. Round 1: the four parts show
-// whenever any is not 0 (U = 0 from cancelling parts is "Does not reconcile"), a failed read offers "Try again" and keeps the chosen
-// connection, and a capped list says it was cut.
+// whenever any is not 0, a failed read offers "Try again" and keeps the chosen connection, and a capped list says it was cut. Hand postings
+// that cancel (mirrored openings) show "Reconciles" WITH a note naming both figures; residuals that cancel are "Does not reconcile".
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -20,6 +20,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import ReconPage from '../../../pages/accounting/settings/intercompany/loan-reconciliation';
 import type { ReconItem, ReconReport, ReconSummary } from '@/modules/accounting/services/intercompany/loanReconTypes';
 import { envelope, failure } from './intercompanyFixtures';
+import { formatCurrency } from '@/utils/formatters';
 
 const summary = (over: Partial<ReconSummary> = {}): ReconSummary => ({
   partnerState: 'ok', own: { balance: -63700, attributed: -13700, other: -50000, loanShared: false }, partner: { balance: 60800, attributed: 10800, other: 50000 },
@@ -73,18 +74,30 @@ describe('the summary card', () => {
     expect(card).toHaveTextContent(/In flight/);
     expect(document.querySelector('input[type="date"]')).toBeNull();
     expect(screen.getByRole('combobox', { name: /connection/i })).toBeInTheDocument();
-    // every part 0: nothing to break down
+    // every part 0: nothing to break down, no hand-postings note
     expect(within(card).queryByTestId('unexplained-parts')).toBeNull();
+    expect(within(card).queryByTestId('hand-postings-note')).toBeNull();
   });
 
-  it('U = 0 from parts that cancel (hand-posted openings): "Does not reconcile", the four parts listed', async () => {
-    reply = () => envelope(report({ summary: summary({ reconciles: false, unexplained: { total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 } }) }));
+  it('hand-posted openings that cancel: "Reconciles" with a note naming yours and the partner\'s, the parts listed', async () => {
+    reply = () => envelope(report({ summary: summary({ reconciles: true, unexplained: { total: 0, ownOther: -50000, partnerOther: 50000, residualOwn: 0, residualPartner: 0 } }) }));
+    render(<ReconPage />);
+    expect(await screen.findByTestId('badge')).toHaveTextContent('Reconciles');
+    const note = screen.getByTestId('hand-postings-note');
+    // the signed figures, each as the card shows money: yours the credit, the partner's the debit
+    expect(note.textContent).toBe(`Includes hand postings on the loan accounts: yours ${formatCurrency(-50000)}, partner's ${formatCurrency(50000)} (they cancel)`);
+    expect(formatCurrency(-50000)).not.toBe(formatCurrency(50000));
+    const parts = screen.getByTestId('unexplained-parts');
+    expect(parts).toHaveTextContent(/Other postings, your account/);
+  });
+
+  it('residuals that cancel (U = 0): "Does not reconcile: postings no message explains", no hand-postings note', async () => {
+    reply = () => envelope(report({ summary: summary({ reconciles: false, unexplained: { total: 0, ownOther: 0, partnerOther: 0, residualOwn: -300, residualPartner: 300 } }) }));
     render(<ReconPage />);
     expect(await screen.findByTestId('badge')).toHaveTextContent('Does not reconcile: postings no message explains');
     expect(screen.queryByText('Reconciles')).toBeNull();
-    const parts = screen.getByTestId('unexplained-parts');
-    expect(parts).toHaveTextContent(/Other postings, your account/);
-    expect(parts).toHaveTextContent(/50\s000\.00/);
+    expect(screen.queryByTestId('hand-postings-note')).toBeNull();
+    expect(screen.getByTestId('unexplained-parts')).toHaveTextContent(/Journals that differ from their messages, your side/);
   });
 
   it('Unexplained: the badge names R |U| and its four parts', async () => {
@@ -96,6 +109,7 @@ describe('the summary card', () => {
     expect(parts).toHaveTextContent(/Other postings, your account/);
     expect(parts).toHaveTextContent(/49\s000\.00/);
     expect(parts).toHaveTextContent(/Journals that differ from their messages/);
+    expect(screen.queryByTestId('hand-postings-note')).toBeNull();
   });
 
   it('U = 0 with rows that need attention: "Does not reconcile", never "Reconciles"', async () => {

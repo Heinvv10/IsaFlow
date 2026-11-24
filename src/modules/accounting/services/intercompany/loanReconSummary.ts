@@ -8,9 +8,10 @@
  * differ from their messages). I0 (one bucket per message) is a code assertion. I2 (D = sum(contrib) + U) is kept as a code assertion of
  * this function's own sums, but given I1 and the definitions it is arithmetic: it can catch a defect here (a lost row, a sign), never a
  * wrong ledger, so it is no safety net (round 1, (c)). Strict (the caller says so: the tests) throws on a failure; otherwise it is counted
- * for an "Unexplained (count)" line, never shown as a figure. "Reconciles" ONLY when D = sum(contrib), U = 0 AND each of its four parts is 0
- * (hand postings or residuals that cancel each other never give green: round 1, (b)), no anomaly / loan_account_changed / withdrawn row,
- * no row whose payer or receiver journal differs from its messages, and no identity failed.
+ * for an "Unexplained (count)" line, never shown as a figure. "Reconciles" ONLY when residual_S = 0 AND residual_X = 0 AND D = sum(contrib)
+ * (so U = 0: the hand postings, own_other + partner_other, net to 0), no anomaly / loan_account_changed / withdrawn row, no row whose payer
+ * or receiver journal differs from its messages, and no identity failed. Mirrored hand-posted openings are the normal case: they cancel and
+ * reconcile (the card notes them); residuals that cancel each other never give green (plan (m).6).
  *
  * The partner withheld (b0 not ok): no difference, no components, no Unexplained, no badge, no assertion ((l).3).
  */
@@ -89,8 +90,7 @@ export function summarize(row: SummaryRow, messages: MessageFacts[], opts: { str
     partnerState: 'ok', own: ownView, partner: figures(partner.balance, partner.other), withheld: null,
     difference: rand(d), components,
     unexplained: { total: rand(u), ownOther: rand(own.other), partnerOther: rand(partner.other), residualOwn: rand(residualOwn), residualPartner: rand(residualPartner) },
-    reconciles: d === sum && u === 0 && own.other === 0 && partner.other === 0 && residualOwn === 0 && residualPartner === 0
-      && blocking === 0 && failures.length === 0,
+    reconciles: residualOwn === 0 && residualPartner === 0 && d === sum && u === 0 && blocking === 0 && failures.length === 0,
     blockingRows: blocking, identityFailures: failures.length, loanAccountChanged,
   };
 }
