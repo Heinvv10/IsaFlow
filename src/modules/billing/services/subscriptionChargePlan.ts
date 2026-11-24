@@ -12,6 +12,17 @@
  *
  * Neither function writes. selectChargeableCharges reads the mandate's card
  * codes, so it runs on the migration_admin pool (S-07e, migration 945).
+ *
+ * Lapsed subscriptions (Hein, 2026-11-24). A subscription is lapsed when the
+ * period that would follow its current_period_end has itself already ended,
+ * i.e. current_period_end is more than one billing cycle ago. A lapsed
+ * subscription is never back-billed: it gets at most one charge, for one cycle
+ * starting today (UTC date), and cyclesSkipped says how many whole cycles went
+ * unbilled. Settling that charge moves the subscription onto the charge's own
+ * period (subscriptionPeriod.advancePeriod), which is the reset. Until it
+ * settles, any open charge raised since the lapse (period_start on or after
+ * current_period_end) counts as existing, so a later run on another day does
+ * not raise a second one.
  */
 
 import { sql } from '@/lib/neon';
@@ -36,6 +47,22 @@ export interface PlannedCharge {
   currentPeriodEnd: string;
   /** Whole days since current_period_end. */
   daysOverdue: number;
+  /** Whole billing cycles that went unbilled; above 0 only for a lapsed subscription, whose period resets to today. */
+  cyclesSkipped: number;
+}
+
+function addCycles(from: Date, cycle: 'monthly' | 'annual', n: number): Date {
+  const d = new Date(from);
+  if (cycle === 'annual') d.setFullYear(d.getFullYear() + n);
+  else d.setMonth(d.getMonth() + n);
+  return d;
+}
+
+/** Whole cycles from periodEnd that have fully ended by now. */
+function countEndedCycles(periodEnd: Date, cycle: 'monthly' | 'annual', now: Date): number {
+  let n = 0;
+  while (addCycles(periodEnd, cycle, n + 1) <= now) n++;
+  return n;
 }
 
 export async function planDueCharges(now = new Date()): Promise<PlannedCharge[]> {
@@ -66,13 +93,11 @@ export async function planDueCharges(now = new Date()): Promise<PlannedCharge[]>
 
   for (const sub of dueSubs) {
     const periodEnd = new Date(sub.current_period_end);
-    const nextStart = new Date(periodEnd);
-    const nextEnd = new Date(periodEnd);
-    if (sub.billing_cycle === 'annual') {
-      nextEnd.setFullYear(nextEnd.getFullYear() + 1);
-    } else {
-      nextEnd.setMonth(nextEnd.getMonth() + 1);
-    }
+    const cyclesSkipped = countEndedCycles(periodEnd, sub.billing_cycle, now);
+    const nextStart = cyclesSkipped > 0
+      ? new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`)
+      : new Date(periodEnd);
+    const nextEnd = addCycles(nextStart, sub.billing_cycle, 1);
 
     const grossCents = sub.billing_cycle === 'annual'
       ? sub.annual_price_cents
@@ -90,6 +115,7 @@ export async function planDueCharges(now = new Date()): Promise<PlannedCharge[]>
       amountCents,
       currentPeriodEnd: periodEnd.toISOString(),
       daysOverdue: Math.floor((now.getTime() - periodEnd.getTime()) / 86_400_000),
+      cyclesSkipped,
     });
 
     if (amountCents <= 0) {
@@ -97,7 +123,18 @@ export async function planDueCharges(now = new Date()): Promise<PlannedCharge[]>
       continue;
     }
 
-    const existing = await sql<{ id: string }>`
+    // A lapsed subscription's period starts on the day of the run, so match any
+    // open charge raised since the lapse, not this exact period.
+    const existing = cyclesSkipped > 0
+      ? await sql<{ id: string }>`
+      SELECT id FROM subscription_charges
+      WHERE company_id = ${sub.company_id}
+        AND (subscription_id = ${sub.subscription_id} OR subscription_id IS NULL)
+        AND period_start >= ${periodEnd.toISOString().slice(0, 10)}
+        AND status <> 'cancelled'
+      LIMIT 1
+    `
+      : await sql<{ id: string }>`
       SELECT id FROM subscription_charges
       WHERE company_id = ${sub.company_id}
         -- A row predating migration 624 names no subscription. Treating it as

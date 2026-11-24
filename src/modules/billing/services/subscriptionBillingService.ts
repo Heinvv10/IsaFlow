@@ -8,7 +8,9 @@
  *                           The reads are planDueCharges (subscriptionChargePlan);
  *                           a paid subscription with no active mandate is
  *                           counted and listed as unbilledNoMandate, never
- *                           folded into skipped.
+ *                           folded into skipped. A lapsed subscription is
+ *                           charged once for a period starting today, never
+ *                           back-billed, and listed as resetLapsed.
  *
  *   runQueuedCharges()    — claim each retry-eligible charge, call Paystack
  *                           chargeAuthorization() against the company's active
@@ -44,8 +46,18 @@ import {
   voidChargesForCancellingSubscriptions,
 } from './subscriptionPeriod';
 
-/** Most unbilled subscriptions listed in one result; the count is never capped. */
+/** Most unbilled (or reset) subscriptions listed in one result; the counts are never capped. */
 export const UNBILLED_LIST_CAP = 50;
+
+/** A lapsed subscription charged once for a new period from today; the missed cycles are not billed. */
+export interface ResetLapsedSubscription {
+  companyId: string;
+  subscriptionId: string;
+  cyclesSkipped: number;
+  previousPeriodEnd: string;
+  periodStart: string;
+  periodEnd: string;
+}
 
 export interface UnbilledSubscription {
   companyId: string;
@@ -65,6 +77,10 @@ export interface GenerateResult {
   unbilledNoMandate: number;
   /** The first UNBILLED_LIST_CAP of them. */
   unbilled: UnbilledSubscription[];
+  /** Lapsed subscriptions charged once for a period from today (see subscriptionChargePlan). */
+  resetLapsedCount: number;
+  /** The first UNBILLED_LIST_CAP of them. */
+  resetLapsed: ResetLapsedSubscription[];
   /** Subscriptions closed out because their scheduled cancellation came due. */
   cancelled: number;
   /** Queued debits voided because the customer scheduled a cancellation. */
@@ -78,6 +94,8 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
   let skipped = 0;
   let unbilledNoMandate = 0;
   const unbilled: UnbilledSubscription[] = [];
+  let resetLapsedCount = 0;
+  const resetLapsed: ResetLapsedSubscription[] = [];
 
   for (const item of plan) {
     if (item.outcome === 'unbilled_no_mandate') {
@@ -124,6 +142,21 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     `);
 
     created++;
+
+    if (item.cyclesSkipped > 0) {
+      const reset: ResetLapsedSubscription = {
+        companyId: item.companyId,
+        subscriptionId: item.subscriptionId,
+        cyclesSkipped: item.cyclesSkipped,
+        previousPeriodEnd: item.currentPeriodEnd,
+        periodStart: item.periodStart,
+        periodEnd: item.periodEnd,
+      };
+      resetLapsedCount++;
+      if (resetLapsed.length < UNBILLED_LIST_CAP) resetLapsed.push(reset);
+      log.info('Lapsed subscription reset: one charge for a period from today, missed cycles not billed',
+        { reason: 'reset_lapsed', ...reset }, 'BillingCron');
+    }
   }
 
   // A charge already queued for a subscription the customer has flagged to
@@ -132,7 +165,7 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
   const voided = await voidChargesForCancellingSubscriptions();
   const cancelled = await closeOutCancelledSubscriptions(now);
 
-  return { created, skipped, unbilledNoMandate, unbilled, cancelled, voided };
+  return { created, skipped, unbilledNoMandate, unbilled, resetLapsedCount, resetLapsed, cancelled, voided };
 }
 
 export interface RunChargesResult {

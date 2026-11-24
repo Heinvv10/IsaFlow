@@ -2,10 +2,12 @@
 Description=Trigger for the IsaFlow subscription charges cron
 
 [Timer]
-# Hourly, as the route's header says. A Type=oneshot service cannot overlap itself, the
-# per-period charge check stops a second charge for the same period, and each attempt is
-# claimed before Paystack is called, so a retry on timer jitter is safe. Randomised 0-300 s delay.
-OnCalendar=hourly
+# Daily at 06:30 SAST (Hein, 2026-11-24), randomised 0-300 s. Persistent=true runs a missed
+# morning at the next boot. A Type=oneshot service cannot overlap itself, the per-period charge
+# check stops a second charge for the same period, and each attempt is claimed before Paystack
+# is called, so a re-run is safe. Retries wait 24 h (RETRY_BACKOFF_HOURS), so with a daily run a
+# failed debit is retried on the next run that falls 24 h or more after the attempt: one or two days.
+OnCalendar=*-*-* 06:30:00 Africa/Johannesburg
 RandomizedDelaySec=300
 Persistent=true
 

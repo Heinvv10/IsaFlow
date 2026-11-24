@@ -1,7 +1,7 @@
 /**
  * Cron — generates and runs subscription debits.
  *
- * Cadence: hourly. First pass generates queued rows for any subscriptions
+ * Cadence: daily (scripts/isaflow-subscription-charges.timer). First pass generates queued rows for any subscriptions
  * whose period has ended; second pass submits queued/retry-eligible debits
  * to Stitch via the active LinkPay mandate.
  *
@@ -14,8 +14,16 @@
  * retry-eligible; a live run would also attempt the wouldCreate ones.
  *
  * A paid subscription past its period end with no active Paystack mandate is
- * never billed. Each run lists those as unbilled and logs one warn with their
- * count (scripts/README-subscription-charges-cron.md).
+ * never billed and its status is left alone. Each live run lists those as
+ * unbilled and raises one alert: a log.error with alertKey
+ * 'billing.unbilled_no_mandate', which reaches Bugsink. The admin health alert
+ * (checkAndAlert) is not used: it alerts on a whole system-health snapshot and
+ * its status is reset by the 5-minute health pass, so it has no way to carry a
+ * billing finding.
+ *
+ * A lapsed subscription (period end more than one cycle ago) is charged once
+ * for a period from today, never back-billed; the run returns it in
+ * generated.resetLapsed, the dry run in resetLapsed (subscriptionChargePlan).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -33,6 +41,9 @@ import { planDueCharges, selectChargeableCharges } from '@/modules/billing/servi
 /** Most rows listed per dry-run list; the counts are never capped. */
 const DRY_RUN_LIST_CAP = 200;
 
+/** Stable key for the once-per-run unbilled alert; search Bugsink and the journal for it. */
+const UNBILLED_ALERT_KEY = 'billing.unbilled_no_mandate';
+
 function isDryRun(req: NextApiRequest): boolean {
   const q = req.query?.dry_run;
   const body = req.body as { dryRun?: unknown } | undefined;
@@ -42,11 +53,12 @@ function isDryRun(req: NextApiRequest): boolean {
 async function dryRun(res: NextApiResponse, started: number) {
   const plan = await planDueCharges();
   const chargeable = await selectChargeableCharges();
-  const view = ({ companyId, subscriptionId, periodStart, periodEnd, amountCents, currentPeriodEnd, daysOverdue }:
+  const view = ({ companyId, subscriptionId, periodStart, periodEnd, amountCents, currentPeriodEnd, daysOverdue, cyclesSkipped }:
     Awaited<ReturnType<typeof planDueCharges>>[number]) =>
-    ({ companyId, subscriptionId, periodStart, periodEnd, amountCents, currentPeriodEnd, daysOverdue });
+    ({ companyId, subscriptionId, periodStart, periodEnd, amountCents, currentPeriodEnd, daysOverdue, cyclesSkipped });
   const create = plan.filter((p) => p.outcome === 'create');
   const unbilled = plan.filter((p) => p.outcome === 'unbilled_no_mandate');
+  const reset = create.filter((p) => p.cyclesSkipped > 0);
   const result = {
     dryRun: true,
     durationMs: Date.now() - started,
@@ -54,6 +66,11 @@ async function dryRun(res: NextApiResponse, started: number) {
     wouldCreate: create.slice(0, DRY_RUN_LIST_CAP).map(view),
     unbilledCount: unbilled.length,
     unbilled: unbilled.slice(0, DRY_RUN_LIST_CAP).map(view),
+    resetLapsedCount: reset.length,
+    resetLapsed: reset.slice(0, DRY_RUN_LIST_CAP).map((p) => ({
+      companyId: p.companyId, subscriptionId: p.subscriptionId, cyclesSkipped: p.cyclesSkipped,
+      previousPeriodEnd: p.currentPeriodEnd, periodStart: p.periodStart, periodEnd: p.periodEnd,
+    })),
     skipped: {
       existing: plan.filter((p) => p.outcome === 'skip_existing').length,
       zeroAmount: plan.filter((p) => p.outcome === 'skip_zero_amount').length,
@@ -62,7 +79,7 @@ async function dryRun(res: NextApiResponse, started: number) {
   };
   log.info('Cron dry run: subscription-charges', {
     durationMs: result.durationMs, wouldCreate: result.wouldCreateCount,
-    unbilled: result.unbilledCount, wouldAttempt: result.wouldAttempt,
+    unbilled: result.unbilledCount, resetLapsed: result.resetLapsedCount, wouldAttempt: result.wouldAttempt,
   }, 'cron-subscription-charges');
   return apiResponse.success(res, result);
 }
@@ -94,10 +111,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const durationMs = Date.now() - started;
 
   if (generated.unbilledNoMandate > 0) {
-    log.warn(
+    log.error(
       'Paid subscriptions not billed: no active Paystack mandate',
       {
-        reason: 'unbilled_no_mandate',
+        alertKey: UNBILLED_ALERT_KEY,
         count: generated.unbilledNoMandate,
         subscriptionIds: generated.unbilled.map((u) => u.subscriptionId),
       },
@@ -109,7 +126,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     'Cron complete: subscription-charges',
     {
       durationMs, created: generated.created, skippedGenerate: generated.skipped,
-      unbilledNoMandate: generated.unbilledNoMandate, cancelled: generated.cancelled,
+      unbilledNoMandate: generated.unbilledNoMandate, resetLapsed: generated.resetLapsedCount,
+      cancelled: generated.cancelled,
       voided: generated.voided, ...ran, staleVerified: verified,
     },
     'cron-subscription-charges',
