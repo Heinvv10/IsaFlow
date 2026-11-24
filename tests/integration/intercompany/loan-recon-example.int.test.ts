@@ -140,4 +140,13 @@ describe('the trial balance', () => {
     expect(reportOf(await reportAs(U.a, co.A, conn)).summary.own?.balance).toBeCloseTo(a, 2);
     expect([b, a]).toEqual([-63700, 60800]);
   });
+
+  it("a legacy status = 'reversed' journal on the loan account counts in neither the trial balance nor the report", async () => {
+    await workedExample();
+    const legacy = await plantJournal(pool, co.B, '2026-09-05', [[payable.b, 999, 0], [acct.bLoan, 0, 999]], 'P5 legacy reversed');
+    await pool.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [legacy]);
+    const b = await asService(pool, U.b, co.B, () => getPostedAccountBalance(co.B, acct.bLoan));
+    expect(b).toBe(-63700);
+    expect(reportOf(await reportAs(U.b, co.B, conn)).summary).toMatchObject({ own: { balance: -63700 }, reconciles: true });
+  });
 });

@@ -8,6 +8,8 @@
  * for every journal; b2 against intercompany_allocation_payer_standing for every message (the cases it does not judge pinned by name); each
  * chain walked once (a call counter on intercompany_journal_chain_eff).
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
@@ -157,6 +159,36 @@ describe('registry, grants, volatility ((b5), (k).10)', () => {
         expect(vols.filter((x) => x === 'v'), `${b.proname} calls ${schema}.${fn}`).toEqual([]);
       }
     }
+  });
+});
+
+describe('the STABLE halt ((b5), (k).10)', () => {
+  it('the migration refuses to finish when b0-b4 or a callee is not STABLE', async () => {
+    const MIGRATION = readFileSync(path.resolve(__dirname, '../../../scripts/migrations/sql/1030_intercompany_p5_loan_reconciliation.sql'), 'utf8');
+    const b4 = 'CREATE OR REPLACE FUNCTION public.intercompany_loan_recon_summary(p_connection uuid)';
+    const at = MIGRATION.indexOf(b4);
+    const volatileB4 = MIGRATION.slice(0, at) + MIGRATION.slice(at).replace('LANGUAGE plpgsql\nSTABLE', 'LANGUAGE plpgsql\nVOLATILE');
+    expect(volatileB4).not.toBe(MIGRATION);
+    const cases: [string, string[]][] = [
+      // a callee made VOLATILE elsewhere: the migration's halts refuse
+      ['a callee', ['ALTER FUNCTION public.intercompany_lines_negate(uuid, uuid) VOLATILE', MIGRATION]],
+      // b4 itself written VOLATILE: the whole migration, as the deploy applies it, refuses
+      ['b4', [volatileB4]],
+    ];
+    for (const [name, statements] of cases) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const [i, text] of statements.entries()) {
+          if (i < statements.length - 1) await client.query(text);
+          else await expect(client.query(text), name).rejects.toThrow(/is not STABLE/);
+        }
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
+    }
+    expect((await pool.query("SELECT provolatile FROM pg_proc WHERE oid = 'public.intercompany_loan_recon_summary(uuid)'::regprocedure")).rows[0].provolatile).toBe('s');
   });
 });
 

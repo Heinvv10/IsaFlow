@@ -10,7 +10,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { acct, co, party, U, wipeConnections } from './intercompany.helpers';
 import { mirrorCleanup } from './mirror.helpers';
-import { clearPayments, linkBill } from './allocation.helpers';
+import { clearPayments, linkBill, plantPaid } from './allocation.helpers';
 import { reapply } from './allocation-clear.helpers';
 import {
   accepted, dayOf, ePay, fixturePaid, forgeMessage, forgeSide, freshLoans, itemOf, pair, payable, plantJournal, reconConnect, reconSetup,
@@ -129,6 +129,9 @@ describe('Needs attention', () => {
   it("unsent: S's processed payments on linked bills with no message, S's own facts only; never in the partner's report", async () => {
     const a = await fixturePaid(pool, conn, 410, { leg: acct.bLoan, send: false });
     const b = await fixturePaid(pool, conn, 420, { send: false });
+    // a DRAFT payment applied to a linked bill is not unsent (nothing posted): payment_allocations is scoped only by the INNER join
+    const draft = await pair(pool, conn, 430);
+    await plantPaid(pool, draft.bill, { amount: 430, status: 'draft' });
     const att = reportOf(await reportAs(U.b, co.B, conn, { section: 'attention' }));
     const unsent = att.section.items.filter((i) => i.kind === 'unsent');
     expect(unsent.map((i) => i.id).sort()).toEqual([a.allocation, b.allocation].sort());
