@@ -30,6 +30,38 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-24 — Mobile Card-Layout Wave (AR/AP/Inventory/Reports), UI Dark-Mode Fixes, CI Hardening
+
+**Mobile — Card Layout (wave continued)**
+
+- Capture inbox detail panel full-width, close and action controls 44 px below `lg` (#1839)
+- Expense claims and delivery notes as labelled cards below `lg`; delivery note tabs 44 px; items list Active dot fixed (#1840)
+- Customer statements and batch payments as cards below `lg`; icon buttons named; hidden-action test extended (#1845, #1846)
+- Bank statement imports and paired extensions as cards below `lg`; Upload PDF and Revoke 44 px (#1847)
+- Disputes queue as cards below `lg`; controls 44 px (#1848)
+- DRC VAT invoices as cards below `lg`; tab strip full-width on phones; Apply DRC 44 px (#1849)
+- Goods received list as cards below `lg`; New GRN and search 44 px (#1850)
+- Business units as cards below `lg`; form and row controls 44 px; customer categories inline-add row stacks, named icon buttons (#1853)
+- Shared `ConfirmDialog` buttons 44 px, viewport-capped, long message scrolls, long unbroken tokens wrap, no chained scroll (#1857)
+- `BulkConfirmModal`, `ConfirmSendModal` and year-end typed field 44 px, viewport-capped (#1859)
+- Stock levels as labelled cards below `lg`; filter and wrapping header 44 px (#1865)
+- Unallocated payments/receipts and item listing as labelled cards on mobile (#1866)
+- Item movement/valuation and purchases/sales report tables as labelled cards on mobile (#1867)
+- Item quantities report as labelled cards on mobile; 44 px action buttons (#1868)
+
+**UI — Dark-Mode & Style Fixes**
+
+- `ff-input` and `ff-select` CSS layer definitions added (used in ~75 files but never defined); caseware-export code column widened (#1860)
+- Dunning templates heading, subtitle, empty hint; My Reports heading, subtitle and empty-state title; Paystack return page status text: all now use theme tokens (were invisible or low-contrast in dark mode) (#1860, #1861)
+
+**CI / Golden Paths**
+
+- Golden-path observability: dev-server heap limit raised to 10 240 MB with guard; z19-native-selects split per theme; planChunk arithmetic corrected; `muted-text-stops` baseline lowered for fixed pages (#1836)
+- Golden warmup: server warmup fixes and flake elimination (#1838)
+- `u-list` bank test waits for the page's first list response before typing the date; no unhandled rejection if `openScreen` throws (#1858)
+
+---
+
 ## 2026-11-23 — Intercompany P4a Contra-Settlement Service, Mobile Payroll Wave
 
 **Intercompany — P4a**
