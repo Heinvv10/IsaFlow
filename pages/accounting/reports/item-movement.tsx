@@ -51,7 +51,7 @@ export default function ItemMovementReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-cyan-500/10"><ArrowLeftRight className="h-6 w-6 text-cyan-500" /></div>
               <div>
@@ -59,11 +59,11 @@ export default function ItemMovementReport() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Stock in/out log with running balance</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 max-lg:flex-wrap">
               <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
               <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
               <button onClick={() => window.open(`/api/accounting/reports/item-movement?from=${from}&to=${to}&format=csv`, '_blank')} disabled={dates.blocked}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg max-lg:min-h-11">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
@@ -79,7 +79,7 @@ export default function ItemMovementReport() {
               ) : rows.length === 0 ? (
                 <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No stock movements for this period</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-cards">
                   <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
                     <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Type</th>
@@ -93,16 +93,16 @@ export default function ItemMovementReport() {
                     {rows.map((r, i) => (
                       <tr key={i} className="hover:bg-teal-500/[0.04]">
                         <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
-                        <td className="px-4 py-3">
+                        <td data-label="Type" className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
                             {r.type}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.reference}</td>
-                        <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.itemName}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-red-400">{r.qtyOut > 0 ? r.qtyOut : ''}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.balance}</td>
+                        <td data-label="Reference" className="px-4 py-3 text-[var(--ff-text-primary)]">{r.reference}</td>
+                        <td data-label="Item" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.itemName}</td>
+                        <td data-label="In" className="px-4 py-3 text-right tabular-nums text-teal-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
+                        <td data-label="Out" className="px-4 py-3 text-right tabular-nums text-red-400">{r.qtyOut > 0 ? r.qtyOut : ''}</td>
+                        <td data-label="Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.balance}</td>
                       </tr>
                     ))}
                   </tbody>

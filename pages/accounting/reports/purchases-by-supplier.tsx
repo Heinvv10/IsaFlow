@@ -62,7 +62,7 @@ export default function PurchasesBySupplierReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-orange-500/10"><TrendingUp className="h-6 w-6 text-orange-500" /></div>
               <div>
@@ -70,11 +70,11 @@ export default function PurchasesBySupplierReport() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Expenditure breakdown per supplier</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 max-lg:flex-wrap">
               <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
               <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
               <button onClick={() => window.open(`/api/accounting/reports/purchases-by-supplier?from=${from}&to=${to}&format=csv`, '_blank')} disabled={dates.blocked}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg max-lg:min-h-11">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
@@ -91,7 +91,7 @@ export default function PurchasesBySupplierReport() {
               ) : rows.length === 0 ? (
                 <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No purchase data for this period</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-cards">
                   <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
                     <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
@@ -103,19 +103,19 @@ export default function PurchasesBySupplierReport() {
                     {rows.map(r => (
                       <tr key={r.supplierId} className="hover:bg-teal-500/[0.04]">
                         <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.supplierName}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.paymentsMade)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
+                        <td data-label="Invoices" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
+                        <td data-label="Total Purchases" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
+                        <td data-label={`Paid at ${to}`} className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.paymentsMade)}</td>
+                        <td data-label={`Outstanding at ${to}`} className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(totals.totalPurchases)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.paymentsMade)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totals.outstanding)}</td>
+                    <td data-label="Invoices" className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
+                    <td data-label="Total Purchases" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(totals.totalPurchases)}</td>
+                    <td data-label={`Paid at ${to}`} className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.paymentsMade)}</td>
+                    <td data-label={`Outstanding at ${to}`} className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totals.outstanding)}</td>
                   </tr></tfoot>
                 </table>
               )}
