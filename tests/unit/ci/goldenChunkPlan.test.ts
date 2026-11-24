@@ -163,7 +163,8 @@ describe('files cut per theme (z19-native-selects overran the dev server\'s memo
     writeFileSync(path.join(tmp, SPEC_DIR, CONTRAST_FILE), "const SCREENS = [\n  { slug: 'only', path: '/' },\n] as const;");
     for (const f of ['n-a11y-main-screens.spec.ts', 'o3-banner-titles.spec.ts', 'z19-native-selects.spec.ts']) writeFileSync(path.join(tmp, SPEC_DIR, f), '');
     const names = (p: number) => planChunk(tmp, 1, 1, p, 2).items.map((i) => i.name);
-    // 168, 159 | 145 + 143 would be 327 / 288; the themes kept apart: 168 + 159 + 145 / 143 is the only cut left that obeys it
+    // two pieces over 168, 159, 30 (the contrast screen), 145 (light), 143 (dark): the cheapest cut is 327 | 318 with both themes in the second
+    // piece; kept apart, the only cut is between them: 502 | 143, light closing the first piece and dark alone
     expect(names(1)).toEqual(expect.not.arrayContaining(['dark']));
     expect(names(2)).toEqual(['dark']);
     expect(names(1)).toContain('light');
@@ -194,6 +195,12 @@ describe('files cut per theme (z19-native-selects overran the dev server\'s memo
       expect(Math.max(...got.map(chunkSeconds)), JSON.stringify(items.map((i) => [i.kind, i.seconds]))).toBe(best);
       for (const part of got) for (let i = 1; i < part.length; i++) expect(part[i - 1]!.kind === 'theme' && part[i]!.kind === 'theme').toBe(false);
     }
+  });
+
+  it('forces a cut only between the themes of ONE file: neighbouring themes of two different files may share a piece', () => {
+    const items = [th('y.spec.ts', 'light', 10), th('y.spec.ts', 'dark', 10), th('z.spec.ts', 'light', 10), th('z.spec.ts', 'dark', 10)];
+    const parts = splitItems(items, 3, { keepThemesApart: true });
+    expect(parts.map((p) => p.map((i) => `${i.kind === 'theme' ? i.file : ''}:${i.name}`))).toEqual([['y.spec.ts:light'], ['y.spec.ts:dark', 'z.spec.ts:light'], ['z.spec.ts:dark']]);
   });
 
   it('says so when no cut can keep them apart (themes of one file in a single piece)', () => {

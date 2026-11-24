@@ -604,7 +604,7 @@ jobs:
           # "Server is approaching the used memory threshold, restarting..."),
           # which refuses or drops the request in flight. The size follows the
           # pages visited, not the clock: PR 1348's first run with a six-chunk
-          # matrix had next-server at 7.5-8.2 GB (max-old-space-size 8192, so
+          # matrix had next-server at 7.5-8.2 GB (then max-old-space-size 8192; it is 10240 now, so
           # the threshold is ~6.5 GB of heap) within 4-10 min in every chunk, and
           # chunks 4 and 5 hit the restart (ERR_CONNECTION_REFUSED mid-spec). A
           # piece is ~3 min of tests, and the server also starts clean after the

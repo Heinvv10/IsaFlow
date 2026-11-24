@@ -41,7 +41,7 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'z7-undo-drawers.spec.ts': 116, 'z9-employee-readiness.spec.ts': 99,
   'z22-admin-console.spec.ts': 70, // hosted: 62 s (run 43605704335, without System Health) plus a margin
   // hosted, one run (44416397016, chunk 5): these took the 30 s default, so piece 1 of chunk 5 held ~7.4 min of tests,
-  // not the planned ~200 s, and its dev server hit the memory restart (z19 alone is 222 s).
+  // not the planned ~200 s, and its dev server hit the memory restart (z19 is now planned per theme: SPLIT_BY_THEME).
   'z20-budgets-three-way.spec.ts': 34, 'z20-comments.spec.ts': 97, 'z21-ask.spec.ts': 58,
   'z24-payslip-email.spec.ts': 46, 'z26-salary-bank-file.spec.ts': 21, 'z28-late-claims.spec.ts': 23, 'z29-pre-validation.spec.ts': 42,
   'z30-bank-bulk-accept.spec.ts': 37, // hosted: 34.5 s and 40.3 s with its warm-up (runs 44261035241, 44249027688)
