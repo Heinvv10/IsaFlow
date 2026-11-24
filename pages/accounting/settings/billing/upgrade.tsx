@@ -15,6 +15,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AUTH_VERIFICATION_CENTS } from '@/modules/billing/services/mandateVerificationCharge';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
 interface UpgradePlan {
@@ -132,8 +133,9 @@ export default function UpgradeFromTrialPage() {
 
         {status && !done && status.onTrial && (
           <div className="mt-4">
-            <p className="text-sm text-ink-muted mb-4">
-              Choose a plan, then authorise a card with Paystack. Paystack takes a small verification charge to confirm the card.
+            <p className="text-sm text-ink-muted mb-4" data-testid="upgrade-charge-copy">
+              Choose a plan, then authorise a card with Paystack. When the card is authorised, a small verification charge
+              of {formatMoney(AUTH_VERIFICATION_CENTS / 100)} is made. This charge is not refunded.
               You are billed monthly from the day you upgrade.
             </p>
             <fieldset className="space-y-2">

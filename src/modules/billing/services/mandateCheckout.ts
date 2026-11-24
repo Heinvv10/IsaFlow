@@ -20,10 +20,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { initializeTransaction } from './paystackClient';
-
-// Verification charge: small enough to be cheap, large enough to actually
-// authorise the card. 100 cents. It is visible on the cardholder's statement.
-export const AUTH_VERIFICATION_CENTS = 100;
+import { AUTH_VERIFICATION_CENTS } from './mandateVerificationCharge';
 
 export interface MandateCheckoutInput {
   companyId: string;
