@@ -21,7 +21,8 @@ src/modules/onboarding/
     ├── registrationNumberNormaliser.ts — CIPC reg number whitespace normaliser
     ├── tenantProvisioningService.ts — signup / waitlist tenant creation (admin pool)
     ├── waitlistPromotionService.ts  — admin waitlist promote
-    └── paygEligibilityService.ts    — PAYG eligibility
+    ├── paygEligibilityService.ts    — PAYG eligibility
+    └── trialLifecycle/              — daily trial emails (cron/trial-lifecycle-emails)
 ```
 
 ## Entity rules (`entityOnboardingRules.ts`)
@@ -95,6 +96,17 @@ Pure functions over `@/lib/entityTypes` (the one list of the 8 SA entity codes; 
 - No validation — does not confirm the result is a valid CIPC number; purely a presentation normaliser.
 
 ---
+
+## Trial lifecycle emails (`services/trialLifecycle/`)
+
+`POST /api/cron/trial-lifecycle-emails` (X-Cron-Secret, timer `scripts/isaflow-trial-lifecycle-emails.timer`; ops guide `scripts/README-trial-lifecycle-emails-cron.md`) → `runTrialLifecycleEmails({ now, dryRun, limit })`.
+
+- `stages.ts` (pure): `setup_nudge` (day 3+) and `check_in` (day 10+) anchor on `companies.created_at` and apply only while the trial runs; `ending_soon` (end within 5 days) and `ended` (ended within `ENDED_WINDOW_DAYS` = 7) anchor on `trial_ends_at`, so an extension is honoured. Only the highest due stage is sent, and only when no marker at that rank or higher is done.
+- `candidates.ts`: the one cross-tenant query on the service pool. Excludes `companyOutOfMetrics()` (deleted, `is_demo`, Demo tenant; the golden-gate company is `is_demo` with no trial end), suspended, converted (active/past_due on a non-`trial` plan, as `admin/services/trialQueries.ts`) and env `TRIAL_EMAIL_EXCLUDE_COMPANY_IDS`. Recipients: active owners only.
+- `markers.ts`: `trial_lifecycle_emails` (migration 1040), UNIQUE (company_id, stage). Claim in its own committed tx BEFORE sending; `released` (every send provably not sent) is the only outcome a later claim re-arms. `email_log` is not the idempotency record (no stage, no unique key, swallowed writes).
+- `compose.ts`: day 3 lists the open steps from `setupProgressService` (the in-app checklist's facts); none left → `skipped_setup_complete`, nothing sent. Templates: `src/lib/email-templates-trial/`.
+- `runOptions.ts`: real sends need env `TRIAL_LIFECYCLE_EMAILS_ENABLED=1`; otherwise every run is a dry run. `limit` 1..200 (default 50) counts only companies with a stage due.
+- No unsubscribe or consent mechanism exists in the repo; the copy offers none.
 
 ## Common patterns
 
