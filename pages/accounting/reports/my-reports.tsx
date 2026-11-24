@@ -153,7 +153,7 @@ export default function MyReportsPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-800">{t.name}</div>
                       {t.description && (
-                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 truncate max-w-xs">{t.description}</div>
+                        <div className="text-xs text-gray-600 mt-0.5 truncate max-w-xs">{t.description}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
