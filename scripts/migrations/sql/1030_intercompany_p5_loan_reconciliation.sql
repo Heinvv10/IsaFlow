@@ -1,4 +1,4 @@
--- 1030: Intercompany P5, the loan reconciliation report (READ ONLY). Plan: docs/plans/2026-11-24-intercompany-p5-reconciliation.md (sections
+-- 1030: Intercompany P5, the loan reconciliation report (READ ONLY). Plan: docs/plans/2026-11-24-intercompany-p5-reconciliation.md (sections (m),
 -- (k) and (l) binding; parent docs/plans/2026-11-17-intercompany-mirror-posting.md, P5). Applies on top of 1029; idempotent (CREATE OR REPLACE,
 -- ON CONFLICT). Forward only: no table, column or index change, no change to any existing function, guard or the undo gate.
 --
