@@ -11,6 +11,12 @@
  * and then finds the payment voided. Only when the payment has an allocation message at all (a payment without one has nothing to race).
  * The keys wait under the caller's lock bound. Accepted limit: even after the receiver cancels its clearing receipt the message stays accepted,
  * so the payer's undo stays refused until intercompany reversals exist (#1772).
+ *
+ * UNAPPLY (fix round 1, A) is stricter than void: a payment that credited the loan account (an allocation message with cashLegIsLoanAccount)
+ * is never unapplied, whatever its message's status. An unapply moves only the subledger: the clearing journal (AP debited, the loan credited)
+ * would stand, the message would die (allocation_gone), the bill would reopen and could be cleared again (the loan credited twice). VOID is the
+ * undo (it reverses the journal). Being refused whatever a receiver does, the unapply takes no advisory key (N: so it never holds a bill row
+ * while waiting for a key, the opposite of the void's key-then-bill order).
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -21,6 +27,26 @@ type Row = Record<string, unknown>;
 export const PARTNER_CLEARED_SENTENCE = 'The partner already cleared this payment against the intercompany loan (it accepted the allocation message), so it cannot be '
   + 'voided, unapplied or reversed here: ask them to cancel their clearing receipt first, then reverse it with your accountant (intercompany '
   + 'reversals are not automated yet). Nothing was changed.';
+
+export const LOAN_CLEARED_UNAPPLY_SENTENCE = 'This payment cleared the bill against the intercompany loan and its allocation message was sent to the partner, so it '
+  + 'cannot be unapplied (the clearing journal would stay and the bill could be cleared twice). Void the payment instead: that reverses the clearing '
+  + 'and the partner can no longer clear it. Nothing was changed.';
+
+/** Unapply (route, MCP and its dry run): the sentence when the payment has an allocation message that the receiver ACCEPTED, or one sent for a
+ *  loan-account credit (any status), else null. Reads only; no lock (see the header, A and N). */
+export async function loanClearedUnapplyRefusal(companyId: string, paymentId: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT bool_or(m.status = 'accepted') AS accepted, bool_or((m.payload #>> '{payment,cashLegIsLoanAccount}') = 'true') AS loan
+      FROM intercompany_messages m
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
+  `) as Row[];
+  if (rows[0]?.accepted === true) return PARTNER_CLEARED_SENTENCE;
+  if (rows[0]?.loan === true) {
+    log.info('Payer unapply refused: the payment cleared a bill against the intercompany loan', { companyId, paymentId }, 'intercompany');
+    return LOAN_CLEARED_UNAPPLY_SENTENCE;
+  }
+  return null;
+}
 
 /** Each key in the order the SQL sorted it (ascending bigint), as the receiver's cap lock takes them. */
 async function lockKeys(keys: Row[]): Promise<void> {
