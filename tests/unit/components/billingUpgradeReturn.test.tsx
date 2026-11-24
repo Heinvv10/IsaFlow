@@ -62,7 +62,7 @@ describe('upgrade return page', () => {
 
     render(<UpgradeReturnPage />);
 
-    await waitFor(() => expect(screen.getByText('Something went wrong')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('The upgrade could not be completed')).toBeDefined());
     expect(screen.getByText('Authorise a payment method before upgrading.')).toBeDefined();
     expect(screen.queryByText('Your company is upgraded')).toBeNull();
   });
@@ -72,7 +72,7 @@ describe('upgrade return page', () => {
 
     render(<UpgradeReturnPage />);
 
-    await waitFor(() => expect(screen.getByText('Something went wrong')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('The upgrade could not be completed')).toBeDefined());
     expect(mocked).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 type State = 'verifying' | 'converting' | 'done' | 'failed' | 'pending' | 'error';
@@ -104,7 +105,7 @@ export default function UpgradeReturnPage() {
             <CheckCircle2 className="w-12 h-12 text-emerald-600" />
             <h1 className="mt-4 text-xl font-semibold">Your company is upgraded</h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
-              The first monthly charge is due on {new Date(firstChargeAt).toLocaleDateString('en-ZA')}.
+              The first monthly charge is due on {formatDisplayDate(firstChargeAt)}.
             </p>
           </div>
         )}
@@ -121,7 +122,7 @@ export default function UpgradeReturnPage() {
           <div>
             <AlertTriangle className="w-12 h-12 text-amber-500" />
             <h1 className="mt-4 text-xl font-semibold">
-              {state === 'pending' ? 'Still waiting for Paystack' : 'Something went wrong'}
+              {state === 'pending' ? 'Still waiting for Paystack' : 'The upgrade could not be completed'}
             </h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               {state === 'pending'

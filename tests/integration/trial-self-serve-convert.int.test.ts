@@ -20,6 +20,8 @@ beforeAll(async () => {
   // The billing admin pool is built on first use: point it at migration_admin first.
   vi.stubEnv('MIGRATION_ADMIN_DATABASE_URL', urlAsRole('migration_admin'));
   plans = await seedPlans();
+  // audit_log.user_id references users: the owner is a real users row, as it is for a signed-in request.
+  await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [owner, `${owner}@test.local`]);
 }, 60000);
 
 afterAll(async () => {

@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -57,6 +58,8 @@ export default function UpgradeFromTrialPage() {
         setStatus(json.data);
         setPlanId(json.data.plans[0]?.id ?? '');
       } catch (err) {
+        setStatus(null);
+        setPlanId('');
         setError(apiErrorMessage(err, 'Could not load your subscription. Please try again.'));
       } finally {
         setLoading(false);
@@ -99,7 +102,7 @@ export default function UpgradeFromTrialPage() {
       <div className="p-6 max-w-3xl">
         <h1 className="text-xl font-semibold mb-1">Upgrade from trial</h1>
 
-        {loading && <Loader2 className="w-6 h-6 animate-spin text-gray-400 mt-6" aria-label="Loading" />}
+        {loading && <Loader2 className="w-6 h-6 animate-spin text-ink-faint mt-6" aria-label="Loading" />}
 
         {blocked === 'unavailable' && (
           <p className="text-gray-600 dark:text-gray-400 mt-4">Self-serve upgrade is not available for this company yet.</p>
@@ -117,7 +120,7 @@ export default function UpgradeFromTrialPage() {
         {done && (
           <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
             <CheckCircle2 className="w-5 h-5 inline mr-2" />
-            Your company is now on a paid plan. The first monthly charge is due on {new Date(done.firstChargeAt).toLocaleDateString('en-ZA')}.
+            Your company is now on a paid plan. The first monthly charge is due on {formatDisplayDate(done.firstChargeAt)}.
           </div>
         )}
 
@@ -129,7 +132,7 @@ export default function UpgradeFromTrialPage() {
 
         {status && !done && status.onTrial && (
           <div className="mt-4">
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-ink-muted mb-4">
               Choose a plan, then authorise a card with Paystack. Paystack takes a small verification charge to confirm the card.
               You are billed monthly from the day you upgrade.
             </p>
@@ -140,13 +143,13 @@ export default function UpgradeFromTrialPage() {
                   <input type="radio" name="plan" value={p.id} checked={planId === p.id} onChange={() => setPlanId(p.id)} className="mt-1" />
                   <span>
                     <span className="font-medium">{p.name}</span>
-                    <span className="ml-2 text-sm text-gray-500">{formatMoney(p.monthly_price_cents / 100)} per month</span>
-                    {p.description && <span className="block text-sm text-gray-500">{p.description}</span>}
+                    <span className="ml-2 text-sm text-ink-muted">{formatMoney(p.monthly_price_cents / 100)} per month</span>
+                    {p.description && <span className="block text-sm text-ink-muted">{p.description}</span>}
                   </span>
                 </label>
               ))}
             </fieldset>
-            {status.plans.length === 0 && <p className="text-sm text-gray-500">No plans are available right now.</p>}
+            {status.plans.length === 0 && <p className="text-sm text-ink-muted">No plans are available right now.</p>}
 
             <div className="mt-6">
               {status.hasChargeableMandate ? (
@@ -155,7 +158,7 @@ export default function UpgradeFromTrialPage() {
                   Confirm upgrade
                 </button>
               ) : status.hasActiveMandate ? (
-                <p className="text-sm text-gray-600">Your payment method is still being confirmed. Please check again in a few minutes.</p>
+                <p className="text-sm text-ink-muted">Your payment method is still being confirmed. Please check again in a few minutes.</p>
               ) : (
                 <button type="button" onClick={() => void authorise()} disabled={busy || !planId}
                   className="rounded-lg bg-indigo-600 px-5 py-2.5 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
