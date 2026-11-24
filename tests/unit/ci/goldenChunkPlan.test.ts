@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CONTRAST_FILE, CONTRAST_SECONDS, CONTRAST_TITLE_TAIL, FILE_SECONDS, SPEC_DIR, chunkSeconds, contrastSlugs, planChunk, planItems,
-  splitItems, toInvocations, type Item,
+  splitItems, toInvocations, invocationArgs, type Item,
 } from '../../../scripts/ci/golden-hosted/goldenChunkPlan';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -181,5 +181,25 @@ describe('golden chunk plan mechanics', () => {
     writeFileSync(path.join(tmp, SPEC_DIR, CONTRAST_FILE), "const SCREENS = [\n  { slug: 'only', path: '/' },\n] as const;");
     writeFileSync(path.join(tmp, SPEC_DIR, 'a.spec.ts'), '');
     expect(planChunk(tmp, 1, 1).items.map((i) => i.name)).toEqual(['a.spec.ts', 'only']);
+  });
+});
+
+describe('invocationArgs', () => {
+  const inv = { files: ['tests/e2e/golden-paths/a.spec.ts', 'tests/e2e/golden-paths/b.spec.ts'], grep: 'AA contrast' };
+
+  it('adds nothing without GOLDEN_EVIDENCE=1 (the arguments every run had before)', () => {
+    expect(invocationArgs(inv, 2, 0, {})).toEqual(['run', 'test:e2e:golden', ...inv.files, '--grep', 'AA contrast']);
+    expect(invocationArgs({ files: ['x.spec.ts'] }, 1, 0, { GOLDEN_EVIDENCE: '0' })).toEqual(['run', 'test:e2e:golden', 'x.spec.ts']);
+  });
+
+  it('gives every run of a piece, and every piece, its own output directory under test-results/', () => {
+    const env = { GOLDEN_EVIDENCE: '1' };
+    const dirs = [[1, 0], [1, 1], [2, 0], [3, 0], [3, 1]].map(([piece, i]) => {
+      const args = invocationArgs(inv, piece!, i!, env);
+      return args[args.indexOf('--output') + 1];
+    });
+    expect(dirs).toEqual(['test-results/p1-i0', 'test-results/p1-i1', 'test-results/p2-i0', 'test-results/p3-i0', 'test-results/p3-i1']);
+    expect(new Set(dirs).size).toBe(dirs.length);
+    expect(invocationArgs(inv, 1, 0, env).slice(0, 5)).toEqual(['run', 'test:e2e:golden', ...inv.files, '--grep']);
   });
 });

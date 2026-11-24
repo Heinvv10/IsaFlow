@@ -144,6 +144,19 @@ export function toInvocations(items: Item[]): Invocation[] {
   return out;
 }
 
+/**
+ * The `playwright test` arguments for one invocation of a piece. Playwright empties its output directory at the start of
+ * every run, and a piece is several runs, so with GOLDEN_EVIDENCE=1 each gets a directory of its own under test-results/:
+ * otherwise the last run's failures would delete the traces and screenshots of every earlier one.
+ */
+export function invocationArgs(inv: Invocation, piece: number, index: number, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [
+    'run', 'test:e2e:golden', ...inv.files,
+    ...(inv.grep === undefined ? [] : ['--grep', inv.grep]),
+    ...(env.GOLDEN_EVIDENCE === '1' ? ['--output', `test-results/p${piece}-i${index}`] : []),
+  ];
+}
+
 export function chunkSeconds(chunk: Item[]): number {
   return chunk.reduce((s, i) => s + i.seconds, 0);
 }

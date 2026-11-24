@@ -181,7 +181,7 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
   const lineItems = Array.isArray(ed?.line_items) ? (ed.line_items as Record<string, unknown>[]) : null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[420px] bg-[var(--ff-canvas-mid)] border-l border-[rgba(255,255,255,0.08)] shadow-2xl flex flex-col z-50">
+    <div className="fixed inset-y-0 right-0 w-[420px] max-lg:w-full bg-[var(--ff-canvas-mid)] border-l border-[rgba(255,255,255,0.08)] shadow-2xl flex flex-col z-50">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(255,255,255,0.08)]">
         <div className="flex items-center gap-2 text-slate-300">
@@ -189,7 +189,7 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
           <span className="font-medium capitalize">{event.channel.replace('_', ' ')}</span>
           <StatusBadge status={event.status} error={event.error} />
         </div>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-200 transition-colors">
+        <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-slate-200 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -250,37 +250,37 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
               value={discardReason}
               onChange={e => setDiscardReason(e.target.value)}
               placeholder="Reason (optional)"
-              className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm placeholder:text-slate-600 focus:outline-none focus:border-teal-500"
+              className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm placeholder:text-slate-600 focus:outline-none focus:border-teal-500 max-lg:min-h-11"
             />
             <div className="flex gap-2">
               <button onClick={() => { void onDiscard(event.eventId, discardReason || undefined); setDiscardMode(false); }}
                 disabled={discarding}
-                className="flex-1 px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded text-sm font-medium">
+                className="flex-1 px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded text-sm font-medium max-lg:min-h-11">
                 {discarding ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Confirm Discard'}
               </button>
-              <button onClick={() => setDiscardMode(false)} className="px-4 py-2 rounded text-sm text-slate-400 hover:text-slate-200">Cancel</button>
+              <button onClick={() => setDiscardMode(false)} className="px-4 py-2 rounded text-sm text-slate-400 hover:text-slate-200 max-lg:min-h-11">Cancel</button>
             </div>
           </div>
         ) : (
           <div className="flex gap-2">
             {gate.status === 'duplicate' ? (
               <button disabled title={`Duplicate of ${gate.invoiceRef ?? 'existing record'}`}
-                className="flex-1 px-4 py-2 bg-red-900/30 opacity-60 cursor-not-allowed text-red-400 rounded text-sm font-medium">
+                className="flex-1 px-4 py-2 bg-red-900/30 opacity-60 cursor-not-allowed text-red-400 rounded text-sm font-medium max-lg:min-h-11">
                 Blocked — duplicate
               </button>
             ) : gate.status === 'auto' ? (
               <button onClick={() => void onPost(event.eventId)} disabled={posting || event.status !== 'extracted'}
-                className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
+                className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors max-lg:min-h-11">
                 {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Auto-post'}
               </button>
             ) : (
               <button onClick={() => void onPost(event.eventId)} disabled={posting || event.status !== 'extracted'}
-                className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/15 disabled:opacity-40 text-slate-200 rounded text-sm font-medium transition-colors border border-[rgba(255,255,255,0.1)]">
+                className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/15 disabled:opacity-40 text-slate-200 rounded text-sm font-medium transition-colors border border-[rgba(255,255,255,0.1)] max-lg:min-h-11">
                 {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Post to review'}
               </button>
             )}
             <button onClick={() => setDiscardMode(true)} disabled={discarding}
-              className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-sm font-medium transition-colors">
+              className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-sm font-medium transition-colors max-lg:min-h-11">
               Discard
             </button>
           </div>
