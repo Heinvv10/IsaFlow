@@ -36,6 +36,11 @@ export interface SubtypeOption {
   label: string;
 }
 
+/** The API refuses a blank subtype on these types (missingSubtypeError). */
+export function subtypeRequiredFor(accountType: string): boolean {
+  return accountType === 'revenue' || accountType === 'expense';
+}
+
 export function subtypeOptionsFor(accountType: GLAccountType | string): SubtypeOption[] {
   const all = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType as GLAccountType] as
     | readonly GLAccountSubtype[]

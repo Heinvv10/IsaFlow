@@ -8,7 +8,7 @@ import { Plus, X, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { AllocType, SelectOption } from './BankTxTable';
-import { AccountForm } from './createEntity/AccountForm';
+import { AccountForm, useAccountTypeState } from './createEntity/AccountForm';
 import {
   SUPPLIER_CREATE_URL, CUSTOMER_CREATE_URL, supplierCreateBody, customerCreateBody, createdRow,
 } from './createEntity/entityRequests';
@@ -36,7 +36,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
 
   const [acctCode, setAcctCode] = useState('');
   const [acctName, setAcctName] = useState('');
-  const [acctType, setAcctType] = useState('expense');
+  const { acctType, acctSubtype, subtypeRequired, setAcctType, setAcctSubtype } = useAccountTypeState();
 
   const [suggestion, setSuggestion] = useState<GLSuggestion | null>(null);
   const [suggestionApplied, setSuggestionApplied] = useState(false);
@@ -84,7 +84,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
     setAcctName(suggestion.name);
     setAcctType(suggestion.type);
     setSuggestionApplied(true);
-  }, [suggestion, findExistingAccount, onCreated]);
+  }, [suggestion, findExistingAccount, onCreated, setAcctType]);
 
   const dismissSuggestion = useCallback(() => {
     setSuggestion(null);
@@ -105,13 +105,13 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
     setAcctType(v);
     if (suggestionApplied) setSuggestionApplied(false);
     if (suggestionDismissed) setSuggestionDismissed(false);
-  }, [suggestionApplied, suggestionDismissed]);
+  }, [suggestionApplied, suggestionDismissed, setAcctType]);
 
   const title = type === 'account' ? 'New GL Account'
     : type === 'supplier' ? 'New Supplier' : 'New Customer';
 
   const canSave = type === 'account'
-    ? !!(acctCode.trim() && acctName.trim())
+    ? !!(acctCode.trim() && acctName.trim() && (!subtypeRequired || acctSubtype))
     : type === 'supplier'
       ? !!(supName.trim() && supEmail.trim())
       : !!custName.trim();
@@ -127,7 +127,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accountCode: acctCode.trim(), accountName: acctName.trim(),
-            accountType: acctType, normalBalance: nb,
+            accountType: acctType, normalBalance: nb, ...(acctSubtype ? { accountSubtype: acctSubtype } : {}),
           }),
         }, 'Could not create the account - try again') as { id: string; accountCode: string; accountName: string };
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
@@ -173,10 +173,10 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             <AccountForm
               code={acctCode}
               name={acctName}
-              type={acctType}
+              type={acctType} subtype={acctSubtype}
               onCode={setAcctCode}
               onName={handleAcctName}
-              onType={handleAcctType}
+              onType={handleAcctType} onSubtype={setAcctSubtype}
               transactionDescription={transactionDescription}
               suggestion={suggestion}
               suggestionApplied={suggestionApplied}
