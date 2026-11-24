@@ -143,7 +143,8 @@ export default function CustomerPaymentDetailPage() {
                     {payment?.paymentNumber || 'Payment'}
                   </h1>
                   {payment && <StatusBadge status={payment.status} />}
-                  {payment && <ReceiptIcChip receiptId={payment.id} paymentNumber={payment.paymentNumber} onChanged={() => { void loadPayment(); }} />}
+                  {payment && <ReceiptIcChip receiptId={payment.id} paymentNumber={payment.paymentNumber} bankReference={payment.bankReference}
+                    paymentMethod={payment.paymentMethod} receiptStatus={payment.status} onChanged={() => { void loadPayment(); }} />}
                 </div>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
                   {payment?.clientName || 'Loading...'}
