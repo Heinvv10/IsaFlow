@@ -27,9 +27,9 @@ export function ConfirmSendModal({ count, asAtDate, isSending, onConfirm, onCanc
       aria-modal="true"
       aria-labelledby="confirm-send-title"
     >
-      <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+      <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]">
         {/* Header */}
-        <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start justify-between mb-4 max-lg:shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-purple-500/10">
               <Mail className="h-5 w-5 text-purple-500" />
@@ -44,7 +44,7 @@ export function ConfirmSendModal({ count, asAtDate, isSending, onConfirm, onCanc
           <button
             onClick={onCancel}
             disabled={isSending}
-            className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] transition-colors disabled:opacity-40"
+            className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] transition-colors disabled:opacity-40 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -52,7 +52,7 @@ export function ConfirmSendModal({ count, asAtDate, isSending, onConfirm, onCanc
         </div>
 
         {/* Body */}
-        <div className="space-y-3 text-sm text-[var(--ff-text-secondary)]">
+        <div className="space-y-3 text-sm text-[var(--ff-text-secondary)] max-lg:overflow-y-auto">
           <p>
             You are about to email account statements to{' '}
             <span className="font-semibold text-[var(--ff-text-primary)]">
@@ -71,18 +71,18 @@ export function ConfirmSendModal({ count, asAtDate, isSending, onConfirm, onCanc
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-3 mt-6">
+        <div className="flex items-center justify-end gap-3 mt-6 max-lg:flex-wrap max-lg:shrink-0">
           <button
             onClick={onCancel}
             disabled={isSending}
-            className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] transition-colors disabled:opacity-40"
+            className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] transition-colors disabled:opacity-40 max-lg:min-h-11"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={isSending}
-            className="inline-flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-60 transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-60 transition-colors max-lg:min-h-11"
           >
             {isSending ? (
               <>
