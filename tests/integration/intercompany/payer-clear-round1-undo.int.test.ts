@@ -15,7 +15,7 @@ import { planSupplierPaymentUnapply } from '../../../src/modules/accounting/serv
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { callRoute } from '../r035-approval.helpers';
 import { api, co, tokens, U, wipeConnections } from './intercompany.helpers';
-import { asService, mirrorCleanup } from './mirror.helpers';
+import { asService, mirrorCleanup, rawReverseJournal } from './mirror.helpers';
 import { clearPayments } from './allocation.helpers';
 import { loan, outcomeOf } from './allocation-clear.helpers';
 import { pairingApi } from './pairing.helpers';
@@ -125,6 +125,13 @@ describe('B: the connection holds count only a message that can still be accepte
     const { b, out } = await cleared();
     expect((await action({ action: 'void', paymentId: out.paymentId })).state.statusCode).toBe(200);
     expect((await payer.messageFor(pool, out.paymentId))?.status).toBe('pending');
+    expect(await edits(b.link!)).toEqual([200, 200, 200]);
+  });
+
+  it('the clearing journal reversed (the payment still processed): the message can never be accepted, nothing held', async () => {
+    const { b, out } = await cleared();
+    await rawReverseJournal(pool, out.journalEntryId);
+    expect((await pool.query('SELECT status FROM supplier_payments WHERE id = $1', [out.paymentId])).rows[0].status).toBe('processed');
     expect(await edits(b.link!)).toEqual([200, 200, 200]);
   });
 
