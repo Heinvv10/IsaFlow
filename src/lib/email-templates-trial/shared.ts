@@ -69,15 +69,23 @@ export function button(label: string, url: string): string {
   return ctaButton(escapeHtml(label), escapeHtml(url));
 }
 
-export function contactLine(): string {
+/** The contact address as a mailto link, styled like the contact line. */
+export function contactLink(): string {
   const mail = escapeHtml(TRIAL_CONTACT_EMAIL);
-  return para(`Questions? Email us at <a href="mailto:${mail}" style="color:${BRAND.primaryTeal};">${mail}</a>.`);
+  return `<a href="mailto:${mail}" style="color:${BRAND.primaryTeal};">${mail}</a>`;
 }
+
+export function contactLine(): string {
+  return para(`Questions? Email us at ${contactLink()}.`);
+}
+
+/** Footer text: slate-600, 7.24:1 on BRAND.footerBg (#f8fafc); BRAND.textMuted is 2.45:1 there. */
+export const TRIAL_FOOTER_TEXT = '#475569';
 
 export function trialLayout(inner: string): string {
   const footer = `
     <tr><td style="background-color:${BRAND.footerBg}; padding:20px 32px; border-top:1px solid ${BRAND.borderColor};
-                   font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted}; line-height:1.5;">
+                   font-family:${BRAND.fontStack}; font-size:12px; color:${TRIAL_FOOTER_TEXT}; line-height:1.5;">
       IsaFlow, South African cloud accounting.<br>
       You are receiving this because you started an IsaFlow trial for your company.
     </td></tr>`;

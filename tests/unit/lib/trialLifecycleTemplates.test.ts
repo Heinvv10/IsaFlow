@@ -72,4 +72,25 @@ describe('trial lifecycle templates', () => {
   it('no email offers an unsubscribe link (there is no mechanism behind one)', () => {
     for (const [, e] of all(payload())) expect(e.html).not.toMatch(/unsubscribe|preferences/i);
   });
+
+  it('ended email makes no promise about access, data or features after the trial', () => {
+    const html = renderEnded(payload()).html;
+    expect(html).not.toMatch(/still sign in|data you captured|is kept|no longer be available|features/i);
+    expect(html).toContain('Reply to this email');
+  });
+
+  it.each([['ending_soon', renderEndingSoon], ['ended', renderEnded]] as const)(
+    '%s: every plain-text mention of the contact address in the bullets is a mailto link', (_s, render) => {
+      const html = render(payload()).html;
+      const bullets = html.slice(html.indexOf('<ul'), html.indexOf('</ul>'));
+      expect(bullets).toContain('<a href="mailto:accounts@isaflow.co.za" style="color:');
+      const bare = bullets.replace(/<a [^>]*>accounts@isaflow\.co\.za<\/a>/g, '').replace(/href="[^"]*"/g, '');
+      expect(bare).not.toContain('accounts@isaflow.co.za');
+    });
+
+  it.each(all(payload()))('%s: footer text is #475569 (7.24:1 on the #f8fafc footer)', (_s, e) => {
+    const footer = e.html.slice(e.html.indexOf('IsaFlow, South African cloud accounting') - 400);
+    expect(footer).toMatch(/background-color:#f8fafc;[^"]*color:#475569;/);
+    expect(e.html).not.toContain('#94a3b8');
+  });
 });
