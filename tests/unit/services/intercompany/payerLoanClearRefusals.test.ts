@@ -94,6 +94,9 @@ describe('the refusal table', () => {
     expect(R035_SENTENCE).toMatch(/an approval rule applies to payments of this size: use the normal payment route/);
     expect(PAYER_CLEAR_SENTENCES.approval_rule).toBe(R035_SENTENCE);
     expect(PAYER_CLEAR_SENTENCES.receiver_not_ready).toMatch(/partner/i);
+    // round 3 (a): the amount can be the cause (exceeds_open): a generic hint, never the partner's open amount
+    expect(PAYER_CLEAR_SENTENCES.receiver_not_ready).toMatch(/Check with the partner, or try a smaller amount\./);
+    expect(PAYER_CLEAR_SENTENCES.receiver_not_ready).not.toMatch(/\d/);
   });
   it('the readiness words are exactly the words the definer (migration 1029) can RETURN, both ways', () => {
     const migration = readFileSync(path.join(process.cwd(), 'scripts/migrations/sql/1029_intercompany_p4e_receiver_readiness.sql'), 'utf8');

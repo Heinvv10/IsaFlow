@@ -191,6 +191,26 @@ describe('Clear against the intercompany loan', () => {
     await waitFor(() => expect(document.activeElement).toBe(sentence));
   });
 
+  it('round 3 (e): the SAME refusal again takes the focus back to the sentence; Back returns it to the amount', async () => {
+    answer = { get: () => envelope(preview()) };
+    const dialog = await open();
+    setAmount(dialog, '0');
+    const review = within(dialog).getByRole('button', { name: 'Review clearing' });
+    fireEvent.click(review);
+    const sentence = await within(dialog).findByText(/Enter an amount in rand and cents, more than zero/);
+    await waitFor(() => expect(document.activeElement).toBe(sentence));
+    // the person moves on and presses Review again with the same amount: the same sentence, and the focus must come back to it
+    review.focus();
+    fireEvent.click(review);
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByText(/Enter an amount in rand and cents, more than zero/)));
+    // Back from the confirm step: the focus is on the amount (the field the person came back to change), not lost to the body
+    setAmount(dialog, '100');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Post clearing' })));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('Amount')));
+  });
+
   it("8c: only the latest preview is applied (an older answer that resolves later is dropped)", async () => {
     let releaseOld: (r: Response) => void = () => undefined;
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {

@@ -15,11 +15,14 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/alsTransaction', () => ({ withAlsTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-// P4-E round 2: the payer's journal key is taken before the claim (its own tests are the intercompany integration suites)
-vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({ lockPayerJournalKey: vi.fn(async () => null) }));
+// P4-E round 2: the payer's journal key is taken before the claim (its own tests: payerJournalKey.test.ts and the intercompany integration suites)
+vi.mock('@/modules/accounting/services/intercompany/payerJournalKey', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/payerJournalKey')>()), lockPayerJournalKey: vi.fn(async () => null),
+}));
 
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
+import { lockPayerJournalKey } from '@/modules/accounting/services/intercompany/payerJournalKey';
 import {
   claimJournalReversal,
   JournalReversalLockTimeoutError,
@@ -61,6 +64,16 @@ describe('claimJournalReversal', () => {
     expect(err).toBeInstanceOf(JournalReversalLockTimeoutError);
     expect(err!.message).toContain(ENTRY_ID);
     expect(err!.message).toMatch(/retry/i);
+  });
+
+  it('P4-E round 3 (LOW-1): a timeout waiting for the payer\'s journal key says what holds it, not "another reversal"', async () => {
+    vi.mocked(lockPayerJournalKey).mockRejectedValueOnce(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+    const err = await withCtx(fakeClient(), () => claimJournalReversal(COMPANY_ID, ENTRY_ID, USER_ID)).then(() => null, (e: Error) => e);
+    expect(err).toBeInstanceOf(JournalReversalLockTimeoutError);
+    expect(err!.message).toContain(ENTRY_ID);
+    expect(err!.message).toMatch(/intercompany payment/);
+    expect(err!.message).not.toMatch(/is being reversed by another request/);
+    expect(sqlMock).not.toHaveBeenCalled(); // the claim row was never touched
   });
 
   it('restores the lock_timeout it borrowed, even when the claim throws', async () => {

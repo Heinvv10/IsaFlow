@@ -20,7 +20,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { findJournalChainRoot } from '../shared/journalChainHead';
+import { lockKeys, lockPayerJournalKey } from './payerJournalKey';
 
 type Row = Record<string, unknown>;
 
@@ -48,11 +48,6 @@ export async function loanClearedUnapplyRefusal(companyId: string, paymentId: st
     return LOAN_CLEARED_UNAPPLY_SENTENCE;
   }
   return null;
-}
-
-/** Each key in the order the SQL sorted it (ascending bigint), as the receiver's cap lock takes them. */
-async function lockKeys(keys: Row[]): Promise<void> {
-  for (const r of keys) await sql`SELECT pg_catalog.pg_advisory_xact_lock(${String(r.k)}::BIGINT)`;
 }
 
 /** The sentence when a receiver accepted an allocation message of this payment of the company (the payer), else null. Takes the keys first. */
@@ -88,25 +83,9 @@ export async function partnerClearedRefusal(companyId: string, paymentId: string
   return PARTNER_CLEARED_SENTENCE;
 }
 
-/**
- * The payer's journal key (1027's cap-lock key on the entry's chain ROOT), taken by `claimJournalReversal` BEFORE its claim row lock (fix
- * round 2, LOW-1): a payer void takes its keys (payment, journal, bill) and only then the journal row (the reversal claim of its chain), so a
- * GL reversal that took the row first and the key second could deadlock with it (40P01, a 500). Same order now: key, then row. Returns the
- * root, or null when this company sent no allocation message (nothing can race: no key). Re-entrant: the refusal below takes it again.
- */
-export async function lockPayerJournalKey(companyId: string, entryId: string): Promise<string | null> {
-  // the cheap question first: a company that sent no allocation message walks no chain
-  const any = (await sql`
-    SELECT 1 AS one FROM intercompany_messages WHERE from_company_id = ${companyId}::UUID AND kind = 'allocation' LIMIT 1
-  `) as Row[];
-  if (any.length === 0) return null;
-  const root = (await findJournalChainRoot(companyId, entryId)) ?? entryId;
-  await lockKeys((await sql`SELECT pg_catalog.hashtextextended(${companyId}::UUID::TEXT || ':journal:' || ${root}::UUID::TEXT, 1027) AS k`) as Row[]);
-  return root;
-}
-
 /** A journal reversal (called by `reverseJournalEntry` for every entry, under its claim, before any write): refused when the entry, or the
- *  entry its chain starts from, is the journal an ACCEPTED allocation message of this company (the payer) stands on. */
+ *  entry its chain starts from, is the journal an ACCEPTED allocation message of this company (the payer) stands on. The key
+ *  (`payerJournalKey.ts`, a leaf) is taken only when some allocation message stands on that root, and the claim took it already. */
 export async function partnerClearedJournalRefusal(companyId: string, entryId: string): Promise<string | null> {
   const root = await lockPayerJournalKey(companyId, entryId);
   if (root === null) return null;

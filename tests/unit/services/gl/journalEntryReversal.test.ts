@@ -24,7 +24,11 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
 // intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
 vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
-  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null), lockPayerJournalKey: vi.fn(async () => null),
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+}));
+// P4-E round 3: the payer's journal key (a leaf the claim imports; tested in payerJournalKey.test.ts and the intercompany suites): none here
+vi.mock('@/modules/accounting/services/intercompany/payerJournalKey', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/payerJournalKey')>()), lockPayerJournalKey: vi.fn(async () => null),
 }));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));

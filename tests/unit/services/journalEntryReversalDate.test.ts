@@ -25,6 +25,10 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
 // P4-D A2: the intercompany clearing-receipt reversal guard is its own module, tested in its integration suite
 vi.mock('@/modules/accounting/services/intercompany/clearingReversalGuard', () => ({ refuseReversingIntercompanyClearing: vi.fn(async () => undefined) }));
+// P4-E round 3: the payer's journal key (a leaf the claim imports; tested in payerJournalKey.test.ts and the intercompany suites): none here
+vi.mock('@/modules/accounting/services/intercompany/payerJournalKey', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/payerJournalKey')>()), lockPayerJournalKey: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),

@@ -35,7 +35,8 @@ export const PAYER_CLEAR_SENTENCES: Readonly<Record<PayerClearCode, string>> = O
   no_period: 'No financial period covers the posting date. Create the financial year or choose another date. Nothing was posted.',
   period_locked: 'The posting date is in a closed or locked financial period. Choose a date in an open period. Nothing was posted.',
   vat_locked: 'The posting date is in a locked VAT period. Choose a date outside it. Nothing was posted.',
-  receiver_not_ready: 'The partner company cannot clear this against its loan account yet (its side of the connection, its invoice or its settings are not ready). Ask the partner to check, then try again. Nothing was posted.',
+  // fix round 3 (a): the amount can be the cause (exceeds_open): a generic hint, never the partner's open amount
+  receiver_not_ready: 'The partner company cannot clear this against its loan account yet (its side of the connection, its invoice or its settings are not ready, or the amount is more than it can clear now). Check with the partner, or try a smaller amount. Nothing was posted.',
   approval_rule: R035_SENTENCE,
   contra_refused: 'Your loan account cannot take this clearing (it is inactive, a header, a bank or a control account). Nothing was posted.',
 });

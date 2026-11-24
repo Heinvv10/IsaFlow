@@ -30,7 +30,8 @@
 --                                2 MED-1) whose payer side still stands (intercompany_allocation_payer_standing), and an accepted one whose
 --                                clearing receipt the partner voided (its journal chain even, P4-D's rule). An accepted one whose receipt
 --                                stands is in the invoice's amount_paid already (P4-D posts and allocates it): not counted. A BANK-paid one
---                                (cashLegIsLoanAccount false) claims nothing: P4-D can never accept it (cash_not_through_loan), and the
+--                                (cashLegIsLoanAccount false) claims nothing: P4-D does not accept it while the side's loan account differs
+--                                from the account the payment credited (cash_not_through_loan; P4-E limit 19 names when it can), and the
 --                                partner's receipt of that cash, if any, is already in amount_paid. The accepted arm reads no flag: an accepted
 --                                message is one P4-D cleared against the loan, whatever its payload says.
 --     ready                      none of the above
@@ -46,8 +47,9 @@
 --   intercompany_connection_allocation_held(connection) RETURNS boolean, a registered SECURITY DEFINER (owner migration_admin), STABLE, no lock:
 --   (fix round 1, B) for a signed-in member with an intercompany write role of a company on the connection, whether an allocation message on
 --   it still holds the relationship (P4-E (j).8: unlink, settlement mode, loan accounts): ACCEPTED, or a pending / failed / dismissed
---   (restorable) LOAN one (cashLegIsLoanAccount, fix round 2 MED-1) while its payer side stands. A BANK-paid one holds nothing (P4-D can never
---   accept it: cash_not_through_loan), nor does one the payer voided, unapplied or reversed (it can never be accepted). A FAILED loan message
+--   (restorable) LOAN one (cashLegIsLoanAccount, fix round 2 MED-1) while its payer side stands. A BANK-paid one holds nothing (P4-D does not
+--   accept it while the side's loan account differs from the credited account: cash_not_through_loan; P4-E limit 19), nor does one the payer
+--   voided, unapplied or reversed (it is no longer live). A FAILED loan message
 --   holds whatever the receiver's refusal was (wrong_customer, pre_cutover_invoice, loan_account_unusable, ...): the safer reading, because
 --   every one of those is the receiver's own state, which it can put right and then accept the message; the remedy is the payer's void or the
 --   receiver's reject. NULL for anyone else (the caller holds on NULL: fail closed). One boolean, no row data.

@@ -6,7 +6,8 @@
  * 409 (the books changed, or the bill is busy) the panel fetches the preview again (`onStale`), so a retry sends what the books now say; the
  * sentence stays until the person acts. "Partner ready" means the partner can clear SOMETHING now (fix round 2 MED-3: the preview asks for one
  * cent); the amount chosen is judged when it posts. The amount is a MoneyField (integer cents, parsed on blur / Enter). Focus (fix round 2):
- * after Review it moves to Post clearing; a refusal moves it to the sentence.
+ * after Review it moves to Post clearing; a refusal moves it to the sentence, every time, the same sentence again too (round 3: keyed on a
+ * count, not on the text); Back returns it to the amount.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { MoneyField } from '@/components/ui/MoneyField';
@@ -42,9 +43,14 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
   const [dateRefused, setDateRefused] = useState(false);
   const [step, setStep] = useState<'review' | 'confirm'>('review');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setErrorText] = useState('');
+  const [errorSeq, setErrorSeq] = useState(0);
+  const [backSeq, setBackSeq] = useState(0);
+  /** Every refusal counts, the same text again too: the focus follows each one (round 3). */
+  const setError = (text: string) => { setErrorText(text); if (text) setErrorSeq((n) => n + 1); };
   const submitting = useRef(false);
   const field = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
   const alertRef = useRef<HTMLParagraphElement>(null);
   const postRef = useRef<HTMLButtonElement>(null);
   const confirmId = `${useId()}-confirm`;
@@ -61,8 +67,10 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
     setAmountCents(maxCents); setAmountRefused(null); setAmountReset((k) => k + 1);
   }, [open, maxCents]);
   // a refusal (the dialog's own or the server's) takes the focus to its sentence; Review takes it to Post clearing
-  useEffect(() => { if (error) alertRef.current?.focus(); }, [error]);
+  // keyed on the count, not the text: the same sentence set again must move the focus again
+  useEffect(() => { if (errorSeq > 0) alertRef.current?.focus(); }, [errorSeq]);
   useEffect(() => { if (step === 'confirm') postRef.current?.focus(); }, [step]);
+  useEffect(() => { if (backSeq > 0) amountRef.current?.focus(); }, [backSeq]);
 
   const amount = amountCents === null ? NaN : amountCents / 100;
   const ready = preview.linked && preview.blocked === null && preview.loanAccountId !== null && preview.linkId !== null && preview.openAmount !== null
@@ -123,7 +131,7 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
           {preview.blocked && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400 break-words">{preview.blocked}</p>}
           {step === 'review' ? (
             <div className="space-y-2">
-              <MoneyField id={amountId} label="Amount" value={amountCents} resetKey={amountReset} disabled={busy || !ready} className="w-48"
+              <MoneyField id={amountId} ref={amountRef} label="Amount" value={amountCents} resetKey={amountReset} disabled={busy || !ready} className="w-48"
                 onChange={(cents, v) => { setAmountCents(cents); setAmountRefused(v.valid ? null : v.reason ?? 'Enter an amount in rand and cents.'); }} />
               <DateField id="ic-loan-clear-date" ref={field} label="Posting date" value={date || null} postingDate keepsEscape
                 minDate={preview.floorDate ?? undefined} maxDate={todayInSast()} minMessage="The posting date must be on or after the bill's date and the pair's cut-over."
@@ -147,7 +155,7 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
           </>
         ) : (
           <>
-            <button type="button" onClick={() => setStep('review')} disabled={busy} className={btn}>Back</button>
+            <button type="button" onClick={() => { setStep('review'); setBackSeq((n) => n + 1); }} disabled={busy} className={btn}>Back</button>
             <button ref={postRef} type="button" aria-describedby={confirmId} onClick={() => void post()} disabled={busy}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Post clearing
