@@ -524,7 +524,7 @@ jobs:
           # specs took next-server to 7.5-7.8 GB RSS (chunk 4, run 45310932416: z17 at 7538 MB, z19 at 7814 MB,
           # which restarted), so 8192 left under 5% headroom. 10240 puts the threshold ~1.6 GB higher. It fits the
           # runner's 16 GB even at V8's hard ceiling: 10 GB heap + ~1.2 GB outside the heap + the ~2.6 GB everything
-          # else used at that run's peak (free memory then was 5.96 GB) is ~14 GB. 12288 would not fit.
+          # else used at that run's peak (free memory then was 5.96 GB) is ~13 GB, leaving ~3 GB. 12288 would leave ~1 GB.
           NODE_OPTIONS: --max-old-space-size=10240
           # Velo only: the real secrets never reach a hosted runner, whose
           # E2E admin is generated (ADMIN_ENV_FILE, below).

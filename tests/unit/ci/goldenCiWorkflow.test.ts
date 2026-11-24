@@ -125,7 +125,7 @@ describe('ci.yml golden dev server memory', () => {
     expect(limit * 0.8 + OUTSIDE_HEAP_MB).toBeGreaterThan(7814 * 1.15);
   });
 
-  it('still fits the runner when V8 uses all of it (an OOM kill would be worse than a restart)', () => {
-    expect(limit + OUTSIDE_HEAP_MB + EVERYTHING_ELSE_MB).toBeLessThan(RUNNER_MB);
+  it('still fits the runner when V8 uses all of it, with 2 GB left for the OS and spikes (an OOM kill would be worse than a restart)', () => {
+    expect(limit + OUTSIDE_HEAP_MB + EVERYTHING_ELSE_MB + 2048).toBeLessThan(RUNNER_MB);
   });
 });
