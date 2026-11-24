@@ -89,7 +89,7 @@ export default function BankStatementsIndexPage() {
             </div>
             <button
               onClick={() => router.push('/accounting/bank/statements/import-pdf')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0 max-lg:min-h-11"
             >
               <Upload className="h-4 w-4" />
               Upload PDF
@@ -117,7 +117,7 @@ export default function BankStatementsIndexPage() {
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
+              <table className="w-full text-sm min-w-[700px] max-lg:min-w-0 table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className={TH}>Date uploaded</th>
@@ -136,21 +136,21 @@ export default function BankStatementsIndexPage() {
                       onClick={() => router.push(`/accounting/bank/statements/import-pdf?id=${imp.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors"
                     >
-                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">
+                      <td data-label="Date uploaded" className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">
                         {fmtDate(imp.createdAt)}
                       </td>
-                      <td className="px-4 py-3 text-xs text-[var(--ff-text-primary)] font-medium">
+                      <td data-label="Bank account" className="px-4 py-3 text-xs text-[var(--ff-text-primary)] font-medium">
                         {imp.bankAccountId}
                       </td>
-                      <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">
+                      <td data-label="Period" className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">
                         {imp.periodStart || imp.periodEnd
                           ? `${fmtDate(imp.periodStart)} – ${fmtDate(imp.periodEnd)}`
                           : '—'}
                       </td>
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{imp.rowCount}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-teal-400">{imp.importedCount}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-amber-400">{imp.duplicateCount}</td>
-                      <td className="px-4 py-3"><StatusBadge status={imp.status} /></td>
+                      <td data-label="Rows" className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{imp.rowCount}</td>
+                      <td data-label="Imported" className="px-4 py-3 text-xs font-mono text-teal-400">{imp.importedCount}</td>
+                      <td data-label="Duplicates" className="px-4 py-3 text-xs font-mono text-amber-400">{imp.duplicateCount}</td>
+                      <td data-label="Status" className="px-4 py-3"><StatusBadge status={imp.status} /></td>
                     </tr>
                   ))}
                 </tbody>

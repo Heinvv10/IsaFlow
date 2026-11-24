@@ -117,7 +117,7 @@ export function PairedExtensionsPanel() {
       )}
       {items.length > 0 && (
         <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+          <table className="w-full text-sm min-w-[640px] max-lg:min-w-0 table-cards">
             <thead>
               <tr className="border-b border-[var(--ff-border-light)]">
                 <th className={TH}>Bank account</th>
@@ -137,15 +137,15 @@ export function PairedExtensionsPanel() {
                     <td className="px-4 py-2.5 text-xs font-medium text-[var(--ff-text-primary)]">
                       {accountLabel(c)}{number && <span className="ml-2 font-id text-[var(--ff-text-tertiary)]">{number}</span>}
                     </td>
-                    <td className={`${TD} tabular-nums`}>{formatDisplayDate(toDate(c.createdAt))}</td>
-                    <td className={`${TD} tabular-nums`}>{synced ? formatDisplayDateTime(synced) : 'Never'}</td>
-                    <td className={`${TD} ${failed ? 'text-amber-400' : ''}`}>{statusLabel(c)}</td>
+                    <td data-label="Paired" className={`${TD} tabular-nums`}>{formatDisplayDate(toDate(c.createdAt))}</td>
+                    <td data-label="Last import" className={`${TD} tabular-nums`}>{synced ? formatDisplayDateTime(synced) : 'Never'}</td>
+                    <td data-label="Status" className={`${TD} ${failed ? 'text-amber-400' : ''}`}>{statusLabel(c)}</td>
                     <td className="px-4 py-2.5 text-right">
                       <button
                         type="button"
                         aria-label={`Revoke ${accountLabel(c)}`}
                         onClick={() => { setNotice(null); setPending(c); }}
-                        className="px-3 py-1 rounded-md text-xs font-medium border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="px-3 py-1 rounded-md text-xs font-medium border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors max-lg:min-h-11"
                       >
                         Revoke
                       </button>
