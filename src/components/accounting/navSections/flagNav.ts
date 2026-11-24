@@ -15,10 +15,14 @@ export const THREE_WAY_HREF = '/accounting/budgets/three-way';
  *  link and the page answers its 403 sentence. */
 export const LOAN_RECON_HREF = '/accounting/settings/intercompany/loan-reconciliation';
 
+/** Self-serve upgrade from trial (owner only), dark behind its flag. The page and its API check the flag and the owner role themselves. */
+export const TRIAL_UPGRADE_HREF = '/accounting/settings/billing/upgrade';
+
 /** Page path → the feature flag code it needs. */
 const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
   [LOAN_RECON_HREF]: 'intercompany_loan_clearing',
+  [TRIAL_UPGRADE_HREF]: 'trial_self_serve_upgrade',
 };
 
 /** The marker `useNavFlags` puts in the set when the user may read `moduleKey`. */
