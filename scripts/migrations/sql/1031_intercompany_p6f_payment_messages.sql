@@ -22,6 +22,8 @@
 --   G1 the messages guard (the 1027 body): 'payment' is migration_admin's only (closes app_user's INSERT gap), names the sender's own payment
 --       allocation, is accepted only after the cap lock and the receipt lock with a target H2 passes and within the receipt's consumption, and
 --       the new system transition 'redraft' (D4) returns an accepted payment message to pending with no target and no handling.
+--   H4 intercompany_payment_cash_word(payment, company), STABLE INVOKER, EXECUTE app_user + migration_admin: did a payment of P move cash
+--       (ap/settlementKind.ts's rules; round 2): D1 and the payer's unsent read both ask it.
 --   D1 intercompany_send_for_payment(allocation), registered SECURITY DEFINER: the payer's payment message (see its header).
 --   D3 intercompany_send_for_allocation (the 1025 body): the payer's flag in SQL, the payer journal key first, and payment_sent. Re-registered.
 --   D4 intercompany_discard_payment_draft(message, payment, reason), registered SECURITY DEFINER: the receiver discards the F draft an accepted
@@ -47,6 +49,7 @@
 --      DROP FUNCTION IF EXISTS public.intercompany_payment_target_ok(uuid, jsonb, uuid, uuid, text, uuid);
 --      DROP FUNCTION IF EXISTS public.intercompany_payment_message_state(uuid);
 --      DROP FUNCTION IF EXISTS public.intercompany_payment_payer_standing(uuid);   (last: D2 calls it)
+--      DROP FUNCTION IF EXISTS public.intercompany_payment_cash_word(uuid, uuid);   (after D1: D1 calls it)
 --      DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_send_for_payment(uuid)', 'intercompany_payment_message_state(uuid)',
 --        'intercompany_discard_payment_draft(uuid,uuid,text)');
 --   4. IX2 back to 1002:258 (only once no two ACCEPTED payment messages share a target):
@@ -568,6 +571,62 @@ BEGIN
 END;
 $$;
 
+-- ── H4: is a payment of P cash? (round 2 MED-R1 / LOW-R2: ap/settlementKind.ts's rule, for D1 and the unsent read) ──
+
+-- One word for the supplier payment p_payment of company p_co, the rule ap/settlementKind.ts (paymentSettlementKindSql) classifies by, rule by
+-- rule, mapped to "did cash move":
+--   1 contra    payment_method 'contra' (settle_by_contra)                                                    -> 'not_cash'
+--   2 card_line it settles a bank-first provisional (settles_provisional_je_id, R-127) that credited a money account, or a statement line
+--               (settling status: core/paymentVoidReads SETTLING_LINE_STATUSES) is matched to a line of its journal       -> 'cash'
+--   3/4         the account its journal credits (the largest credit line, ties by line id; else its bank_account_id) is not a money
+--               account: no subtype and no statement lines (unclassified), or a clearing / expense account (contra)       -> 'no_money_account'
+--   5 payment   everything else                                                                                -> 'cash'
+-- Money account = settlementKind's moneyAccountSql: a bank / cash subtype (gl/accountSubtypes CASH_SUBTYPES) or an account holding imported
+-- statement lines. Three differences, each pinned by payment-r2-kind.int.test.ts: a provisional that credited no money account is not cash
+-- (settlementKind calls any provisional a card line); nothing credited (no journal line, no bank account) is not cash (settlementKind says
+-- payment); a batch member is judged by its BATCH's journal (it has none of its own). The bank-first payment's own journal is the RECLASS
+-- (DR AP / CR the provisional's expense and VAT lines), so its credit line alone would call it no_money_account (round 2 MED-R1).
+-- SECURITY INVOKER, STABLE: D1 (as its owner) and the payer's unsent read (app_user, under RLS: another company's payment reads as NULL,
+-- never 'cash') call it, so the two cannot judge a payment differently. NULL only for a payment the caller cannot see.
+CREATE OR REPLACE FUNCTION public.intercompany_payment_cash_word(p_payment uuid, p_co uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH sp AS (
+    SELECT x.payment_method, x.settles_provisional_je_id, x.bank_account_id,
+           COALESCE(x.gl_journal_entry_id,
+                    (SELECT b.gl_journal_entry_id FROM public.supplier_payment_batches b WHERE b.id = x.batch_id AND b.company_id = p_co)) AS je
+      FROM public.supplier_payments x
+     WHERE x.id = p_payment AND x.company_id = p_co
+  ), money AS (
+    SELECT ga.id FROM public.gl_accounts ga
+     WHERE ga.company_id = p_co
+       AND (COALESCE(ga.account_subtype = ANY (ARRAY['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']::text[]), false)
+            OR EXISTS (SELECT 1 FROM public.bank_transactions mbt WHERE mbt.bank_account_id = ga.id AND mbt.company_id = p_co))
+  )
+  SELECT CASE
+    WHEN sp.payment_method IS NOT DISTINCT FROM 'contra' THEN 'not_cash'
+    WHEN (sp.settles_provisional_je_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM public.gl_journal_lines pl
+                       WHERE pl.journal_entry_id = sp.settles_provisional_je_id AND pl.company_id = p_co AND pl.credit > 0
+                         AND pl.gl_account_id IN (SELECT id FROM money)))
+      OR EXISTS (SELECT 1 FROM public.bank_transactions kbt
+                   JOIN public.gl_journal_lines kml ON kml.id = kbt.matched_journal_line_id AND kml.company_id = p_co
+                  WHERE kbt.company_id = p_co AND kml.journal_entry_id = sp.je
+                    AND kbt.status = ANY (ARRAY['allocated', 'matched', 'reconciled']::text[])) THEN 'cash'
+    WHEN COALESCE((SELECT kjl.gl_account_id FROM public.gl_journal_lines kjl
+                    WHERE kjl.journal_entry_id = sp.je AND kjl.company_id = p_co AND kjl.credit > 0
+                    ORDER BY kjl.credit DESC, kjl.id LIMIT 1), sp.bank_account_id) IN (SELECT id FROM money) THEN 'cash'
+    ELSE 'no_money_account'
+  END
+  FROM sp
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_payment_cash_word(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_payment_cash_word(uuid, uuid) TO app_user, migration_admin;
+
 -- ── D1: the payer's payment message ─────────────────────────────────────────
 
 -- Session company P = app.current_company_id(); every answer but the message is (NULL, reason, NULL). In order (the first that applies):
@@ -585,8 +644,9 @@ $$;
 --   no_cutover / before_cutover   the connection's cut-over and the payment date (1025's and 1027's live rule, MED-3)
 --   not_posted / no_journal   processed or reconciled, on its standing journal (its own, else its batch's) with an odd chain
 --   through_loan      that journal credits the payer side's loan account (the allocation kind's, D3)
---   not_cash          (round 1) a contra set-off (payment_method 'contra'), or a journal that credits no money account of P (bank / cash
---                     subtype, or an account holding statement lines): no cash moved, so no payment message
+--   not_cash          (round 1) a contra set-off (payment_method 'contra'): no cash moved, so no payment message
+--   no_money_account  (round 2 LOW-R2) H4 says no money account of P was credited (bank / cash subtype, or an account holding statement
+--                     lines; a bank-first payment's provisional counts, round 2 MED-R1): the unsent read lists it, marked
 --   allocation_sent   an allocation message exists for this row (Z1)
 --   superseded        an ACCEPTED message of P for the same payment names an allocation row that no longer exists (MED-1)
 --   already_sent      a payment message for this row exists (the unique key makes the INSERT a no-op for a racing writer too)
@@ -609,6 +669,7 @@ DECLARE
   v_n integer;
   v_conn uuid;
   v_loan uuid;
+  v_word text;
   a RECORD;
   l RECORD;
 BEGIN
@@ -683,19 +744,13 @@ BEGIN
                                        WHERE jl.journal_entry_id = v_je AND jl.company_id = v_co AND jl.gl_account_id = v_loan AND jl.credit > 0) THEN
       v_reason := 'through_loan'; EXIT main;
     END IF;
-    -- (round 1 MED-1) CASH only. A contra set-off moved no cash: settle_by_contra writes payment_method 'contra' and rides its contra account
-    -- (any balance-sheet account, a bank one included) in the bank column, so the method alone refuses it. A payment captured as eft whose
-    -- journal credits no MONEY account of the payer moved no cash either. Money account = settlementKind.ts's rule (ap/settlementKind.ts,
-    -- moneyAccountSql): a bank / cash subtype (gl/accountSubtypes CASH_SUBTYPES, pinned equal by paymentSqlPins.test.ts) or an account
-    -- holding imported statement lines (a paycard whose subtype was never set). Any credit line of the journal counts (a batch journal
-    -- credits the batch's bank for every member). Without this the receiver gets a `payment` and its draft posts DR bank for cash that never came.
-    IF a.payment_method IS NOT DISTINCT FROM 'contra' OR NOT EXISTS (
-         SELECT 1 FROM public.gl_journal_lines jl
-           JOIN public.gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = v_co
-          WHERE jl.journal_entry_id = v_je AND jl.company_id = v_co AND jl.credit > 0
-            AND (ga.account_subtype = ANY (ARRAY['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']::text[])
-                 OR EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = v_co))) THEN
-      v_reason := 'not_cash'; EXIT main;
+    -- (round 1 MED-1, round 2 MED-R1 / LOW-R2) CASH only, by H4 (settlementKind's rules; the unsent read asks the same function). A contra
+    -- set-off moved no cash: not_cash. A payment crediting no MONEY account of the payer (and settling no bank-first provisional that did, with
+    -- no statement line on its journal) moved none either: no_money_account. Without this the receiver gets a `payment` and its draft posts DR
+    -- bank for cash that never came. Fail closed: anything but 'cash' refuses.
+    v_word := public.intercompany_payment_cash_word(a.payment_id, v_co);
+    IF v_word IS DISTINCT FROM 'cash' THEN
+      v_reason := CASE WHEN v_word = 'not_cash' THEN 'not_cash' ELSE 'no_money_account' END; EXIT main;
     END IF;
     IF EXISTS (SELECT 1 FROM public.intercompany_messages m WHERE m.from_company_id = v_co AND m.source_doc_type = 'payment_allocation'
                   AND m.source_doc_id = p_allocation AND m.kind = 'allocation') THEN
@@ -968,7 +1023,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_send_for_payment(uuid)', 'public.intercompany_send_for_payment(uuid)',
-     'intercompany_messages (one kind=''payment'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal that does not credit its loan account and credits a money account (never a contra), its bill, and the ACTIVE link of that bill to the partner''s customer invoice on the ONE active CASH group connection whose payer side names the bill''s supplier, past the connection''s cut-over, recording that journal) for the session company (a write-role user, the dark flag on) only; nothing else is written (no journal, no document), a read of payment_allocations, supplier_payments, supplier_payment_batches, supplier_invoices, gl_journal_entries, gl_journal_lines (the reversal chain, the loan-account credit, a credit on a money account), gl_accounts (the subtype of a credited account) and bank_transactions (does a credited account hold statement lines), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE), intercompany_connection_sides, feature_flags, company_feature_overrides, company_users (the write role) and intercompany_messages (has either kind been written for the row; an accepted message of the payment whose row is gone); takes one advisory key (the payer journal key of the payment''s journal root); nothing for another company''s rows'),
+     'intercompany_messages (one kind=''payment'' message, its payload built from the session company''s own payment allocation: its processed or reconciled supplier payment on a posted, standing journal that does not credit its loan account and moved cash by intercompany_payment_cash_word (never a contra; its journal credits a money account, or it settles a bank-first provisional that did, or a statement line is matched to its journal), its bill, and the ACTIVE link of that bill to the partner''s customer invoice on the ONE active CASH group connection whose payer side names the bill''s supplier, past the connection''s cut-over, recording that journal) for the session company (a write-role user, the dark flag on) only; nothing else is written (no journal, no document), a read of payment_allocations, supplier_payments, supplier_payment_batches, supplier_invoices, gl_journal_entries, gl_journal_lines (the reversal chain, the loan-account credit, the credited account of its journal and of its provisional), gl_accounts (the subtype of a credited account) and bank_transactions (does a credited account hold statement lines; a settling statement line matched to its journal), intercompany_document_slots, intercompany_document_links (held FOR SHARE), intercompany_connections (held FOR SHARE), intercompany_connection_sides, feature_flags, company_feature_overrides, company_users (the write role) and intercompany_messages (has either kind been written for the row; an accepted message of the payment whose row is gone); takes one advisory key (the payer journal key of the payment''s journal root); nothing for another company''s rows'),
     ('intercompany_payment_message_state(uuid)', 'public.intercompany_payment_message_state(uuid)',
      'nothing (STABLE, no lock): for the RECEIVER of a payment message only (a signed-in member of the session company, which is the message''s to_company), a read of that message, its intercompany_connections row and company_group_members / company_groups (intercompany_shared_group), feature_flags / company_feature_overrides (its own flag), intercompany_document_links (the payload''s link), through intercompany_payment_payer_standing the payer''s payment_allocations / supplier_payments / supplier_payment_batches rows and journal chain (gl_journal_entries), and for an accepted message its target receipt (customer_payments, the receiver''s); answers one (live, state) row, one word and no row data; not_found for anyone else, a missing message or another kind'),
     ('intercompany_send_for_allocation(uuid)', 'public.intercompany_send_for_allocation(uuid)',
@@ -989,7 +1044,7 @@ BEGIN
       FROM (VALUES ('public.intercompany_send_for_payment(uuid)'), ('public.intercompany_payment_message_state(uuid)'),
                    ('public.intercompany_send_for_allocation(uuid)'), ('public.intercompany_discard_payment_draft(uuid, uuid, text)'),
                    ('public.intercompany_payment_payer_standing(uuid)'), ('public.intercompany_payment_target_ok(uuid, jsonb, uuid, uuid, text, uuid)'),
-                   ('public.intercompany_allocation_cap_lock(uuid)')) AS f(sig)
+                   ('public.intercompany_allocation_cap_lock(uuid)'), ('public.intercompany_payment_cash_word(uuid, uuid)')) AS f(sig)
       JOIN pg_catalog.pg_proc p ON p.oid = f.sig::regprocedure
      CROSS JOIN pg_catalog.pg_roles r
      WHERE pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE')
@@ -1009,7 +1064,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- The halts: PUBLIC execute, app_user missing on D1 / D2 / D4 / H2 / H3, app_user having H1, a definer not owned by migration_admin or whose
+-- The halts: PUBLIC execute, app_user missing on D1 / D2 / D4 / H2 / H3 / H4, app_user having H1, a definer not owned by migration_admin or whose
 -- registry row does not hold its hash, a search_path not pinned.
 DO $$
 DECLARE
@@ -1022,6 +1077,7 @@ BEGIN
       ('public.intercompany_discard_payment_draft(uuid, uuid, text)', 'intercompany_discard_payment_draft(uuid,uuid,text)', true),
       ('public.intercompany_payment_target_ok(uuid, jsonb, uuid, uuid, text, uuid)', NULL, true),
       ('public.intercompany_allocation_cap_lock(uuid)', NULL, true),
+      ('public.intercompany_payment_cash_word(uuid, uuid)', NULL, true),
       ('public.intercompany_payment_payer_standing(uuid)', NULL, false)) AS x(fn, sig, app) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure AND p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']) THEN
       RAISE EXCEPTION '1031: % does not pin its search_path', d.fn;

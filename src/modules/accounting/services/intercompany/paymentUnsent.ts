@@ -7,13 +7,15 @@
  * P5 is loan-only and refuses a cash connection by design.
  *
  * Round 1 (B5): ONLY what D1 (intercompany_send_for_payment) could still send, so the list carries no permanent noise: never a contra set-off
- * or a journal crediting no money account (`not_cash`), never a journal crediting the side's loan account (`through_loan`), never a reversed
- * journal (stricter than D1's odd chain: app_user cannot ask the chain, so a reversal of a reversal is left out), never a supplier on more
- * than one active cash connection (`ambiguous`), never a payment an accepted message of which lost its allocation row (`superseded`). What
- * stays is a payment the flag (off at send), a lock timeout or a since-fixed refusal left without its message.
+ * (`not_cash`), never a journal crediting the side's loan account (`through_loan`), never a reversed journal (stricter than D1's odd chain:
+ * app_user cannot ask the chain, so a reversal of a reversal is left out), never a supplier on more than one active cash connection
+ * (`ambiguous`), never a payment an accepted message of which lost its allocation row (`superseded`). What stays is a payment the flag (off
+ * at send), a lock timeout or a since-fixed refusal left without its message.
+ * Round 2: cash is D1's own function, `intercompany_payment_cash_word` (ap/settlementKind.ts's rules: a bank-first payment whose provisional
+ * credited the bank is cash, MED-R1). A payment crediting no money account (a clearing account, a bank account with no subtype and no
+ * statement line yet) is LISTED with `refusal: 'no_money_account'` (LOW-R2): D1 refuses it, and the payer sees why ("not sent: no cash account").
  */
 import { sql } from '@/lib/neon';
-import { CASH_SUBTYPES } from '../gl/accountSubtypes';
 import type { UnsentPage } from './paymentInboxTypes';
 
 type Row = Record<string, unknown>;
@@ -29,7 +31,7 @@ export async function listUnsentPayments(companyId: string): Promise<UnsentPage>
   if (g?.cash === true && g.member !== true) return { state: 'cannot_determine', sentence: CANNOT_DETERMINE, items: [] };
   const rows = (await sql`
     SELECT pa.id AS allocation_id, sp.id AS payment_id, sp.payment_number, to_char(sp.payment_date, 'YYYY-MM-DD') AS payment_date,
-           si.id AS bill_id, si.invoice_number AS bill_number, pa.amount_allocated::float8 AS amount, su.name AS partner_name
+           si.id AS bill_id, si.invoice_number AS bill_number, pa.amount_allocated::float8 AS amount, su.name AS partner_name, cw.word
       FROM payment_allocations pa
       JOIN supplier_payments sp ON sp.id = pa.payment_id AND sp.company_id = ${companyId}::UUID AND sp.status IN ('processed', 'reconciled')
       JOIN supplier_invoices si ON si.id = pa.invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
@@ -42,13 +44,10 @@ export async function listUnsentPayments(companyId: string): Promise<UnsentPage>
       LEFT JOIN suppliers su ON su.id = si.supplier_id AND su.company_id = ${companyId}::UUID
       CROSS JOIN LATERAL (SELECT COALESCE(sp.gl_journal_entry_id, (SELECT b.gl_journal_entry_id FROM supplier_payment_batches b
                                                                    WHERE b.id = sp.batch_id AND b.company_id = ${companyId}::UUID)) AS id) je
-     WHERE je.id IS NOT NULL AND sp.payment_method IS DISTINCT FROM 'contra'
+      CROSS JOIN LATERAL (SELECT public.intercompany_payment_cash_word(sp.id, ${companyId}::UUID) AS word) cw
+     WHERE je.id IS NOT NULL AND cw.word IN ('cash', 'no_money_account')
        AND EXISTS (SELECT 1 FROM gl_journal_entries e WHERE e.id = je.id AND e.company_id = ${companyId}::UUID AND e.status = 'posted')
        AND NOT EXISTS (SELECT 1 FROM gl_journal_entries rv WHERE rv.reversal_of_id = je.id AND rv.company_id = ${companyId}::UUID)
-       AND EXISTS (SELECT 1 FROM gl_journal_lines jl JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-                    WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID AND jl.credit > 0
-                      AND (ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
-                           OR EXISTS (SELECT 1 FROM bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ${companyId}::UUID)))
        AND NOT EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID AND jl.credit > 0
                         AND jl.gl_account_id = s.loan_account_id)
        AND NOT EXISTS (SELECT 1 FROM intercompany_connection_sides s2
@@ -69,7 +68,7 @@ export async function listUnsentPayments(companyId: string): Promise<UnsentPage>
     items: rows.map((r) => ({
       allocationId: String(r.allocation_id), paymentId: String(r.payment_id), paymentNumber: r.payment_number ? String(r.payment_number) : null,
       paymentDate: String(r.payment_date), billId: String(r.bill_id), billNumber: r.bill_number ? String(r.bill_number) : null,
-      amount: Number(r.amount), partnerName: String(r.partner_name ?? 'Partner'),
+      amount: Number(r.amount), partnerName: String(r.partner_name ?? 'Partner'), refusal: r.word === 'no_money_account' ? 'no_money_account' as const : null,
     })),
   };
 }

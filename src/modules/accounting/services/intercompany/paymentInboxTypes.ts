@@ -90,6 +90,8 @@ export type AcceptPaymentOutcome = { accepted: true; messageId: string; outcome:
 export interface UnsentPayment {
   allocationId: string; paymentId: string; paymentNumber: string | null; paymentDate: string; billId: string; billNumber: string | null; amount: number;
   partnerName: string;
+  /** round 2 (LOW-R2): D1 refuses it, `no_money_account` (its journal credits no bank / cash account); null = it could still be sent */
+  refusal: 'no_money_account' | null;
 }
 
 /** The payer's "paid, no payment message" read: `cannot_determine` (with a sentence) when the session cannot see the pair's group. */
