@@ -40,6 +40,14 @@ describe.each(CASES)('$name on touch', ({ Page, rows, first, labels, action }) =
     for (const r of trs) expect([...r.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual([null, ...labels.slice(1)]);
   });
 
+  it('the first-column link is a 44px target', async () => {
+    state.data = rows();
+    render(<Page />);
+    const link = (await screen.findByText(first)).closest('a');
+    if (!link) return; // item listing: the code is plain text
+    expect(cls(link)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:inline-flex', 'max-lg:items-center']));
+  });
+
   it('the header row wraps', async () => {
     state.data = rows();
     render(<Page />);
@@ -55,7 +63,7 @@ describe('item listing header controls', () => {
     render(<ItemListing />);
     await screen.findByText('IT-1');
     const search = screen.getByPlaceholderText('Search...');
-    expect(cls(search)).toContain('max-lg:min-h-11');
+    expect(cls(search)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:w-full']));
     expect(cls(screen.getByRole('button', { name: /CSV/ }))).toContain('max-lg:min-h-11');
     expect(cls(search.parentElement!.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-wrap', 'max-lg:w-full']));
     expect(cls(search.parentElement!)).toEqual(expect.arrayContaining(['max-lg:flex-1', 'max-lg:min-w-0']));

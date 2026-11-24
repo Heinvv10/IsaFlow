@@ -90,7 +90,7 @@ export default function UnallocatedPaymentsReport() {
                   {items.map(p => (
                     <tr key={p.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/supplier-payments/${p.id}`} className="hover:text-orange-400">{p.paymentNumber}</Link>
+                        <Link href={`/accounting/supplier-payments/${p.id}`} className="hover:text-orange-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{p.paymentNumber}</Link>
                       </td>
                       <td data-label="Supplier" className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
                       <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(p.date)}</td>

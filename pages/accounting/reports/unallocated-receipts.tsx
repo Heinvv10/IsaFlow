@@ -92,7 +92,7 @@ export default function UnallocatedReceiptsReport() {
                   {items.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400">{r.paymentNumber}</Link>
+                        <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{r.paymentNumber}</Link>
                       </td>
                       <td data-label="Customer" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
                       <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>

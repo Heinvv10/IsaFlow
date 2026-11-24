@@ -57,7 +57,7 @@ export default function ItemListingReport() {
             <div className="flex items-center gap-3 max-lg:flex-wrap max-lg:w-full">
               <div className="relative max-lg:flex-1 max-lg:min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="ff-input pl-9 text-sm max-lg:min-h-11" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="ff-input pl-9 text-sm max-lg:min-h-11 max-lg:w-full" />
               </div>
               <button onClick={() => window.open(`/api/accounting/reports/item-listing?format=csv${search ? `&search=${encodeURIComponent(search)}` : ''}`, '_blank')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg max-lg:min-h-11">
