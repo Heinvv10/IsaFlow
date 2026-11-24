@@ -8,20 +8,52 @@ import { BRAND, emailLayout, ctaButton } from '@/lib/email-templates';
 
 // ─── Welcome Email ────────────────────────────────────────────────────────────
 
+export type WelcomeVariant = 'sme' | 'accountant';
+
 export interface WelcomeEmailData {
   name: string;
-  email: string;
   companyName: string;
+  variant: WelcomeVariant;
+  /** Pass TRIAL_DAYS (onboarding/services/trialPeriod); never a literal. */
+  trialDays: number;
 }
 
-export function welcomeEmailHtml(data: WelcomeEmailData): string {
-  const features: Array<{ icon: string; title: string; desc: string }> = [
+/** The name and company name are user input from the signup form. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function welcomeEmailSubject(variant: WelcomeVariant): string {
+  return variant === 'accountant' ? 'Welcome to IsaFlow, your practice is set up' : 'Welcome to IsaFlow';
+}
+
+const FEATURES: Record<WelcomeVariant, Array<{ icon: string; title: string; desc: string }>> = {
+  sme: [
     { icon: '&#128203;', title: 'Invoicing', desc: 'Create and send professional invoices in seconds.' },
     { icon: '&#127968;', title: 'Banking', desc: 'Import bank statements and reconcile your transactions.' },
     { icon: '&#128200;', title: 'Reports', desc: 'Income statements, balance sheets and more.' },
-  ];
+  ],
+  accountant: [
+    { icon: '&#128101;', title: 'Clients', desc: 'Add your clients and switch between their books.' },
+    { icon: '&#127968;', title: 'Banking', desc: 'Import statements and reconcile for each client.' },
+    { icon: '&#128200;', title: 'Reports', desc: 'Run income statements and balance sheets for each client.' },
+  ],
+};
 
-  const featureCols = features.map((f) => `
+export function welcomeEmailHtml(data: WelcomeEmailData): string {
+  const strong = (v: string) => `<strong style="color:${BRAND.textBody};">${escapeHtml(v)}</strong>`;
+  const trial = `Your ${data.trialDays}-day free trial has started.`;
+  const intro = data.variant === 'accountant'
+    ? `Hi ${strong(data.name)}, your practice ${strong(data.companyName)} has been created.
+          ${trial} Sign in to add your clients and work on their books from one place.`
+    : `Hi ${strong(data.name)}, your account for ${strong(data.companyName)} has been created.
+          ${trial} Sign in and start managing your accounts.`;
+
+  const featureCols = FEATURES[data.variant].map((f) => `
     <td style="width:33%; padding:0 8px; text-align:center; vertical-align:top; font-family:${BRAND.fontStack};">
       <p style="margin:0 0 6px; font-size:24px;">${f.icon}</p>
       <p style="margin:0 0 4px; font-size:13px; font-weight:bold; color:${BRAND.textBody};">${f.title}</p>
@@ -37,11 +69,9 @@ export function welcomeEmailHtml(data: WelcomeEmailData): string {
         </h1>
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
-          Hi <strong style="color:${BRAND.textBody};">${data.name}</strong>, your account
-          for <strong style="color:${BRAND.textBody};">${data.companyName}</strong> has been
-          created. You&#8217;re ready to start managing your accounts.
+          ${intro}
         </p>
-        ${ctaButton('Get Started', BRAND.appUrl)}
+        ${ctaButton('Sign in', `${BRAND.appUrl}/login`)}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
                style="border-top:1px solid ${BRAND.borderColor};">
           <tr>
