@@ -1,5 +1,5 @@
 /**
- * /accounting/intercompany/payments — Sales > Intercompany Payments (intercompany F, cash mode). The RECEIVER's "Payments from your group": the
+ * /accounting/customer-payments/intercompany — Sales > Intercompany Payments (intercompany F, cash mode). The RECEIVER's "Payments from your group": the
  * payments a group company made from its bank on bills linked to this company's invoices, each with the database's state word; match one to a
  * receipt you already have or draft a receipt for it (nothing posts until a receipt is confirmed), reject, dismiss, discard a draft. Below it the
  * PAYER's "Paid with no payment message". Behind the dark flag intercompany_loan_clearing (the nav hides the link; the routes refuse).

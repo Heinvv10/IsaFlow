@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { lockReceiptInvoices } from '../ar/receiptInvoiceLock';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import type { PaymentState } from './paymentInboxTypes';
 import type { DraftInvoiceFacts } from './paymentAcceptRules';
 import { cents, wholeCents } from './paymentAcceptRules';
@@ -57,7 +58,7 @@ export async function existingFacts(companyId: string, m: LockedPayment, receipt
 export async function bankAccountOk(companyId: string, accountId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 AS one FROM gl_accounts ga
-     WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID AND ga.account_subtype = 'bank' AND ga.is_active IS NOT FALSE
+     WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.is_active IS NOT FALSE
        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ga.company_id)
   `) as Row[];
   return rows.length === 1;

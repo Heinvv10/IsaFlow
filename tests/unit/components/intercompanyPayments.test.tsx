@@ -8,12 +8,12 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
-vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn(), query: {}, pathname: '/accounting/intercompany/payments' }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn(), query: {}, pathname: '/accounting/customer-payments/intercompany' }) }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
-import IntercompanyPaymentsPage from '../../../pages/accounting/intercompany/payments';
+import IntercompanyPaymentsPage from '../../../pages/accounting/customer-payments/intercompany';
 import { ReceiptIcChip } from '@/components/accounting/intercompany/payments/ReceiptIcChip';
 import { envelope } from './intercompanyFixtures';
 import type { PaymentDetail, PaymentItem, PaymentPage } from '@/modules/accounting/services/intercompany/paymentInboxTypes';

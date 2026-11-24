@@ -12,6 +12,7 @@
 import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { todaySast } from './allocationClearDate';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { draftRefusal, orderInvoices, rankBankLines, rankReceipts, type ReceiptRow } from './paymentRanking';
 import type { PaymentPayload } from './paymentPayload';
 import type { InvoiceSuggestion, PaymentSuggestions, ReceiptSuggestion } from './paymentInboxTypes';
@@ -99,13 +100,14 @@ export async function suggestionsFor(s: SuggestionScope): Promise<PaymentSuggest
   const lines = (await sql`
     SELECT bt.id, to_char(bt.transaction_date, 'YYYY-MM-DD') AS date, bt.amount::float8 AS amount, COALESCE(bt.description, '') || ' ' || COALESCE(bt.reference, '') AS description
       FROM bank_transactions bt
-     WHERE bt.company_id = ${companyId}::UUID AND bt.amount > 0 AND bt.status = 'imported' AND bt.transaction_date >= ${payload.payment.date}::DATE - 30
+     WHERE bt.company_id = ${companyId}::UUID AND bt.amount > 0 AND bt.status = 'imported' AND bt.feed_state = 'posted'
+       AND bt.transaction_date >= ${payload.payment.date}::DATE - 30
      ORDER BY abs(bt.amount - ${payload.amount}), bt.transaction_date, bt.id
      LIMIT 20
   `) as Row[];
   const accounts = (await sql`
     SELECT ga.id, ga.account_code, ga.account_name FROM gl_accounts ga
-     WHERE ga.company_id = ${companyId}::UUID AND ga.account_subtype = 'bank' AND ga.is_active IS NOT FALSE
+     WHERE ga.company_id = ${companyId}::UUID AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.is_active IS NOT FALSE
        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ga.company_id)
      ORDER BY ga.account_code, ga.id
   `) as Row[];
