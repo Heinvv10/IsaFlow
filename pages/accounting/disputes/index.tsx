@@ -65,7 +65,7 @@ export default function DisputesPage() {
   return (
     <AppLayout>
       <div className="p-6 space-y-6 min-h-full">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-ink flex items-center gap-2">
               <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
@@ -85,12 +85,12 @@ export default function DisputesPage() {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 max-lg:flex-wrap">
           {(['open', 'resolved', 'withdrawn', 'rejected', 'all'] as const).map((s) => (
             <button
               key={s}
               onClick={() => changeFilter(s)}
-              className={`px-3 py-1.5 rounded-md text-sm border ${
+              className={`px-3 py-1.5 rounded-md text-sm border max-lg:min-h-11 ${
                 statusFilter === s
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-surface-raised text-ink border-line hover:bg-surface-sunken'
@@ -114,7 +114,7 @@ export default function DisputesPage() {
 
         {!isLoading && !error && (
           <div className="bg-surface-raised border border-line rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead className="bg-surface-sunken text-ink-muted text-xs uppercase">
                 <tr>
                   <th className="text-left px-4 py-2">Raised</th>
@@ -129,38 +129,40 @@ export default function DisputesPage() {
               <tbody>
                 {disputes.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-ink-muted">
+                    <td colSpan={7} className="text-center py-10 text-ink-muted max-lg:!py-10 max-lg:!text-center">
                       No disputes.
                     </td>
                   </tr>
                 ) : (
                   disputes.map((d) => (
                     <tr key={d.id} className="border-t border-line hover:bg-surface-sunken">
-                      <td className="px-4 py-3 text-ink-muted">{formatDate(d.raisedAt)}</td>
-                      <td className="px-4 py-3 text-ink">{d.clientName ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/accounting/customer-invoices/${d.customerInvoiceId}`}
-                          className="text-brand-700 dark:text-teal-400 hover:underline"
-                        >
-                          {d.invoiceNumber ?? d.customerInvoiceId.slice(0, 8)}
-                        </Link>
-                        {d.customerInvoiceLineId && (
-                          <span className="ml-2 text-xs text-ink-muted">(line-level)</span>
-                        )}
+                      <td data-label="Raised" className="px-4 py-3 text-ink-muted">{formatDate(d.raisedAt)}</td>
+                      <td data-label="Customer" className="px-4 py-3 text-ink">{d.clientName ?? '—'}</td>
+                      <td data-label="Invoice" className="px-4 py-3">
+                        <span className="max-lg:text-right">
+                          <Link
+                            href={`/accounting/customer-invoices/${d.customerInvoiceId}`}
+                            className="text-brand-700 dark:text-teal-400 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
+                          >
+                            {d.invoiceNumber ?? d.customerInvoiceId.slice(0, 8)}
+                          </Link>
+                          {d.customerInvoiceLineId && (
+                            <span className="ml-2 text-xs text-ink-muted">(line-level)</span>
+                          )}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-ink-muted max-w-md truncate">{d.reason}</td>
-                      <td className="px-4 py-3 text-right font-medium text-ink">
+                      <td data-label="Reason" className="px-4 py-3 text-ink-muted max-w-md truncate max-lg:max-w-none max-lg:whitespace-normal">{d.reason}</td>
+                      <td data-label="Amount" className="px-4 py-3 text-right font-medium text-ink">
                         {formatCurrency(d.disputedAmount)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td data-label="Status" className="px-4 py-3">
                         <StatusPill status={d.status} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         {d.status === 'open' ? (
                           <button
                             onClick={() => setActive(d)}
-                            className="px-3 py-1 text-xs rounded-md bg-brand-600 text-white hover:bg-brand-700"
+                            className="px-3 py-1 text-xs rounded-md bg-brand-600 text-white hover:bg-brand-700 max-lg:min-h-11"
                           >
                             Resolve
                           </button>
@@ -176,7 +178,7 @@ export default function DisputesPage() {
               </tbody>
             </table>
 
-            <div className="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-muted">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-muted max-lg:flex-wrap max-lg:gap-2">
               <span>
                 Showing {firstOnPage}–{lastOnPage} of {total}
               </span>
@@ -184,14 +186,14 @@ export default function DisputesPage() {
                 <button
                   onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
                   disabled={offset === 0}
-                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40 max-lg:min-h-11"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setOffset((o) => o + PAGE_SIZE)}
                   disabled={lastOnPage >= total}
-                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40 max-lg:min-h-11"
                 >
                   Next
                 </button>
