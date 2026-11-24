@@ -91,7 +91,7 @@ export default function DRCVatPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-rose-500/10"><ArrowRightLeft className="h-6 w-6 text-rose-600 dark:text-rose-400" /></div>
               <div>
@@ -119,17 +119,17 @@ export default function DRCVatPage() {
           {/* Tabs */}
           <div className="flex gap-1 bg-[var(--ff-bg-secondary)] rounded-lg p-1 w-fit border border-[var(--ff-border-light)]">
             <button onClick={() => setTab('eligible')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'eligible' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 ${tab === 'eligible' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
               Eligible ({eligible.length})
             </button>
             <button onClick={() => setTab('history')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'history' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors max-lg:min-h-11 ${tab === 'history' ? 'bg-rose-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
               Processed ({history.length})
             </button>
           </div>
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Supplier</th>
                 <th className="px-4 py-3">Date</th>
@@ -138,23 +138,23 @@ export default function DRCVatPage() {
                 {tab === 'eligible' && <th className="px-4 py-3">Action</th>}
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">Loading...</td></tr>}
                 {!loading && items.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                     {tab === 'eligible' ? 'No eligible invoices for DRC VAT.' : 'No DRC VAT history.'}
                   </td></tr>
                 )}
                 {items.map(inv => (
                   <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{inv.invoiceNumber}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.supplierName}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
-                    <td className="px-4 py-3 text-right text-rose-400 font-medium">{fmt(inv.vatAmount || inv.totalAmount * DEFAULT_VAT_RATE)}</td>
+                    <td data-label="Supplier" className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.supplierName}</td>
+                    <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
+                    <td data-label="Amount (excl)" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
+                    <td data-label="VAT (15%)" className="px-4 py-3 text-right text-rose-400 font-medium">{fmt(inv.vatAmount || inv.totalAmount * DEFAULT_VAT_RATE)}</td>
                     {tab === 'eligible' && (
                       <td className="px-4 py-3">
                         <button onClick={() => applyDRC(inv.id)} disabled={busy === inv.id}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-600 text-white rounded-md text-xs font-medium hover:bg-rose-700 disabled:opacity-50">
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-600 text-white rounded-md text-xs font-medium hover:bg-rose-700 disabled:opacity-50 max-lg:min-h-11">
                           {busy === inv.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                           Apply DRC
                         </button>
